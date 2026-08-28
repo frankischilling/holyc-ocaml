@@ -4,6 +4,7 @@ module Result = Sema.Function_call_expression_result
 module Resolution = Sema.Function_call_resolution
 module Policy = Sema.Function_call_conversion_policy
 module Target = Sema.Function_call_target_classification
+module Top_target = Sema.Top_level_function_call_target_classification
 module Records = Sema.Function_record_classification
 
 type t = {
@@ -86,6 +87,15 @@ let matching_resolution target result =
   | Some (Resolution.Indirect_call _ | Resolution.Deferred_call _) | None ->
       false
 
+let matching_top_level_result target result =
+  let typed = Top_target.source target in
+  let call = Result.top_level_direct_source typed in
+  Result.Id.equal
+    (Result.top_level_direct_result_id typed)
+    (Result.result_id result)
+  && Result.result_source result
+     == Sema.Top_level_expression_tree.call_result_expression call
+
 let call_opcode = function
   | Records.Internal_operation -> None
   | Records.Direct_executable_call -> Some Opcode.Ic_call
@@ -147,6 +157,58 @@ let call_shape target =
              disagree"
     in
     provided [] fixed_arguments fixed_results parameters
+
+let top_level_call_shape target =
+  let typed = Top_target.source target in
+  let header = Result.top_level_direct_header typed in
+  let signature = Sema.Function_type_resolution.function_signature header in
+  let fixed_results = Result.top_level_direct_fixed_results typed in
+  let parameters =
+    Sema.Function_type_resolution.signature_parameters signature
+  in
+  let variadic_count = Result.top_level_direct_variadic_count typed in
+  let variadic_results = Result.top_level_direct_variadic_results typed in
+  let variadic_count_type =
+    header |> Sema.Function_type_resolution.function_variadic_bindings
+    |> Option.map (fun bindings ->
+        bindings |> Sema.Function_type_resolution.variadic_argc
+        |> Sema.Function_type_resolution.synthetic_binding_type)
+  in
+  if
+    not
+      (Int64.equal variadic_count (Int64.of_int (List.length variadic_results)))
+  then
+    Inconsistent_shape
+      "top-level direct-call variadic count and typed results disagree"
+  else if Option.is_none variadic_count_type && variadic_results <> [] then
+    Inconsistent_shape
+      "nonvariadic top-level direct call retains typed variadic results"
+  else
+    let rec provided rev fixed_results parameters =
+      match (fixed_results, parameters) with
+      | [], [] ->
+          Provided_parameters
+            {
+              arguments = List.rev rev;
+              variadic_count_type;
+              variadic_count;
+              variadic_arguments = variadic_results;
+            }
+      | fixed :: results, parameter :: parameters -> (
+          let source = Result.top_level_fixed_source fixed in
+          if Resolution.fixed_parameter source != parameter then
+            Inconsistent_shape
+              "top-level direct-call fixed result and parameter disagree"
+          else
+            match Result.top_level_fixed_path fixed with
+            | Result.Provided_result argument ->
+                provided (argument :: rev) results parameters
+            | Result.Declared_default_result _ -> Unsupported_shape)
+      | _ ->
+          Inconsistent_shape
+            "top-level direct-call fixed results and parameters disagree"
+    in
+    provided [] fixed_results parameters
 
 let description ~instruction_id ~opcode ~target_type ~payload ~span ?result
     ?(flags = 0L) () =
@@ -234,7 +296,7 @@ let lower_variadic_count ~span ~instruction_id ~value_id ~count = function
               next_instruction_id,
               next_value_id ))
 
-let lower_supported ~span ~instruction_id ~value_id ~target ~arguments
+let lower_supported ~span ~instruction_id ~value_id ~symbol ~record ~arguments
     ~variadic_count_type ~variadic_count ~variadic_arguments ~call_opcode
     result_type =
   let start_id = instruction_id in
@@ -273,9 +335,6 @@ let lower_supported ~span ~instruction_id ~value_id ~target ~arguments
                   | Error error, _ | _, Error error -> Error [ error ]
                   | ( Ok (call_id, cleanup_id, end_id, next_instruction_id_),
                       Ok next_value_id_ ) -> (
-                      let direct = target_resolution target in
-                      let symbol = Resolution.direct_target_symbol direct in
-                      let record = Target.record target in
                       let cleanup =
                         if
                           Sema.Function_flag.caller_expects_callee_pop
@@ -366,9 +425,53 @@ let lower ~instruction_id ~value_id ~target result =
                           "direct call has no checked result type";
                       ]
                 | Some result_type ->
-                    lower_supported ~span ~instruction_id ~value_id ~target
-                      ~arguments ~variadic_count_type ~variadic_count
-                      ~variadic_arguments ~call_opcode result_type)))
+                    let direct = target_resolution target in
+                    lower_supported ~span ~instruction_id ~value_id
+                      ~symbol:(Resolution.direct_target_symbol direct)
+                      ~record:(Target.record target) ~arguments
+                      ~variadic_count_type ~variadic_count ~variadic_arguments
+                      ~call_opcode result_type)))
+
+let lower_top_level ~instruction_id ~value_id ~target result =
+  match span_of_origin (Result.result_origin result) with
+  | Error error -> Error [ error ]
+  | Ok span -> (
+      if not (matching_top_level_result target result) then
+        Error
+          [
+            metadata_error ~span
+              "top-level direct-call expression and target classification \
+               disagree";
+          ]
+      else
+        match call_opcode (Top_target.call_access target) with
+        | None -> Ok Unsupported_call
+        | Some call_opcode -> (
+            match top_level_call_shape target with
+            | Unsupported_shape -> Ok Unsupported_call
+            | Inconsistent_shape message ->
+                Error [ metadata_error ~span message ]
+            | Provided_parameters
+                {
+                  arguments;
+                  variadic_count_type;
+                  variadic_count;
+                  variadic_arguments;
+                } -> (
+                match Result.result_type result with
+                | None ->
+                    Error
+                      [
+                        metadata_error ~span
+                          "top-level direct call has no checked result type";
+                      ]
+                | Some result_type ->
+                    let typed = Top_target.source target in
+                    lower_supported ~span ~instruction_id ~value_id
+                      ~symbol:(Result.top_level_direct_target_symbol typed)
+                      ~record:(Top_target.record target) ~arguments
+                      ~variadic_count_type ~variadic_count ~variadic_arguments
+                      ~call_opcode result_type)))
 
 let sequence lowered = lowered.sequence_
 let result_value lowered = lowered.result_value_

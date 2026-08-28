@@ -4,6 +4,7 @@ module Expression = Ir_expression_lowering
 module Sequence = Ir_instruction_sequence
 module Span = Span
 module Target = Semantic_function_call_target_classification
+module Top_target = Semantic_top_level_function_call_target_classification
 
 let checked = function
   | Ok value -> value
@@ -85,6 +86,38 @@ let opcode_names descriptions =
   descriptions
   |> List.map (fun description ->
       description.Sequence.opcode |> Ir_opcode.to_source_name)
+
+let analyze_top_level prepared =
+  let _, _, _, results = Test_top_level_expression_result.analyze prepared in
+  let records =
+    Holyc_lib.classify_function_records prepared.session
+      ~resolution:prepared.functions prepared.ast
+    |> function
+    | Ok records -> records
+    | Error message -> Alcotest.fail message
+  in
+  (results, records)
+
+let top_level_result results call =
+  let id =
+    Semantic_function_call_expression_result.top_level_direct_result_id call
+  in
+  results |> Semantic_function_call_expression_result.top_level_all_results
+  |> List.find (fun result ->
+      Semantic_function_call_expression_result.Id.equal id
+        (Semantic_function_call_expression_result.result_id result))
+
+let top_level_target records call =
+  match Top_target.classify ~records call with
+  | Ok target -> target
+  | Error error -> error |> Top_target.error_to_string |> Alcotest.fail
+
+let lower_top_level ?(instruction = 0) ?(value = 0) records results call =
+  Lowering.lower_top_level
+    ~instruction_id:(instruction_id instruction)
+    ~value_id:(value_id value)
+    ~target:(top_level_target records call)
+    (top_level_result results call)
 
 let direct_calls_emit_complete_sequences () =
   List.iter
@@ -797,6 +830,143 @@ let inconsistent_and_exhausted_inputs_fail_without_ir () =
   | Error _ -> Alcotest.fail "expected one exhaustion error"
   | Ok _ -> Alcotest.fail "expected identity exhaustion to fail"
 
+let top_level_calls_reuse_complete_composition () =
+  let run mode source expected =
+    let prepared =
+      Test_top_level_expression_result.prepared ~mode
+        ~path:"ir-top-level-direct-call.HC" source
+    in
+    let results, records = analyze_top_level prepared in
+    let calls =
+      Semantic_function_call_expression_result.top_level_direct_calls results
+    in
+    Alcotest.(check int)
+      "every expected top-level call is typed" (List.length expected)
+      (List.length calls);
+    List.iter2
+      (fun call expected_opcode ->
+        let first =
+          lower_top_level ~instruction:10 ~value:20 records results call
+          |> lowered
+        in
+        let second =
+          lower_top_level ~instruction:10 ~value:20 records results call
+          |> lowered
+        in
+        let items = descriptions first in
+        Alcotest.(check (list string))
+          "top-level call uses the shared complete sequence"
+          [
+            "IC_CALL_START";
+            "IC_IMM_I64";
+            "IC_IMM_I64";
+            "IC_IMM_I64";
+            expected_opcode;
+            "IC_ADD_RSP";
+            "IC_CALL_END";
+          ]
+          (opcode_names items);
+        Alcotest.(check (list int64))
+          "fixed, count, and variadic values are pushed"
+          [ 0x2000L; 0x2000L; 0x2000L ]
+          (items
+          |> List.filter_map (fun item ->
+              item.Sequence.result |> Option.map (fun _ -> item.Sequence.flags))
+          |> List.rev |> List.tl |> List.rev);
+        Alcotest.(check (option int64))
+          "top-level cleanup includes fixed, hidden, and variadic slots"
+          (Some 24L)
+          (match (List.nth items 5).Sequence.payload with
+          | Some (Sequence.Integer bytes) -> Some bytes
+          | _ -> None);
+        Alcotest.(check (pair int int))
+          "top-level identities include the complete call" (17, 24)
+          ( Lowering.next_instruction_id first |> Sequence.Instruction_id.to_int,
+            Lowering.next_value_id first |> Sequence.Value_id.to_int );
+        Alcotest.(check string)
+          "top-level call composition is deterministic" (Lowering.human first)
+          (Lowering.human second))
+      calls expected
+  in
+  run Preprocessor.Jit
+    "extern I64 External(I64 first,...);\n\
+     _extern _BOUND I64 Bound(I64 first,...);\n\
+     External(1,2);Bound(3,4);"
+    [ "IC_CALL_INDIRECT2"; "IC_CALL" ];
+  run Preprocessor.Aot
+    "extern I64 External(I64 first,...);\n\
+     import I64 Imported(I64 first,...);\n\
+     _extern _BOUND I64 Bound(I64 first,...);\n\
+     External(1,2);Imported(3,4);Bound(5,6);"
+    [ "IC_CALL_EXTERN"; "IC_CALL_IMPORT"; "IC_CALL" ]
+
+let top_level_call_ownership_is_exact () =
+  let source =
+    "I64 First(){return 1;}I64 Second(){return 2;}First();Second();"
+  in
+  let prepared =
+    Test_top_level_expression_result.prepared ~mode:Preprocessor.Jit
+      ~path:"ir-top-level-direct-call-owner.HC" source
+  in
+  let results, records = analyze_top_level prepared in
+  let calls =
+    Semantic_function_call_expression_result.top_level_direct_calls results
+  in
+  let first_target = top_level_target records (List.hd calls) in
+  (match
+     Lowering.lower_top_level ~instruction_id:(instruction_id 0)
+       ~value_id:(value_id 0) ~target:first_target
+       (top_level_result results (List.nth calls 1))
+   with
+  | Error [ error ] ->
+      Alcotest.(check string)
+        "mismatched top-level evidence code" "HCIRL0004" error.Sequence.code
+  | Error _ -> Alcotest.fail "expected one top-level ownership error"
+  | Ok _ -> Alcotest.fail "expected mismatched top-level evidence to fail");
+  let replay =
+    Test_top_level_expression_result.prepared ~mode:Preprocessor.Jit
+      ~path:"ir-top-level-direct-call-owner.HC" source
+  in
+  let replay_results, _ = analyze_top_level replay in
+  let replay_call =
+    replay_results
+    |> Semantic_function_call_expression_result.top_level_direct_calls
+    |> List.hd
+  in
+  match
+    Lowering.lower_top_level ~instruction_id:(instruction_id 0)
+      ~value_id:(value_id 0) ~target:first_target
+      (top_level_result replay_results replay_call)
+  with
+  | Error [ error ] ->
+      Alcotest.(check string)
+        "replayed top-level result code" "HCIRL0004" error.Sequence.code
+  | Error _ -> Alcotest.fail "expected one replay ownership error"
+  | Ok _ -> Alcotest.fail "expected replayed top-level evidence to fail"
+
+let unsupported_top_level_call_boundaries () =
+  let expect source =
+    let prepared =
+      Test_top_level_expression_result.prepared ~mode:Preprocessor.Jit
+        ~path:"ir-top-level-direct-call-unsupported.HC" source
+    in
+    let results, records = analyze_top_level prepared in
+    let call =
+      results |> Semantic_function_call_expression_result.top_level_direct_calls
+      |> List.hd
+    in
+    match lower_top_level records results call with
+    | Ok Lowering.Unsupported_call -> ()
+    | Ok (Lowering.Lowered _) ->
+        Alcotest.fail "expected an unsupported top-level call"
+    | Error errors ->
+        errors
+        |> List.map (fun error -> error.Sequence.message)
+        |> String.concat ", " |> Alcotest.fail
+  in
+  expect "_intern 42 I64 Internal();Internal();";
+  expect "I64 Defaulted(I64 value=1);Defaulted();"
+
 let tests =
   [
     Alcotest.test_case "complete direct-call sequences" `Quick
@@ -827,4 +997,10 @@ let tests =
       unsupported_call_boundaries;
     Alcotest.test_case "inconsistent and exhausted inputs" `Quick
       inconsistent_and_exhausted_inputs_fail_without_ir;
+    Alcotest.test_case "top-level complete call composition" `Quick
+      top_level_calls_reuse_complete_composition;
+    Alcotest.test_case "top-level exact call ownership" `Quick
+      top_level_call_ownership_is_exact;
+    Alcotest.test_case "unsupported top-level call boundaries" `Quick
+      unsupported_top_level_call_boundaries;
   ]
