@@ -473,6 +473,167 @@ let fixed_arguments_precede_hidden_variadic_count () =
         | Some (Sequence.Integer value) -> Some value
         | _ -> None))
 
+let one_variadic_argument_follows_hidden_count () =
+  [ Preprocessor.Jit; Preprocessor.Aot ]
+  |> List.iter (fun mode ->
+      let prepared =
+        prepared mode
+          "I64 Callee(...){return argc;}I64 Caller(){return Callee(1.5+2.5);}"
+      in
+      let results, records = analyze prepared in
+      let call = direct_call results "Caller" in
+      let argument =
+        call |> Semantic_function_call_expression_result.direct_variadic_results
+        |> List.hd
+      in
+      let call_span = return_root results "Caller" |> source_span in
+      let expected_argument_descriptions =
+        match
+          Expression.lower_typed_result ~instruction_id:(instruction_id 12)
+            ~value_id:(value_id 21) argument
+        with
+        | Ok (Expression.Lowered lowered) ->
+            lowered |> Expression.sequence |> Sequence.instructions
+            |> List.map Sequence.description
+        | Ok Expression.Unsupported_expression ->
+            Alcotest.fail "expected a supported variadic expression"
+        | Error errors ->
+            errors
+            |> List.map (fun error -> error.Sequence.message)
+            |> String.concat ", " |> Alcotest.fail
+      in
+      let first =
+        lower ~instruction:10 ~value:20 records results "Caller" |> lowered
+      in
+      let second =
+        lower ~instruction:10 ~value:20 records results "Caller" |> lowered
+      in
+      let items = descriptions first in
+      Alcotest.(check (list string))
+        "the variadic tree follows its hidden count"
+        [
+          "IC_CALL_START";
+          "IC_IMM_I64";
+          "IC_IMM_F64";
+          "IC_IMM_F64";
+          "IC_ADD";
+          "IC_CALL";
+          "IC_ADD_RSP";
+          "IC_CALL_END";
+        ]
+        (opcode_names items);
+      Alcotest.(check (list int64))
+        "the hidden count and variadic root are pushed"
+        [ 0L; 0x000002000L; 0L; 0L; 0x000002000L; 0L; 0L; 0L ]
+        (List.map (fun item -> item.Sequence.flags) items);
+      let hidden = List.nth items 1 in
+      Alcotest.(check (option int64))
+        "the hidden count records one supplied value" (Some 1L)
+        (match hidden.Sequence.payload with
+        | Some (Sequence.Integer value) -> Some value
+        | _ -> None);
+      Alcotest.(check (option string))
+        "the nonempty count keeps the argc type" (Some "internal:I64")
+        (Option.map Sequence.type_name hidden.Sequence.target_type);
+      let span_pair span =
+        Option.map (fun (span : Span.t) -> (span.start, span.stop)) span
+      in
+      Alcotest.(check (option (pair int int)))
+        "the count keeps the complete call span"
+        (Some (call_span.start, call_span.stop))
+        (span_pair hidden.Sequence.span);
+      Alcotest.(check (list (option (pair int int))))
+        "the supplied tree keeps canonical expression spans"
+        (List.map
+           (fun item -> span_pair item.Sequence.span)
+           expected_argument_descriptions)
+        ([ 2; 3; 4 ]
+        |> List.map (fun index ->
+            span_pair (List.nth items index).Sequence.span));
+      Alcotest.(check (list int))
+        "variadic identities are consecutive"
+        [ 10; 11; 12; 13; 14; 15; 16; 17 ]
+        (List.map
+           (fun item ->
+             Sequence.Instruction_id.to_int item.Sequence.instruction_id)
+           items);
+      Alcotest.(check int)
+        "the call result follows the variadic tree" 24
+        (Lowering.result_value first |> Sequence.Value_id.to_int);
+      Alcotest.(check (pair int int))
+        "both cursors include count and supplied tree" (18, 25)
+        ( Lowering.next_instruction_id first |> Sequence.Instruction_id.to_int,
+          Lowering.next_value_id first |> Sequence.Value_id.to_int );
+      Alcotest.(check (option int64))
+        "count and one supplied slot clean 16 bytes" (Some 16L)
+        (match (List.nth items 6).Sequence.payload with
+        | Some (Sequence.Integer value) -> Some value
+        | _ -> None);
+      Alcotest.(check string)
+        "nonempty variadic dumps replay exactly" (Lowering.human first)
+        (Lowering.human second))
+
+let multiple_variadic_arguments_preserve_order () =
+  let source =
+    "I64 Callee(I64 fixed,...){return fixed;}I64 Caller(){return \
+     Callee(1,2,3*4);}"
+  in
+  [ Preprocessor.Jit; Preprocessor.Aot ]
+  |> List.iter (fun mode ->
+      let prepared = prepared mode source in
+      let results, records = analyze prepared in
+      let lowered =
+        lower ~instruction:10 ~value:20 records results "Caller" |> lowered
+      in
+      let items = descriptions lowered in
+      Alcotest.(check (list string))
+        "fixed, count, and variadic trees retain source order"
+        [
+          "IC_CALL_START";
+          "IC_IMM_I64";
+          "IC_IMM_I64";
+          "IC_IMM_I64";
+          "IC_IMM_I64";
+          "IC_IMM_I64";
+          "IC_MUL";
+          "IC_CALL";
+          "IC_ADD_RSP";
+          "IC_CALL_END";
+        ]
+        (opcode_names items);
+      Alcotest.(check (list int64))
+        "every logical argument root is pushed once"
+        [
+          0L;
+          0x000002000L;
+          0x000002000L;
+          0x000002000L;
+          0L;
+          0L;
+          0x000002000L;
+          0L;
+          0L;
+          0L;
+        ]
+        (List.map (fun item -> item.Sequence.flags) items);
+      Alcotest.(check (option int64))
+        "the hidden count records both supplied values" (Some 2L)
+        (match (List.nth items 2).Sequence.payload with
+        | Some (Sequence.Integer value) -> Some value
+        | _ -> None);
+      Alcotest.(check int)
+        "the call result follows every variadic value" 26
+        (Lowering.result_value lowered |> Sequence.Value_id.to_int);
+      Alcotest.(check (pair int int))
+        "all argument identities advance the cursors" (20, 27)
+        ( Lowering.next_instruction_id lowered |> Sequence.Instruction_id.to_int,
+          Lowering.next_value_id lowered |> Sequence.Value_id.to_int );
+      Alcotest.(check (option int64))
+        "fixed, count, and two supplied slots clean 32 bytes" (Some 32L)
+        (match (List.nth items 8).Sequence.payload with
+        | Some (Sequence.Integer value) -> Some value
+        | _ -> None))
+
 let unsupported_argument_expression_returns_no_ir () =
   let prepared =
     prepared Preprocessor.Jit
@@ -527,7 +688,8 @@ let unsupported_call_boundaries () =
   expect_unsupported Preprocessor.Jit
     "I64 Callee(I64 value=1){return value;}I64 Caller(){return Callee();}";
   expect_unsupported Preprocessor.Jit
-    "I64 Callee(...){return argc;}I64 Caller(){return Callee(1);}"
+    "I64 Callee(...){return argc;}I64 Caller(){I64 local=1;return \
+     Callee(local);}"
 
 let inconsistent_and_exhausted_inputs_fail_without_ir () =
   let prepared =
@@ -579,6 +741,10 @@ let tests =
       empty_variadic_tail_emits_hidden_count;
     Alcotest.test_case "fixed arguments before variadic count" `Quick
       fixed_arguments_precede_hidden_variadic_count;
+    Alcotest.test_case "one supplied variadic argument" `Quick
+      one_variadic_argument_follows_hidden_count;
+    Alcotest.test_case "multiple supplied variadic arguments" `Quick
+      multiple_variadic_arguments_preserve_order;
     Alcotest.test_case "unsupported argument expression" `Quick
       unsupported_argument_expression_returns_no_ir;
     Alcotest.test_case "deterministic direct-call dump" `Quick
