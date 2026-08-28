@@ -109,6 +109,7 @@ let () =
         Test_ir_expression_statement_lowering.tests );
       ( "IR top-level statement lowering",
         Test_ir_top_level_statement_lowering.tests );
+      ("IR top-level batch lowering", Test_ir_top_level_batch_lowering.tests);
       ("IR condition lowering", Test_ir_condition_lowering.tests);
       ("IR return lowering", Test_ir_return_lowering.tests);
       ("IR goto and label lowering", Test_ir_goto_label_lowering.tests);

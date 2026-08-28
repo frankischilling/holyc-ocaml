@@ -27,6 +27,7 @@ module Ir_literal_lowering = Ir.Literal_lowering
 module Ir_expression_lowering = Ir.Expression_lowering
 module Ir_expression_statement_lowering = Ir.Expression_statement_lowering
 module Ir_top_level_statement_lowering = Ir.Top_level_statement_lowering
+module Ir_top_level_batch_lowering = Ir.Top_level_batch_lowering
 module Ir_condition_lowering = Ir.Condition_lowering
 module Ir_return_lowering = Ir.Return_lowering
 module Ir_goto_label_lowering = Ir.Goto_label_lowering
