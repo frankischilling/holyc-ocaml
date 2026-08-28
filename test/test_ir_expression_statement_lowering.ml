@@ -333,6 +333,35 @@ let defined_statements_use_the_checked_terminator () =
         top_level [ 0L; 1L; 0L ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let aggregate_offset_statements_use_the_checked_terminator () =
+  List.iter
+    (fun mode ->
+      let top_level =
+        top_level_roots ~mode ~path:"ir-top-level-offset-end.HC"
+          "class Base {I8 inherited;};class Box : Base {I16 \
+           prefix;};0+Box.prefix;"
+        |> expression_statement_roots |> List.hd
+      in
+      let lowered =
+        lower_top_level top_level
+        |> require_ok show_sequence_errors
+        |> require_lowered
+      in
+      Alcotest.(check (list string))
+        "top-level offset uses the same terminator"
+        [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_ADD"; "IC_END_EXP" ]
+        (opcode_names lowered);
+      Alcotest.(check bool)
+        "top-level statement keeps offset one" true
+        ((List.nth (descriptions lowered) 1).payload
+       = Some (Sequence.Integer 1L));
+      let expected_span =
+        top_level |> Semantic_result.top_level_root_source
+        |> Top_level_source.root_origin |> span_of_origin
+      in
+      check_terminator ~expected_span lowered)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let unsupported_statement_values_return_no_sequence () =
   List.iter
     (fun mode ->
@@ -415,6 +444,8 @@ let terminator_identity_exhaustion_is_diagnostic () =
 
 let tests =
   [
+    Alcotest.test_case "aggregate offset statement terminators" `Quick
+      aggregate_offset_statements_use_the_checked_terminator;
     Alcotest.test_case "function expression terminators" `Quick
       function_statements_end_in_both_modes;
     Alcotest.test_case "top-level expression terminators" `Quick

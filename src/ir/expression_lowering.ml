@@ -337,6 +337,61 @@ let checked_sizeof result sizeof =
   checked_internal_i64_constant result ~description:"sizeof expression"
     (Semantic_source.sizeof_known_value sizeof)
 
+let checked_aggregate_offset result =
+  let invalid ?span message =
+    Error
+      (metadata_error ?span
+         ("aggregate offset expression does not retain " ^ message))
+  in
+  match Semantic_result.result_aggregate_offset_path result with
+  | None -> Ok Deferred_constant
+  | Some path -> (
+      match result_span result with
+      | None -> invalid "a source location"
+      | Some span -> (
+          match
+            ( Semantic_result.result_type result,
+              Semantic_result.result_class result,
+              Semantic_result.result_category result,
+              Semantic_result.result_array_rank result )
+          with
+          | ( Some result_type,
+              Semantic_result.Integer_result,
+              Semantic_result.Offset_value,
+              0 ) -> (
+              match (Type.base result_type, Type.pointer_depth result_type) with
+              | Type.Primitive (Type.Internal_storage, primitive), 0
+                when Sema.Primitive_type.equal primitive Sema.Primitive_type.I64
+                -> (
+                  let value = Semantic_result.aggregate_offset_value path in
+                  match
+                    Semantic_result.aggregate_offset_segments path |> List.rev
+                  with
+                  | [] -> invalid ~span "a resolved member path"
+                  | final_segment :: _ ->
+                      if
+                        Int64.equal value
+                          (Semantic_result
+                           .aggregate_offset_segment_cumulative_offset
+                             final_segment)
+                      then Ok (Checked_constant (span, result_type, value))
+                      else invalid ~span "its final cumulative member offset")
+              | Type.Primitive _, _ | Type.Aggregate _, _ ->
+                  invalid ~span "the checked internal I64 offset result")
+          | ( (None | Some _),
+              ( Semantic_result.Integer_result
+              | Semantic_result.F64_result
+              | Semantic_result.Unresolved_actual_class ),
+              ( Semantic_result.Object_value
+              | Semantic_result.Address_value
+              | Semantic_result.Array_value
+              | Semantic_result.Callback_value
+              | Semantic_result.Function_value
+              | Semantic_result.Offset_value
+              | Semantic_result.Lvalue
+              | Semantic_result.Unavailable ),
+              _ ) -> invalid ~span "the checked internal I64 offset result"))
+
 let checked_integer_or_pointer_type result =
   match Semantic_result.result_type result with
   | None ->
@@ -796,6 +851,15 @@ let plan root =
                       Integer_constant
                         { result; span; result_type; value; conversion }
                       :: !reversed)
+            | Semantic_source.Member_access_expression _ -> (
+                match checked_aggregate_offset result with
+                | Error item -> error := Some item
+                | Ok Deferred_constant -> unsupported := true
+                | Ok (Checked_constant (span, result_type, value)) ->
+                    reversed :=
+                      Integer_constant
+                        { result; span; result_type; value; conversion }
+                      :: !reversed)
             | Semantic_source.Parenthesized_expression source -> (
                 match
                   checked_operand result source "parenthesized expression"
@@ -989,7 +1053,6 @@ let plan root =
                           :: !pending))
             | Semantic_source.Postfix_expression _
             | Semantic_source.Index_expression _
-            | Semantic_source.Member_access_expression _
             | Semantic_source.Bound_identifier_expression _
             | Semantic_source.Top_level_bound_identifier_expression _
             | Semantic_source.Unresolved_expression
