@@ -1187,10 +1187,7 @@ let sizeof_closing_origins expression = expression.sizeof_closing_origins_
 let sizeof_root_resolution expression = expression.sizeof_root_resolution_
 let sizeof_primitive expression = expression.sizeof_primitive_
 let sizeof_known_value expression = expression.sizeof_known_value_
-
-let sizeof_uses_pointer_size expression =
-  expression.sizeof_uses_pointer_size_
-
+let sizeof_uses_pointer_size expression = expression.sizeof_uses_pointer_size_
 let sizeof_member_dot_origin member = member.sizeof_member_dot_origin_
 let sizeof_member_name member = member.sizeof_member_name_
 let sizeof_member_name_origin member = member.sizeof_member_name_origin_

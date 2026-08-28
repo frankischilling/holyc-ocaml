@@ -643,9 +643,7 @@ let sizeof_inputs_survive_top_level_trees () =
 
 let primitive_sizeof_values_follow_top_level_queries () =
   let source =
-    "sizeof(I0);sizeof(I8);sizeof(I16);sizeof(I32);sizeof(I64);sizeof(U0);\
-     sizeof(U8);sizeof(U16);sizeof(U32);sizeof(U64);sizeof(F64);sizeof(Bool);\
-     sizeof(U8*);sizeof(I0**);"
+    "sizeof(I0);sizeof(I8);sizeof(I16);sizeof(I32);sizeof(I64);sizeof(U0);sizeof(U8);sizeof(U16);sizeof(U32);sizeof(U64);sizeof(F64);sizeof(Bool);sizeof(U8*);sizeof(I0**);"
   in
   let expected =
     [
@@ -694,7 +692,8 @@ let primitive_sizeof_values_follow_top_level_queries () =
       in
       Alcotest.(check (list (triple (option string) (option int64) bool)))
         "module and outer bindings hide primitive spellings"
-        [ (None, None, false); (None, None, false) ] shadowed_facts)
+        [ (None, None, false); (None, None, false) ]
+        shadowed_facts)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let defined_queries_follow_module_and_outer_bindings () =
