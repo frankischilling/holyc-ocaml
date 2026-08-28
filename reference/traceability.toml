@@ -7559,6 +7559,41 @@ focused_expression_lowering_tests = 2
 native_oracle_status = "not required for this source-stated layout boundary; PrsSizeOf, MemberFind, CArrayDim, CMemberLst, and CHashClass directly define the claimed size and lookup rules"
 
 [[feature]]
+id = "HC-IR-TOP-LEVEL-AGGREGATE-OFFSET-LOWERING"
+description = "Completed executable top-level aggregate offset paths lower to one checked internal-I64 immediate."
+sources = [
+  "Compiler/PrsExp.HC:353-381 PrsOffsetOf root selection, member loop, cumulative offset, and IC_IMM_I64 result",
+  "Compiler/LexLib.HC:67-85 MemberFind current aggregate then base-chain lookup",
+  "Compiler/PrsLib.HC:79-97 ICAdd data, type, source, flags, and insertion order",
+  "Compiler/CInit.HC:27 zero-argument, one-result IC_IMM_I64 metadata"
+]
+implementation = [
+  "src/ir/expression_lowering.ml",
+  "src/ir/expression_lowering.mli"
+]
+tests = [
+  "test/test_ir_expression_lowering.ml",
+  "test/test_ir_expression_statement_lowering.ml"
+]
+status = "implemented"
+issue = 492
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "completed source-visible aggregate offset paths in checked executable top-level expression results"
+semantic_requirements = ["exact source location", "zero-depth internal I64 type", "integer result class", "offset value category", "array rank zero", "nonempty resolved member path"]
+consistency_rule = "the retained final byte value must equal the last segment's cumulative member offset before identity allocation"
+instruction_shape = "one zero-operand IC_IMM_I64 with one internal I64 result, retained byte payload, exact expression span, zero flags, and consecutive identities"
+composition = ["transparent grouping", "integer arithmetic", "mixed F64 producer conversion", "IC_END_EXP expression-statement termination"]
+unsupported_without_partial_ir = ["ordinary object-member access", "incomplete offset path", "missing or inconsistent checked metadata", "function-body aggregate offset path", "standalone offset parser expression"]
+excluded_behavior = ["member lookup", "layout arithmetic", "runtime object address calculation", "interpretation", "optimization", "execution"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+result_owner = "executable top level"
+focused_expression_lowering_tests = 3
+focused_expression_statement_tests = 1
+native_oracle_status = "not required for this source-stated IR boundary; PrsOffsetOf, MemberFind, ICAdd, and the IC_IMM_I64 registry directly define the claimed value, type, source, and instruction shape"
+
+[[feature]]
 id = "HC-IR-STRING-LITERAL-EXPRESSION-LOWERING"
 description = "Checked direct and transparently grouped string literal results lower through the canonical expression planner."
 sources = [

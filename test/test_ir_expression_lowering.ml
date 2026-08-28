@@ -139,6 +139,17 @@ let top_level_roots ~mode ~path source =
   let _, _, _, results = Test_top_level_expression_result.analyze prepared in
   Test_top_level_expression_result.root_values results
 
+let has_completed_offset_path result =
+  match Semantic_result.result_aggregate_offset_path result with
+  | Some path -> Semantic_result.aggregate_offset_segments path <> []
+  | None -> false
+
+let top_level_offset_results ~mode ~path source =
+  let prepared = Test_top_level_expression_result.prepared ~mode ~path source in
+  let _, _, _, results = Test_top_level_expression_result.analyze prepared in
+  results |> Semantic_result.top_level_all_results
+  |> List.filter has_completed_offset_path
+
 let top_level_roots_with_outer ~mode ~path ~names source =
   let prepared = Test_top_level_expression_result.prepared ~mode ~path source in
   let entries =
@@ -357,6 +368,136 @@ let unsupported_string_wrappers_return_no_partial_sequence () =
       Alcotest.failf "expected one string metadata error, got %d"
         (List.length errors)
   | Ok _ -> Alcotest.fail "invalid string metadata produced expression IR"
+
+let aggregate_offsets_lower_in_both_modes () =
+  let source =
+    "class Inner {I8 head;I64 value;};class Base {I8 inherited;};class Box : \
+     Base {I16 prefix;Inner \
+     inner;};0+Box.prefix;0+Box.inner.value;0+Box.inherited;"
+  in
+  List.iter
+    (fun mode ->
+      let offsets =
+        top_level_offset_results ~mode ~path:"ir-aggregate-offsets.HC" source
+      in
+      Alcotest.(check int)
+        "direct, nested, and inherited offset results" 4 (List.length offsets);
+      Alcotest.(check (list int64))
+        "source-grounded cumulative offsets" [ 1L; 4L; 3L; 0L ]
+        (List.map
+           (fun result ->
+             result |> Semantic_result.result_aggregate_offset_path
+             |> Option.get |> Semantic_result.aggregate_offset_value)
+           offsets);
+      List.iter
+        (fun root ->
+          let path =
+            Semantic_result.result_aggregate_offset_path root |> Option.get
+          in
+          let expected = Semantic_result.aggregate_offset_value path in
+          let lowered = lower root |> require_lowered in
+          let item = descriptions lowered |> List.hd in
+          Alcotest.(check (list string))
+            "one offset immediate" [ "IC_IMM_I64" ] (opcode_names lowered);
+          Alcotest.(check bool)
+            "exact cumulative offset" true
+            (item.payload = Some (Sequence.Integer expected));
+          Alcotest.(check bool)
+            "offset target is internal I64" true
+            (internal_i64_type item.target_type);
+          Alcotest.(check (list int))
+            "offset immediate has no operands" []
+            (List.map Sequence.Value_id.to_int item.operands);
+          Alcotest.(check int64) "offset flags" 0L item.flags;
+          Alcotest.(check bool)
+            "offset keeps the member expression span" true
+            (item.span = Some (source_span root));
+          Alcotest.(check int)
+            "offset result identity" 20
+            (Expression.result_value lowered |> Sequence.Value_id.to_int);
+          Alcotest.(check int)
+            "one instruction identity consumed" 11
+            (Expression.next_instruction_id lowered
+            |> Sequence.Instruction_id.to_int);
+          Alcotest.(check int)
+            "one value identity consumed" 21
+            (Expression.next_value_id lowered |> Sequence.Value_id.to_int))
+        offsets;
+      let top_level =
+        top_level_roots ~mode ~path:"ir-top-level-aggregate-offset.HC"
+          "class Inner {I8 head;I64 value;};class Box {I16 prefix;Inner \
+           inner;};(((0+Box.inner.value)));"
+        |> List.hd
+        |> lower ~instruction:40 ~value:60
+        |> require_lowered
+      in
+      Alcotest.(check (list string))
+        "top-level grouping adds no instruction"
+        [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_ADD" ]
+        (opcode_names top_level);
+      Alcotest.(check bool)
+        "top-level offset uses the shared path" true
+        ((List.nth (descriptions top_level) 1).payload
+       = Some (Sequence.Integer 3L));
+      Alcotest.(check int)
+        "top-level grouping leaves only the binary result" 62
+        (Expression.result_value top_level |> Sequence.Value_id.to_int))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let aggregate_offsets_compose_with_mixed_f64 () =
+  List.iter
+    (fun mode ->
+      let root =
+        top_level_roots ~mode ~path:"ir-aggregate-offset-f64.HC"
+          "class Box {I8 head;I16 prefix;};2.0+Box.prefix;"
+        |> List.hd
+      in
+      let lowered = lower root |> require_lowered in
+      Alcotest.(check (list string))
+        "offset composes in source order"
+        [ "IC_IMM_F64"; "IC_IMM_I64"; "IC_ADD" ]
+        (opcode_names lowered);
+      Alcotest.(check bool)
+        "offset retains its byte value" true
+        ((List.nth (descriptions lowered) 1).payload
+       = Some (Sequence.Integer 1L));
+      Alcotest.(check (list int64))
+        "mixed arithmetic marks only the offset producer"
+        [ 0L; result_to_f64; 0L ]
+        (instruction_flags lowered))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let aggregate_offset_dump_and_unsupported_members_are_deterministic () =
+  let root =
+    top_level_offset_results ~mode:Preprocessor.Jit
+      ~path:"ir-aggregate-offset-dump.HC"
+      "class Base {I8 inherited;};class Box : Base {I16 prefix;};0+Box.prefix;"
+    |> List.find (fun result ->
+        result |> Semantic_result.result_aggregate_offset_path |> Option.get
+        |> Semantic_result.aggregate_offset_value |> Int64.equal 1L)
+  in
+  let lower_once () = lower ~instruction:70 ~value:90 root |> require_lowered in
+  let first = lower_once () in
+  let dump = Expression.human first in
+  Alcotest.(check string)
+    "offset lowering replays deterministically" dump
+    (Expression.human (lower_once ()));
+  Alcotest.(check bool)
+    "dump records the internal I64 byte offset" true
+    (contains_substring dump
+       "%v90:internal:I64 = IC_IMM_I64 i64:1 flags=0x000000000");
+  List.iter
+    (fun mode ->
+      let ordinary_member =
+        top_level_roots ~mode ~path:"ir-unsupported-object-member.HC"
+          "class Box {I64 value;};Box object;object.value;"
+        |> List.hd
+      in
+      match lower ordinary_member with
+      | Expression.Unsupported_expression -> ()
+      | Expression.Lowered _ ->
+          Alcotest.fail "ordinary object member returned partial offset IR")
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let accepted_operators_lower_in_both_modes () =
   let expressions =
@@ -2406,6 +2547,12 @@ let deep_mixed_tree_uses_the_explicit_worklist () =
 
 let tests =
   [
+    Alcotest.test_case "aggregate offset constants" `Quick
+      aggregate_offsets_lower_in_both_modes;
+    Alcotest.test_case "mixed aggregate offsets" `Quick
+      aggregate_offsets_compose_with_mixed_f64;
+    Alcotest.test_case "aggregate offset dump and unsupported members" `Quick
+      aggregate_offset_dump_and_unsupported_members_are_deterministic;
     Alcotest.test_case "typed string literals" `Quick
       string_literals_lower_in_both_modes;
     Alcotest.test_case "deterministic string dump" `Quick
