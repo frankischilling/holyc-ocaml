@@ -1094,6 +1094,7 @@ let rec callback_array_index_depth ~callee expression =
   | Function_call_resolution.Binary_expression _
   | Function_call_resolution.Member_access_expression _
   | Function_call_resolution.Bound_identifier_expression _
+  | Function_call_resolution.Aggregate_offset_base_expression _
   | Function_call_resolution.Sizeof_expression _
   | Function_call_resolution.Defined_expression _
   | Function_call_resolution.Unresolved_expression _ -> None
@@ -1127,6 +1128,7 @@ let rec function_callback_array_index_depth ~callee expression =
   | Function_call_resolution.Postfix_cast_expression _
   | Function_call_resolution.Binary_expression _
   | Function_call_resolution.Member_access_expression _
+  | Function_call_resolution.Aggregate_offset_base_expression _
   | Function_call_resolution.Top_level_bound_identifier_expression _
   | Function_call_resolution.Sizeof_expression _
   | Function_call_resolution.Defined_expression _
@@ -1219,7 +1221,7 @@ let rec type_expression table members policies ~before_item_index ~context
       | Function_call_resolution.Parenthesized_expression grouped -> (
           match
             type_expression table members policies ~before_item_index ~context
-              state grouped
+              ~allow_aggregate_offset_base state grouped
           with
           | Error _ as error -> error
           | Ok (grouped_result, state) ->
@@ -1266,6 +1268,64 @@ let rec type_expression table members policies ~before_item_index ~context
                     category
                     (forwarded_class policies ~before_item_index target_type)
                     state))
+      | Function_call_resolution.Aggregate_offset_base_expression base -> (
+          if not allow_aggregate_offset_base then
+            Error
+              (invalid_input
+                 ~origin:
+                   (Function_call_resolution.argument_expression_origin source)
+                 "aggregate offset base requires a member path")
+          else
+            let publication =
+              Function_call_resolution.aggregate_offset_base_publication base
+            in
+            let occurrence =
+              Function_call_resolution.aggregate_offset_base_occurrence base
+            in
+            if
+              match
+                Module_expression_binding.occurrence_resolution occurrence
+              with
+              | Module_expression_binding.Module_binding selected ->
+                  selected != publication
+                  || Module_expression_binding.publication_kind publication
+                     <> Module_expression_binding.Aggregate
+              | Module_expression_binding.Local_binding _
+              | Module_expression_binding.Outer_candidate -> true
+            then
+              Error
+                (invalid_input
+                   ~origin:
+                     (Function_call_resolution.argument_expression_origin source)
+                   "aggregate offset base does not match its checked \
+                    publication")
+            else
+              let symbol =
+                Module_expression_binding.publication_canonical_symbol
+                  publication
+              in
+              match Type.make_aggregate ~symbol ~pointer_depth:0 with
+              | Error message ->
+                  Error
+                    (invalid_input
+                       ~origin:
+                         (Function_call_resolution.argument_expression_origin
+                            source)
+                       message)
+              | Ok offset_current_type -> (
+                  match known_type table offset_current_type with
+                  | Error _ as error -> error
+                  | Ok offset_current_type ->
+                      let aggregate_offset_path =
+                        {
+                          offset_base = publication;
+                          offset_current_type;
+                          offset_segments = [];
+                          offset_value = 0L;
+                        }
+                      in
+                      finish ~source_type:integer_type ~aggregate_offset_path
+                        Offset_value Integer_result state))
       | Function_call_resolution.Bound_identifier_expression identifier -> (
           match
             known_type table

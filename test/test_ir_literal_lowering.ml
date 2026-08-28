@@ -1143,6 +1143,7 @@ let semantic_literal_span result =
     | Semantic_source.Index_expression _
     | Semantic_source.Member_access_expression _
     | Semantic_source.Bound_identifier_expression _
+    | Semantic_source.Aggregate_offset_base_expression _
     | Semantic_source.Top_level_bound_identifier_expression _
     | Semantic_source.Sizeof_expression _
     | Semantic_source.Defined_expression _
@@ -1193,6 +1194,7 @@ let typed_unary_minus_spans result =
     | Semantic_source.Index_expression _
     | Semantic_source.Member_access_expression _
     | Semantic_source.Bound_identifier_expression _
+    | Semantic_source.Aggregate_offset_base_expression _
     | Semantic_source.Top_level_bound_identifier_expression _
     | Semantic_source.Sizeof_expression _
     | Semantic_source.Defined_expression _
@@ -1623,6 +1625,7 @@ let typed_unary_not_spans result =
     | Semantic_source.Index_expression _
     | Semantic_source.Member_access_expression _
     | Semantic_source.Bound_identifier_expression _
+    | Semantic_source.Aggregate_offset_base_expression _
     | Semantic_source.Top_level_bound_identifier_expression _
     | Semantic_source.Sizeof_expression _
     | Semantic_source.Defined_expression _
@@ -1897,6 +1900,7 @@ let typed_unary_complement_spans result =
     | Semantic_source.Index_expression _
     | Semantic_source.Member_access_expression _
     | Semantic_source.Bound_identifier_expression _
+    | Semantic_source.Aggregate_offset_base_expression _
     | Semantic_source.Top_level_bound_identifier_expression _
     | Semantic_source.Sizeof_expression _
     | Semantic_source.Defined_expression _

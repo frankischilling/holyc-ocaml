@@ -104,13 +104,16 @@ val analyze :
     [lastclass] default also retains the previous provided result and derived
     base spelling. Each function expression statement records the
     [ICF_RES_NOT_USED] intent emitted by [PrsExpression] without mutating the
-    parser AST. Function conditions retain their statement role without an
-    invented Boolean conversion. Switch selectors retain their bounded or
-    no-bound mode without applying range arithmetic. Switch cases retain
-    implicit, single, or ranged structure; explicit F64 values carry the
-    conversion performed by [LexExpressionI64] without being evaluated. Function
-    returns retain the declared type, integer or F64 conversion intent, and
-    warning facts for missing or unexpected values. *)
+    parser AST. A source-visible aggregate base is accepted only under direct
+    member access and retains the publication, current-or-inherited lookups,
+    intermediate types, and cumulative offsets of [PrsOffsetOf]. Function
+    conditions retain their statement role without an invented Boolean
+    conversion. Switch selectors retain their bounded or no-bound mode without
+    applying range arithmetic. Switch cases retain implicit, single, or ranged
+    structure; explicit F64 values carry the conversion performed by
+    [LexExpressionI64] without being evaluated. Function returns retain the
+    declared type, integer or F64 conversion intent, and warning facts for
+    missing or unexpected values. *)
 
 val analyze_top_level :
   table:Symbol_table.t ->

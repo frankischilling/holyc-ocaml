@@ -119,6 +119,7 @@ type argument_expression_kind =
   | Index_expression of index_expression
   | Member_access_expression of member_expression
   | Bound_identifier_expression of bound_identifier
+  | Aggregate_offset_base_expression of aggregate_offset_base
   | Top_level_bound_identifier_expression of top_level_bound_identifier
   | Sizeof_expression of sizeof_expression
   | Defined_expression of defined_expression
@@ -171,6 +172,11 @@ and bound_identifier = {
   bound_identifier_function_declaration_ :
     Function_resolution.resolved_declaration option;
   bound_identifier_function_address_path_ : direct_function_address_path option;
+}
+
+and aggregate_offset_base = {
+  aggregate_offset_base_occurrence_ : Module_expression_binding.occurrence;
+  aggregate_offset_base_publication_ : Module_expression_binding.publication;
 }
 
 and top_level_bound_identifier = {
@@ -523,6 +529,12 @@ let member_origin (member : member_expression) = member.member_origin
 let bound_identifier_occurrence identifier =
   identifier.bound_identifier_occurrence_
 
+let aggregate_offset_base_occurrence base =
+  base.aggregate_offset_base_occurrence_
+
+let aggregate_offset_base_publication base =
+  base.aggregate_offset_base_publication_
+
 let bound_identifier_type identifier = identifier.bound_identifier_type_
 let bound_identifier_shape identifier = identifier.bound_identifier_shape_
 
@@ -676,6 +688,7 @@ let argument_expression_kind_name = function
   | Index_expression _ -> "index"
   | Member_access_expression _ -> "member"
   | Bound_identifier_expression _ -> "bound-identifier"
+  | Aggregate_offset_base_expression _ -> "aggregate-offset-base"
   | Top_level_bound_identifier_expression _ -> "top-level-bound-identifier"
   | Sizeof_expression _ -> "sizeof"
   | Defined_expression _ -> "defined"
@@ -1268,6 +1281,26 @@ let make_bound_identifier_argument_expression ~occurrence ~resolved_type ~shape
                  value.identifier_value_function_address_path_;
              })
 
+let make_aggregate_offset_base_argument_expression ~occurrence ~publication =
+  match Module_expression_binding.occurrence_resolution occurrence with
+  | Module_expression_binding.Module_binding selected
+    when selected == publication
+         && Module_expression_binding.publication_kind publication
+            = Module_expression_binding.Aggregate ->
+      Ok
+        (Aggregate_offset_base_expression
+           {
+             aggregate_offset_base_occurrence_ = occurrence;
+             aggregate_offset_base_publication_ = publication;
+           })
+  | Module_expression_binding.Module_binding _ ->
+      Error
+        "aggregate offset base does not match its resolved aggregate \
+         publication"
+  | Module_expression_binding.Local_binding _
+  | Module_expression_binding.Outer_candidate ->
+      Error "aggregate offset base is not a module aggregate publication"
+
 let make_top_level_bound_identifier_argument_expression ~occurrence =
   if
     String.equal
@@ -1693,6 +1726,56 @@ let rec validate_argument_expression table parent visible declarations
       | Ok () ->
           validate_argument_expression table parent visible declarations
             compilation_mode operand)
+  | Aggregate_offset_base_expression base -> (
+      let occurrence = aggregate_offset_base_occurrence base in
+      let publication = aggregate_offset_base_publication base in
+      let symbol =
+        Module_expression_binding.publication_canonical_symbol publication
+      in
+      if
+        not
+          (valid_origin
+             (Module_expression_binding.occurrence_origin occurrence))
+      then Error (invalid_input "aggregate offset base has an invalid origin")
+      else if
+        expression.expression_origin
+        <> Module_expression_binding.occurrence_origin occurrence
+      then
+        Error
+          (invalid_input
+             "aggregate offset base origin does not match its occurrence")
+      else if
+        match Module_expression_binding.occurrence_resolution occurrence with
+        | Module_expression_binding.Module_binding selected ->
+            selected != publication
+            || Module_expression_binding.publication_kind publication
+               <> Module_expression_binding.Aggregate
+        | Module_expression_binding.Local_binding _
+        | Module_expression_binding.Outer_candidate -> true
+      then
+        Error
+          (invalid_input
+             "aggregate offset base does not match its module publication")
+      else if
+        (not (Symbol_table.owns_symbol table symbol))
+        || (not (symbol_in_scope symbol parent))
+        || not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Aggregate_type)
+      then Error (invalid_input "aggregate offset base has an invalid type")
+      else
+        match
+          String_map.find_opt
+            (Module_expression_binding.occurrence_name occurrence)
+            visible
+        with
+        | Some expected when same_symbol expected symbol -> Ok ()
+        | Some _ ->
+            Error
+              (invalid_input
+                 "aggregate offset base does not match the source-visible type")
+        | None ->
+            Error
+              (invalid_input
+                 "aggregate offset base is not source-visible at the function"))
   | Bound_identifier_expression identifier -> (
       let occurrence = bound_identifier_occurrence identifier in
       let resolved_type = bound_identifier_type identifier in
@@ -2106,6 +2189,20 @@ let rec validate_bound_evidence occurrence_by_index query_by_index expression =
             (invalid_input
                "bound call argument occurrence does not belong to its function")
       )
+  | Aggregate_offset_base_expression base -> (
+      let occurrence = aggregate_offset_base_occurrence base in
+      let index = Module_expression_binding.occurrence_index occurrence in
+      match Int_map.find_opt index occurrence_by_index with
+      | Some expected when expected == occurrence -> Ok ()
+      | Some _ ->
+          Error
+            (invalid_input
+               "aggregate offset base uses a different expression occurrence")
+      | None ->
+          Error
+            (invalid_input
+               "aggregate offset base occurrence does not belong to its \
+                function"))
   | Top_level_bound_identifier_expression _ ->
       Error
         (invalid_input
@@ -2655,6 +2752,7 @@ let rec computed_expression_type members ~before_item_index expression =
             })
   | Postfix_expression _
   | Binary_expression _
+  | Aggregate_offset_base_expression _
   | Top_level_bound_identifier_expression _
   | Integer_literal _
   | Float_literal _
@@ -2843,6 +2941,7 @@ let indexed_identifier_callee computed =
     | Binary_expression _
     | Member_access_expression _
     | Bound_identifier_expression _
+    | Aggregate_offset_base_expression _
     | Top_level_bound_identifier_expression _
     | Sizeof_expression _
     | Defined_expression _
