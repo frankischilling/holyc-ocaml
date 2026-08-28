@@ -264,7 +264,8 @@ let top_level_sizeof_kind query (sizeof : Frontend.Ast.sizeof_expression) =
             ~members ~pointer_layers
             ~closing_origins:(List.map origin sizeof.sizeof_closing_parentheses)
             ~root_resolution:
-              (Sema.Function_call_resolution.Sizeof_top_level_query query))
+              (Sema.Function_call_resolution.Sizeof_top_level_query query)
+            ~bound_target:None)
 
 let visible_aggregate state name =
   state.module_expressions |> Sema.Module_expression_binding.publications

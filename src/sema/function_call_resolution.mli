@@ -199,11 +199,12 @@ val make_sizeof_argument_expression :
   pointer_layers:sizeof_pointer_layer list ->
   closing_origins:Symbol.origin list ->
   root_resolution:sizeof_root_resolution ->
+  bound_target:identifier_value option ->
   (argument_expression_kind, string) result
 (** Retain the complete source-owned input to ordinary HolyC [sizeof]. After
-    checking root-query identity, the constructor records a byte value only for
-    an unbound public primitive root without member traversal. Source bindings,
-    aggregate members, arrays, and function extents remain unresolved. *)
+    checking root-query identity, the constructor records an unbound public
+    primitive or a checked scalar binding. Aggregate members, arrays, by-value
+    aggregates, and direct function extents remain unresolved. *)
 
 val make_defined_argument_expression :
   operand_kind:defined_operand_kind ->
@@ -542,6 +543,9 @@ val sizeof_members : sizeof_expression -> sizeof_member list
 val sizeof_pointer_layers : sizeof_expression -> sizeof_pointer_layer list
 val sizeof_closing_origins : sizeof_expression -> Symbol.origin list
 val sizeof_root_resolution : sizeof_expression -> sizeof_root_resolution
+val sizeof_target_type : sizeof_expression -> Type.t option
+val sizeof_target_shape : sizeof_expression -> identifier_value_shape option
+val sizeof_target_array_rank : sizeof_expression -> int option
 val sizeof_primitive : sizeof_expression -> Primitive_type.t option
 val sizeof_known_value : sizeof_expression -> int64 option
 val sizeof_uses_pointer_size : sizeof_expression -> bool

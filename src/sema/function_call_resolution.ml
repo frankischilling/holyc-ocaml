@@ -26,6 +26,29 @@ type sizeof_root_resolution =
   | Sizeof_function_query of function_query
   | Sizeof_top_level_query of Top_level_outer_expression_binding.query
 
+type identifier_value_shape =
+  | Object_value
+  | Array_value
+  | Function_pointer_value
+  | Direct_function_value
+
+type direct_function_address_path =
+  | Jit_extern_slot
+  | Jit_immediate
+  | Aot_absolute
+  | Reject_aot_extern
+  | Reject_aot_import
+  | Reject_internal
+
+type identifier_value = {
+  identifier_value_type_ : Type.t;
+  identifier_value_shape_ : identifier_value_shape;
+  identifier_value_array_rank_ : int;
+  identifier_value_function_declaration_ :
+    Function_resolution.resolved_declaration option;
+  identifier_value_function_address_path_ : direct_function_address_path option;
+}
+
 type sizeof_member = {
   sizeof_member_dot_origin_ : Symbol.origin;
   sizeof_member_name_ : string;
@@ -49,6 +72,7 @@ type sizeof_expression = {
   sizeof_pointer_layers_ : sizeof_pointer_layer list;
   sizeof_closing_origins_ : Symbol.origin list;
   sizeof_root_resolution_ : sizeof_root_resolution;
+  sizeof_bound_target_ : identifier_value option;
   sizeof_primitive_ : Primitive_type.t option;
   sizeof_known_value_ : int64 option;
   sizeof_uses_pointer_size_ : bool;
@@ -79,29 +103,6 @@ type prefix_operator =
 
 type postfix_operator = Post_increment | Post_decrement
 type member_access_kind = Direct_member | Pointer_member
-
-type identifier_value_shape =
-  | Object_value
-  | Array_value
-  | Function_pointer_value
-  | Direct_function_value
-
-type direct_function_address_path =
-  | Jit_extern_slot
-  | Jit_immediate
-  | Aot_absolute
-  | Reject_aot_extern
-  | Reject_aot_import
-  | Reject_internal
-
-type identifier_value = {
-  identifier_value_type_ : Type.t;
-  identifier_value_shape_ : identifier_value_shape;
-  identifier_value_array_rank_ : int;
-  identifier_value_function_declaration_ :
-    Function_resolution.resolved_declaration option;
-  identifier_value_function_address_path_ : direct_function_address_path option;
-}
 
 type argument_expression_kind =
   | Integer_literal of int64
@@ -896,24 +897,46 @@ let sizeof_root_is_unbound = function
       | Top_level_outer_expression_binding.Query_undefined -> true
       | Top_level_outer_expression_binding.Query_binding _ -> false)
 
-let sizeof_primitive_value ~target_spelling ~members ~pointer_layers
-    ~root_resolution =
-  if members <> [] || not (sizeof_root_is_unbound root_resolution) then
+let sizeof_bound_value target ~members ~pointer_layers =
+  if members <> [] || target.identifier_value_array_rank_ <> 0 then
     (None, None, false)
   else
-    match Primitive_type.of_spelling target_spelling with
-    | None -> (None, None, false)
-    | Some primitive ->
-        let uses_pointer_size = pointer_layers <> [] in
-        let byte_size =
-          if uses_pointer_size then Primitive_type.pointer_byte_size
-          else (Primitive_type.info primitive).byte_size
-        in
-        (Some primitive, Some (Int64.of_int byte_size), uses_pointer_size)
+    match target.identifier_value_shape_ with
+    | Array_value | Direct_function_value -> (None, None, false)
+    | Function_pointer_value ->
+        (None, Some (Int64.of_int Primitive_type.pointer_byte_size), true)
+    | Object_value -> (
+        let type_ = target.identifier_value_type_ in
+        if pointer_layers <> [] || Type.pointer_depth type_ > 0 then
+          (None, Some (Int64.of_int Primitive_type.pointer_byte_size), true)
+        else
+          match Type.base type_ with
+          | Type.Primitive (_, primitive) ->
+              ( None,
+                Some (Int64.of_int (Primitive_type.info primitive).byte_size),
+                false )
+          | Type.Aggregate _ -> (None, None, false))
+
+let sizeof_value ~target_spelling ~members ~pointer_layers ~root_resolution
+    ~bound_target =
+  match bound_target with
+  | Some target -> sizeof_bound_value target ~members ~pointer_layers
+  | None when members <> [] || not (sizeof_root_is_unbound root_resolution) ->
+      (None, None, false)
+  | None -> (
+      match Primitive_type.of_spelling target_spelling with
+      | None -> (None, None, false)
+      | Some primitive ->
+          let uses_pointer_size = pointer_layers <> [] in
+          let byte_size =
+            if uses_pointer_size then Primitive_type.pointer_byte_size
+            else (Primitive_type.info primitive).byte_size
+          in
+          (Some primitive, Some (Int64.of_int byte_size), uses_pointer_size))
 
 let make_sizeof_argument_expression ~keyword_spelling ~keyword_origin
     ~opening_origins ~target_spelling ~target_origin ~members ~pointer_layers
-    ~closing_origins ~root_resolution =
+    ~closing_origins ~root_resolution ~bound_target =
   let all_valid = List.for_all valid_origin in
   if String.equal keyword_spelling "" then
     Error "sizeof keyword spelling cannot be empty"
@@ -962,10 +985,13 @@ let make_sizeof_argument_expression ~keyword_spelling ~keyword_origin
       Error "sizeof target spelling does not match its query"
     else if target_origin <> origin then
       Error "sizeof target origin does not match its query"
+    else if
+      Option.is_some bound_target && sizeof_root_is_unbound root_resolution
+    then Error "sizeof bound target does not match an unbound query"
     else
       let sizeof_primitive_, sizeof_known_value_, sizeof_uses_pointer_size_ =
-        sizeof_primitive_value ~target_spelling ~members ~pointer_layers
-          ~root_resolution
+        sizeof_value ~target_spelling ~members ~pointer_layers ~root_resolution
+          ~bound_target
       in
       Ok
         (Sizeof_expression
@@ -979,6 +1005,7 @@ let make_sizeof_argument_expression ~keyword_spelling ~keyword_origin
              sizeof_pointer_layers_ = pointer_layers;
              sizeof_closing_origins_ = closing_origins;
              sizeof_root_resolution_ = root_resolution;
+             sizeof_bound_target_ = bound_target;
              sizeof_primitive_;
              sizeof_known_value_;
              sizeof_uses_pointer_size_;
@@ -1185,6 +1212,16 @@ let sizeof_members expression = expression.sizeof_members_
 let sizeof_pointer_layers expression = expression.sizeof_pointer_layers_
 let sizeof_closing_origins expression = expression.sizeof_closing_origins_
 let sizeof_root_resolution expression = expression.sizeof_root_resolution_
+
+let sizeof_target_type expression =
+  Option.map identifier_value_type expression.sizeof_bound_target_
+
+let sizeof_target_shape expression =
+  Option.map identifier_value_shape expression.sizeof_bound_target_
+
+let sizeof_target_array_rank expression =
+  Option.map identifier_value_array_rank expression.sizeof_bound_target_
+
 let sizeof_primitive expression = expression.sizeof_primitive_
 let sizeof_known_value expression = expression.sizeof_known_value_
 let sizeof_uses_pointer_size expression = expression.sizeof_uses_pointer_size_
