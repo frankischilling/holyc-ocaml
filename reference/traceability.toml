@@ -7826,7 +7826,7 @@ payload_rule = "IC_IMM_F64 retains the semantic literal's exact 64-bit payload"
 evaluation_rule = "lowering performs no arithmetic or constant folding; a zero divisor remains an IC_DIV operand"
 source_map = "every emitted unary and binary instruction retains its operator span"
 identity = "floating leaves and operations share the module-owned consecutive instruction and value allocator"
-unsupported_result = "logical binary operations, power, modulo, bitwise operations, result-to-integer conversions, assignments, identifiers, calls, and other semantic shapes return Unsupported_expression before a sequence is exposed; mixed arithmetic and floating comparisons are recorded separately"
+unsupported_result = "logical binary operations, power, bitwise operations, result-to-integer conversions, assignments, identifiers, calls, and other semantic shapes return Unsupported_expression before a sequence is exposed; mixed arithmetic, floating comparisons, and floating modulo are recorded separately"
 conversion_boundary = "HC-IR-MIXED-F64-CONVERSION-INTENT records the ICF_RES_TO_F64 edge without changing this feature's pure-F64 rule"
 compilation_modes = ["jit", "aot"]
 focused_tests = 6
@@ -7862,13 +7862,44 @@ immediate_rule = "canonical pre-optimizer IR retains IC_IMM_I64, the exact integ
 traversal = "validate iteratively, then emit each operand before its parent with source-left preceding source-right"
 source_map = "the flagged producer retains its own literal or operator span"
 identity = "conversion intent does not add an instruction or consume another instruction or value identity"
-unsupported_result = "logical binary operations, power, modulo, bitwise operations, assignments, identifiers, calls, result-to-integer conversions, and other semantic shapes return Unsupported_expression before a sequence is exposed; floating comparisons are recorded by HC-IR-F64-COMPARISON-LOWERING"
+unsupported_result = "logical binary operations, power, bitwise operations, assignments, identifiers, calls, result-to-integer conversions, and other semantic shapes return Unsupported_expression before a sequence is exposed; floating comparisons and modulo are recorded separately"
 compilation_modes = ["jit", "aot"]
 focused_tests = 5
 expression_lowering_group_tests = 23
 deep_tree = "2,000 integer leaves, 1,999 integer additions, one F64 literal, and one mixed addition produce 4,001 checked instructions with one conversion flag"
 x87_numerical_behavior_immediate_rewrite_optimization_interpretation_and_execution = "not implemented"
 native_oracle_status = "not required for structural conversion intent; optimizer and floating numerical compatibility remain separate oracle work"
+
+[[feature]]
+id = "HC-IR-F64-MODULO-LOWERING"
+description = "Pure and mixed F64 modulo expressions lower to canonical IC_MOD with source-backed integer conversion intent."
+sources = [
+  "Compiler/PrsExp.HC:15-61,167-255 ordinary IC_MOD construction and precedence completion",
+  "Compiler/OptLib.HC:92-178 F64 class selection, integer producer flags, and immediate conversion",
+  "Compiler/OptPass012.HC:435-455 integer and F64 modulo folding or retention",
+  "Compiler/OptPass3.HC:481-489 ordinary binary-tree retention for IC_MOD",
+  "Compiler/OptPass789A.HC:530-534 ICMod or ICFMod selection",
+  "Compiler/CInit.HC:63 two-argument, one-result IC_MOD metadata"
+]
+implementation = [
+  "src/ir/expression_lowering.ml",
+  "src/ir/expression_lowering.mli"
+]
+tests = ["test/test_ir_expression_lowering.ml"]
+status = "implemented"
+issue = 498
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "IC_MOD with an internal-F64 result and either two checked F64 operands or one checked F64 operand plus one checked integer operand"
+classification_rule = "each checked integer operand producer carries ICF_RES_TO_F64; F64 producers and IC_MOD remain unflagged"
+immediate_rule = "canonical pre-optimizer IR retains IC_IMM_I64, its exact integer payload and checked integer type under ICF_RES_TO_F64"
+instruction_shape = "emit both operands in source postorder, then one two-operand, one-result IC_MOD with internal F64 type and exact operator span"
+composition = "nested and grouped modulo trees preserve source order, operand links, consecutive identities, and deterministic dumps"
+compilation_modes = ["jit", "aot"]
+result_owners = ["function body", "executable top level"]
+focused_tests = 4
+excluded = "constant folding, numerical remainder evaluation, immediate rewrite, ICFMod execution, interpretation, optimization, and backend emission"
+native_oracle_status = "not required for structural lowering; the pinned parser, optimizer, and backend branches state the canonical instruction and conversion flags"
 
 [[feature]]
 id = "HC-IR-F64-COMPARISON-LOWERING"
