@@ -535,7 +535,7 @@ type state = {
   switch_cases_rev : Sema.Function_call_resolution.switch_case_input list;
   next_return : int;
   returns_rev : Sema.Function_call_resolution.return_input list;
-  visible_aggregates : Sema.Symbol.t String_map.t;
+  visible_aggregates : Sema.Module_expression_binding.publication String_map.t;
   typed_values : typed_environment;
   global_values : typed_environment;
   occurrences : Sema.Module_expression_binding.occurrence Int_map.t;
@@ -638,7 +638,12 @@ let cast_type_reference visible (cast : Frontend.Ast.postfix_cast_expression) =
             (Printf.sprintf
                "named postfix cast %S has no source-visible aggregate identity"
                identifier.spelling)
-      | Some symbol -> make (Sema.Type.make_aggregate ~symbol ~pointer_depth))
+      | Some publication ->
+          let symbol =
+            Sema.Module_expression_binding.publication_canonical_symbol
+              publication
+          in
+          make (Sema.Type.make_aggregate ~symbol ~pointer_depth))
 
 let take_occurrence occurrences cursor identifier =
   match occurrence_at occurrences !cursor identifier with
@@ -756,6 +761,26 @@ let sizeof_kind member_index ~before_item_index locals globals queries
                     ~root_resolution:
                       (Sema.Function_call_resolution.Sizeof_function_query query)
                     ~bound_aggregate_size ~bound_target)))
+
+let offset_kind visible (offset : Frontend.Ast.offset_expression) =
+  let publication = String_map.find_opt offset.offset_target.spelling visible in
+  let member (source : Frontend.Ast.offset_member) =
+    Sema.Function_call_resolution.make_offset_member
+      ~dot_origin:(origin source.offset_member_dot)
+      ~name:source.offset_member_name.spelling
+      ~name_origin:(origin source.offset_member_name.location)
+      ~origin:(origin source.offset_member_location)
+      ()
+  in
+  Result.bind (map_result member offset.offset_members) (fun members ->
+      Sema.Function_call_resolution.make_offset_argument_expression
+        ~keyword_spelling:offset.offset_keyword_spelling
+        ~keyword_origin:(origin offset.offset_keyword_location)
+        ~opening_origins:(List.map origin offset.offset_opening_parentheses)
+        ~target_spelling:offset.offset_target.spelling
+        ~target_origin:(origin offset.offset_target.location)
+        ~publication ~members
+        ~closing_origins:(List.map origin offset.offset_closing_parentheses))
 
 let rec advance_expression_occurrences occurrences cursor = function
   | Frontend.Ast.Identifier_expression identifier ->
@@ -882,10 +907,7 @@ let rec argument_expression member_index before_item_index visible locals
     | Frontend.Ast.Sizeof_expression sizeof ->
         sizeof_kind member_index ~before_item_index locals globals
           defined_queries sizeof
-    | Frontend.Ast.Offset_expression _ ->
-        Ok
-          (Sema.Function_call_resolution.Unresolved_expression
-             Sema.Function_call_resolution.Offset_expression)
+    | Frontend.Ast.Offset_expression offset -> offset_kind visible offset
     | Frontend.Ast.Defined_expression defined ->
         let operand = defined.defined_operand in
         let operand_kind =
@@ -1796,11 +1818,11 @@ let publish_aggregates_before visible publications item_index =
             Sema.Module_expression_binding.publication_kind publication
             = Sema.Module_expression_binding.Aggregate
           then
-            let symbol =
-              Sema.Module_expression_binding.publication_canonical_symbol
+            let source =
+              Sema.Module_expression_binding.publication_source_symbol
                 publication
             in
-            String_map.add (Sema.Symbol.name symbol) symbol visible
+            String_map.add (Sema.Symbol.name source) publication visible
           else visible
         in
         loop visible rest

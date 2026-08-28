@@ -314,6 +314,7 @@ let rec defined_expressions expression =
   | Aggregate_offset_base_expression _
   | Top_level_bound_identifier_expression _
   | Sizeof_expression _
+  | Standalone_offset_expression _
   | Unresolved_expression _ -> []
 
 let rec sizeof_expressions expression =
@@ -339,6 +340,7 @@ let rec sizeof_expressions expression =
   | Aggregate_offset_base_expression _
   | Top_level_bound_identifier_expression _
   | Defined_expression _
+  | Standalone_offset_expression _
   | Unresolved_expression _ -> []
 
 let sizeof_resolution_fact (_, sizeof) =

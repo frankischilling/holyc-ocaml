@@ -7701,8 +7701,46 @@ parser_boundary = "a visible aggregate at statement start remains a declaration 
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_function_expression_result_tests = 2
-standalone_offset_expression_runtime_address_calculation_ir_lowering_interpretation_and_execution = "not implemented"
+standalone_offset_expression = "implemented separately by HC-SEMA-STANDALONE-OFFSET-PATHS"
+runtime_address_calculation_ir_lowering_interpretation_and_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; PrsOffsetOf, PrsTerm, MemberFind, ICAdd, and the intrinsic I64 record directly define the retained facts"
+
+[[feature]]
+id = "HC-SEMA-STANDALONE-OFFSET-PATHS"
+description = "Standalone offset expressions rooted at source-visible aggregate publications produce one checked PrsOffsetOf-shaped integer path."
+sources = [
+  "Compiler/PrsExp.HC:353-381 PrsOffsetOf root selection, repeated direct member loop, cumulative offset, and IC_IMM_I64 result",
+  "Compiler/PrsExp.HC:923-935 KW_OFFSET wrappers and term dispatch",
+  "Compiler/LexLib.HC:67-85 MemberFind current aggregate before its base chain",
+  "Doc/HolyC.DD:232 documented one-level offset form"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml",
+  "src/driver/top_level_expression_tree.ml",
+  "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_resolution.mli",
+  "src/sema/function_call_expression_result.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_top_level_expression_result.ml"
+]
+status = "implemented"
+issue = 520
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "source-visible completed module aggregate publications in checked function bodies and executable top-level statements"
+source_facts = ["keyword spelling and origin", "balanced wrapper origins", "root spelling and origin", "exact aggregate publication", "source-ordered member spellings, dot origins, name origins, and complete origins"]
+path_facts = ["ordered current-or-inherited lookup identities", "intermediate member type", "per-segment cumulative offset", "final internal-I64 value"]
+member_rule = "each segment queries the current aggregate before its base chain and advances only through a by-value aggregate when another segment follows"
+composition = ["transparent grouping", "ordinary numeric expressions"]
+rejected = ["unknown root", "incomplete root", "missing member", "pointer continuation", "nonaggregate continuation", "inconsistent retained publication or lookup evidence"]
+diagnostics = ["HCSEMA0046 source-positioned invalid standalone offset path"]
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_function_expression_result_tests = 2
+focused_top_level_expression_result_tests = 2
+local_and_global_object_roots_ir_lowering_runtime_addresses_interpretation_and_execution = "not implemented"
+native_oracle_status = "not required for this source-stated semantic boundary; PrsOffsetOf, KW_OFFSET, and MemberFind directly define the retained form and lookup arithmetic"
 
 [[feature]]
 id = "HC-IR-FUNCTION-AGGREGATE-OFFSET-LOWERING"

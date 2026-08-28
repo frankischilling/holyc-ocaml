@@ -29,6 +29,8 @@ type sizeof_root_resolution =
 type sizeof_member
 type sizeof_pointer_layer
 type sizeof_expression
+type offset_member
+type offset_expression
 
 type defined_operand_resolution =
   | Defined_non_name_false
@@ -95,6 +97,7 @@ type argument_expression_kind =
   | Aggregate_offset_base_expression of aggregate_offset_base
   | Top_level_bound_identifier_expression of top_level_bound_identifier
   | Sizeof_expression of sizeof_expression
+  | Standalone_offset_expression of offset_expression
   | Defined_expression of defined_expression
   | Unresolved_expression of unresolved_expression_kind
 
@@ -219,6 +222,30 @@ val make_defined_argument_expression :
 (** Retain the one source token inspected by ordinary HolyC [defined]. This
     constructor accepts source-ordered function-query evidence or an explicit
     top-level deferral; it does not perform a new symbol-table lookup. *)
+
+val make_offset_member :
+  ?lookup:Aggregate_member_index.lookup ->
+  dot_origin:Symbol.origin ->
+  name:string ->
+  name_origin:Symbol.origin ->
+  origin:Symbol.origin ->
+  unit ->
+  (offset_member, string) result
+
+val make_offset_argument_expression :
+  keyword_spelling:string ->
+  keyword_origin:Symbol.origin ->
+  opening_origins:Symbol.origin list ->
+  target_spelling:string ->
+  target_origin:Symbol.origin ->
+  publication:Module_expression_binding.publication option ->
+  members:offset_member list ->
+  closing_origins:Symbol.origin list ->
+  (argument_expression_kind, string) result
+(** Retain one standalone [offset(...)] source value. Accepted expressions keep
+    the exact visible aggregate publication and checked current-before-base
+    member lookups; an absent publication preserves an unknown root for the
+    semantic diagnostic pass. *)
 
 val make_bound_identifier_argument_expression :
   occurrence:Module_expression_binding.occurrence ->
@@ -562,6 +589,22 @@ val sizeof_target_aggregate_size : sizeof_expression -> int64 option
 val sizeof_primitive : sizeof_expression -> Primitive_type.t option
 val sizeof_known_value : sizeof_expression -> int64 option
 val sizeof_uses_pointer_size : sizeof_expression -> bool
+val offset_keyword_spelling : offset_expression -> string
+val offset_keyword_origin : offset_expression -> Symbol.origin
+val offset_opening_origins : offset_expression -> Symbol.origin list
+val offset_target_spelling : offset_expression -> string
+val offset_target_origin : offset_expression -> Symbol.origin
+
+val offset_publication :
+  offset_expression -> Module_expression_binding.publication option
+
+val offset_members : offset_expression -> offset_member list
+val offset_closing_origins : offset_expression -> Symbol.origin list
+val offset_member_dot_origin : offset_member -> Symbol.origin
+val offset_member_name : offset_member -> string
+val offset_member_name_origin : offset_member -> Symbol.origin
+val offset_member_origin : offset_member -> Symbol.origin
+val offset_member_lookup : offset_member -> Aggregate_member_index.lookup option
 val sizeof_member_dot_origin : sizeof_member -> Symbol.origin
 val sizeof_member_name : sizeof_member -> string
 val sizeof_member_name_origin : sizeof_member -> Symbol.origin

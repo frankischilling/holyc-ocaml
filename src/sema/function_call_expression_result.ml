@@ -1105,6 +1105,7 @@ let rec callback_array_index_depth ~callee expression =
   | Function_call_resolution.Bound_identifier_expression _
   | Function_call_resolution.Aggregate_offset_base_expression _
   | Function_call_resolution.Sizeof_expression _
+  | Function_call_resolution.Standalone_offset_expression _
   | Function_call_resolution.Defined_expression _
   | Function_call_resolution.Unresolved_expression _ -> None
 
@@ -1140,6 +1141,7 @@ let rec function_callback_array_index_depth ~callee expression =
   | Function_call_resolution.Aggregate_offset_base_expression _
   | Function_call_resolution.Top_level_bound_identifier_expression _
   | Function_call_resolution.Sizeof_expression _
+  | Function_call_resolution.Standalone_offset_expression _
   | Function_call_resolution.Defined_expression _
   | Function_call_resolution.Unresolved_expression _ -> None
 
@@ -1200,6 +1202,134 @@ let outer_binding_for_occurrence state source =
             (invalid_input
                ~origin:(Module_expression_binding.occurrence_origin source)
                "outer expression binding repeats one source occurrence"))
+
+let standalone_published_offset_path members ~before_item_index offset
+    publication =
+  let symbol =
+    Module_expression_binding.publication_canonical_symbol publication
+  in
+  match Type.make_aggregate ~symbol ~pointer_depth:0 with
+  | Error message ->
+      Error
+        (invalid_input
+           ~origin:(Function_call_resolution.offset_target_origin offset)
+           message)
+  | Ok initial_type ->
+      let rec loop current_type value reversed checked_reversed = function
+        | [] -> (
+            match List.rev reversed with
+            | [] ->
+                Error
+                  (invalid_input
+                     ~origin:
+                       (Function_call_resolution.offset_target_origin offset)
+                     "offset expression has no member path")
+            | segments ->
+                let final = List.hd (List.rev segments) in
+                Ok
+                  ( {
+                      offset_base = publication;
+                      offset_current_type = current_type;
+                      offset_segments = segments;
+                      offset_value = value;
+                    },
+                    final.offset_lookup,
+                    List.rev checked_reversed ))
+        | member :: rest -> (
+            if Type.pointer_depth current_type <> 0 then
+              Error
+                (invalid_input
+                   ~origin:
+                     (Function_call_resolution.offset_member_origin member)
+                   "offset member path leaves a pointer before this member")
+            else
+              match Type.base current_type with
+              | Type.Primitive _ ->
+                  Error
+                    (invalid_input
+                       ~origin:
+                         (Function_call_resolution.offset_member_origin member)
+                       "offset member path continues through a nonaggregate")
+              | Type.Aggregate aggregate_symbol -> (
+                  match
+                    resolve_member_lookup members ~before_item_index
+                      ~aggregate_symbol
+                      ~member_name:
+                        (Function_call_resolution.offset_member_name member)
+                      ~member_origin:
+                        (Function_call_resolution.offset_member_origin member)
+                  with
+                  | Error _ as error -> error
+                  | Ok lookup -> (
+                      let retained =
+                        Function_call_resolution.offset_member_lookup member
+                      in
+                      if
+                        match retained with
+                        | Some item -> item != lookup
+                        | None -> false
+                      then
+                        Error
+                          (invalid_input
+                             ~origin:
+                               (Function_call_resolution.offset_member_origin
+                                  member)
+                             "offset member lookup does not match its checked \
+                              index")
+                      else
+                        let indexed =
+                          Aggregate_member_index.lookup_member lookup
+                        in
+                        let layout =
+                          Aggregate_member_index.member_layout indexed
+                        in
+                        let value = Int64.add value layout.offset in
+                        let segment =
+                          { offset_lookup = lookup; offset_cumulative = value }
+                        in
+                        match
+                          Function_call_resolution.make_offset_member ~lookup
+                            ~dot_origin:
+                              (Function_call_resolution.offset_member_dot_origin
+                                 member)
+                            ~name:
+                              (Function_call_resolution.offset_member_name
+                                 member)
+                            ~name_origin:
+                              (Function_call_resolution
+                               .offset_member_name_origin member)
+                            ~origin:
+                              (Function_call_resolution.offset_member_origin
+                                 member)
+                            ()
+                        with
+                        | Error message ->
+                            Error
+                              (invalid_input
+                                 ~origin:
+                                   (Function_call_resolution
+                                    .offset_member_origin member)
+                                 message)
+                        | Ok checked_member ->
+                            loop
+                              (Aggregate_member_index.member_type indexed)
+                              value (segment :: reversed)
+                              (checked_member :: checked_reversed)
+                              rest)))
+      in
+      loop initial_type 0L [] []
+        (Function_call_resolution.offset_members offset)
+
+let standalone_offset_path members ~before_item_index offset =
+  match Function_call_resolution.offset_publication offset with
+  | None ->
+      Error
+        (invalid_input
+           ~origin:(Function_call_resolution.offset_target_origin offset)
+           "offset target is not a source-visible aggregate")
+  | Some publication ->
+      standalone_published_offset_path members ~before_item_index offset
+        publication
 
 let rec type_expression table members policies ~before_item_index ~context
     ?(allow_aggregate_offset_base = false)
@@ -1335,6 +1465,46 @@ let rec type_expression table members policies ~before_item_index ~context
                       in
                       finish ~source_type:integer_type ~aggregate_offset_path
                         Offset_value Integer_result state))
+      | Function_call_resolution.Standalone_offset_expression offset -> (
+          match standalone_offset_path members ~before_item_index offset with
+          | Error _ as error -> error
+          | Ok (aggregate_offset_path, member_lookup, checked_members) -> (
+              match
+                Function_call_resolution.make_offset_argument_expression
+                  ~keyword_spelling:
+                    (Function_call_resolution.offset_keyword_spelling offset)
+                  ~keyword_origin:
+                    (Function_call_resolution.offset_keyword_origin offset)
+                  ~opening_origins:
+                    (Function_call_resolution.offset_opening_origins offset)
+                  ~target_spelling:
+                    (Function_call_resolution.offset_target_spelling offset)
+                  ~target_origin:
+                    (Function_call_resolution.offset_target_origin offset)
+                  ~publication:
+                    (Function_call_resolution.offset_publication offset)
+                  ~members:checked_members
+                  ~closing_origins:
+                    (Function_call_resolution.offset_closing_origins offset)
+              with
+              | Error message ->
+                  Error
+                    (invalid_input
+                       ~origin:
+                         (Function_call_resolution.offset_target_origin offset)
+                       message)
+              | Ok kind ->
+                  let source =
+                    Function_call_resolution.make_argument_expression ~kind
+                      ~origin:
+                        (Function_call_resolution.argument_expression_origin
+                           source)
+                  in
+                  Ok
+                    (make_result ~member_lookup ~aggregate_offset_path
+                       ~intrinsic_conversion state ~id ~source
+                       ~source_type:integer_type ~array_rank:0
+                       ~category:Offset_value ~result_class:Integer_result)))
       | Function_call_resolution.Bound_identifier_expression identifier -> (
           match
             known_type table

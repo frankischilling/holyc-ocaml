@@ -663,6 +663,7 @@ let cast_was_parenthesized operand =
   | Semantic_source.Aggregate_offset_base_expression _
   | Semantic_source.Top_level_bound_identifier_expression _
   | Semantic_source.Sizeof_expression _
+  | Semantic_source.Standalone_offset_expression _
   | Semantic_source.Defined_expression _
   | Semantic_source.Unresolved_expression _ -> false
 
@@ -756,6 +757,7 @@ let cancellable_dereference operand =
     | Semantic_source.Aggregate_offset_base_expression _
     | Semantic_source.Top_level_bound_identifier_expression _
     | Semantic_source.Sizeof_expression _
+    | Semantic_source.Standalone_offset_expression _
     | Semantic_source.Defined_expression _
     | Semantic_source.Unresolved_expression _ -> searching := false
   done;
@@ -1110,6 +1112,7 @@ let plan root =
             | Semantic_source.Bound_identifier_expression _
             | Semantic_source.Aggregate_offset_base_expression _
             | Semantic_source.Top_level_bound_identifier_expression _
+            | Semantic_source.Standalone_offset_expression _
             | Semantic_source.Unresolved_expression
                 ( Semantic_source.Identifier_expression
                 | Semantic_source.Offset_expression

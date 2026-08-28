@@ -1065,6 +1065,99 @@ let aggregate_offset_paths () =
           | Semantic_type.Primitive _ -> "primitive" ))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let standalone_top_level_offset_paths () =
+  List.iter
+    (fun mode ->
+      let source =
+        prepared ~mode ~path:"top-level-standalone-offset-paths.HC"
+          "class Inner {I8 head;I64 value;};class Base {I8 inherited;};class \
+           Box : Base {I16 prefix;Inner \
+           inner;};offset(Box.prefix);((offset(((Box.inner.value)))));offset(Box.inherited);1+offset(Box.prefix);"
+      in
+      let _, _, _, result = analyze source in
+      let offsets =
+        completed_offsets result
+        |> List.filter (fun value ->
+            match
+              value |> Semantic_function_call_expression_result.result_source
+              |> Semantic_function_call_resolution.argument_expression_kind
+            with
+            | Semantic_function_call_resolution.Standalone_offset_expression _
+              -> true
+            | _ -> false)
+      in
+      Alcotest.(check (list string))
+        "standalone top-level offsets retain ordered cumulative paths"
+        [
+          "Box[prefix:1]=1";
+          "Box[inner:3/value:4]=4";
+          "Box[inherited:0]=0";
+          "Box[prefix:1]=1";
+        ]
+        (List.map offset_description offsets);
+      let sources =
+        offsets
+        |> List.map (fun value ->
+            value |> Semantic_function_call_expression_result.result_source
+            |> Semantic_function_call_resolution.argument_expression_kind)
+      in
+      List.iter
+        (function
+          | Semantic_function_call_resolution.Standalone_offset_expression
+              offset ->
+              Alcotest.(check string)
+                "top-level offset retains its root spelling" "Box"
+                (Semantic_function_call_resolution.offset_target_spelling offset)
+          | _ -> Alcotest.fail "expected a standalone top-level offset source")
+        sources;
+      let _, _, _, replayed = analyze source in
+      let replayed_descriptions =
+        completed_offsets replayed
+        |> List.filter_map (fun value ->
+            match
+              value |> Semantic_function_call_expression_result.result_source
+              |> Semantic_function_call_resolution.argument_expression_kind
+            with
+            | Semantic_function_call_resolution.Standalone_offset_expression _
+              -> Some (offset_description value)
+            | _ -> None)
+      in
+      Alcotest.(check (list string))
+        "standalone top-level offsets replay deterministically"
+        (List.map offset_description offsets)
+        replayed_descriptions)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let invalid_standalone_top_level_offsets () =
+  [
+    ("unknown root", "offset(Missing.value);");
+    ( "incomplete root",
+      "extern class Later;offset(Later.value);class Later {I64 value;};" );
+    ("missing member", "class Box {I64 value;};offset(Box.missing);");
+    ( "pointer continuation",
+      "class Box {I64 *pointer;};offset(Box.pointer.value);" );
+  ]
+  |> List.iter (fun (label, contents) ->
+      let source =
+        prepared
+          ~path:("top-level-invalid-standalone-offset-" ^ label ^ ".HC")
+          contents
+      in
+      let expressions, identifiers = build_inputs source in
+      let policies =
+        source |> Test_function_call_conversion_policy.analyze
+        |> Test_function_call_conversion_policy.checked_policy
+      in
+      match
+        Holyc_lib.type_top_level_expressions source.session
+          ~members:source.members ~policies ~identifiers expressions
+      with
+      | Error error ->
+          Alcotest.(check string)
+            (label ^ " code") "HCSEMA0046"
+            (Semantic_function_call_expression_result.error_code error)
+      | Ok _ -> Alcotest.failf "expected standalone %s offset to fail" label)
+
 let invalid_aggregate_offset_paths () =
   [
     ( "bare aggregate",
@@ -2662,6 +2755,10 @@ let tests =
     Alcotest.test_case "invalid aggregate member paths" `Quick
       invalid_aggregate_member_paths;
     Alcotest.test_case "aggregate offset paths" `Quick aggregate_offset_paths;
+    Alcotest.test_case "standalone top-level offset paths" `Quick
+      standalone_top_level_offset_paths;
+    Alcotest.test_case "invalid standalone top-level offsets" `Quick
+      invalid_standalone_top_level_offsets;
     Alcotest.test_case "invalid aggregate offset paths" `Quick
       invalid_aggregate_offset_paths;
     Alcotest.test_case "top-level direct calls" `Quick top_level_direct_calls;
