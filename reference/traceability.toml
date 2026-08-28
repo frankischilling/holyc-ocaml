@@ -4864,6 +4864,39 @@ default_evaluation_callback_lowering_top_level_ir_iet_main_and_execution = "not 
 native_oracle_status = "not required for this identity join; PrsFunCall reads linkage flags from the same selected function record"
 
 [[feature]]
+id = "HC-IR-TOP-LEVEL-DIRECT-CALLS"
+description = "Checked executable top-level direct calls reuse the function-scope call composer for arguments, call selection, cleanup, and result construction."
+sources = [
+  "Compiler/CMain.HC:CmpJoin and LexStmt2Bin executable top-level route",
+  "Compiler/PrsExp.HC:438-502 fixed arguments, hidden argc, and variadic arguments",
+  "Compiler/PrsExp.HC:544-586 call start, selected call, cleanup, and call end",
+  "Kernel/KernelA.HH:1608-1684 CIntermediateCode and ICF_PUSH_RES"
+]
+implementation = [
+  "src/ir/direct_call_lowering.ml",
+  "src/ir/direct_call_lowering.mli",
+  "src/ir/expression_lowering.ml",
+  "src/sema/top_level_function_call_target_classification.ml"
+]
+tests = [
+  "test/test_ir_direct_call_lowering.ml"
+]
+status = "implemented"
+issue = 544
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "standalone direct-call instruction sequences for typed executable top-level calls"
+ownership = "the target must own the exact typed call, and the supplied result must keep both its call result ID and exact source expression"
+composition = ["IC_CALL_START", "provided fixed expression trees", "optional hidden internal-I64 argc", "provided variadic expression trees", "selected call opcode", "IC_ADD_RSP or IC_ADD_RSP1", "IC_CALL_END"]
+call_opcodes = ["IC_CALL", "IC_CALL_INDIRECT2", "IC_CALL_IMPORT", "IC_CALL_EXTERN"]
+unsupported = ["declared defaults", "internal operations", "unsupported expression trees"]
+failure_behavior = "unsupported and inconsistent inputs expose no partial instruction sequence"
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+focused_tests = 3
+complete_top_level_statement_graphs_callbacks_iet_main_execution_and_machine_addresses = "not implemented"
+native_oracle_status = "not required for this composition boundary; CmpJoin returns top-level expressions to the same PrsFunCall sequence"
+
+[[feature]]
 id = "HC-SEMA-TOP-LEVEL-GLOBAL-CALLBACKS"
 description = "Executable top-level calls through scalar global callbacks retain their stored signature and checked argument results."
 sources = [
