@@ -1979,6 +1979,34 @@ let primitive_sizeof_constants_lower_in_both_modes () =
         roots expected)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let bound_scalar_sizeof_constants_lower_in_both_modes () =
+  let source =
+    "extern I64 Target(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 h);F64 \
+     module_value;I64 Caller(U8 parameter,I64 (*callback)(I64)){U16 \
+     automatic;static U32 stored;U8 I64;I64 *pointer;return \
+     Target(sizeof(parameter),sizeof(automatic),sizeof(stored),sizeof(module_value),sizeof(pointer),sizeof(callback),sizeof(I64),sizeof(automatic*));}"
+  in
+  let expected = [ 1L; 2L; 4L; 8L; 8L; 8L; 1L; 8L ] in
+  List.iter
+    (fun mode ->
+      let roots = function_roots ~mode ~path:"ir-bound-sizeof.HC" source in
+      Alcotest.(check int) "eight bound sizeof roots" 8 (List.length roots);
+      List.iter2
+        (fun root value ->
+          let lowered = lower root |> require_lowered in
+          let item = List.hd (descriptions lowered) in
+          Alcotest.(check (list string))
+            "bound sizeof emits one integer immediate" [ "IC_IMM_I64" ]
+            (opcode_names lowered);
+          Alcotest.(check bool)
+            "bound sizeof retains its checked byte count" true
+            (item.payload = Some (Sequence.Integer value));
+          Alcotest.(check bool)
+            "bound sizeof retains internal I64 storage" true
+            (internal_i64_type item.target_type))
+        roots expected)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let top_level_sizeof_composes_with_f64_conversion () =
   List.iter
     (fun mode ->
@@ -2270,6 +2298,8 @@ let tests =
       deterministic_defined_dump_records_payload;
     Alcotest.test_case "primitive sizeof constant lowering" `Quick
       primitive_sizeof_constants_lower_in_both_modes;
+    Alcotest.test_case "bound scalar sizeof constant lowering" `Quick
+      bound_scalar_sizeof_constants_lower_in_both_modes;
     Alcotest.test_case "top-level sizeof composition" `Quick
       top_level_sizeof_composes_with_f64_conversion;
     Alcotest.test_case "unsupported sizeof roots" `Quick

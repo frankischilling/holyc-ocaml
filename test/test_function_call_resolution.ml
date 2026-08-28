@@ -105,33 +105,7 @@ let resolve ?outer prepared =
     ~functions:prepared.functions ~expressions:prepared.module_expressions
     ?outer prepared.ast
 
-let outer_environment prepared records =
-  let table = Session.semantic_symbols prepared.session in
-  let semantic_kind = function
-    | Semantic_outer_environment.Aggregate -> Semantic_symbol.Aggregate_type
-    | Semantic_outer_environment.Function -> Semantic_symbol.Function
-    | Semantic_outer_environment.Global_variable ->
-        Semantic_symbol.Global_variable
-    | Semantic_outer_environment.Export_system_symbol ->
-        Semantic_symbol.Assembler_symbol
-  in
-  let entries =
-    records
-    |> List.mapi (fun entry_index (name, record_kind) ->
-        let symbol =
-          Semantic_symbol_table.add table
-            ~scope:(Semantic_symbol_table.root table)
-            ~name
-            ~kind:(semantic_kind record_kind)
-            ~origin:(Semantic_symbol.Synthesized ("outer fixture " ^ name))
-          |> checked
-        in
-        Semantic_outer_environment.make_entry ~symbol ~record_kind ~entry_index
-        |> function
-        | Ok entry -> entry
-        | Error error ->
-            Alcotest.fail (Semantic_outer_environment.error_to_string error))
-  in
+let outer_environment_from_entries prepared entries =
   let table_kind =
     match prepared.mode with
     | Preprocessor.Jit -> Semantic_outer_environment.Jit_task 0
@@ -155,6 +129,78 @@ let outer_environment prepared records =
   Holyc_lib.create_outer_environment prepared.session
     ~compilation_mode:prepared.mode [ outer_table; assembler ]
   |> checked
+
+let outer_environment prepared records =
+  let table = Session.semantic_symbols prepared.session in
+  let semantic_kind = function
+    | Semantic_outer_environment.Aggregate -> Semantic_symbol.Aggregate_type
+    | Semantic_outer_environment.Function -> Semantic_symbol.Function
+    | Semantic_outer_environment.Global_variable ->
+        Semantic_symbol.Global_variable
+    | Semantic_outer_environment.Export_system_symbol ->
+        Semantic_symbol.Assembler_symbol
+  in
+  records
+  |> List.mapi (fun entry_index (name, record_kind) ->
+      let symbol =
+        Semantic_symbol_table.add table
+          ~scope:(Semantic_symbol_table.root table)
+          ~name
+          ~kind:(semantic_kind record_kind)
+          ~origin:(Semantic_symbol.Synthesized ("outer fixture " ^ name))
+        |> checked
+      in
+      Semantic_outer_environment.make_entry ~symbol ~record_kind ~entry_index
+      |> function
+      | Ok entry -> entry
+      | Error error ->
+          Alcotest.fail (Semantic_outer_environment.error_to_string error))
+  |> outer_environment_from_entries prepared
+
+let typed_outer_global_environment prepared ~name ~template_name =
+  let global =
+    prepared.global_types |> Semantic_global_type_resolution.globals
+    |> List.find (fun global ->
+        global |> Semantic_global_type_resolution.global_symbol
+        |> Semantic_symbol.name |> String.equal template_name)
+  in
+  let declarator_kind =
+    match Semantic_global_type_resolution.global_declarator_kind global with
+    | Semantic_global_type_resolution.Object ->
+        Semantic_outer_environment.Object_global
+    | Semantic_global_type_resolution.Function_pointer pointer ->
+        Semantic_outer_environment.Function_pointer_global pointer
+  in
+  let metadata =
+    Semantic_outer_environment.make_global_metadata
+      ~type_reference:
+        (Semantic_global_type_resolution.global_type_reference global)
+      ~declarator_kind
+      ~array_rank:
+        (global |> Semantic_global_type_resolution.global_array_dimensions
+       |> List.length)
+    |> function
+    | Ok metadata -> metadata
+    | Error error ->
+        Alcotest.fail (Semantic_outer_environment.error_to_string error)
+  in
+  let table = Session.semantic_symbols prepared.session in
+  let symbol =
+    Semantic_symbol_table.add table
+      ~scope:(Semantic_symbol_table.root table)
+      ~name ~kind:Semantic_symbol.Global_variable
+      ~origin:(Semantic_symbol.Synthesized ("typed outer fixture " ^ name))
+    |> checked
+  in
+  let entry =
+    Semantic_outer_environment.make_global_entry ~symbol ~entry_index:0
+      ~global_metadata:metadata
+    |> function
+    | Ok entry -> entry
+    | Error error ->
+        Alcotest.fail (Semantic_outer_environment.error_to_string error)
+  in
+  outer_environment_from_entries prepared [ entry ]
 
 let outer_expressions prepared records =
   let environment = outer_environment prepared records in
@@ -308,6 +354,22 @@ let sizeof_value_fact (_, sizeof) =
     |> Option.map Primitive_type.to_string,
     Semantic_function_call_resolution.sizeof_known_value sizeof,
     Semantic_function_call_resolution.sizeof_uses_pointer_size sizeof )
+
+let sizeof_target_type_name type_ =
+  let base =
+    match Semantic_type.base type_ with
+    | Semantic_type.Primitive (_, primitive) ->
+        Primitive_type.to_string primitive
+    | Semantic_type.Aggregate symbol -> Semantic_symbol.name symbol
+  in
+  base ^ String.make (Semantic_type.pointer_depth type_) '*'
+
+let sizeof_target_fact (_, sizeof) =
+  ( sizeof |> Semantic_function_call_resolution.sizeof_target_type
+    |> Option.map sizeof_target_type_name,
+    sizeof |> Semantic_function_call_resolution.sizeof_target_shape
+    |> Option.map Semantic_function_call_resolution.identifier_value_shape_name,
+    Semantic_function_call_resolution.sizeof_target_array_rank sizeof )
 
 let defined_fact (_, defined) =
   let open Semantic_function_call_resolution in
@@ -1761,8 +1823,8 @@ let primitive_sizeof_values_follow_checked_queries () =
         |> List.map sizeof_value_fact
       in
       Alcotest.(check (list (triple (option string) (option int64) bool)))
-        "local and module bindings hide primitive spellings"
-        [ (None, None, false); (None, None, false) ]
+        "local and module bindings use their checked types"
+        [ (None, Some 8L, false); (None, Some 8L, false) ]
         shadowed_facts;
       let outer_prepared =
         prepare ~mode ~path:"function-outer-shadowed-primitive-sizeof.HC"
@@ -1783,6 +1845,99 @@ let primitive_sizeof_values_follow_checked_queries () =
       Alcotest.(check (triple (option string) (option int64) bool))
         "a supplied outer binding hides the primitive spelling"
         (None, None, false) outer_fact)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let bound_scalar_sizeof_values_follow_checked_types () =
+  let source =
+    "class Box{I64 value;};F64 module_value;I64 Target(I64 value){return \
+     value;}I64 Caller(U8 parameter,I64 (*callback)(I64)){U16 automatic;static \
+     U32 stored;U8 I64;I64 *pointer;U8 array[2];Box box;Box \
+     *box_pointer;sizeof(parameter);sizeof(automatic);sizeof(stored);sizeof(module_value);sizeof(pointer);sizeof(callback);sizeof(I64);sizeof(box_pointer);sizeof(automatic*);sizeof(array);sizeof(box);sizeof(Target);return \
+     0;}"
+  in
+  let expected =
+    [
+      (None, Some 1L, false);
+      (None, Some 2L, false);
+      (None, Some 4L, false);
+      (None, Some 8L, false);
+      (None, Some 8L, true);
+      (None, Some 8L, true);
+      (None, Some 1L, false);
+      (None, Some 8L, true);
+      (None, Some 8L, true);
+      (None, None, false);
+      (None, None, false);
+      (None, None, false);
+    ]
+  in
+  List.iter
+    (fun mode ->
+      let prepared = prepare ~mode ~path:"function-bound-sizeof.HC" source in
+      let facts =
+        resolve prepared |> checked |> fun result ->
+        function_named result "Caller"
+        |> Semantic_function_call_resolution.function_expression_statements
+        |> List.concat_map (fun statement ->
+            statement
+            |> Semantic_function_call_resolution.expression_statement_expression
+            |> sizeof_expressions)
+      in
+      Alcotest.(
+        check (list (triple (option string) (option string) (option int))))
+        "sizeof retains the checked target type, shape, and array rank"
+        [
+          (Some "U8", Some "object", Some 0);
+          (Some "U16", Some "object", Some 0);
+          (Some "U32", Some "object", Some 0);
+          (Some "F64", Some "object", Some 0);
+          (Some "I64*", Some "object", Some 0);
+          (Some "I64", Some "function-pointer", Some 0);
+          (Some "U8", Some "object", Some 0);
+          (Some "Box*", Some "object", Some 0);
+          (Some "U16", Some "object", Some 0);
+          (Some "U8", Some "array", Some 1);
+          (Some "Box", Some "object", Some 0);
+          (Some "I64", Some "direct-function", Some 0);
+        ]
+        (List.map sizeof_target_fact facts);
+      let value_facts = List.map sizeof_value_fact facts in
+      Alcotest.(check (list (triple (option string) (option int64) bool)))
+        "bound scalar sizes follow the checked type and value shape" expected
+        value_facts)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let typed_outer_global_sizeof_uses_retained_metadata () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"function-outer-bound-sizeof.HC"
+          "U16 Template;I64 Caller(){sizeof(OuterValue);return 0;}"
+      in
+      let environment =
+        typed_outer_global_environment prepared ~name:"OuterValue"
+          ~template_name:"Template"
+      in
+      let outer =
+        Holyc_lib.resolve_outer_expressions prepared.session ~environment
+          ~expressions:prepared.module_expressions
+        |> checked
+      in
+      let term =
+        resolve ~outer prepared |> checked |> fun result ->
+        function_named result "Caller"
+        |> Semantic_function_call_resolution.function_expression_statements
+        |> List.hd
+        |> Semantic_function_call_resolution.expression_statement_expression
+        |> sizeof_expressions |> List.hd
+      in
+      Alcotest.(check (triple (option string) (option string) (option int)))
+        "outer sizeof retains its checked metadata"
+        (Some "U16", Some "object", Some 0)
+        (sizeof_target_fact term);
+      Alcotest.(check (triple (option string) (option int64) bool))
+        "outer sizeof uses the checked primitive byte size"
+        (None, Some 2L, false) (sizeof_value_fact term))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let sizeof_generated_provenance_is_deterministic_and_pure () =
@@ -1879,12 +2034,13 @@ let sizeof_constructors_validate_source_and_query_evidence () =
   let make ?(opening_origins = [ source_origin ])
       ?(closing_origins = [ source_origin ]) ?(members = [ member ])
       ?(pointer_layers = [ pointer ]) ?(target_spelling = "local")
-      ?(target_origin = target_origin)
+      ?(target_origin = target_origin) ?(bound_target = None)
       ?(root_resolution = Sizeof_function_query (Module_query sizeof_query)) ()
       =
     make_sizeof_argument_expression ~keyword_spelling:"sizeof"
       ~keyword_origin:source_origin ~opening_origins ~target_spelling
       ~target_origin ~members ~pointer_layers ~closing_origins ~root_resolution
+      ~bound_target
   in
   (match make () |> checked with
   | Sizeof_expression sizeof ->
@@ -1919,6 +2075,45 @@ let sizeof_constructors_validate_source_and_query_evidence () =
   expect_error "query origin mismatch"
     "sizeof target origin does not match its query"
     (make ~target_origin:(Semantic_symbol.Synthesized "different target") ());
+  let bound_type =
+    Semantic_type.make_primitive ~form:Semantic_type.Public_spelling
+      ~primitive:Primitive_type.U8 ~pointer_depth:0
+    |> checked
+  in
+  let bound_target =
+    make_identifier_value ~resolved_type:bound_type ~shape:Object_value
+      ~array_rank:0 ()
+    |> checked
+  in
+  (match
+     make ~members:[] ~pointer_layers:[] ~bound_target:(Some bound_target) ()
+     |> checked
+   with
+  | Sizeof_expression sizeof ->
+      Alcotest.(check (option int64))
+        "checked bound target supplies its byte size" (Some 1L)
+        (sizeof_known_value sizeof);
+      Alcotest.(check (option string))
+        "checked bound target keeps its source type" (Some "U8")
+        (sizeof_target_type sizeof |> Option.map sizeof_target_type_name)
+  | _ -> Alcotest.fail "expected a checked bound sizeof target");
+  let unbound =
+    prepare ~path:"sizeof-constructor-unbound.HC"
+      "I64 Other(){sizeof(U8);return 0;}"
+  in
+  let unbound_query =
+    unbound.module_expressions |> Semantic_module_expression_binding.functions
+    |> List.hd |> Semantic_module_expression_binding.function_queries |> List.hd
+  in
+  expect_error "bound target with unbound query"
+    "sizeof bound target does not match an unbound query"
+    (make_sizeof_argument_expression ~keyword_spelling:"sizeof"
+       ~keyword_origin:source_origin ~opening_origins:[] ~target_spelling:"U8"
+       ~target_origin:
+         (Semantic_module_expression_binding.query_origin unbound_query)
+       ~members:[] ~pointer_layers:[] ~closing_origins:[]
+       ~root_resolution:(Sizeof_function_query (Module_query unbound_query))
+       ~bound_target:(Some bound_target));
   expect_error "empty member name" "sizeof member name cannot be empty"
     (make_sizeof_member ~dot_origin:source_origin ~name:""
        ~name_origin:source_origin ~origin:source_origin);
@@ -1962,6 +2157,7 @@ let sizeof_query_must_belong_to_its_function () =
       ~root_resolution:
         (Semantic_function_call_resolution.Sizeof_function_query
            (Semantic_function_call_resolution.Module_query foreign_query))
+      ~bound_target:None
     |> checked
   in
   let expression =
@@ -2815,6 +3011,10 @@ let tests =
       sizeof_inputs_survive_function_expression_contexts;
     Alcotest.test_case "primitive sizeof values and shadowing" `Quick
       primitive_sizeof_values_follow_checked_queries;
+    Alcotest.test_case "bound scalar sizeof values" `Quick
+      bound_scalar_sizeof_values_follow_checked_types;
+    Alcotest.test_case "typed outer global sizeof" `Quick
+      typed_outer_global_sizeof_uses_retained_metadata;
     Alcotest.test_case "sizeof generated provenance and purity" `Quick
       sizeof_generated_provenance_is_deterministic_and_pure;
     Alcotest.test_case "sizeof constructor source validation" `Quick

@@ -309,28 +309,83 @@ let occurrence_at occurrences index (identifier : Frontend.Ast.identifier) =
       then Error "call argument identifier origin does not match its occurrence"
       else Ok occurrence
 
+let typed_value_for_local locals binding =
+  Int_map.find_opt
+    (binding |> Sema.Function_binding_index.binding_symbol |> symbol_number)
+    locals
+
+let typed_value_for_publication module_values publication =
+  match Sema.Module_expression_binding.publication_kind publication with
+  | Sema.Module_expression_binding.Global_variable
+  | Sema.Module_expression_binding.Function ->
+      Int_map.find_opt
+        (publication |> Sema.Module_expression_binding.publication_source_symbol
+       |> symbol_number)
+        module_values
+  | Sema.Module_expression_binding.Aggregate -> None
+
 let typed_value_for_occurrence locals module_values occurrence =
   match Sema.Module_expression_binding.occurrence_resolution occurrence with
   | Sema.Module_expression_binding.Local_binding binding ->
-      Int_map.find_opt
-        (binding |> Sema.Function_binding_index.binding_symbol |> symbol_number)
-        locals
-  | Sema.Module_expression_binding.Module_binding publication
-    when Sema.Module_expression_binding.publication_kind publication
-         = Sema.Module_expression_binding.Global_variable ->
-      Int_map.find_opt
-        (publication |> Sema.Module_expression_binding.publication_source_symbol
-       |> symbol_number)
-        module_values
-  | Sema.Module_expression_binding.Module_binding publication
-    when Sema.Module_expression_binding.publication_kind publication
-         = Sema.Module_expression_binding.Function ->
-      Int_map.find_opt
-        (publication |> Sema.Module_expression_binding.publication_source_symbol
-       |> symbol_number)
-        module_values
-  | Sema.Module_expression_binding.Module_binding _
+      typed_value_for_local locals binding
+  | Sema.Module_expression_binding.Module_binding publication ->
+      typed_value_for_publication module_values publication
   | Sema.Module_expression_binding.Outer_candidate -> None
+
+let typed_value_for_outer_binding binding =
+  let entry = Sema.Outer_environment.binding_entry binding in
+  match Sema.Outer_environment.entry_global_metadata entry with
+  | None -> None
+  | Some metadata ->
+      let array_rank = Sema.Outer_environment.global_array_rank metadata in
+      let shape =
+        if array_rank > 0 then Sema.Function_call_resolution.Array_value
+        else
+          match Sema.Outer_environment.global_declarator_kind metadata with
+          | Sema.Outer_environment.Object_global ->
+              Sema.Function_call_resolution.Object_value
+          | Sema.Outer_environment.Function_pointer_global _ ->
+              Sema.Function_call_resolution.Function_pointer_value
+      in
+      Some
+        {
+          resolved_type =
+            metadata |> Sema.Outer_environment.global_type_reference
+            |> Sema.Type_reference.resolved_type;
+          shape;
+          array_rank;
+          callable = None;
+          function_declaration = None;
+          function_address_path = None;
+        }
+
+let typed_value_for_query locals module_values = function
+  | Sema.Function_call_resolution.Module_query query -> (
+      match Sema.Module_expression_binding.query_resolution query with
+      | Sema.Module_expression_binding.Local_binding binding ->
+          typed_value_for_local locals binding
+      | Sema.Module_expression_binding.Module_binding publication ->
+          typed_value_for_publication module_values publication
+      | Sema.Module_expression_binding.Outer_candidate -> None)
+  | Sema.Function_call_resolution.Outer_query query -> (
+      match Sema.Outer_expression_binding.query_resolution query with
+      | Sema.Outer_expression_binding.Query_undefined -> None
+      | Sema.Outer_expression_binding.Query_binding
+          (Sema.Outer_expression_binding.Local_binding binding) ->
+          typed_value_for_local locals binding
+      | Sema.Outer_expression_binding.Query_binding
+          (Sema.Outer_expression_binding.Module_binding publication) ->
+          typed_value_for_publication module_values publication
+      | Sema.Outer_expression_binding.Query_binding
+          (Sema.Outer_expression_binding.Outer_binding binding) ->
+          typed_value_for_outer_binding binding)
+
+let identifier_value_for_typed_value value =
+  Sema.Function_call_resolution.make_identifier_value
+    ~resolved_type:value.resolved_type ~shape:value.shape
+    ~array_rank:value.array_rank
+    ?function_declaration:value.function_declaration
+    ?function_address_path:value.function_address_path ()
 
 type state = {
   next_occurrence : int;
@@ -517,7 +572,8 @@ let map_result apply values =
   in
   loop [] values
 
-let sizeof_kind queries (sizeof : Frontend.Ast.sizeof_expression) =
+let sizeof_kind locals globals queries (sizeof : Frontend.Ast.sizeof_expression)
+    =
   let member (member : Frontend.Ast.sizeof_member) =
     Sema.Function_call_resolution.make_sizeof_member
       ~dot_origin:(origin member.sizeof_member_dot)
@@ -532,24 +588,34 @@ let sizeof_kind queries (sizeof : Frontend.Ast.sizeof_expression) =
   match sizeof_query queries sizeof with
   | Error _ as error -> error
   | Ok query -> (
-      match map_result member sizeof.sizeof_members with
+      let bound_target =
+        match typed_value_for_query locals globals query with
+        | None -> Ok None
+        | Some value ->
+            Result.map Option.some (identifier_value_for_typed_value value)
+      in
+      match bound_target with
       | Error _ as error -> error
-      | Ok members -> (
-          match map_result pointer sizeof.sizeof_pointer_layers with
+      | Ok bound_target -> (
+          match map_result member sizeof.sizeof_members with
           | Error _ as error -> error
-          | Ok pointer_layers ->
-              Sema.Function_call_resolution.make_sizeof_argument_expression
-                ~keyword_spelling:sizeof.sizeof_keyword_spelling
-                ~keyword_origin:(origin sizeof.sizeof_keyword_location)
-                ~opening_origins:
-                  (List.map origin sizeof.sizeof_opening_parentheses)
-                ~target_spelling:sizeof.sizeof_target.spelling
-                ~target_origin:(origin sizeof.sizeof_target.location)
-                ~members ~pointer_layers
-                ~closing_origins:
-                  (List.map origin sizeof.sizeof_closing_parentheses)
-                ~root_resolution:
-                  (Sema.Function_call_resolution.Sizeof_function_query query)))
+          | Ok members -> (
+              match map_result pointer sizeof.sizeof_pointer_layers with
+              | Error _ as error -> error
+              | Ok pointer_layers ->
+                  Sema.Function_call_resolution.make_sizeof_argument_expression
+                    ~keyword_spelling:sizeof.sizeof_keyword_spelling
+                    ~keyword_origin:(origin sizeof.sizeof_keyword_location)
+                    ~opening_origins:
+                      (List.map origin sizeof.sizeof_opening_parentheses)
+                    ~target_spelling:sizeof.sizeof_target.spelling
+                    ~target_origin:(origin sizeof.sizeof_target.location)
+                    ~members ~pointer_layers
+                    ~closing_origins:
+                      (List.map origin sizeof.sizeof_closing_parentheses)
+                    ~root_resolution:
+                      (Sema.Function_call_resolution.Sizeof_function_query query)
+                    ~bound_target)))
 
 let rec advance_expression_occurrences occurrences cursor = function
   | Frontend.Ast.Identifier_expression identifier ->
@@ -660,7 +726,7 @@ let rec argument_expression visible locals globals occurrences defined_queries
           (Sema.Function_call_resolution.Unresolved_expression
              Sema.Function_call_resolution.Current_position_expression)
     | Frontend.Ast.Sizeof_expression sizeof ->
-        sizeof_kind defined_queries sizeof
+        sizeof_kind locals globals defined_queries sizeof
     | Frontend.Ast.Offset_expression _ ->
         Ok
           (Sema.Function_call_resolution.Unresolved_expression
