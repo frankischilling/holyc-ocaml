@@ -440,6 +440,10 @@ let accepted_f64_arithmetic_opcode = function
   | Opcode.Ic_sub -> true
   | _ -> false
 
+let accepted_f64_bitwise_opcode = function
+  | Opcode.Ic_and | Opcode.Ic_or | Opcode.Ic_xor -> true
+  | _ -> false
+
 let accepted_f64_comparison_opcode = function
   | Opcode.Ic_equ_equ
   | Opcode.Ic_not_equ
@@ -786,6 +790,9 @@ let validate_binary result opcode left right =
              operation_flags = 0L;
            })
   | Ok false when accepted_f64_arithmetic_opcode opcode ->
+      validate_f64_binary_with checked_f64_type ~allow_integer_pair:false
+        ~operation_flags:0L result left right
+  | Ok false when accepted_f64_bitwise_opcode opcode ->
       validate_f64_binary_with checked_f64_type ~allow_integer_pair:false
         ~operation_flags:0L result left right
   | Ok false when accepted_f64_comparison_opcode opcode ->
