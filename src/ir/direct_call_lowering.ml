@@ -86,6 +86,13 @@ let matching_resolution target result =
   | Some (Resolution.Indirect_call _ | Resolution.Deferred_call _) | None ->
       false
 
+let call_opcode = function
+  | Records.Internal_operation -> None
+  | Records.Direct_executable_call -> Some Opcode.Ic_call
+  | Records.Jit_extern_address_slot_call -> Some Opcode.Ic_call_indirect2
+  | Records.Aot_import_call -> Some Opcode.Ic_call_import
+  | Records.Aot_extern_call -> Some Opcode.Ic_call_extern
+
 let call_shape target =
   let typed = Target.source target in
   let direct = target_resolution target in
@@ -228,7 +235,8 @@ let lower_variadic_count ~span ~instruction_id ~value_id ~count = function
               next_value_id ))
 
 let lower_supported ~span ~instruction_id ~value_id ~target ~arguments
-    ~variadic_count_type ~variadic_count ~variadic_arguments result_type =
+    ~variadic_count_type ~variadic_count ~variadic_arguments ~call_opcode
+    result_type =
   let start_id = instruction_id in
   match next_instruction_id ~span instruction_id with
   | Error error -> Error [ error ]
@@ -297,7 +305,7 @@ let lower_supported ~span ~instruction_id ~value_id ~target ~arguments
                         @ variadic_descriptions
                         @ [
                             description ~instruction_id:call_id
-                              ~opcode:Opcode.Ic_call
+                              ~opcode:call_opcode
                               ~target_type:(Some result_type)
                               ~payload:symbol_payload ~span ();
                             description ~instruction_id:cleanup_id
@@ -335,30 +343,32 @@ let lower ~instruction_id ~value_id ~target result =
             metadata_error ~span
               "direct-call expression and target classification disagree";
           ]
-      else if Target.call_access target <> Records.Direct_executable_call then
-        Ok Unsupported_call
       else
-        match call_shape target with
-        | Unsupported_shape -> Ok Unsupported_call
-        | Inconsistent_shape message -> Error [ metadata_error ~span message ]
-        | Provided_parameters
-            {
-              arguments;
-              variadic_count_type;
-              variadic_count;
-              variadic_arguments;
-            } -> (
-            match Result.result_type result with
-            | None ->
-                Error
-                  [
-                    metadata_error ~span
-                      "direct call has no checked result type";
-                  ]
-            | Some result_type ->
-                lower_supported ~span ~instruction_id ~value_id ~target
-                  ~arguments ~variadic_count_type ~variadic_count
-                  ~variadic_arguments result_type))
+        match call_opcode (Target.call_access target) with
+        | None -> Ok Unsupported_call
+        | Some call_opcode -> (
+            match call_shape target with
+            | Unsupported_shape -> Ok Unsupported_call
+            | Inconsistent_shape message ->
+                Error [ metadata_error ~span message ]
+            | Provided_parameters
+                {
+                  arguments;
+                  variadic_count_type;
+                  variadic_count;
+                  variadic_arguments;
+                } -> (
+                match Result.result_type result with
+                | None ->
+                    Error
+                      [
+                        metadata_error ~span
+                          "direct call has no checked result type";
+                      ]
+                | Some result_type ->
+                    lower_supported ~span ~instruction_id ~value_id ~target
+                      ~arguments ~variadic_count_type ~variadic_count
+                      ~variadic_arguments ~call_opcode result_type)))
 
 let sequence lowered = lowered.sequence_
 let result_value lowered = lowered.result_value_
