@@ -128,6 +128,9 @@ module Semantic_function_record_classification =
 module Semantic_function_call_target_classification =
   Sema.Function_call_target_classification
 
+module Semantic_top_level_function_call_target_classification =
+  Sema.Top_level_function_call_target_classification
+
 module Semantic_global_resolution = Sema.Global_resolution
 module Semantic_global_record_classification = Sema.Global_record_classification
 

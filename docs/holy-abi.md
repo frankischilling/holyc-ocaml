@@ -87,6 +87,8 @@ These are checked semantic signature facts, not a calling-convention implementat
 
 `Sema.Function_call_target_classification` joins a typed function-scope direct call to that exact declaration snapshot. Its immutable result carries the typed call, resolved and classified declarations, classified record, and total call-access policy. Exact object ownership prevents a separately resolved same-name function or different-mode batch from supplying linkage state. `HCSEMA0067` reports a mismatch at the call. The join remains ABI input; the separate zero-parameter lowerer consumes its ordinary executable path without weakening that ownership check.
 
+`Sema.Top_level_function_call_target_classification` performs the corresponding join for a typed direct call in an executable module statement. It uses the retained declaration object rather than the name or canonical symbol, so calls on opposite sides of a replacement header select different snapshots. `HCSEMA0068` reports foreign or different-mode evidence at the original call. This record is checked ABI input only; top-level call sequences and `IET_MAIN` construction remain separate work.
+
 ## Argument cleanup
 
 `PrsFunJoin` derives `Ff_RET1` when a function has at least one fixed argument, is not variadic, and its argument byte count fits the signed 16-bit immediate used by `RET`. With eight-byte argument slots, the accepted count is 1 through 4,095.

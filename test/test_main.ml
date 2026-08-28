@@ -79,6 +79,8 @@ let () =
         Test_function_record_classification.tests );
       ( "semantic function call target classification",
         Test_function_call_target_classification.tests );
+      ( "semantic top-level function call target classification",
+        Test_top_level_function_call_target_classification.tests );
       ("semantic global record resolution", Test_global_resolution.tests);
       ( "semantic global record classification",
         Test_global_record_classification.tests );
