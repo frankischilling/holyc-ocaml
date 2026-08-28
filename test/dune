@@ -79,6 +79,7 @@
   test_ir_literal_lowering
   test_ir_expression_lowering
   test_ir_expression_statement_lowering
+  test_ir_condition_lowering
   test_function_flag_source
   test_function_flag
   test_global_record_flag_source
