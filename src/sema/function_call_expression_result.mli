@@ -466,7 +466,11 @@ val result_category : expression_result -> value_category
 val result_class : expression_result -> result_class
 val result_execution_class : expression_result -> result_class option
 val result_array_rank : expression_result -> int
+
 val result_intrinsic_conversion : expression_result -> intrinsic_conversion
+(** Return conversion intent attached to this producer by its checked consumer.
+    Provided fixed arguments retain the parameter-class comparison here, as do
+    expression-internal consumers such as assignment and indexing. *)
 
 val result_member_lookup :
   expression_result -> Aggregate_member_index.lookup option

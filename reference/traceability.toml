@@ -7436,6 +7436,34 @@ format_parsing_default_payload_evaluation_vararg_promotion_call_lowering_output_
 native_oracle_status = "not required for this source-stated semantic boundary; the fixed-slot loop, default branch, conversion flags, and variadic tail are explicit in PrsFunCall"
 
 [[feature]]
+id = "HC-IR-ROOT-CONVERSION-INTENT"
+description = "Canonical expression lowering places retained fixed-argument conversion intent on the final root producer."
+sources = [
+  "Compiler/PrsExp.HC:470-484 fixed-argument optimization and result conversion selection",
+  "Compiler/OptLib.HC:103-140 producer forwarding through result conversion flags",
+  "Kernel/KernelA.HH:1602-1603 ICF_RES_TO_F64 and ICF_RES_TO_INT values"
+]
+implementation = [
+  "src/sema/function_call_expression_result.ml",
+  "src/ir/expression_lowering.ml",
+  "src/ir/expression_lowering.mli"
+]
+tests = ["test/test_ir_expression_lowering.ml"]
+status = "implemented"
+issue = 506
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "provided fixed-argument roots accepted by canonical expression lowering"
+semantic_handoff = "function-body and executable top-level fixed arguments retain the parameter-to-actual class comparison on the exact provided expression root"
+conversion_rule = "an integer root targeting F64 carries ICF_RES_TO_F64; an F64 root targeting an integer class carries ICF_RES_TO_INT"
+composition_rule = "grouping and unary plus forward the request to the retained producer; a composite root marks only its final instruction"
+preserved_evidence = ["literal payload", "checked type", "source span", "operand links", "instruction and value allocation"]
+validation = "incompatible retained conversion evidence returns Unsupported_expression before identity allocation"
+compilation_modes = ["jit", "aot"]
+focused_expression_lowering_tests = 2
+numeric_conversion_call_lowering_argument_placement_optimization_interpretation_and_backend_emission = "not implemented"
+native_oracle_status = "not required for this direct source representation boundary; PrsFunCall and the flag consumers state both selection and placement"
+
+[[feature]]
 id = "HC-SEMA-FUNCTION-AGGREGATE-OFFSET-PATHS"
 description = "Source-visible aggregate records produce checked PrsOffsetOf-shaped integer paths in function-body expressions."
 sources = [

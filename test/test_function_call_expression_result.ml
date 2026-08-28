@@ -5899,7 +5899,7 @@ let indexed_outer_callback_arrays_use_checked_headers () =
         (Semantic_function_call_expression_result.outer_callback_variadic_count
            variadic);
       Alcotest.(check int)
-        "the indexed outer fixture records nine integer-result conversions" 9
+        "nine indexes and the fixed F64 root request integer results" 10
         (results |> Semantic_function_call_expression_result.all_results
         |> List.filter (fun result ->
             Semantic_function_call_expression_result.result_intrinsic_conversion
