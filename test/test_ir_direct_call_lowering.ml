@@ -634,6 +634,84 @@ let multiple_variadic_arguments_preserve_order () =
         | Some (Sequence.Integer value) -> Some value
         | _ -> None))
 
+let extern_and_import_calls_select_checked_opcodes () =
+  [
+    (Preprocessor.Jit, "extern", "IC_CALL_INDIRECT2");
+    (Preprocessor.Aot, "import", "IC_CALL_IMPORT");
+    (Preprocessor.Aot, "extern", "IC_CALL_EXTERN");
+  ]
+  |> List.iter (fun (mode, declaration, expected_call) ->
+      let source =
+        Printf.sprintf
+          "%s I64 Callee(I64 fixed,...);I64 Caller(){return Callee(1,2);}"
+          declaration
+      in
+      let prepared = prepared mode source in
+      let results, records = analyze prepared in
+      let expected_symbol_id =
+        direct_call results "Caller"
+        |> canonical_symbol |> Semantic_symbol.id |> Semantic_symbol.Id.to_int
+      in
+      let first =
+        lower ~instruction:10 ~value:20 records results "Caller" |> lowered
+      in
+      let second =
+        lower ~instruction:10 ~value:20 records results "Caller" |> lowered
+      in
+      let items = descriptions first in
+      Alcotest.(check (list string))
+        "the classified access selects its call opcode"
+        [
+          "IC_CALL_START";
+          "IC_IMM_I64";
+          "IC_IMM_I64";
+          "IC_IMM_I64";
+          expected_call;
+          "IC_ADD_RSP";
+          "IC_CALL_END";
+        ]
+        (opcode_names items);
+      let symbol_ids =
+        items
+        |> List.filter_map (fun item ->
+            match item.Sequence.payload with
+            | Some (Sequence.Symbol symbol) ->
+                Some (Semantic_symbol.id symbol |> Semantic_symbol.Id.to_int)
+            | Some (Sequence.Integer _)
+            | Some
+                ( Sequence.Float_bits _
+                | Sequence.Bytes _
+                | Sequence.Block _
+                | Sequence.Block_targets _ )
+            | None -> None)
+      in
+      Alcotest.(check (list int))
+        "start, selected call, and end keep the canonical symbol"
+        [ expected_symbol_id; expected_symbol_id; expected_symbol_id ]
+        symbol_ids;
+      Alcotest.(check (list int))
+        "extern and import instruction identities are consecutive"
+        [ 10; 11; 12; 13; 14; 15; 16 ]
+        (List.map
+           (fun item ->
+             Sequence.Instruction_id.to_int item.Sequence.instruction_id)
+           items);
+      Alcotest.(check int)
+        "the extern or import result follows all argument values" 23
+        (Lowering.result_value first |> Sequence.Value_id.to_int);
+      Alcotest.(check (pair int int))
+        "extern and import cursors include the complete call" (17, 24)
+        ( Lowering.next_instruction_id first |> Sequence.Instruction_id.to_int,
+          Lowering.next_value_id first |> Sequence.Value_id.to_int );
+      Alcotest.(check (option int64))
+        "fixed, hidden, and supplied slots clean 24 bytes" (Some 24L)
+        (match (List.nth items 5).Sequence.payload with
+        | Some (Sequence.Integer value) -> Some value
+        | _ -> None);
+      Alcotest.(check string)
+        "extern and import dumps replay exactly" (Lowering.human first)
+        (Lowering.human second))
+
 let unsupported_argument_expression_returns_no_ir () =
   let prepared =
     prepared Preprocessor.Jit
@@ -677,12 +755,6 @@ let unsupported_call_boundaries () =
         |> List.map (fun error -> error.Sequence.message)
         |> String.concat ", " |> Alcotest.fail
   in
-  expect_unsupported Preprocessor.Jit
-    "extern I64 Callee();I64 Caller(){return Callee();}";
-  expect_unsupported Preprocessor.Aot
-    "extern I64 Callee();I64 Caller(){return Callee();}";
-  expect_unsupported Preprocessor.Aot
-    "import I64 Callee();I64 Caller(){return Callee();}";
   expect_unsupported Preprocessor.Jit
     "_intern 42 I64 Callee();I64 Caller(){return Callee();}";
   expect_unsupported Preprocessor.Jit
@@ -745,6 +817,8 @@ let tests =
       one_variadic_argument_follows_hidden_count;
     Alcotest.test_case "multiple supplied variadic arguments" `Quick
       multiple_variadic_arguments_preserve_order;
+    Alcotest.test_case "extern and import call opcodes" `Quick
+      extern_and_import_calls_select_checked_opcodes;
     Alcotest.test_case "unsupported argument expression" `Quick
       unsupported_argument_expression_returns_no_ir;
     Alcotest.test_case "deterministic direct-call dump" `Quick
