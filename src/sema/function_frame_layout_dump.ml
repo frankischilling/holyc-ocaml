@@ -162,84 +162,88 @@ let optional_int_to_yojson = function
   | Some value -> `Int value
 
 let dimension_to_yojson dimension =
-  `Assoc
-    [
-      ( "kind",
-        `String
-          (Frame.dimension_kind_name (Frame.dimension_kind dimension)) );
-      ("value", int64_to_yojson (Frame.dimension_value dimension));
-    ]
+  let kind = Frame.dimension_kind_name (Frame.dimension_kind dimension) in
+  let value = int64_to_yojson (Frame.dimension_value dimension) in
+  `Assoc [ ("kind", `String kind); ("value", value) ]
 
 let frame_slot_to_yojson = function
   | None -> `Null
   | Some slot ->
+      let displacement = Frame.frame_slot_displacement slot in
+      let size = Frame.frame_slot_size slot in
       `Assoc
         [
-          ( "displacement",
-            int64_to_yojson (Frame.frame_slot_displacement slot) );
-          ("size", int64_to_yojson (Frame.frame_slot_size slot));
+          ("displacement", int64_to_yojson displacement);
+          ("size", int64_to_yojson size);
         ]
 
 let location_to_yojson sources location =
   let binding = Frame.location_binding location in
   let symbol = Frame.location_symbol location in
   let frame_slot = Frame.location_frame_slot location in
+  let binding_ordinal = Binding.binding_ordinal binding in
+  let kind = Frame.location_kind_name (Frame.location_kind location) in
+  let parameter_index = Binding.binding_parameter_index binding in
+  let parameter_index = optional_int_to_yojson parameter_index in
+  let declaration_index = Binding.binding_local_declaration_index binding in
+  let declaration_index = optional_int_to_yojson declaration_index in
+  let declarator_index = Binding.binding_local_declarator_index binding in
+  let declarator_index = optional_int_to_yojson declarator_index in
+  let type_reference = Frame.location_type_reference location in
+  let type_reference = type_reference_to_yojson sources type_reference in
+  let checked_type = type_to_yojson (Frame.location_checked_type location) in
+  let declarator_shape = Frame.location_declarator_shape location in
+  let declarator_shape = Frame.declarator_shape_name declarator_shape in
+  let value_shape = Frame.location_value_shape location in
+  let value_shape = Frame.value_shape_name value_shape in
+  let dimensions = Frame.location_dimensions location in
+  let dimensions = List.map dimension_to_yojson dimensions in
+  let element_size = Frame.location_element_size location in
+  let allocated_size = Frame.location_allocated_size location in
+  let alignment = Frame.location_alignment location in
+  let storage = if Option.is_some frame_slot then "frame" else "static" in
+  let frame_slot = frame_slot_to_yojson frame_slot in
+  let origin = origin_to_yojson sources (Symbol.origin symbol) in
   `Assoc
     [
       ("symbol_id", `Int (Symbol.Id.to_int (Symbol.id symbol)));
       ("name", `String (Symbol.name symbol));
-      ("binding_ordinal", `Int (Binding.binding_ordinal binding));
-      ( "kind",
-        `String (Frame.location_kind_name (Frame.location_kind location)) );
-      ( "parameter_index",
-        optional_int_to_yojson (Binding.binding_parameter_index binding) );
-      ( "local_declaration_index",
-        optional_int_to_yojson
-          (Binding.binding_local_declaration_index binding) );
-      ( "local_declarator_index",
-        optional_int_to_yojson
-          (Binding.binding_local_declarator_index binding) );
-      ( "type_reference",
-        type_reference_to_yojson sources (Frame.location_type_reference location)
-      );
-      ("type", type_to_yojson (Frame.location_checked_type location));
-      ( "declarator_shape",
-        `String
-          (Frame.declarator_shape_name (Frame.location_declarator_shape location))
-      );
-      ( "value_shape",
-        `String (Frame.value_shape_name (Frame.location_value_shape location)) );
-      ( "dimensions",
-        `List (List.map dimension_to_yojson (Frame.location_dimensions location))
-      );
-      ( "element_size",
-        int64_to_yojson (Frame.location_element_size location) );
-      ( "allocated_size",
-        int64_to_yojson (Frame.location_allocated_size location) );
-      ("alignment", `Int (Frame.location_alignment location));
-      ( "storage",
-        `String (if Option.is_some frame_slot then "frame" else "static") );
-      ("frame_slot", frame_slot_to_yojson frame_slot);
-      ("origin", origin_to_yojson sources (Symbol.origin symbol));
+      ("binding_ordinal", `Int binding_ordinal);
+      ("kind", `String kind);
+      ("parameter_index", parameter_index);
+      ("local_declaration_index", declaration_index);
+      ("local_declarator_index", declarator_index);
+      ("type_reference", type_reference);
+      ("type", checked_type);
+      ("declarator_shape", `String declarator_shape);
+      ("value_shape", `String value_shape);
+      ("dimensions", `List dimensions);
+      ("element_size", int64_to_yojson element_size);
+      ("allocated_size", int64_to_yojson allocated_size);
+      ("alignment", `Int alignment);
+      ("storage", `String storage);
+      ("frame_slot", frame_slot);
+      ("origin", origin);
     ]
 
 let function_to_yojson sources function_ =
   let symbol = Frame.function_symbol function_ in
+  let scope = Frame.function_scope function_ in
+  let scope_id = Symbol.Scope_id.to_int (Symbol_table.scope_id scope) in
+  let item_index = Frame.function_item_index function_ in
+  let frame_size = int64_to_yojson (Frame.function_frame_size function_) in
+  let origin = origin_to_yojson sources (Symbol.origin symbol) in
+  let locations = Frame.function_locations function_ in
+  let locations = List.map (location_to_yojson sources) locations in
   `Assoc
     [
       ("symbol_id", `Int (Symbol.Id.to_int (Symbol.id symbol)));
       ("name", `String (Symbol.name symbol));
-      ( "scope_id",
-        `Int
-          (Symbol.Scope_id.to_int
-             (Symbol_table.scope_id (Frame.function_scope function_))) );
-      ("item_index", `Int (Frame.function_item_index function_));
-      ("frame_size", int64_to_yojson (Frame.function_frame_size function_));
-      ("origin", origin_to_yojson sources (Symbol.origin symbol));
-      ( "locations",
-        `List
-          (List.map (location_to_yojson sources)
-             (Frame.function_locations function_)) );
+      ("scope_id", `Int scope_id);
+      ("item_index", `Int item_index);
+      ("frame_size", frame_size);
+      ("origin", origin);
+      ("locations", `List locations);
     ]
 
 let to_yojson sources layouts =
@@ -297,34 +301,41 @@ let print_location buffer sources location =
   let storage, displacement, slot_size =
     frame_slot_text (Frame.location_frame_slot location)
   in
+  let symbol_id = Symbol.Id.to_int (Symbol.id symbol) in
+  let name = Symbol.name symbol in
+  let binding_ordinal = Binding.binding_ordinal binding in
+  let kind = Frame.location_kind_name (Frame.location_kind location) in
+  let parameter_index = Binding.binding_parameter_index binding in
+  let parameter_index = option_text string_of_int parameter_index in
+  let declaration_index = Binding.binding_local_declaration_index binding in
+  let declaration_index = option_text string_of_int declaration_index in
+  let declarator_index = Binding.binding_local_declarator_index binding in
+  let declarator_index = option_text string_of_int declarator_index in
+  let checked_type = type_text (Frame.location_checked_type location) in
+  let type_reference = Frame.location_type_reference location in
+  let type_reference = type_reference_text sources type_reference in
+  let declarator_shape = Frame.location_declarator_shape location in
+  let declarator_shape = Frame.declarator_shape_name declarator_shape in
+  let value_shape = Frame.location_value_shape location in
+  let value_shape = Frame.value_shape_name value_shape in
+  let dimensions = Frame.location_dimensions location in
+  let dimensions = list_text dimension_text dimensions in
+  let element_size = Frame.location_element_size location in
+  let allocated_size = Frame.location_allocated_size location in
+  let alignment = Frame.location_alignment location in
+  let origin = origin_text sources (Symbol.origin symbol) in
   Printf.bprintf buffer
     "  location symbol_id=%d name=%S binding_ordinal=%d kind=%s "
-    (Symbol.Id.to_int (Symbol.id symbol))
-    (Symbol.name symbol)
-    (Binding.binding_ordinal binding)
-    (Frame.location_kind_name (Frame.location_kind location));
+    symbol_id name binding_ordinal kind;
   Printf.bprintf buffer
     "parameter_index=%s local_declaration_index=%s local_declarator_index=%s \
      %s %s declarator_shape=%s value_shape=%s dimensions=%s "
-    (option_text string_of_int
-       (Binding.binding_parameter_index binding))
-    (option_text string_of_int
-       (Binding.binding_local_declaration_index binding))
-    (option_text string_of_int
-       (Binding.binding_local_declarator_index binding))
-    (type_text (Frame.location_checked_type location))
-    (type_reference_text sources (Frame.location_type_reference location))
-    (Frame.declarator_shape_name (Frame.location_declarator_shape location))
-    (Frame.value_shape_name (Frame.location_value_shape location))
-    (list_text dimension_text (Frame.location_dimensions location));
+    parameter_index declaration_index declarator_index checked_type
+    type_reference declarator_shape value_shape dimensions;
   Printf.bprintf buffer
     "element_size=%Ld allocated_size=%Ld storage=%s displacement=%s \
      slot_size=%s alignment=%d origin=%s\n"
-    (Frame.location_element_size location)
-    (Frame.location_allocated_size location)
-    storage displacement slot_size
-    (Frame.location_alignment location)
-    (origin_text sources (Symbol.origin symbol))
+    element_size allocated_size storage displacement slot_size alignment origin
 
 let print_function buffer sources function_ =
   let symbol = Frame.function_symbol function_ in
