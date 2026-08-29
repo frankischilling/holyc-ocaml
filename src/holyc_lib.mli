@@ -71,6 +71,8 @@ module Semantic_function_type_resolution = Sema.Function_type_resolution
 module Semantic_global_type_resolution = Sema.Global_type_resolution
 module Semantic_local_type_resolution = Sema.Local_type_resolution
 module Semantic_function_binding_index = Sema.Function_binding_index
+module Semantic_function_frame_layout = Sema.Function_frame_layout
+module Semantic_function_frame_layout_dump = Sema.Function_frame_layout_dump
 module Semantic_function_expression_binding = Sema.Function_expression_binding
 module Semantic_local_warning_analysis = Sema.Local_warning_analysis
 module Semantic_module_expression_binding = Sema.Module_expression_binding
@@ -305,6 +307,20 @@ val index_function_bindings :
 (** Validate the shared function namespace and build immutable lookup indexes.
     Expression publication timing, use counts, warnings, storage, and register
     allocation remain separate passes. *)
+
+val layout_function_frames :
+  Session.t ->
+  declarations:Semantic_declaration_collection.t ->
+  bindings:Semantic_function_binding_index.t ->
+  function_types:Semantic_function_type_resolution.t ->
+  local_types:Semantic_local_type_resolution.t ->
+  aggregate_layouts:Semantic_aggregate_layout.t ->
+  Ast.module_ ->
+  (Semantic_function_frame_layout.t, string) result
+(** Retain checked parameter and local locations for every function definition.
+    Named and synthetic parameters use eight-byte slots beginning at RBP+16.
+    Automatic locals use downward-growing, size-aligned slots; static locals
+    remain typed locations without frame slots. *)
 
 val resolve_function_expressions :
   Session.t ->
