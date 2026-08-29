@@ -1,6 +1,13 @@
 module Sequence = Instruction_sequence
 module Top_level = Top_level_body
 module Statement = Top_level_statement_lowering
+module Semantic_result = Sema.Function_call_expression_result
+module Tree = Sema.Top_level_expression_tree
+module Target = Sema.Top_level_function_call_target_classification
+module Resolution = Sema.Function_call_resolution
+module Outer_binding = Sema.Top_level_outer_expression_binding
+module Publication = Sema.Module_expression_binding
+module Result_id_map = Map.Make (Semantic_result.Id)
 
 type error = {
   code : string;
@@ -22,6 +29,17 @@ type t = {
 }
 
 type lowering_result = Lowered of t | Unsupported_batch
+
+type mixed_item =
+  | Direct_call of Target.t * Semantic_result.top_level_statement_result
+  | Expression of Semantic_result.top_level_statement_result
+
+type mixed_candidate = {
+  statement_index : int;
+  result : Semantic_result.expression_result;
+  source : Sema.Function_call_resolution.argument_expression;
+  is_direct_call : bool;
+}
 
 let reference_commit = Opcode.reference_commit
 
@@ -57,6 +75,156 @@ let expression_count_error statement_count option_count =
        "top-level expression batch has %d statements and %d compiler-option \
         snapshots"
        statement_count option_count)
+
+let mixed_count_error statement_count option_count =
+  make_error "HCIRL0004"
+    (Printf.sprintf
+       "top-level mixed batch has %d statements and %d compiler-option \
+        snapshots"
+       statement_count option_count)
+
+let target_result_id target =
+  target |> Target.source |> Semantic_result.top_level_direct_result_id
+
+let target_source target =
+  target |> Target.source |> Semantic_result.top_level_direct_source
+  |> Tree.call_result_expression
+
+let unmatched_target_error target =
+  make_error "HCIRL0004"
+    (Printf.sprintf
+       "top-level mixed batch target result %d does not match a standalone \
+        statement root"
+       (target |> target_result_id |> Semantic_result.Id.to_int))
+
+let ambiguous_target_error target =
+  make_error "HCIRL0004"
+    (Printf.sprintf
+       "top-level mixed batch target result %d matches more than one \
+        standalone statement root"
+       (target |> target_result_id |> Semantic_result.Id.to_int))
+
+let duplicate_target_error statement_index =
+  make_error ~statement_index "HCIRL0004"
+    "top-level mixed batch has more than one classified target for the same \
+     standalone statement root"
+
+let missing_target_error statement_index =
+  make_error ~statement_index "HCIRL0004"
+    "top-level mixed batch is missing the classified target for a standalone \
+     direct-call statement"
+
+let call_is_direct_root source call =
+  Tree.call_result_expression call == source
+  && Resolution.call_callee_form (Tree.call_source call)
+     = Resolution.Identifier_callee
+  &&
+  match call |> Tree.call_callee |> Outer_binding.occurrence_resolution with
+  | Outer_binding.Module_binding publication ->
+      Publication.publication_kind publication = Publication.Function
+  | Outer_binding.Outer_binding _ -> false
+
+let statement_has_direct_root statement source =
+  statement |> Semantic_result.top_level_statement_source
+  |> Tree.statement_calls
+  |> List.exists (call_is_direct_root source)
+
+let standalone_candidate statement_index statement =
+  match Semantic_result.top_level_statement_roots statement with
+  | [ root ] -> (
+      let source = Semantic_result.top_level_root_source root in
+      match Tree.root_role source with
+      | Tree.Expression_statement _ ->
+          Some
+            {
+              statement_index;
+              result = Semantic_result.top_level_root_value root;
+              source = Tree.root_expression source;
+              is_direct_call =
+                statement_has_direct_root statement
+                  (Tree.root_expression source);
+            }
+      | Tree.Implicit_output_fixed _
+      | Tree.Implicit_output_argument _
+      | Tree.Condition _
+      | Tree.Switch_selector _
+      | Tree.Switch_case_value _
+      | Tree.Local_array_dimension _
+      | Tree.Local_initializer _
+      | Tree.Return_value _ -> None)
+  | [] | _ :: _ :: _ -> None
+
+let mixed_candidates statements =
+  let candidates_by_statement = Array.make (List.length statements) None in
+  let candidates =
+    statements
+    |> List.mapi (fun statement_index statement ->
+        standalone_candidate statement_index statement)
+    |> List.fold_left
+         (fun candidates -> function
+           | None -> candidates
+           | Some candidate ->
+               candidates_by_statement.(candidate.statement_index) <-
+                 Some candidate;
+               Result_id_map.update
+                 (Semantic_result.result_id candidate.result)
+                 (function
+                   | None -> Some [ candidate ]
+                   | Some matching -> Some (candidate :: matching))
+                 candidates)
+         Result_id_map.empty
+  in
+  (candidates, candidates_by_statement)
+
+let matching_candidates candidates target =
+  match Result_id_map.find_opt (target_result_id target) candidates with
+  | None -> []
+  | Some matching ->
+      let source = target_source target in
+      List.filter (fun candidate -> candidate.source == source) matching
+
+let assign_mixed_targets candidates assignments targets =
+  let rec assign = function
+    | [] -> Ok ()
+    | target :: remaining -> (
+        match matching_candidates candidates target with
+        | [] -> Error [ unmatched_target_error target ]
+        | [ candidate ] -> (
+            match assignments.(candidate.statement_index) with
+            | Some _ ->
+                Error [ duplicate_target_error candidate.statement_index ]
+            | None ->
+                assignments.(candidate.statement_index) <- Some target;
+                assign remaining)
+        | _ -> Error [ ambiguous_target_error target ])
+  in
+  assign targets
+
+let mixed_items ~targets statements =
+  let candidates, candidates_by_statement = mixed_candidates statements in
+  let assignments = Array.make (List.length statements) None in
+  match assign_mixed_targets candidates assignments targets with
+  | Error _ as error -> error
+  | Ok () ->
+      let rec build reversed statement_index = function
+        | [] -> Ok (List.rev reversed)
+        | statement :: remaining -> (
+            match
+              ( assignments.(statement_index),
+                candidates_by_statement.(statement_index) )
+            with
+            | Some target, _ ->
+                build
+                  (Direct_call (target, statement) :: reversed)
+                  (statement_index + 1) remaining
+            | None, Some candidate when candidate.is_direct_call ->
+                Error [ missing_target_error statement_index ]
+            | None, _ ->
+                build
+                  (Expression statement :: reversed)
+                  (statement_index + 1) remaining)
+      in
+      build [] 0 statements
 
 let next_stream_id ~statement_index stream_id =
   let current = Top_level.Stream_id.to_int stream_id in
@@ -158,6 +326,29 @@ let lower_expressions ~stream_id ~block_id ~instruction_id ~value_id
   else
     lower_items ~stream_id ~block_id ~instruction_id ~value_id ~compiler_options
       Statement.lower_expression statements
+
+let lower_mixed ~stream_id ~block_id ~instruction_id ~value_id ~compiler_options
+    ~targets statements =
+  let statement_count = List.length statements in
+  let option_count = List.length compiler_options in
+  if statement_count <> option_count then
+    Error [ mixed_count_error statement_count option_count ]
+  else
+    match mixed_items ~targets statements with
+    | Error _ as error -> error
+    | Ok items ->
+        lower_items ~stream_id ~block_id ~instruction_id ~value_id
+          ~compiler_options
+          (fun ~stream_id ~block_id ~instruction_id ~value_id ~compiler_options
+             ->
+            function
+            | Direct_call (target, statement) ->
+                Statement.lower_direct_call ~stream_id ~block_id ~instruction_id
+                  ~value_id ~compiler_options ~target statement
+            | Expression statement ->
+                Statement.lower_expression ~stream_id ~block_id ~instruction_id
+                  ~value_id ~compiler_options statement)
+          items
 
 let bodies lowered = lowered.bodies_
 let next_stream_id lowered = lowered.next_stream_id_

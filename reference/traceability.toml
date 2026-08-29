@@ -8665,6 +8665,42 @@ mixed_statement_selection_assignments_updates_callbacks_implicit_output_control_
 native_oracle_status = "not required for structural batching; CmpJoin's per-item route, ordinary PrsExpression dispatch, and COC initialization define the boundary"
 
 [[feature]]
+id = "HC-IR-TOP-LEVEL-MIXED-BATCH"
+description = "A source-ordered mixture of standalone direct calls and ordinary expression statements becomes an atomic list of checked top-level bodies."
+sources = [
+  "Compiler/CMain.HC:CmpJoin and LexStmt2Bin per-item executable top-level route",
+  "Compiler/PrsLib.HC:98-105 independent COC initialization and IC_END sentinel",
+  "Compiler/PrsStmt.HC:1204-1210 ordinary expression statement dispatch",
+  "Compiler/PrsExp.HC:264-295 IC_END_EXP construction",
+  "Compiler/PrsExp.HC:438-586 direct-call construction"
+]
+implementation = [
+  "src/ir/top_level_batch_lowering.ml",
+  "src/ir/top_level_batch_lowering.mli",
+  "src/ir/top_level_statement_lowering.ml"
+]
+tests = ["test/test_ir_top_level_batch_lowering.ml"]
+status = "implemented"
+issue = 556
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "source-ordered checked executable top-level statements, an independently ordered exact classified-target list, and one compiler-option snapshot per statement"
+input_alignment = "statement and compiler-option snapshot counts must be equal"
+target_match = "a classified target matches only the same semantic result ID and exact physical root-expression object"
+target_order = "classified-target list order does not determine body order"
+direct_call_root_rule = "the exact statement root must be an identifier-callee call backed by a source-visible module function publication"
+ordinary_expression_rule = "each unassigned supported root uses ordinary expression lowering; nested calls and global or outer callbacks are not standalone direct-call roots"
+body_rule = "each source statement independently uses direct-call or ordinary-expression lowering and retains its stream, entry block, item position, source span, compiler options, IC_END_EXP, IC_END, access policy, and x87 verification"
+identity = "stream and block cursors advance once per body; instruction and value cursors continue from the preceding body's exact next identities"
+empty_batch = "returns no bodies and leaves all four caller-supplied cursors unchanged"
+diagnostics = ["HCIRL0004 input-count, target, root, or child metadata mismatch", "HCIRL0005 stream, block, instruction, or value exhaustion", "HCIR0037 invalid compiler-option snapshot", "checked child sequence, graph, metadata, and x87 diagnostics"]
+failure_behavior = "missing, duplicate, foreign, unrelated, unmatched, ambiguous, unsupported, invalid, and exhausted inputs expose no partial body list, including after an earlier body completed internally"
+homogeneous_apis = "lower_direct_calls and lower_expressions retain their existing behavior"
+compilation_modes = ["jit", "aot"]
+focused_tests = 13
+callback_invocation_broader_storage_reads_assignments_updates_implicit_output_control_flow_combined_graphs_final_implicit_result_iet_main_interpretation_optimization_and_machine_emission = "not implemented"
+native_oracle_status = "not required for structural routing; the pinned per-item compilation path, expression dispatch, direct-call construction, and COC boundaries define the retained behavior"
+
+[[feature]]
 id = "HC-SEMA-DEFINED-OPERAND-RETENTION"
 description = "Ordinary language defined expressions retain the exact source token needed by later source-ordered evaluation."
 sources = [
