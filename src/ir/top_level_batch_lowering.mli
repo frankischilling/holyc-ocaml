@@ -39,6 +39,23 @@ val lower_expressions :
     statement and compiler-option counts must agree. No body is exposed unless
     the complete batch succeeds. *)
 
+val lower_mixed :
+  stream_id:Top_level_body.Stream_id.t ->
+  block_id:Instruction_sequence.Block_id.t ->
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  compiler_options:int64 list ->
+  targets:Sema.Top_level_function_call_target_classification.t list ->
+  Sema.Function_call_expression_result.top_level_statement_result list ->
+  (lowering_result, error list) result
+(** Lower checked executable statements in source order. A classified target
+    selects the standalone direct-call path only when its semantic result ID
+    and physical root-expression object match the statement root. Target-list
+    order is independent of statement order; every other supported expression
+    statement uses ordinary expression lowering. Target assignment and
+    compiler-option counts are validated before lowering, so no body is exposed
+    unless the complete batch succeeds. *)
+
 val bodies : t -> Top_level_body.t list
 val next_stream_id : t -> Top_level_body.Stream_id.t
 val next_block_id : t -> Instruction_sequence.Block_id.t
