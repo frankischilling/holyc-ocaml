@@ -5,6 +5,8 @@ module Top_level = Holyc_lib.Ir_top_level_body
 module Opcode = Holyc_lib.Ir_opcode
 module Option_ = Holyc_lib.Compiler_option
 module Semantic_result = Holyc_lib.Semantic_function_call_expression_result
+module Tree = Holyc_lib.Semantic_top_level_expression_tree
+module Binding = Holyc_lib.Semantic_top_level_outer_expression_binding
 module Target = Holyc_lib.Semantic_top_level_function_call_target_classification
 module Preprocessor = Holyc_lib.Preprocessor
 
@@ -50,12 +52,24 @@ let inputs ~mode ~path source =
   in
   (targets, Semantic_result.top_level_statements results)
 
+let ordinary_statements ~mode ~path source =
+  let prepared = Test_top_level_expression_result.prepared ~mode ~path source in
+  let _, _, _, results = Test_top_level_expression_result.analyze prepared in
+  Semantic_result.top_level_statements results
+
 let lower ?(stream = 7) ?(block = 30) ?(instruction = 10) ?(value = 20)
     ~compiler_options ~targets statements =
   Batch.lower_direct_calls ~stream_id:(stream_id stream)
     ~block_id:(block_id block)
     ~instruction_id:(instruction_id instruction)
     ~value_id:(value_id value) ~compiler_options ~targets statements
+
+let lower_expressions ?(stream = 7) ?(block = 30) ?(instruction = 10)
+    ?(value = 20) ~compiler_options statements =
+  Batch.lower_expressions ~stream_id:(stream_id stream)
+    ~block_id:(block_id block)
+    ~instruction_id:(instruction_id instruction)
+    ~value_id:(value_id value) ~compiler_options statements
 
 let require_lowered = function
   | Batch.Lowered lowered -> lowered
@@ -71,6 +85,19 @@ let opcode_names body =
   descriptions body
   |> List.map (fun (description : Sequence.description) ->
       Opcode.to_source_name description.opcode)
+
+let statement_metadata statement =
+  let source =
+    statement |> Semantic_result.top_level_statement_source
+    |> Tree.statement_source
+  in
+  (Binding.statement_item_index source, Binding.statement_origin source)
+
+let span_of_origin = function
+  | Holyc_lib.Semantic_symbol.Source_location location -> location.span
+  | Holyc_lib.Semantic_symbol.Pinned_source _
+  | Holyc_lib.Semantic_symbol.Synthesized _ ->
+      Alcotest.fail "expected source-backed top-level statement provenance"
 
 let empty_and_single_batches_thread_identity () =
   let empty =
@@ -249,8 +276,231 @@ let invalid_unsupported_and_exhausted_batches_are_atomic () =
         errors
   | Ok _ -> Alcotest.fail "exhausted owner identities produced a batch"
 
+let expression_empty_and_single_batches_thread_identity () =
+  let empty =
+    lower_expressions ~compiler_options:[] []
+    |> require_ok show_batch_errors
+    |> require_lowered
+  in
+  Alcotest.(check int)
+    "empty expression body count" 0
+    (List.length (Batch.bodies empty));
+  Alcotest.(check (list int))
+    "empty expression batch leaves every cursor unchanged" [ 7; 30; 10; 20 ]
+    [
+      Batch.next_stream_id empty |> Top_level.Stream_id.to_int;
+      Batch.next_block_id empty |> Sequence.Block_id.to_int;
+      Batch.next_instruction_id empty |> Sequence.Instruction_id.to_int;
+      Batch.next_value_id empty |> Sequence.Value_id.to_int;
+    ];
+  let statement =
+    ordinary_statements ~mode:Preprocessor.Jit
+      ~path:"ir-top-level-expression-batch-single.HC" "1+2;"
+    |> List.hd
+  in
+  let single =
+    lower_expressions ~compiler_options:[ 0L ] [ statement ]
+    |> require_ok show_batch_errors
+    |> require_lowered
+  in
+  Alcotest.(check int)
+    "single expression body count" 1
+    (List.length (Batch.bodies single));
+  Alcotest.(check (list int))
+    "single expression advances every cursor exactly" [ 8; 31; 15; 23 ]
+    [
+      Batch.next_stream_id single |> Top_level.Stream_id.to_int;
+      Batch.next_block_id single |> Sequence.Block_id.to_int;
+      Batch.next_instruction_id single |> Sequence.Instruction_id.to_int;
+      Batch.next_value_id single |> Sequence.Value_id.to_int;
+    ];
+  let body = List.hd (Batch.bodies single) in
+  let item_position, origin = statement_metadata statement in
+  Alcotest.(check int)
+    "single expression item position" item_position
+    (Top_level.item_position body);
+  Alcotest.(check bool)
+    "single expression span" true
+    (Top_level.span body = Some (span_of_origin origin));
+  Alcotest.(check (list string))
+    "single expression body boundary"
+    [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_ADD"; "IC_END_EXP"; "IC_END" ]
+    (opcode_names body)
+
+let expression_batches_cover_supported_families () =
+  let source =
+    "class Base {I8 inherited;};class Box : Base {I16 prefix;};Box \
+     global;1+2;1.0+2;$$;defined(missing);sizeof(I64);offset(global.prefix);"
+  in
+  let expected_opcodes =
+    [
+      [ "IC_IMM_I64"; "IC_IMM_I64"; "IC_ADD"; "IC_END_EXP"; "IC_END" ];
+      [ "IC_IMM_F64"; "IC_IMM_I64"; "IC_ADD"; "IC_END_EXP"; "IC_END" ];
+      [ "IC_RIP"; "IC_END_EXP"; "IC_END" ];
+      [ "IC_IMM_I64"; "IC_END_EXP"; "IC_END" ];
+      [ "IC_IMM_I64"; "IC_END_EXP"; "IC_END" ];
+      [ "IC_IMM_I64"; "IC_END_EXP"; "IC_END" ];
+    ]
+  in
+  let options =
+    [
+      Option_.mask Option_.Trace;
+      Option_.mask Option_.No_reg_var;
+      0L;
+      Option_.mask Option_.Trace;
+      Option_.mask Option_.No_reg_var;
+      0L;
+    ]
+  in
+  List.iter
+    (fun mode ->
+      let statements =
+        ordinary_statements ~mode ~path:"ir-top-level-expression-batch.HC"
+          source
+      in
+      let lower_once () =
+        lower_expressions ~compiler_options:options statements
+        |> require_ok show_batch_errors
+        |> require_lowered
+      in
+      let lowered = lower_once () in
+      let bodies = Batch.bodies lowered in
+      Alcotest.(check int) "six expression bodies" 6 (List.length bodies);
+      Alcotest.(check (list int))
+        "consecutive expression stream identities" [ 7; 8; 9; 10; 11; 12 ]
+        (List.map
+           (fun body -> Top_level.stream_id body |> Top_level.Stream_id.to_int)
+           bodies);
+      Alcotest.(check (list int))
+        "consecutive expression entry blocks" [ 30; 31; 32; 33; 34; 35 ]
+        (List.map
+           (fun body ->
+             Top_level.body body |> Graph.entry |> Graph.block_id
+             |> Sequence.Block_id.to_int)
+           bodies);
+      Alcotest.(check (list int64))
+        "source-ordered expression options" options
+        (List.map Top_level.compiler_options bodies);
+      Alcotest.(check (list (list string)))
+        "supported expression families" expected_opcodes
+        (List.map opcode_names bodies);
+      Alcotest.(check bool)
+        "every expression body retains its statement metadata" true
+        (List.for_all2
+           (fun statement body ->
+             let item_position, origin = statement_metadata statement in
+             Top_level.item_position body = item_position
+             && Top_level.span body = Some (span_of_origin origin))
+           statements bodies);
+      Alcotest.(check (list int))
+        "multi-expression cursors" [ 13; 36; 32; 30 ]
+        [
+          Batch.next_stream_id lowered |> Top_level.Stream_id.to_int;
+          Batch.next_block_id lowered |> Sequence.Block_id.to_int;
+          Batch.next_instruction_id lowered |> Sequence.Instruction_id.to_int;
+          Batch.next_value_id lowered |> Sequence.Value_id.to_int;
+        ];
+      Alcotest.(check string)
+        "expression batch dumps replay deterministically" (Batch.human lowered)
+        (lower_once () |> Batch.human))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let expression_batch_failures_are_atomic () =
+  let statements =
+    ordinary_statements ~mode:Preprocessor.Jit
+      ~path:"ir-top-level-expression-batch-failure.HC" "1;2;"
+  in
+  (match lower_expressions ~compiler_options:[ 0L ] statements with
+  | Error [ error ] ->
+      Alcotest.(check string)
+        "expression count diagnostic" "HCIRL0004" error.code;
+      Alcotest.(check (option int))
+        "no expression statement was entered" None error.statement_index
+  | Error errors ->
+      Alcotest.failf "expected one expression count diagnostic, got %d"
+        (List.length errors)
+  | Ok _ -> Alcotest.fail "mismatched expression counts produced bodies");
+  (match
+     lower_expressions
+       ~compiler_options:[ 0L; Int64.shift_left 1L 63 ]
+       statements
+   with
+  | Error [ error ] ->
+      Alcotest.(check string)
+        "expression option diagnostic" "HCIR0037" error.code;
+      Alcotest.(check (option int))
+        "second expression statement context" (Some 1) error.statement_index
+  | Error errors ->
+      Alcotest.failf "expected one expression option diagnostic, got %d"
+        (List.length errors)
+  | Ok _ ->
+      Alcotest.fail
+        "a partial expression batch escaped before an option failure");
+  let unsupported =
+    ordinary_statements ~mode:Preprocessor.Jit
+      ~path:"ir-top-level-expression-batch-unsupported.HC" "1;I64 value;value;"
+  in
+  (match
+     lower_expressions ~compiler_options:[ 0L; 0L ] unsupported
+     |> require_ok show_batch_errors
+   with
+  | Batch.Unsupported_batch -> ()
+  | Batch.Lowered _ ->
+      Alcotest.fail "an unsupported expression batch produced bodies");
+  let invalid =
+    ordinary_statements ~mode:Preprocessor.Jit
+      ~path:"ir-top-level-expression-batch-role.HC" "1;if(1) 2;"
+  in
+  (match lower_expressions ~compiler_options:[ 0L; 0L ] invalid with
+  | Error [ error ] ->
+      Alcotest.(check string)
+        "expression role diagnostic" "HCIRL0004" error.code;
+      Alcotest.(check (option int))
+        "invalid second expression context" (Some 1) error.statement_index
+  | Error errors ->
+      Alcotest.failf "expected one expression role diagnostic, got %d"
+        (List.length errors)
+  | Ok _ -> Alcotest.fail "a multi-root expression batch produced bodies");
+  let literal = [ List.hd statements ] in
+  (match
+     lower_expressions ~instruction:(Int.max_int - 2) ~compiler_options:[ 0L ]
+       literal
+   with
+  | Error [ error ] ->
+      Alcotest.(check string)
+        "expression identity diagnostic" "HCIRL0005" error.code;
+      Alcotest.(check (option int))
+        "expression identity statement context" (Some 0) error.statement_index
+  | Error errors ->
+      Alcotest.failf "expected one expression identity diagnostic, got %d"
+        (List.length errors)
+  | Ok _ -> Alcotest.fail "exhausted expression identities produced a batch");
+  match
+    lower_expressions ~stream:Int.max_int ~block:Int.max_int
+      ~compiler_options:[ 0L ] literal
+  with
+  | Error errors ->
+      Alcotest.(check (list string))
+        "both expression owner cursors report exhaustion"
+        [ "HCIRL0005"; "HCIRL0005" ]
+        (List.map (fun (error : Batch.error) -> error.code) errors);
+      List.iter
+        (fun (error : Batch.error) ->
+          Alcotest.(check (option int))
+            "exhausted expression statement context" (Some 0)
+            error.statement_index)
+        errors
+  | Ok _ ->
+      Alcotest.fail "exhausted expression owner identities produced a batch"
+
 let tests =
   [
+    Alcotest.test_case "empty and single expression batches" `Quick
+      expression_empty_and_single_batches_thread_identity;
+    Alcotest.test_case "multi-expression batches" `Quick
+      expression_batches_cover_supported_families;
+    Alcotest.test_case "expression batch failure atomicity" `Quick
+      expression_batch_failures_are_atomic;
     Alcotest.test_case "empty and single batches" `Quick
       empty_and_single_batches_thread_identity;
     Alcotest.test_case "multi-statement batches" `Quick

@@ -8635,6 +8635,36 @@ mixed_batches_identifiers_storage_assignments_updates_callbacks_implicit_output_
 native_oracle_status = "not required for structural body assembly; ordinary PrsExpression dispatch and COC initialization define the boundary"
 
 [[feature]]
+id = "HC-IR-TOP-LEVEL-EXPRESSION-BATCH"
+description = "A source-ordered batch of ordinary expression statements becomes an atomic list of checked top-level bodies."
+sources = [
+  "Compiler/CMain.HC:CmpJoin and LexStmt2Bin per-item executable top-level route",
+  "Compiler/PrsLib.HC:98-105 independent COC initialization and IC_END sentinel",
+  "Compiler/PrsStmt.HC:1204-1210 ordinary expression statement dispatch",
+  "Compiler/PrsExp.HC:264-295 IC_END_EXP construction"
+]
+implementation = [
+  "src/ir/top_level_batch_lowering.ml",
+  "src/ir/top_level_batch_lowering.mli",
+  "src/ir/top_level_statement_lowering.ml"
+]
+tests = ["test/test_ir_top_level_batch_lowering.ml"]
+status = "implemented"
+issue = 554
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "equal-length source-ordered lists of checked ordinary expression statements and explicit compiler-option snapshots"
+expression_families = ["integer arithmetic", "mixed F64 arithmetic", "ordinary current position", "resolved defined", "primitive sizeof", "checked aggregate offset"]
+body_rule = "each statement produces one independently verified body with its own stream, entry block, item position, source span, compiler options, IC_END_EXP, and IC_END"
+identity = "stream and block cursors advance once per body; instruction and value cursors continue from the preceding body's exact next identities"
+empty_batch = "returns no bodies and leaves all four caller-supplied cursors unchanged"
+diagnostics = ["HCIRL0004 input-count, statement-root, or child metadata mismatch", "HCIRL0005 stream, block, instruction, or value exhaustion", "HCIR0037 invalid compiler-option snapshot", "checked child sequence, graph, metadata, and x87 diagnostics"]
+failure_behavior = "unsupported and invalid inputs expose no partial list even when an earlier statement completed internally"
+compilation_modes = ["jit", "aot"]
+focused_tests = 3
+mixed_statement_selection_assignments_updates_callbacks_implicit_output_control_flow_combined_graphs_iet_main_interpretation_and_machine_emission = "not implemented"
+native_oracle_status = "not required for structural batching; CmpJoin's per-item route, ordinary PrsExpression dispatch, and COC initialization define the boundary"
+
+[[feature]]
 id = "HC-SEMA-DEFINED-OPERAND-RETENTION"
 description = "Ordinary language defined expressions retain the exact source token needed by later source-ordered evaluation."
 sources = [

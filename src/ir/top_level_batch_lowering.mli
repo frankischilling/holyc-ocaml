@@ -27,6 +27,18 @@ val lower_direct_calls :
     Input counts must agree. No body is exposed unless the complete batch
     succeeds. *)
 
+val lower_expressions :
+  stream_id:Top_level_body.Stream_id.t ->
+  block_id:Instruction_sequence.Block_id.t ->
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  compiler_options:int64 list ->
+  Sema.Function_call_expression_result.top_level_statement_result list ->
+  (lowering_result, error list) result
+(** Lower an exact source-ordered batch of ordinary expression statements. The
+    statement and compiler-option counts must agree. No body is exposed unless
+    the complete batch succeeds. *)
+
 val bodies : t -> Top_level_body.t list
 val next_stream_id : t -> Top_level_body.Stream_id.t
 val next_block_id : t -> Instruction_sequence.Block_id.t

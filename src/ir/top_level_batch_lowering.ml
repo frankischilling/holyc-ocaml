@@ -44,12 +44,19 @@ let child_error statement_index (error : Statement.error) =
     ?instruction_id:error.instruction_id ?span:error.span error.code
     error.message
 
-let count_error statement_count target_count option_count =
+let direct_call_count_error statement_count target_count option_count =
   make_error "HCIRL0004"
     (Printf.sprintf
        "top-level direct-call batch has %d statements, %d targets, and %d \
         compiler-option snapshots"
        statement_count target_count option_count)
+
+let expression_count_error statement_count option_count =
+  make_error "HCIRL0004"
+    (Printf.sprintf
+       "top-level expression batch has %d statements and %d compiler-option \
+        snapshots"
+       statement_count option_count)
 
 let next_stream_id ~statement_index stream_id =
   let current = Top_level.Stream_id.to_int stream_id in
@@ -91,51 +98,66 @@ let advance_owner_ids ~statement_index stream_id block_id =
   | Ok _, Error block_error -> Error [ block_error ]
   | Error stream_error, Error block_error -> Error [ stream_error; block_error ]
 
+let lower_items ~stream_id ~block_id ~instruction_id ~value_id ~compiler_options
+    lower_statement items =
+  let rec lower reversed_bodies statement_index stream_id block_id
+      instruction_id value_id options items =
+    match (options, items) with
+    | [], [] ->
+        Ok
+          (Lowered
+             {
+               bodies_ = List.rev reversed_bodies;
+               next_stream_id_ = stream_id;
+               next_block_id_ = block_id;
+               next_instruction_id_ = instruction_id;
+               next_value_id_ = value_id;
+             })
+    | compiler_options :: remaining_options, item :: remaining_items -> (
+        match
+          lower_statement ~stream_id ~block_id ~instruction_id ~value_id
+            ~compiler_options item
+        with
+        | Error errors -> Error (List.map (child_error statement_index) errors)
+        | Ok Statement.Unsupported_statement -> Ok Unsupported_batch
+        | Ok (Statement.Lowered lowered) -> (
+            match advance_owner_ids ~statement_index stream_id block_id with
+            | Error _ as error -> error
+            | Ok (next_stream_id, next_block_id) ->
+                lower
+                  (Statement.body lowered :: reversed_bodies)
+                  (statement_index + 1) next_stream_id next_block_id
+                  (Statement.next_instruction_id lowered)
+                  (Statement.next_value_id lowered)
+                  remaining_options remaining_items))
+    | _ -> assert false
+  in
+  lower [] 0 stream_id block_id instruction_id value_id compiler_options items
+
 let lower_direct_calls ~stream_id ~block_id ~instruction_id ~value_id
     ~compiler_options ~targets statements =
   let statement_count = List.length statements in
   let target_count = List.length targets in
   let option_count = List.length compiler_options in
   if statement_count <> target_count || statement_count <> option_count then
-    Error [ count_error statement_count target_count option_count ]
+    Error [ direct_call_count_error statement_count target_count option_count ]
   else
-    let rec lower reversed_bodies statement_index stream_id block_id
-        instruction_id value_id options targets statements =
-      match (options, targets, statements) with
-      | [], [], [] ->
-          Ok
-            (Lowered
-               {
-                 bodies_ = List.rev reversed_bodies;
-                 next_stream_id_ = stream_id;
-                 next_block_id_ = block_id;
-                 next_instruction_id_ = instruction_id;
-                 next_value_id_ = value_id;
-               })
-      | ( compiler_options :: remaining_options,
-          target :: remaining_targets,
-          statement :: remaining_statements ) -> (
-          match
-            Statement.lower_direct_call ~stream_id ~block_id ~instruction_id
-              ~value_id ~compiler_options ~target statement
-          with
-          | Error errors ->
-              Error (List.map (child_error statement_index) errors)
-          | Ok Statement.Unsupported_statement -> Ok Unsupported_batch
-          | Ok (Statement.Lowered lowered) -> (
-              match advance_owner_ids ~statement_index stream_id block_id with
-              | Error _ as error -> error
-              | Ok (next_stream_id, next_block_id) ->
-                  lower
-                    (Statement.body lowered :: reversed_bodies)
-                    (statement_index + 1) next_stream_id next_block_id
-                    (Statement.next_instruction_id lowered)
-                    (Statement.next_value_id lowered)
-                    remaining_options remaining_targets remaining_statements))
-      | _ -> assert false
-    in
-    lower [] 0 stream_id block_id instruction_id value_id compiler_options
-      targets statements
+    lower_items ~stream_id ~block_id ~instruction_id ~value_id ~compiler_options
+      (fun ~stream_id ~block_id ~instruction_id ~value_id ~compiler_options
+           (target, statement) ->
+        Statement.lower_direct_call ~stream_id ~block_id ~instruction_id
+          ~value_id ~compiler_options ~target statement)
+      (List.combine targets statements)
+
+let lower_expressions ~stream_id ~block_id ~instruction_id ~value_id
+    ~compiler_options statements =
+  let statement_count = List.length statements in
+  let option_count = List.length compiler_options in
+  if statement_count <> option_count then
+    Error [ expression_count_error statement_count option_count ]
+  else
+    lower_items ~stream_id ~block_id ~instruction_id ~value_id ~compiler_options
+      Statement.lower_expression statements
 
 let bodies lowered = lowered.bodies_
 let next_stream_id lowered = lowered.next_stream_id_
