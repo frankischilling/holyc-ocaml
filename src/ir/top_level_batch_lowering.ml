@@ -31,8 +31,7 @@ type t = {
 type lowering_result = Lowered of t | Unsupported_batch
 
 type mixed_item =
-  | Direct_call of
-      Target.t * Semantic_result.top_level_statement_result
+  | Direct_call of Target.t * Semantic_result.top_level_statement_result
   | Expression of Semantic_result.top_level_statement_result
 
 type mixed_candidate = {
@@ -80,7 +79,8 @@ let expression_count_error statement_count option_count =
 let mixed_count_error statement_count option_count =
   make_error "HCIRL0004"
     (Printf.sprintf
-       "top-level mixed batch has %d statements and %d compiler-option snapshots"
+       "top-level mixed batch has %d statements and %d compiler-option \
+        snapshots"
        statement_count option_count)
 
 let target_result_id target =
@@ -100,8 +100,8 @@ let unmatched_target_error target =
 let ambiguous_target_error target =
   make_error "HCIRL0004"
     (Printf.sprintf
-       "top-level mixed batch target result %d matches more than one standalone \
-        statement root"
+       "top-level mixed batch target result %d matches more than one \
+        standalone statement root"
        (target |> target_result_id |> Semantic_result.Id.to_int))
 
 let duplicate_target_error statement_index =
@@ -119,22 +119,21 @@ let call_is_direct_root source call =
   && Resolution.call_callee_form (Tree.call_source call)
      = Resolution.Identifier_callee
   &&
-  match
-    call |> Tree.call_callee |> Outer_binding.occurrence_resolution
-  with
+  match call |> Tree.call_callee |> Outer_binding.occurrence_resolution with
   | Outer_binding.Module_binding publication ->
       Publication.publication_kind publication = Publication.Function
   | Outer_binding.Outer_binding _ -> false
 
 let statement_has_direct_root statement source =
   statement |> Semantic_result.top_level_statement_source
-  |> Tree.statement_calls |> List.exists (call_is_direct_root source)
+  |> Tree.statement_calls
+  |> List.exists (call_is_direct_root source)
 
 let standalone_candidate statement_index statement =
   match Semantic_result.top_level_statement_roots statement with
-  | [ root ] ->
+  | [ root ] -> (
       let source = Semantic_result.top_level_root_source root in
-      (match Tree.root_role source with
+      match Tree.root_role source with
       | Tree.Expression_statement _ ->
           Some
             {
@@ -142,7 +141,8 @@ let standalone_candidate statement_index statement =
               result = Semantic_result.top_level_root_value root;
               source = Tree.root_expression source;
               is_direct_call =
-                statement_has_direct_root statement (Tree.root_expression source);
+                statement_has_direct_root statement
+                  (Tree.root_expression source);
             }
       | Tree.Implicit_output_fixed _
       | Tree.Implicit_output_argument _
@@ -220,8 +220,9 @@ let mixed_items ~targets statements =
             | None, Some candidate when candidate.is_direct_call ->
                 Error [ missing_target_error statement_index ]
             | None, _ ->
-                build (Expression statement :: reversed) (statement_index + 1)
-                  remaining)
+                build
+                  (Expression statement :: reversed)
+                  (statement_index + 1) remaining)
       in
       build [] 0 statements
 
@@ -326,8 +327,8 @@ let lower_expressions ~stream_id ~block_id ~instruction_id ~value_id
     lower_items ~stream_id ~block_id ~instruction_id ~value_id ~compiler_options
       Statement.lower_expression statements
 
-let lower_mixed ~stream_id ~block_id ~instruction_id ~value_id
-    ~compiler_options ~targets statements =
+let lower_mixed ~stream_id ~block_id ~instruction_id ~value_id ~compiler_options
+    ~targets statements =
   let statement_count = List.length statements in
   let option_count = List.length compiler_options in
   if statement_count <> option_count then
@@ -338,11 +339,12 @@ let lower_mixed ~stream_id ~block_id ~instruction_id ~value_id
     | Ok items ->
         lower_items ~stream_id ~block_id ~instruction_id ~value_id
           ~compiler_options
-          (fun ~stream_id ~block_id ~instruction_id ~value_id
-               ~compiler_options -> function
+          (fun ~stream_id ~block_id ~instruction_id ~value_id ~compiler_options
+             ->
+            function
             | Direct_call (target, statement) ->
-                Statement.lower_direct_call ~stream_id ~block_id
-                  ~instruction_id ~value_id ~compiler_options ~target statement
+                Statement.lower_direct_call ~stream_id ~block_id ~instruction_id
+                  ~value_id ~compiler_options ~target statement
             | Expression statement ->
                 Statement.lower_expression ~stream_id ~block_id ~instruction_id
                   ~value_id ~compiler_options statement)

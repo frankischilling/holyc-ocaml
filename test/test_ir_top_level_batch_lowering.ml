@@ -619,8 +619,8 @@ let mixed_empty_and_homogeneous_batches_preserve_behavior () =
       "mixed calls retain mode-specific access" expected_access
       (mixed |> Batch.bodies
       |> List.map (fun body ->
-             let description = List.nth (descriptions body) 4 in
-             Opcode.to_source_name description.opcode))
+          let description = List.nth (descriptions body) 4 in
+          Opcode.to_source_name description.opcode))
   in
   run_calls Preprocessor.Jit "ir-top-level-mixed-calls-jit.HC"
     "_extern _BOUND I64 Direct(I64 first,...);\n\
@@ -648,11 +648,9 @@ let mixed_orders_preserve_source_metadata_and_cursors () =
     let bodies = Batch.bodies lowered in
     Alcotest.(check int) "two mixed bodies" 2 (List.length bodies);
     Alcotest.(check (list int))
-      "mixed source-order stream identities" [ 7; 8 ]
-      (body_stream_ids bodies);
+      "mixed source-order stream identities" [ 7; 8 ] (body_stream_ids bodies);
     Alcotest.(check (list int))
-      "mixed source-order block identities" [ 30; 31 ]
-      (body_block_ids bodies);
+      "mixed source-order block identities" [ 30; 31 ] (body_block_ids bodies);
     Alcotest.(check (list int64))
       "mixed source-order compiler options" options
       (List.map Top_level.compiler_options bodies);
@@ -661,7 +659,9 @@ let mixed_orders_preserve_source_metadata_and_cursors () =
       (List.map opcode_names bodies);
     Alcotest.(check (list int))
       "mixed source-order item positions"
-      (List.map (fun statement -> fst (statement_metadata statement)) statements)
+      (List.map
+         (fun statement -> fst (statement_metadata statement))
+         statements)
       (List.map Top_level.item_position bodies);
     Alcotest.(check bool)
       "mixed source-order spans" true
@@ -671,8 +671,7 @@ let mixed_orders_preserve_source_metadata_and_cursors () =
            Top_level.span body = Some (span_of_origin origin))
          statements bodies);
     Alcotest.(check (list int))
-      "two-item mixed cursors" [ 9; 32; 24; 27 ]
-      (batch_cursors lowered);
+      "two-item mixed cursors" [ 9; 32; 24; 27 ] (batch_cursors lowered);
     Alcotest.(check string)
       "two-item mixed dump is deterministic" (Batch.human lowered)
       (lower_once () |> Batch.human)
@@ -743,16 +742,13 @@ let mixed_alternating_batch_ignores_target_order () =
          && Top_level.span body = Some (span_of_origin origin))
        statements bodies);
   Alcotest.(check (list int))
-    "alternating mixed cursors" [ 13; 36; 52; 41 ]
-    (batch_cursors lowered);
+    "alternating mixed cursors" [ 13; 36; 52; 41 ] (batch_cursors lowered);
   Alcotest.(check string)
     "alternating mixed dump is deterministic" (Batch.human lowered)
     (lower_once () |> Batch.human)
 
 let mixed_target_validation_is_atomic () =
-  let source =
-    "_extern _BOUND I64 Direct(I64 first,...);Direct(1,2);"
-  in
+  let source = "_extern _BOUND I64 Direct(I64 first,...);Direct(1,2);" in
   let records, calls, statements =
     analyzed_inputs ~mode:Preprocessor.Jit
       ~path:"ir-top-level-mixed-target-validation.HC" source
@@ -775,7 +771,8 @@ let mixed_target_validation_is_atomic () =
   expect_mixed_error "separately classified duplicate target" "HCIRL0004"
     (Some 0)
     (lower_mixed ~compiler_options:[ 0L ]
-       ~targets:[ target; separately_classified ] [ statement ]);
+       ~targets:[ target; separately_classified ]
+       [ statement ]);
   expect_mixed_error "missing standalone target" "HCIRL0004" (Some 0)
     (lower_mixed ~compiler_options:[ 0L ] ~targets:[] [ statement ]);
   expect_mixed_error "ambiguous duplicated statement" "HCIRL0004" None
@@ -784,8 +781,8 @@ let mixed_target_validation_is_atomic () =
   expect_mixed_error "target without statements" "HCIRL0004" None
     (lower_mixed ~compiler_options:[] ~targets:[ target ] []);
   let foreign_targets, _ =
-    inputs ~mode:Preprocessor.Jit
-      ~path:"ir-top-level-mixed-foreign-target.HC" source
+    inputs ~mode:Preprocessor.Jit ~path:"ir-top-level-mixed-foreign-target.HC"
+      source
   in
   expect_mixed_error "foreign mixed target" "HCIRL0004" None
     (lower_mixed ~compiler_options:[ 0L ] ~targets:foreign_targets [ statement ]);
@@ -802,8 +799,8 @@ let mixed_nested_calls_are_not_standalone_targets () =
       "I64 Callee(){return 1;}1+Callee();"
   in
   Alcotest.(check int) "one nested classified call" 1 (List.length targets);
-  Alcotest.(check int) "one nested expression statement" 1
-    (List.length statements);
+  Alcotest.(check int)
+    "one nested expression statement" 1 (List.length statements);
   expect_mixed_error "nested target is not a statement root" "HCIRL0004" None
     (lower_mixed ~compiler_options:[ 0L ] ~targets statements);
   expect_mixed_unsupported "nested call follows expression lowering"
@@ -816,10 +813,9 @@ let mixed_identifier_callbacks_are_not_direct_call_targets () =
       "I64 (*Callback)(I64 value);Callback(1);"
   in
   Alcotest.(check int)
-    "identifier callback is not a classified direct call" 0
-    (List.length calls);
-  Alcotest.(check int) "one callback expression statement" 1
-    (List.length statements);
+    "identifier callback is not a classified direct call" 0 (List.length calls);
+  Alcotest.(check int)
+    "one callback expression statement" 1 (List.length statements);
   expect_mixed_unsupported "identifier callback follows expression lowering"
     (lower_mixed ~compiler_options:[ 0L ] ~targets:[] statements)
 
@@ -828,8 +824,7 @@ let mixed_post_prefix_failures_are_atomic () =
     "_extern _BOUND I64 Direct(I64 first,...);Direct(1,2);1+2;"
   in
   let targets, statements =
-    inputs ~mode:Preprocessor.Jit
-      ~path:"ir-top-level-mixed-invalid-option.HC"
+    inputs ~mode:Preprocessor.Jit ~path:"ir-top-level-mixed-invalid-option.HC"
       call_then_expression_source
   in
   expect_mixed_error "mixed option failure after a body" "HCIR0037" (Some 1)
@@ -856,10 +851,9 @@ let mixed_post_prefix_failures_are_atomic () =
   in
   expect_mixed_error "mixed instruction exhaustion after a body" "HCIRL0005"
     (Some 1)
-    (lower_mixed ~instruction:(Int.max_int - 5)
-       ~compiler_options:[ 0L; 0L ] ~targets:[] expressions);
-  expect_mixed_error "mixed value exhaustion after a body" "HCIRL0005"
-    (Some 1)
+    (lower_mixed ~instruction:(Int.max_int - 5) ~compiler_options:[ 0L; 0L ]
+       ~targets:[] expressions);
+  expect_mixed_error "mixed value exhaustion after a body" "HCIRL0005" (Some 1)
     (lower_mixed ~value:(Int.max_int - 3) ~compiler_options:[ 0L; 0L ]
        ~targets:[] expressions);
   match

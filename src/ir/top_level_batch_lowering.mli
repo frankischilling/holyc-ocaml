@@ -49,9 +49,9 @@ val lower_mixed :
   Sema.Function_call_expression_result.top_level_statement_result list ->
   (lowering_result, error list) result
 (** Lower checked executable statements in source order. A classified target
-    selects the standalone direct-call path only when its semantic result ID
-    and physical root-expression object match the statement root. Target-list
-    order is independent of statement order; every other supported expression
+    selects the standalone direct-call path only when its semantic result ID and
+    physical root-expression object match the statement root. Target-list order
+    is independent of statement order; every other supported expression
     statement uses ordinary expression lowering. Target assignment and
     compiler-option counts are validated before lowering, so no body is exposed
     unless the complete batch succeeds. *)
