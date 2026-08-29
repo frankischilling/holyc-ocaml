@@ -470,7 +470,7 @@ The top-level statement-lowering group constructs one checked body from an ordin
 dune exec test/test_main.exe -- test "IR top-level statement lowering"
 ```
 
-The top-level batch-lowering group threads those bodies across empty, single, and two-statement inputs. It covers JIT and AOT access choices, per-statement compiler options, consecutive stream and block identities, exact instruction and value cursor continuation, deterministic dumps, mismatched counts, foreign targets, unsupported calls, a failure after an internally completed prefix, and simultaneous stream/block exhaustion. Run only this group with:
+The six-case top-level batch-lowering group has three direct-call cases and three ordinary-expression cases. Both paths cover empty, single, and multi-statement inputs, per-statement compiler options, consecutive stream and block identities, exact instruction and value cursor continuation, deterministic dumps, count validation, a failure after an internally completed prefix, and simultaneous owner-identity exhaustion. The direct-call cases cover JIT and AOT access choices, foreign targets, and unsupported calls. The expression cases cover integer and mixed-F64 arithmetic, current position, resolved `defined`, primitive `sizeof`, checked aggregate offsets, exact source metadata, invalid options, unsupported identifier storage reads, invalid control roots, and instruction or value exhaustion. Every failing batch remains atomic. Run only this group with:
 
 ```text
 dune exec test/test_main.exe -- test "IR top-level batch lowering"
