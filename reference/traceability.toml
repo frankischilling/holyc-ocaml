@@ -8605,6 +8605,36 @@ mixed_statement_selection_combined_graphs_callbacks_defaults_internal_operations
 native_oracle_status = "not required for structural batching; CmpJoin's per-item route and COC initialization define one independent stream per statement"
 
 [[feature]]
+id = "HC-IR-TOP-LEVEL-EXPRESSION-BODY"
+description = "One ordinary supported executable top-level expression statement becomes a verified body."
+sources = [
+  "Compiler/CMain.HC:CmpJoin and LexStmt2Bin executable top-level route",
+  "Compiler/PrsLib.HC:98-105 COC initialization and IC_END sentinel",
+  "Compiler/PrsStmt.HC:1204-1210 ordinary expression statement dispatch",
+  "Compiler/PrsExp.HC:264-295 IC_END_EXP construction"
+]
+implementation = [
+  "src/ir/top_level_statement_lowering.ml",
+  "src/ir/top_level_statement_lowering.mli",
+  "src/ir/expression_statement_lowering.ml"
+]
+tests = ["test/test_ir_top_level_statement_lowering.ml"]
+status = "implemented"
+issue = 552
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "one exact ordinary expression statement with one root accepted by the checked expression planner"
+expression_families = ["integer arithmetic", "mixed F64 arithmetic", "ordinary current position", "resolved defined", "primitive sizeof", "checked aggregate offset"]
+instruction_shape = "the checked expression and IC_END_EXP are followed by one spanless zero-argument, zero-result IC_END"
+shared_constructor = "ordinary expressions and standalone direct calls use one graph, body, metadata, x87, and cursor path"
+metadata = "the body retains the statement item position and span plus caller-owned stream, block, instruction, value, and compiler-option inputs"
+diagnostics = ["HCIRL0004 invalid statement root or child metadata", "HCIRL0005 instruction or value exhaustion", "checked graph, top-level metadata, and x87 diagnostics"]
+failure_behavior = "unsupported and invalid input exposes no partial sequence, graph, or body"
+compilation_modes = ["jit", "aot"]
+focused_tests = 3
+mixed_batches_identifiers_storage_assignments_updates_callbacks_implicit_output_control_flow_iet_main_interpretation_and_machine_emission = "not implemented"
+native_oracle_status = "not required for structural body assembly; ordinary PrsExpression dispatch and COC initialization define the boundary"
+
+[[feature]]
 id = "HC-SEMA-DEFINED-OPERAND-RETENTION"
 description = "Ordinary language defined expressions retain the exact source token needed by later source-ordered evaluation."
 sources = [

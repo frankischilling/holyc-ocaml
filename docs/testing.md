@@ -464,7 +464,7 @@ The executable top-level IR group checks stable stream identities, source-item p
 dune exec test/test_main.exe -- test "IR top-level body"
 ```
 
-The top-level statement-lowering group constructs one checked body from a standalone direct call. It covers JIT direct and extern-slot access, AOT direct and import access, fixed and variadic arguments, the exact `IC_END_EXP` and `IC_END` boundary, caller-owned stream, block, instruction, and value identities, retained statement metadata, explicit compiler options, deterministic dumps, mismatched ownership, unsupported defaults and internal operations, option validation, and identity exhaustion. Every failure path is checked before a body can escape. Run only this group with:
+The top-level statement-lowering group constructs one checked body from an ordinary supported expression or standalone direct call. Ordinary cases cover integer and mixed-F64 arithmetic, current position, resolved `defined`, primitive `sizeof`, and checked aggregate offsets in both modes. Call cases cover JIT direct and extern-slot access, AOT direct and import access, fixed and variadic arguments. The group checks the exact `IC_END_EXP` and `IC_END` boundary, caller-owned stream, block, instruction, and value identities, retained statement metadata, explicit compiler options, deterministic dumps, mismatched ownership, unsupported values, defaults and internal operations, invalid control roots, option validation, and identity exhaustion. Every failure path is checked before a body can escape. Run only this group with:
 
 ```text
 dune exec test/test_main.exe -- test "IR top-level statement lowering"

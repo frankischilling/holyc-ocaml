@@ -162,15 +162,12 @@ let build_body ~stream_id ~block_id:block_id_ ~compiler_options ~item_position
                          next_value_id_ = Statement.next_value_id statement;
                        }))))
 
-let lower_direct_call ~stream_id ~block_id ~instruction_id ~value_id
-    ~compiler_options ~target statement =
+let lower ~stream_id ~block_id ~instruction_id ~value_id ~compiler_options
+    lower_root statement =
   match statement_metadata ~stream_id statement with
   | Error _ as error -> error
   | Ok (item_position, span, root) -> (
-      match
-        Statement.lower_top_level_direct_call_statement ~instruction_id
-          ~value_id ~target root
-      with
+      match lower_root ~instruction_id ~value_id root with
       | Error errors ->
           Error
             (List.map
@@ -180,6 +177,17 @@ let lower_direct_call ~stream_id ~block_id ~instruction_id ~value_id
       | Ok (Statement.Lowered lowered) ->
           build_body ~stream_id ~block_id ~compiler_options ~item_position ~span
             lowered)
+
+let lower_expression ~stream_id ~block_id ~instruction_id ~value_id
+    ~compiler_options statement =
+  lower ~stream_id ~block_id ~instruction_id ~value_id ~compiler_options
+    Statement.lower_top_level_statement statement
+
+let lower_direct_call ~stream_id ~block_id ~instruction_id ~value_id
+    ~compiler_options ~target statement =
+  lower ~stream_id ~block_id ~instruction_id ~value_id ~compiler_options
+    (Statement.lower_top_level_direct_call_statement ~target)
+    statement
 
 let body lowered = lowered.body_
 let end_instruction_id lowered = lowered.end_instruction_id_
