@@ -324,9 +324,8 @@ let print_location buffer sources location =
   let allocated_size = Frame.location_allocated_size location in
   let alignment = Frame.location_alignment location in
   let origin = origin_text sources (Symbol.origin symbol) in
-  Printf.bprintf buffer
-    "  location symbol_id=%d name=%S binding_ordinal=%d kind=%s "
-    symbol_id name binding_ordinal kind;
+  Printf.bprintf buffer "  location symbol_id=%d name=%S " symbol_id name;
+  Printf.bprintf buffer "binding_ordinal=%d kind=%s " binding_ordinal kind;
   Printf.bprintf buffer
     "parameter_index=%s local_declaration_index=%s local_declarator_index=%s \
      %s %s declarator_shape=%s value_shape=%s dimensions=%s "
