@@ -28,6 +28,7 @@ let () =
       ("semantic global type resolution", Test_global_type_resolution.tests);
       ("semantic local type resolution", Test_local_type_resolution.tests);
       ("semantic function binding index", Test_function_binding_index.tests);
+      ("semantic function frame layout", Test_function_frame_layout.tests);
       ( "semantic function expression binding",
         Test_function_expression_binding.tests );
       ("semantic local warning analysis", Test_local_warning_analysis.tests);

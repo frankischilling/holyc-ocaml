@@ -32,6 +32,7 @@ type dependency_kind =
 
 type expression =
   | Integer_expression of { value : int64; origin : Symbol.origin }
+  | Floating_expression of { value : float; origin : Symbol.origin }
   | Current_position_expression of Symbol.origin
   | Unary_expression of {
       operator : unary_operator;
@@ -125,6 +126,7 @@ module Int_map = Map.Make (Int)
 module Int_set = Set.Make (Int)
 
 type t = {
+  table : Symbol_table.t;
   layouts : aggregate_layout list;
   by_symbol : aggregate_layout Int_map.t;
 }
@@ -214,6 +216,7 @@ type number = Integer of int64 | Floating of float
 
 let expression_origin = function
   | Integer_expression { origin; _ }
+  | Floating_expression { origin; _ }
   | Current_position_expression origin
   | Unary_expression { origin; _ }
   | Binary_expression { origin; _ }
@@ -340,6 +343,7 @@ let evaluate_eager_binary operator origin left right =
 
 let rec evaluate_number current_position = function
   | Integer_expression { value; _ } -> Ok (Integer value)
+  | Floating_expression { value; _ } -> Ok (Floating value)
   | Current_position_expression _ -> Ok (Integer current_position)
   | Dependency_expression { dependency_kind; detail; origin } ->
       Error (unresolved origin dependency_kind detail)
@@ -756,7 +760,7 @@ let lay_out_aggregate (previous : aggregate_layout Int_map.t)
 let layout ~table ~parent inputs =
   Result.bind (validate_inputs table parent inputs) (fun () ->
       let rec loop by_symbol layouts_rev = function
-        | [] -> Ok { layouts = List.rev layouts_rev; by_symbol }
+        | [] -> Ok { table; layouts = List.rev layouts_rev; by_symbol }
         | input :: rest ->
             Result.bind (lay_out_aggregate by_symbol input) (fun layout ->
                 loop
@@ -766,4 +770,11 @@ let layout ~table ~parent inputs =
       loop Int_map.empty [] inputs)
 
 let layouts result = result.layouts
-let find result symbol = Int_map.find_opt (symbol_key symbol) result.by_symbol
+let owns_table result table = result.table == table
+
+let find result symbol =
+  if not (Symbol_table.owns_symbol result.table symbol) then None
+  else
+    match Int_map.find_opt (symbol_key symbol) result.by_symbol with
+    | Some layout when layout.symbol == symbol -> Some layout
+    | Some _ | None -> None

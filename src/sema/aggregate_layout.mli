@@ -32,6 +32,7 @@ type dependency_kind =
 
 type expression =
   | Integer_expression of { value : int64; origin : Symbol.origin }
+  | Floating_expression of { value : float; origin : Symbol.origin }
   | Current_position_expression of Symbol.origin
   | Unary_expression of {
       operator : unary_operator;
@@ -157,6 +158,7 @@ val layout :
     a completed earlier layout; pointers do not require the pointee layout. *)
 
 val layouts : t -> aggregate_layout list
+val owns_table : t -> Symbol_table.t -> bool
 val find : t -> Symbol.t -> aggregate_layout option
 val error_code : error -> string
 val error_kind : error -> error_kind

@@ -4319,7 +4319,8 @@ array_extent_and_initializer_evaluation = "not implemented"
 duplicate_checking = "implemented separately by HC-SEMA-FUNCTION-BINDING-INDEX"
 ordinary_reference_resolution = "function-local parameter and local occurrences are implemented separately by HC-SEMA-FUNCTION-EXPRESSION-BINDINGS"
 declaration_flag_application = "implemented separately by HC-SEMA-LOCAL-MEMBER-FLAGS"
-stack_static_storage_and_register_allocation = "not implemented"
+frame_location_status = "automatic stack-frame locations and explicit static locations without frame slots are implemented separately by HC-SEMA-FUNCTION-FRAME-LAYOUT"
+static_allocation_register_selection_and_address_lowering = "not implemented"
 abi_and_linkage = "not implemented"
 native_oracle_status = "not required for this representation boundary; PrsStmt, PrsVarLst, PrsType, PrsArrayDims, and PrsDotDotDot state the retained facts directly"
 
@@ -4403,8 +4404,80 @@ mutation = "none"
 compilation_modes = ["jit", "aot"]
 expression_publication_and_binding = "implemented separately by HC-SEMA-FUNCTION-EXPRESSION-BINDINGS; this completed index remains read-only"
 use_counts = "not modified"
-storage_register_allocation_and_abi = "not implemented"
+frame_location_status = "implemented separately by HC-SEMA-FUNCTION-FRAME-LAYOUT using these exact binding identities"
+static_allocation_register_selection_address_lowering_and_machine_abi = "not implemented"
 native_oracle_status = "not required; MemberAdd, MemberFind, PrsVarLst, PrsFun, and Lex state the function namespace and duplicate rules directly"
+
+[[feature]]
+id = "HC-SEMA-FUNCTION-FRAME-LAYOUT"
+description = "Checked function definitions retain source-ordered, exact-identity locations for parameters and locals plus the completed automatic-local frame size."
+sources = [
+  "Compiler/PrsVar.HC:247-276 array dimension order and first empty extent",
+  "Compiler/PrsVar.HC:350-357 function-pointer storage class",
+  "Compiler/PrsVar.HC:373-402 synthetic variadic argument slots",
+  "Compiler/PrsVar.HC:521-532 checked class and dimension size inputs",
+  "Compiler/PrsVar.HC:534-546 static-local eight-byte allocation padding",
+  "Compiler/PrsVar.HC:590-628 automatic-local and ordinary-argument placement",
+  "Compiler/PrsStmt.HC:114-123 saved-RBP and return-address adjustment",
+  "Compiler/PrsStmt.HC:140-170 completed local-frame alignment",
+  "Compiler/PrsExp.HC:761-807 RBP-relative and static-local address paths",
+  "Compiler/PrsExp.HC:1140-1151 F64-to-I64 dimension conversion",
+  "Kernel/KernelB.HH:121 truncating ToI64 contract",
+  "Compiler/PrsLib.HC:40-76 class-pointer and function-pointer sizes",
+  "Compiler/CInit.HC:6-13 primitive storage sizes",
+  "Doc/ScopingLinkage.DD:97-118 function stack and static storage"
+]
+implementation = [
+  "src/driver/layout_expression_operator.ml",
+  "src/driver/layout_expression_operator.mli",
+  "src/sema/function_frame_layout.ml",
+  "src/sema/function_frame_layout.mli",
+  "src/sema/function_frame_layout_dump.ml",
+  "src/sema/function_frame_layout_dump.mli",
+  "src/driver/function_frame_layout.ml",
+  "src/driver/function_frame_layout.mli",
+  "src/holyc_lib.ml"
+]
+tests = [
+  "test/test_function_frame_layout.ml"
+]
+status = "implemented"
+issue = 558
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "checked function definitions; prototypes retain type and binding evidence but have no frame layout"
+function_order = "module item order"
+location_order = "named fixed parameters, synthetic argc and argv when present, then automatic and static locals in recursive statement and grouped-declarator order"
+location_kinds = ["named parameter", "variadic argc", "variadic argv", "automatic local", "static local"]
+identity = "every location retains the exact Function_binding_index binding and stable Symbol identity; no spelling-based storage classification or repeated lookup"
+retained_function_facts = ["function symbol", "function scope", "module item index", "source-ordered locations", "nonnegative local-frame byte size"]
+retained_location_facts = ["binding kind", "checked type", "object or function-pointer declarator shape", "scalar or array value shape", "array dimensions", "element size", "allocated size", "applied alignment", "optional RBP-relative frame slot"]
+parameter_slots = "each named fixed parameter occupies eight bytes at RBP + 16 + 8 * fixed_parameter_index regardless of declared scalar size; an unnamed fixed parameter advances the slot cursor without producing a location"
+variadic_slots = "argc and argv continue the fixed-parameter cursor and each occupies one eight-byte slot"
+argv_shape = "one Compiler_placeholder_extent dimension with value 127; the placeholder does not multiply the eight-byte argument slot"
+automatic_local_rule = "for total allocation size i, subtract then align down to 8 bytes when i >= 8, 4 bytes when 4 <= i < 8, 2 bytes when 2 <= i < 4, and use no extra alignment when i < 2"
+alignment_basis = "total allocated size after checked array multiplication, not element type alone"
+frame_size = "the final nonpositive automatic-local cursor is rounded down to eight bytes and exposed as a checked nonnegative Int64 byte count"
+element_sizes = "object pointers, aggregate pointers, and function pointers use eight bytes; non-pointer primitives use Primitive_type.info.byte_size; by-value classes and named unions use a completed Aggregate_layout size"
+array_dimensions = "exact final integral source extents are retained; an empty first dimension is Source_extent 0 and argv alone uses Compiler_placeholder_extent"
+zero_sized_storage = "retained as a distinct location at the current displacement without advancing the cursor"
+static_local_storage = "retained as an exact-identity location with no frame slot and no effect on the automatic-local cursor"
+register_requests = "reg and noreg metadata do not remove or reorder semantic slots"
+lookup = "find_function and find_location require exact symbols; find_binding_location requires the retained binding object; a static local returns a location, a rebuilt binding fails binding lookup, and missing or foreign symbols fail symbol lookup"
+determinism = "source-ordered accessors and holyc-function-frame-layout-v1 human and JSON dumps"
+diagnostics = [
+  "HCSEMA0069 invalid or inconsistent cross-pass input",
+  "HCSEMA0070 unresolved local extent",
+  "HCSEMA0071 non-integral local extent",
+  "HCSEMA0072 invalid local extent",
+  "HCSEMA0073 checked metadata overflow",
+  "HCSEMA0074 incomplete aggregate layout"
+]
+failure_semantics = "missing or duplicate evidence, foreign inputs, mismatched functions, bindings, source positions, storage, or dimensions, incomplete layouts, and overflow return no partial layout"
+hosted_safety_strengthening = "rejecting overflow, an unresolved dimension, or a fractional final dimension is a hosted safety strengthening; the pinned path truncates F64 through ToI64 and has no corresponding overflow or unresolved-dimension recovery branch here"
+mutation = "none"
+compilation_modes = ["jit", "aot"]
+address_ir_static_allocation_register_selection_machine_frame_lowering_and_execution = "not implemented"
+native_oracle_status = "not required; the pinned PrsVar, PrsStmt, PrsExp, PrsLib, CInit, and ScopingLinkage paths state the retained offsets and sizes directly"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-EXPRESSION-BINDINGS"

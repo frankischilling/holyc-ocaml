@@ -71,6 +71,8 @@ module Semantic_function_type_resolution = Sema.Function_type_resolution
 module Semantic_global_type_resolution = Sema.Global_type_resolution
 module Semantic_local_type_resolution = Sema.Local_type_resolution
 module Semantic_function_binding_index = Sema.Function_binding_index
+module Semantic_function_frame_layout = Sema.Function_frame_layout
+module Semantic_function_frame_layout_dump = Sema.Function_frame_layout_dump
 module Semantic_function_expression_binding = Sema.Function_expression_binding
 module Semantic_local_warning_analysis = Sema.Local_warning_analysis
 module Semantic_module_expression_binding = Sema.Module_expression_binding
@@ -254,6 +256,13 @@ let index_function_bindings session ~declarations ~functions ~function_types
   Driver.Function_binding_index.build
     ~table:(Session.semantic_symbols session)
     ~declarations ~functions ~function_types ~local_types
+
+let layout_function_frames session ~declarations ~bindings ~function_types
+    ~local_types ~aggregate_layouts module_ =
+  Driver.Function_frame_layout.layout
+    ~table:(Session.semantic_symbols session)
+    ~declarations ~bindings ~function_types ~local_types ~aggregate_layouts
+    module_
 
 let resolve_function_expressions session ~declarations ~functions ~local_types
     ~bindings module_ =
