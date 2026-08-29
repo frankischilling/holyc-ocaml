@@ -1032,8 +1032,8 @@ let final_value_integrality_for_floating_extents () =
   Alcotest.(check (list int64))
     "integral power result extent" [ 8L ]
     (power |> Frame.location_dimensions |> List.map Frame.dimension_value);
-  Alcotest.(check int64) "integral power allocation" 8L
-    (Frame.location_allocated_size power);
+  let power_size = Frame.location_allocated_size power in
+  Alcotest.(check int64) "integral power allocation" 8L power_size;
   let expect_nonintegral ~path source description =
     let prepared = prepare ~path source in
     Alcotest.(check bool)
@@ -1072,9 +1072,7 @@ let tests =
     Alcotest.test_case
       "deterministic empty/parameter/local/mixed accessors and dumps" `Quick
       deterministic_accessors_and_dumps;
-    Alcotest.test_case
-      "missing, duplicate, foreign, and mismatched function or binding evidence"
-      `Quick
+    Alcotest.test_case "malformed function and binding evidence" `Quick
       malformed_foreign_function_and_binding_evidence;
     Alcotest.test_case "storage and source-position mismatches" `Quick
       storage_and_source_position_mismatches;
