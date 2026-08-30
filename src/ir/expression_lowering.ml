@@ -2,6 +2,9 @@ module Sequence = Instruction_sequence
 module Literal = Literal_lowering
 module Semantic_result = Sema.Function_call_expression_result
 module Semantic_source = Sema.Function_call_resolution
+module Function_resolution = Sema.Function_resolution
+module Function_type_resolution = Sema.Function_type_resolution
+module Module_binding = Sema.Module_expression_binding
 module Type = Sema.Type
 module Type_reference = Sema.Type_reference
 module Int_map = Map.Make (Int)
@@ -50,6 +53,14 @@ type plan_node =
       span : Common.Span.t;
       result_type : Type.t;
       value : int64;
+      conversion : result_conversion;
+    }
+  | Direct_function_address of {
+      result : Semantic_result.expression_result;
+      span : Common.Span.t;
+      result_type : Type.t;
+      symbol : Sema.Symbol.t;
+      path : Semantic_source.direct_function_address_path;
       conversion : result_conversion;
     }
   | Alias of {
@@ -711,6 +722,241 @@ let internal_i64 type_ =
   | Type.Primitive (Type.Internal_storage, Sema.Primitive_type.I64) -> true
   | Type.Primitive _ | Type.Aggregate _ -> false
 
+let same_symbol left right =
+  Sema.Symbol.Id.equal (Sema.Symbol.id left) (Sema.Symbol.id right)
+
+let function_publication_matches declaration publication =
+  let site = Function_resolution.resolved_declaration_site declaration in
+  let source_symbol =
+    site |> Function_resolution.declaration_site_function
+    |> Function_type_resolution.function_symbol
+  in
+  Module_binding.publication_kind publication = Module_binding.Function
+  && same_symbol
+       (Module_binding.publication_source_symbol publication)
+       source_symbol
+  && same_symbol
+       (Module_binding.publication_canonical_symbol publication)
+       (Function_resolution.resolved_declaration_identity_symbol declaration)
+
+let direct_function_path_matches_site declaration path =
+  let site = Function_resolution.resolved_declaration_site declaration in
+  if
+    Function_resolution.declaration_site_source_kind site
+    = Function_resolution.Intern
+  then false
+  else
+    match (path, Function_resolution.declaration_site_state site) with
+    | Semantic_source.Jit_extern_slot, Function_resolution.Unresolved_extern
+    | Semantic_source.Jit_immediate, Function_resolution.Resolved
+    | Semantic_source.Aot_absolute, Function_resolution.Resolved -> true
+    | ( ( Semantic_source.Jit_extern_slot
+        | Semantic_source.Jit_immediate
+        | Semantic_source.Aot_absolute
+        | Semantic_source.Reject_aot_extern
+        | Semantic_source.Reject_aot_import
+        | Semantic_source.Reject_internal ),
+        ( Function_resolution.Unresolved_extern
+        | Function_resolution.Imported
+        | Function_resolution.Resolved ) ) -> false
+
+let direct_function_metadata result =
+  ( Semantic_result.result_function_declaration result,
+    Semantic_result.result_function_address_path result )
+
+let direct_function_metadata_absent result =
+  match direct_function_metadata result with
+  | None, None -> true
+  | (None | Some _), (None | Some _) -> false
+
+let checked_bound_direct_function_source operand operand_type identifier
+    declaration path =
+  let invalid message =
+    Error (metadata_error ?span:(result_span operand) message)
+  in
+  let occurrence = Semantic_source.bound_identifier_occurrence identifier in
+  let source = Semantic_result.result_source operand in
+  if
+    Semantic_result.result_origin operand
+    <> Semantic_source.argument_expression_origin source
+    || Module_binding.occurrence_origin occurrence
+       <> Semantic_result.result_origin operand
+  then invalid "direct function operand origins disagree"
+  else if
+    Semantic_source.bound_identifier_shape identifier
+    <> Semantic_source.Direct_function_value
+    || Semantic_source.bound_identifier_array_rank identifier <> 0
+  then invalid "direct function operand has an inconsistent source shape"
+  else if
+    not
+      (type_equal
+         (Semantic_source.bound_identifier_type identifier)
+         operand_type)
+  then invalid "direct function operand source and result types disagree"
+  else
+    match
+      ( Semantic_source.bound_identifier_function_declaration identifier,
+        Semantic_source.bound_identifier_function_address_path identifier,
+        Module_binding.occurrence_resolution occurrence )
+    with
+    | ( Some source_declaration,
+        Some source_path,
+        Module_binding.Module_binding publication )
+      when source_declaration == declaration && source_path = path ->
+        let site = Function_resolution.resolved_declaration_site declaration in
+        let source_symbol =
+          site |> Function_resolution.declaration_site_function
+          |> Function_type_resolution.function_symbol
+        in
+        if
+          (not (function_publication_matches declaration publication))
+          || not
+               (String.equal
+                  (Module_binding.occurrence_name occurrence)
+                  (Sema.Symbol.name source_symbol))
+        then invalid "direct function operand and module publication disagree"
+        else Ok ()
+    | _ -> invalid "direct function operand has inconsistent retained metadata"
+
+let checked_top_level_direct_function_source operand identifier declaration =
+  let invalid message =
+    Error (metadata_error ?span:(result_span operand) message)
+  in
+  let occurrence =
+    Semantic_source.top_level_bound_identifier_occurrence identifier
+  in
+  let site = Function_resolution.resolved_declaration_site declaration in
+  let source_symbol =
+    site |> Function_resolution.declaration_site_function
+    |> Function_type_resolution.function_symbol
+  in
+  let invalid_metadata =
+    Semantic_result.result_origin operand
+    <> Semantic_source.argument_expression_origin
+         (Semantic_result.result_source operand)
+    || Sema.Top_level_outer_expression_binding.occurrence_origin occurrence
+       <> Semantic_result.result_origin operand
+    || (not
+          (String.equal
+             (Sema.Top_level_outer_expression_binding.occurrence_name occurrence)
+             (Sema.Symbol.name source_symbol)))
+    || Sema.Symbol.kind source_symbol <> Sema.Symbol.Function
+    || Option.is_some
+         (Semantic_result.result_top_level_outer_occurrence operand)
+  in
+  if invalid_metadata then
+    invalid "top-level direct function operand metadata disagrees"
+  else
+    match
+      Sema.Top_level_outer_expression_binding.occurrence_resolution occurrence
+    with
+    | Sema.Top_level_outer_expression_binding.Module_binding publication
+      when function_publication_matches declaration publication -> Ok ()
+    | Sema.Top_level_outer_expression_binding.Module_binding _
+    | Sema.Top_level_outer_expression_binding.Outer_binding _ ->
+        invalid "top-level direct function publication disagrees"
+
+let checked_direct_function_address result prefix operand =
+  let invalid message =
+    Error (metadata_error ?span:(result_span result) message)
+  in
+  let operand_source = Semantic_result.result_source operand in
+  let direct_source =
+    match Semantic_source.argument_expression_kind operand_source with
+    | Semantic_source.Bound_identifier_expression identifier
+      when Semantic_source.bound_identifier_shape identifier
+           = Semantic_source.Direct_function_value -> Some (`Bound identifier)
+    | Semantic_source.Top_level_bound_identifier_expression identifier
+      when Semantic_result.result_category operand
+           = Semantic_result.Function_value -> Some (`Top_level identifier)
+    | _ -> None
+  in
+  match direct_source with
+  | None ->
+      if
+        direct_function_metadata_absent result
+        && direct_function_metadata_absent operand
+      then Ok None
+      else
+        invalid
+          "nonfunction address expression retains direct-function metadata"
+  | Some source_kind -> (
+      match
+        ( direct_function_metadata result,
+          direct_function_metadata operand,
+          Semantic_result.result_type result,
+          Semantic_result.result_type operand )
+      with
+      | ( (Some declaration, Some path),
+          (Some operand_declaration, Some operand_path),
+          Some result_type,
+          Some operand_type )
+        when declaration == operand_declaration && path = operand_path -> (
+          if
+            Semantic_result.result_origin result
+            <> Semantic_source.argument_expression_origin
+                 (Semantic_result.result_source result)
+            || Semantic_result.result_category result
+               <> Semantic_result.Address_value
+            || Semantic_result.result_category operand
+               <> Semantic_result.Function_value
+            || Semantic_result.result_class result
+               <> Semantic_result.Integer_result
+            || Semantic_result.result_class operand
+               <> Semantic_result.Integer_result
+            || Semantic_result.result_array_rank result <> 0
+            || Semantic_result.result_array_rank operand <> 0
+            || Semantic_result.result_intrinsic_conversion operand
+               <> Semantic_result.No_intrinsic_conversion
+            || (not (type_equal result_type operand_type))
+            || not (internal_i64 result_type)
+          then
+            invalid "direct function address has inconsistent checked metadata"
+          else if not (direct_function_path_matches_site declaration path) then
+            invalid
+              "direct function address path disagrees with its declaration"
+          else
+            match source_kind with
+            | `Bound identifier -> (
+                match
+                  checked_bound_direct_function_source operand operand_type
+                    identifier declaration path
+                with
+                | Error _ as error -> error
+                | Ok () -> (
+                    match
+                      unary_span result "direct function address" prefix
+                    with
+                    | Error _ as error -> error
+                    | Ok span ->
+                        Ok
+                          (Some
+                             ( span,
+                               result_type,
+                               Function_resolution
+                               .resolved_declaration_identity_symbol declaration,
+                               path ))))
+            | `Top_level identifier -> (
+                match
+                  checked_top_level_direct_function_source operand identifier
+                    declaration
+                with
+                | Error _ as error -> error
+                | Ok () -> (
+                    match
+                      unary_span result "direct function address" prefix
+                    with
+                    | Error _ as error -> error
+                    | Ok span ->
+                        Ok
+                          (Some
+                             ( span,
+                               result_type,
+                               Function_resolution
+                               .resolved_declaration_identity_symbol declaration,
+                               path )))))
+      | _ -> invalid "direct function address has incomplete retained metadata")
+
 let checked_numeric_unary_types result opcode operand =
   match
     (Semantic_result.result_type result, Semantic_result.result_type operand)
@@ -1129,14 +1375,69 @@ let plan root =
                     with
                     | Error item, _ | _, Error item -> error := Some item
                     | Ok operand, Ok span -> (
-                        match validate_pointer_unary result opcode operand with
+                        let direct_address =
+                          if Opcode.equal opcode Opcode.Ic_addr then
+                            checked_direct_function_address result prefix
+                              operand
+                          else Ok None
+                        in
+                        match direct_address with
                         | Error item -> error := Some item
-                        | Ok false -> unsupported := true
-                        | Ok true ->
-                            if Opcode.equal opcode Opcode.Ic_addr then
-                              match cancellable_dereference operand with
-                              | Error item -> error := Some item
-                              | Ok No_cancellation ->
+                        | Ok (Some (address_span, result_type, symbol, path)) ->
+                            reversed :=
+                              Direct_function_address
+                                {
+                                  result;
+                                  span = address_span;
+                                  result_type;
+                                  symbol;
+                                  path;
+                                  conversion;
+                                }
+                              :: !reversed
+                        | Ok None -> (
+                            match
+                              validate_pointer_unary result opcode operand
+                            with
+                            | Error item -> error := Some item
+                            | Ok false -> unsupported := true
+                            | Ok true ->
+                                if Opcode.equal opcode Opcode.Ic_addr then
+                                  match cancellable_dereference operand with
+                                  | Error item -> error := Some item
+                                  | Ok No_cancellation ->
+                                      pending :=
+                                        Visit
+                                          {
+                                            result = operand;
+                                            conversion = Keep_result;
+                                          }
+                                        :: Finish_unary
+                                             {
+                                               result;
+                                               opcode;
+                                               span;
+                                               operand;
+                                               conversion;
+                                             }
+                                        :: !pending
+                                  | Ok (Canceled_dereference source_operand) ->
+                                      pending :=
+                                        Visit
+                                          {
+                                            result = source_operand;
+                                            conversion = Keep_result;
+                                          }
+                                        :: Finish_unary
+                                             {
+                                               result;
+                                               opcode;
+                                               span;
+                                               operand = source_operand;
+                                               conversion;
+                                             }
+                                        :: !pending
+                                else
                                   pending :=
                                     Visit
                                       {
@@ -1151,36 +1452,7 @@ let plan root =
                                            operand;
                                            conversion;
                                          }
-                                    :: !pending
-                              | Ok (Canceled_dereference source_operand) ->
-                                  pending :=
-                                    Visit
-                                      {
-                                        result = source_operand;
-                                        conversion = Keep_result;
-                                      }
-                                    :: Finish_unary
-                                         {
-                                           result;
-                                           opcode;
-                                           span;
-                                           operand = source_operand;
-                                           conversion;
-                                         }
-                                    :: !pending
-                            else
-                              pending :=
-                                Visit
-                                  { result = operand; conversion = Keep_result }
-                                :: Finish_unary
-                                     {
-                                       result;
-                                       opcode;
-                                       span;
-                                       operand;
-                                       conversion;
-                                     }
-                                :: !pending))
+                                    :: !pending)))
                 | operator -> (
                     match accepted_prefix operator with
                     | None -> unsupported := true
@@ -1381,6 +1653,73 @@ let lower_literal allocator result =
                     lowered_type = Literal.result_type lowered;
                   } )))
 
+let direct_function_address_description ~instruction_id ~opcode ~operands
+    ~value_id ~result_type ~payload ~flags ~span : Sequence.description =
+  {
+    instruction_id;
+    opcode;
+    operands;
+    result = Some { value_id };
+    target_type = Some result_type;
+    payload;
+    flags;
+    span = Some span;
+  }
+
+let lower_direct_function_address allocator ~span ~result_type ~symbol ~path
+    ~conversion =
+  let symbol_payload = Some (Sequence.Symbol symbol) in
+  let final_flags = conversion_flags conversion in
+  match path with
+  | Semantic_source.Jit_immediate | Semantic_source.Aot_absolute -> (
+      match take_identity allocator (Some span) with
+      | Error _ as error -> error
+      | Ok (instruction_id, value_id) ->
+          let opcode =
+            match path with
+            | Semantic_source.Jit_immediate -> Opcode.Ic_imm_i64
+            | Semantic_source.Aot_absolute -> Opcode.Ic_abs_addr
+            | Semantic_source.Jit_extern_slot
+            | Semantic_source.Reject_aot_extern
+            | Semantic_source.Reject_aot_import
+            | Semantic_source.Reject_internal -> assert false
+          in
+          Ok
+            ( [
+                direct_function_address_description ~instruction_id ~opcode
+                  ~operands:[] ~value_id ~result_type ~payload:symbol_payload
+                  ~flags:final_flags ~span;
+              ],
+              { lowered_value = value_id; lowered_type = result_type } ))
+  | Semantic_source.Jit_extern_slot -> (
+      match take_identity allocator (Some span) with
+      | Error _ as error -> error
+      | Ok (slot_instruction_id, slot_value_id) -> (
+          match take_identity allocator (Some span) with
+          | Error _ as error -> error
+          | Ok (deref_instruction_id, deref_value_id) ->
+              Ok
+                ( [
+                    direct_function_address_description
+                      ~instruction_id:slot_instruction_id
+                      ~opcode:Opcode.Ic_imm_i64 ~operands:[]
+                      ~value_id:slot_value_id ~result_type
+                      ~payload:symbol_payload ~flags:0L ~span;
+                    direct_function_address_description
+                      ~instruction_id:deref_instruction_id
+                      ~opcode:Opcode.Ic_deref ~operands:[ slot_value_id ]
+                      ~value_id:deref_value_id ~result_type ~payload:None
+                      ~flags:final_flags ~span;
+                  ],
+                  { lowered_value = deref_value_id; lowered_type = result_type }
+                )))
+  | Semantic_source.Reject_aot_extern
+  | Semantic_source.Reject_aot_import
+  | Semantic_source.Reject_internal ->
+      Error
+        (metadata_error ~span
+           "rejected direct function address path reached IR emission")
+
 let emit_plan ~instruction_id ~value_id nodes =
   let allocator =
     {
@@ -1452,6 +1791,18 @@ let emit_plan ~instruction_id ~value_id nodes =
                   Int_map.add (result_key result)
                     { lowered_value = value_id; lowered_type = result_type }
                     !lowered)
+        | Direct_function_address
+            { result; span; result_type; symbol; path; conversion } -> (
+            match
+              lower_direct_function_address allocator ~span ~result_type ~symbol
+                ~path ~conversion
+            with
+            | Error item -> error := Some item
+            | Ok (descriptions, lowered_node) ->
+                descriptions_rev :=
+                  List.rev_append descriptions !descriptions_rev;
+                lowered := Int_map.add (result_key result) lowered_node !lowered
+            )
         | Alias { result; operand } -> (
             match find_lowered !lowered operand "transparent operand" with
             | Error item -> error := Some item
@@ -1597,6 +1948,7 @@ let emit_plan ~instruction_id ~value_id nodes =
                 | Literal { result; _ } :: _
                 | Current_position { result; _ } :: _
                 | Integer_constant { result; _ } :: _
+                | Direct_function_address { result; _ } :: _
                 | Alias { result; _ } :: _
                 | Unary { result; _ } :: _
                 | Cast { result; _ } :: _
