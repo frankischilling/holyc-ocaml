@@ -7615,6 +7615,78 @@ format_parsing_default_payload_evaluation_vararg_promotion_call_lowering_output_
 native_oracle_status = "not required for this source-stated semantic boundary; the fixed-slot loop, default branch, conversion flags, and variadic tail are explicit in PrsFunCall"
 
 [[feature]]
+id = "HC-IR-INTEGER-UNARY-FOLDING"
+description = "A verified optimizer pass folds sole-use integer immediates through the source-audited unary subset and publishes only a rebuilt, x87-verified graph."
+sources = [
+  "Compiler/OptPass012.HC:1-29,153-192 early traversal plus immediate IC_COM, integer IC_NOT, and integer IC_UNARY_MINUS folding",
+  "Compiler/OptLib.HC:17-23,196-225 constant eligibility, forwarded type, source flag transfer, and consumed-producer removal",
+  "Compiler/PrsExp.HC:608-616 source unary operators and IC opcode selection",
+  "Compiler/CInit.HC:27,50-52 zero-input IC_IMM_I64 and one-input unary metadata",
+  "Compiler/OptPass789A.HC:449-459 64-bit complement, logical-not, and negation backend semantics"
+]
+implementation = [
+  "src/ir/integer_unary_folding.ml",
+  "src/ir/integer_unary_folding.mli"
+]
+tests = [
+  "test/test_ir_integer_unary_folding.ml",
+  "test/golden/integer-unary-folding.ir"
+]
+documentation = [
+  "docs/optimizer.md",
+  "docs/intermediate-representation.md",
+  "docs/reference-source-map.md"
+]
+status = "implemented"
+issue = 565
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compatibility_classification = "exact for the documented zero-flag internal I64/U64 subset; inputs outside that subset are unchanged or rejected by an earlier verifier"
+input = "Ir.X87_stack.t; unchecked sequences and block graphs cannot enter the pass"
+eligibility = "one zero-flag IC_IMM_I64 with an integer payload, a zero-depth internal I64 or U64 result, and exactly one graph use by a later same-block zero-flag IC_COM, IC_NOT, or IC_UNARY_MINUS with no payload"
+type_matrix = [
+  "IC_COM: internal I64 or U64 operand -> internal I64 result",
+  "IC_NOT: internal I64 operand -> internal I64 result; internal U64 operand -> internal U64 result",
+  "IC_UNARY_MINUS: internal I64 or U64 operand -> internal I64 result"
+]
+word_semantics = [
+  "complement flips all 64 bits",
+  "logical not maps zero to one and every nonzero word to zero",
+  "negation wraps modulo 2^64, including Int64.min_int"
+]
+rewrite = "remove only the consumed producer; replace the operator with IC_IMM_I64 while retaining its instruction ID, result ID, checked target type, source span, and zero flag mask"
+fixed_point = "a source-ordered block scan indexes each replacement as an immediate for the next instruction; a second pass produces the same graph and an empty trace"
+atomic_validation = [
+  "rebuild the complete result through Ir.Block_graph.create",
+  "rerun Ir.X87_stack.verify",
+  "return structured graph-rebuild or x87-reverification errors without a partial result"
+]
+trace = "holyc-ir-integer-unary-folding-v1 records source-ordered block, removed instruction and value, retained instruction and value, original opcode, input bits, and folded bits"
+unchanged_candidates = [
+  "shared operands",
+  "every nonzero producer or consumer flag mask",
+  "public integer types",
+  "integer widths other than internal I64 and U64",
+  "F64 operations",
+  "missing or noninteger payloads",
+  "unary payloads"
+]
+cross_block_boundary = "Ir.Block_graph.create rejects checked cross-block value operands with HCIR0009 before Ir.X87_stack.t and this pass can be constructed"
+excluded_behavior = [
+  "source flag transfer",
+  "binary constant folding",
+  "cross-block propagation",
+  "general dead-code elimination",
+  "pass scheduling",
+  "persisted IR",
+  "interpretation",
+  "machine emission"
+]
+focused_tests = 13
+property_iterations = 500
+property_evidence = "execute the original and folded verified graphs through the bounded test-local word evaluator, compare their returned values, and independently compare both with the direct 64-bit operation"
+native_oracle_status = "not required for this source-stated optimizer boundary; the pinned optimizer and backend branches directly define eligibility, retained-node rewriting, and 64-bit unary behavior"
+
+[[feature]]
 id = "HC-IR-ROOT-CONVERSION-INTENT"
 description = "Canonical expression lowering places retained fixed-argument conversion intent on the final root producer."
 sources = [

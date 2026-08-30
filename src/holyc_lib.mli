@@ -21,6 +21,7 @@ module Ir_control_flow = Ir.Control_flow
 module Ir_block_graph = Ir.Block_graph
 module Ir_effects = Ir.Effects
 module Ir_x87_stack = Ir.X87_stack
+module Ir_integer_unary_folding = Ir.Integer_unary_folding
 module Ir_function_body = Ir.Function_body
 module Ir_top_level_body = Ir.Top_level_body
 module Ir_literal_lowering = Ir.Literal_lowering

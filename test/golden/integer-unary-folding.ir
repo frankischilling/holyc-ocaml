@@ -1,0 +1,23 @@
+--- before ---
+holyc-ir-graph-v1 reference=c26482bb6ad3f80106d28504ec5db3c6a360732c
+entry=^b7
+block ^b7
+!i0 %v10:internal:U64 = IC_IMM_I64 i64:1 flags=0x000000000
+!i1 %v11:internal:I64 = IC_COM %v10 flags=0x000000000
+!i2 %v12:internal:I64 = IC_UNARY_MINUS %v11 flags=0x000000000
+!i3 %v13:internal:I64 = IC_NOT %v12 flags=0x000000000
+!i4 IC_RET flags=0x000000000
+successors=[]
+--- after ---
+holyc-ir-graph-v1 reference=c26482bb6ad3f80106d28504ec5db3c6a360732c
+entry=^b7
+block ^b7
+!i3 %v13:internal:I64 = IC_IMM_I64 i64:0 flags=0x000000000
+!i4 IC_RET flags=0x000000000
+successors=[]
+--- rewrite trace ---
+holyc-ir-integer-unary-folding-v1 reference=c26482bb6ad3f80106d28504ec5db3c6a360732c
+rewrites=3
+^b7 remove=!i0:%v10 retain=!i1:%v11 opcode=IC_COM input=0x0000000000000001 output=0xfffffffffffffffe
+^b7 remove=!i1:%v11 retain=!i2:%v12 opcode=IC_UNARY_MINUS input=0xfffffffffffffffe output=0x0000000000000002
+^b7 remove=!i2:%v12 retain=!i3:%v13 opcode=IC_NOT input=0x0000000000000002 output=0x0000000000000000
