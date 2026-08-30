@@ -89,6 +89,7 @@
   test_ir_return_lowering
   test_ir_goto_label_lowering
   test_ir_break_lowering
+  test_ir_frame_address_lowering
   test_ir_direct_call_lowering
   test_function_flag_source
   test_function_flag
