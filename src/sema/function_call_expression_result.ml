@@ -782,9 +782,18 @@ let primitive_type ?(form = Type.Internal_storage) primitive pointer_depth =
   | Error _ -> None
 
 let integer_type = primitive_type Primitive_type.I64 0
+let unsigned_integer_type = primitive_type Primitive_type.U64 0
 let float_type = primitive_type Primitive_type.F64 0
 let string_type = primitive_type Primitive_type.U8 1
 let rip_address_type = primitive_type Primitive_type.I64 0
+
+let internal_scalar primitive type_ =
+  Type.pointer_depth type_ = 0
+  &&
+  match Type.base type_ with
+  | Type.Primitive (Type.Internal_storage, actual) ->
+      Primitive_type.equal actual primitive
+  | Type.Primitive (Type.Public_spelling, _) | Type.Aggregate _ -> false
 
 let type_is_owned table type_ =
   match Type.base type_ with
@@ -1499,9 +1508,13 @@ let rec type_expression table members policies ~before_item_index ~context
              state ~id ~source ~source_type ~category ~result_class)
       in
       match Function_call_resolution.argument_expression_kind source with
-      | Function_call_resolution.Integer_literal _
-      | Function_call_resolution.Character_literal _ ->
-          finish ~source_type:integer_type Object_value Integer_result state
+      | Function_call_resolution.Integer_literal value
+      | Function_call_resolution.Character_literal value ->
+          let source_type =
+            if Int64.compare value 0L < 0 then unsigned_integer_type
+            else integer_type
+          in
+          finish ~source_type Object_value Integer_result state
       | Function_call_resolution.Float_literal _ ->
           finish ~source_type:float_type Object_value F64_result state
       | Function_call_resolution.String_literal _ ->
@@ -2001,8 +2014,15 @@ and type_prefix table members policies ~before_item_index ~context
              ~source_type ~category ~result_class)
       in
       match operator with
+      | Function_call_resolution.Unary_minus ->
+          let source_type =
+            match operand.source_type with
+            | Some type_ when internal_scalar Primitive_type.U64 type_ ->
+                integer_type
+            | Some _ | None -> operand.source_type
+          in
+          finish ~source_type Object_value operand.result_class
       | Function_call_resolution.Unary_plus
-      | Function_call_resolution.Unary_minus
       | Function_call_resolution.Logical_not ->
           finish ~source_type:operand.source_type Object_value
             operand.result_class

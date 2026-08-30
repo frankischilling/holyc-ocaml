@@ -704,12 +704,16 @@ let unary_span result description prefix =
   Semantic_source.prefix_operator_origin prefix
   |> operator_span result description
 
-let internal_i64 type_ =
+let internal_scalar primitive type_ =
   Type.pointer_depth type_ = 0
   &&
   match Type.base type_ with
-  | Type.Primitive (Type.Internal_storage, Sema.Primitive_type.I64) -> true
-  | Type.Primitive _ | Type.Aggregate _ -> false
+  | Type.Primitive (Type.Internal_storage, actual) ->
+      Sema.Primitive_type.equal actual primitive
+  | Type.Primitive (Type.Public_spelling, _) | Type.Aggregate _ -> false
+
+let internal_i64 = internal_scalar Sema.Primitive_type.I64
+let internal_u64 = internal_scalar Sema.Primitive_type.U64
 
 let checked_numeric_unary_types result opcode operand =
   match
@@ -723,6 +727,8 @@ let checked_numeric_unary_types result opcode operand =
   | Some result_type, Some operand_type ->
       let valid =
         match opcode with
+        | Opcode.Ic_unary_minus when internal_u64 operand_type ->
+            internal_i64 result_type
         | Opcode.Ic_unary_minus | Opcode.Ic_not ->
             type_equal result_type operand_type
         | Opcode.Ic_com -> internal_i64 result_type
