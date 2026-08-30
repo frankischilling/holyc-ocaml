@@ -1,4 +1,5 @@
 module Fold = Holyc_lib.Ir_integer_unary_folding
+module VM = Holyc_lib.Ir_integer_interpreter
 module X87 = Holyc_lib.Ir_x87_stack
 module Graph = Holyc_lib.Ir_block_graph
 module Sequence = Holyc_lib.Ir_instruction_sequence
@@ -7,7 +8,6 @@ module Type = Holyc_lib.Semantic_type
 module Primitive = Holyc_lib.Primitive_type
 module Span = Holyc_lib.Span
 module Source_id = Holyc_lib.Source_id
-module Int_map = Map.Make (Int)
 
 let require_ok show = function
   | Ok value -> value
@@ -127,130 +127,13 @@ let integer_payload description =
   | Some (Sequence.Integer bits) -> bits
   | _ -> Alcotest.fail "instruction has no integer payload"
 
-type test_word_type = Test_i64 | Test_u64
-
-(* This evaluator belongs only to the randomized regression below.  It gives
-   the supported word operations an observable return value without claiming
-   that the compiler has a production IR interpreter. *)
-let evaluate_test_graph checked =
-  let graph = X87.graph checked in
-  let word_type = function
-    | Some type_ when type_ = i64 -> Some Test_i64
-    | Some type_ when type_ = u64 -> Some Test_u64
-    | Some _ | None -> None
-  in
-  let is_unary opcode =
-    Opcode.equal opcode Opcode.Ic_com
-    || Opcode.equal opcode Opcode.Ic_not
-    || Opcode.equal opcode Opcode.Ic_unary_minus
-  in
-  let unary_operation opcode operand_type result_type =
-    if Opcode.equal opcode Opcode.Ic_com && result_type = Test_i64 then
-      Some (fun bits -> Int64.logxor bits (-1L))
-    else if Opcode.equal opcode Opcode.Ic_not && result_type = operand_type then
-      Some (fun bits -> if Int64.equal bits 0L then 1L else 0L)
-    else if Opcode.equal opcode Opcode.Ic_unary_minus && result_type = Test_i64
-    then Some (fun bits -> Int64.sub 0L bits)
-    else None
-  in
-  let malformed description message =
-    Error
-      (Printf.sprintf "!i%d %s: %s"
-         (instruction_number description)
-         (Opcode.to_source_name description.Sequence.opcode)
-         message)
-  in
-  let rec execute values returned = function
-    | [] -> Error "graph ended before IC_RET"
-    | description :: rest ->
-        let opcode = description.Sequence.opcode in
-        if Opcode.equal opcode Opcode.Ic_imm_i64 then
-          match
-            ( description.operands,
-              description.result,
-              word_type description.target_type,
-              description.payload,
-              description.flags )
-          with
-          | [], Some result, Some word_type, Some (Sequence.Integer bits), 0L ->
-              execute
-                (Int_map.add
-                   (Sequence.Value_id.to_int result.value_id)
-                   (word_type, bits) values)
-                returned rest
-          | _ -> malformed description "malformed integer immediate"
-        else if is_unary opcode then
-          match
-            ( description.operands,
-              description.result,
-              word_type description.target_type,
-              description.payload,
-              description.flags )
-          with
-          | [ operand ], Some result, Some result_type, None, 0L -> (
-              match
-                Int_map.find_opt (Sequence.Value_id.to_int operand) values
-              with
-              | Some (operand_type, bits) -> (
-                  match unary_operation opcode operand_type result_type with
-                  | Some operation ->
-                      execute
-                        (Int_map.add
-                           (Sequence.Value_id.to_int result.value_id)
-                           (result_type, operation bits)
-                           values)
-                        returned rest
-                  | None ->
-                      malformed description "invalid unary word type matrix")
-              | None -> malformed description "operand has no value")
-          | _ -> malformed description "malformed unary operation"
-        else if Opcode.equal opcode Opcode.Ic_return_val then
-          match returned with
-          | Some _ -> malformed description "more than one IC_RETURN_VAL"
-          | None -> (
-              match
-                ( description.operands,
-                  description.result,
-                  word_type description.target_type,
-                  description.payload,
-                  description.flags )
-              with
-              | [ operand ], None, Some return_type, None, 0L -> (
-                  match
-                    Int_map.find_opt (Sequence.Value_id.to_int operand) values
-                  with
-                  | Some ((operand_type, _) as value)
-                    when operand_type = return_type ->
-                      execute values (Some value) rest
-                  | Some _ ->
-                      malformed description "return word type does not match"
-                  | None -> malformed description "return operand has no value")
-              | _ -> malformed description "malformed return value")
-        else if Opcode.equal opcode Opcode.Ic_ret then
-          match
-            ( description.operands,
-              description.result,
-              description.target_type,
-              description.payload,
-              description.flags,
-              rest,
-              returned )
-          with
-          | [], None, None, None, 0L, [], Some (_, bits) -> Ok bits
-          | [], None, None, None, 0L, [], None ->
-              malformed description "IC_RET has no observed return value"
-          | _ -> malformed description "malformed or non-final IC_RET"
-        else malformed description "unsupported test evaluator opcode"
-  in
-  match Graph.blocks graph with
-  | [ block ]
-    when Graph.Block_id.equal (Graph.block_id block)
-           (Graph.entry graph |> Graph.block_id)
-         && Graph.successors block = [] ->
-      Graph.instructions block |> Sequence.instructions
-      |> List.map Sequence.description
-      |> execute Int_map.empty None
-  | _ -> Error "test evaluator requires one entry block with no successors"
+let execute_return checked =
+  match VM.execute ~max_steps:16 checked with
+  | Error _ -> None
+  | Ok execution -> (
+      match VM.termination execution with
+      | VM.Returned (Some word) -> Some word
+      | VM.Stream_end | VM.Returned None -> None)
 
 let only_folded_constant folded block_number =
   match block_descriptions (folded_graph folded) block_number with
@@ -644,17 +527,19 @@ let word_semantics_property =
       let optimized_x87 = Fold.x87 folded in
       let optimized = X87.graph optimized_x87 in
       match
-        ( evaluate_test_graph checked,
-          evaluate_test_graph optimized_x87,
+        ( execute_return checked,
+          execute_return optimized_x87,
           block_descriptions optimized 0 )
       with
-      | Ok original_return, Ok folded_return, constant :: _ ->
-          Int64.equal original_return expected
-          && Int64.equal folded_return expected
-          && Int64.equal original_return folded_return
+      | Some original_return, Some folded_return, constant :: _ ->
+          original_return.type_ = VM.I64
+          && folded_return.type_ = VM.I64
+          && Int64.equal original_return.bits expected
+          && Int64.equal folded_return.bits expected
+          && Int64.equal original_return.bits folded_return.bits
           && Opcode.equal constant.opcode Opcode.Ic_imm_i64
           && Int64.equal (integer_payload constant) expected
-      | Error _, _, _ | _, Error _, _ | _, _, [] -> false)
+      | None, _, _ | _, None, _ | _, _, [] -> false)
 
 let tests =
   [
