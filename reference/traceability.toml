@@ -7678,12 +7678,12 @@ excluded_behavior = [
   "general dead-code elimination",
   "pass scheduling",
   "persisted IR",
-  "interpretation",
+  "interpretation outside HC-IR-BOUNDED-INTEGER-INTERPRETER",
   "machine emission"
 ]
 focused_tests = 13
 property_iterations = 500
-property_evidence = "execute the original and folded verified graphs through the bounded test-local word evaluator, compare their returned values, and independently compare both with the direct 64-bit operation"
+property_evidence = "execute the original and folded verified graphs through Ir.Integer_interpreter, compare their returned values, and independently compare both with the direct 64-bit operation"
 native_oracle_status = "not required for this source-stated optimizer boundary; the pinned optimizer and backend branches directly define eligibility, retained-node rewriting, and 64-bit unary behavior"
 
 [[feature]]
@@ -7727,6 +7727,92 @@ excluded_types = ["public U64", "narrow integer types", "pointers"]
 compilation_modes = ["jit", "aot"]
 focused_tests = 2
 native_oracle_status = "not required; the pinned parser and optimizer branches state the literal and result-type transitions directly"
+
+[[feature]]
+id = "HC-IR-BOUNDED-INTEGER-INTERPRETER"
+description = "Verified integer IR graphs execute deterministically within a caller-supplied instruction budget."
+sources = [
+  "Compiler/CompilerA.HH:20-30,55-84,116-127,179-180 opcode identities",
+  "Compiler/CInit.HC:16-27,49-52,64-72,98-108,150-151 instruction metadata and control-flow classes",
+  "Kernel/KernelA.HH:1562-1581,1602-1611 integer types and instruction flags",
+  "Compiler/PrsExp.HC:608-616,678-686,1117-1127 unary operations, integer immediates, and the expression-execution tail",
+  "Compiler/OptLib.HC:92-180,196-225 binary and unary integer type rules",
+  "Compiler/OptPass012.HC:153-192,308-319,485-494,619-628 unary, multiplication, addition, and subtraction semantics",
+  "Compiler/OptPass6.HC:89-92 integer backend selection",
+  "Compiler/BackB.HC:1-28,640-659 unary and branch machine semantics",
+  "Compiler/OptPass789A.HC:158-163,267-280,418-420,449-459,779-786,1035-1039 unary and branch behavior, jumps, the return latch, RET, and END",
+  "Compiler/PrsStmt.HC:459-563,1110-1120 source control-flow construction",
+  "Compiler/OptPass4.HC:540-552 unused expression results",
+  "Compiler/PrsLib.HC:99-105 stream-sentinel handling"
+]
+implementation = [
+  "src/ir/integer_interpreter.ml",
+  "src/ir/integer_interpreter.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli"
+]
+tests = [
+  "test/test_ir_integer_interpreter.ml",
+  "test/test_ir_integer_unary_folding.ml",
+  "test/golden/integer-interpreter.txt"
+]
+documentation = [
+  "README.md",
+  "ARCHITECTURE.md",
+  "CHANGELOG.md",
+  "SECURITY.md",
+  "docs/intermediate-representation.md",
+  "docs/optimizer.md",
+  "docs/compatibility.md",
+  "docs/reference-source-map.md",
+  "docs/testing.md"
+]
+status = "implemented"
+issue = 569
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+input = "Ir.X87_stack.t; unchecked sequences and block graphs cannot enter the interpreter"
+supported_opcodes = ["IC_IMM_I64", "IC_COM", "IC_NOT", "IC_UNARY_MINUS", "IC_ADD", "IC_SUB", "IC_MUL", "IC_END_EXP", "IC_RETURN_VAL", "IC_JMP", "IC_BR_ZERO", "IC_BR_NOT_ZERO", "IC_RET", "IC_END"]
+producer_types = "exact zero-depth internal I64 and U64"
+return_types = "zero-depth internal or public I64 and U64 matching the returned operand word type"
+unary_type_matrix = [
+  "IC_COM: internal I64 or U64 operand -> internal I64 result",
+  "IC_NOT: preserve the internal I64 or U64 operand type",
+  "IC_UNARY_MINUS: internal I64 or U64 operand -> internal I64 result"
+]
+binary_type_rule = "IC_ADD, IC_SUB, and IC_MUL produce internal U64 when either operand is internal U64 and internal I64 otherwise"
+word_semantics = "all supported unary and binary operations use wrapping 64-bit words; logical not maps zero to one and every nonzero word to zero"
+preflight = "validate every instruction in source block order, including unreachable blocks, and return all instruction diagnostics before executing any instruction"
+control_flow = "IC_JMP uses its explicit target; conditional branches choose the explicit target or physical next block; source-ordered fallthrough and empty blocks consume no steps"
+block_values = "instruction values are block-local and are cleared on every transfer; the latest IC_RETURN_VAL latch survives transfers"
+termination = "IC_RET returns the optional latched word, IC_END reports stream end, and IC_END_EXP discards its operand"
+budget = "max_steps must be positive; each executed instruction costs one step, exact-boundary completion succeeds, and exhaustion reports the next instruction without recursive host-stack use"
+diagnostics = [
+  "HCIRVM0001 configuration: max_steps is not positive",
+  "HCIRVM0002 preflight: opcode is unsupported",
+  "HCIRVM0003 preflight: flags are not canonical",
+  "HCIRVM0004 preflight: operand, result, target, or payload metadata is malformed",
+  "HCIRVM0005 preflight: word type is unsupported",
+  "HCIRVM0006 preflight: operand and result word types are inconsistent",
+  "HCIRVM0007 execution: instruction budget is exhausted",
+  "HCIRVM0008 execution: a prepared state is impossible"
+]
+canonical_flags = "zero for every supported opcode except IC_END_EXP, which requires ICF_RES_NOT_USED (0x000000200)"
+excluded_behavior = [
+  "IC_RETURN_VAL2 and every opcode outside supported_opcodes",
+  "public producer types, integer widths other than internal I64 and U64, pointers, F64, and conversions",
+  "memory, calls, side effects beyond IC_RETURN_VAL and IC_END_EXP, persisted IR, and machine emission",
+  "execution traces or journals beyond the deterministic result summary"
+]
+deterministic_human_schema = "holyc-ir-integer-execution-v1"
+focused_tests = 12
+ordinary_tests = 10
+property_tests = 2
+property_iterations_each = 500
+binary_property_iterations = 500
+branch_property_iterations = 500
+folding_integration_iterations = 500
+native_oracle_status = "not required for this source-stated execution subset; the pinned parser, optimizer, and backend branches directly define its word, type, control-flow, and termination rules"
 
 [[feature]]
 id = "HC-IR-ROOT-CONVERSION-INTENT"
@@ -8292,7 +8378,7 @@ unsupported_result = "power, assignment, compound assignment, identifier, call, 
 compilation_modes = ["jit", "aot"]
 focused_tests = 7
 deep_tree = "the original binary-only case is extended by HC-IR-INTEGER-UNARY-BINARY-COMPOSITION and HC-IR-POINTER-UNARY-COMPOSITION"
-pointer_scaling_short_circuit_control_flow_storage_optimization_and_execution = "not implemented"
+pointer_scaling_short_circuit_control_flow_storage_optimization_and_execution = "HC-IR-BOUNDED-INTEGER-INTERPRETER executes IC_ADD, IC_SUB, and IC_MUL within its documented word and control-flow subset; pointer scaling, short-circuit control flow, storage, and optimization remain outside this feature"
 native_oracle_status = "not required for this structural source mapping; runtime operator behavior remains separate oracle work"
 
 [[feature]]
@@ -8326,7 +8412,7 @@ compilation_modes = ["jit", "aot"]
 focused_tests = 2
 expression_lowering_group_tests = 12
 deep_tree = "extended by HC-IR-POINTER-UNARY-COMPOSITION to mix all five accepted prefixes"
-pointer_scaling_short_circuit_control_flow_storage_optimization_and_execution = "not implemented"
+pointer_scaling_short_circuit_control_flow_storage_optimization_and_execution = "HC-IR-BOUNDED-INTEGER-INTERPRETER executes IC_COM, IC_NOT, and IC_UNARY_MINUS within its documented word and control-flow subset; pointer scaling, short-circuit control flow, storage, and optimization remain outside this feature"
 native_oracle_status = "not required for structural composition; runtime unary behavior remains separate oracle work"
 
 [[feature]]
@@ -8692,7 +8778,7 @@ unsupported_result = "an expression shape outside the numeric lowerer's accepted
 compilation_modes = ["jit", "aot"]
 result_owners = ["function body", "executable top level"]
 focused_tests = 9
-calls_storage_side_effect_execution_optimization_interpretation_and_backend = "not implemented"
+calls_storage_side_effect_execution_optimization_interpretation_and_backend = "HC-IR-BOUNDED-INTEGER-INTERPRETER executes canonical IC_END_EXP; calls, storage, additional side effects, optimization, and backend emission remain outside this feature"
 native_oracle_status = "not required for structural terminator construction; optimizer and execution behavior remain separate oracle work"
 
 [[feature]]
