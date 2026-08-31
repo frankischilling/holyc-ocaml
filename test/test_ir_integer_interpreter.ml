@@ -665,6 +665,48 @@ let integer_operations_use_exact_word_rules () =
         ~result_type
       |> check_word name expected_type expected_bits)
     binary_cases;
+  let logical_type_pairs =
+    [
+      ("i64/i64", i64, i64);
+      ("i64/u64", i64, u64);
+      ("u64/i64", u64, i64);
+      ("u64/u64", u64, u64);
+    ]
+  in
+  let logical_truth_cases =
+    [
+      ("false/false", 0L, 0L);
+      ("false/true", 0L, Int64.min_int);
+      ("true/false", -1L, 0L);
+      ("true/true", -1L, Int64.min_int);
+    ]
+  in
+  let logical_operations =
+    [
+      ("and-and", Opcode.Ic_and_and, fun left right -> left && right);
+      ("or-or", Opcode.Ic_or_or, fun left right -> left || right);
+      ("xor-xor", Opcode.Ic_xor_xor, fun left right -> left <> right);
+    ]
+  in
+  List.iter
+    (fun (types, left_type, right_type) ->
+      List.iter
+        (fun (truths, left_bits, right_bits) ->
+          let left_truth = not (Int64.equal left_bits 0L) in
+          let right_truth = not (Int64.equal right_bits 0L) in
+          List.iter
+            (fun (operation, opcode, expected) ->
+              let expected_bits =
+                if expected left_truth right_truth then 1L else 0L
+              in
+              execute_binary ~opcode ~left_type ~left_bits ~right_type
+                ~right_bits ~result_type:i64
+              |> check_word
+                   (Printf.sprintf "%s %s %s" operation types truths)
+                   VM.I64 expected_bits)
+            logical_operations)
+        logical_truth_cases)
+    logical_type_pairs;
   let seed = 0x5555555555555555L in
   let other = 0x3030303030303030L in
   let composed =
@@ -735,7 +777,37 @@ let integer_operations_use_exact_word_rules () =
     "composed comparison instruction steps" 10
     (VM.executed_steps composed_comparisons);
   composed_comparisons |> require_returned
-  |> check_word "comparison booleans compose" VM.I64 1L
+  |> check_word "comparison booleans compose" VM.I64 1L;
+  let composed_logicals =
+    verified ~entry:0
+      [
+        block 0
+          [
+            imm ~id:0 ~value:0 ~type_:u64 Int64.min_int;
+            imm ~id:1 ~value:1 ~type_:i64 0L;
+            binary ~id:2 ~left:0 ~right:1 ~value:2 ~type_:i64 Opcode.Ic_and_and;
+            binary ~id:3 ~left:2 ~right:0 ~value:3 ~type_:i64 Opcode.Ic_or_or;
+            binary ~id:4 ~left:0 ~right:0 ~value:4 ~type_:i64 Opcode.Ic_xor_xor;
+            binary ~id:5 ~left:3 ~right:4 ~value:5 ~type_:i64 Opcode.Ic_xor_xor;
+            binary ~id:6 ~left:3 ~right:5 ~value:6 ~type_:i64 Opcode.Ic_equ_equ;
+            return_value ~id:7 ~operand:6 ~type_:i64;
+            branch ~id:8 ~operand:6 ~target:2 Opcode.Ic_br_not_zero;
+          ];
+        block 1
+          [
+            imm ~id:9 ~value:7 ~type_:i64 0L;
+            return_value ~id:10 ~operand:7 ~type_:i64;
+            ret 11;
+          ];
+        block 2 [ ret 12 ];
+      ]
+    |> require_execution
+  in
+  Alcotest.(check int)
+    "composed logical instruction steps" 10
+    (VM.executed_steps composed_logicals);
+  composed_logicals |> require_returned
+  |> check_word "logical booleans compose" VM.I64 1L
 
 let branch_graph opcode condition =
   verified ~entry:0
@@ -926,14 +998,13 @@ let whole_graph_preflight_includes_unreachable_blocks () =
             imm ~id:2 ~value:2 ~type_:i64 2L;
             imm ~id:3 ~value:3 ~type_:u64 3L;
             binary ~flags:1L ~id:4 ~left:2 ~right:3 ~value:4 ~type_:i64
-              Opcode.Ic_equ_equ;
+              Opcode.Ic_and_and;
             description
               ~operands:[ value_id 2; value_id 3 ]
               ~result:(result 5) ~target_type:i64 ~payload:(Sequence.Integer 0L)
-              5 Opcode.Ic_not_equ;
-            binary ~id:6 ~left:2 ~right:3 ~value:6 ~type_:u8 Opcode.Ic_less;
-            binary ~id:7 ~left:2 ~right:3 ~value:7 ~type_:u64
-              Opcode.Ic_greater_equ;
+              5 Opcode.Ic_or_or;
+            binary ~id:6 ~left:2 ~right:3 ~value:6 ~type_:u8 Opcode.Ic_xor_xor;
+            binary ~id:7 ~left:2 ~right:3 ~value:7 ~type_:u64 Opcode.Ic_and_and;
             ret 8;
           ];
       ]
@@ -1021,7 +1092,7 @@ let unsigned_order left right =
 let binary_word_property =
   QCheck.Test.make ~count:500
     ~name:"bounded binary execution matches direct 64-bit word operations"
-    QCheck.(quad int64 int64 (int_bound 13) (int_bound 3))
+    QCheck.(quad int64 int64 (int_bound 16) (int_bound 3))
     (fun (left_bits, right_bits, operation, type_selector) ->
       let left_type, left_word_type = sema_type_and_word_type type_selector in
       let right_type, right_word_type =
@@ -1032,9 +1103,9 @@ let binary_word_property =
         | VM.I64, VM.I64 -> (i64, VM.I64)
         | VM.I64, VM.U64 | VM.U64, VM.I64 | VM.U64, VM.U64 -> (u64, VM.U64)
       in
-      let is_comparison = operation >= 8 in
+      let has_boolean_result = operation >= 8 in
       let result_type, expected_word_type =
-        if is_comparison then (i64, VM.I64)
+        if has_boolean_result then (i64, VM.I64)
         else (promoted_result_type, promoted_word_type)
       in
       let count = Int64.to_int (Int64.logand right_bits 63L) in
@@ -1073,7 +1144,22 @@ let binary_word_property =
         | 10 -> (Opcode.Ic_less, boolean_bits (order < 0))
         | 11 -> (Opcode.Ic_greater_equ, boolean_bits (order >= 0))
         | 12 -> (Opcode.Ic_greater, boolean_bits (order > 0))
-        | _ -> (Opcode.Ic_less_equ, boolean_bits (order <= 0))
+        | 13 -> (Opcode.Ic_less_equ, boolean_bits (order <= 0))
+        | 14 ->
+            ( Opcode.Ic_and_and,
+              boolean_bits
+                ((not (Int64.equal left_bits 0L))
+                && not (Int64.equal right_bits 0L)) )
+        | 15 ->
+            ( Opcode.Ic_or_or,
+              boolean_bits
+                ((not (Int64.equal left_bits 0L))
+                || not (Int64.equal right_bits 0L)) )
+        | _ ->
+            ( Opcode.Ic_xor_xor,
+              boolean_bits
+                ((not (Int64.equal left_bits 0L))
+                <> not (Int64.equal right_bits 0L)) )
       in
       let word =
         execute_binary ~opcode ~left_type ~left_bits ~right_type ~right_bits
@@ -1102,8 +1188,8 @@ let branch_truth_property =
 let tests =
   [
     Alcotest.test_case
-      "word arithmetic, bitwise, shift, comparison, and unary rules" `Quick
-      integer_operations_use_exact_word_rules;
+      "word arithmetic, bitwise, shift, comparison, logical, and unary rules"
+      `Quick integer_operations_use_exact_word_rules;
     Alcotest.test_case "zero and nonzero branches" `Quick
       zero_and_nonzero_branches_choose_exact_edges;
     Alcotest.test_case "deduplicated conditional fallthrough" `Quick
