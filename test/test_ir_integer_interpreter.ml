@@ -260,6 +260,106 @@ let integer_operations_use_exact_word_rules () =
         VM.I64,
         Int64.min_int );
       ("u64 mul wraps", Opcode.Ic_mul, u64, -1L, u64, 2L, u64, VM.U64, -2L);
+      ( "i64 and i64",
+        Opcode.Ic_and,
+        i64,
+        0x0f0f0f0f0f0f0f0fL,
+        i64,
+        0x3333333333333333L,
+        i64,
+        VM.I64,
+        0x0303030303030303L );
+      ( "i64 and u64",
+        Opcode.Ic_and,
+        i64,
+        -1L,
+        u64,
+        0x0123456789abcdefL,
+        u64,
+        VM.U64,
+        0x0123456789abcdefL );
+      ( "u64 and i64",
+        Opcode.Ic_and,
+        u64,
+        0x5555555555555555L,
+        i64,
+        0x3333333333333333L,
+        u64,
+        VM.U64,
+        0x1111111111111111L );
+      ( "u64 and u64",
+        Opcode.Ic_and,
+        u64,
+        -1L,
+        u64,
+        Int64.min_int,
+        u64,
+        VM.U64,
+        Int64.min_int );
+      ( "i64 or i64",
+        Opcode.Ic_or,
+        i64,
+        0x0f0f0f0f0f0f0f0fL,
+        i64,
+        0x3030303030303030L,
+        i64,
+        VM.I64,
+        0x3f3f3f3f3f3f3f3fL );
+      ( "i64 or u64",
+        Opcode.Ic_or,
+        i64,
+        0L,
+        u64,
+        Int64.min_int,
+        u64,
+        VM.U64,
+        Int64.min_int );
+      ( "u64 or i64",
+        Opcode.Ic_or,
+        u64,
+        0x0123456789abcdefL,
+        i64,
+        -1L,
+        u64,
+        VM.U64,
+        -1L );
+      ( "u64 or u64",
+        Opcode.Ic_or,
+        u64,
+        0x5555555555555555L,
+        u64,
+        0x2222222222222222L,
+        u64,
+        VM.U64,
+        0x7777777777777777L );
+      ( "i64 xor i64",
+        Opcode.Ic_xor,
+        i64,
+        0x0f0f0f0f0f0f0f0fL,
+        i64,
+        0x3333333333333333L,
+        i64,
+        VM.I64,
+        0x3c3c3c3c3c3c3c3cL );
+      ("i64 xor u64", Opcode.Ic_xor, i64, -1L, u64, 0L, u64, VM.U64, -1L);
+      ( "u64 xor i64",
+        Opcode.Ic_xor,
+        u64,
+        Int64.min_int,
+        i64,
+        -1L,
+        u64,
+        VM.U64,
+        Int64.max_int );
+      ( "u64 xor u64",
+        Opcode.Ic_xor,
+        u64,
+        0x5555555555555555L,
+        u64,
+        0x3333333333333333L,
+        u64,
+        VM.U64,
+        0x6666666666666666L );
     ]
   in
   List.iter
@@ -275,7 +375,34 @@ let integer_operations_use_exact_word_rules () =
       execute_binary ~opcode ~left_type ~left_bits ~right_type ~right_bits
         ~result_type
       |> check_word name expected_type expected_bits)
-    binary_cases
+    binary_cases;
+  let seed = 0x5555555555555555L in
+  let other = 0x3030303030303030L in
+  let composed =
+    verified ~entry:0
+      [
+        block 0
+          [
+            imm ~id:0 ~value:0 ~type_:u64 seed;
+            binary ~id:1 ~left:0 ~right:0 ~value:1 ~type_:u64 Opcode.Ic_and;
+            imm ~id:2 ~value:2 ~type_:i64 other;
+            binary ~id:3 ~left:1 ~right:2 ~value:3 ~type_:u64 Opcode.Ic_or;
+            binary ~id:4 ~left:3 ~right:3 ~value:4 ~type_:u64 Opcode.Ic_xor;
+            binary ~id:5 ~left:4 ~right:2 ~value:5 ~type_:u64 Opcode.Ic_add;
+            end_expression ~id:6 ~operand:5 ();
+            unary ~id:7 ~operand:4 ~value:6 ~type_:u64 Opcode.Ic_not;
+            return_value ~id:8 ~operand:5 ~type_:u64;
+            branch ~id:9 ~operand:6 ~target:2 Opcode.Ic_br_not_zero;
+          ];
+        block 1 [ ret 10 ];
+        block 2 [ ret 11 ];
+      ]
+    |> require_execution
+  in
+  Alcotest.(check int)
+    "composed instruction steps" 11
+    (VM.executed_steps composed);
+  composed |> require_returned |> check_word "composed and aliased" VM.U64 other
 
 let branch_graph opcode condition =
   verified ~entry:0
@@ -463,12 +590,16 @@ let whole_graph_preflight_includes_unreachable_blocks () =
         block 1
           [
             description ~span:unsupported_span 1 Opcode.Ic_label;
-            imm ~flags:0x000000200L ~id:2 ~value:2 ~type_:i64 1L;
-            description ~result:(result 3) ~target_type:i64 3 Opcode.Ic_imm_i64;
-            imm ~id:4 ~value:4 ~type_:u8 1L;
-            imm ~id:5 ~value:5 ~type_:i64 2L;
-            imm ~id:6 ~value:6 ~type_:u64 3L;
-            binary ~id:7 ~left:5 ~right:6 ~value:7 ~type_:i64 Opcode.Ic_add;
+            imm ~id:2 ~value:2 ~type_:i64 2L;
+            imm ~id:3 ~value:3 ~type_:u64 3L;
+            binary ~flags:1L ~id:4 ~left:2 ~right:3 ~value:4 ~type_:u64
+              Opcode.Ic_and;
+            description
+              ~operands:[ value_id 2; value_id 3 ]
+              ~result:(result 5) ~target_type:u64 ~payload:(Sequence.Integer 0L)
+              5 Opcode.Ic_or;
+            binary ~id:6 ~left:2 ~right:3 ~value:6 ~type_:u8 Opcode.Ic_xor;
+            binary ~id:7 ~left:2 ~right:3 ~value:7 ~type_:i64 Opcode.Ic_xor;
             ret 8;
           ];
       ]
@@ -544,7 +675,7 @@ let sema_type_and_word_type selector =
 let binary_word_property =
   QCheck.Test.make ~count:500
     ~name:"bounded binary execution matches direct 64-bit word operations"
-    QCheck.(quad int64 int64 (int_bound 2) (int_bound 3))
+    QCheck.(quad int64 int64 (int_bound 5) (int_bound 3))
     (fun (left_bits, right_bits, operation, type_selector) ->
       let left_type, left_word_type = sema_type_and_word_type type_selector in
       let right_type, right_word_type =
@@ -559,7 +690,10 @@ let binary_word_property =
         match operation with
         | 0 -> (Opcode.Ic_add, Int64.add left_bits right_bits)
         | 1 -> (Opcode.Ic_sub, Int64.sub left_bits right_bits)
-        | _ -> (Opcode.Ic_mul, Int64.mul left_bits right_bits)
+        | 2 -> (Opcode.Ic_mul, Int64.mul left_bits right_bits)
+        | 3 -> (Opcode.Ic_and, Int64.logand left_bits right_bits)
+        | 4 -> (Opcode.Ic_or, Int64.logor left_bits right_bits)
+        | _ -> (Opcode.Ic_xor, Int64.logxor left_bits right_bits)
       in
       let word =
         execute_binary ~opcode ~left_type ~left_bits ~right_type ~right_bits
@@ -587,7 +721,7 @@ let branch_truth_property =
 
 let tests =
   [
-    Alcotest.test_case "word arithmetic and unary rules" `Quick
+    Alcotest.test_case "word arithmetic, bitwise, and unary rules" `Quick
       integer_operations_use_exact_word_rules;
     Alcotest.test_case "zero and nonzero branches" `Quick
       zero_and_nonzero_branches_choose_exact_edges;
