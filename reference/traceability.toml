@@ -4476,8 +4476,48 @@ failure_semantics = "missing or duplicate evidence, foreign inputs, mismatched f
 hosted_safety_strengthening = "rejecting overflow, an unresolved dimension, or a fractional final dimension is a hosted safety strengthening; the pinned path truncates F64 through ToI64 and has no corresponding overflow or unresolved-dimension recovery branch here"
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-address_ir_static_allocation_register_selection_machine_frame_lowering_and_execution = "not implemented"
+frame_address_status = "supported non-static object locations are consumed separately by HC-IR-FRAME-ADDRESS-LOWERING"
+static_allocation_function_pointer_preparation_register_selection_machine_frame_lowering_and_execution = "not implemented"
 native_oracle_status = "not required; the pinned PrsVar, PrsStmt, PrsExp, PrsLib, CInit, and ScopingLinkage paths state the retained offsets and sizes directly"
+
+[[feature]]
+id = "HC-IR-FRAME-ADDRESS-LOWERING"
+description = "A direct frame-bound object identifier lowers to a checked RBP-relative address fragment from its exact semantic binding and frame location."
+sources = [
+  "Compiler/PrsExp.HC:761-766 local identifier path and address type adjustment",
+  "Compiler/PrsExp.HC:767-775 callback preparation and array special cases",
+  "Compiler/PrsExp.HC:778-802 static split and IC_RBP, IC_IMM_I64, IC_ADD construction",
+  "Compiler/CInit.HC:27,36,71 IC_IMM_I64, IC_RBP, and IC_ADD instruction shapes",
+  "Compiler/CompilerA.HH:30,39,83 IC_IMM_I64, IC_RBP, and IC_ADD identities"
+]
+implementation = [
+  "src/ir/frame_address_lowering.ml",
+  "src/ir/frame_address_lowering.mli"
+]
+tests = ["test/test_ir_frame_address_lowering.ml"]
+status = "implemented"
+issue = 560
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "direct bound-identifier expressions backed by exact non-static object frame locations"
+binding_rule = "follow occurrence_resolution to the exact Local_binding object, then use Function_frame_layout.find_binding_location; never retry by symbol or spelling"
+supported_locations = ["named object parameter", "variadic argc", "variadic argv", "automatic object local", "automatic object array", "by-value aggregate object", "zero-sized object"]
+unsupported_inputs = ["static local", "function-pointer declarator", "module binding", "outer binding", "direct function", "nonidentifier expression", "positive non-argv parameter array without retained source shape", "maximum pointer depth"]
+parser_boundary = "named array parameters stop at HCPARSE0011 before semantic frame evidence; the positive non-argv parameter-array check is defensive"
+instruction_shape = "emit IC_RBP, signed-displacement IC_IMM_I64, then IC_ADD with base before offset"
+type_rule = "all three results and the final address carry exactly one pointer layer over the checked location type"
+source_map = "all three instructions retain the exact identifier span"
+identity = "three consecutive instruction IDs and three consecutive value IDs; the returned cursors advance by three"
+diagnostics = [
+  "HCIRL0004 missing or inconsistent binding, frame, slot, type, shape, rank, result, or source metadata",
+  "HCIRL0005 instruction or value identity exhaustion"
+]
+failure_behavior = "unsupported or invalid input exposes no sequence and no advanced cursor"
+dump_schema = "holyc-ir-frame-address-v1"
+compilation_modes = ["jit", "aot"]
+focused_tests = 6
+loads_stores_index_scaling_callback_preparation_static_or_global_addresses_expression_integration_execution_and_machine_emission = "not implemented"
+native_oracle_status = "not required for this structural fragment; the pinned parser branch and opcode tables directly define its order and shape"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-EXPRESSION-BINDINGS"
@@ -7226,7 +7266,7 @@ native_oracle_status = "not required for this source-stated semantic boundary; P
 id = "HC-SEMA-DIRECT-FUNCTION-ADDRESSES"
 description = "A direct function under address-of retains its source-visible function publication and TempleOS RT_PTR result without acquiring an object-pointer layer."
 sources = [
-  "Compiler/PrsExp.HC:620-671 direct function address branch, JIT and AOT selection, and RT_PTR result",
+  "Compiler/PrsExp.HC:621-654 direct function address branch, JIT and AOT selection, and RT_PTR result",
   "Compiler/PrsExp.HC:862-866 distinct bare direct-call branch",
   "Compiler/CInit.HC:1544-1574 intrinsic integer classes and RT_PTR alias",
   "Compiler/CompilerA.HH:HTt_FUN and intermediate type declarations",
@@ -7257,14 +7297,15 @@ provenance = ["function occurrence", "source publication", "canonical function",
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_expression_result_tests = 56
-numeric_address_slot_read_ic_emission_import_relocation_fixup_lowering_abi_and_execution = "not implemented"
+ir_lowering = "implemented by HC-IR-DIRECT-FUNCTION-ADDRESS-LOWERING"
+numeric_address_resolution_runtime_slot_access_import_or_relocation_records_fixups_abi_execution_and_machine_emission = "not implemented"
 native_oracle_status = "the parser safeguard is covered by the pinned parenthesis-free native fixture; the semantic RT_PTR and publication rule is stated directly by PrsExp and CInit"
 
 [[feature]]
 id = "HC-SEMA-DIRECT-FUNCTION-ADDRESS-PATHS"
 description = "Direct function addresses retain the mode-sensitive JIT or AOT path selected from the exact resolved declaration state."
 sources = [
-  "Compiler/PrsExp.HC:620-655 direct function address branch, Cf_EXTERN test, JIT slot load, JIT immediate, AOT rejection, and IC_ABS_ADDR",
+  "Compiler/PrsExp.HC:621-654 direct function address branch, Cf_EXTERN test, JIT slot load, JIT immediate, AOT rejection, and IC_ABS_ADDR",
   "Compiler/PrsStmt.HC:62-110 initial exe_addr and Cf_EXTERN state",
   "Compiler/PrsStmt.HC:235-276 _intern, _extern, extern, import, Ff_INTERNAL, and Cf_EXTERN transitions",
   "Compiler/PrsExp.HC:535-578 matching direct-call extern, import, and resolved branches"
@@ -7298,8 +7339,65 @@ mutation = "none"
 compilation_modes = ["jit", "aot"]
 focused_call_resolution_tests = 10
 focused_expression_result_tests = 56
-numeric_address_slot_read_ic_emission_import_relocation_fixup_lowering_abi_and_execution = "not implemented"
+ir_lowering = "Jit_extern_slot, Jit_immediate, and Aot_absolute are consumed by HC-IR-DIRECT-FUNCTION-ADDRESS-LOWERING"
+numeric_address_resolution_runtime_slot_access_import_or_relocation_records_fixups_abi_execution_and_machine_emission = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; the audited parser branches directly select or reject each retained path"
+
+[[feature]]
+id = "HC-IR-DIRECT-FUNCTION-ADDRESS-LOWERING"
+description = "An exact checked direct-function address lowers to the canonical symbolic instruction fragment selected by its retained JIT or AOT path."
+sources = [
+  "Compiler/PrsExp.HC:621-654 direct function address branch, JIT extern-slot load, JIT immediate, AOT absolute address, and RT_PTR result",
+  "Compiler/PrsExp.HC:862-866 separate bare direct-function dispatch to PrsFunCall",
+  "Compiler/CInit.HC:27,30,53 IC_IMM_I64, IC_ABS_ADDR, and IC_DEREF operand and result shapes",
+  "Compiler/CompilerA.HH:30,33,60 IC_IMM_I64, IC_ABS_ADDR, and IC_DEREF identities",
+  "Compiler/OptPass789A.HC:99-110,466-467 absolute-address relocation and dereference consumers"
+]
+implementation = [
+  "src/ir/expression_lowering.ml",
+  "src/ir/expression_lowering.mli",
+  "src/ir/direct_call_lowering.ml"
+]
+tests = [
+  "test/test_ir_expression_lowering.ml",
+  "test/test_ir_direct_call_lowering.ml"
+]
+status = "implemented"
+issue = 562
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "exact checked direct-function address-of results in function bodies and executable top-level expressions, including a provided fixed direct-call argument"
+planner = "a private atomic Direct_function_address node validates the complete retained result before allocating identities"
+binding_rule = "consume the exact resolved declaration and canonical function symbol retained by semantic analysis; never retry lookup by spelling or mutable table state"
+jit_immediate_shape = "one zero-operand IC_IMM_I64 carrying the canonical Symbol payload"
+aot_absolute_shape = "one zero-operand IC_ABS_ADDR carrying the canonical Symbol payload"
+jit_extern_slot_shape = "one zero-operand IC_IMM_I64 carrying the canonical Symbol payload, followed by one payload-free IC_DEREF consuming that value"
+type_rule = "every produced value and the returned expression result use internal zero-depth RT_PTR"
+source_map = "every emitted instruction retains the exact source-backed address-of operator span"
+flag_rule = "all flags are zero except checked root conversion and direct-call ICF_PUSH_RES on the unique final producer"
+identity = "Jit_immediate and Aot_absolute consume one instruction and value identity; Jit_extern_slot consumes two consecutive instruction and value identities; returned cursors advance only on success"
+validation = [
+  "address-of result and direct-function operand ownership",
+  "resolved declaration and canonical symbol identity",
+  "retained address path and declaration state",
+  "source and occurrence origins",
+  "internal RT_PTR type",
+  "address and function value categories",
+  "integer result classes",
+  "zero array ranks"
+]
+diagnostics = [
+  "HCIRL0004 incomplete or inconsistent retained direct-function evidence",
+  "HCIRL0005 instruction or value identity exhaustion"
+]
+failure_behavior = "unsupported or invalid input exposes no instruction sequence and no advanced cursor"
+dump_schemas = ["holyc-ir-expression-v1", "holyc-ir-direct-call-v1"]
+unsupported = ["ordinary object addresses", "callback addresses", "bare function values", "indirect calls"]
+compilation_modes = ["jit", "aot"]
+focused_expression_tests = 5
+focused_direct_call_tests = 1
+numeric_address_resolution_runtime_slot_access_import_or_relocation_records_fixups_execution_and_machine_emission = "not implemented"
+native_oracle_status = "not required for this structural lowering; the pinned parser branch, opcode table, and backend consumers directly define the retained path and instruction shape"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-RETURN-RESULTS"
@@ -7685,48 +7783,6 @@ focused_tests = 13
 property_iterations = 500
 property_evidence = "execute the original and folded verified graphs through the bounded test-local word evaluator, compare their returned values, and independently compare both with the direct 64-bit operation"
 native_oracle_status = "not required for this source-stated optimizer boundary; the pinned optimizer and backend branches directly define eligibility, retained-node rewriting, and 64-bit unary behavior"
-
-[[feature]]
-id = "HC-IR-U64-UNARY-MINUS"
-description = "Exact zero-depth internal U64 unary minus receives an internal I64 semantic and canonical IR result."
-sources = [
-  "Compiler/PrsExp.HC:614-620 unary-minus opcode selection",
-  "Compiler/PrsExp.HC:679-685 internal U64 immediate selection",
-  "Compiler/CInit.HC:52 one-argument, one-result shape",
-  "Compiler/OptPass012.HC:180-192 internal unsigned-to-signed unary-minus result",
-  "Kernel/KernelA.HH:1572-1580 I64, U64, and unsigned raw-type identities",
-  "Compiler/OptPass789A.HC:455-459 integer negation backend"
-]
-implementation = [
-  "src/sema/function_call_expression_result.ml",
-  "src/ir/expression_lowering.ml"
-]
-tests = [
-  "test/test_function_call_expression_result.ml",
-  "test/test_ir_expression_lowering.ml"
-]
-documentation = [
-  "README.md",
-  "ARCHITECTURE.md",
-  "docs/holyc-language.md",
-  "docs/intermediate-representation.md",
-  "docs/optimizer.md",
-  "docs/compatibility.md",
-  "docs/reference-source-map.md",
-  "docs/testing.md"
-]
-status = "implemented"
-issue = 567
-reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
-scope = "exact zero-depth internal U64 unary-minus nodes in function-body and executable top-level checked results"
-semantic_type_rule = "retain the internal U64 operand and assign internal I64 to unary minus"
-lowering_rule = "emit a zero-flag internal-U64 IC_IMM_I64 followed by a zero-flag internal-I64 IC_UNARY_MINUS with checked operands, identities, and spans"
-folding_rule = "the emitted pair satisfies HC-IR-INTEGER-UNARY-FOLDING, including the Int64.min_int word"
-unchanged_rules = ["I64 unary minus", "F64 unary minus", "logical not", "bitwise complement"]
-excluded_types = ["public U64", "narrow integer types", "pointers"]
-compilation_modes = ["jit", "aot"]
-focused_tests = 2
-native_oracle_status = "not required; the pinned parser and optimizer branches state the literal and result-type transitions directly"
 
 [[feature]]
 id = "HC-IR-ROOT-CONVERSION-INTENT"
@@ -10515,3 +10571,45 @@ focused_top_level_tests = 6
 focused_function_body_regression_tests = 9
 format_parsing_default_payload_evaluation_vararg_promotion_call_lowering_ic_end_exp_output_and_top_level_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; the fixed-slot loop, default branch, conversion flags, and variadic tail are explicit in PrsFunCall"
+
+[[feature]]
+id = "HC-IR-U64-UNARY-MINUS"
+description = "Exact zero-depth internal U64 unary minus receives an internal I64 semantic and canonical IR result."
+sources = [
+  "Compiler/PrsExp.HC:614-620 unary-minus opcode selection",
+  "Compiler/PrsExp.HC:679-685 internal U64 immediate selection",
+  "Compiler/CInit.HC:52 one-argument, one-result shape",
+  "Compiler/OptPass012.HC:180-192 internal unsigned-to-signed unary-minus result",
+  "Kernel/KernelA.HH:1572-1580 I64, U64, and unsigned raw-type identities",
+  "Compiler/OptPass789A.HC:455-459 integer negation backend"
+]
+implementation = [
+  "src/sema/function_call_expression_result.ml",
+  "src/ir/expression_lowering.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_ir_expression_lowering.ml"
+]
+documentation = [
+  "README.md",
+  "ARCHITECTURE.md",
+  "docs/holyc-language.md",
+  "docs/intermediate-representation.md",
+  "docs/optimizer.md",
+  "docs/compatibility.md",
+  "docs/reference-source-map.md",
+  "docs/testing.md"
+]
+status = "implemented"
+issue = 567
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "exact zero-depth internal U64 unary-minus nodes in function-body and executable top-level checked results"
+semantic_type_rule = "retain the internal U64 operand and assign internal I64 to unary minus"
+lowering_rule = "emit a zero-flag internal-U64 IC_IMM_I64 followed by a zero-flag internal-I64 IC_UNARY_MINUS with checked operands, identities, and spans"
+folding_rule = "the emitted pair satisfies HC-IR-INTEGER-UNARY-FOLDING, including the Int64.min_int word"
+unchanged_rules = ["I64 unary minus", "F64 unary minus", "logical not", "bitwise complement"]
+excluded_types = ["public U64", "narrow integer types", "pointers"]
+compilation_modes = ["jit", "aot"]
+focused_tests = 2
+native_oracle_status = "not required; the pinned parser and optimizer branches state the literal and result-type transitions directly"

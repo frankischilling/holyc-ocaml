@@ -116,6 +116,7 @@ let () =
       ("IR return lowering", Test_ir_return_lowering.tests);
       ("IR goto and label lowering", Test_ir_goto_label_lowering.tests);
       ("IR break lowering", Test_ir_break_lowering.tests);
+      ("IR frame address lowering", Test_ir_frame_address_lowering.tests);
       ("IR direct call lowering", Test_ir_direct_call_lowering.tests);
       ("function flag source", Test_function_flag_source.tests);
       ("function flag", Test_function_flag.tests);

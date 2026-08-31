@@ -18,6 +18,11 @@ val make_aggregate : symbol:Symbol.t -> pointer_depth:int -> (t, string) result
 val base : t -> base
 val pointer_depth : t -> int
 
+val equal : t -> t -> bool
+(** Compare checked type identity, including primitive spelling form, aggregate
+    symbol-object identity, and pointer depth. Aggregate symbols from separate
+    semantic sessions are distinct even if their table-local IDs match. *)
+
 val pointer_to : t -> (t, string) result
 (** Add one pointer layer without changing the source-visible base identity. *)
 
