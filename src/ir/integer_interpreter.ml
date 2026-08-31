@@ -43,6 +43,8 @@ type binary_operation =
   | Bitwise_and
   | Bitwise_or
   | Bitwise_xor
+  | Shift_left
+  | Shift_right
 
 type branch_condition = Zero | Not_zero
 
@@ -119,6 +121,8 @@ let opcode_kind = function
   | Opcode.Ic_and -> Some (Binary_kind Bitwise_and)
   | Opcode.Ic_or -> Some (Binary_kind Bitwise_or)
   | Opcode.Ic_xor -> Some (Binary_kind Bitwise_xor)
+  | Opcode.Ic_shl -> Some (Binary_kind Shift_left)
+  | Opcode.Ic_shr -> Some (Binary_kind Shift_right)
   | Opcode.Ic_end_exp -> Some Discard_kind
   | Opcode.Ic_return_val -> Some Return_value_kind
   | Opcode.Ic_jmp -> Some Jump_kind
@@ -173,6 +177,8 @@ let expected_binary_type left right =
   match (left, right) with
   | I64, I64 -> I64
   | I64, U64 | U64, I64 | U64, U64 -> U64
+
+let shift_count bits = Int64.to_int (Int64.logand bits 63L)
 
 let malformed block_id description =
   preflight_error block_id description "HCIRVM0004"
@@ -502,6 +508,16 @@ let execute_prepared ~max_steps program =
                         | Bitwise_and -> Int64.logand left.bits right.bits
                         | Bitwise_or -> Int64.logor left.bits right.bits
                         | Bitwise_xor -> Int64.logxor left.bits right.bits
+                        | Shift_left ->
+                            Int64.shift_left left.bits (shift_count right.bits)
+                        | Shift_right -> (
+                            match result_type with
+                            | I64 ->
+                                Int64.shift_right left.bits
+                                  (shift_count right.bits)
+                            | U64 ->
+                                Int64.shift_right_logical left.bits
+                                  (shift_count right.bits))
                       in
                       values :=
                         Value_map.add result

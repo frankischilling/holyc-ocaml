@@ -7774,6 +7774,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 input = "Ir.X87_stack.t; unchecked sequences and block graphs cannot enter the interpreter"
 supported_opcodes = ["IC_IMM_I64", "IC_COM", "IC_NOT", "IC_UNARY_MINUS", "IC_ADD", "IC_SUB", "IC_MUL", "IC_END_EXP", "IC_RETURN_VAL", "IC_JMP", "IC_BR_ZERO", "IC_BR_NOT_ZERO", "IC_RET", "IC_END"]
 bitwise_extension = "HC-IR-BOUNDED-INTEGER-BITWISE"
+shift_extension = "HC-IR-BOUNDED-INTEGER-SHIFTS"
 producer_types = "exact zero-depth internal I64 and U64"
 return_types = "zero-depth internal or public I64 and U64 matching the returned operand word type"
 unary_type_matrix = [
@@ -7800,7 +7801,7 @@ diagnostics = [
 ]
 canonical_flags = "zero for every supported opcode except IC_END_EXP, which requires ICF_RES_NOT_USED (0x000000200)"
 excluded_behavior = [
-  "IC_RETURN_VAL2 and every opcode outside supported_opcodes and the HC-IR-BOUNDED-INTEGER-BITWISE extension",
+  "IC_RETURN_VAL2 and every opcode outside supported_opcodes, HC-IR-BOUNDED-INTEGER-BITWISE, and HC-IR-BOUNDED-INTEGER-SHIFTS",
   "public producer types, integer widths other than internal I64 and U64, pointers, F64, and conversions",
   "memory, calls, side effects beyond IC_RETURN_VAL and IC_END_EXP, persisted IR, and machine emission",
   "execution traces or journals beyond the deterministic result summary"
@@ -7855,6 +7856,62 @@ property_iterations_each = 500
 registered_test_delta = 0
 excluded = "F64 bitwise nodes, conversions, public producers, narrow integers, pointers, memory, calls, optimizer folding, CLI execution, and machine emission"
 native_oracle_status = "not required for this source-stated word operation; the pinned optimizer and backend branches directly define integer bit semantics and result selection"
+
+[[feature]]
+id = "HC-IR-BOUNDED-INTEGER-SHIFTS"
+description = "The bounded integer interpreter executes canonical internal-word left and right shifts within its existing deterministic budget."
+sources = [
+  "Compiler/CompilerA.HH:68-71 IC_SHL and IC_SHR identities plus the distinct constant forms",
+  "Compiler/CInit.HC:60-63 two-argument, one-result raw shift metadata and the separate constant forms",
+  "Compiler/CInit.HC:289-290 source-token mapping",
+  "Kernel/KernelA.HH:1572-1580 adjacent I64 and U64 raw types",
+  "Compiler/PrsExp.HC:15-61,167-255 ordinary shift construction and precedence completion",
+  "Compiler/OptLib.HC:96-179 shared result type and unsigned selection",
+  "Compiler/OptPass012.HC:229-266 integer SHL and SHR folding, promotion, and constant-form rewrite boundary",
+  "Compiler/OptPass789A.HC:506-516 integer shift consumer selection",
+  "Compiler/BackA.HC:573-600 64-bit immediate and CL shift emission",
+  "Compiler/OpCodes.DD:1103-1151 SHL, SHR, and SAR encodings"
+]
+implementation = ["src/ir/integer_interpreter.ml"]
+tests = ["test/test_ir_integer_interpreter.ml"]
+documentation = [
+  "README.md", "ARCHITECTURE.md", "CHANGELOG.md", "SECURITY.md",
+  "docs/intermediate-representation.md", "docs/compatibility.md",
+  "docs/reference-source-map.md", "docs/testing.md"
+]
+status = "implemented"
+issue = 573
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+extends = "HC-IR-BOUNDED-INTEGER-INTERPRETER"
+depends_on = "HC-IR-BOUNDED-INTEGER-BITWISE"
+dependency_issue = 571
+constant_form_policy_issue = 574
+scope = "zero-flag IC_SHL and IC_SHR over zero-depth internal I64 and U64 operands and result"
+instruction_shape = "two ordered operands, one result, one target type, no payload, and zero flags"
+binary_type_rule = "each operation produces internal U64 when either operand is internal U64 and internal I64 otherwise"
+shift_count = "the effective count is the low six bits of the right operand, including negative words and counts greater than 63"
+hosted_count_precedent = "src/frontend/conditional_expression.ml:461-477 already normalizes hosted integer shift counts to six bits"
+word_semantics = "IC_SHL shifts the left word modulo 64 bits; IC_SHR shifts arithmetically for an internal I64 result and logically for an internal U64 result"
+promoted_right_shift_mode = "IC_SHR is arithmetic only for I64 and I64; either U64 operand promotes the result and selects logical right shift"
+preflight = "inherits whole-graph source-order preflight and HCIRVM0002 through HCIRVM0006 classifications"
+execution = "inherits block-local values, one-step instruction charging, transfer, return-latch, and termination rules"
+public_api = "unchanged"
+deterministic_human_schema = "holyc-ir-integer-execution-v1 unchanged"
+diagnostics = "HCIRVM0001 through HCIRVM0008 unchanged"
+test_inventory = "the existing word-operation case and binary property expand in place"
+evidence = [
+  "nine deterministic rows cover counts 0, 1, 2, 63, 64, 65, -1, and -64 across both shifts and every I64/U64 operand pairing",
+  "aliased operands and a composed shift chain feed later supported word operations",
+  "unreachable malformed shifts retain the existing flag, payload, type, and type-matrix diagnostics",
+  "the 500-case binary property compares both shifts with direct low-six-bit 64-bit word semantics"
+]
+ordinary_tests = 10
+property_tests = 2
+property_iterations_each = 500
+registered_test_delta = 0
+excluded = "IC_SHL_CONST, IC_SHR_CONST, IC_SHL_EQU, IC_SHR_EQU, F64 shifts, conversions, public producers, narrow integers, pointers, memory, calls, optimizer folding, CLI execution, and machine emission"
+native_oracle_status = "not required for this source-stated word operation; the pinned optimizer and backend plus the target 64-bit shift semantics define count masking, promoted signedness, and result bits"
 
 [[feature]]
 id = "HC-IR-ROOT-CONVERSION-INTENT"
@@ -8420,7 +8477,7 @@ unsupported_result = "power, assignment, compound assignment, identifier, call, 
 compilation_modes = ["jit", "aot"]
 focused_tests = 7
 deep_tree = "the original binary-only case is extended by HC-IR-INTEGER-UNARY-BINARY-COMPOSITION and HC-IR-POINTER-UNARY-COMPOSITION"
-pointer_scaling_short_circuit_control_flow_storage_optimization_and_execution = "HC-IR-BOUNDED-INTEGER-INTERPRETER executes IC_ADD, IC_SUB, and IC_MUL, and HC-IR-BOUNDED-INTEGER-BITWISE adds IC_AND, IC_OR, and IC_XOR, within the documented word and control-flow subset; pointer scaling, short-circuit control flow, storage, and optimization remain outside this feature"
+pointer_scaling_short_circuit_control_flow_storage_optimization_and_execution = "HC-IR-BOUNDED-INTEGER-INTERPRETER executes IC_ADD, IC_SUB, and IC_MUL, HC-IR-BOUNDED-INTEGER-BITWISE adds IC_AND, IC_OR, and IC_XOR, and HC-IR-BOUNDED-INTEGER-SHIFTS adds IC_SHL and IC_SHR within the documented word and control-flow subset; pointer scaling, short-circuit control flow, storage, and optimization remain outside this feature"
 native_oracle_status = "not required for this structural source mapping; runtime operator behavior remains separate oracle work"
 
 [[feature]]
