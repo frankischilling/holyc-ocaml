@@ -30,12 +30,17 @@ val lower_typed_result :
     integer producer with [ICF_RES_TO_F64], and emits an unflagged [IC_POWER]
     with an internal [F64] result. Numeric prefixes and primitive postfix casts
     compose within their checked domain; address and dereference remain confined
-    to integer and pointer trees. A postfix cast emits [IC_HOLYC_TYPECAST] with
-    the full cast span and pinned [was_paren] payload. The module owns
-    source-order traversal, TempleOS's immediate address/dereference
-    cancellation, and consecutive identity allocation. Expressions outside the
-    implemented tree shapes return [Unsupported_expression] without returning a
-    partial sequence. *)
+    to integer and pointer trees. An exact checked direct [address-of Function]
+    emits a canonical-symbol [IC_IMM_I64] in resolved JIT mode, a
+    canonical-symbol [IC_ABS_ADDR] in resolved AOT mode, or an [IC_IMM_I64]
+    address-slot producer followed by [IC_DEREF] for an unresolved JIT extern.
+    The same atomic node is available in function-body and executable top-level
+    trees, and direct-call composition marks only its final producer for
+    pushing. A postfix cast emits [IC_HOLYC_TYPECAST] with the full cast span
+    and pinned [was_paren] payload. The module owns source-order traversal,
+    TempleOS's immediate address/dereference cancellation, and consecutive
+    identity allocation. Expressions outside the implemented tree shapes return
+    [Unsupported_expression] without returning a partial sequence. *)
 
 val sequence : t -> Instruction_sequence.t
 val result_value : t -> Instruction_sequence.Value_id.t
