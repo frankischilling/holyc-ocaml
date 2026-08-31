@@ -78,6 +78,7 @@
   test_ir_block_graph
   test_ir_effects
   test_ir_x87_stack
+  test_ir_integer_unary_folding
   test_ir_function_body
   test_ir_top_level_body
   test_ir_literal_lowering
@@ -192,6 +193,7 @@
   oracle/function-definitions.json
   oracle/local-declarations.json
   oracle/parenthesis-free-calls.json
+  golden/integer-unary-folding.ir
   (glob_files golden/*)
   (glob_files negative/*)))
 
