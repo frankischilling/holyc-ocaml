@@ -360,6 +360,79 @@ let integer_operations_use_exact_word_rules () =
         u64,
         VM.U64,
         0x6666666666666666L );
+      ( "i64 shl i64 masks zero",
+        Opcode.Ic_shl,
+        i64,
+        0x0123456789abcdefL,
+        i64,
+        0L,
+        i64,
+        VM.I64,
+        0x0123456789abcdefL );
+      ( "i64 shl u64 masks 64",
+        Opcode.Ic_shl,
+        i64,
+        -1L,
+        u64,
+        64L,
+        u64,
+        VM.U64,
+        -1L );
+      ("u64 shl i64 masks 65", Opcode.Ic_shl, u64, 1L, i64, 65L, u64, VM.U64, 2L);
+      ( "u64 shl u64 masks minus one",
+        Opcode.Ic_shl,
+        u64,
+        1L,
+        u64,
+        -1L,
+        u64,
+        VM.U64,
+        Int64.min_int );
+      ( "i64 shr i64 is arithmetic",
+        Opcode.Ic_shr,
+        i64,
+        -8L,
+        i64,
+        2L,
+        i64,
+        VM.I64,
+        -2L );
+      ( "i64 shr u64 is logical",
+        Opcode.Ic_shr,
+        i64,
+        Int64.min_int,
+        u64,
+        1L,
+        u64,
+        VM.U64,
+        0x4000000000000000L );
+      ( "u64 shr i64 masks 63",
+        Opcode.Ic_shr,
+        u64,
+        -1L,
+        i64,
+        63L,
+        u64,
+        VM.U64,
+        1L );
+      ( "u64 shr u64 masks minus one",
+        Opcode.Ic_shr,
+        u64,
+        -1L,
+        u64,
+        -1L,
+        u64,
+        VM.U64,
+        1L );
+      ( "i64 shr i64 masks minus 64",
+        Opcode.Ic_shr,
+        i64,
+        -8L,
+        i64,
+        -64L,
+        i64,
+        VM.I64,
+        -8L );
     ]
   in
   List.iter
@@ -402,7 +475,26 @@ let integer_operations_use_exact_word_rules () =
   Alcotest.(check int)
     "composed instruction steps" 11
     (VM.executed_steps composed);
-  composed |> require_returned |> check_word "composed and aliased" VM.U64 other
+  composed |> require_returned |> check_word "composed and aliased" VM.U64 other;
+  let aliased_shifts =
+    verified ~entry:0
+      [
+        block 0
+          [
+            imm ~id:0 ~value:0 ~type_:u64 65L;
+            binary ~id:1 ~left:0 ~right:0 ~value:1 ~type_:u64 Opcode.Ic_shl;
+            binary ~id:2 ~left:1 ~right:1 ~value:2 ~type_:u64 Opcode.Ic_shr;
+            return_value ~id:3 ~operand:2 ~type_:u64;
+            ret 4;
+          ];
+      ]
+    |> require_execution
+  in
+  Alcotest.(check int)
+    "aliased shift instruction steps" 5
+    (VM.executed_steps aliased_shifts);
+  aliased_shifts |> require_returned
+  |> check_word "aliased shifts compose" VM.U64 32L
 
 let branch_graph opcode condition =
   verified ~entry:0
@@ -593,13 +685,13 @@ let whole_graph_preflight_includes_unreachable_blocks () =
             imm ~id:2 ~value:2 ~type_:i64 2L;
             imm ~id:3 ~value:3 ~type_:u64 3L;
             binary ~flags:1L ~id:4 ~left:2 ~right:3 ~value:4 ~type_:u64
-              Opcode.Ic_and;
+              Opcode.Ic_shl;
             description
               ~operands:[ value_id 2; value_id 3 ]
               ~result:(result 5) ~target_type:u64 ~payload:(Sequence.Integer 0L)
-              5 Opcode.Ic_or;
-            binary ~id:6 ~left:2 ~right:3 ~value:6 ~type_:u8 Opcode.Ic_xor;
-            binary ~id:7 ~left:2 ~right:3 ~value:7 ~type_:i64 Opcode.Ic_xor;
+              5 Opcode.Ic_shr;
+            binary ~id:6 ~left:2 ~right:3 ~value:6 ~type_:u8 Opcode.Ic_shl;
+            binary ~id:7 ~left:2 ~right:3 ~value:7 ~type_:i64 Opcode.Ic_shr;
             ret 8;
           ];
       ]
@@ -672,10 +764,16 @@ let human_output_is_versioned_and_deterministic () =
 let sema_type_and_word_type selector =
   if selector land 1 = 0 then (i64, VM.I64) else (u64, VM.U64)
 
+let repeat_shift count step bits =
+  let rec loop remaining bits =
+    if remaining = 0 then bits else loop (remaining - 1) (step bits)
+  in
+  loop count bits
+
 let binary_word_property =
   QCheck.Test.make ~count:500
     ~name:"bounded binary execution matches direct 64-bit word operations"
-    QCheck.(quad int64 int64 (int_bound 5) (int_bound 3))
+    QCheck.(quad int64 int64 (int_bound 7) (int_bound 3))
     (fun (left_bits, right_bits, operation, type_selector) ->
       let left_type, left_word_type = sema_type_and_word_type type_selector in
       let right_type, right_word_type =
@@ -686,6 +784,7 @@ let binary_word_property =
         | VM.I64, VM.I64 -> (i64, VM.I64)
         | VM.I64, VM.U64 | VM.U64, VM.I64 | VM.U64, VM.U64 -> (u64, VM.U64)
       in
+      let count = Int64.to_int (Int64.logand right_bits 63L) in
       let opcode, expected_bits =
         match operation with
         | 0 -> (Opcode.Ic_add, Int64.add left_bits right_bits)
@@ -693,7 +792,19 @@ let binary_word_property =
         | 2 -> (Opcode.Ic_mul, Int64.mul left_bits right_bits)
         | 3 -> (Opcode.Ic_and, Int64.logand left_bits right_bits)
         | 4 -> (Opcode.Ic_or, Int64.logor left_bits right_bits)
-        | _ -> (Opcode.Ic_xor, Int64.logxor left_bits right_bits)
+        | 5 -> (Opcode.Ic_xor, Int64.logxor left_bits right_bits)
+        | 6 ->
+            ( Opcode.Ic_shl,
+              repeat_shift count (fun bits -> Int64.add bits bits) left_bits )
+        | _ ->
+            let step =
+              match expected_word_type with
+              | VM.I64 -> fun bits -> Int64.shift_right bits 1
+              | VM.U64 ->
+                  fun bits ->
+                    Int64.logand (Int64.shift_right bits 1) Int64.max_int
+            in
+            (Opcode.Ic_shr, repeat_shift count step left_bits)
       in
       let word =
         execute_binary ~opcode ~left_type ~left_bits ~right_type ~right_bits
@@ -721,7 +832,7 @@ let branch_truth_property =
 
 let tests =
   [
-    Alcotest.test_case "word arithmetic, bitwise, and unary rules" `Quick
+    Alcotest.test_case "word arithmetic, bitwise, shift, and unary rules" `Quick
       integer_operations_use_exact_word_rules;
     Alcotest.test_case "zero and nonzero branches" `Quick
       zero_and_nonzero_branches_choose_exact_edges;
