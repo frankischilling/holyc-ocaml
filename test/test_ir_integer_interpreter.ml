@@ -433,6 +433,222 @@ let integer_operations_use_exact_word_rules () =
         i64,
         VM.I64,
         -8L );
+      ( "i64 equality at signed minimum",
+        Opcode.Ic_equ_equ,
+        i64,
+        Int64.min_int,
+        i64,
+        Int64.min_int,
+        i64,
+        VM.I64,
+        1L );
+      ( "mixed equality compares raw bits",
+        Opcode.Ic_equ_equ,
+        i64,
+        -1L,
+        u64,
+        -1L,
+        i64,
+        VM.I64,
+        1L );
+      ( "mixed equality distinguishes bits",
+        Opcode.Ic_equ_equ,
+        u64,
+        0L,
+        i64,
+        -1L,
+        i64,
+        VM.I64,
+        0L );
+      ( "u64 equality distinguishes sign boundary",
+        Opcode.Ic_equ_equ,
+        u64,
+        Int64.max_int,
+        u64,
+        Int64.min_int,
+        i64,
+        VM.I64,
+        0L );
+      ( "i64 inequality at signed minimum",
+        Opcode.Ic_not_equ,
+        i64,
+        Int64.min_int,
+        i64,
+        Int64.min_int,
+        i64,
+        VM.I64,
+        0L );
+      ( "mixed inequality compares raw bits",
+        Opcode.Ic_not_equ,
+        i64,
+        -1L,
+        u64,
+        -1L,
+        i64,
+        VM.I64,
+        0L );
+      ( "mixed inequality distinguishes bits",
+        Opcode.Ic_not_equ,
+        u64,
+        0L,
+        i64,
+        -1L,
+        i64,
+        VM.I64,
+        1L );
+      ( "u64 inequality distinguishes sign boundary",
+        Opcode.Ic_not_equ,
+        u64,
+        Int64.max_int,
+        u64,
+        Int64.min_int,
+        i64,
+        VM.I64,
+        1L );
+      ( "i64 less uses signed order",
+        Opcode.Ic_less,
+        i64,
+        Int64.min_int,
+        i64,
+        0L,
+        i64,
+        VM.I64,
+        1L );
+      ( "i64 less u64 uses unsigned order",
+        Opcode.Ic_less,
+        i64,
+        -1L,
+        u64,
+        0L,
+        i64,
+        VM.I64,
+        0L );
+      ( "u64 less i64 uses unsigned order",
+        Opcode.Ic_less,
+        u64,
+        0L,
+        i64,
+        -1L,
+        i64,
+        VM.I64,
+        1L );
+      ( "u64 less is strict",
+        Opcode.Ic_less,
+        u64,
+        Int64.min_int,
+        u64,
+        Int64.min_int,
+        i64,
+        VM.I64,
+        0L );
+      ( "i64 greater-equal includes equality",
+        Opcode.Ic_greater_equ,
+        i64,
+        Int64.min_int,
+        i64,
+        Int64.min_int,
+        i64,
+        VM.I64,
+        1L );
+      ( "i64 greater-equal u64 uses unsigned order",
+        Opcode.Ic_greater_equ,
+        i64,
+        -1L,
+        u64,
+        0L,
+        i64,
+        VM.I64,
+        1L );
+      ( "u64 greater-equal i64 uses unsigned order",
+        Opcode.Ic_greater_equ,
+        u64,
+        0L,
+        i64,
+        -1L,
+        i64,
+        VM.I64,
+        0L );
+      ( "u64 greater-equal crosses sign boundary",
+        Opcode.Ic_greater_equ,
+        u64,
+        Int64.max_int,
+        u64,
+        Int64.min_int,
+        i64,
+        VM.I64,
+        0L );
+      ( "i64 greater uses signed order",
+        Opcode.Ic_greater,
+        i64,
+        Int64.max_int,
+        i64,
+        -1L,
+        i64,
+        VM.I64,
+        1L );
+      ( "i64 greater u64 uses unsigned order",
+        Opcode.Ic_greater,
+        i64,
+        0L,
+        u64,
+        -1L,
+        i64,
+        VM.I64,
+        0L );
+      ( "u64 greater i64 uses unsigned order",
+        Opcode.Ic_greater,
+        u64,
+        -1L,
+        i64,
+        0L,
+        i64,
+        VM.I64,
+        1L );
+      ( "u64 greater is strict",
+        Opcode.Ic_greater,
+        u64,
+        -1L,
+        u64,
+        -1L,
+        i64,
+        VM.I64,
+        0L );
+      ( "i64 less-equal includes equality",
+        Opcode.Ic_less_equ,
+        i64,
+        Int64.max_int,
+        i64,
+        Int64.max_int,
+        i64,
+        VM.I64,
+        1L );
+      ( "i64 less-equal u64 uses unsigned order",
+        Opcode.Ic_less_equ,
+        i64,
+        0L,
+        u64,
+        -1L,
+        i64,
+        VM.I64,
+        1L );
+      ( "u64 less-equal i64 uses unsigned order",
+        Opcode.Ic_less_equ,
+        u64,
+        -1L,
+        i64,
+        0L,
+        i64,
+        VM.I64,
+        0L );
+      ( "u64 less-equal crosses sign boundary",
+        Opcode.Ic_less_equ,
+        u64,
+        Int64.min_int,
+        u64,
+        Int64.max_int,
+        i64,
+        VM.I64,
+        0L );
     ]
   in
   List.iter
@@ -494,7 +710,32 @@ let integer_operations_use_exact_word_rules () =
     "aliased shift instruction steps" 5
     (VM.executed_steps aliased_shifts);
   aliased_shifts |> require_returned
-  |> check_word "aliased shifts compose" VM.U64 32L
+  |> check_word "aliased shifts compose" VM.U64 32L;
+  let composed_comparisons =
+    verified ~entry:0
+      [
+        block 0
+          [
+            imm ~id:0 ~value:0 ~type_:u64 (-1L);
+            imm ~id:1 ~value:1 ~type_:i64 0L;
+            binary ~id:2 ~left:0 ~right:1 ~value:2 ~type_:i64 Opcode.Ic_less;
+            binary ~id:3 ~left:2 ~right:2 ~value:3 ~type_:i64 Opcode.Ic_equ_equ;
+            binary ~id:4 ~left:3 ~right:2 ~value:4 ~type_:i64 Opcode.Ic_greater;
+            binary ~id:5 ~left:4 ~right:3 ~value:5 ~type_:i64 Opcode.Ic_not_equ;
+            binary ~id:6 ~left:5 ~right:2 ~value:6 ~type_:i64 Opcode.Ic_less_equ;
+            binary ~id:7 ~left:6 ~right:4 ~value:7 ~type_:i64
+              Opcode.Ic_greater_equ;
+            return_value ~id:8 ~operand:7 ~type_:i64;
+            ret 9;
+          ];
+      ]
+    |> require_execution
+  in
+  Alcotest.(check int)
+    "composed comparison instruction steps" 10
+    (VM.executed_steps composed_comparisons);
+  composed_comparisons |> require_returned
+  |> check_word "comparison booleans compose" VM.I64 1L
 
 let branch_graph opcode condition =
   verified ~entry:0
@@ -684,14 +925,15 @@ let whole_graph_preflight_includes_unreachable_blocks () =
             description ~span:unsupported_span 1 Opcode.Ic_label;
             imm ~id:2 ~value:2 ~type_:i64 2L;
             imm ~id:3 ~value:3 ~type_:u64 3L;
-            binary ~flags:1L ~id:4 ~left:2 ~right:3 ~value:4 ~type_:u64
-              Opcode.Ic_shl;
+            binary ~flags:1L ~id:4 ~left:2 ~right:3 ~value:4 ~type_:i64
+              Opcode.Ic_equ_equ;
             description
               ~operands:[ value_id 2; value_id 3 ]
-              ~result:(result 5) ~target_type:u64 ~payload:(Sequence.Integer 0L)
-              5 Opcode.Ic_shr;
-            binary ~id:6 ~left:2 ~right:3 ~value:6 ~type_:u8 Opcode.Ic_shl;
-            binary ~id:7 ~left:2 ~right:3 ~value:7 ~type_:i64 Opcode.Ic_shr;
+              ~result:(result 5) ~target_type:i64 ~payload:(Sequence.Integer 0L)
+              5 Opcode.Ic_not_equ;
+            binary ~id:6 ~left:2 ~right:3 ~value:6 ~type_:u8 Opcode.Ic_less;
+            binary ~id:7 ~left:2 ~right:3 ~value:7 ~type_:u64
+              Opcode.Ic_greater_equ;
             ret 8;
           ];
       ]
@@ -770,21 +1012,39 @@ let repeat_shift count step bits =
   in
   loop count bits
 
+let unsigned_order left right =
+  match (Int64.compare left 0L < 0, Int64.compare right 0L < 0) with
+  | false, true -> -1
+  | true, false -> 1
+  | false, false | true, true -> Int64.compare left right
+
 let binary_word_property =
   QCheck.Test.make ~count:500
     ~name:"bounded binary execution matches direct 64-bit word operations"
-    QCheck.(quad int64 int64 (int_bound 7) (int_bound 3))
+    QCheck.(quad int64 int64 (int_bound 13) (int_bound 3))
     (fun (left_bits, right_bits, operation, type_selector) ->
       let left_type, left_word_type = sema_type_and_word_type type_selector in
       let right_type, right_word_type =
         sema_type_and_word_type (type_selector lsr 1)
       in
-      let result_type, expected_word_type =
+      let promoted_result_type, promoted_word_type =
         match (left_word_type, right_word_type) with
         | VM.I64, VM.I64 -> (i64, VM.I64)
         | VM.I64, VM.U64 | VM.U64, VM.I64 | VM.U64, VM.U64 -> (u64, VM.U64)
       in
+      let is_comparison = operation >= 8 in
+      let result_type, expected_word_type =
+        if is_comparison then (i64, VM.I64)
+        else (promoted_result_type, promoted_word_type)
+      in
       let count = Int64.to_int (Int64.logand right_bits 63L) in
+      let order =
+        match (left_word_type, right_word_type) with
+        | VM.I64, VM.I64 -> Int64.compare left_bits right_bits
+        | VM.I64, VM.U64 | VM.U64, VM.I64 | VM.U64, VM.U64 ->
+            unsigned_order left_bits right_bits
+      in
+      let boolean_bits predicate = if predicate then 1L else 0L in
       let opcode, expected_bits =
         match operation with
         | 0 -> (Opcode.Ic_add, Int64.add left_bits right_bits)
@@ -796,15 +1056,24 @@ let binary_word_property =
         | 6 ->
             ( Opcode.Ic_shl,
               repeat_shift count (fun bits -> Int64.add bits bits) left_bits )
-        | _ ->
+        | 7 ->
             let step =
-              match expected_word_type with
+              match promoted_word_type with
               | VM.I64 -> fun bits -> Int64.shift_right bits 1
               | VM.U64 ->
                   fun bits ->
                     Int64.logand (Int64.shift_right bits 1) Int64.max_int
             in
             (Opcode.Ic_shr, repeat_shift count step left_bits)
+        | 8 ->
+            (Opcode.Ic_equ_equ, boolean_bits (Int64.equal left_bits right_bits))
+        | 9 ->
+            ( Opcode.Ic_not_equ,
+              boolean_bits (not (Int64.equal left_bits right_bits)) )
+        | 10 -> (Opcode.Ic_less, boolean_bits (order < 0))
+        | 11 -> (Opcode.Ic_greater_equ, boolean_bits (order >= 0))
+        | 12 -> (Opcode.Ic_greater, boolean_bits (order > 0))
+        | _ -> (Opcode.Ic_less_equ, boolean_bits (order <= 0))
       in
       let word =
         execute_binary ~opcode ~left_type ~left_bits ~right_type ~right_bits
@@ -832,7 +1101,8 @@ let branch_truth_property =
 
 let tests =
   [
-    Alcotest.test_case "word arithmetic, bitwise, shift, and unary rules" `Quick
+    Alcotest.test_case
+      "word arithmetic, bitwise, shift, comparison, and unary rules" `Quick
       integer_operations_use_exact_word_rules;
     Alcotest.test_case "zero and nonzero branches" `Quick
       zero_and_nonzero_branches_choose_exact_edges;

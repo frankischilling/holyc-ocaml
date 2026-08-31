@@ -7775,6 +7775,7 @@ input = "Ir.X87_stack.t; unchecked sequences and block graphs cannot enter the i
 supported_opcodes = ["IC_IMM_I64", "IC_COM", "IC_NOT", "IC_UNARY_MINUS", "IC_ADD", "IC_SUB", "IC_MUL", "IC_END_EXP", "IC_RETURN_VAL", "IC_JMP", "IC_BR_ZERO", "IC_BR_NOT_ZERO", "IC_RET", "IC_END"]
 bitwise_extension = "HC-IR-BOUNDED-INTEGER-BITWISE"
 shift_extension = "HC-IR-BOUNDED-INTEGER-SHIFTS"
+comparison_extension = "HC-IR-BOUNDED-INTEGER-COMPARISONS"
 producer_types = "exact zero-depth internal I64 and U64"
 return_types = "zero-depth internal or public I64 and U64 matching the returned operand word type"
 unary_type_matrix = [
@@ -7801,7 +7802,7 @@ diagnostics = [
 ]
 canonical_flags = "zero for every supported opcode except IC_END_EXP, which requires ICF_RES_NOT_USED (0x000000200)"
 excluded_behavior = [
-  "IC_RETURN_VAL2 and every opcode outside supported_opcodes, HC-IR-BOUNDED-INTEGER-BITWISE, and HC-IR-BOUNDED-INTEGER-SHIFTS",
+  "IC_RETURN_VAL2 and every opcode outside supported_opcodes, HC-IR-BOUNDED-INTEGER-BITWISE, HC-IR-BOUNDED-INTEGER-SHIFTS, and HC-IR-BOUNDED-INTEGER-COMPARISONS",
   "public producer types, integer widths other than internal I64 and U64, pointers, F64, and conversions",
   "memory, calls, side effects beyond IC_RETURN_VAL and IC_END_EXP, persisted IR, and machine emission",
   "execution traces or journals beyond the deterministic result summary"
@@ -7912,6 +7913,61 @@ property_iterations_each = 500
 registered_test_delta = 0
 excluded = "IC_SHL_CONST, IC_SHR_CONST, IC_SHL_EQU, IC_SHR_EQU, F64 shifts, conversions, public producers, narrow integers, pointers, memory, calls, optimizer folding, CLI execution, and machine emission"
 native_oracle_status = "not required for this source-stated word operation; the pinned optimizer and backend plus the target 64-bit shift semantics define count masking, promoted signedness, and result bits"
+
+[[feature]]
+id = "HC-IR-BOUNDED-INTEGER-COMPARISONS"
+description = "The bounded integer interpreter executes canonical raw-word equality and ordered comparisons within its existing deterministic budget."
+sources = [
+  "Compiler/CompilerA.HH:88-99,179-196 comparison opcode identities and distinct branch-comparison forms",
+  "Compiler/CInit.HC:75-84,287-317 two-argument, one-result comparison metadata and source-token mapping",
+  "Compiler/PrsExp.HC:15-62,211-255 ordinary comparison construction, precedence, and chained-expression boundary",
+  "Kernel/KernelA.HH:1562-1580 adjacent I64 and U64 raw types",
+  "Kernel/KernelA.HH:1602-1621 floating-use and comparison-transfer flags excluded from the canonical raw-word subset",
+  "Compiler/OptLib.HC:96-123,171-179 common operand class and unsigned selection",
+  "Compiler/OptLib.HC:230-312,357-372 comparison-transfer paths excluded from the canonical raw-word subset",
+  "Compiler/OptPass012.HC:725-823 equality and ordered comparison folding, promotion, and internal-I64 result typing",
+  "Compiler/OptPass789A.HC:567-596 integer comparison consumer selection",
+  "Compiler/BackB.HC:102-200 integer equality and signed or unsigned ordered machine semantics"
+]
+implementation = ["src/ir/integer_interpreter.ml"]
+tests = ["test/test_ir_integer_interpreter.ml"]
+documentation = [
+  "README.md", "ARCHITECTURE.md", "CHANGELOG.md", "SECURITY.md",
+  "docs/intermediate-representation.md", "docs/compatibility.md",
+  "docs/reference-source-map.md", "docs/testing.md"
+]
+status = "implemented"
+issue = 576
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+extends = "HC-IR-BOUNDED-INTEGER-INTERPRETER"
+depends_on = "HC-IR-BOUNDED-INTEGER-SHIFTS"
+dependency_issue = 573
+scope = "zero-flag IC_EQU_EQU, IC_NOT_EQU, IC_LESS, IC_GREATER_EQU, IC_GREATER, and IC_LESS_EQU over zero-depth internal I64 and U64 operands with an internal I64 result"
+instruction_shape = "two ordered operands, one result, an internal-I64 target type, no payload, and zero flags"
+operand_promotion = "two internal I64 operands use the signed domain; either internal U64 operand promotes ordered comparison to the unsigned domain"
+equality_semantics = "IC_EQU_EQU and IC_NOT_EQU compare the exact 64-bit operand bits independently of signedness"
+ordered_semantics = "IC_LESS, IC_GREATER_EQU, IC_GREATER, and IC_LESS_EQU use signed order only for I64 and I64 and unsigned order for every promoted U64 pairing"
+result_rule = "every comparison produces an internal I64 Boolean normalized to zero or one rather than retaining the promoted operand type"
+hosted_comparison_precedent = "src/frontend/conditional_expression.ml:397-408 already compares hosted integer values with the same equality and promoted signed-or-unsigned ordering rules"
+preflight = "inherits whole-graph source-order preflight and HCIRVM0002 through HCIRVM0006 classifications"
+execution = "inherits block-local values, one-step instruction charging, transfer, return-latch, and termination rules; normalized comparison results may feed later supported word operations"
+public_api = "unchanged"
+deterministic_human_schema = "holyc-ir-integer-execution-v1 unchanged"
+diagnostics = "HCIRVM0001 through HCIRVM0008 unchanged"
+test_inventory = "the existing word-operation case and binary property expand in place"
+evidence = [
+  "twenty-four deterministic rows cover all six comparison opcodes and all four I64/U64 operand pairings at equality and signed-order boundaries",
+  "a composed chain consumes normalized comparison results through every supported comparison opcode",
+  "unreachable malformed comparisons retain the existing flag, payload, type, and result-type diagnostics",
+  "the 500-case binary property compares all six operations with an independent raw-bit and signed-or-unsigned ordering oracle"
+]
+ordinary_tests = 10
+property_tests = 2
+property_iterations_each = 500
+registered_test_delta = 0
+excluded = "floating comparisons, aggregates, ICF_USE_F64, ICF_USE_UNSIGNED, ICF_USE_INT, ICF_PUSH_CMP, ICF_POP_CMP, chained-comparison transfer, branch-comparison forms, comparison-to-zero rewrites, IC_AND_AND, IC_OR_OR, IC_XOR_XOR, public producers, narrow integers, pointers, memory, calls, conversions, optimizer folding, source or CLI execution, and machine emission"
+native_oracle_status = "not required for this source-stated raw-word operation; the pinned optimizer and backend directly define equality, signed-or-unsigned ordered selection, and normalized internal-I64 Boolean results"
 
 [[feature]]
 id = "HC-IR-ROOT-CONVERSION-INTENT"

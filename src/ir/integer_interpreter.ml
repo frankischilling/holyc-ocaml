@@ -36,6 +36,14 @@ type t = { termination_ : termination; executed_steps_ : int }
 type prepared_operand = { value_id : Value_id.t; expected_type : word_type }
 type unary_operation = Complement | Logical_not | Negate
 
+type comparison_operation =
+  | Equal
+  | Not_equal
+  | Less
+  | Greater_equal
+  | Greater
+  | Less_equal
+
 type binary_operation =
   | Add
   | Subtract
@@ -45,6 +53,7 @@ type binary_operation =
   | Bitwise_xor
   | Shift_left
   | Shift_right
+  | Compare of comparison_operation
 
 type branch_condition = Zero | Not_zero
 
@@ -123,6 +132,12 @@ let opcode_kind = function
   | Opcode.Ic_xor -> Some (Binary_kind Bitwise_xor)
   | Opcode.Ic_shl -> Some (Binary_kind Shift_left)
   | Opcode.Ic_shr -> Some (Binary_kind Shift_right)
+  | Opcode.Ic_equ_equ -> Some (Binary_kind (Compare Equal))
+  | Opcode.Ic_not_equ -> Some (Binary_kind (Compare Not_equal))
+  | Opcode.Ic_less -> Some (Binary_kind (Compare Less))
+  | Opcode.Ic_greater_equ -> Some (Binary_kind (Compare Greater_equal))
+  | Opcode.Ic_greater -> Some (Binary_kind (Compare Greater))
+  | Opcode.Ic_less_equ -> Some (Binary_kind (Compare Less_equal))
   | Opcode.Ic_end_exp -> Some Discard_kind
   | Opcode.Ic_return_val -> Some Return_value_kind
   | Opcode.Ic_jmp -> Some Jump_kind
@@ -173,12 +188,41 @@ let operand_of_value types value_id =
   | Some (Supported expected_type) -> Some { value_id; expected_type }
   | Some Unsupported | None -> None
 
-let expected_binary_type left right =
+let promoted_word_type left right =
   match (left, right) with
   | I64, I64 -> I64
   | I64, U64 | U64, I64 | U64, U64 -> U64
 
+let expected_binary_result_type operation left right =
+  match operation with
+  | Compare _ -> I64
+  | Add
+  | Subtract
+  | Multiply
+  | Bitwise_and
+  | Bitwise_or
+  | Bitwise_xor
+  | Shift_left
+  | Shift_right -> promoted_word_type left right
+
 let shift_count bits = Int64.to_int (Int64.logand bits 63L)
+
+let comparison_order left right =
+  match promoted_word_type left.type_ right.type_ with
+  | I64 -> Int64.compare left.bits right.bits
+  | U64 -> Int64.unsigned_compare left.bits right.bits
+
+let comparison_bits operation left right =
+  let predicate =
+    match operation with
+    | Equal -> Int64.equal left.bits right.bits
+    | Not_equal -> not (Int64.equal left.bits right.bits)
+    | Less -> comparison_order left right < 0
+    | Greater_equal -> comparison_order left right >= 0
+    | Greater -> comparison_order left right > 0
+    | Less_equal -> comparison_order left right <= 0
+  in
+  if predicate then 1L else 0L
 
 let malformed block_id description =
   preflight_error block_id description "HCIRVM0004"
@@ -274,8 +318,8 @@ let prepare_instruction block_index types block_id
                       with
                       | Some left, Some right
                         when result_type
-                             = expected_binary_type left.expected_type
-                                 right.expected_type ->
+                             = expected_binary_result_type binary
+                                 left.expected_type right.expected_type ->
                           Ok
                             (Binary
                                ( binary,
@@ -518,6 +562,8 @@ let execute_prepared ~max_steps program =
                             | U64 ->
                                 Int64.shift_right_logical left.bits
                                   (shift_count right.bits))
+                        | Compare comparison ->
+                            comparison_bits comparison left right
                       in
                       values :=
                         Value_map.add result
