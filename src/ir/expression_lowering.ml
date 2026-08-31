@@ -153,21 +153,6 @@ let lowering_error ?span code message =
 
 let metadata_error ?span message = lowering_error ?span "HCIRL0004" message
 
-let type_equal left right =
-  Type.pointer_depth left = Type.pointer_depth right
-  &&
-  match (Type.base left, Type.base right) with
-  | ( Type.Primitive (left_form, left_primitive),
-      Type.Primitive (right_form, right_primitive) ) ->
-      left_form = right_form
-      && Sema.Primitive_type.equal left_primitive right_primitive
-  | Type.Aggregate left_symbol, Type.Aggregate right_symbol ->
-      Sema.Symbol.Id.equal
-        (Sema.Symbol.id left_symbol)
-        (Sema.Symbol.id right_symbol)
-  | Type.Primitive _, Type.Aggregate _ | Type.Aggregate _, Type.Primitive _ ->
-      false
-
 let checked_integer_type result =
   match Semantic_result.result_type result with
   | None ->
@@ -789,7 +774,7 @@ let checked_bound_direct_function_source operand operand_type identifier
   then invalid "direct function operand has an inconsistent source shape"
   else if
     not
-      (type_equal
+      (Sema.Type.equal
          (Semantic_source.bound_identifier_type identifier)
          operand_type)
   then invalid "direct function operand source and result types disagree"
@@ -908,7 +893,7 @@ let checked_direct_function_address result prefix operand =
             || Semantic_result.result_array_rank operand <> 0
             || Semantic_result.result_intrinsic_conversion operand
                <> Semantic_result.No_intrinsic_conversion
-            || (not (type_equal result_type operand_type))
+            || (not (Sema.Type.equal result_type operand_type))
             || not (internal_i64 result_type)
           then
             invalid "direct function address has inconsistent checked metadata"
@@ -970,7 +955,7 @@ let checked_numeric_unary_types result opcode operand =
       let valid =
         match opcode with
         | Opcode.Ic_unary_minus | Opcode.Ic_not ->
-            type_equal result_type operand_type
+            Type.equal result_type operand_type
         | Opcode.Ic_com -> internal_i64 result_type
         | _ -> false
       in
@@ -1003,7 +988,7 @@ let checked_pointer_unary_types result opcode operand =
       match expected with
       | Error message ->
           Error (metadata_error ?span:(result_span result) message)
-      | Ok expected_type when type_equal result_type expected_type -> Ok ()
+      | Ok expected_type when Type.equal result_type expected_type -> Ok ()
       | Ok _ ->
           Error
             (metadata_error ?span:(result_span result)
@@ -1014,7 +999,7 @@ let checked_alias_types result operand =
   match
     (Semantic_result.result_type result, Semantic_result.result_type operand)
   with
-  | Some result_type, Some operand_type when type_equal result_type operand_type
+  | Some result_type, Some operand_type when Type.equal result_type operand_type
     -> Ok ()
   | Some _, Some _ ->
       Error
@@ -1033,7 +1018,7 @@ let checked_cast_types result operand target =
            "postfix cast does not have a checked target type")
   | Some result_type -> (
       let target_type = Type_reference.resolved_type target in
-      if not (type_equal result_type target_type) then
+      if not (Type.equal result_type target_type) then
         Error
           (metadata_error ?span:(result_span result)
              "postfix cast result type does not match its checked target")
@@ -1815,7 +1800,7 @@ let emit_plan ~instruction_id ~value_id nodes =
                            "transparent expression does not have a checked \
                             result type")
                 | Some result_type ->
-                    if not (type_equal result_type lowered_operand.lowered_type)
+                    if not (Type.equal result_type lowered_operand.lowered_type)
                     then
                       error :=
                         Some

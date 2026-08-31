@@ -4476,8 +4476,48 @@ failure_semantics = "missing or duplicate evidence, foreign inputs, mismatched f
 hosted_safety_strengthening = "rejecting overflow, an unresolved dimension, or a fractional final dimension is a hosted safety strengthening; the pinned path truncates F64 through ToI64 and has no corresponding overflow or unresolved-dimension recovery branch here"
 mutation = "none"
 compilation_modes = ["jit", "aot"]
-address_ir_static_allocation_register_selection_machine_frame_lowering_and_execution = "not implemented"
+frame_address_status = "supported non-static object locations are consumed separately by HC-IR-FRAME-ADDRESS-LOWERING"
+static_allocation_function_pointer_preparation_register_selection_machine_frame_lowering_and_execution = "not implemented"
 native_oracle_status = "not required; the pinned PrsVar, PrsStmt, PrsExp, PrsLib, CInit, and ScopingLinkage paths state the retained offsets and sizes directly"
+
+[[feature]]
+id = "HC-IR-FRAME-ADDRESS-LOWERING"
+description = "A direct frame-bound object identifier lowers to a checked RBP-relative address fragment from its exact semantic binding and frame location."
+sources = [
+  "Compiler/PrsExp.HC:761-766 local identifier path and address type adjustment",
+  "Compiler/PrsExp.HC:767-775 callback preparation and array special cases",
+  "Compiler/PrsExp.HC:778-802 static split and IC_RBP, IC_IMM_I64, IC_ADD construction",
+  "Compiler/CInit.HC:27,36,71 IC_IMM_I64, IC_RBP, and IC_ADD instruction shapes",
+  "Compiler/CompilerA.HH:30,39,83 IC_IMM_I64, IC_RBP, and IC_ADD identities"
+]
+implementation = [
+  "src/ir/frame_address_lowering.ml",
+  "src/ir/frame_address_lowering.mli"
+]
+tests = ["test/test_ir_frame_address_lowering.ml"]
+status = "implemented"
+issue = 560
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "direct bound-identifier expressions backed by exact non-static object frame locations"
+binding_rule = "follow occurrence_resolution to the exact Local_binding object, then use Function_frame_layout.find_binding_location; never retry by symbol or spelling"
+supported_locations = ["named object parameter", "variadic argc", "variadic argv", "automatic object local", "automatic object array", "by-value aggregate object", "zero-sized object"]
+unsupported_inputs = ["static local", "function-pointer declarator", "module binding", "outer binding", "direct function", "nonidentifier expression", "positive non-argv parameter array without retained source shape", "maximum pointer depth"]
+parser_boundary = "named array parameters stop at HCPARSE0011 before semantic frame evidence; the positive non-argv parameter-array check is defensive"
+instruction_shape = "emit IC_RBP, signed-displacement IC_IMM_I64, then IC_ADD with base before offset"
+type_rule = "all three results and the final address carry exactly one pointer layer over the checked location type"
+source_map = "all three instructions retain the exact identifier span"
+identity = "three consecutive instruction IDs and three consecutive value IDs; the returned cursors advance by three"
+diagnostics = [
+  "HCIRL0004 missing or inconsistent binding, frame, slot, type, shape, rank, result, or source metadata",
+  "HCIRL0005 instruction or value identity exhaustion"
+]
+failure_behavior = "unsupported or invalid input exposes no sequence and no advanced cursor"
+dump_schema = "holyc-ir-frame-address-v1"
+compilation_modes = ["jit", "aot"]
+focused_tests = 6
+loads_stores_index_scaling_callback_preparation_static_or_global_addresses_expression_integration_execution_and_machine_emission = "not implemented"
+native_oracle_status = "not required for this structural fragment; the pinned parser branch and opcode tables directly define its order and shape"
 
 [[feature]]
 id = "HC-SEMA-FUNCTION-EXPRESSION-BINDINGS"
