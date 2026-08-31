@@ -26,6 +26,14 @@ let instruction_id value =
 let value_id value =
   Sequence.Value_id.of_int value |> require_ok show_sequence_error
 
+let internal_word_type primitive = function
+  | Some type_ -> (
+      match (Type.base type_, Type.pointer_depth type_) with
+      | Type.Primitive (Type.Internal_storage, actual), 0 ->
+          Primitive.equal primitive actual
+      | _ -> false)
+  | None -> false
+
 let lower ?span literal =
   Literal.lower
     { instruction_id = instruction_id 7; value_id = value_id 11; literal; span }
@@ -1165,23 +1173,31 @@ let lower_typed ?(unary_identities = []) ~instruction ~value result =
   |> require_ok (fun errors ->
       String.concat "; " (List.map show_sequence_error errors))
 
-let typed_unary_minus_spans result =
-  let source = ref (Semantic_result.result_source result) in
+let typed_unary_minus_path result =
+  let current = ref result in
   let operators = ref [] in
+  let unary_results = ref [] in
   let unwrapping = ref true in
   while !unwrapping do
-    match Semantic_source.argument_expression_kind !source with
-    | Semantic_source.Parenthesized_expression inner -> source := inner
+    let source = Semantic_result.result_source !current in
+    let operand () =
+      match Semantic_result.result_operand !current with
+      | Some operand -> operand
+      | None -> Alcotest.fail "expected an exact checked unary operand"
+    in
+    match Semantic_source.argument_expression_kind source with
+    | Semantic_source.Parenthesized_expression _ -> current := operand ()
     | Semantic_source.Prefix_expression prefix
       when Semantic_source.prefix_operator prefix = Semantic_source.Unary_plus
-      -> source := Semantic_source.prefix_operand prefix
+      -> current := operand ()
     | Semantic_source.Prefix_expression prefix
       when Semantic_source.prefix_operator prefix = Semantic_source.Unary_minus
       -> (
         match Semantic_source.prefix_operator_origin prefix with
         | Semantic_symbol.Source_location location ->
             operators := location.span :: !operators;
-            source := Semantic_source.prefix_operand prefix
+            unary_results := !current :: !unary_results;
+            current := operand ()
         | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
             Alcotest.fail "expected a unary-minus operator source location")
     | Semantic_source.Integer_literal _
@@ -1203,17 +1219,22 @@ let typed_unary_minus_spans result =
     | Semantic_source.Unresolved_expression _ -> unwrapping := false
   done;
   let leaf_span =
-    match Semantic_source.argument_expression_origin !source with
+    match
+      !current |> Semantic_result.result_source
+      |> Semantic_source.argument_expression_origin
+    with
     | Semantic_symbol.Source_location location -> location.span
     | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
         Alcotest.fail "expected a typed literal source location"
   in
-  (leaf_span, !operators)
+  (!current, leaf_span, !operators, !unary_results)
 
 let check_typed_unary_minus ~index ~expected_payload ~expected_kind result =
   let instruction = 800 + index in
   let value = 1000 + index in
-  let leaf_span, operator_spans = typed_unary_minus_spans result in
+  let literal_result, leaf_span, operator_spans, unary_results =
+    typed_unary_minus_path result
+  in
   let minus_count = List.length operator_spans in
   Alcotest.(check bool) "unary minus is present" true (minus_count > 0);
   Alcotest.(check bool)
@@ -1250,11 +1271,12 @@ let check_typed_unary_minus ~index ~expected_payload ~expected_kind result =
         "literal uses the leaf span" true
         (literal.span = Some leaf_span);
       Alcotest.(check bool)
-        "literal type is the outer checked type" true
-        (literal.target_type = Semantic_result.result_type result);
+        "literal type comes from its exact checked leaf" true
+        (literal.target_type = Semantic_result.result_type literal_result);
       List.iteri
         (fun offset (unary : Sequence.description) ->
           let operator_span = List.nth operator_spans offset in
+          let unary_result = List.nth unary_results offset in
           Alcotest.(check bool)
             "unary-minus opcode" true
             (Opcode.equal Opcode.Ic_unary_minus unary.opcode);
@@ -1269,8 +1291,8 @@ let check_typed_unary_minus ~index ~expected_payload ~expected_kind result =
             "unary result" true
             (unary.result = Some { value_id = value_id (value + 1 + offset) });
           Alcotest.(check bool)
-            "forwarded result type" true
-            (unary.target_type = literal.target_type);
+            "unary type comes from its exact checked node" true
+            (unary.target_type = Semantic_result.result_type unary_result);
           Alcotest.(check bool) "no folded payload" true (unary.payload = None);
           Alcotest.(check int64) "no instruction flags" 0L unary.flags;
           Alcotest.(check bool)
@@ -1549,7 +1571,7 @@ let test_typed_nested_unary_minus_uses_inner_to_outer_order () =
     Test_function_call_expression_result.root_results results "Caller"
     |> List.hd
   in
-  let _, operator_spans = typed_unary_minus_spans result in
+  let _, _, operator_spans, _ = typed_unary_minus_path result in
   Alcotest.(check int) "nested unary minus count" 2 (List.length operator_spans);
   check_typed_unary_minus ~index:20 ~expected_payload:(Sequence.Integer (-1L))
     ~expected_kind:"integer" result
@@ -1811,10 +1833,11 @@ let test_typed_nested_unary_not_uses_inner_to_outer_order () =
         && outer_not.operands = [ value_id 1022 ]
         && outer_not.result = Some { value_id = value_id 1023 });
       Alcotest.(check bool)
-        "forwarded types" true
-        (minus.target_type = literal.target_type
-        && inner_not.target_type = literal.target_type
-        && outer_not.target_type = literal.target_type
+        "checked type transitions" true
+        (internal_word_type Primitive.U64 literal.target_type
+        && internal_word_type Primitive.I64 minus.target_type
+        && inner_not.target_type = minus.target_type
+        && outer_not.target_type = minus.target_type
         && Some (Literal.result_type lowered) = outer_not.target_type);
       Alcotest.(check bool)
         "no folded payloads" true
@@ -2087,9 +2110,10 @@ let test_typed_nested_unary_complement_uses_inner_to_outer_order () =
         && complement.operands = [ value_id 1052 ]
         && complement.result = Some { value_id = value_id 1053 });
       Alcotest.(check bool)
-        "minus and not keep the literal type" true
-        (minus.target_type = literal.target_type
-        && logical_not.target_type = literal.target_type);
+        "unsigned minus becomes I64 and not preserves it" true
+        (internal_word_type Primitive.U64 literal.target_type
+        && internal_word_type Primitive.I64 minus.target_type
+        && logical_not.target_type = minus.target_type);
       Alcotest.(check bool)
         "complement uses internal I64" true
         (is_internal_i64 complement.target_type

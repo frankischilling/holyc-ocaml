@@ -3,6 +3,7 @@ module Sequence = Holyc_lib.Ir_instruction_sequence
 module Opcode = Holyc_lib.Ir_opcode
 module Graph = Holyc_lib.Ir_block_graph
 module X87 = Holyc_lib.Ir_x87_stack
+module Fold = Holyc_lib.Ir_integer_unary_folding
 module Type = Holyc_lib.Semantic_type
 module Primitive = Holyc_lib.Primitive_type
 module Preprocessor = Holyc_lib.Preprocessor
@@ -24,6 +25,11 @@ let show_sequence_errors errors =
 
 let show_graph_error (error : Graph.error) = error.code ^ ": " ^ error.message
 let show_x87_error (error : X87.error) = error.code ^ ": " ^ error.message
+
+let show_fold_errors errors =
+  errors
+  |> List.map (fun (error : Fold.error) -> error.code ^ ": " ^ error.message)
+  |> String.concat "; "
 
 let instruction_id value =
   Sequence.Instruction_id.of_int value |> require_ok show_sequence_error
@@ -262,6 +268,13 @@ let internal_i64_type = function
   | Some type_ -> (
       match (Type.base type_, Type.pointer_depth type_) with
       | Type.Primitive (Type.Internal_storage, Primitive.I64), 0 -> true
+      | _ -> false)
+  | None -> false
+
+let internal_u64_type = function
+  | Some type_ -> (
+      match (Type.base type_, Type.pointer_depth type_) with
+      | Type.Primitive (Type.Internal_storage, Primitive.U64), 0 -> true
       | _ -> false)
   | None -> false
 
@@ -1050,6 +1063,136 @@ let unary_operators_compose_at_each_binary_position () =
             "composed next value" 24
             (Expression.next_value_id lowered |> Sequence.Value_id.to_int))
         roots cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let unsigned_unary_minus_lowers_and_folds_at_word_width () =
+  let check_lowering ~source ~instruction ~value ~check_fold root =
+    let lower_once () = lower ~instruction ~value root |> require_lowered in
+    let lowered = lower_once () in
+    let items = descriptions lowered in
+    Alcotest.(check (list string))
+      "unsigned negation instruction pair"
+      [ "IC_IMM_I64"; "IC_UNARY_MINUS" ]
+      (opcode_names lowered);
+    match items with
+    | [ literal; unary ] ->
+        Alcotest.(check bool)
+          "high-bit payload is unchanged" true
+          (literal.payload = Some (Sequence.Integer Int64.min_int));
+        Alcotest.(check bool)
+          "high-bit literal is internal U64" true
+          (internal_u64_type literal.target_type);
+        Alcotest.(check bool)
+          "unsigned negation is internal I64" true
+          (internal_i64_type unary.target_type);
+        Alcotest.(check (list int))
+          "unsigned negation operand" [ value ]
+          (List.map Sequence.Value_id.to_int unary.operands);
+        Alcotest.(check int)
+          "literal instruction identity" instruction
+          (Sequence.Instruction_id.to_int literal.instruction_id);
+        Alcotest.(check int)
+          "unary instruction identity" (instruction + 1)
+          (Sequence.Instruction_id.to_int unary.instruction_id);
+        Alcotest.(check int)
+          "unary result identity" (value + 1)
+          (match unary.result with
+          | Some result -> Sequence.Value_id.to_int result.value_id
+          | None -> Alcotest.fail "unsigned negation has no result");
+        Alcotest.(check bool)
+          "unary has no payload" true
+          (Option.is_none unary.payload);
+        Alcotest.(check int64) "literal flags" 0L literal.flags;
+        Alcotest.(check int64) "unary flags" 0L unary.flags;
+        (match unary.span with
+        | Some span ->
+            Alcotest.(check string)
+              "unary keeps its operator span" "-"
+              (String.sub source span.start (span.stop - span.start))
+        | None -> Alcotest.fail "unsigned negation lost its operator span");
+        Alcotest.(check int)
+          "lowered result identity" (value + 1)
+          (Expression.result_value lowered |> Sequence.Value_id.to_int);
+        Alcotest.(check bool)
+          "lowered result type" true
+          (internal_i64_type (Some (Expression.result_type lowered)));
+        Alcotest.(check int)
+          "next instruction identity" (instruction + 2)
+          (Expression.next_instruction_id lowered
+          |> Sequence.Instruction_id.to_int);
+        Alcotest.(check int)
+          "next value identity" (value + 2)
+          (Expression.next_value_id lowered |> Sequence.Value_id.to_int);
+        Alcotest.(check string)
+          "unsigned negation lowering replays deterministically"
+          (Expression.human lowered)
+          (Expression.human (lower_once ()));
+        if check_fold then (
+          let fold_once () =
+            Fold.fold (verify_x87 lowered) |> require_ok show_fold_errors
+          in
+          let folded = fold_once () in
+          Alcotest.(check int)
+            "one unsigned negation rewrite" 1
+            (List.length (Fold.rewrites folded));
+          let folded_items =
+            folded |> Fold.x87 |> X87.graph |> Graph.blocks |> List.hd
+            |> Graph.instructions |> Sequence.instructions
+            |> List.map Sequence.description
+          in
+          match folded_items with
+          | [ constant; terminal ] ->
+              Alcotest.(check bool)
+                "retained unary becomes an immediate" true
+                (Opcode.equal Opcode.Ic_imm_i64 constant.opcode);
+              Alcotest.(check int)
+                "retained unary instruction identity" (instruction + 1)
+                (Sequence.Instruction_id.to_int constant.instruction_id);
+              Alcotest.(check int)
+                "retained unary value identity" (value + 1)
+                (match constant.result with
+                | Some result -> Sequence.Value_id.to_int result.value_id
+                | None -> Alcotest.fail "folded immediate has no result");
+              Alcotest.(check bool)
+                "folded result remains internal I64" true
+                (internal_i64_type constant.target_type);
+              Alcotest.(check bool)
+                "wrapping negation preserves min_int" true
+                (constant.payload = Some (Sequence.Integer Int64.min_int));
+              Alcotest.(check bool)
+                "stream terminator remains" true
+                (Opcode.equal Opcode.Ic_end terminal.opcode);
+              Alcotest.(check string)
+                "fold replay is deterministic" (Fold.human folded)
+                (Fold.human (fold_once ()))
+          | _ ->
+              Alcotest.failf "expected folded constant and terminator, got %d"
+                (List.length folded_items))
+    | _ ->
+        Alcotest.failf "expected unsigned literal and negation, got %d"
+          (List.length items)
+  in
+  List.iter
+    (fun mode ->
+      let function_source =
+        "extern I64 Target(I64 value);I64 Caller(){return \
+         Target(-0x8000000000000000);}"
+      in
+      let function_root =
+        function_roots ~mode ~path:"ir-u64-unary-minus-function.HC"
+          function_source
+        |> List.hd
+      in
+      check_lowering ~source:function_source ~instruction:10 ~value:20
+        ~check_fold:(mode = Preprocessor.Jit) function_root;
+      let top_level_source = "-0x8000000000000000;" in
+      let top_level_root =
+        top_level_roots ~mode ~path:"ir-u64-unary-minus-top-level.HC"
+          top_level_source
+        |> List.hd
+      in
+      check_lowering ~source:top_level_source ~instruction:40 ~value:60
+        ~check_fold:false top_level_root)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let top_level_characters_grouping_and_unary_plus_are_transparent () =
@@ -3630,6 +3773,8 @@ let tests =
       nested_precedence_keeps_source_order_and_consecutive_ids;
     Alcotest.test_case "unary operators inside binary positions" `Quick
       unary_operators_compose_at_each_binary_position;
+    Alcotest.test_case "internal U64 unary minus" `Quick
+      unsigned_unary_minus_lowers_and_folds_at_word_width;
     Alcotest.test_case "top-level transparent integer leaves" `Quick
       top_level_characters_grouping_and_unary_plus_are_transparent;
     Alcotest.test_case "top-level mixed unary and binary tree" `Quick

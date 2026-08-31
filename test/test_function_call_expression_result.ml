@@ -311,6 +311,15 @@ let type_name result =
       in
       base ^ String.make (Semantic_type.pointer_depth type_) '*'
 
+let has_primitive_type ~form ~primitive ~pointer_depth result =
+  match Semantic_function_call_expression_result.result_type result with
+  | Some type_ when Semantic_type.pointer_depth type_ = pointer_depth -> (
+      match Semantic_type.base type_ with
+      | Semantic_type.Primitive (actual_form, actual_primitive) ->
+          actual_form = form && Primitive_type.equal actual_primitive primitive
+      | Semantic_type.Aggregate _ -> false)
+  | Some _ | None -> false
+
 let rec literal_payload expression =
   match
     Semantic_function_call_resolution.argument_expression_kind expression
@@ -684,7 +693,7 @@ let literal_payloads_reach_typed_function_results () =
         |> literal_shape));
   Alcotest.(check (list string))
     "literal payloads keep their semantic types"
-    [ "I64"; "I64"; "I64"; "I64"; "F64"; "U8*"; "I64" ]
+    [ "U64"; "U64"; "I64"; "I64"; "F64"; "U8*"; "I64" ]
     (List.map type_name roots);
   Alcotest.(check (list string))
     "literal payloads keep their result classes"
@@ -698,6 +707,138 @@ let literal_payloads_reach_typed_function_results () =
       "integer-result";
     ]
     (class_names roots)
+
+let internal_u64_unary_minus_uses_signed_result () =
+  let source =
+    "extern I64 Target(I64 negated,U64 raw);\n\
+     I64 LiteralCaller(){return Target(-0x8000000000000000,0x8000000000000000);}\n\
+     I64 Caller(U64i unsigned_value,I64i signed_value,F64i floating_value,U64 \
+     public_value,U8i narrow_value,U64i *pointer_value){\n\
+     -unsigned_value;-signed_value;-floating_value;!unsigned_value;~unsigned_value;-public_value;-narrow_value;-pointer_value;return \
+     0;\n\
+     }"
+  in
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"call-expression-u64-unary-minus.HC" source
+      in
+      let _, first = analyze prepared in
+      let _, second = analyze prepared in
+      let literal_roots = root_results first "LiteralCaller" in
+      Alcotest.(check int)
+        "negated and direct high-bit literals" 2
+        (List.length literal_roots);
+      let negated_literal = List.nth literal_roots 0 in
+      let direct_literal = List.nth literal_roots 1 in
+      let negated_operand =
+        match
+          Semantic_function_call_expression_result.result_operand
+            negated_literal
+        with
+        | Some operand -> operand
+        | None -> Alcotest.fail "unary minus lost its checked operand"
+      in
+      Alcotest.(check bool)
+        "high-bit literal is internal U64" true
+        (has_primitive_type ~form:Semantic_type.Internal_storage
+           ~primitive:Primitive_type.U64 ~pointer_depth:0 direct_literal);
+      Alcotest.(check bool)
+        "unary operand is internal U64" true
+        (has_primitive_type ~form:Semantic_type.Internal_storage
+           ~primitive:Primitive_type.U64 ~pointer_depth:0 negated_operand);
+      Alcotest.(check bool)
+        "unsigned unary minus becomes internal I64" true
+        (has_primitive_type ~form:Semantic_type.Internal_storage
+           ~primitive:Primitive_type.I64 ~pointer_depth:0 negated_literal);
+      let values results =
+        expression_statements_named results "Caller"
+        |> List.map
+             Semantic_function_call_expression_result.expression_statement_value
+      in
+      let first_values = values first in
+      let second_values = values second in
+      Alcotest.(check int)
+        "audited unary result matrix" 8 (List.length first_values);
+      let unsigned_minus = List.nth first_values 0 in
+      let unsigned_operand =
+        match
+          Semantic_function_call_expression_result.result_operand unsigned_minus
+        with
+        | Some operand -> operand
+        | None -> Alcotest.fail "internal U64 unary minus lost its operand"
+      in
+      let expected_operand =
+        match
+          unsigned_minus
+          |> Semantic_function_call_expression_result.result_source
+          |> Semantic_function_call_resolution.argument_expression_kind
+        with
+        | Semantic_function_call_resolution.Prefix_expression prefix ->
+            prefix |> Semantic_function_call_resolution.prefix_operand
+            |> result_for_source first
+        | _ -> Alcotest.fail "expected a retained unary-minus source"
+      in
+      Alcotest.(check bool)
+        "unary minus keeps the exact checked operand" true
+        (unsigned_operand == expected_operand);
+      Alcotest.(check bool)
+        "internal U64 operand remains unsigned" true
+        (has_primitive_type ~form:Semantic_type.Internal_storage
+           ~primitive:Primitive_type.U64 ~pointer_depth:0 unsigned_operand);
+      Alcotest.(check bool)
+        "internal U64 result becomes signed" true
+        (has_primitive_type ~form:Semantic_type.Internal_storage
+           ~primitive:Primitive_type.I64 ~pointer_depth:0 unsigned_minus);
+      Alcotest.(check (list bool))
+        "unchanged unary result boundaries"
+        [ true; true; true; true; true; true; true ]
+        [
+          has_primitive_type ~form:Semantic_type.Internal_storage
+            ~primitive:Primitive_type.I64 ~pointer_depth:0
+            (List.nth first_values 1);
+          has_primitive_type ~form:Semantic_type.Internal_storage
+            ~primitive:Primitive_type.F64 ~pointer_depth:0
+            (List.nth first_values 2);
+          has_primitive_type ~form:Semantic_type.Internal_storage
+            ~primitive:Primitive_type.U64 ~pointer_depth:0
+            (List.nth first_values 3);
+          has_primitive_type ~form:Semantic_type.Internal_storage
+            ~primitive:Primitive_type.I64 ~pointer_depth:0
+            (List.nth first_values 4);
+          has_primitive_type ~form:Semantic_type.Public_spelling
+            ~primitive:Primitive_type.U64 ~pointer_depth:0
+            (List.nth first_values 5);
+          has_primitive_type ~form:Semantic_type.Internal_storage
+            ~primitive:Primitive_type.U8 ~pointer_depth:0
+            (List.nth first_values 6);
+          has_primitive_type ~form:Semantic_type.Internal_storage
+            ~primitive:Primitive_type.U64 ~pointer_depth:1
+            (List.nth first_values 7);
+        ];
+      Alcotest.(check string)
+        "unsigned unary minus keeps its category" "object-value"
+        (unsigned_minus
+       |> Semantic_function_call_expression_result.result_category
+       |> Semantic_function_call_expression_result.value_category_name);
+      Alcotest.(check string)
+        "unsigned unary minus keeps its result class" "integer-result"
+        (unsigned_minus |> Semantic_function_call_expression_result.result_class
+       |> Semantic_function_call_expression_result.result_class_name);
+      Alcotest.(check bool)
+        "unsigned unary minus keeps its source origin" true
+        (Semantic_function_call_expression_result.result_origin unsigned_minus
+        = (unsigned_minus
+         |> Semantic_function_call_expression_result.result_source
+         |> Semantic_function_call_resolution.argument_expression_origin));
+      Alcotest.(check int)
+        "semantic result identity replays"
+        (unsigned_minus |> Semantic_function_call_expression_result.result_id
+       |> Semantic_function_call_expression_result.Id.to_int)
+        (List.nth second_values 0
+       |> Semantic_function_call_expression_result.result_id
+       |> Semantic_function_call_expression_result.Id.to_int))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let generated_literal_payloads_keep_provenance_and_replay () =
   with_included_source
@@ -6533,6 +6674,8 @@ let tests =
       roots_retain_types_and_categories;
     Alcotest.test_case "literal payloads in typed function results" `Quick
       literal_payloads_reach_typed_function_results;
+    Alcotest.test_case "internal U64 unary-minus result" `Quick
+      internal_u64_unary_minus_uses_signed_result;
     Alcotest.test_case "generated literal payload replay" `Quick
       generated_literal_payloads_keep_provenance_and_replay;
     Alcotest.test_case "current-position RIP address results" `Quick

@@ -51,6 +51,8 @@ All entries in this table use exact `int64` word operations. `Int64.neg` wraps m
 
 The pass does not infer or repair a target type. A producer and consumer that do not match one of these rows remain unchanged.
 
+Canonical checked expression lowering now emits the unsigned unary-minus row from source. A high-bit integer or character target word is an internal-`U64` `IC_IMM_I64`; unary minus over that exact zero-depth operand is internal `I64`. The zero-flag pair is eligible without repair, and the `Int64.min_int` integration case folds to the same bits with an internal-`I64` result. Public `U64`, narrower integers, pointers, and same-typed internal `U64` unary-minus consumers do not enter this row.
+
 ## Rewrite and fixed point
 
 An accepted pair becomes one `IC_IMM_I64`. The consumed producer is removed. The former unary instruction remains in its source position and keeps its instruction ID, result ID, target type, and source span. Its operand list becomes empty, its payload becomes the folded bits, and its flags remain zero. Block order, control-flow successors, and terminators are not rescheduled.

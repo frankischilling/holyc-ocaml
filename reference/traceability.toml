@@ -5740,14 +5740,14 @@ issue = 250
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 scope = "provided fixed prefix-expression arguments on already resolved direct function-body calls after target policy"
 semantic_source_view = "retains the exact prefix operator, operator origin, recursive operand view, and nested cast type identity"
-forwarded_prefixes = ["unary plus", "unary minus", "logical not"]
+forwarded_prefixes = ["unary plus", "logical not", "unary minus stays on the same integer-or-F64 call-conversion side; exact internal U64 result typing is HC-IR-U64-UNARY-MINUS"]
 integer_prefixes = ["address-of", "bitwise complement"]
 unresolved_prefixes = []
 dereference_extension = "HC-SEMA-POINTER-DEREFERENCE-RESULTS"
 prefix_update_extension = "HC-SEMA-PREFIX-UPDATE-CALL-CONVERSION"
 bitwise_complement_extension = "HC-SEMA-BITWISE-COMPLEMENT-CALL-CONVERSION"
 unary_plus_rule = "the parser returns the operand result without adding an IC, so the recursive operand class is retained"
-unary_minus_rule = "OptPass012 forwards the operand class to the unary-minus result"
+unary_minus_rule = "the fixed-call conversion stays on the operand's integer-or-F64 side; OptPass012 separately changes an exact zero-depth internal U64 unary-minus result to internal I64"
 logical_not_rule = "OptPass012 retains the operand class, including F64, while selecting the logical-not IC"
 address_of_rule = "the accepted source path produces a pointer result and therefore uses the non-F64 side of the call comparison"
 bitwise_complement_rule = "the IC_COM optimizer branch assigns internal I64 to the pushed result after optional immediate folding, independently of the operand class"
@@ -8372,7 +8372,7 @@ issue = 452
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 scope = "IC_UNARY_MINUS, IC_NOT, and IC_COM around integer or character literal binary trees beneath transparent parentheses and unary plus"
 traversal = "validate the retained prefix edge iteratively, visit its operand, then emit the unary instruction before the containing binary parent"
-type_rule = "unary minus and logical not retain the exact checked operand type; complement uses internal I64"
+type_rule = "logical not retains the exact checked operand type; complement uses internal I64; unary minus maps exact zero-depth internal U64 to internal I64 and otherwise retains the checked operand type"
 source_map = "every emitted unary instruction retains its own operator span"
 identity = "unary and binary nodes share the module-owned consecutive instruction and value allocator"
 result = "one checked instruction sequence, final value, final type, and next instruction and value IDs"
@@ -9701,7 +9701,7 @@ scope = "one or more unary-minus operators interleaved with transparent grouping
 instruction_rule = "emit the literal first, then one IC_UNARY_MINUS per minus prefix from innermost to outermost without folding"
 operand_rule = "each unary instruction consumes the preceding literal or unary result"
 payload_rule = "copy the retained literal leaf payload without consulting a frontend AST node"
-type_rule = "copy the outer typed result's checked type onto the literal instruction and forward it through each unary-minus instruction"
+type_rule = "copy the checked leaf type onto the literal instruction and the checked type of each unary-minus semantic node onto its corresponding instruction; an internal U64 leaf can therefore feed an internal I64 unary-minus result"
 source_rule = "attach the literal leaf's source span to the literal instruction and each minus operator span to its unary instruction"
 identity_rule = "the caller supplies one distinct instruction and value identity per unary-minus operator in emitted order; parentheses and unary plus consume none"
 diagnostics = ["HCIRL0001 missing or excess unary instruction identities"]
@@ -10571,3 +10571,45 @@ focused_top_level_tests = 6
 focused_function_body_regression_tests = 9
 format_parsing_default_payload_evaluation_vararg_promotion_call_lowering_ic_end_exp_output_and_top_level_execution = "not implemented"
 native_oracle_status = "not required for this source-stated semantic boundary; the fixed-slot loop, default branch, conversion flags, and variadic tail are explicit in PrsFunCall"
+
+[[feature]]
+id = "HC-IR-U64-UNARY-MINUS"
+description = "Exact zero-depth internal U64 unary minus receives an internal I64 semantic and canonical IR result."
+sources = [
+  "Compiler/PrsExp.HC:614-620 unary-minus opcode selection",
+  "Compiler/PrsExp.HC:679-685 internal U64 immediate selection",
+  "Compiler/CInit.HC:52 one-argument, one-result shape",
+  "Compiler/OptPass012.HC:180-192 internal unsigned-to-signed unary-minus result",
+  "Kernel/KernelA.HH:1572-1580 I64, U64, and unsigned raw-type identities",
+  "Compiler/OptPass789A.HC:455-459 integer negation backend"
+]
+implementation = [
+  "src/sema/function_call_expression_result.ml",
+  "src/ir/expression_lowering.ml"
+]
+tests = [
+  "test/test_function_call_expression_result.ml",
+  "test/test_ir_expression_lowering.ml"
+]
+documentation = [
+  "README.md",
+  "ARCHITECTURE.md",
+  "docs/holyc-language.md",
+  "docs/intermediate-representation.md",
+  "docs/optimizer.md",
+  "docs/compatibility.md",
+  "docs/reference-source-map.md",
+  "docs/testing.md"
+]
+status = "implemented"
+issue = 567
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "exact zero-depth internal U64 unary-minus nodes in function-body and executable top-level checked results"
+semantic_type_rule = "retain the internal U64 operand and assign internal I64 to unary minus"
+lowering_rule = "emit a zero-flag internal-U64 IC_IMM_I64 followed by a zero-flag internal-I64 IC_UNARY_MINUS with checked operands, identities, and spans"
+folding_rule = "the emitted pair satisfies HC-IR-INTEGER-UNARY-FOLDING, including the Int64.min_int word"
+unchanged_rules = ["I64 unary minus", "F64 unary minus", "logical not", "bitwise complement"]
+excluded_types = ["public U64", "narrow integer types", "pointers"]
+compilation_modes = ["jit", "aot"]
+focused_tests = 2
+native_oracle_status = "not required; the pinned parser and optimizer branches state the literal and result-type transitions directly"

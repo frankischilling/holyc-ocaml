@@ -507,8 +507,8 @@ let literal_payloads_reach_typed_top_level_results () =
       Alcotest.(check (list string))
         "top-level literal payloads keep existing result metadata"
         [
-          "I64:object-value:integer-result:rank-0";
-          "I64:object-value:integer-result:rank-0";
+          "U64:object-value:integer-result:rank-0";
+          "U64:object-value:integer-result:rank-0";
           "I64:object-value:integer-result:rank-0";
           "I64:object-value:integer-result:rank-0";
           "F64:object-value:f64-result:rank-0";

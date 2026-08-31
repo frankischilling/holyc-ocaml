@@ -59,6 +59,12 @@ Semantic literal nodes use the payload shape consumed by the pinned expression p
 
 TempleOS source at `c26482bb6ad3f80106d28504ec5db3c6a360732c` is authoritative when prose and implementation disagree. `reference/traceability.toml` links each claimed behavior to the pinned function or table, implementation files, and tests.
 
++## Internal U64 unary minus
+
+Integer and character payload words with a negative signed `int64` representation use internal `U64` in the checked expression tree. Unary minus over that exact zero-depth type produces internal `I64` while retaining the checked `U64` operand. Other unary-minus types and the logical-not and complement rules are unchanged.
+
+`Ir.Expression_lowering` enforces the same matrix before emission. The resulting internal-`U64` `IC_IMM_I64` followed by internal-`I64` `IC_UNARY_MINUS` can enter `Ir.Integer_unary_folding`, including the wrapping `Int64.min_int` case. Public `U64`, narrower unsigned types, and pointers remain outside this rule.
+
 ## Determinism
 
 Byte offsets and source order are preserved. Reports sort data only when source order has no meaning. Version output always names the pinned reference commit. Tests override data that could depend on clocks, locale, process IDs, or temporary directories.
