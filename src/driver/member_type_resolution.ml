@@ -34,19 +34,6 @@ let pointer_origins pointer_layers =
     (fun (layer : Frontend.Ast.pointer_layer) -> origin layer.location)
     pointer_layers
 
-let type_equal left right =
-  Sema.Type.pointer_depth left = Sema.Type.pointer_depth right
-  &&
-  match (Sema.Type.base left, Sema.Type.base right) with
-  | ( Sema.Type.Primitive (left_form, left_primitive),
-      Sema.Type.Primitive (right_form, right_primitive) ) ->
-      left_form = right_form
-      && Sema.Primitive_type.equal left_primitive right_primitive
-  | Sema.Type.Aggregate left, Sema.Type.Aggregate right ->
-      same_symbol left right
-  | Sema.Type.Primitive _, Sema.Type.Aggregate _
-  | Sema.Type.Aggregate _, Sema.Type.Primitive _ -> false
-
 let resolve_type visible type_specifier pointer_layers =
   match pointer_depth pointer_layers with
   | Error _ as error -> error
@@ -317,7 +304,7 @@ let validate_backing ~table visible header
               Error
                 "semantic member type header has the wrong backing pointer \
                  origins"
-            else if not (type_equal expected_type actual_type) then
+            else if not (Sema.Type.equal expected_type actual_type) then
               Error "semantic member type header has the wrong backing type"
             else Ok ())
   | None, Some _ | Some _, None ->

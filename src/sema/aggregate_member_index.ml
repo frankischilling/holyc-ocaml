@@ -71,17 +71,6 @@ type error = {
 
 let symbol_key symbol = Symbol.id symbol |> Symbol.Id.to_int
 let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
-
-let same_type left right =
-  Type.pointer_depth left = Type.pointer_depth right
-  &&
-  match (Type.base left, Type.base right) with
-  | Type.Primitive (left_form, left), Type.Primitive (right_form, right) ->
-      left_form = right_form && Primitive_type.equal left right
-  | Type.Aggregate left, Type.Aggregate right -> same_symbol left right
-  | Type.Primitive _, Type.Aggregate _ | Type.Aggregate _, Type.Primitive _ ->
-      false
-
 let make_error ?origin code kind message = { code; kind; origin; message }
 
 let invalid_input ?origin message =
@@ -259,7 +248,7 @@ let validate_member table scope seen_symbols aggregate_symbol input =
          "aggregate member declarator index cannot be negative")
   else if
     not
-      (same_type input.member_type
+      (Type.equal input.member_type
          (Type_reference.resolved_type input.member_type_reference))
   then
     Error
