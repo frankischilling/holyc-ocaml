@@ -101,7 +101,7 @@ let outer_environment (source : prepared_source) entries =
     (Holyc_lib.create_outer_environment source.session
        ~compilation_mode:source.mode [ data; assembler ])
 
-let build_inputs ?environment
+let build_inputs ?environment ?initializers
     (source : Test_function_call_conversion_policy.prepared) =
   let environment =
     Option.value environment ~default:(empty_environment source)
@@ -110,7 +110,7 @@ let build_inputs ?environment
     checked
       (Holyc_lib.resolve_top_level_expressions source.session
          ~declarations:source.declarations
-         ~module_expressions:source.module_expressions source.ast)
+         ~module_expressions:source.module_expressions ?initializers source.ast)
   in
   let outer_bound =
     checked
@@ -130,9 +130,11 @@ let build_inputs ?environment
   in
   (expressions, identifiers)
 
-let analyze ?environment
+let analyze ?environment ?initializers
     (source : Test_function_call_conversion_policy.prepared) =
-  let expressions, identifiers = build_inputs ?environment source in
+  let expressions, identifiers =
+    build_inputs ?environment ?initializers source
+  in
   let policies =
     source |> Test_function_call_conversion_policy.analyze
     |> Test_function_call_conversion_policy.checked_policy
@@ -449,6 +451,7 @@ let literals_and_module_values () =
             | Semantic_top_level_expression_tree.Expression_statement _ ->
                 Some "ICF_RES_NOT_USED"
             | Semantic_top_level_expression_tree.Implicit_output_fixed _
+            | Semantic_top_level_expression_tree.Global_initializer _
             | Semantic_top_level_expression_tree.Implicit_output_argument _
             | Semantic_top_level_expression_tree.Condition _
             | Semantic_top_level_expression_tree.Switch_selector _

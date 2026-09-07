@@ -23,13 +23,33 @@ type input = {
   item_index : int;
   origin : Symbol.origin;
   events : event list;
+  initial_owner :
+    (Global_initializer_binding.t * Global_initializer_binding.resolved_global)
+    option;
 }
 
 let make_statement ~statement_index ~item_index ~origin events =
   if statement_index < 0 then
     Error "top-level statement index cannot be negative"
   else if item_index < 0 then Error "top-level item index cannot be negative"
-  else Ok { statement_index; item_index; origin; events }
+  else Ok { statement_index; item_index; origin; events; initial_owner = None }
+
+let make_global_initializer ~statement_index ~initializers ~global events =
+  let symbol = Global_initializer_binding.global_symbol global in
+  match Global_initializer_binding.find_global initializers symbol with
+  | Some expected when expected == global -> (
+      match Global_initializer_binding.global_initializer_origin global with
+      | None -> Error "global initializer owner has no initializer"
+      | Some origin -> (
+          match
+            make_statement ~statement_index
+              ~item_index:(Global_initializer_binding.global_item_index global)
+              ~origin events
+          with
+          | Error _ as error -> error
+          | Ok input ->
+              Ok { input with initial_owner = Some (initializers, global) }))
+  | _ -> Error "global initializer owner belongs to another binding batch"
 
 type resolution =
   | Module_binding of Module_expression_binding.publication
@@ -78,6 +98,16 @@ let statement_item_index (statement : statement) = statement.source.item_index
 let statement_origin (statement : statement) = statement.source.origin
 let statement_occurrences (statement : statement) = statement.occurrences
 let statement_queries (statement : statement) = statement.queries
+
+let statement_initializer (statement : statement) =
+  Option.map snd statement.source.initial_owner
+
+let initializer_bindings result =
+  List.find_map
+    (fun (statement : statement) ->
+      Option.map fst statement.source.initial_owner)
+    result.statements_
+
 let occurrence_index (occurrence : occurrence) = occurrence.index
 let occurrence_name (occurrence : occurrence) = occurrence.source.name
 let occurrence_origin (occurrence : occurrence) = occurrence.source.origin
@@ -143,17 +173,31 @@ let validate_publications table parent publications =
   loop 0 (-1) publications
 
 let validate_inputs inputs =
-  let rec loop expected_statement previous_item = function
+  let ordered previous input =
+    match previous with
+    | None -> true
+    | Some previous when previous.item_index < input.item_index -> true
+    | Some previous when previous.item_index = input.item_index -> (
+        match (previous.initial_owner, input.initial_owner) with
+        | Some (_, left), Some (_, right) ->
+            Module_expression_binding.publication_declaration_index
+              (Global_initializer_binding.global_publication left)
+            < Module_expression_binding.publication_declaration_index
+                (Global_initializer_binding.global_publication right)
+        | _ -> false)
+    | Some _ -> false
+  in
+  let rec loop expected_statement previous = function
     | [] -> Ok ()
     | input :: rest ->
         if input.statement_index <> expected_statement then
           Error (invalid_input "top-level statement indexes are not contiguous")
-        else if input.item_index <= previous_item then
+        else if not (ordered previous input) then
           Error
             (invalid_input "top-level statements do not follow source order")
-        else loop (expected_statement + 1) input.item_index rest
+        else loop (expected_statement + 1) (Some input) rest
   in
-  loop 0 (-1) inputs
+  loop 0 None inputs
 
 module String_map = Map.Make (String)
 
@@ -169,6 +213,57 @@ let rec publish_before item_index visible = function
          < item_index ->
       publish_before item_index (add_publication visible publication) rest
   | publications -> (visible, publications)
+
+let publish_for_input input visible publications =
+  match input.initial_owner with
+  | None -> publish_before input.item_index visible publications
+  | Some (_, global) ->
+      let last =
+        global |> Global_initializer_binding.global_publication
+        |> Module_expression_binding.publication_declaration_index
+      in
+      let rec loop visible = function
+        | publication :: rest
+          when Module_expression_binding.publication_declaration_index
+                 publication
+               <= last -> loop (add_publication visible publication) rest
+        | rest -> (visible, rest)
+      in
+      loop visible publications
+
+let validate_initializer_occurrences input occurrences =
+  match input.initial_owner with
+  | None -> Ok ()
+  | Some (_, global) ->
+      let rec same actual expected =
+        match (actual, expected) with
+        | [], [] -> true
+        | occurrence :: rest, selected :: tail ->
+            occurrence_name occurrence
+            = Global_initializer_binding.occurrence_name selected
+            && occurrence_origin occurrence
+               = Global_initializer_binding.occurrence_origin selected
+            && Global_initializer_binding.occurrence_initializer_path selected
+               = []
+            && (match
+                  ( occurrence_resolution occurrence,
+                    Global_initializer_binding.occurrence_resolution selected )
+                with
+              | ( Module_binding actual,
+                  Global_initializer_binding.Module_binding expected ) ->
+                  actual == expected
+              | Outer_candidate, Global_initializer_binding.Outer_binding _ ->
+                  true
+              | _ -> false)
+            && same rest tail
+        | _ -> false
+      in
+      if same occurrences (Global_initializer_binding.global_occurrences global)
+      then Ok ()
+      else
+        Error
+          (invalid_input
+             "global initializer occurrences do not match their checked owner")
 
 let resolve_events visible next_occurrence next_query events =
   let resolution name =
@@ -220,18 +315,21 @@ let resolve_validated publications inputs =
             List.rev queries_rev )
     | input :: rest -> (
         let visible, publications =
-          publish_before input.item_index visible publications
+          publish_for_input input visible publications
         in
         match
           resolve_events visible next_occurrence next_query input.events
         with
         | Error _ as error -> error
-        | Ok (next_occurrence, next_query, occurrences, queries) ->
-            loop visible publications next_occurrence next_query
-              ({ source = input; occurrences; queries } :: statements_rev)
-              (List.rev_append occurrences occurrences_rev)
-              (List.rev_append queries queries_rev)
-              rest)
+        | Ok (next_occurrence, next_query, occurrences, queries) -> (
+            match validate_initializer_occurrences input occurrences with
+            | Error _ as error -> error
+            | Ok () ->
+                loop visible publications next_occurrence next_query
+                  ({ source = input; occurrences; queries } :: statements_rev)
+                  (List.rev_append occurrences occurrences_rev)
+                  (List.rev_append queries queries_rev)
+                  rest))
   in
   loop String_map.empty publications 0 0 [] [] [] inputs
 
@@ -245,6 +343,30 @@ let resolve ~table ~parent ~module_expressions inputs =
     Error
       (invalid_input
          "top-level module expressions belong to another symbol table")
+  else if
+    let first =
+      List.find_map (fun input -> Option.map fst input.initial_owner) inputs
+    in
+    List.exists
+      (fun input ->
+        match input.initial_owner with
+        | None -> false
+        | Some (batch, global) ->
+            (not (Global_initializer_binding.owns_table batch table))
+            || Global_initializer_binding.expressions batch
+               != module_expressions
+            || (match first with
+              | Some expected -> batch != expected
+              | None -> true)
+            || not
+                 (List.exists
+                    (( == )
+                       (Global_initializer_binding.global_publication global))
+                    (Module_expression_binding.publications module_expressions)))
+      inputs
+  then
+    Error
+      (invalid_input "global initializer groups have foreign binding evidence")
   else
     let publications =
       Module_expression_binding.publications module_expressions

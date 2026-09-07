@@ -25,6 +25,8 @@ module Ir_integer_globals = Ir.Integer_globals
 module Ir_global_address_lowering = Ir.Global_address_lowering
 module Ir_integer_interpreter = Ir.Integer_interpreter
 module Ir_integer_program_lowering = Ir.Integer_program_lowering
+module Ir_global_initialization = Ir.Global_initialization
+module Integer_initializer_preparation = Driver.Integer_initializers
 module Ir_integer_unary_folding = Ir.Integer_unary_folding
 module Ir_function_body = Ir.Function_body
 module Ir_top_level_body = Ir.Top_level_body
@@ -289,10 +291,10 @@ let resolve_module_expressions session ~declarations ~aggregates ~functions
     ~declarations ~aggregates ~functions ~globals ~expressions
 
 let resolve_top_level_expressions session ~declarations ~module_expressions
-    module_ =
+    ?initializers module_ =
   Driver.Top_level_expression_binding.resolve
     ~table:(Session.semantic_symbols session)
-    ~declarations ~module_expressions module_
+    ~declarations ~module_expressions ?initializers module_
 
 let resolve_top_level_outer_expressions session ~environment ~expressions =
   Sema.Top_level_outer_expression_binding.resolve
@@ -466,6 +468,11 @@ type integer_program = Driver.Integer_program.compiled
 let compile_integer_program = Driver.Integer_program.compile
 let integer_program_entry = Driver.Integer_program.entry
 let integer_program_globals = Driver.Integer_program.globals
+let integer_program_initialization = Driver.Integer_program.initialization
+
+let integer_program_initializer_preparation =
+  Driver.Integer_program.initializer_preparation
+
 let integer_program_functions = Driver.Integer_program.functions
 let integer_program_human = Driver.Integer_program.human
 let run_integer_program = Driver.Integer_program.run

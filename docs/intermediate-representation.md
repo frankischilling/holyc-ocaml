@@ -15,6 +15,14 @@ global and frame locations. Program preflight validates the address/type/owner
 relationship, then allocates fresh global words under a separate byte limit.
 Those words survive block transfers and nested calls.
 
+[Scalar global initializer regions](integer-global-initializers.md) add exact
+declaration roots to that context. Constantness is classified on the value
+fragment before destination insertion. Prepared bits and step evidence remain
+immutable; nonconstant regions own closed value/call scopes, canonical stores
+and physical instruction ranges. VM faults retain initialization phase and
+owner alongside the active function, and initializer expression boundaries do
+not replace the final ordinary expression result.
+
 ## Integer comparison-chain values
 
 The shared expression lowerer follows `PrsExp.HC:49-52,225-230` for all six

@@ -74,7 +74,7 @@ let unsupported () =
     (fun text ->
       Alcotest.(check string) text "HCRUN0001" (diagnostic text).code)
     [
-      "I64 x=0;";
+      "U8 x=0;";
       "\"hello\";";
       "if(0) {\"hidden\";}";
       "return;";

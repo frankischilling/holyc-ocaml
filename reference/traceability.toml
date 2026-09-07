@@ -11158,3 +11158,29 @@ preserved = ["bounded eval", "graph-only APIs", "public word signedness", "argum
 excluded = ["declaration initializer execution", "aliases", "data-heap and external/import storage", "static locals", "narrow/floating/pointer/array/aggregate/callback objects", "general runtime output", "stateful #exe", "native backends", "loader acceptance", "bootstrap"]
 next_connection = "retain global initializer roots and their source publication and compile/load execution phases; do not replace all declaration initializers with runtime assignments"
 native_oracle_status = "hosted source and malformed-IR regressions plus pinned-source evidence; no new native TempleOS capture"
+
+[[feature]]
+id = "HC-SOURCE-INTEGER-GLOBAL-INITIALIZERS"
+description = "Scalar I64/U64 declaration initializers retain checked roots, bounded constant initial images and source-ordered compile/load execution regions."
+sources = ["Compiler/PrsStmt.HC:409-433 publication before initialization", "Compiler/PrsVar.HC:51-112 constant preparation and nonconstant AOT IET_MAIN", "Compiler/CInit.HC:27-108 original-opcode constantness metadata", "Compiler/OptPass012.HC:66-68 constantness before rewrites", "Compiler/OptPass012.HC:403-430 constant division and divide-to-shift distinction", "Kernel/KLoad.HC:153-181 ordered main entries"]
+implementation = ["src/sema/top_level_expression_binding.ml", "src/sema/top_level_expression_tree.ml", "src/driver/global_initializer_binding.ml", "src/driver/top_level_expression_binding.ml", "src/driver/top_level_expression_tree.ml", "src/driver/integer_source.ml", "src/driver/integer_initializers.ml", "src/driver/integer_program.ml", "src/ir/integer_globals.ml", "src/ir/global_address_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/global_initialization.ml", "src/ir/integer_interpreter.ml", "bin/holyc.ml"]
+tests = ["test/test_integer_global_initializers.ml", "test/test_integer_globals.ml", "test/test_integer_program_cli.ml", "examples/integer-global-initializers.hc", "test/dune"]
+documentation = ["docs/integer-global-initializers.md", "docs/integer-globals.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 603
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "I64 Total=0 with two AddTo calls and final Total returns 42 in 46 runtime instructions plus 3 constant-preparation instructions in both modes"
+ownership = "exact checked global initializer batch, source owner, publication item/declarator order, root, scalar type and original AST expression; ordinary module roots keep their default contract"
+constantness = "classify original value opcodes using prevents_constant_folding before destination address or IC_ASSIGN insertion; retain verified value graph and checked VM step evidence"
+initial_images = "successful supported pure constants supply immutable bits in the declared I64/U64 class; the raw image updater is not part of the public API"
+regions = "nonconstant regions preserve source/declarator order and JIT compile-initializer or AOT load-initializer phase; canonical store boundaries, region-local operands and balanced call scopes, increasing physical instruction IDs and exact graph/storage identity"
+runtime = "all bodies and regions preflight before effects; calls share global words and bounds; initializer owner/phase accompanies active-function fault identity; initializer END_EXP does not replace final ordinary value"
+limits = "positive max_initializer_steps/initializer-step-limit defaults to 100000 and bounds total constant preparation; reported compiled_initializer_steps stays separate from runtime instruction, frame-byte, call-depth and global-byte limits"
+optimizer_boundary = "HCRUN0006 rejects shifts and constant-divisor division/remainder in nonconstant initializer values or transitive callees; pure total constant division is accepted; #574 and #585 remain open"
+fault_order = "whole-program hosted preflight and constant preparation precede mutable execution; full JIT parsing/effect/fault order requires stateful compilation"
+diagnostics = ["HCRUN0006 initializer optimizer or missing-source-callee boundary", "HCIRVM0017 missing or malformed initialization context", "HCIRVM0007 constant preparation or runtime budget", "HCIRVM0012 reached unknown JIT self-read"]
+focused_tests = 12
+preserved = ["original explicitly assigned accumulator 42/50", "bounded eval", "ordinary source expression results", "exact semantic identity", "shared call/value lowering", "repeated-run image isolation", "whole-program preflight", "deterministic reports"]
+excluded = ["aliases", "data-heap/external/import storage", "static/narrow/floating/pointer/array/aggregate/callback objects", "general runtime output", "stateful #exe", "complete optimizer parity", "native/BIN/loader execution", "bootstrap"]
+native_oracle_status = "hosted source and malformed-context tests with pinned-source audit; no new native capture"

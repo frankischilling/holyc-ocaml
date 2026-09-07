@@ -288,6 +288,7 @@ let collect_statement_outputs expected_output statement =
                  "top-level implicit output argument has no preceding fixed \
                   value")
         | Top_level_expression_tree.Expression_statement _
+        | Top_level_expression_tree.Global_initializer _
         | Top_level_expression_tree.Condition _
         | Top_level_expression_tree.Switch_selector _
         | Top_level_expression_tree.Switch_case_value _

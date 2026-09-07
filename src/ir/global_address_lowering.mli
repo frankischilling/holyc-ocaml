@@ -1,4 +1,10 @@
 type prepared_address
+
+val prepare_initializer :
+  globals:Integer_globals.t ->
+  Sema.Function_call_expression_result.top_level_root_result ->
+  (prepared_address, Instruction_sequence.error list) result
+
 type t
 
 val prepare :

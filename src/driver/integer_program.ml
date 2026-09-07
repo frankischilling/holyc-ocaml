@@ -13,17 +13,23 @@ type 'a checked = { value : 'a; diagnostics : Common.Diagnostic.t list }
 type compiled = {
   entry_ : Ir.X87_stack.t;
   globals_ : Ir.Integer_globals.t;
+  initialization_ : Ir.Global_initialization.t;
+  preparation_ : Integer_initializers.t;
   functions_ : Ir.Integer_interpreter.function_definition list;
 }
 
 let entry compiled = compiled.entry_
 let globals compiled = compiled.globals_
+let initialization compiled = compiled.initialization_
+let initializer_preparation compiled = compiled.preparation_
 let functions compiled = compiled.functions_
 
 let human compiled =
   let entry =
     (compiled.entry_ |> Ir.X87_stack.graph |> Ir.Block_graph.human)
     ^ Ir.Integer_globals.human compiled.globals_
+    ^ Ir.Global_initialization.human compiled.initialization_
+    ^ Integer_initializers.human compiled.preparation_
   in
   match compiled.functions_ with
   | [] -> entry
@@ -42,7 +48,7 @@ exception Invalid of Common.Diagnostic.t
 let fail span code message =
   raise (Invalid (Integer_source.diagnostic ~span code message))
 
-let compile session ~config ~source =
+let compile_with_limit ~max_initializer_steps session ~config ~source =
   let parsed =
     Frontend.Parser.parse ~sources:(Session.sources session)
       ~definitions:(Session.definitions session)
@@ -101,13 +107,14 @@ let compile session ~config ~source =
               ast.items
           in
           let* prepared =
-            Integer_source.prepare_unit session ~config ~span:ast.span ast
-          in
-          let* globals_ =
-            Ir.Integer_globals.create ~span:ast.span
-              (Integer_source.global_records prepared)
+            Integer_source.prepare_unit ~include_global_initializers:true
+              session ~config ~span:ast.span ast
           in
           let typed = Integer_source.top_level prepared in
+          let* globals_ =
+            Ir.Integer_globals.create ~initializers:typed ~span:ast.span
+              (Integer_source.global_records prepared)
+          in
           let root_map values =
             List.fold_left
               (fun roots value ->
@@ -410,22 +417,94 @@ let compile session ~config ~source =
                    in
                    Ok Ir.Integer_interpreter.{ frame; body })
           in
+          let* preparation_ =
+            Integer_initializers.prepare ~max_steps:max_initializer_steps
+              ~span:ast.span ~globals:globals_ ~top_calls ~functions:definitions
+          in
+          let globals_ = Integer_initializers.globals preparation_ in
           let roots =
             Typed.top_level_statements typed
             |> List.concat_map Typed.top_level_statement_roots
+            |> List.filter (fun root ->
+                match
+                  root |> Typed.top_level_root_source
+                  |> Sema.Top_level_expression_tree.root_role
+                with
+                | Sema.Top_level_expression_tree.Global_initializer _ -> false
+                | _ -> true)
             |> List.map Typed.top_level_root_value
             |> root_map
           in
-          let statements = lower_statements roots [] [] statements in
-          let* entry_ =
-            Lower.lower ~globals:globals_ ~top_calls ~span:ast.span statements
+          let ordinary = ref (lower_statements roots [] [] statements) in
+          let pending =
+            Ir.Integer_globals.slots globals_
+            |> List.filter_map (fun slot ->
+                if Ir.Integer_globals.slot_initializer_materialized slot then
+                  None
+                else
+                  Option.map
+                    (fun root -> (slot, root))
+                    (Ir.Integer_globals.slot_initializer slot))
           in
-          Ok { entry_; globals_; functions_ = definitions }
+          let statements =
+            ast.items
+            |> List.mapi (fun item_index item ->
+                match item with
+                | Ast.Top_level_statement _ -> (
+                    match !ordinary with
+                    | statement :: rest ->
+                        ordinary := rest;
+                        [ statement ]
+                    | [] ->
+                        fail ast.span "HCRUN0004"
+                          "module statement composition lost a source root")
+                | _ ->
+                    pending
+                    |> List.filter_map (fun (slot, root) ->
+                        let global =
+                          Ir.Integer_globals.slot_record slot
+                          |> Sema.Global_record_classification
+                             .classified_record_source
+                          |> Sema.Global_resolution.global_record_global
+                        in
+                        if
+                          Sema.Global_type_resolution.global_item_index global
+                          = item_index
+                        then Some (Lower.Initialize_global root)
+                        else None))
+            |> List.concat
+          in
+          let* entry_, regions =
+            Lower.lower_with_initializers ~globals:globals_ ~top_calls
+              ~span:ast.span statements
+          in
+          let* initialization_ =
+            Ir.Global_initialization.create ~span:ast.span ~globals:globals_
+              ~entry:entry_ regions
+          in
+          Ok
+            {
+              entry_;
+              globals_;
+              initialization_;
+              preparation_;
+              functions_ = definitions;
+            }
         with Invalid diagnostic -> Error [ diagnostic ]
       in
       match lowered with
       | Ok value -> Ok { value; diagnostics = parsed.diagnostics }
       | Error diagnostics -> Error (parsed.diagnostics @ diagnostics))
+
+let compile ?(max_initializer_steps = 100_000) session ~config ~source =
+  if max_initializer_steps <= 0 then
+    Error
+      [
+        Integer_source.diagnostic
+          ~span:(Integer_source.source_span source)
+          "HCIRVM0001" "max_initializer_steps must be greater than zero";
+      ]
+  else compile_with_limit ~max_initializer_steps session ~config ~source
 
 let lower session ~config ~source =
   let* compiled = compile session ~config ~source in
@@ -443,24 +522,26 @@ let lower session ~config ~source =
                API";
           ])
 
-let run ?(max_global_bytes = 1_048_576) ?(max_frame_bytes = 1_048_576)
-    ?(max_call_depth = 128) session ~config ~source ~max_steps =
+let run ?(max_initializer_steps = 100_000) ?(max_global_bytes = 1_048_576)
+    ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128) session ~config
+    ~source ~max_steps =
   let span = Integer_source.source_span source in
   if
     max_steps <= 0 || max_frame_bytes <= 0 || max_call_depth <= 0
-    || max_global_bytes <= 0
+    || max_global_bytes <= 0 || max_initializer_steps <= 0
   then
     Error
       [
         Integer_source.diagnostic ~span "HCIRVM0001"
-          "max_steps, max_frame_bytes, max_call_depth and max_global_bytes \
-           must be greater than zero";
+          "max_steps, max_frame_bytes, max_call_depth, max_global_bytes and \
+           max_initializer_steps must be greater than zero";
       ]
   else
-    let* graph = compile session ~config ~source in
+    let* graph = compile ~max_initializer_steps session ~config ~source in
     Ir.Integer_interpreter.execute_program ~globals:graph.value.globals_
-      ~max_global_bytes ~max_steps ~max_frame_bytes ~max_call_depth
-      ~functions:graph.value.functions_ graph.value.entry_
+      ~initialization:graph.value.initialization_ ~max_global_bytes ~max_steps
+      ~max_frame_bytes ~max_call_depth ~functions:graph.value.functions_
+      graph.value.entry_
     |> Result.map (fun value -> { value; diagnostics = graph.diagnostics })
     |> Result.map_error
          (List.map (fun (error : Ir.Integer_interpreter.error) ->
@@ -485,6 +566,17 @@ let run ?(max_global_bytes = 1_048_576) ?(max_frame_bytes = 1_048_576)
                   @ identity "block_id" error.block_id
                   @ identity "instruction_id" error.instruction_id
                   @ identity "function_id" error.function_id
+                  @ identity "initializer_symbol_id" error.initializer_symbol_id
+                  @ Option.to_list
+                      (Option.map
+                         (fun name -> "initializer=" ^ name)
+                         error.initializer_name)
+                  @ Option.to_list
+                      (Option.map
+                         (fun phase ->
+                           "initializer_phase="
+                           ^ Ir.Global_initialization.phase_name phase)
+                         error.initializer_phase)
                   @ Option.to_list
                       (Option.map
                          (fun name -> "function=" ^ name)

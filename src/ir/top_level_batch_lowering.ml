@@ -151,6 +151,7 @@ let standalone_candidate statement_index statement =
       | Tree.Switch_case_value _
       | Tree.Local_array_dimension _
       | Tree.Local_initializer _
+      | Tree.Global_initializer _
       | Tree.Return_value _ -> None)
   | [] | _ :: _ :: _ -> None
 

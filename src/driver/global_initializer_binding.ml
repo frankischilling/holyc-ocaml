@@ -256,3 +256,34 @@ let resolve ~table ~environment ~expressions ~globals module_ =
       if String.starts_with ~prefix:"HCSEMA" message then message
       else "HCSEMA0025: " ^ message)
     result
+
+let scalar_initializers ~table ~bindings module_ =
+  let rec pair reversed globals ast =
+    match (globals, ast) with
+    | [], [] -> Ok (List.rev reversed)
+    | global :: rest, ast :: tail -> (
+        match
+          global_input table
+            (Sema.Global_initializer_binding.global_record global)
+            ast
+        with
+        | Error _ as error -> error
+        | Ok _ -> (
+            match ast.initial_value with
+            | None -> pair reversed rest tail
+            | Some initial -> (
+                match initial.Frontend.Ast.global_initializer_value with
+                | Frontend.Ast.Scalar_initializer _ ->
+                    pair ((global, initial) :: reversed) rest tail
+                | _ ->
+                    Error
+                      "global initializer expression groups require scalar \
+                       roots")))
+    | _ -> Error "global initializer roots do not match their binding batch"
+  in
+  if not (Sema.Global_initializer_binding.owns_table bindings table) then
+    Error "global initializer roots belong to another symbol table"
+  else
+    pair []
+      (Sema.Global_initializer_binding.globals bindings)
+      (ast_globals module_)

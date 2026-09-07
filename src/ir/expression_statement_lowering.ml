@@ -109,6 +109,7 @@ let top_level_expression_statement root =
             "top-level expression statement is missing unused-result intent";
         ]
   | ( ( Top_level_source.Implicit_output_fixed _
+      | Top_level_source.Global_initializer _
       | Top_level_source.Implicit_output_argument _
       | Top_level_source.Condition _
       | Top_level_source.Switch_selector _

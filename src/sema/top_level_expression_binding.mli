@@ -18,6 +18,15 @@ val make_statement :
   event list ->
   (input, string) result
 
+val make_global_initializer :
+  statement_index:int ->
+  initializers:Global_initializer_binding.t ->
+  global:Global_initializer_binding.resolved_global ->
+  event list ->
+  (input, string) result
+(** Retain a declaration-owned module expression group. Its visible prefix
+    includes the exact owning global publication and earlier declarators. *)
+
 type resolution =
   | Module_binding of Module_expression_binding.publication
   | Outer_candidate
@@ -51,6 +60,11 @@ val statement_item_index : statement -> int
 val statement_origin : statement -> Symbol.origin
 val statement_occurrences : statement -> occurrence list
 val statement_queries : statement -> query list
+
+val statement_initializer :
+  statement -> Global_initializer_binding.resolved_global option
+
+val initializer_bindings : t -> Global_initializer_binding.t option
 val occurrence_index : occurrence -> int
 val occurrence_name : occurrence -> string
 val occurrence_origin : occurrence -> Symbol.origin

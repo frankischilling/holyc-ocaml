@@ -131,6 +131,34 @@ let prepare ~globals result =
                     "global identifier has no checked pointer type or physical \
                      span"))
 
+let prepare_initializer ~globals root =
+  match
+    root |> Result.top_level_root_source
+    |> Sema.Top_level_expression_tree.root_role
+  with
+  | Sema.Top_level_expression_tree.Global_initializer owner -> (
+      let symbol = Sema.Global_initializer_binding.global_symbol owner in
+      match Integer_globals.find globals symbol with
+      | Some slot
+        when match Integer_globals.slot_initializer slot with
+             | Some expected -> expected == root
+             | None -> false -> (
+          match
+            ( Sema.Global_initializer_binding.global_initializer_origin owner,
+              Type.pointer_to (Integer_globals.slot_type slot) )
+          with
+          | Some (Sema.Symbol.Source_location location), Ok address_type ->
+              Ok { slot; address_type; span = location.span }
+          | _ ->
+              error "HCIRL0004"
+                "global initializer has no checked address type or source span")
+      | _ ->
+          error "HCIRL0004"
+            "global initializer destination does not match its storage context")
+  | _ ->
+      error "HCIRL0004"
+        "global initializer destination requires a declaration-owned root"
+
 let lower_prepared ~instruction_id ~value_id address =
   let instruction = Sequence.Instruction_id.to_int instruction_id
   and value = Sequence.Value_id.to_int value_id in

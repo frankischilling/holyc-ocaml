@@ -228,7 +228,7 @@ let statement_input statement_index item_index statement_node =
          |> origin_of_location)
         (List.rev state.events_rev)
 
-let statement_inputs (module_ : Frontend.Ast.module_) =
+let ordinary_statement_inputs (module_ : Frontend.Ast.module_) =
   let rec loop statement_index inputs_rev item_index = function
     | [] -> Ok (List.rev inputs_rev)
     | Frontend.Ast.Top_level_statement statement :: rest -> (
@@ -244,7 +244,65 @@ let statement_inputs (module_ : Frontend.Ast.module_) =
   in
   loop 0 [] 0 module_.items
 
-let resolve ~table ~declarations ~module_expressions module_ =
+let statement_inputs ~table ?initializers (module_ : Frontend.Ast.module_) =
+  match initializers with
+  | None -> ordinary_statement_inputs module_
+  | Some initializers -> (
+      match
+        Global_initializer_binding.scalar_initializers ~table
+          ~bindings:initializers module_
+      with
+      | Error _ as error -> error
+      | Ok globals ->
+          let ordinary =
+            module_.items
+            |> List.mapi (fun index item -> (index, item))
+            |> List.filter_map (function
+              | index, Frontend.Ast.Top_level_statement node ->
+                  Some (index, `Statement node)
+              | _ -> None)
+          in
+          let groups =
+            ordinary
+            @ List.map
+                (fun (global, initial) ->
+                  ( Sema.Global_initializer_binding.global_item_index global,
+                    `Initializer (global, initial) ))
+                globals
+            |> List.stable_sort (fun (left, _) (right, _) ->
+                Int.compare left right)
+          in
+          let rec loop index reversed = function
+            | [] -> Ok (List.rev reversed)
+            | (item_index, group) :: rest -> (
+                let prepared =
+                  match group with
+                  | `Statement node -> statement_input index item_index node
+                  | `Initializer (global, initial) -> (
+                      match initial.Frontend.Ast.global_initializer_value with
+                      | Frontend.Ast.Scalar_initializer value -> (
+                          match expression empty_state value with
+                          | Error _ as error -> error
+                          | Ok state ->
+                              Sema.Top_level_expression_binding
+                              .make_global_initializer ~statement_index:index
+                                ~initializers ~global
+                                (List.rev state.events_rev))
+                      | _ ->
+                          Error
+                            "global initializer expression group is not scalar")
+                in
+                match prepared with
+                | Error _ as error -> error
+                | Ok input ->
+                    if index = max_int then
+                      Error
+                        "module expression group identity space is exhausted"
+                    else loop (index + 1) (input :: reversed) rest)
+          in
+          loop 0 [] groups)
+
+let resolve ~table ~declarations ~module_expressions ?initializers module_ =
   let parent = Sema.Declaration_collection.scope declarations in
   let result =
     if not (Sema.Symbol_table.owns_scope table parent) then
@@ -252,7 +310,7 @@ let resolve ~table ~declarations ~module_expressions module_ =
     else if Sema.Symbol_table.scope_kind parent <> Sema.Symbol_table.Module then
       Error "top-level expression binding requires a module declaration scope"
     else
-      match statement_inputs module_ with
+      match statement_inputs ~table ?initializers module_ with
       | Error _ as error -> error
       | Ok inputs ->
           Sema.Top_level_expression_binding.resolve ~table ~parent
