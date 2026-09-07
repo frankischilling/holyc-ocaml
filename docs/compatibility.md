@@ -1,5 +1,15 @@
 # holyc-ocaml compatibility status
 
+[Issue #590](https://github.com/frankischilling/holyc-ocaml/issues/590) adds the
+source-to-IR execution path for integer top-level expressions, blocks, if/else,
+while, do/while, for and break. Conditional AND/OR short-circuit; ordinary values
+and XOR remain eager. The complete graph passes verification and VM preflight
+before execution. Unsupported source, including comparison chains, fails
+explicitly. [Integer programs](integer-programs.md) documents the domain,
+runtime fault policy and tests. This gate adds hosted source execution evidence;
+native optimizer compatibility, calls, variables, output, `#exe`, backends,
+loader compatibility and bootstrap remain unfinished.
+
 Reference commit: `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
 | Phase | Current result | Evidence |

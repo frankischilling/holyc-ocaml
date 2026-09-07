@@ -692,6 +692,30 @@ val classify_global_records :
     Source-positioned option execution, allocation, address resolution, and
     record emission remain separate. *)
 
+type 'a integer_program_result = { value : 'a; diagnostics : Diagnostic.t list }
+(** A successful program phase and its nonfatal diagnostics. Failures return all
+    accumulated warnings and errors together in the result's error list. *)
+
+val lower_integer_program :
+  Session.t ->
+  config:Preprocessor.Config.t ->
+  source:Source_file.t ->
+  (Ir_x87_stack.t integer_program_result, Diagnostic.t list) result
+(** Lower a complete batch of top-level expressions and structured control
+    statements into verified IR. Unsupported source shapes fail explicitly. VM
+    opcode, type and flag restrictions are checked only during execution. *)
+
+val run_integer_program :
+  Session.t ->
+  config:Preprocessor.Config.t ->
+  source:Source_file.t ->
+  max_steps:int ->
+  (Ir_integer_interpreter.t integer_program_result, Diagnostic.t list) result
+(** Execute integer top-level control flow with a positive shared instruction
+    budget. This domain has no declarations, calls, memory, output or native
+    code. Conditions short-circuit AND and OR; ordinary value expressions and
+    XOR remain eager. Arithmetic uses raw runtime IR semantics. *)
+
 val lower_integer_expression :
   Session.t ->
   config:Preprocessor.Config.t ->

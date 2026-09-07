@@ -48,6 +48,21 @@ remain open. Runtime shifts retain the constant-versus-runtime discrepancy in
 [issue #574](https://github.com/frankischilling/holyc-ocaml/issues/574); no
 constant-folding equivalence or native shift oracle is claimed.
 
+## Integer top-level control flow
+
+`holyc run --target=ir examples/integer-control-flow.hc` executes integer
+expression statements, blocks, conditions, loops and `break` without a `main`
+function. Conditional AND and OR short-circuit; ordinary logical value
+expressions and XOR remain eager. `holyc dump-ir --program FILE` shows the
+verified graph, and `run --format=json` records build and execution metadata.
+The example completes in 23 instructions. A limit of 22 fails before the final
+stream-end instruction.
+
+This initial execution domain has no declarations, variable storage, calls,
+printing, exceptions, `#exe` or native backend. Unsupported source produces a
+diagnostic, including in unreachable branches. See [integer programs](docs/integer-programs.md)
+for the source rules, accepted domain, fault semantics and test commands.
+
 ## Current status
 
 `holyc version` records the implementation commit at build time and the pinned

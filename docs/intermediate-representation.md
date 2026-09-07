@@ -4,6 +4,11 @@ All source facts on this page refer to TempleOS commit `c26482bb6ad3f80106d28504
 
 ## Opcode registry
 
+For source execution, [integer programs](integer-programs.md) documents the
+program driver, structured control-flow lowering, conditional short-circuiting,
+shared budgets and current boundaries under issue #590. The opcode, fragment
+and direct-value APIs below retain their individual scopes.
+
 `Holyc_lib.Ir_opcode` exposes one constructor for each of the 185 intermediate codes in `Compiler/CompilerA.HH`. Numeric codes cover `0x00` through `0xB8`; `0xB9` is the count sentinel and is not an operation. Lookups by numeric code, `IC_*` constant name, and display name return an option rather than substituting an unknown code.
 
 Each metadata record retains:

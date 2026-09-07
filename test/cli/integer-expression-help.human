@@ -54,8 +54,8 @@ OPTIONS
            Set the deterministic HH:MM:SS string returned by __TIME__.
 
        --step-limit=COUNT (absent=100000)
-           Execute at most this many IR instructions, including the return
-           harness. Must be positive.
+           Execute at most this many IR instructions, including terminators
+           and control-flow instructions. Must be positive.
 
        --templeos-root=DIR
            Map TempleOS paths beginning with / or ::/ to this source-tree

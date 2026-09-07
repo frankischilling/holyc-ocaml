@@ -103,6 +103,7 @@ let () =
       ("IR effects", Test_ir_effects.tests);
       ("IR x87 stack", Test_ir_x87_stack.tests);
       ("source integer expression", Test_integer_expression.tests);
+      ("source integer program", Test_integer_program.tests);
       ("IR bounded integer interpreter", Test_ir_integer_interpreter.tests);
       ("IR integer division", Test_ir_integer_division.tests);
       ("IR integer unary folding", Test_ir_integer_unary_folding.tests);

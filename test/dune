@@ -1,8 +1,17 @@
 (test
+ (name test_integer_program_cli)
+ (modules test_integer_program_cli)
+ (libraries holyc_lib unix yojson)
+ (deps cli/integer-program.hc)
+ (action
+  (run %{test} %{exe:../bin/holyc.exe} %{dep:cli/integer-program.hc})))
+
+(test
  (name test_main)
  (modules
   test_main
   test_integer_expression
+  test_integer_program
   test_ir_integer_division
   test_source
   test_lexer

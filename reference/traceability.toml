@@ -11003,3 +11003,22 @@ hosted_value_projections = 13
 hosted_fault_projections = 4
 observed_differences = ["signed -7/2 is -3 when constant or using a variable divisor, but -4 through a literal-divisor function or /=", "signed -7%2 is -1, but %=2 produces 1", "removing a literal unsigned high-bit divisor can lead to an arithmetic shift of the surviving signed dividend", "constant signed overflow faults during compilation even in skipped or discarded expressions; literal zero division faults only when reached"]
 remaining = ["source optimizer emulation and broader differential coverage", "constant-form shift questions in issue #574", "native exception delivery in the hosted implementation"]
+
+[[feature]]
+id = "HC-SOURCE-INTEGER-CONTROL-FLOW"
+description = "Integer top-level statements and structured control flow run through the source driver and verified IR."
+sources = ["Compiler/PrsStmt.HC:459-565", "Compiler/OptLib.HC:229-484", "Compiler/PrsExp.HC:49-52,225-230,728-759"]
+implementation = ["src/driver/integer_source.ml", "src/driver/integer_program.ml", "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml", "bin/holyc.ml"]
+tests = ["test/test_integer_program.ml", "test/test_integer_program_cli.ml", "test/cli/integer-program.hc"]
+documentation = ["docs/integer-programs.md", "README.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md"]
+status = "implemented"
+issue = 590
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+commands = ["holyc run --target=ir FILE", "holyc dump-ir --program FILE"]
+statements = ["empty", "ordinary integer expression", "block", "statement sequence", "if/else", "while", "do/while", "for", "break"]
+condition_policy = "left-to-right short-circuit AND/OR and recursive NOT; ordinary value expressions and XOR remain eager"
+preflight = "validate complete graph before execution, including unreachable code; runtime faults depend on reachability"
+arithmetic = "raw runtime integer IR; native optimizer policy remains issue #585 and constant shifts remain issue #574"
+excluded = ["declarations and variables", "memory", "calls and output", "comparison chains", "return and goto", "switch", "exceptions and locks", "#exe", "native emission"]
+native_oracle_status = "no new native capture; source audit and hosted integration tests; selected conditional fault behavior separately recorded in integer-division.json"
