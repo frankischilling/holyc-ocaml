@@ -199,8 +199,8 @@ let self_references_are_rejected () =
   let source = Holyc_lib.Source_id.of_int 0 |> require_ok Fun.id in
   let span = Holyc_lib.Span.unsafe_make ~source ~start:3 ~stop:8 in
   let constant =
-    description ~result:(result 0) ~target_type:i64
-      ~payload:(Ir.Integer 7L) 0 Opcode.Ic_imm_i64
+    description ~result:(result 0) ~target_type:i64 ~payload:(Ir.Integer 7L) 0
+      Opcode.Ic_imm_i64
   in
   let check operands opcode =
     let self =
@@ -214,8 +214,8 @@ let self_references_are_rejected () =
           (List.map (fun (error : Ir.error) -> error.code) errors);
         List.iter
           (fun (error : Ir.error) ->
-            Alcotest.(check (option int)) "instruction" (Some 1)
-              error.instruction_id;
+            Alcotest.(check (option int))
+              "instruction" (Some 1) error.instruction_id;
             Alcotest.(check bool) "source span" true (error.span = Some span))
           errors
   in
@@ -223,8 +223,9 @@ let self_references_are_rejected () =
   check [ value_id 0; value_id 1 ] Opcode.Ic_add;
   check [ value_id 1; value_id 0 ] Opcode.Ic_sub;
   let repeated =
-    description ~operands:[ value_id 0; value_id 0 ] ~result:(result 1)
-      ~target_type:i64 1 Opcode.Ic_add
+    description
+      ~operands:[ value_id 0; value_id 0 ]
+      ~result:(result 1) ~target_type:i64 1 Opcode.Ic_add
   in
   ignore (require_sequence [ constant; repeated ])
 
