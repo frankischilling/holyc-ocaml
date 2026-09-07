@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added checked I64/U64 function-frame execution to the existing integer interpreter. Optional frame-aware expression and return lowering now load parameter/local slots and store simple assignments. Each invocation has independent storage, explicit step and allocation bounds, and diagnostics for uninitialized reads. Complete source function bodies and calls remain unsupported.
+
 - Fixed integer comparison-chain values in the shared expression lowerer. `2==2==2` now returns one, each middle operand executes once, and grouping and source precedence remain intact. `eval` and ordinary `run` expressions use this path; conditional and floating chains remain explicitly unsupported.
 
 - Added integer top-level execution through `holyc run --target=ir` and program graphs through `holyc dump-ir --program`. Blocks, if/else, while, do/while, for and break now use verified control flow with conditional AND/OR short-circuiting and a shared instruction budget. Runtime errors retain their stage and instruction context. General program state, calls, output, compile-time execution and native backends remain unfinished.

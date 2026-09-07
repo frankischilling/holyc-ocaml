@@ -13,6 +13,7 @@
   test_integer_expression
   test_integer_program
   test_ir_comparison_chains
+  test_ir_integer_frames
   test_ir_integer_division
   test_source
   test_lexer

@@ -1,7 +1,21 @@
 type t
+type prepared_address
 type lowering_result = Lowered of t | Unsupported_location
 
 val reference_commit : string
+
+val prepare :
+  frame:Sema.Function_frame_layout.function_layout ->
+  Sema.Function_call_expression_result.expression_result ->
+  (prepared_address option, Instruction_sequence.error list) result
+(** Validate exact binding, type and frame evidence without allocating IR
+    identities. *)
+
+val lower_prepared :
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  prepared_address ->
+  (t, Instruction_sequence.error list) result
 
 val lower :
   instruction_id:Instruction_sequence.Instruction_id.t ->

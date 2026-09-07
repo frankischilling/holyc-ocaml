@@ -4,6 +4,7 @@ type lowering_result = Lowered of t | Unsupported_expression
 val reference_commit : string
 
 val lower_function_return :
+  ?frame:Sema.Function_frame_layout.function_layout ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   leave:Instruction_sequence.Block_id.t ->

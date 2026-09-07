@@ -28,6 +28,23 @@ val execute : max_steps:int -> X87_stack.t -> (t, error list) result
     parenthesis payload and preserves the exact bits. Other cast domains remain
     unsupported. *)
 
+val execute_function :
+  max_steps:int ->
+  max_frame_bytes:int ->
+  frame:Sema.Function_frame_layout.function_layout ->
+  arguments:int64 list ->
+  Function_body.t ->
+  (t, error list) result
+(** Execute one verified ordinary I64/U64 function with its exact checked frame.
+    Argument bits initialize the named parameter slots in source order.
+    Automatic locals begin uninitialized. The allocation bound includes
+    parameter slots and the checked local frame size. Canonical frame addresses,
+    loads and assignments are preflighted before execution; slot contents
+    survive block transfers. Every invocation owns independent storage. Public
+    U64 negation retains U64, while internal U64 negation yields internal I64.
+    Same-width integer returns preserve bits and adopt the declared type. This
+    entry point does not execute calls or arbitrary pointer operations. *)
+
 val termination : t -> termination
 val executed_steps : t -> int
 

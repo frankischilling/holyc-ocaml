@@ -71,6 +71,14 @@ for the source rules, accepted domain, fault semantics and test commands.
 
 ## Current status
 
+The low-level `Ir_integer_interpreter.execute_function` now executes checked
+`I64`/`U64` parameter and automatic-local slots in one verified named body.
+Expression and return lowering can use the same exact frame. Storage survives
+branches, and each invocation has independent storage and explicit resource
+limits. See [integer function frames](docs/integer-function-frames.md).
+Full source function execution still needs initializer retention, body
+composition and direct-call continuation for the V1 Add program.
+
 `holyc version` records the implementation commit at build time and the pinned
 TempleOS reference. Incremental builds refresh that metadata, including after
 a commit or branch switch. Source archives can set

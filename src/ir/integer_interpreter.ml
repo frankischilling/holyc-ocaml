@@ -4,6 +4,10 @@ module X87 = X87_stack
 module Block_id = Sequence.Block_id
 module Instruction_id = Sequence.Instruction_id
 module Value_id = Sequence.Value_id
+module Frame = Sema.Function_frame_layout
+module Function = Function_body
+module Type = Sema.Type
+module Offset_map = Map.Make (Int64)
 
 module Value_map = Map.Make (struct
   type t = Value_id.t
@@ -19,6 +23,19 @@ end)
 
 type word_type = I64 | U64
 type word = { type_ : word_type; bits : int64 }
+
+type frame_slot = {
+  slot_type : Type.t;
+  word_type : word_type;
+  initial : word option;
+}
+
+type frame_context = {
+  slots : frame_slot array;
+  offsets : int Offset_map.t;
+  return_type : Type.t;
+}
+
 type termination = Stream_end | Returned of word option
 type error_stage = Configuration | Preflight | Execution
 
@@ -63,6 +80,9 @@ type binary_operation =
 type branch_condition = Zero | Not_zero
 
 type prepared_operation =
+  | Frame_address_tick
+  | Load_slot of int * Value_id.t
+  | Store_slot of int * prepared_operand * Value_id.t * word_type
   | Immediate of Value_id.t * word
   | Unary of unary_operation * prepared_operand * Value_id.t * word_type
   | Word_view of prepared_operand * Value_id.t * word_type
@@ -73,7 +93,7 @@ type prepared_operation =
       * Value_id.t
       * word_type
   | Discard of prepared_operand
-  | Return_value of prepared_operand
+  | Return_value of prepared_operand * word_type
   | Jump of int
   | Branch of branch_condition * prepared_operand * int
   | Return
@@ -91,9 +111,17 @@ type prepared_block = {
   fallthrough : int option;
 }
 
-type prepared = { blocks : prepared_block array; entry_index : int }
+type prepared = {
+  blocks : prepared_block array;
+  entry_index : int;
+  initial_slots : word option array;
+  is_function : bool;
+}
 
 type opcode_kind =
+  | Frame_address_kind
+  | Load_slot_kind
+  | Store_slot_kind
   | Immediate_kind
   | Unary_kind of unary_operation
   | Word_view_kind
@@ -105,7 +133,12 @@ type opcode_kind =
   | Return_kind
   | End_kind
 
-type declared_type = Supported of word_type | Unsupported
+type declared_type =
+  | Supported of word_type * Type.t
+  | Frame_base of Type.t
+  | Frame_offset of Type.t * int64
+  | Frame_address of int
+  | Unsupported
 
 let reference_commit = Sequence.reference_commit
 
@@ -177,7 +210,154 @@ let scalar_word_type ~allow_public type_ =
 let producer_word_type type_ = scalar_word_type ~allow_public:false type_
 let return_word_type type_ = scalar_word_type ~allow_public:true type_
 
-let declared_types block =
+let frame_context ~max_frame_bytes ~frame ~arguments function_ =
+  let invalid message =
+    Error
+      [
+        make_error ~stage:Preflight ~executed_steps:0
+          ?span:(Function.span function_) "HCIRVM0011" message;
+      ]
+  in
+  let locations = Frame.function_locations frame in
+  let of_kind kind =
+    List.filter (fun item -> Frame.location_kind item = kind) locations
+  in
+  let parameters = of_kind Frame.Named_parameter in
+  let locals = of_kind Frame.Automatic_local in
+  let members_match members locations =
+    List.length members = List.length locations
+    && List.for_all2
+         (fun (position, member) location ->
+           Function.member_position member = position
+           && Function.member_symbol member == Frame.location_symbol location
+           && Type.equal
+                (Function.member_type member)
+                (Frame.location_checked_type location))
+         (List.mapi (fun index member -> (index, member)) members)
+         locations
+  in
+  let parameter_count = List.length parameters in
+  let frame_size = Frame.function_frame_size frame in
+  let allowed_flags =
+    Int64.logor
+      (Sema.Function_flag.Stored.to_mask Ret1)
+      (Int64.logor
+         (Sema.Function_flag.Stored.to_mask Argument_pop)
+         (Sema.Function_flag.Stored.to_mask No_argument_pop))
+  in
+  if
+    Function.symbol function_ != Frame.function_symbol frame
+    || not
+         (Sema.Symbol.Scope_id.equal
+            (Function.function_scope function_)
+            (Sema.Symbol_table.scope_id (Frame.function_scope frame)))
+  then
+    invalid
+      "the named function and frame have different symbol or scope identities"
+  else if
+    not
+      (members_match (Function.parameters function_) parameters
+      && members_match (Function.locals function_) locals)
+  then
+    invalid "the named function members disagree with the exact checked frame"
+  else if
+    List.length locations <> parameter_count + List.length locals
+    || Int64.logand
+         (Function.stored_flags function_)
+         (Int64.lognot allowed_flags)
+       <> 0L
+  then
+    invalid
+      "only ordinary named parameters and automatic scalar locals are \
+       executable"
+  else if Option.is_none (return_word_type (Function.return_type function_))
+  then invalid "the function return type is outside scalar I64/U64 execution"
+  else if List.length arguments <> parameter_count then
+    invalid "the argument word count does not match the checked parameters"
+  else if
+    parameter_count > max_frame_bytes / 8
+    || frame_size < 0L
+    || frame_size > Int64.of_int (max_frame_bytes - (parameter_count * 8))
+    || List.length locations > Sys.max_array_length
+  then invalid "the checked function frame exceeds max_frame_bytes"
+  else
+    let arguments = ref arguments in
+    let slots_rev = ref []
+    and offsets = ref Offset_map.empty
+    and error = ref None in
+    List.iteri
+      (fun index location ->
+        match
+          ( return_word_type (Frame.location_checked_type location),
+            Frame.location_frame_slot location )
+        with
+        | Some word_type, Some slot
+          when Frame.location_declarator_shape location = Frame.Object
+               && Frame.location_value_shape location = Frame.Scalar
+               && Frame.location_allocated_size location = 8L
+               && Frame.frame_slot_size slot = 8L ->
+            let offset = Frame.frame_slot_displacement slot in
+            if Offset_map.mem offset !offsets then
+              error := Some "the checked frame contains overlapping slots"
+            else
+              let initial =
+                match (Frame.location_kind location, !arguments) with
+                | Frame.Named_parameter, bits :: rest ->
+                    arguments := rest;
+                    Some { type_ = word_type; bits }
+                | _ -> None
+              in
+              offsets := Offset_map.add offset index !offsets;
+              slots_rev :=
+                {
+                  slot_type = Frame.location_checked_type location;
+                  word_type;
+                  initial;
+                }
+                :: !slots_rev
+        | _ ->
+            error :=
+              Some
+                "the checked frame contains an unsupported storage type or \
+                 shape")
+      locations;
+    match !error with
+    | Some message -> invalid message
+    | None ->
+        Ok
+          {
+            slots = Array.of_list (List.rev !slots_rev);
+            offsets = !offsets;
+            return_type = Function.return_type function_;
+          }
+
+let frame_pointer type_ =
+  Type.pointer_depth type_ = 1
+  &&
+  match Type.base type_ with
+  | Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
+  | _ -> false
+
+let address_slot context types (description : Sequence.description) =
+  match (description.opcode, description.operands, description.target_type) with
+  | Opcode.Ic_add, [ base; displacement ], Some target_type -> (
+      match
+        (Value_map.find_opt base types, Value_map.find_opt displacement types)
+      with
+      | Some (Frame_base base_type), Some (Frame_offset (offset_type, offset))
+        when Type.equal base_type target_type
+             && Type.equal offset_type target_type -> (
+          match Offset_map.find_opt offset context.offsets with
+          | Some index -> (
+              match Type.pointer_to context.slots.(index).slot_type with
+              | Ok pointer when Type.equal pointer target_type ->
+                  Frame_address index
+              | _ -> Unsupported)
+          | None -> Unsupported)
+      | _ -> Unsupported)
+  | _ -> Unsupported
+
+let declared_types ?frame block =
   Graph.instructions block |> Sequence.instructions
   |> List.fold_left
        (fun types instruction ->
@@ -188,9 +368,31 @@ let declared_types block =
              let declared =
                match description.target_type with
                | Some type_ -> (
-                   match producer_word_type type_ with
-                   | Some word_type -> Supported word_type
-                   | None -> Unsupported)
+                   match (frame, description.opcode) with
+                   | Some _, (Opcode.Ic_deref | Opcode.Ic_assign) -> (
+                       match return_word_type type_ with
+                       | Some word_type -> Supported (word_type, type_)
+                       | None -> Unsupported)
+                   | Some _, Opcode.Ic_rbp when frame_pointer type_ ->
+                       Frame_base type_
+                   | Some _, Opcode.Ic_imm_i64 when frame_pointer type_ -> (
+                       match description.payload with
+                       | Some (Sequence.Integer offset) ->
+                           Frame_offset (type_, offset)
+                       | _ -> Unsupported)
+                   | Some context, Opcode.Ic_add when frame_pointer type_ ->
+                       address_slot context types description
+                   | Some _, opcode
+                     when match opcode_kind opcode with
+                          | Some (Unary_kind _ | Binary_kind _) -> true
+                          | _ -> false -> (
+                       match return_word_type type_ with
+                       | Some word_type -> Supported (word_type, type_)
+                       | None -> Unsupported)
+                   | _ -> (
+                       match producer_word_type type_ with
+                       | Some word_type -> Supported (word_type, type_)
+                       | None -> Unsupported))
                | None -> Unsupported
              in
              Value_map.add result.value_id declared types)
@@ -198,8 +400,27 @@ let declared_types block =
 
 let operand_of_value types value_id =
   match Value_map.find_opt value_id types with
-  | Some (Supported expected_type) -> Some { value_id; expected_type }
-  | Some Unsupported | None -> None
+  | Some (Supported (expected_type, _)) -> Some { value_id; expected_type }
+  | Some (Unsupported | Frame_base _ | Frame_offset _ | Frame_address _) | None
+    -> None
+
+let valid_unary_type types operation operand_id result_type =
+  match Value_map.find_opt operand_id types with
+  | Some (Supported (_, operand_type)) -> (
+      let internal_i64 type_ =
+        Type.pointer_depth type_ = 0
+        &&
+        match Type.base type_ with
+        | Type.Primitive (Type.Internal_storage, Sema.Primitive_type.I64) ->
+            true
+        | _ -> false
+      in
+      match (operation, Type.base operand_type) with
+      | Complement, _
+      | Negate, Type.Primitive (Type.Internal_storage, Sema.Primitive_type.U64)
+        -> internal_i64 result_type
+      | (Negate | Logical_not), _ -> Type.equal operand_type result_type)
+  | _ -> false
 
 let promoted_word_type left right =
   match (left, right) with
@@ -308,9 +529,20 @@ let invalid_type_matrix block_id description =
     (Printf.sprintf "%s has an invalid operand/result word-type relationship"
        (Opcode.to_source_name description.Sequence.opcode))
 
-let prepare_instruction block_index types block_id
+let prepare_instruction ?frame block_index types block_id
     (description : Sequence.description) =
-  match opcode_kind description.opcode with
+  let kind =
+    match (frame, description.opcode) with
+    | Some _, Opcode.Ic_rbp -> Some Frame_address_kind
+    | Some _, (Opcode.Ic_imm_i64 | Opcode.Ic_add)
+      when Option.fold ~none:false
+             ~some:(fun type_ -> Type.pointer_depth type_ > 0)
+             description.target_type -> Some Frame_address_kind
+    | Some _, Opcode.Ic_deref -> Some Load_slot_kind
+    | Some _, Opcode.Ic_assign -> Some Store_slot_kind
+    | _ -> opcode_kind description.opcode
+  in
+  match kind with
   | None ->
       Error
         (preflight_error block_id description "HCIRVM0002"
@@ -331,6 +563,61 @@ let prepare_instruction block_index types block_id
       else
         let operation =
           match kind with
+          | Frame_address_kind -> (
+              match description.result with
+              | Some result -> (
+                  match
+                    ( description.opcode,
+                      description.operands,
+                      description.payload,
+                      Value_map.find_opt result.value_id types )
+                  with
+                  | Opcode.Ic_rbp, [], None, Some (Frame_base _)
+                  | ( Opcode.Ic_imm_i64,
+                      [],
+                      Some (Sequence.Integer _),
+                      Some (Frame_offset _) )
+                  | Opcode.Ic_add, [ _; _ ], None, Some (Frame_address _) ->
+                      Ok Frame_address_tick
+                  | _ -> Error (malformed block_id description))
+              | None -> Error (malformed block_id description))
+          | Load_slot_kind | Store_slot_kind -> (
+              match
+                ( frame,
+                  description.operands,
+                  description.result,
+                  description.target_type,
+                  description.payload )
+              with
+              | ( Some context,
+                  address :: operands,
+                  Some result,
+                  Some target_type,
+                  None ) -> (
+                  match Value_map.find_opt address types with
+                  | Some (Frame_address index) -> (
+                      let slot = context.slots.(index) in
+                      if not (Type.equal slot.slot_type target_type) then
+                        Error (invalid_type_matrix block_id description)
+                      else
+                        match (kind, operands) with
+                        | Load_slot_kind, [] ->
+                            Ok (Load_slot (index, result.value_id))
+                        | Store_slot_kind, [ operand ] -> (
+                            match operand_of_value types operand with
+                            | Some operand ->
+                                Ok
+                                  (Store_slot
+                                     ( index,
+                                       operand,
+                                       result.value_id,
+                                       slot.word_type ))
+                            | None ->
+                                Error (invalid_type_matrix block_id description)
+                            )
+                        | _ -> Error (malformed block_id description))
+                  | _ -> Error (invalid_type_matrix block_id description))
+              | _ -> Error (malformed block_id description))
           | Immediate_kind -> (
               match
                 ( description.operands,
@@ -352,16 +639,19 @@ let prepare_instruction block_index types block_id
                   description.payload )
               with
               | [ operand_id ], Some result, Some result_type, None -> (
-                  match producer_word_type result_type with
+                  match
+                    scalar_word_type ~allow_public:(Option.is_some frame)
+                      result_type
+                  with
                   | None -> Error (unsupported_type block_id description)
                   | Some result_type -> (
                       match operand_of_value types operand_id with
                       | None -> Error (invalid_type_matrix block_id description)
                       | Some operand ->
                           let valid =
-                            match unary with
-                            | Complement | Negate -> result_type = I64
-                            | Logical_not -> result_type = operand.expected_type
+                            Option.fold ~none:false
+                              ~some:(valid_unary_type types unary operand_id)
+                              description.target_type
                           in
                           if valid then
                             Ok
@@ -398,7 +688,10 @@ let prepare_instruction block_index types block_id
                   description.payload )
               with
               | [ left_id; right_id ], Some result, Some result_type, None -> (
-                  match producer_word_type result_type with
+                  match
+                    scalar_word_type ~allow_public:(Option.is_some frame)
+                      result_type
+                  with
                   | None -> Error (unsupported_type block_id description)
                   | Some result_type -> (
                       match
@@ -438,13 +731,19 @@ let prepare_instruction block_index types block_id
                   description.target_type,
                   description.payload )
               with
-              | [ operand_id ], None, Some target_type, None -> (
+              | [ operand_id ], None, Some target_type, None
+                when Option.fold ~none:true
+                       ~some:(fun context ->
+                         Type.equal context.return_type target_type)
+                       frame -> (
                   match return_word_type target_type with
                   | None -> Error (unsupported_type block_id description)
                   | Some target_type -> (
                       match operand_of_value types operand_id with
-                      | Some operand when operand.expected_type = target_type ->
-                          Ok (Return_value operand)
+                      | Some operand
+                        when Option.is_some frame
+                             || operand.expected_type = target_type ->
+                          Ok (Return_value (operand, target_type))
                       | Some _ | None ->
                           Error (invalid_type_matrix block_id description)))
               | _ -> Error (malformed block_id description))
@@ -493,7 +792,7 @@ let prepare_instruction block_index types block_id
                   description.target_type,
                   description.payload )
               with
-              | [], None, None, None -> Ok End
+              | [], None, None, None when Option.is_none frame -> Ok End
               | _ -> Error (malformed block_id description))
         in
         Result.map
@@ -505,7 +804,7 @@ let prepare_instruction block_index types block_id
             })
           operation
 
-let prepare graph =
+let prepare ?frame graph =
   let source_blocks = Graph.blocks graph in
   let block_count = List.length source_blocks in
   let block_index =
@@ -520,13 +819,13 @@ let prepare graph =
     source_blocks
     |> List.mapi (fun index block ->
         let block_id = Graph.block_id block in
-        let types = declared_types block in
+        let types = declared_types ?frame block in
         let instructions_rev = ref [] in
         Graph.instructions block |> Sequence.instructions
         |> List.iter (fun instruction ->
             let description = Sequence.description instruction in
             match
-              prepare_instruction block_index types block_id description
+              prepare_instruction ?frame block_index types block_id description
             with
             | Ok prepared -> instructions_rev := prepared :: !instructions_rev
             | Error error -> errors_rev := error :: !errors_rev);
@@ -543,7 +842,20 @@ let prepare graph =
   | [] -> (
       let entry_id = Graph.entry graph |> Graph.block_id in
       match Block_map.find_opt entry_id block_index with
-      | Some entry_index -> Ok { blocks; entry_index }
+      | Some entry_index ->
+          let initial_slots =
+            Option.fold ~none:[||]
+              ~some:(fun context ->
+                Array.map (fun slot -> slot.initial) context.slots)
+              frame
+          in
+          Ok
+            {
+              blocks;
+              entry_index;
+              initial_slots;
+              is_function = Option.is_some frame;
+            }
       | None ->
           Error
             [
@@ -565,6 +877,7 @@ let execute_prepared ~max_steps program =
   let current_block = ref program.entry_index in
   let current_instruction = ref 0 in
   let values = ref Value_map.empty in
+  let slots = Array.copy program.initial_slots in
   let pending_return = ref None in
   let steps = ref 0 in
   let completed = ref None in
@@ -611,6 +924,22 @@ let execute_prepared ~max_steps program =
           steps := !steps + 1;
           current_instruction := !current_instruction + 1;
           match instruction.operation with
+          | Frame_address_tick -> ()
+          | Load_slot (index, result) -> (
+              match slots.(index) with
+              | Some word -> values := Value_map.add result word !values
+              | None ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0012"
+                         "the reached frame slot has not been initialized"))
+          | Store_slot (index, operand, result, type_) -> (
+              match require_operand block instruction operand with
+              | None -> ()
+              | Some operand ->
+                  let word = { type_; bits = operand.bits } in
+                  slots.(index) <- Some word;
+                  values := Value_map.add result word !values)
           | Immediate (result, word) ->
               values := Value_map.add result word !values
           | Unary (operation, operand, result, result_type) -> (
@@ -654,9 +983,9 @@ let execute_prepared ~max_steps program =
                                  message))))
           | Discard operand ->
               ignore (require_operand block instruction operand)
-          | Return_value operand -> (
+          | Return_value (operand, type_) -> (
               match require_operand block instruction operand with
-              | Some word -> pending_return := Some word
+              | Some word -> pending_return := Some { type_; bits = word.bits }
               | None -> ())
           | Jump target -> transfer target
           | Branch (condition, operand, target) -> (
@@ -680,6 +1009,11 @@ let execute_prepared ~max_steps program =
                                "HCIRVM0008"
                                "a conditional branch has no physical \
                                 fallthrough")))
+          | Return when program.is_function && Option.is_none !pending_return ->
+              failed :=
+                Some
+                  (runtime_error ~instruction block !steps "HCIRVM0013"
+                     "the integer function returned without a value")
           | Return -> completed := Some (Returned !pending_return)
           | End -> completed := Some Stream_end)
   done;
@@ -705,6 +1039,21 @@ let execute ~max_steps checked =
     match prepare (X87.graph checked) with
     | Error errors -> Error errors
     | Ok program -> execute_prepared ~max_steps program
+
+let execute_function ~max_steps ~max_frame_bytes ~frame ~arguments function_ =
+  if max_steps <= 0 || max_frame_bytes <= 0 then
+    Error
+      [
+        make_error ~stage:Configuration ~executed_steps:0 "HCIRVM0001"
+          "max_steps and max_frame_bytes must be greater than zero";
+      ]
+  else
+    match frame_context ~max_frame_bytes ~frame ~arguments function_ with
+    | Error errors -> Error errors
+    | Ok frame -> (
+        match prepare ~frame (Function.body function_) with
+        | Error errors -> Error errors
+        | Ok program -> execute_prepared ~max_steps program)
 
 let termination execution = execution.termination_
 let executed_steps execution = execution.executed_steps_
