@@ -164,8 +164,7 @@ let create descriptions =
           if Int_set.mem value_id !value_ids then
             add
               (error ?span:description.span description "HCIR0007"
-                 (Printf.sprintf "value %%%d is defined more than once" value_id))
-          else value_ids := Int_set.add value_id !value_ids);
+                 (Printf.sprintf "value %%%d is defined more than once" value_id)));
       List.iter
         (fun operand ->
           let value_id = Value_id.to_int operand in
@@ -189,7 +188,11 @@ let create descriptions =
                   (error ?span:description.span description "HCIR0009"
                      (Printf.sprintf
                         "value %%%d is not defined in this sequence" value_id)))
-        description.operands)
+        description.operands;
+      Option.iter
+        (fun result ->
+          value_ids := Int_set.add (Value_id.to_int result.value_id) !value_ids)
+        description.result)
     descriptions;
   match List.rev !errors with
   | [] -> Ok descriptions
