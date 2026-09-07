@@ -10,6 +10,8 @@ The compiler treats input as untrusted. Relevant risks include include path trav
 
 HolyC `#exe` is arbitrary compile-time code. The current build never executes user-supplied `#exe` blocks. The six standard predefined values use a dedicated expander for their audited pinned definitions; this path cannot access the network, launch a process, or read another file. Their generated token text shares the configured nesting and byte limits with ordinary definition expansion.
 
+`Ir.Integer_interpreter` does not change the `#exe` boundary. It accepts an already checked in-memory IR graph and preflights every instruction, including unreachable blocks, before execution. Its allowlist covers internal `I64` and `U64` words, selected wrapping arithmetic, discarded expression values, return latching, basic branches, and termination. It rejects memory operations, calls, native code, floating point, pointers, public value producers, unsupported flags, and every other opcode. The caller must supply a positive step limit, and each executed instruction consumes one step. Preflight is bounded by the finite input graph and is not charged against that execution limit. The interpreter cannot access the filesystem, environment, clock, processes, or network, and validation or budget failure returns no partial result.
+
 Planned general hosted support will deny network access, process creation, unrestricted file access, and unbounded execution by default. A deterministic instruction and memory budget will apply even when source generation is nested.
 
 Native compile-time execution will not be the default. Any future unsafe mode must be named clearly in command output and compatibility reports.

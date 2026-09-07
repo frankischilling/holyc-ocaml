@@ -68,6 +68,27 @@ let block_numbers graph =
   Graph.blocks graph
   |> List.map (fun block -> Graph.block_id block |> Graph.Block_id.to_int)
 
+let unreachable_self_reference_is_rejected () =
+  let errors =
+    graph_errors ~entry:0
+      [
+        block 0 [ description 0 Opcode.Ic_ret ];
+        block 1
+          [
+            description
+              ~operands:[ value_id 1 ]
+              ~result:(result 1) ~target_type:i64 1 Opcode.Ic_com;
+            description 2 Opcode.Ic_ret;
+          ];
+      ]
+  in
+  has_code "HCIR0008" errors;
+  List.iter
+    (fun (error : Graph.error) ->
+      Alcotest.(check (option int)) "unreachable block" (Some 1) error.block_id;
+      Alcotest.(check (option int)) "instruction" (Some 1) error.instruction_id)
+    errors
+
 let successor_numbers block =
   Graph.successors block |> List.map Graph.Block_id.to_int
 
@@ -378,6 +399,8 @@ let tests =
       duplicate_global_identities_are_rejected;
     Alcotest.test_case "child sequence errors" `Quick
       child_sequence_errors_retain_block_context;
+    Alcotest.test_case "unreachable self reference" `Quick
+      unreachable_self_reference_is_rejected;
     Alcotest.test_case "transfer target checks" `Quick
       transfer_targets_are_checked;
     Alcotest.test_case "terminator and end checks" `Quick

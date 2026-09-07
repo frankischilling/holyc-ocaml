@@ -102,6 +102,7 @@ let () =
       ("IR block graph", Test_ir_block_graph.tests);
       ("IR effects", Test_ir_effects.tests);
       ("IR x87 stack", Test_ir_x87_stack.tests);
+      ("IR bounded integer interpreter", Test_ir_integer_interpreter.tests);
       ("IR integer unary folding", Test_ir_integer_unary_folding.tests);
       ("IR function body", Test_ir_function_body.tests);
       ("IR top-level body", Test_ir_top_level_body.tests);
