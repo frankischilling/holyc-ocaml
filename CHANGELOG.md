@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Fixed stale implementation commits in `holyc version`. Build metadata now refreshes on each Dune invocation, so commits, branch switches, packed refs, linked worktrees and release overrides cannot reuse an older cached identity. A Dune integration probe covers those changes without cleaning or modifying the implementation repository.
+- Fixed stale implementation commits in `holyc version`. Build metadata now refreshes whenever a Dune build requires it, so commits, branch switches, packed refs, linked worktrees and release overrides cannot reuse an older cached identity. A Dune integration probe covers those changes without cleaning or modifying the implementation repository.
 
 - Added raw integer division and remainder to the bounded IR interpreter and `holyc eval`. Both `I64` operands select signed truncation toward zero; any `U64` operand selects unsigned arithmetic. Zero divisors report `HCIRVM0009`, and signed quotient overflow reports `HCIRVM0010` for both division and modulo. Faults retain the instruction context, consume one step, and expose no partial result. Table tests, independent long-division properties, source programs, and CLI goldens cover values, faults, preflight, and budgets. Native optimizer and fault-phase compatibility remains tracked by #585.
 
