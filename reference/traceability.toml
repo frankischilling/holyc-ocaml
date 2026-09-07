@@ -11287,3 +11287,25 @@ diagnostics = ["HCIRVM0012 unwritten element", "HCIRVM0018 invalid or expired re
 limits = "every element counted before expansion against active-frame bytes and Sys.max_array_length; exact CLI51/24/2 and one-below failures"
 excluded = ["pointer-valued and zero-sized arrays", "global/static array images", "array initialization and whole-array assignment", "floating index execution", "general pointer arithmetic and pointer returns", "broader memory/output", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader acceptance", "bootstrap"]
 native_oracle_status = "hosted source, semantic and malformed-IR tests with pinned-source audit; no new native capture"
+
+[[feature]]
+id = "HC-SOURCE-U8-STORAGE"
+description = "Automatic U8 scalars, arrays and exact pointer aliases use byte-width storage with separately retained assignment results."
+sources = ["Compiler/CInit.HC:3-14", "Compiler/PrsVar.HC:247-281,532,590-606", "Compiler/PrsExp.HC:72,97-118,151-161,201-208,470-484,739-746,766-774,1055-1098", "Compiler/BackLib.HC:453-572", "Compiler/BackC.HC:159-204", "Compiler/OptLib.HC:96-179", "Compiler/OptPass012.HC:180-192,866-896"]
+implementation = ["src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_integer_bytes.ml", "test/test_integer_program_cli.ml", "examples/integer-bytes.hc"]
+documentation = ["docs/integer-bytes.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 615
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+baseline = "Sum fixture rejects with HCRUN0003 and no successful stdout in both modes at 6bc38f436fa9296ec9d438c7bf1e55fc2604b98d"
+source_gate = "examples/integer-bytes.hc returns I64 42 in both modes; 69 runtime instructions, zero preparation,16 active frame bytes and depth2"
+semantics = "one-byte memory; stores keep low eight bits; loads zero-extend; ordinary assignment retains full RHS result; exact checked Type.t determines raw-class rank independently from runtime I64/U64 word tags and operation signedness"
+runtime = "Stored_byte narrows memory only; references retain live storage, object base/count, element width, exact pointee type and byte offset; flat array strides and byte-based final object bounds"
+effects = "base and index execute once before RHS; destination retained through RHS effects; final store bounds checked afterward; address-taking does not read an unwritten byte"
+limits = "exact checked local frame allocation including alignment plus fixed parameter slots; separate bounded host cell counts before allocation; shared active-frame, depth, execution and preparation limits"
+diagnostics = ["HCIRVM0012 unwritten byte", "HCIRVM0018 invalid or expired reference", "HCIRVM0019 object bounds", "HCIRVM0020 hosted address overflow"]
+verification_status = "19 byte groups and all1811 local tests pass, including CLI; formatting/generated/build/install pass; independent code review approved; final revision and CI evidence tracked by #615/#616"
+excluded = ["persistent U8 objects and array images", "other narrow integer storage", "U8 numeric parameters and returns", "narrow compound and prefix/postfix updates", "U8 negation to I8", "U8 numeric indices and casts", "whole-array initialization and assignment", "general pointer arithmetic, casts, returns and deeper pointers", "owned strings and runtime output", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "hosted source, malformed IR and CLI regressions with pinned-source audit; no new native capture"

@@ -833,18 +833,20 @@ val run_integer_program :
 (** Execute integer source statements and checked I64/U64 function definitions
     with fixed parameters, automatic locals, direct call expressions and
     ordinary scalar I64/U64 code-heap globals with supported declaration
-    initializers. One-level I64/U64 pointer locals and fixed parameters can
-    alias scalar local, global and static objects and automatic I64/U64 array
-    elements across direct calls. Checked indexing retains source strides,
-    grouping behavior and declared-object bounds through copies and recursion.
-    Constant preparation, runtime instructions, active frame bytes, global bytes
-    and call depth have separate positive bounds. Global words are shared by all
-    calls in one execution. Conditions short-circuit AND and OR; ordinary values
-    and XOR remain eager. Scheduled arithmetic uses runtime IR semantics;
-    initializers and their transitive callees retain explicit shift and
-    constant-divisor optimizer boundaries. Supported pure constants supply
-    initial-image bits. General memory, output, indirect/external calls and
-    native code remain unsupported. *)
+    initializers. Automatic U8 scalars and arrays support zero-extending reads
+    and narrowing plain assignments; assignment results retain the RHS payload.
+    One-level U8/I64/U64 pointer locals and fixed parameters can alias scalar
+    local objects and automatic U8/I64/U64 array elements across direct calls.
+    Checked indexing retains source strides, grouping behavior and
+    declared-object bounds through copies and recursion. Constant preparation,
+    runtime instructions, active frame bytes, global bytes and call depth have
+    separate positive bounds. I64/U64 pointers can also alias global/static
+    words. Global words are shared by all calls in one execution. Conditions
+    short-circuit AND and OR; ordinary values and XOR remain eager. Scheduled
+    arithmetic uses runtime IR semantics; initializers and their transitive
+    callees retain explicit shift and constant-divisor optimizer boundaries.
+    Supported pure constants supply initial-image bits. General memory, output,
+    indirect/external calls and native code remain unsupported. *)
 
 val lower_integer_expression :
   Session.t ->

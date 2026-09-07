@@ -57,23 +57,25 @@ val lower_typed_result :
     [IC_HOLYC_TYPECAST] with the full cast span and pinned [was_paren] payload.
     The module owns source-order traversal, TempleOS's immediate
     address/dereference cancellation, and consecutive identity allocation. With
-    [frame], scalar I64/U64 bound identifiers load their exact checked slots,
+    [frame], scalar U8/I64/U64 bound identifiers load their exact checked slots,
     and simple assignments store through the checked destination address without
-    reading its old contents. [globals] enables the same scalar loads/stores for
+    reading its old contents. [globals] enables scalar I64/U64 loads/stores for
     exact module-bound globals in function or top-level expressions, preserving
     their JIT/AOT symbol-backed address intent. Scalar compound assignments and
     prefix/postfix increment/decrement use those addresses and retain their
     original update ICs. Compound RHS evaluation precedes the destination word
     read; prefix/compound results use the new word and postfix uses the old
-    word. Checked one-level I64/U64 pointer locals and fixed parameters load and
-    store references. Ordinary automatic integer arrays retain exact index
+    word. Checked one-level U8/I64/U64 pointer locals and fixed parameters load
+    and store references. Ordinary automatic integer arrays retain exact index
     children and frame dimensions; shared address plans emit
     stride/index/mul/add for loads, assignments and updates. Any-rank array
     values materialize an element pointer with [IC_ADDR]; grouping discards the
     dimension cursor. Address-of emits [IC_ADDR] over a canonical scalar or
     indexed address or the retained reference in [&*p], without loading the
     pointee. Indirect assignments capture their checked address before
-    evaluating the RHS. Other pointer domains remain unsupported by storage
+    evaluating the RHS. U8 storage supports plain assignments and one-byte
+    element strides; narrow compound and prefix/postfix updates remain outside
+    this storage path. Other pointer domains remain unsupported by storage
     execution. Without storage context, pointer-tree lowering keeps its existing
     domain. [lower_call] composes calls as expression nodes and applies retained
     result conversion only to the final call-end producer. Expressions outside
@@ -88,9 +90,9 @@ val lower_initializer :
   value_id:Instruction_sequence.Value_id.t ->
   Sema.Function_call_expression_result.initializer_result ->
   (lowering_result, Instruction_sequence.error list) result
-(** Store a checked scalar I64/U64 word or one-level pointer initializer into
-    its exact automatic frame slot, preserving the value and destination class.
-*)
+(** Store a checked scalar U8/I64/U64 value or one-level pointer initializer
+    into its exact automatic frame slot, preserving the value and destination
+    class. *)
 
 val lower_static_initializer :
   globals:Integer_globals.t ->

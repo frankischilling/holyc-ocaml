@@ -265,23 +265,43 @@ let checked_integer_type result =
           _,
           (Type.Primitive _ | Type.Aggregate _) ) -> Ok Unsupported_type)
 
-let checked_frame_word result =
+let checked_frame_integer result =
   match checked_integer_type result with
   | Ok (Checked_type type_) when Semantic_result.result_array_rank result = 0
     -> (
       match Type.base type_ with
-      | Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) ->
+      | Type.Primitive (_, (Sema.Primitive_type.U8 | I64 | U64)) ->
           Ok (Checked_type type_)
       | _ -> Ok Unsupported_type)
   | Ok (Checked_type _) -> Ok Unsupported_type
+  | other -> other
+
+let checked_frame_word result =
+  match checked_frame_integer result with
+  | Ok (Checked_type type_) -> (
+      match Type.base type_ with
+      | Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) ->
+          Ok (Checked_type type_)
+      | _ -> Ok Unsupported_type)
   | other -> other
 
 let scalar_pointer_type type_ =
   Type.pointer_depth type_ = 1
   &&
   match Type.base type_ with
-  | Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
+  | Type.Primitive (_, (Sema.Primitive_type.U8 | I64 | U64)) -> true
   | _ -> false
+
+let storage_element_size type_ =
+  match (Type.pointer_depth type_, Type.base type_) with
+  | 0, Type.Primitive (_, Sema.Primitive_type.U8) -> Some 1L
+  | 0, Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> Some 8L
+  | _ -> None
+
+let pointer_element_size type_ =
+  match Type.dereference type_ with
+  | Ok pointee -> storage_element_size pointee
+  | Error _ -> None
 
 let checked_frame_value result =
   match Semantic_result.result_type result with
@@ -294,7 +314,7 @@ let checked_frame_value result =
          && Semantic_result.result_array_rank result = 0
          && Semantic_result.result_class result = Semantic_result.Integer_result
     -> Ok (Checked_type type_)
-  | _ -> checked_frame_word result
+  | _ -> checked_frame_integer result
 
 let checked_frame_scalar result =
   match Semantic_result.result_category result with
@@ -1437,11 +1457,13 @@ let rec prepare_index_address ?frame result =
                           if
                             F.location_kind location <> F.Automatic_local
                             || F.location_declarator_shape location <> F.Object
-                            || F.location_element_size location <> 8L
+                            || storage_element_size
+                                 (F.location_checked_type location)
+                               <> Some (F.location_element_size location)
                           then Ok None
                           else
                             let rec strides = function
-                              | [] -> Ok (8L, [])
+                              | [] -> Ok (F.location_element_size location, [])
                               | dimension :: rest ->
                                   let* bytes, tail = strides rest in
                                   let count = F.dimension_value dimension in
@@ -1518,7 +1540,10 @@ let rec prepare_index_address ?frame result =
                                  | Lvalue
                                  | Address_value -> true
                                  | _ -> false ->
-                              Ok (Some (Pointer_base base, [ 8L ]))
+                              Ok
+                                (Option.map
+                                   (fun size -> (Pointer_base base, [ size ]))
+                                   (pointer_element_size pointer))
                           | _ -> Ok None
                       in
                       match base_address with
@@ -1990,7 +2015,7 @@ let plan ?frame ?globals ~allow_calls root =
                                   | _ -> unsupported := true
                                 else
                                   match
-                                    ( checked_frame_word result,
+                                    ( checked_frame_integer result,
                                       checked_frame_value operand )
                                   with
                                   | Ok (Checked_type _), Ok (Checked_type type_)
@@ -3159,7 +3184,7 @@ let lower_store_initializer ?frame ?globals ?lower_call ~lower_address
     Type.pointer_depth target_type = 0
     &&
     match Type.base target_type with
-    | Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
+    | Type.Primitive (_, (Sema.Primitive_type.U8 | I64 | U64)) -> true
     | _ -> false
   in
   let* value_type =

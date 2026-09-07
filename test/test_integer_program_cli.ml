@@ -599,4 +599,107 @@ let () =
           ("--call-depth-limit=1", "HCIRVM0015");
         ])
     [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      let source = Sys.argv.(12) in
+      let result =
+        success
+          [
+            "run";
+            "--target=ir";
+            "--format=json";
+            "--mode=" ^ mode;
+            "--frame-byte-limit=16";
+            "--call-depth-limit=2";
+            "--step-limit=69";
+            source;
+          ]
+        |> Yojson.Safe.from_string
+      in
+      let value = result |> member "final_value" in
+      require
+        (value |> member "value" |> to_string = "42")
+        "byte Sum fixture returns 42";
+      require
+        (value |> member "type" |> to_string = "i64")
+        "byte Sum fixture retains the declared return class";
+      require
+        (result |> member "mode" |> to_string = mode)
+        "byte report retains execution mode";
+      require
+        (result |> member "executed_steps" |> to_int = 69)
+        "byte fixture instruction count";
+      require
+        (result |> member "compiled_initializer_steps" |> to_int = 0)
+        "automatic bytes add no initializer preparation";
+      require
+        ( success [ "run"; "--target=ir"; "--mode=" ^ mode; source ]
+        |> fun output -> contains output "final-value=42 type=i64" )
+        "human byte report returns the checked word";
+      let command = [ "dump-ir"; "--program"; "--mode=" ^ mode; source ] in
+      let dump = success command in
+      require (dump = success command) "deterministic byte program dump";
+      require
+        (contains dump "public:U8*" && contains dump "IC_MUL"
+       && contains dump "IC_DEREF")
+        "byte pointer and indexed load evidence survives the dump";
+      List.iter
+        (fun (limit, code) ->
+          let status, stdout, stderr =
+            invoke
+              [
+                "run";
+                "--target=ir";
+                "--format=json";
+                "--mode=" ^ mode;
+                limit;
+                source;
+              ]
+          in
+          require
+            (status = Unix.WEXITED 1 && stdout = "")
+            "byte limit fails without a result";
+          require
+            (Yojson.Safe.from_string stderr
+            |> to_list |> List.hd |> member "code" |> to_string = code)
+            "byte limit diagnostic")
+        [
+          ("--step-limit=68", "HCIRVM0007");
+          ("--frame-byte-limit=15", "HCIRVM0011");
+          ("--call-depth-limit=1", "HCIRVM0015");
+        ];
+      with_file ".hc" "I64 F(){U8 n;I64 value=(n=298);return value*1000+n;}F();"
+        (fun source ->
+          let result =
+            success [ "run"; "--format=json"; "--mode=" ^ mode; source ]
+            |> Yojson.Safe.from_string
+          in
+          require
+            (result |> member "final_value" |> member "value" |> to_string
+           = "298042")
+            "byte assignment value and stored readback are independent");
+      List.iter
+        (fun (text, code) ->
+          with_file ".hc" text (fun source ->
+              let status, stdout, stderr =
+                invoke [ "run"; "--format=json"; "--mode=" ^ mode; source ]
+              in
+              require
+                (status = Unix.WEXITED 1 && stdout = "")
+                "byte fault has no result";
+              let diagnostic =
+                Yojson.Safe.from_string stderr |> to_list |> List.hd
+              in
+              require
+                (diagnostic |> member "code" |> to_string = code)
+                "byte access diagnostic";
+              require
+                (diagnostic |> member "notes" |> to_list |> List.map to_string
+               |> List.mem "function=F")
+                "byte access retains the owning function"))
+        [
+          ("I64 F(){U8 a[2];a[0]=42;return a[1];}F();", "HCIRVM0012");
+          ("I64 F(){U8 a[2];U8 *p=&a[2];return *p;}F();", "HCIRVM0019");
+        ])
+    [ "jit"; "aot" ];
   print_endline "Integer program CLI checks passed."

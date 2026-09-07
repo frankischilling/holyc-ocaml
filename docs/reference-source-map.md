@@ -1,5 +1,13 @@
 # Reference source map
 
+The [U8 storage connection](integer-bytes.md#source-evidence-and-validation)
+in #615 follows `CInit.HC:3-14`, `PrsVar.HC:247-281,532,590-606` and
+`PrsExp.HC:1055-1098` for byte width, allocation and strides.
+`BackLib.HC:453-572` and `BackC.HC:159-204` distinguish memory narrowing from
+assignment results; `OptLib.HC:96-179` separates raw-class rank and unsigned
+operation selection. These are pinned-source rules, with native evidence
+tracked separately from hosted verification.
+
 The [automatic array connection](integer-arrays.md) follows PrsVar.HC:247-281,
 532,590-615 and PrsExp.HC:72,97-118,151-161,201-208,470-484,739-746,766-774,
 1055-1098, with delayed update reads at BackA.HC:555-566. All refer to pinned

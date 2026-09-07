@@ -24,7 +24,11 @@ end)
 type word_type = I64 | U64
 type word = { type_ : word_type; bits : int64 }
 type function_definition = { frame : Frame.function_layout; body : Function.t }
-type stored_type = Stored_word of word_type | Stored_pointer of Type.t
+
+type stored_type =
+  | Stored_word of word_type
+  | Stored_byte
+  | Stored_pointer of Type.t
 
 type runtime_value =
   | Runtime_word of word
@@ -35,6 +39,8 @@ and runtime_address = {
   pointer_storage : runtime_storage;
   pointer_base : int;
   pointer_count : int;
+  pointer_element_bytes : int;
+  pointer_extent_bytes : int64;
   pointer_offset : int64;
   pointer_pointee : Type.t;
 }
@@ -58,6 +64,7 @@ type frame_context = {
   slots : frame_slot array;
   offsets : int Offset_map.t;
   return_type : Type.t;
+  allocated_bytes : int;
 }
 
 type termination = Stream_end | Returned of word option
@@ -177,6 +184,7 @@ type prepared = {
   blocks : prepared_block array;
   entry_index : int;
   initial_slots : runtime_value option array;
+  initial_frame_bytes : int;
   is_function : bool;
   owner : (int * string) option;
 }
@@ -330,18 +338,43 @@ let scalar_word_type ~allow_public type_ =
 let producer_word_type type_ = scalar_word_type ~allow_public:false type_
 let return_word_type type_ = scalar_word_type ~allow_public:true type_
 
+(* A byte expression retains its checked raw class and full register bits.
+   Only storage narrows it; the public execution result remains I64/U64. *)
+let scalar_value_type ~allow_byte ~allow_public type_ =
+  match scalar_word_type ~allow_public type_ with
+  | Some _ as word -> word
+  | None when allow_byte && Type.pointer_depth type_ = 0 -> (
+      match Type.base type_ with
+      | Type.Primitive (form, Sema.Primitive_type.U8)
+        when allow_public || form = Type.Internal_storage -> Some U64
+      | _ -> None)
+  | None -> None
+
+let scalar_element_bytes type_ =
+  if Type.pointer_depth type_ <> 0 then None
+  else
+    match Type.base type_ with
+    | Type.Primitive (_, Sema.Primitive_type.U8) -> Some 1
+    | Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> Some 8
+    | _ -> None
+
 let scalar_pointer_type type_ =
   Type.pointer_depth type_ = 1
   &&
   match Type.base type_ with
-  | Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
+  | Type.Primitive (_, (Sema.Primitive_type.I64 | U64 | U8)) -> true
   | _ -> false
 
 let stored_type type_ =
   match return_word_type type_ with
   | Some word -> Some (Stored_word word)
+  | None when scalar_element_bytes type_ = Some 1 -> Some Stored_byte
   | None when scalar_pointer_type type_ -> Some (Stored_pointer type_)
   | None -> None
+
+let stored_bytes = function
+  | Stored_byte -> 1
+  | Stored_word _ | Stored_pointer _ -> 8
 
 let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
     ~arguments function_ =
@@ -440,15 +473,21 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
         locations
     in
     let arguments = ref arguments in
-    let prepared_rev = ref [] and total_cells = ref 0L and error = ref None in
-    let max_cells =
-      Int64.of_int (min Sys.max_array_length (max_frame_bytes / 8))
-    in
+    let prepared_rev = ref []
+    and total_cells = ref 0L
+    and total_bytes = ref 0L
+    and error = ref None in
+    let allocated_bytes = Int64.to_int frame_size + (parameter_count * 8) in
+    let max_cells = Int64.of_int (min Sys.max_array_length max_frame_bytes) in
     List.iter
       (fun location ->
         let dimensions = Frame.location_dimensions location in
+        let storage_kind = stored_type (Frame.location_checked_type location) in
         let rec array_strides = function
-          | [] -> Some (8L, [])
+          | [] ->
+              Option.map
+                (fun kind -> (Int64.of_int (stored_bytes kind), []))
+                storage_kind
           | dimension :: rest -> (
               match array_strides rest with
               | Some (bytes, strides) ->
@@ -459,13 +498,16 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
               | None -> None)
         in
         match
-          ( stored_type (Frame.location_checked_type location),
+          ( storage_kind,
             Frame.location_frame_slot location,
             array_strides dimensions )
         with
         | Some stored_type, Some slot, Some (bytes, strides)
           when Frame.location_declarator_shape location = Frame.Object
-               && Frame.location_element_size location = 8L
+               && Frame.location_element_size location
+                  = Int64.of_int (stored_bytes stored_type)
+               && (Frame.location_kind location <> Frame.Named_parameter
+                  || stored_type <> Stored_byte)
                && Frame.location_allocated_size location = bytes
                && Frame.frame_slot_size slot = bytes
                && (dimensions = []
@@ -475,11 +517,16 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
                      && Frame.location_kind location = Frame.Automatic_local
                      &&
                      match stored_type with
-                     | Stored_word _ -> true
+                     | Stored_word _ | Stored_byte -> true
                      | _ -> false) ->
             let offset = Frame.frame_slot_displacement slot in
-            let count = Int64.div bytes 8L in
-            if count > Int64.sub max_cells !total_cells then
+            let count =
+              Int64.div bytes (Int64.of_int (stored_bytes stored_type))
+            in
+            if
+              count > Int64.sub max_cells !total_cells
+              || bytes > Int64.sub (Int64.of_int allocated_bytes) !total_bytes
+            then
               error := Some "the flattened frame exceeds the cell or byte limit"
             else
               let initial =
@@ -488,6 +535,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
                     arguments := rest;
                     match stored_type with
                     | Stored_word type_ -> Some (Runtime_word { type_; bits })
+                    | Stored_byte -> assert false
                     | Stored_pointer _ ->
                         if not pointer_arguments then
                           error :=
@@ -508,7 +556,8 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
               in
               prepared_rev :=
                 (Int64.to_int !total_cells, offset, entry) :: !prepared_rev;
-              total_cells := Int64.add !total_cells count
+              total_cells := Int64.add !total_cells count;
+              total_bytes := Int64.add !total_bytes bytes
         | _ ->
             error :=
               Some
@@ -546,13 +595,14 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
                 slots;
                 offsets = !offsets;
                 return_type = Function.return_type function_;
+                allocated_bytes;
               })
 
 let frame_pointer type_ =
   (Type.pointer_depth type_ = 1 || Type.pointer_depth type_ = 2)
   &&
   match Type.base type_ with
-  | Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
+  | Type.Primitive (_, (Sema.Primitive_type.I64 | U64 | U8)) -> true
   | _ -> false
 
 let address_slot context types (description : Sequence.description) =
@@ -611,8 +661,10 @@ let index_offset types (description : Sequence.description) =
         (Value_map.find_opt stride_id types, Value_map.find_opt value_id types)
       with
       | ( Some (Frame_offset (stride_type, stride)),
-          Some (Supported (expected_type, _)) )
-        when Type.equal pointer stride_type && stride > 0L ->
+          Some (Supported (expected_type, index_type)) )
+        when Type.equal pointer stride_type
+             && stride > 0L
+             && Option.is_some (return_word_type index_type) ->
           Index_offset (pointer, stride, { value_id; expected_type })
       | _ -> Unsupported)
   | _ -> Unsupported
@@ -632,7 +684,12 @@ let indexed_address frame types (description : Sequence.description) =
         | Some (Indexed_address (expected, strides))
           when Type.equal expected pointer -> Some strides
         | Some (Pointer_value expected) when Type.equal expected pointer ->
-            Some [ 8L ]
+            Option.bind
+              (Result.to_option (Type.dereference pointer))
+              (fun pointee ->
+                Option.map
+                  (fun width -> [ Int64.of_int width ])
+                  (scalar_element_bytes pointee))
         | _ -> None
       in
       match (strides, Value_map.find_opt offset types) with
@@ -679,7 +736,11 @@ let declared_types ?frame ?globals ?initialization ?(allow_calls = false) block
                                 && (opcode = Opcode.Ic_deref
                                   || opcode = Opcode.Ic_assign
                                    || Option.is_some (update_kind opcode)) -> (
-                             match return_word_type type_ with
+                             match
+                               scalar_value_type
+                                 ~allow_byte:(Option.is_some frame)
+                                 ~allow_public:true type_
+                             with
                              | Some word_type -> Supported (word_type, type_)
                              | None -> Unsupported)
                          | Some _, Opcode.Ic_rbp when frame_pointer type_ ->
@@ -712,7 +773,11 @@ let declared_types ?frame ?globals ?initialization ?(allow_calls = false) block
                                 match opcode_kind opcode with
                                 | Some (Unary_kind _ | Binary_kind _) -> true
                                 | _ -> false -> (
-                             match return_word_type type_ with
+                             match
+                               scalar_value_type
+                                 ~allow_byte:(Option.is_some frame)
+                                 ~allow_public:true type_
+                             with
                              | Some word_type -> Supported (word_type, type_)
                              | None -> Unsupported)
                          | _ -> (
@@ -753,7 +818,7 @@ let memory_operand_of_value types id =
 
 let value_matches stored operand =
   match (stored, operand) with
-  | Stored_word _, Word_operand _ -> true
+  | (Stored_word _ | Stored_byte), Word_operand _ -> true
   | Stored_pointer expected, Pointer_operand actual ->
       Type.equal expected actual.pointer_type
   | _ -> false
@@ -781,21 +846,21 @@ let storage_operand ?(allow_array = false) frame initialization types
       match Type.dereference pointer_type with
       | Ok pointee ->
           Option.map
-            (fun word ->
+            (fun stored ->
               ( Indexed_slot { pointer_value = address; pointer_type },
                 pointee,
-                Stored_word word ))
-            (return_word_type pointee)
+                stored ))
+            (stored_type pointee)
       | Error _ -> None)
   | _, Some (Pointer_value pointer_type) -> (
       match Type.dereference pointer_type with
       | Ok pointee ->
           Option.map
-            (fun word ->
+            (fun stored ->
               ( Indirect_slot { pointer_value = address; pointer_type },
                 pointee,
-                Stored_word word ))
-            (return_word_type pointee)
+                stored ))
+            (stored_type pointee)
       | Error _ -> None)
   | _ -> None
 
@@ -811,6 +876,10 @@ let valid_unary_type types operation operand_id result_type =
         | _ -> false
       in
       match (operation, Type.base operand_type) with
+      | Negate, Type.Primitive (_, Sema.Primitive_type.U8) ->
+          (* OptPass012.HC:180-192 changes U8 negation to I8, outside this
+             storage slice. Preserve the boundary even for forged IR. *)
+          false
       | Complement, _
       | Negate, Type.Primitive (Type.Internal_storage, Sema.Primitive_type.U64)
         -> internal_i64 result_type
@@ -822,9 +891,9 @@ let promoted_word_type left right =
   | I64, I64 -> I64
   | I64, U64 | U64, I64 | U64, U64 -> U64
 
-let expected_binary_result_type operation left right =
+let valid_binary_result_type types operation left right result_type =
   match operation with
-  | Compare _ | Logical _ -> I64
+  | Compare _ | Logical _ -> return_word_type result_type = Some I64
   | Add
   | Subtract
   | Multiply
@@ -834,7 +903,19 @@ let expected_binary_result_type operation left right =
   | Bitwise_or
   | Bitwise_xor
   | Shift_left
-  | Shift_right -> promoted_word_type left right
+  | Shift_right -> (
+      let raw_id type_ =
+        match Type.base type_ with
+        | Type.Primitive (_, primitive) when Type.pointer_depth type_ = 0 ->
+            Some (Sema.Primitive_type.info primitive).raw_id
+        | _ -> None
+      in
+      match (Value_map.find_opt left types, Value_map.find_opt right types) with
+      | Some (Supported (_, left)), Some (Supported (_, right)) -> (
+          match (raw_id left, raw_id right, raw_id result_type) with
+          | Some left, Some right, Some actual -> actual = max left right
+          | _ -> false)
+      | _ -> false)
 
 let shift_count bits = Int64.to_int (Int64.logand bits 63L)
 
@@ -1018,7 +1099,8 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
                         types description.instruction_id base,
                       Type.dereference pointer )
                   with
-                  | Some (location, actual, Stored_word _), Ok pointee
+                  | ( Some (location, actual, (Stored_word _ | Stored_byte)),
+                      Ok pointee )
                     when Type.equal actual pointee ->
                       Ok
                         (Index_address
@@ -1038,7 +1120,7 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
                     storage_operand ~allow_array:true frame initialization types
                       description.instruction_id address
                   with
-                  | Some (location, pointee, Stored_word _) -> (
+                  | Some (location, pointee, (Stored_word _ | Stored_byte)) -> (
                       match Type.pointer_to pointee with
                       | Ok expected when Type.equal expected target_type ->
                           Ok
@@ -1168,7 +1250,7 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
               with
               | [ operand_id ], Some result, Some result_type, None -> (
                   match
-                    scalar_word_type
+                    scalar_value_type ~allow_byte:(Option.is_some frame)
                       ~allow_public:
                         (Option.is_some frame || Option.is_some globals
                        || allow_public)
@@ -1207,9 +1289,14 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
                   | Some result_type -> (
                       match operand_of_value types operand_id with
                       | None -> Error (invalid_type_matrix block_id description)
-                      | Some operand ->
+                      | Some operand
+                        when match Value_map.find_opt operand_id types with
+                             | Some (Supported (_, type_)) ->
+                                 Option.is_some (return_word_type type_)
+                             | _ -> false ->
                           Ok (Word_view (operand, result.value_id, result_type))
-                      ))
+                      | Some _ ->
+                          Error (invalid_type_matrix block_id description)))
               | _ -> Error (malformed block_id description))
           | Binary_kind binary -> (
               match
@@ -1220,7 +1307,7 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
               with
               | [ left_id; right_id ], Some result, Some result_type, None -> (
                   match
-                    scalar_word_type
+                    scalar_value_type ~allow_byte:(Option.is_some frame)
                       ~allow_public:
                         (Option.is_some frame || Option.is_some globals
                        || allow_public)
@@ -1233,9 +1320,11 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
                           operand_of_value types right_id )
                       with
                       | Some left, Some right
-                        when result_type
-                             = expected_binary_result_type binary
-                                 left.expected_type right.expected_type ->
+                        when Option.fold ~none:false
+                               ~some:
+                                 (valid_binary_result_type types binary left_id
+                                    right_id)
+                               description.target_type ->
                           Ok
                             (Binary
                                ( binary,
@@ -1568,6 +1657,10 @@ let prepare ?frame ?globals ?initialization ?callees graph =
               blocks;
               entry_index;
               initial_slots;
+              initial_frame_bytes =
+                Option.fold ~none:0
+                  ~some:(fun context -> context.allocated_bytes)
+                  frame;
               is_function = Option.is_some frame;
               owner = None;
             }
@@ -1625,7 +1718,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
   let callers = ref [] in
   let calls = ref [] in
   let depth = ref 0 in
-  let live_frame_bytes = ref (Array.length !slots.cells * 8) in
+  let live_frame_bytes = ref !program.initial_frame_bytes in
   let final_value = ref None in
   let pending_return = ref None in
   let steps = ref 0 in
@@ -1650,13 +1743,13 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
   in
   let address_bounds ~one_past block instruction address =
     let offset = address.pointer_offset in
-    let cells = Int64.div offset 8L in
+    let width = Int64.of_int address.pointer_element_bytes in
     if
       offset < 0L
-      || Int64.rem offset 8L <> 0L
+      || Int64.rem offset width <> 0L
       ||
-      if one_past then cells > Int64.of_int address.pointer_count
-      else cells >= Int64.of_int address.pointer_count
+      if one_past then offset > address.pointer_extent_bytes
+      else offset > Int64.sub address.pointer_extent_bytes width
     then (
       failed :=
         Some
@@ -1671,6 +1764,16 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
         match Type.dereference operand.pointer_type with
         | Ok expected
           when Type.equal expected address.pointer_pointee
+               && scalar_element_bytes expected
+                  = Some address.pointer_element_bytes
+               && address.pointer_element_bytes > 0
+               && Int64.of_int address.pointer_count
+                  <= Int64.div Int64.max_int
+                       (Int64.of_int address.pointer_element_bytes)
+               && address.pointer_extent_bytes
+                  = Int64.mul
+                      (Int64.of_int address.pointer_count)
+                      (Int64.of_int address.pointer_element_bytes)
                && address.pointer_storage.live && address.pointer_base >= 0
                && address.pointer_count > 0
                && address.pointer_count
@@ -1712,6 +1815,9 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
     | Runtime_word word -> (
         match expected with
         | Stored_word type_ -> Some (Runtime_word { type_; bits = word.bits })
+        | Stored_byte ->
+            Some
+              (Runtime_word { type_ = U64; bits = Int64.logand word.bits 255L })
         | _ -> None)
     | Runtime_pointer address -> (
         match expected with
@@ -1725,14 +1831,21 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
   in
   let resolve_address block instruction location pointer_pointee =
     let root pointer_storage pointer_base pointer_count =
-      Some
-        {
-          pointer_storage;
-          pointer_base;
-          pointer_count;
-          pointer_offset = 0L;
-          pointer_pointee;
-        }
+      Option.map
+        (fun pointer_element_bytes ->
+          {
+            pointer_storage;
+            pointer_base;
+            pointer_count;
+            pointer_element_bytes;
+            pointer_extent_bytes =
+              Int64.mul
+                (Int64.of_int pointer_count)
+                (Int64.of_int pointer_element_bytes);
+            pointer_offset = 0L;
+            pointer_pointee;
+          })
+        (scalar_element_bytes pointer_pointee)
     in
     match location with
     | Frame_slot (base, count) -> root !slots base count
@@ -1751,7 +1864,9 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
               Some
                 ( address.pointer_storage,
                   address.pointer_base
-                  + Int64.to_int (Int64.div address.pointer_offset 8L) )
+                  + Int64.to_int
+                      (Int64.div address.pointer_offset
+                         (Int64.of_int address.pointer_element_bytes)) )
             else None)
   in
   while Option.is_none !completed && Option.is_none !failed do
@@ -1943,7 +2058,13 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                   with
                   | Some value, Some (storage, index) ->
                       storage.cells.(index) <- Some value;
-                      values := Value_map.add result value !values
+                      let expression_value =
+                        match (type_, operand) with
+                        | Stored_byte, Runtime_word word ->
+                            Runtime_word { type_ = U64; bits = word.bits }
+                        | _ -> value
+                      in
+                      values := Value_map.add result expression_value !values
                   | _, None -> ()
                   | None, _ ->
                       failed :=
@@ -2088,7 +2209,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                   callers := rest;
                   decr depth;
                   live_frame_bytes :=
-                    !live_frame_bytes - (Array.length !slots.cells * 8);
+                    !live_frame_bytes - !program.initial_frame_bytes;
                   program := caller.saved_program;
                   current_block := caller.saved_block;
                   current_instruction := caller.saved_instruction;
@@ -2287,7 +2408,7 @@ let execute_program ?globals ?initialization ?(max_global_bytes = 1_048_576)
                        ~stored_mask:(Function.stored_flags body)
                    then Opcode.Ic_add_rsp1
                    else Opcode.Ic_add_rsp);
-                frame_bytes = Array.length context.slots * 8;
+                frame_bytes = context.allocated_bytes;
               }
             in
             summaries (index + 1) (symbol :: symbols) (function_id :: ids)

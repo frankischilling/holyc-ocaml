@@ -38,7 +38,7 @@ produces 298 while a subsequent read of `a` produces 42. This follows
 `Compiler/BackC.HC:159-204`, where the ordinary assignment result receives arg2,
 and `BackLib.HC:453-572`, where memory width and register values differ.
 
-Keep private byte computation classes distinct from I64/U64 promotion and
+Keep the exact byte `Type.t` distinct from the runtime I64/U64 word carrier and
 operation signedness. `OptLib.HC:96-179` selects the greatest raw class and
 separately tracks unsigned operands. U8 arithmetic values must not be narrowed
 until storage. Preserve existing raw interpreter versus optimized native-source
@@ -60,4 +60,6 @@ Obtain independent review and all five final-commit CI checks before merge.
 The reference remains `c26482bb6ad3f80106d28504ec5db3c6a360732c`; no new native
 capture is claimed. Persistent byte storage, other narrow types, U8 updates,
 pointer arithmetic/casts/returns and string/runtime output remain explicit
-boundaries of this issue.
+boundaries of this issue. Unary minus on U8 has an I8 result under
+`OptPass012.HC:180-192` and rejects until that computation class is implemented.
+Numeric indexing and word-view casts retain their I64/U64 operand domain.

@@ -1,5 +1,12 @@
 # Intermediate-code specification
 
+[U8 storage](integer-bytes.md#values-types-and-storage) retains exact checked
+types for raw-class rank while keeping the existing I64/U64 runtime word tags.
+Private byte storage narrows writes; assignment results retain the original
+payload. The source program context supplies checked element widths, strides,
+object extents and exact frame charges. The low-level slices below retain
+their own admission boundaries and do not imply general memory support.
+
 [Automatic array indexing](integer-arrays.md) retains exact semantic base/index
 children and emits checked stride/index/multiply/add operations. Preflight
 tracks remaining dimensions separately from materialized element pointers;

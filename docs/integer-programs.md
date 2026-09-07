@@ -1,5 +1,11 @@
 # Integer programs in the IR interpreter
 
+[U8 byte storage](integer-bytes.md) extends the same checked program context
+with automatic byte scalars and arrays, plain assignment and exact U8* aliases.
+Stored bytes narrow independently from assignment results, and frame limits
+use checked allocation sizes. The linked guide records the fixture and its
+verification status; I64/U64 numeric parameters and returns remain unchanged.
+
 [Automatic I64/U64 arrays](integer-arrays.md) execute indexed loads, assignments,
 updates and element aliases through this pipeline. The caller-element fixture
 returns 42 in 51 runtime steps, zero preparation, 24 active frame bytes and depth
@@ -24,7 +30,8 @@ opam exec -- dune exec bin/holyc.exe -- dump-ir --program examples/integer-contr
 The accepted statements are ordinary integer expressions, empty statements,
 blocks, comma statement sequences, `if`/`else`, `while`, `do`/`while`, `for`,
 and `break`, plus scalar function-local declarations and returns. Functions use
-checked I64/U64 parameter/local frames and direct call expressions. See
+checked I64/U64 parameters, the automatic storage described above and direct
+call expressions. See
 [integer source functions](integer-functions.md) for the original Add fixture,
 call shapes, argument order and storage limits. The report retains the last
 reached top-level expression value; it has no implemented Print operation.
@@ -44,8 +51,8 @@ share their storage across calls and loops. The [global accumulator](integer-glo
 returns 42 in 50 instructions in both modes and introduces `--global-byte-limit`.
 
 [Scalar update expressions](integer-updates.md) include all compound assignments
-and prefix/postfix increment/decrement for those globals and checked frame
-slots. Updates retain the original IC and destination class, read storage
+and prefix/postfix increment/decrement for I64/U64 globals and checked
+I64/U64 frame slots. Updates retain the original IC and destination class, read storage
 after RHS effects, and return the old postfix or new prefix/compound word.
 
 ## Source behavior and graph construction

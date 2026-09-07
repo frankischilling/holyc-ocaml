@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added U8 storage execution in #615: automatic scalars and arrays, byte indexing, exact pointer aliases, zero-extending loads and narrowing stores. Assignment expression results retain their RHS payload separately from stored bytes; frame charges use checked allocation sizes. The Sum example returns 42 in both modes with 69 runtime instructions, 16 frame bytes and call depth two.
+
 - Added automatic I64/U64 arrays with indexed loads, assignments, updates and element aliases. Checked strides and declared-object extents survive pointer copies and recursion; grouping discards dimensions and explicit array address-of retains its extra pointer layer. The caller-element fixture returns 42 in 51 runtime steps with 24 active frame bytes and depth two. Bounds and address overflow retain explicit hosted diagnostics.
 
 - Added checked I64/U64 pointer locals and fixed parameters that alias existing scalar objects through address-of, dereference, assignment and updates. References retain caller and recursive activation identity; static address materialization checks the exact owner or initializer region. The caller-writeback fixture returns 42 in 43 runtime steps with 16 active frame bytes and call depth two. Pointer returns, casts, arithmetic and broader memory remain unfinished.
