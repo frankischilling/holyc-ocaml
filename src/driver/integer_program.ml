@@ -12,14 +12,19 @@ type 'a checked = { value : 'a; diagnostics : Common.Diagnostic.t list }
 
 type compiled = {
   entry_ : Ir.X87_stack.t;
+  globals_ : Ir.Integer_globals.t;
   functions_ : Ir.Integer_interpreter.function_definition list;
 }
 
 let entry compiled = compiled.entry_
+let globals compiled = compiled.globals_
 let functions compiled = compiled.functions_
 
 let human compiled =
-  let entry = compiled.entry_ |> Ir.X87_stack.graph |> Ir.Block_graph.human in
+  let entry =
+    (compiled.entry_ |> Ir.X87_stack.graph |> Ir.Block_graph.human)
+    ^ Ir.Integer_globals.human compiled.globals_
+  in
   match compiled.functions_ with
   | [] -> entry
   | functions ->
@@ -82,6 +87,7 @@ let compile session ~config ~source =
                 | Ast.Top_level_statement statement ->
                     validate ~in_function:false statement;
                     Some statement
+                | Ast.Global_variable _ | Ast.Global_declaration _ -> None
                 | Ast.Function_definition definition ->
                     (match definition.body with
                     | Some body -> validate ~in_function:true body
@@ -96,6 +102,10 @@ let compile session ~config ~source =
           in
           let* prepared =
             Integer_source.prepare_unit session ~config ~span:ast.span ast
+          in
+          let* globals_ =
+            Ir.Integer_globals.create ~span:ast.span
+              (Integer_source.global_records prepared)
           in
           let typed = Integer_source.top_level prepared in
           let root_map values =
@@ -345,7 +355,7 @@ let compile session ~config ~source =
                        (Option.to_list definition.body)
                    in
                    let* graph =
-                     Lower.lower ~frame ~function_calls
+                     Lower.lower ~frame ~globals:globals_ ~function_calls
                        ~span:definition.location.span statements
                    in
                    let members kind =
@@ -407,8 +417,10 @@ let compile session ~config ~source =
             |> root_map
           in
           let statements = lower_statements roots [] [] statements in
-          let* entry_ = Lower.lower ~top_calls ~span:ast.span statements in
-          Ok { entry_; functions_ = definitions }
+          let* entry_ =
+            Lower.lower ~globals:globals_ ~top_calls ~span:ast.span statements
+          in
+          Ok { entry_; globals_; functions_ = definitions }
         with Invalid diagnostic -> Error [ diagnostic ]
       in
       match lowered with
@@ -418,7 +430,7 @@ let compile session ~config ~source =
 let lower session ~config ~source =
   let* compiled = compile session ~config ~source in
   match compiled.value.functions_ with
-  | [] ->
+  | [] when Ir.Integer_globals.byte_size compiled.value.globals_ = 0 ->
       Ok { value = compiled.value.entry_; diagnostics = compiled.diagnostics }
   | _ ->
       Error
@@ -426,23 +438,29 @@ let lower session ~config ~source =
         @ [
             Integer_source.diagnostic
               ~span:(Integer_source.source_span source)
-              "HCRUN0001" "named functions require the compiled-program API";
+              "HCRUN0001"
+              "named functions and global storage require the compiled-program \
+               API";
           ])
 
-let run ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128) session ~config
-    ~source ~max_steps =
+let run ?(max_global_bytes = 1_048_576) ?(max_frame_bytes = 1_048_576)
+    ?(max_call_depth = 128) session ~config ~source ~max_steps =
   let span = Integer_source.source_span source in
-  if max_steps <= 0 || max_frame_bytes <= 0 || max_call_depth <= 0 then
+  if
+    max_steps <= 0 || max_frame_bytes <= 0 || max_call_depth <= 0
+    || max_global_bytes <= 0
+  then
     Error
       [
         Integer_source.diagnostic ~span "HCIRVM0001"
-          "max_steps, max_frame_bytes and max_call_depth must be greater than \
-           zero";
+          "max_steps, max_frame_bytes, max_call_depth and max_global_bytes \
+           must be greater than zero";
       ]
   else
     let* graph = compile session ~config ~source in
-    Ir.Integer_interpreter.execute_program ~max_steps ~max_frame_bytes
-      ~max_call_depth ~functions:graph.value.functions_ graph.value.entry_
+    Ir.Integer_interpreter.execute_program ~globals:graph.value.globals_
+      ~max_global_bytes ~max_steps ~max_frame_bytes ~max_call_depth
+      ~functions:graph.value.functions_ graph.value.entry_
     |> Result.map (fun value -> { value; diagnostics = graph.diagnostics })
     |> Result.map_error
          (List.map (fun (error : Ir.Integer_interpreter.error) ->

@@ -23,3 +23,5 @@ val prepare :
   ( Sema.Function_call_expression_result.top_level_t,
     Common.Diagnostic.t list )
   result
+
+val global_records : prepared -> Sema.Global_record_classification.t

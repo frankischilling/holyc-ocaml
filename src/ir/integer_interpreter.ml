@@ -86,6 +86,7 @@ type binary_operation =
   | Logical of logical_operation
 
 type branch_condition = Zero | Not_zero
+type storage_location = Frame_slot of int | Global_slot of int
 
 type prepared_operation =
   | Call_start
@@ -93,8 +94,8 @@ type prepared_operation =
   | Call_cleanup
   | Call_end of Value_id.t * word_type
   | Frame_address_tick
-  | Load_slot of int * Value_id.t
-  | Store_slot of int * prepared_operand * Value_id.t * word_type
+  | Load_slot of storage_location * Value_id.t
+  | Store_slot of storage_location * prepared_operand * Value_id.t * word_type
   | Immediate of Value_id.t * word
   | Unary of unary_operation * prepared_operand * Value_id.t * word_type
   | Word_view of prepared_operand * Value_id.t * word_type
@@ -145,6 +146,7 @@ type call_phase = Collecting of int | Needs_cleanup | Needs_end
 type checked_call = { callee : callee; phase : call_phase }
 
 type opcode_kind =
+  | Global_address_kind
   | Frame_address_kind
   | Load_slot_kind
   | Store_slot_kind
@@ -164,6 +166,7 @@ type declared_type =
   | Frame_base of Type.t
   | Frame_offset of Type.t * int64
   | Frame_address of int
+  | Global_address of Integer_globals.slot
   | Unsupported
 
 let reference_commit = Sequence.reference_commit
@@ -385,7 +388,19 @@ let address_slot context types (description : Sequence.description) =
       | _ -> Unsupported)
   | _ -> Unsupported
 
-let declared_types ?frame ?(allow_calls = false) block =
+let global_address globals (description : Sequence.description) =
+  match (globals, description.payload, description.target_type) with
+  | Some globals, Some (Sequence.Symbol symbol), Some type_ -> (
+      match Integer_globals.find globals symbol with
+      | Some slot when description.opcode = Integer_globals.slot_opcode slot
+        -> (
+          match Type.pointer_to (Integer_globals.slot_type slot) with
+          | Ok expected when Type.equal type_ expected -> Some slot
+          | _ -> None)
+      | _ -> None)
+  | _ -> None
+
+let declared_types ?frame ?globals ?(allow_calls = false) block =
   Graph.instructions block |> Sequence.instructions
   |> List.fold_left
        (fun types instruction ->
@@ -394,42 +409,49 @@ let declared_types ?frame ?(allow_calls = false) block =
          | None -> types
          | Some result ->
              let declared =
-               match description.target_type with
-               | Some type_ -> (
-                   if allow_calls && description.opcode = Opcode.Ic_call_end
-                   then
-                     match return_word_type type_ with
-                     | Some word_type -> Supported (word_type, type_)
-                     | None -> Unsupported
-                   else
-                     match (frame, description.opcode) with
-                     | Some _, (Opcode.Ic_deref | Opcode.Ic_assign) -> (
+               match global_address globals description with
+               | Some slot -> Global_address slot
+               | None -> (
+                   match description.target_type with
+                   | Some type_ -> (
+                       if allow_calls && description.opcode = Opcode.Ic_call_end
+                       then
                          match return_word_type type_ with
                          | Some word_type -> Supported (word_type, type_)
-                         | None -> Unsupported)
-                     | Some _, Opcode.Ic_rbp when frame_pointer type_ ->
-                         Frame_base type_
-                     | Some _, Opcode.Ic_imm_i64 when frame_pointer type_ -> (
-                         match description.payload with
-                         | Some (Sequence.Integer offset) ->
-                             Frame_offset (type_, offset)
-                         | _ -> Unsupported)
-                     | Some context, Opcode.Ic_add when frame_pointer type_ ->
-                         address_slot context types description
-                     | _, opcode
-                       when (Option.is_some frame || allow_calls)
-                            &&
-                            match opcode_kind opcode with
-                            | Some (Unary_kind _ | Binary_kind _) -> true
-                            | _ -> false -> (
-                         match return_word_type type_ with
-                         | Some word_type -> Supported (word_type, type_)
-                         | None -> Unsupported)
-                     | _ -> (
-                         match producer_word_type type_ with
-                         | Some word_type -> Supported (word_type, type_)
-                         | None -> Unsupported))
-               | None -> Unsupported
+                         | None -> Unsupported
+                       else
+                         match (frame, description.opcode) with
+                         | _, (Opcode.Ic_deref | Opcode.Ic_assign)
+                           when Option.is_some frame || Option.is_some globals
+                           -> (
+                             match return_word_type type_ with
+                             | Some word_type -> Supported (word_type, type_)
+                             | None -> Unsupported)
+                         | Some _, Opcode.Ic_rbp when frame_pointer type_ ->
+                             Frame_base type_
+                         | Some _, Opcode.Ic_imm_i64 when frame_pointer type_
+                           -> (
+                             match description.payload with
+                             | Some (Sequence.Integer offset) ->
+                                 Frame_offset (type_, offset)
+                             | _ -> Unsupported)
+                         | Some context, Opcode.Ic_add when frame_pointer type_
+                           -> address_slot context types description
+                         | _, opcode
+                           when (Option.is_some frame || Option.is_some globals
+                               || allow_calls)
+                                &&
+                                match opcode_kind opcode with
+                                | Some (Unary_kind _ | Binary_kind _) -> true
+                                | _ -> false -> (
+                             match return_word_type type_ with
+                             | Some word_type -> Supported (word_type, type_)
+                             | None -> Unsupported)
+                         | _ -> (
+                             match producer_word_type type_ with
+                             | Some word_type -> Supported (word_type, type_)
+                             | None -> Unsupported))
+                   | None -> Unsupported)
              in
              Value_map.add result.value_id declared types)
        Value_map.empty
@@ -437,8 +459,13 @@ let declared_types ?frame ?(allow_calls = false) block =
 let operand_of_value types value_id =
   match Value_map.find_opt value_id types with
   | Some (Supported (expected_type, _)) -> Some { value_id; expected_type }
-  | Some (Unsupported | Frame_base _ | Frame_offset _ | Frame_address _) | None
-    -> None
+  | Some
+      ( Unsupported
+      | Frame_base _
+      | Frame_offset _
+      | Frame_address _
+      | Global_address _ )
+  | None -> None
 
 let valid_unary_type types operation operand_id result_type =
   match Value_map.find_opt operand_id types with
@@ -565,17 +592,25 @@ let invalid_type_matrix block_id description =
     (Printf.sprintf "%s has an invalid operand/result word-type relationship"
        (Opcode.to_source_name description.Sequence.opcode))
 
-let prepare_instruction ?frame ?(allow_public = false) block_index types
-    block_id (description : Sequence.description) =
+let prepare_instruction ?frame ?globals ?(allow_public = false) block_index
+    types block_id (description : Sequence.description) =
   let kind =
     match (frame, description.opcode) with
+    | _, (Opcode.Ic_imm_i64 | Opcode.Ic_abs_addr)
+      when Option.is_some globals
+           &&
+           match description.payload with
+           | Some (Sequence.Symbol _) -> true
+           | _ -> false -> Some Global_address_kind
     | Some _, Opcode.Ic_rbp -> Some Frame_address_kind
     | Some _, (Opcode.Ic_imm_i64 | Opcode.Ic_add)
       when Option.fold ~none:false
              ~some:(fun type_ -> Type.pointer_depth type_ > 0)
              description.target_type -> Some Frame_address_kind
-    | Some _, Opcode.Ic_deref -> Some Load_slot_kind
-    | Some _, Opcode.Ic_assign -> Some Store_slot_kind
+    | _, Opcode.Ic_deref when Option.is_some frame || Option.is_some globals ->
+        Some Load_slot_kind
+    | _, Opcode.Ic_assign when Option.is_some frame || Option.is_some globals ->
+        Some Store_slot_kind
     | _ -> opcode_kind description.opcode
   in
   match kind with
@@ -599,6 +634,13 @@ let prepare_instruction ?frame ?(allow_public = false) block_index types
       else
         let operation =
           match kind with
+          | Global_address_kind -> (
+              match (description.operands, description.result) with
+              | [], Some result -> (
+                  match Value_map.find_opt result.value_id types with
+                  | Some (Global_address _) -> Ok Frame_address_tick
+                  | _ -> Error (malformed block_id description))
+              | _ -> Error (malformed block_id description))
           | Frame_address_kind -> (
               match description.result with
               | Some result -> (
@@ -619,39 +661,46 @@ let prepare_instruction ?frame ?(allow_public = false) block_index types
               | None -> Error (malformed block_id description))
           | Load_slot_kind | Store_slot_kind -> (
               match
-                ( frame,
-                  description.operands,
+                ( description.operands,
                   description.result,
                   description.target_type,
                   description.payload )
               with
-              | ( Some context,
-                  address :: operands,
-                  Some result,
-                  Some target_type,
-                  None ) -> (
-                  match Value_map.find_opt address types with
-                  | Some (Frame_address index) -> (
-                      let slot = context.slots.(index) in
-                      if not (Type.equal slot.slot_type target_type) then
-                        Error (invalid_type_matrix block_id description)
-                      else
-                        match (kind, operands) with
-                        | Load_slot_kind, [] ->
-                            Ok (Load_slot (index, result.value_id))
-                        | Store_slot_kind, [ operand ] -> (
-                            match operand_of_value types operand with
-                            | Some operand ->
-                                Ok
-                                  (Store_slot
-                                     ( index,
-                                       operand,
-                                       result.value_id,
-                                       slot.word_type ))
-                            | None ->
-                                Error (invalid_type_matrix block_id description)
-                            )
-                        | _ -> Error (malformed block_id description))
+              | address :: operands, Some result, Some target_type, None -> (
+                  let slot =
+                    match (frame, Value_map.find_opt address types) with
+                    | Some context, Some (Frame_address index) ->
+                        let slot = context.slots.(index) in
+                        Some (Frame_slot index, slot.slot_type, slot.word_type)
+                    | _, Some (Global_address slot) -> (
+                        let type_ = Integer_globals.slot_type slot in
+                        match return_word_type type_ with
+                        | Some word_type ->
+                            Some
+                              ( Global_slot (Integer_globals.slot_index slot),
+                                type_,
+                                word_type )
+                        | None -> None)
+                    | _ -> None
+                  in
+                  match slot with
+                  | Some (location, slot_type, word_type)
+                    when Type.equal slot_type target_type -> (
+                      match (kind, operands) with
+                      | Load_slot_kind, [] ->
+                          Ok (Load_slot (location, result.value_id))
+                      | Store_slot_kind, [ operand ] -> (
+                          match operand_of_value types operand with
+                          | Some operand ->
+                              Ok
+                                (Store_slot
+                                   ( location,
+                                     operand,
+                                     result.value_id,
+                                     word_type ))
+                          | None ->
+                              Error (invalid_type_matrix block_id description))
+                      | _ -> Error (malformed block_id description))
                   | _ -> Error (invalid_type_matrix block_id description))
               | _ -> Error (malformed block_id description))
           | Immediate_kind -> (
@@ -677,7 +726,9 @@ let prepare_instruction ?frame ?(allow_public = false) block_index types
               | [ operand_id ], Some result, Some result_type, None -> (
                   match
                     scalar_word_type
-                      ~allow_public:(Option.is_some frame || allow_public)
+                      ~allow_public:
+                        (Option.is_some frame || Option.is_some globals
+                       || allow_public)
                       result_type
                   with
                   | None -> Error (unsupported_type block_id description)
@@ -727,7 +778,9 @@ let prepare_instruction ?frame ?(allow_public = false) block_index types
               | [ left_id; right_id ], Some result, Some result_type, None -> (
                   match
                     scalar_word_type
-                      ~allow_public:(Option.is_some frame || allow_public)
+                      ~allow_public:
+                        (Option.is_some frame || Option.is_some globals
+                       || allow_public)
                       result_type
                   with
                   | None -> Error (unsupported_type block_id description)
@@ -843,7 +896,7 @@ let prepare_instruction ?frame ?(allow_public = false) block_index types
             })
           operation
 
-let prepare ?frame ?callees graph =
+let prepare ?frame ?globals ?callees graph =
   let source_blocks = Graph.blocks graph in
   let block_count = List.length source_blocks in
   let block_index =
@@ -859,7 +912,8 @@ let prepare ?frame ?callees graph =
     |> List.mapi (fun index block ->
         let block_id = Graph.block_id block in
         let types =
-          declared_types ?frame ~allow_calls:(Option.is_some callees) block
+          declared_types ?frame ?globals ~allow_calls:(Option.is_some callees)
+            block
         in
         let instructions_rev = ref [] in
         let calls = ref [] in
@@ -968,8 +1022,8 @@ let prepare ?frame ?callees graph =
                 (call_error description
                    "direct call cleanup and call end must follow the call")
           | _ ->
-              prepare_instruction ?frame ~allow_public:true block_index types
-                block_id description
+              prepare_instruction ?frame ?globals ~allow_public:true block_index
+                types block_id description
         in
         Graph.instructions block |> Sequence.instructions
         |> List.iter (fun instruction ->
@@ -989,7 +1043,7 @@ let prepare ?frame ?callees graph =
             match
               if Option.is_some callees then prepare_call checked_description
               else
-                prepare_instruction ?frame block_index types block_id
+                prepare_instruction ?frame ?globals block_index types block_id
                   description
             with
             | Ok prepared ->
@@ -1095,7 +1149,8 @@ type caller = {
 }
 
 let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
-    ?(max_call_depth = Int.max_int) ?(capture_last = false) ~max_steps program =
+    ?(max_call_depth = Int.max_int) ?(capture_last = false)
+    ?(global_words = [||]) ~max_steps program =
   let current_block = ref program.entry_index in
   let current_instruction = ref 0 in
   let values = ref Value_map.empty in
@@ -1219,20 +1274,36 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                       (runtime_error ~instruction block !steps "HCIRVM0008"
                          "direct call did not supply its declared return word"))
           | Frame_address_tick -> ()
-          | Load_slot (index, result) -> (
-              match !slots.(index) with
+          | Load_slot (location, result) -> (
+              let storage, index, message =
+                match location with
+                | Frame_slot index ->
+                    ( !slots,
+                      index,
+                      "the reached frame slot has not been initialized" )
+                | Global_slot index ->
+                    ( global_words,
+                      index,
+                      "hosted execution reached an uninitialized JIT global" )
+              in
+              match storage.(index) with
               | Some word -> values := Value_map.add result word !values
               | None ->
                   failed :=
                     Some
                       (runtime_error ~instruction block !steps "HCIRVM0012"
-                         "the reached frame slot has not been initialized"))
-          | Store_slot (index, operand, result, type_) -> (
+                         message))
+          | Store_slot (location, operand, result, type_) -> (
               match require_operand block instruction operand with
               | None -> ()
               | Some operand ->
                   let word = { type_; bits = operand.bits } in
-                  !slots.(index) <- Some word;
+                  let storage, index =
+                    match location with
+                    | Frame_slot index -> (!slots, index)
+                    | Global_slot index -> (global_words, index)
+                  in
+                  storage.(index) <- Some word;
                   values := Value_map.add result word !values)
           | Immediate (result, word) ->
               values := Value_map.add result word !values
@@ -1409,15 +1480,29 @@ let execute_function ~max_steps ~max_frame_bytes ~frame ~arguments function_ =
                       Sema.Symbol.name (Function.symbol function_) );
               })
 
-let execute_program ~max_steps ~max_frame_bytes ~max_call_depth ~functions
-    checked =
+let execute_program ?globals ?(max_global_bytes = 1_048_576) ~max_steps
+    ~max_frame_bytes ~max_call_depth ~functions checked =
   let ( let* ) = Result.bind in
-  if max_steps <= 0 || max_frame_bytes <= 0 || max_call_depth <= 0 then
+  if
+    max_steps <= 0 || max_frame_bytes <= 0 || max_call_depth <= 0
+    || max_global_bytes <= 0
+  then
     Error
       [
         make_error ~stage:Configuration ~executed_steps:0 "HCIRVM0001"
-          "max_steps, max_frame_bytes and max_call_depth must be greater than \
-           zero";
+          "max_steps, max_frame_bytes, max_call_depth and max_global_bytes \
+           must be greater than zero";
+      ]
+  else if
+    Option.fold ~none:false
+      ~some:(fun globals ->
+        Integer_globals.byte_size globals > max_global_bytes)
+      globals
+  then
+    Error
+      [
+        make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0016"
+          "program global storage exceeds the global byte limit";
       ]
   else
     let owner body =
@@ -1496,7 +1581,7 @@ let execute_program ~max_steps ~max_frame_bytes ~max_call_depth ~functions
       | [] -> Ok (Array.of_list (List.rev rev))
       | (callee, frame, body) :: rest ->
           let* program =
-            prepare ~frame ~callees (Function.body body)
+            prepare ~frame ?globals ~callees (Function.body body)
             |> Result.map_error (List.map (identify body))
           in
           bodies
@@ -1504,9 +1589,23 @@ let execute_program ~max_steps ~max_frame_bytes ~max_call_depth ~functions
             rest
     in
     let* programs = bodies [] summaries in
-    let* entry = prepare ~callees (X87.graph checked) in
+    let* entry = prepare ?globals ~callees (X87.graph checked) in
+    let global_words =
+      Option.fold ~none:[] ~some:Integer_globals.slots globals
+      |> List.map (fun slot ->
+          Option.map
+            (fun bits ->
+              let type_ =
+                match return_word_type (Integer_globals.slot_type slot) with
+                | Some type_ -> type_
+                | None -> assert false
+              in
+              { type_; bits })
+            (Integer_globals.slot_initial_bits slot))
+      |> Array.of_list
+    in
     execute_prepared ~callees:programs ~max_frame_bytes ~max_call_depth
-      ~capture_last:true ~max_steps entry
+      ~global_words ~capture_last:true ~max_steps entry
 
 let termination execution = execution.termination_
 let executed_steps execution = execution.executed_steps_

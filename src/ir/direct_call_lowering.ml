@@ -247,16 +247,16 @@ let mark_argument_result ~span result_value descriptions =
       (metadata_error ~span
          "direct-call argument lowering has no unique result producer")
 
-let lower_arguments ?frame ?lower_call ~span ~instruction_id ~value_id arguments
-    =
+let lower_arguments ?frame ?globals ?lower_call ~span ~instruction_id ~value_id
+    arguments =
   let rec loop rev_descriptions instruction_id value_id = function
     | [] ->
         Ok
           (Argument_lowered (List.rev rev_descriptions, instruction_id, value_id))
     | argument :: rest -> (
         match
-          Expression.lower_typed_result ?frame ?lower_call ~instruction_id
-            ~value_id argument
+          Expression.lower_typed_result ?frame ?globals ?lower_call
+            ~instruction_id ~value_id argument
         with
         | Error errors -> Error errors
         | Ok Expression.Unsupported_expression -> Ok Unsupported_argument
@@ -299,15 +299,15 @@ let lower_variadic_count ~span ~instruction_id ~value_id ~count = function
               next_instruction_id,
               next_value_id ))
 
-let lower_supported ?frame ?lower_call ~span ~instruction_id ~value_id ~symbol
-    ~record ~arguments ~variadic_count_type ~variadic_count ~variadic_arguments
-    ~call_opcode result_type =
+let lower_supported ?frame ?globals ?lower_call ~span ~instruction_id ~value_id
+    ~symbol ~record ~arguments ~variadic_count_type ~variadic_count
+    ~variadic_arguments ~call_opcode result_type =
   let start_id = instruction_id in
   match next_instruction_id ~span instruction_id with
   | Error error -> Error [ error ]
   | Ok argument_instruction_id -> (
       match
-        lower_arguments ?frame ?lower_call ~span
+        lower_arguments ?frame ?globals ?lower_call ~span
           ~instruction_id:argument_instruction_id ~value_id variadic_arguments
       with
       | Error _ as error -> error
@@ -322,7 +322,7 @@ let lower_supported ?frame ?lower_call ~span ~instruction_id ~value_id ~symbol
           | Error error -> Error [ error ]
           | Ok (count_descriptions, fixed_instruction_id, fixed_value_id) -> (
               match
-                lower_arguments ?frame ?lower_call ~span
+                lower_arguments ?frame ?globals ?lower_call ~span
                   ~instruction_id:fixed_instruction_id ~value_id:fixed_value_id
                   arguments
               with
@@ -395,7 +395,7 @@ let lower_supported ?frame ?lower_call ~span ~instruction_id ~value_id ~symbol
                                  next_value_id_;
                                }))))))
 
-let lower ?frame ?lower_call ~instruction_id ~value_id ~target result =
+let lower ?frame ?globals ?lower_call ~instruction_id ~value_id ~target result =
   match span_of_origin (Result.result_origin result) with
   | Error error -> Error [ error ]
   | Ok span -> (
@@ -429,15 +429,15 @@ let lower ?frame ?lower_call ~instruction_id ~value_id ~target result =
                       ]
                 | Some result_type ->
                     let direct = target_resolution target in
-                    lower_supported ?frame ?lower_call ~span ~instruction_id
-                      ~value_id
+                    lower_supported ?frame ?globals ?lower_call ~span
+                      ~instruction_id ~value_id
                       ~symbol:(Resolution.direct_target_symbol direct)
                       ~record:(Target.record target) ~arguments
                       ~variadic_count_type ~variadic_count ~variadic_arguments
                       ~call_opcode result_type)))
 
-let lower_top_level ?frame ?lower_call ~instruction_id ~value_id ~target result
-    =
+let lower_top_level ?frame ?globals ?lower_call ~instruction_id ~value_id
+    ~target result =
   match span_of_origin (Result.result_origin result) with
   | Error error -> Error [ error ]
   | Ok span -> (
@@ -472,8 +472,8 @@ let lower_top_level ?frame ?lower_call ~instruction_id ~value_id ~target result
                       ]
                 | Some result_type ->
                     let typed = Top_target.source target in
-                    lower_supported ?frame ?lower_call ~span ~instruction_id
-                      ~value_id
+                    lower_supported ?frame ?globals ?lower_call ~span
+                      ~instruction_id ~value_id
                       ~symbol:(Result.top_level_direct_target_symbol typed)
                       ~record:(Top_target.record target) ~arguments
                       ~variadic_count_type ~variadic_count ~variadic_arguments

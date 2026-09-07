@@ -44,18 +44,22 @@ type cancellation =
   | No_cancellation
   | Canceled_dereference of Semantic_result.expression_result
 
+type storage_address =
+  | Frame_slot of Frame_address_lowering.prepared_address
+  | Global_slot of Global_address_lowering.prepared_address
+
 type plan_node =
   | Call of {
       result : Semantic_result.expression_result;
       conversion : result_conversion;
     }
-  | Frame_address of {
+  | Storage_address of {
       result : Semantic_result.expression_result;
-      address : Frame_address_lowering.prepared_address;
+      address : storage_address;
     }
-  | Frame_load of {
+  | Storage_load of {
       result : Semantic_result.expression_result;
-      address : Frame_address_lowering.prepared_address;
+      address : storage_address;
       result_type : Type.t;
       span : Common.Span.t;
       conversion : result_conversion;
@@ -1304,7 +1308,21 @@ let validate_binary result opcode left right =
         ~operation_flags:0L result left right
   | Ok false -> Ok Unsupported_binary
 
-let rec prepare_assignment_address ~frame result =
+let prepare_storage_address ?frame ?globals result =
+  let ( let* ) = Result.bind in
+  let* address =
+    match frame with
+    | None -> Ok None
+    | Some frame -> Frame_address_lowering.prepare ~frame result
+  in
+  match (address, globals) with
+  | Some address, _ -> Ok (Some (Frame_slot address))
+  | None, None -> Ok None
+  | None, Some globals ->
+      Global_address_lowering.prepare ~globals result
+      |> Result.map (Option.map (fun address -> Global_slot address))
+
+let rec prepare_assignment_address ?frame ?globals result =
   match
     Semantic_source.argument_expression_kind
       (Semantic_result.result_source result)
@@ -1312,10 +1330,10 @@ let rec prepare_assignment_address ~frame result =
   | Semantic_source.Parenthesized_expression source -> (
       match checked_operand result source "parenthesized assignment target" with
       | Error item -> Error [ item ]
-      | Ok operand -> prepare_assignment_address ~frame operand)
-  | _ -> Frame_address_lowering.prepare ~frame result
+      | Ok operand -> prepare_assignment_address ?frame ?globals operand)
+  | _ -> prepare_storage_address ?frame ?globals result
 
-let plan ?frame ~allow_calls root =
+let plan ?frame ?globals ~allow_calls root =
   let root_conversion = requested_conversion root in
   let pending = ref [] in
   let reversed = ref [] in
@@ -1337,23 +1355,22 @@ let plan ?frame ~allow_calls root =
               Semantic_result.result_source result
               |> Semantic_source.argument_expression_kind
             with
-            | Semantic_source.Bound_identifier_expression _ -> (
-                match
-                  (frame, checked_frame_scalar result, result_span result)
-                with
-                | _, Error item, _ -> error := Some item
-                | Some frame, Ok (Checked_type result_type), Some span -> (
-                    match Frame_address_lowering.prepare ~frame result with
+            | Semantic_source.Bound_identifier_expression _
+            | Semantic_source.Top_level_bound_identifier_expression _ -> (
+                match (checked_frame_scalar result, result_span result) with
+                | Error item, _ -> error := Some item
+                | Ok (Checked_type result_type), Some span -> (
+                    match prepare_storage_address ?frame ?globals result with
                     | Error (item :: _) -> error := Some item
                     | Error [] ->
                         error :=
                           Some
                             (metadata_error ~span
-                               "frame address validation failed")
+                               "storage address validation failed")
                     | Ok None -> unsupported := true
                     | Ok (Some address) ->
                         reversed :=
-                          Frame_load
+                          Storage_load
                             { result; address; result_type; span; conversion }
                           :: !reversed)
                 | _ -> unsupported := true)
@@ -1585,7 +1602,7 @@ let plan ?frame ~allow_calls root =
                 if
                   not
                     (accepted_binary_opcode opcode
-                    || Option.is_some frame
+                    || (Option.is_some frame || Option.is_some globals)
                        && Opcode.equal opcode Opcode.Ic_assign)
                 then unsupported := true
                 else
@@ -1597,13 +1614,14 @@ let plan ?frame ~allow_calls root =
                   | Ok (left, right), Ok span -> (
                       if Opcode.equal opcode Opcode.Ic_assign then
                         match
-                          ( frame,
-                            validate_binary_with checked_frame_word result left
-                              right )
+                          validate_binary_with checked_frame_word result left
+                            right
                         with
-                        | _, Error item -> error := Some item
-                        | Some frame, Ok true -> (
-                            match prepare_assignment_address ~frame left with
+                        | Error item -> error := Some item
+                        | Ok true -> (
+                            match
+                              prepare_assignment_address ?frame ?globals left
+                            with
                             | Error (item :: _) -> error := Some item
                             | Error [] ->
                                 error :=
@@ -1613,7 +1631,7 @@ let plan ?frame ~allow_calls root =
                             | Ok None -> unsupported := true
                             | Ok (Some address) ->
                                 reversed :=
-                                  Frame_address { result = left; address }
+                                  Storage_address { result = left; address }
                                   :: !reversed;
                                 pending :=
                                   Visit
@@ -1749,7 +1767,6 @@ let plan ?frame ~allow_calls root =
             | Semantic_source.Postfix_expression _
             | Semantic_source.Index_expression _
             | Semantic_source.Aggregate_offset_base_expression _
-            | Semantic_source.Top_level_bound_identifier_expression _
             | Semantic_source.Unresolved_expression
                 ( Semantic_source.Identifier_expression
                 | Semantic_source.Offset_expression
@@ -2006,38 +2023,47 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
   let descriptions_rev = ref [] in
   let error = ref None in
   let unsupported = ref false in
-  let frame_address address =
+  let storage_address address =
     match
       ( Sequence.Instruction_id.of_int allocator.instruction,
         Sequence.Value_id.of_int allocator.value )
     with
     | Error item, _ | _, Error item -> Error item
     | Ok instruction_id, Ok value_id -> (
-        match
-          Frame_address_lowering.lower_prepared ~instruction_id ~value_id
-            address
-        with
+        let fragment =
+          match address with
+          | Frame_slot address ->
+              Frame_address_lowering.lower_prepared ~instruction_id ~value_id
+                address
+              |> Result.map (fun result ->
+                  ( Frame_address_lowering.sequence result,
+                    Frame_address_lowering.next_instruction_id result,
+                    Frame_address_lowering.next_value_id result,
+                    Frame_address_lowering.result_value result,
+                    Frame_address_lowering.result_type result ))
+          | Global_slot address ->
+              Global_address_lowering.lower_prepared ~instruction_id ~value_id
+                address
+              |> Result.map (fun result ->
+                  ( Global_address_lowering.sequence result,
+                    Global_address_lowering.next_instruction_id result,
+                    Global_address_lowering.next_value_id result,
+                    Global_address_lowering.result_value result,
+                    Global_address_lowering.result_type result ))
+        in
+        match fragment with
         | Error (item :: _) -> Error item
         | Error [] ->
-            Error (metadata_error "prepared frame address emission failed")
-        | Ok result ->
+            Error (metadata_error "prepared storage address emission failed")
+        | Ok
+            (sequence, next_instruction, next_value, lowered_value, lowered_type)
+          ->
             allocator.instruction <-
-              Sequence.Instruction_id.to_int
-                (Frame_address_lowering.next_instruction_id result);
-            allocator.value <-
-              Sequence.Value_id.to_int
-                (Frame_address_lowering.next_value_id result);
-            let descriptions =
-              Frame_address_lowering.sequence result
-              |> Sequence.instructions
-              |> List.map Sequence.description
-            in
+              Sequence.Instruction_id.to_int next_instruction;
+            allocator.value <- Sequence.Value_id.to_int next_value;
             Ok
-              ( descriptions,
-                {
-                  lowered_value = Frame_address_lowering.result_value result;
-                  lowered_type = Frame_address_lowering.result_type result;
-                } ))
+              ( Sequence.instructions sequence |> List.map Sequence.description,
+                { lowered_value; lowered_type } ))
   in
   List.iter
     (fun node ->
@@ -2070,15 +2096,15 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
                           List.rev_append descriptions !descriptions_rev;
                         lowered := Int_map.add (result_key result) node !lowered
                     )))
-        | Frame_address { result; address } -> (
-            match frame_address address with
+        | Storage_address { result; address } -> (
+            match storage_address address with
             | Error item -> error := Some item
             | Ok (descriptions, node) ->
                 descriptions_rev :=
                   List.rev_append descriptions !descriptions_rev;
                 lowered := Int_map.add (result_key result) node !lowered)
-        | Frame_load { result; address; result_type; span; conversion } -> (
-            match frame_address address with
+        | Storage_load { result; address; result_type; span; conversion } -> (
+            match storage_address address with
             | Error item -> error := Some item
             | Ok (descriptions, address) -> (
                 match take_identity allocator (Some span) with
@@ -2439,8 +2465,8 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
               let root =
                 match List.rev nodes with
                 | Call { result; _ } :: _
-                | Frame_address { result; _ } :: _
-                | Frame_load { result; _ } :: _
+                | Storage_address { result; _ } :: _
+                | Storage_load { result; _ } :: _
                 | Literal { result; _ } :: _
                 | Current_position { result; _ } :: _
                 | Integer_constant { result; _ } :: _
@@ -2471,8 +2497,11 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
                            })
                   | Error item, _ | _, Error item -> Error [ item ]))))
 
-let lower_typed_result ?frame ?lower_call ~instruction_id ~value_id result =
-  match plan ?frame ~allow_calls:(Option.is_some lower_call) result with
+let lower_typed_result ?frame ?globals ?lower_call ~instruction_id ~value_id
+    result =
+  match
+    plan ?frame ?globals ~allow_calls:(Option.is_some lower_call) result
+  with
   | Error items -> Error items
   | Ok Unsupported_plan -> Ok Unsupported_expression
   | Ok (Planned nodes) ->
@@ -2483,7 +2512,8 @@ let lower_typed_result ?frame ?lower_call ~instruction_id ~value_id result =
 
 let sequence lowered = lowered.sequence_
 
-let lower_initializer ~frame ?lower_call ~instruction_id ~value_id initial =
+let lower_initializer ~frame ?globals ?lower_call ~instruction_id ~value_id
+    initial =
   let ( let* ) = Result.bind in
   let value = Semantic_result.initializer_value initial in
   let target_type = Semantic_result.initializer_target_type initial in
@@ -2504,7 +2534,7 @@ let lower_initializer ~frame ?lower_call ~instruction_id ~value_id initial =
         Frame_address_lowering.lower_prepared ~instruction_id ~value_id address
       in
       let* lowered =
-        lower_typed_result ~frame ?lower_call
+        lower_typed_result ~frame ?globals ?lower_call
           ~instruction_id:(Frame_address_lowering.next_instruction_id address)
           ~value_id:(Frame_address_lowering.next_value_id address)
           value

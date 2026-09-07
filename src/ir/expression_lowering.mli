@@ -15,6 +15,7 @@ val reference_commit : string
 
 val lower_typed_result :
   ?frame:Sema.Function_frame_layout.function_layout ->
+  ?globals:Integer_globals.t ->
   ?lower_call:call_lowerer ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
@@ -58,14 +59,19 @@ val lower_typed_result :
     address/dereference cancellation, and consecutive identity allocation. With
     [frame], scalar I64/U64 bound identifiers load their exact checked slots,
     and simple assignments store through the checked destination address without
-    reading its old contents. Other pointer operations in that context remain
-    unsupported. [lower_call] composes calls as expression nodes and applies
-    retained result conversion only to the final call-end producer. Expressions
-    outside the implemented tree shapes return [Unsupported_expression] without
+    reading its old contents. [globals] enables the same scalar loads/stores for
+    exact module-bound globals in function or top-level expressions, preserving
+    their JIT/AOT symbol-backed address intent. With [frame], other pointer
+    operations remain unsupported. Without [frame], pointer-tree lowering keeps
+    its existing domain; pointer execution remains outside the bounded program
+    VM. [lower_call] composes calls as expression nodes and applies retained
+    result conversion only to the final call-end producer. Expressions outside
+    the implemented tree shapes return [Unsupported_expression] without
     returning a partial sequence. *)
 
 val lower_initializer :
   frame:Sema.Function_frame_layout.function_layout ->
+  ?globals:Integer_globals.t ->
   ?lower_call:call_lowerer ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->

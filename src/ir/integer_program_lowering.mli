@@ -20,6 +20,7 @@ type statement =
 
 val lower :
   ?frame:Sema.Function_frame_layout.function_layout ->
+  ?globals:Integer_globals.t ->
   ?top_calls:Sema.Top_level_function_call_target_classification.t list ->
   ?function_calls:Sema.Function_call_target_classification.t list ->
   span:Common.Span.t ->

@@ -5,14 +5,16 @@
  (deps
   cli/integer-program.hc
   ../examples/integer-function.hc
-  ../examples/integer-nested-calls.hc)
+  ../examples/integer-nested-calls.hc
+  ../examples/integer-globals.hc)
  (action
   (run
    %{test}
    %{exe:../bin/holyc.exe}
    %{dep:cli/integer-program.hc}
    %{dep:../examples/integer-function.hc}
-   %{dep:../examples/integer-nested-calls.hc})))
+   %{dep:../examples/integer-nested-calls.hc}
+   %{dep:../examples/integer-globals.hc})))
 
 (test
  (name test_main)
@@ -22,6 +24,7 @@
   test_integer_program
   test_integer_functions
   test_integer_nested_calls
+  test_integer_globals
   test_ir_comparison_chains
   test_ir_integer_frames
   test_ir_integer_division

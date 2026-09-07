@@ -26,6 +26,8 @@ type t
 val reference_commit : string
 
 val execute_program :
+  ?globals:Integer_globals.t ->
+  ?max_global_bytes:int ->
   max_steps:int ->
   max_frame_bytes:int ->
   max_call_depth:int ->
@@ -36,7 +38,11 @@ val execute_program :
     with explicit continuations and independent slots. Limits cover the total
     instruction count, simultaneously active frame bytes and active calls.
     Checked public I64/U64 call results may participate in top-level unary and
-    binary operations without requiring a local frame. *)
+    binary operations without requiring a local frame. [globals] supplies exact
+    shared scalar objects, bounded separately by positive [max_global_bytes]
+    (default 1,048,576). Every execution owns fresh words; calls and block
+    transfers preserve them. AOT code-heap words start at zero, while a reached
+    unknown JIT word produces a labeled hosted diagnostic. *)
 
 val final_value : t -> word option
 (** Last reached top-level expression value from [execute_program], separate

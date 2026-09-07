@@ -29,7 +29,8 @@ let span_of_result fallback result =
   | Sema.Symbol.Source_location location -> location.span
   | _ -> fallback
 
-let lower ?frame ?(top_calls = []) ?(function_calls = []) ~span statements =
+let lower ?frame ?globals ?(top_calls = []) ?(function_calls = []) ~span
+    statements =
   try
     let instruction_count = ref 0
     and value_count = ref 0
@@ -167,8 +168,8 @@ let lower ?frame ?(top_calls = []) ?(function_calls = []) ~span statements =
             top_calls
         with
         | Some target ->
-            Direct_call_lowering.lower_top_level ?frame ~lower_call:direct_call
-              ~instruction_id ~value_id ~target value
+            Direct_call_lowering.lower_top_level ?frame ?globals
+              ~lower_call:direct_call ~instruction_id ~value_id ~target value
         | None -> (
             match
               List.find_opt
@@ -184,8 +185,9 @@ let lower ?frame ?(top_calls = []) ?(function_calls = []) ~span statements =
                 function_calls
             with
             | Some target ->
-                Direct_call_lowering.lower ?frame ~lower_call:direct_call
-                  ~instruction_id ~value_id ~target value
+                Direct_call_lowering.lower ?frame ?globals
+                  ~lower_call:direct_call ~instruction_id ~value_id ~target
+                  value
             | None -> Ok Direct_call_lowering.Unsupported_call)
       in
       Result.map
@@ -201,8 +203,8 @@ let lower ?frame ?(top_calls = []) ?(function_calls = []) ~span statements =
       in
       let value_id = Sequence.Value_id.of_int !value_count |> checked_id in
       match
-        Expression_lowering.lower_typed_result ?frame ~lower_call:direct_call
-          ~instruction_id ~value_id value
+        Expression_lowering.lower_typed_result ?frame ?globals
+          ~lower_call:direct_call ~instruction_id ~value_id value
       with
       | Error errors -> lower_errors errors
       | Ok Expression_lowering.Unsupported_expression ->
@@ -266,7 +268,7 @@ let lower ?frame ?(top_calls = []) ?(function_calls = []) ~span statements =
               fail at "HCRUN0001" "local initializer has no function frame"
           | Some frame -> (
               match
-                Expression_lowering.lower_initializer ~frame
+                Expression_lowering.lower_initializer ~frame ?globals
                   ~lower_call:direct_call
                   ~instruction_id:
                     (Sequence.Instruction_id.of_int !instruction_count
@@ -287,7 +289,7 @@ let lower ?frame ?(top_calls = []) ?(function_calls = []) ~span statements =
           | None -> fail span "HCRUN0001" "return has no named function body"
           | Some leave -> (
               match
-                Return_lowering.lower_function_return ?frame
+                Return_lowering.lower_function_return ?frame ?globals
                   ~lower_call:direct_call
                   ~instruction_id:
                     (Sequence.Instruction_id.of_int !instruction_count
