@@ -75,8 +75,9 @@ let unreachable_self_reference_is_rejected () =
         block 0 [ description 0 Opcode.Ic_ret ];
         block 1
           [
-            description ~operands:[ value_id 1 ] ~result:(result 1)
-              ~target_type:i64 1 Opcode.Ic_com;
+            description
+              ~operands:[ value_id 1 ]
+              ~result:(result 1) ~target_type:i64 1 Opcode.Ic_com;
             description 2 Opcode.Ic_ret;
           ];
       ]
