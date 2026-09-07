@@ -1319,7 +1319,7 @@ let prepare_storage_address ?frame ?globals result =
   | Some address, _ -> Ok (Some (Frame_slot address))
   | None, None -> Ok None
   | None, Some globals ->
-      Global_address_lowering.prepare ~globals result
+      Global_address_lowering.prepare ?frame ~globals result
       |> Result.map (Option.map (fun address -> Global_slot address))
 
 let rec prepare_assignment_address ?frame ?globals result =

@@ -156,7 +156,7 @@ let unsupported () =
           "extern I64 G;42;";
           "import I64 G;42;";
           "extern I64 G;I64 G;42;";
-          "I64 G;I64 F(){static I64 n;return 1;}42;";
+          "I64 G;I64 F(){static I32 n;return 1;}42;";
           "I64 F(){return G;}I64 G;G=42;(F());";
           "G=42;I64 G;G;";
         ];

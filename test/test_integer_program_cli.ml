@@ -393,4 +393,53 @@ let () =
            = "42")
             "postfix source executes from CLI"))
     [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      let source = Sys.argv.(8) in
+      let result =
+        success
+          [
+            "run";
+            "--target=ir";
+            "--format=json";
+            "--mode=" ^ mode;
+            "--global-byte-limit=8";
+            "--frame-byte-limit=1";
+            "--call-depth-limit=1";
+            "--initializer-step-limit=4";
+            source;
+          ]
+        |> Yojson.Safe.from_string
+      in
+      require
+        (result |> member "final_value" |> member "value" |> to_string = "42")
+        "persistent static counter returns 42";
+      require
+        (result |> member "compiled_initializer_steps" |> to_int = 4)
+        "static image has separate definition-time preparation count";
+      let dump = success [ "dump-ir"; "--program"; "--mode=" ^ mode; source ] in
+      require
+        (contains dump "holyc-integer-statics-v1 bytes=8"
+        && contains dump "IC_PP_")
+        "static storage and original prefix opcode are visible";
+      require
+        (dump = success [ "dump-ir"; "--program"; "--mode=" ^ mode; source ])
+        "static dump is deterministic";
+      List.iter
+        (fun (limit, code) ->
+          let status, stdout, stderr =
+            invoke [ "run"; "--format=json"; "--mode=" ^ mode; limit; source ]
+          in
+          require
+            (status = Unix.WEXITED 1 && stdout = "")
+            "static limit fails without a result";
+          require
+            (Yojson.Safe.from_string stderr
+            |> to_list |> List.hd |> member "code" |> to_string = code)
+            "static bound diagnostic")
+        [
+          ("--global-byte-limit=7", "HCIRVM0016");
+          ("--initializer-step-limit=3", "HCIRVM0007");
+        ])
+    [ "jit"; "aot" ];
   print_endline "Integer program CLI checks passed."

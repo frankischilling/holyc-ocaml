@@ -7,7 +7,7 @@ module Global = Sema.Global_type_resolution
 module Type = Sema.Type
 
 type prepared_address = {
-  slot : Integer_globals.slot;
+  slot : Integer_globals.storage_slot;
   address_type : Type.t;
   span : Common.Span.t;
 }
@@ -23,7 +23,7 @@ type t = {
 let error ?span code message =
   Error [ { Sequence.code; message; instruction_id = None; span } ]
 
-let prepare ~globals result =
+let prepare_global ~globals result =
   let source = Result.result_source result in
   let origin = Source.argument_expression_origin source in
   let bound =
@@ -125,11 +125,66 @@ let prepare ~globals result =
             else
               match (span, Type.pointer_to type_) with
               | Some span, Ok address_type ->
-                  Ok (Some { slot; address_type; span })
+                  Ok
+                    (Some
+                       {
+                         slot = Integer_globals.global_storage slot;
+                         address_type;
+                         span;
+                       })
               | _ ->
                   invalid
                     "global identifier has no checked pointer type or physical \
                      span"))
+
+let prepare ?frame ~globals result =
+  let ( let* ) = Stdlib.Result.bind in
+  match Source.argument_expression_kind (Result.result_source result) with
+  | Source.Bound_identifier_expression identifier -> (
+      let occurrence = Source.bound_identifier_occurrence identifier in
+      match Binding.occurrence_resolution occurrence with
+      | Binding.Local_binding binding
+        when Sema.Function_binding_index.binding_kind binding
+             = Sema.Function_binding_index.Static_local -> (
+          let span =
+            match Result.result_origin result with
+            | Sema.Symbol.Source_location location -> Some location.span
+            | _ -> None
+          in
+          let invalid message = error ?span "HCIRL0004" message in
+          match frame with
+          | None ->
+              invalid
+                "static identifier requires its exact declaring function frame"
+          | Some frame -> (
+              let* _ = Frame_address_lowering.prepare ~frame result in
+              let symbol = Sema.Function_binding_index.binding_symbol binding in
+              match Integer_globals.find_static globals symbol with
+              | Some slot when Integer_globals.static_frame slot == frame -> (
+                  match
+                    ( span,
+                      Type.pointer_to
+                        (Sema.Function_frame_layout.location_checked_type
+                           (Integer_globals.static_location slot)) )
+                  with
+                  | Some span, Ok address_type ->
+                      Ok
+                        (Some
+                           {
+                             slot = Integer_globals.static_storage slot;
+                             address_type;
+                             span;
+                           })
+                  | _ ->
+                      invalid
+                        "static identifier has no checked pointer type or \
+                         physical span")
+              | _ ->
+                  invalid
+                    "static identifier is absent from its exact persistent \
+                     storage context"))
+      | _ -> prepare_global ~globals result)
+  | _ -> prepare_global ~globals result
 
 let prepare_initializer ~globals root =
   match
@@ -148,7 +203,12 @@ let prepare_initializer ~globals root =
               Type.pointer_to (Integer_globals.slot_type slot) )
           with
           | Some (Sema.Symbol.Source_location location), Ok address_type ->
-              Ok { slot; address_type; span = location.span }
+              Ok
+                {
+                  slot = Integer_globals.global_storage slot;
+                  address_type;
+                  span = location.span;
+                }
           | _ ->
               error "HCIRL0004"
                 "global initializer has no checked address type or source span")
@@ -179,12 +239,13 @@ let lower_prepared ~instruction_id ~value_id address =
         [
           {
             Sequence.instruction_id;
-            opcode = Integer_globals.slot_opcode address.slot;
+            opcode = Integer_globals.storage_opcode address.slot;
             operands = [];
             result = Some { value_id };
             target_type = Some address.address_type;
             payload =
-              Some (Sequence.Symbol (Integer_globals.slot_symbol address.slot));
+              Some
+                (Sequence.Symbol (Integer_globals.storage_symbol address.slot));
             flags = 0L;
             span = Some address.span;
           };

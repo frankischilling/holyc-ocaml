@@ -115,6 +115,13 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
             Ir.Integer_globals.create ~initializers:typed ~span:ast.span
               (Integer_source.global_records prepared)
           in
+          let* globals_ =
+            Ir.Integer_globals.with_statics ~span:ast.span
+              ~frames:(Integer_source.frames prepared)
+              ~functions:(Integer_source.functions prepared)
+              ~records:(Integer_source.records prepared)
+              globals_
+          in
           let root_map values =
             List.fold_left
               (fun roots value ->
@@ -195,12 +202,37 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
                          match declarator.local_initializer with
                          | None -> None
                          | Some _ ->
-                             Some
-                               (Lower.Initialize
-                                  (consume initializers
+                             let initial =
+                               consume initializers
+                                 declarator.local_declarator_location.span
+                                 "initializer has no supported checked scalar \
+                                  root"
+                             in
+                             let local =
+                               initial |> Typed.initializer_source
+                               |> Source.initializer_local
+                             in
+                             if
+                               Sema.Local_type_resolution.local_storage local
+                               = Sema.Local_type_resolution.Static
+                             then
+                               match
+                                 Ir.Integer_globals.find_static globals_
+                                   (Sema.Local_type_resolution.local_symbol
+                                      local)
+                               with
+                               | Some slot
+                                 when Option.fold ~none:false
+                                        ~some:(fun root -> root == initial)
+                                        (Ir.Integer_globals.static_initializer
+                                           slot) -> None
+                               | _ ->
+                                   fail
                                      declarator.local_declarator_location.span
-                                     "initializer has no supported checked \
-                                      scalar root")))
+                                     "HCRUN0004"
+                                     "static initializer has no exact \
+                                      persistent owner"
+                             else Some (Lower.Initialize initial))
                        declaration.local_declarators)
               | Ast.Return_statement returned ->
                   Lower.Return

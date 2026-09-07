@@ -7,17 +7,36 @@ module Values = Map.Make (Seq.Value_id)
 
 type classification = Prepared_constant of int64 | Scheduled
 
-type item = {
-  root_ : Typed.top_level_root_result;
+type 'a prepared_item = {
+  root_ : 'a;
   value_graph_ : Ir.X87_stack.t;
   classification_ : classification;
   steps : int;
 }
 
-type t = { globals_ : Globals.t; items_ : item list; steps : int }
+type item = Typed.top_level_root_result prepared_item
+
+type static_item =
+  (Globals.static_slot * Typed.initializer_result) prepared_item
+
+type owner =
+  | Global of Globals.slot * Typed.top_level_root_result
+  | Static of Globals.static_slot * Typed.initializer_result
+
+type t = {
+  globals_ : Globals.t;
+  items_ : item list;
+  static_items_ : static_item list;
+  steps : int;
+}
 
 let globals prepared = prepared.globals_
 let items prepared = prepared.items_
+let static_items prepared = prepared.static_items_
+let static_root (item : static_item) = snd item.root_
+let static_slot (item : static_item) = fst item.root_
+let static_value_graph (item : static_item) = item.value_graph_
+let static_item_steps (item : static_item) = item.steps
 let executed_steps (prepared : t) = prepared.steps
 let root item = item.root_
 let value_graph item = item.value_graph_
@@ -49,180 +68,247 @@ let prepare ~max_steps ~span ~globals ~top_calls ~functions =
   if max_steps <= 0 then
     invalid "HCIRVM0001" "max_initializer_steps must be greater than zero"
   else
+    let work =
+      (Globals.slots globals
+      |> List.filter_map (fun slot ->
+          Option.map
+            (fun root -> Global (slot, root))
+            (Globals.slot_initializer slot)))
+      @ (Globals.statics globals
+        |> List.filter_map (fun slot ->
+            Option.map
+              (fun root -> Static (slot, root))
+              (Globals.static_initializer slot)))
+      |> List.stable_sort (fun left right ->
+          let index = function
+            | Global (slot, _) ->
+                Globals.slot_record slot
+                |> Sema.Global_record_classification.classified_record_source
+                |> Sema.Global_resolution.global_record_global
+                |> Sema.Global_type_resolution.global_item_index
+            | Static (slot, _) ->
+                Globals.static_frame slot
+                |> Sema.Function_frame_layout.function_item_index
+          in
+          Int.compare (index left) (index right))
+    in
     let rec collect total updates reversed = function
       | [] ->
           let* globals_ =
             Globals.with_initial_values ~span globals (List.rev updates)
           in
-          Ok { globals_; items_ = List.rev reversed; steps = total }
-      | slot :: rest -> (
-          match Globals.slot_initializer slot with
-          | None -> collect total updates reversed rest
-          | Some root_ -> (
-              let symbol = Globals.slot_symbol slot in
-              let value = Typed.top_level_root_value root_ in
-              let at =
-                match Typed.result_origin value with
-                | Symbol.Source_location location -> location.span
-                | _ -> span
-              in
-              let notes =
-                [
-                  "initializer=" ^ Symbol.name symbol;
-                  Printf.sprintf "initializer_symbol_id=%d"
-                    (Symbol.id symbol |> Symbol.Id.to_int);
-                ]
-              in
-              let* value_graph_ =
-                Ir.Integer_program_lowering.lower ~globals ~top_calls ~span:at
-                  [ Ir.Integer_program_lowering.Expression value ]
-              in
-              let value_code = value_instructions value_graph_ in
-              let constant =
-                List.for_all
-                  (fun (item : Seq.description) ->
-                    not (Ir.Opcode.info item.opcode).prevents_constant_folding)
-                  value_code
-              in
-              let guard ~constant code =
-                let rec check pure = function
-                  | [] -> Ok ()
-                  | (item : Seq.description) :: rest ->
-                      let known id =
-                        Option.value (Values.find_opt id pure) ~default:false
-                      in
-                      let rejected =
-                        match (item.opcode, item.operands) with
-                        | ( (Ir.Opcode.Ic_shl | Ic_shr | Ic_shl_equ | Ic_shr_equ),
-                            _ ) -> true
-                        | ( (Ir.Opcode.Ic_div | Ic_mod | Ic_div_equ | Ic_mod_equ),
-                            [ _; right ] )
-                          when not constant -> known right
-                        | _ -> false
-                      in
-                      if rejected then
-                        invalid
-                          ~at:(Option.value item.span ~default:at)
-                          ~notes "HCRUN0006"
-                          "initializer arithmetic requires unresolved \
-                           constant-divisor or shift optimizer behavior"
-                      else
-                        let is_pure =
-                          match (item.opcode, item.payload) with
-                          | Ir.Opcode.Ic_imm_i64, Some (Seq.Integer _) -> true
-                          | _, _ ->
-                              (not
-                                 (Ir.Opcode.info item.opcode)
-                                   .prevents_constant_folding)
-                              && item.operands <> []
-                              && List.for_all known item.operands
-                        in
-                        let pure =
-                          match item.result with
-                          | None -> pure
-                          | Some result ->
-                              Values.add result.value_id is_pure pure
-                        in
-                        check pure rest
-                in
-                check Values.empty code
-              in
-              let* () = guard ~constant value_code in
-              let called code =
-                List.filter_map
-                  (fun (item : Seq.description) ->
-                    match (item.opcode, item.payload) with
-                    | Ir.Opcode.Ic_call, Some (Seq.Symbol symbol) -> Some symbol
-                    | _ -> None)
-                  code
-              in
-              let rec guard_callees visited = function
-                | [] -> Ok ()
-                | symbol :: rest
-                  when List.exists (fun other -> other == symbol) visited ->
-                    guard_callees visited rest
-                | symbol :: rest -> (
-                    match
-                      List.find_opt
-                        (fun (function_ : VM.function_definition) ->
-                          Ir.Function_body.symbol function_.body == symbol)
-                        functions
-                    with
-                    | None ->
-                        invalid ~at ~notes "HCRUN0006"
-                          "initializer call has no checked source definition"
-                    | Some function_ ->
-                        let code =
-                          instructions (Ir.Function_body.body function_.body)
-                        in
-                        let* () = guard ~constant:false code in
-                        guard_callees (symbol :: visited) (called code @ rest))
-              in
-              let* () = guard_callees [] (called value_code) in
-              if not constant then
-                collect total updates
+          let prepared = List.rev reversed in
+          let items_ =
+            List.filter_map
+              (fun item ->
+                match item.root_ with
+                | Global (_, root_) -> Some { item with root_ }
+                | Static _ -> None)
+              prepared
+          in
+          let static_items_ =
+            List.filter_map
+              (fun item ->
+                match item.root_ with
+                | Static (slot, root) ->
+                    let symbol =
+                      Globals.static_location slot
+                      |> Sema.Function_frame_layout.location_symbol
+                    in
+                    let slot =
+                      Option.get (Globals.find_static globals_ symbol)
+                    in
+                    Some { item with root_ = (slot, root) }
+                | Global _ -> None)
+              prepared
+          in
+          Ok { globals_; items_; static_items_; steps = total }
+      | root_ :: rest -> (
+          let symbol, value, frame =
+            match root_ with
+            | Global (slot, root) ->
+                (Globals.slot_symbol slot, Typed.top_level_root_value root, None)
+            | Static (slot, root) ->
+                ( Globals.static_location slot
+                  |> Sema.Function_frame_layout.location_symbol,
+                  Typed.initializer_value root,
+                  Some (Globals.static_frame slot) )
+          in
+          let at =
+            match Typed.result_origin value with
+            | Symbol.Source_location location -> location.span
+            | _ -> span
+          in
+          let notes =
+            [
+              "initializer=" ^ Symbol.name symbol;
+              Printf.sprintf "initializer_symbol_id=%d"
+                (Symbol.id symbol |> Symbol.Id.to_int);
+            ]
+          in
+          let* value_graph_ =
+            Ir.Integer_program_lowering.lower ?frame ~globals ~top_calls
+              ~span:at
+              [ Ir.Integer_program_lowering.Expression value ]
+            |> Result.map_error (fun errors ->
+                match root_ with
+                | Global _ -> errors
+                | Static _ ->
+                    List.map
+                      (fun (error : Common.Diagnostic.t) ->
+                        if error.code = "HCRUN0003" then
+                          Common.Diagnostic.make ~code:"HCRUN0006"
+                            ~severity:Common.Diagnostic.Error
+                            ~message:
+                              "static initializer is outside checked constant \
+                               preparation; phase-aware effects and calls are \
+                               not implemented"
+                            ~primary:at ~notes ()
+                        else error)
+                      errors)
+          in
+          let value_code = value_instructions value_graph_ in
+          let constant =
+            List.for_all
+              (fun (item : Seq.description) ->
+                not (Ir.Opcode.info item.opcode).prevents_constant_folding)
+              value_code
+          in
+          let guard ~constant code =
+            let rec check pure = function
+              | [] -> Ok ()
+              | (item : Seq.description) :: rest ->
+                  let known id =
+                    Option.value (Values.find_opt id pure) ~default:false
+                  in
+                  let rejected =
+                    match (item.opcode, item.operands) with
+                    | (Ir.Opcode.Ic_shl | Ic_shr | Ic_shl_equ | Ic_shr_equ), _
+                      -> true
+                    | ( (Ir.Opcode.Ic_div | Ic_mod | Ic_div_equ | Ic_mod_equ),
+                        [ _; right ] )
+                      when not constant -> known right
+                    | _ -> false
+                  in
+                  if rejected then
+                    invalid
+                      ~at:(Option.value item.span ~default:at)
+                      ~notes "HCRUN0006"
+                      "initializer arithmetic requires unresolved \
+                       constant-divisor or shift optimizer behavior"
+                  else
+                    let is_pure =
+                      match (item.opcode, item.payload) with
+                      | Ir.Opcode.Ic_imm_i64, Some (Seq.Integer _) -> true
+                      | _, _ ->
+                          (not
+                             (Ir.Opcode.info item.opcode)
+                               .prevents_constant_folding)
+                          && item.operands <> []
+                          && List.for_all known item.operands
+                    in
+                    let pure =
+                      match item.result with
+                      | None -> pure
+                      | Some result -> Values.add result.value_id is_pure pure
+                    in
+                    check pure rest
+            in
+            check Values.empty code
+          in
+          let* () = guard ~constant value_code in
+          let called code =
+            List.filter_map
+              (fun (item : Seq.description) ->
+                match (item.opcode, item.payload) with
+                | Ir.Opcode.Ic_call, Some (Seq.Symbol symbol) -> Some symbol
+                | _ -> None)
+              code
+          in
+          let rec guard_callees visited = function
+            | [] -> Ok ()
+            | symbol :: rest
+              when List.exists (fun other -> other == symbol) visited ->
+                guard_callees visited rest
+            | symbol :: rest -> (
+                match
+                  List.find_opt
+                    (fun (function_ : VM.function_definition) ->
+                      Ir.Function_body.symbol function_.body == symbol)
+                    functions
+                with
+                | None ->
+                    invalid ~at ~notes "HCRUN0006"
+                      "initializer call has no checked source definition"
+                | Some function_ ->
+                    let code =
+                      instructions (Ir.Function_body.body function_.body)
+                    in
+                    let* () = guard ~constant:false code in
+                    guard_callees (symbol :: visited) (called code @ rest))
+          in
+          let* () = guard_callees [] (called value_code) in
+          if (not constant) && Option.is_some frame then
+            invalid ~at ~notes "HCRUN0006"
+              "static initializer requires a constant value; parameter/local \
+               reads and phase-aware effects or calls are not implemented"
+          else if not constant then
+            collect total updates
+              ({ root_; value_graph_; classification_ = Scheduled; steps = 0 }
+              :: reversed)
+              rest
+          else if total >= max_steps then
+            invalid ~at
+              ~notes:
+                (notes
+                @ [
+                    "initializer_phase=constant-preparation";
+                    Printf.sprintf "compiled_initializer_steps=%d" total;
+                  ])
+              "HCIRVM0007"
+              "the bounded constant initializer preparation step limit was \
+               exhausted"
+          else
+            let* result =
+              VM.execute_program ~max_steps:(max_steps - total)
+                ~max_frame_bytes:1 ~max_call_depth:1 ~functions:[] value_graph_
+              |> Result.map_error
+                   (List.map (fun (error : VM.error) ->
+                        Common.Diagnostic.make ~code:error.code
+                          ~severity:Common.Diagnostic.Error
+                          ~message:error.message
+                          ~primary:(Option.value error.span ~default:at)
+                          ~notes:
+                            (notes
+                            @ [
+                                "initializer_phase=constant-preparation";
+                                Printf.sprintf "compiled_initializer_steps=%d"
+                                  (total + error.executed_steps);
+                                "constant preparation precedes hosted \
+                                 whole-program execution";
+                              ])
+                          ()))
+            in
+            match VM.final_value result with
+            | None ->
+                invalid ~at ~notes "HCRUN0004"
+                  "constant initializer preparation produced no word"
+            | Some word ->
+                let steps = VM.executed_steps result in
+                collect (total + steps)
+                  ((symbol, word.bits, steps) :: updates)
                   ({
                      root_;
                      value_graph_;
-                     classification_ = Scheduled;
-                     steps = 0;
+                     classification_ = Prepared_constant word.bits;
+                     steps;
                    }
                   :: reversed)
-                  rest
-              else if total >= max_steps then
-                invalid ~at
-                  ~notes:
-                    (notes
-                    @ [
-                        "initializer_phase=constant-preparation";
-                        Printf.sprintf "compiled_initializer_steps=%d" total;
-                      ])
-                  "HCIRVM0007"
-                  "the bounded constant initializer preparation step limit was \
-                   exhausted"
-              else
-                let* result =
-                  VM.execute_program ~max_steps:(max_steps - total)
-                    ~max_frame_bytes:1 ~max_call_depth:1 ~functions:[]
-                    value_graph_
-                  |> Result.map_error
-                       (List.map (fun (error : VM.error) ->
-                            Common.Diagnostic.make ~code:error.code
-                              ~severity:Common.Diagnostic.Error
-                              ~message:error.message
-                              ~primary:(Option.value error.span ~default:at)
-                              ~notes:
-                                (notes
-                                @ [
-                                    "initializer_phase=constant-preparation";
-                                    Printf.sprintf
-                                      "compiled_initializer_steps=%d"
-                                      (total + error.executed_steps);
-                                    "constant preparation precedes hosted \
-                                     whole-program execution";
-                                  ])
-                              ()))
-                in
-                match VM.final_value result with
-                | None ->
-                    invalid ~at ~notes "HCRUN0004"
-                      "constant initializer preparation produced no word"
-                | Some word ->
-                    let steps = VM.executed_steps result in
-                    collect (total + steps)
-                      ((symbol, word.bits, steps) :: updates)
-                      ({
-                         root_;
-                         value_graph_;
-                         classification_ = Prepared_constant word.bits;
-                         steps;
-                       }
-                      :: reversed)
-                      rest))
+                  rest)
     in
-    collect 0 [] [] (Globals.slots globals)
+    collect 0 [] [] work
 
-let human prepared =
+let global_human prepared =
   match prepared.items_ with
   | [] -> ""
   | items ->
@@ -249,4 +335,29 @@ let human prepared =
                      Printf.sprintf "constant:0x%016Lx" bits
                  | Scheduled -> "nonconstant")
                  item.steps)
+             items)
+
+let human prepared =
+  global_human prepared
+  ^
+  match prepared.static_items_ with
+  | [] -> ""
+  | items ->
+      Printf.sprintf "holyc-static-initializer-preparation-v1 total-steps=%d\n"
+        prepared.steps
+      ^ String.concat ""
+          (List.map
+             (fun item ->
+               let slot = fst item.root_ in
+               let symbol =
+                 Globals.static_location slot
+                 |> Sema.Function_frame_layout.location_symbol
+               in
+               Printf.sprintf
+                 "static-initializer function=%s symbol=%d:%s \
+                  preparation-steps=%d\n"
+                 (Globals.static_frame slot
+                |> Sema.Function_frame_layout.function_symbol |> Symbol.name)
+                 (Symbol.id symbol |> Symbol.Id.to_int)
+                 (Symbol.name symbol) item.steps)
              items)

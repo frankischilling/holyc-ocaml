@@ -73,12 +73,12 @@ let create ~span:context_span ~globals ~entry descriptions =
     List.fold_left
       (fun total slot ->
         let* total = total in
-        let steps = Integer_globals.slot_initializer_preparation_steps slot in
+        let steps = Integer_globals.storage_preparation_steps slot in
         if steps < 0 || steps > Int.max_int - total then
           invalid "initializer preparation step count overflows"
         else Ok (total + steps))
       (Ok 0)
-      (Integer_globals.slots globals)
+      (Integer_globals.storage_slots globals)
   in
   let instructions block =
     Block_graph.instructions block

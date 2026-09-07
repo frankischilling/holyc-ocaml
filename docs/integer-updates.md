@@ -7,7 +7,8 @@ loops can also use `for(;n<42;n++)`, and update results compose in arithmetic,
 arguments, returns, conditions and declaration initializers.
 
 The supported objects are checked I64/U64 parameters, automatic local slots
-and ordinary scalar code-heap globals. All ten compound assignments (`+=`,
+and ordinary scalar code-heap globals, plus [scalar static locals](integer-statics.md).
+All ten compound assignments (`+=`,
 `-=`, `*=`, `/=`, `%=`, `&=`, `|=`, `^=`, `<<=`, `>>=`) and both prefix/postfix
 forms of `++` and `--` retain their HolyC ICs and exact destination identity.
 
@@ -62,8 +63,8 @@ transitive callees, as it already does for ordinary arithmetic. Dynamic scalar
 divisors remain in the accepted runtime domain. Multiplication's power-of-two
 rewrite preserves the same 64-bit result within this scalar scope.
 
-Pointer scaling, narrow/floating/aggregate objects, imported storage, static
-locals, locked operations and general memory remain explicit boundaries.
+Pointer scaling, narrow/floating/aggregate objects, imported storage,
+locked operations and general memory remain explicit boundaries.
 Stateful compilation, optimizer parity, native backends, loader acceptance and
 bootstrap remain unfinished. These are hosted regressions and a pinned-source
 audit, without a new native TempleOS capture.

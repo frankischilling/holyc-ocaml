@@ -109,6 +109,7 @@ let () =
       ("source integer globals", Test_integer_globals.tests);
       ("source global initializers", Test_integer_global_initializers.tests);
       ("source integer updates", Test_integer_updates.tests);
+      ("source integer statics", Test_integer_statics.tests);
       ("comparison chains", Test_ir_comparison_chains.tests);
       ("integer frames", Test_ir_integer_frames.tests);
       ("IR bounded integer interpreter", Test_ir_integer_interpreter.tests);

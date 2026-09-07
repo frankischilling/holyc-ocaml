@@ -21,6 +21,11 @@ call shapes, argument order and storage limits. The report retains the last
 reached top-level expression value; it has no implemented Print operation.
 `holyc eval` continues to return the value of exactly one expression statement.
 
+[Scalar static locals](integer-statics.md) retain persistent function-owned
+words, supported constant initial images and definition-time faults. They share
+the global byte budget and use no invocation-frame slots. Nonconstant static
+initialization remains an explicit phase boundary.
+
 Ordinary scalar I64/U64 code-heap globals without aliases also execute through
 this path. [Declaration initializers](integer-global-initializers.md) retain
 constant initial images and source-ordered compile/load regions with a separate

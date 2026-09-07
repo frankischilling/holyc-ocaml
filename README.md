@@ -56,6 +56,12 @@ constant-folding equivalence or native shift oracle is claimed.
 
 ## Integer source execution
 
+`holyc run --target=ir examples/integer-statics.hc` calls a persistent static
+counter twice and returns 42 in both modes. Scalar I64/U64 statics share the
+global byte budget, occupy no invocation-frame slots, and prepare supported
+constant initial images once per hosted run. See [static locals](docs/integer-statics.md)
+for definition-time faults, ownership checks and the nonconstant phase boundary.
+
 `holyc run --target=ir examples/integer-updates.hc` returns 42 using `Total+=n`.
 Scalar I64/U64 compound assignments and prefix/postfix `++`/`--` now compose in
 functions, loops, arguments and initializers. See [scalar updates](docs/integer-updates.md)

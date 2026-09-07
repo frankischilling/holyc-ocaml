@@ -8,11 +8,13 @@ val prepare_initializer :
 type t
 
 val prepare :
+  ?frame:Sema.Function_frame_layout.function_layout ->
   globals:Integer_globals.t ->
   Sema.Function_call_expression_result.expression_result ->
   (prepared_address option, Instruction_sequence.error list) result
 (** Check a source-visible module global against the exact program object and
-    its retained type, rank, publication and source occurrence. *)
+    its retained type, rank, publication and source occurrence. Static locals
+    additionally require their exact declaring [frame] and retained binding. *)
 
 val lower_prepared :
   instruction_id:Instruction_sequence.Instruction_id.t ->

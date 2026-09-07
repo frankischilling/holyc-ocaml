@@ -20,6 +20,12 @@ compound assignment and prefix/postfix ICs. Preflight checks location/type
 identity; execution reads the word at the update after RHS effects. Original
 constant-folding barriers and initializer region ownership remain intact.
 
+[Scalar statics](integer-statics.md) reuse the persistent image and address
+operations with distinct checked owners. Their exact declaring frame is required
+by both source lowering and VM address preflight. Static slots stay out of active
+frames, share the global byte budget, and contribute checked constant-preparation
+steps even when no global initializer regions exist.
+
 [Scalar global initializer regions](integer-global-initializers.md) add exact
 declaration roots to that context. Constantness is classified on the value
 fragment before destination insertion. Prepared bits and step evidence remain

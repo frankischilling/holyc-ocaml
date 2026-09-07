@@ -32,6 +32,7 @@ type frame_slot = {
 }
 
 type frame_context = {
+  layout : Frame.function_layout;
   slots : frame_slot array;
   offsets : int Offset_map.t;
   return_type : Type.t;
@@ -179,7 +180,7 @@ type declared_type =
   | Frame_base of Type.t
   | Frame_offset of Type.t * int64
   | Frame_address of int
-  | Global_address of Integer_globals.slot
+  | Global_address of Integer_globals.storage_slot
   | Unsupported
 
 let reference_commit = Sequence.reference_commit
@@ -287,7 +288,7 @@ let scalar_word_type ~allow_public type_ =
 let producer_word_type type_ = scalar_word_type ~allow_public:false type_
 let return_word_type type_ = scalar_word_type ~allow_public:true type_
 
-let frame_context ~max_frame_bytes ~frame ~arguments function_ =
+let frame_context ?globals ~max_frame_bytes ~frame ~arguments function_ =
   let invalid message =
     Error
       [
@@ -301,6 +302,23 @@ let frame_context ~max_frame_bytes ~frame ~arguments function_ =
   in
   let parameters = of_kind Frame.Named_parameter in
   let locals = of_kind Frame.Automatic_local in
+  let statics = of_kind Frame.Static_local in
+  let statics_match =
+    List.for_all
+      (fun location ->
+        match
+          Option.bind globals (fun globals ->
+              Integer_globals.find_static globals
+                (Frame.location_symbol location))
+        with
+        | Some slot ->
+            Integer_globals.static_frame slot == frame
+            && Integer_globals.static_location slot == location
+            && Integer_globals.static_compiler_options slot
+               = Function.compiler_options function_
+        | None -> false)
+      statics
+  in
   let members_match members locations =
     List.length members = List.length locations
     && List.for_all2
@@ -338,15 +356,17 @@ let frame_context ~max_frame_bytes ~frame ~arguments function_ =
   then
     invalid "the named function members disagree with the exact checked frame"
   else if
-    List.length locations <> parameter_count + List.length locals
+    List.length locations
+    <> parameter_count + List.length locals + List.length statics
+    || (not statics_match)
     || Int64.logand
          (Function.stored_flags function_)
          (Int64.lognot allowed_flags)
        <> 0L
   then
     invalid
-      "only ordinary named parameters and automatic scalar locals are \
-       executable"
+      "execution requires ordinary parameters, automatic scalar locals and \
+       exact function-owned persistent statics"
   else if Option.is_none (return_word_type (Function.return_type function_))
   then invalid "the function return type is outside scalar I64/U64 execution"
   else if List.length arguments <> parameter_count then
@@ -358,6 +378,11 @@ let frame_context ~max_frame_bytes ~frame ~arguments function_ =
     || List.length locations > Sys.max_array_length
   then invalid "the checked function frame exceeds max_frame_bytes"
   else
+    let locations =
+      List.filter
+        (fun location -> Frame.location_kind location <> Frame.Static_local)
+        locations
+    in
     let arguments = ref arguments in
     let slots_rev = ref []
     and offsets = ref Offset_map.empty
@@ -403,6 +428,7 @@ let frame_context ~max_frame_bytes ~frame ~arguments function_ =
     | None ->
         Ok
           {
+            layout = frame;
             slots = Array.of_list (List.rev !slots_rev);
             offsets = !offsets;
             return_type = Function.return_type function_;
@@ -434,13 +460,20 @@ let address_slot context types (description : Sequence.description) =
       | _ -> Unsupported)
   | _ -> Unsupported
 
-let global_address globals (description : Sequence.description) =
+let global_address frame globals (description : Sequence.description) =
   match (globals, description.payload, description.target_type) with
   | Some globals, Some (Sequence.Symbol symbol), Some type_ -> (
-      match Integer_globals.find globals symbol with
-      | Some slot when description.opcode = Integer_globals.slot_opcode slot
-        -> (
-          match Type.pointer_to (Integer_globals.slot_type slot) with
+      match Integer_globals.find_storage globals symbol with
+      | Some slot
+        when description.opcode = Integer_globals.storage_opcode slot
+             &&
+             match Integer_globals.storage_frame slot with
+             | None -> true
+             | Some owner ->
+                 Option.fold ~none:false
+                   ~some:(fun frame -> frame.layout == owner)
+                   frame -> (
+          match Type.pointer_to (Integer_globals.storage_type slot) with
           | Ok expected when Type.equal type_ expected -> Some slot
           | _ -> None)
       | _ -> None)
@@ -455,7 +488,7 @@ let declared_types ?frame ?globals ?(allow_calls = false) block =
          | None -> types
          | Some result ->
              let declared =
-               match global_address globals description with
+               match global_address frame globals description with
                | Some slot -> Global_address slot
                | None -> (
                    match description.target_type with
@@ -732,11 +765,11 @@ let prepare_instruction ?frame ?globals ?(allow_public = false) block_index
                         let slot = context.slots.(index) in
                         Some (Frame_slot index, slot.slot_type, slot.word_type)
                     | _, Some (Global_address slot) -> (
-                        let type_ = Integer_globals.slot_type slot in
+                        let type_ = Integer_globals.storage_type slot in
                         match return_word_type type_ with
                         | Some word_type ->
                             Some
-                              ( Global_slot (Integer_globals.slot_index slot),
+                              ( Global_slot (Integer_globals.storage_index slot),
                                 type_,
                                 word_type )
                         | None -> None)
@@ -1372,7 +1405,8 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                 | Global_slot index ->
                     ( global_words,
                       index,
-                      "hosted execution reached an uninitialized JIT global" )
+                      "hosted execution reached an uninitialized JIT \
+                       persistent object" )
               in
               match storage.(index) with
               | Some word -> values := Value_map.add result word !values
@@ -1412,8 +1446,8 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                     | Global_slot index ->
                         ( global_words,
                           index,
-                          "hosted execution reached an uninitialized JIT global"
-                        )
+                          "hosted execution reached an uninitialized JIT \
+                           persistent object" )
                   in
                   match storage.(index) with
                   | None ->
@@ -1646,12 +1680,10 @@ let execute_program ?globals ?initialization ?(max_global_bytes = 1_048_576)
   else if
     match (globals, initialization) with
     | Some globals, Some context ->
-        not (Global_initialization.matches context ~globals ~entry:checked)
+        (not (Global_initialization.matches context ~globals ~entry:checked))
+        || Integer_globals.has_unprepared_statics globals
     | None, Some _ -> true
-    | Some globals, None ->
-        List.exists
-          (fun slot -> Option.is_some (Integer_globals.slot_initializer slot))
-          (Integer_globals.slots globals)
+    | Some globals, None -> Integer_globals.has_initializers globals
     | None, None -> false
   then
     Error
@@ -1705,7 +1737,7 @@ let execute_program ?globals ?initialization ?(max_global_bytes = 1_048_576)
               ]
           else
             let* context =
-              frame_context ~max_frame_bytes ~frame
+              frame_context ?globals ~max_frame_bytes ~frame
                 ~arguments:(List.init parameter_count (fun _ -> 0L))
                 body
               |> Result.map_error (List.map (identify body))
@@ -1759,17 +1791,17 @@ let execute_program ?globals ?initialization ?(max_global_bytes = 1_048_576)
                 identify_initializer region error))
     in
     let global_words =
-      Option.fold ~none:[] ~some:Integer_globals.slots globals
+      Option.fold ~none:[] ~some:Integer_globals.storage_slots globals
       |> List.map (fun slot ->
           Option.map
             (fun bits ->
               let type_ =
-                match return_word_type (Integer_globals.slot_type slot) with
+                match return_word_type (Integer_globals.storage_type slot) with
                 | Some type_ -> type_
                 | None -> assert false
               in
               { type_; bits })
-            (Integer_globals.slot_initial_bits slot))
+            (Integer_globals.storage_initial_bits slot))
       |> Array.of_list
     in
     execute_prepared ~callees:programs ~max_frame_bytes ~max_call_depth
