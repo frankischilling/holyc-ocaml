@@ -1,5 +1,15 @@
 # Reference source map
 
+The integer program driver under issue #590 follows `PrsStmt.HC:459-565`
+for structured top-level control flow and `OptLib.HC:229-484` for conditional
+NOT, AND and OR branches. `PrsExp.HC:49-52,225-230,728-759` establishes
+comparison chains, parentheses and unary plus. The implementation is
+`src/ir/integer_program_lowering.ml` with the shared semantic preparation in
+`src/driver/integer_source.ml` and AST join in `src/driver/integer_program.ml`.
+Source and CLI tests are `test/test_integer_program.ml` and
+`test/test_integer_program_cli.ml`. [Integer programs](integer-programs.md)
+records the accepted domain and the remaining memory, call and native gaps.
+
 All findings in this document refer to TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
 Raw integer division and remainder follow `CInit.HC:66-67,293-294`, `OptLib.HC:96-179`, `OptPass789A.HC:524-534`, and `BackA.HC:355-370,425-440`. `src/ir/integer_interpreter.ml` implements those operations through the existing source-expression driver. `test/test_ir_integer_division.ml`, the source-expression suite, and CLI fixtures verify arithmetic, faults, and budgets. The native fixture in `test/oracle/integer-division.json` now captures the distinct strength reductions in `OptPass012.HC:403-455,838-854`, the surviving-operand class forwarding in `OptLib.HC:196-225`, disassembly through `Adam/ADbg.HC:254-272`, and division exceptions through `Kernel/KInts.HC:150-164`. The hosted optimizer work remains open in [issue #585](https://github.com/frankischilling/holyc-ocaml/issues/585). See the [division audit](integer-division.md).

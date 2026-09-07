@@ -1,5 +1,13 @@
 # Testing holyc-ocaml
 
+The `source integer program` group runs parsed top-level control flow through
+the checked semantic passes and VM. `test_integer_program_cli` invokes the built
+compiler and checks execution metadata, diagnostics, exact budgets and program
+IR replay. Run the source groups with
+`opam exec -- dune exec test/test_main.exe -- test "source integer"` and the
+complete CLI suite with `opam exec -- dune runtest`. The detailed source
+contract and boundaries are in [integer programs](integer-programs.md).
+
 Run the local checks with:
 
 ```text

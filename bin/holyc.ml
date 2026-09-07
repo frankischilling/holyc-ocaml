@@ -381,16 +381,57 @@ let print_integer_result format result =
         "HCEVAL0003: expression execution did not return an integer word";
       1
 
-let integer_expression_file dump max_steps format include_roots templeos_root
-    max_include_depth max_source_bytes max_definition_depth max_generated_bytes
-    max_conditional_depth max_expression_nodes compilation_mode predefined_date
-    predefined_time command_line_source path =
-  let command = if dump then "dump-ir" else "eval" in
+let print_integer_program_result format mode max_steps result =
+  let module VM = Holyc_lib.Ir_integer_interpreter in
+  let mode =
+    match mode with
+    | Holyc_lib.Preprocessor.Jit -> "jit"
+    | Aot -> "aot"
+  in
+  let termination =
+    match VM.termination result with
+    | VM.Stream_end -> "stream-end"
+    | VM.Returned _ -> "returned"
+  in
+  (match format with
+  | Human ->
+      Printf.printf
+        "holyc-integer-program-v1 implementation=%s reference=%s\n\
+         mode=%s target=ir arithmetic=runtime-ir\n\
+         step-limit=%d\n\
+         steps=%d\n\
+         termination=%s\n"
+        Holyc_lib.Version.implementation_commit VM.reference_commit mode
+        max_steps (VM.executed_steps result) termination
+  | Json ->
+      `Assoc
+        [
+          ("schema", `String "holyc-integer-program-v1");
+          ( "implementation_commit",
+            `String Holyc_lib.Version.implementation_commit );
+          ("reference_commit", `String VM.reference_commit);
+          ("mode", `String mode);
+          ("target", `String "ir");
+          ("arithmetic", `String "runtime-ir");
+          ("step_limit", `Int max_steps);
+          ("executed_steps", `Int (VM.executed_steps result));
+          ("termination", `String termination);
+        ]
+      |> Yojson.Safe.pretty_to_string |> print_endline);
+  0
+
+let integer_expression_file program target dump max_steps format include_roots
+    templeos_root max_include_depth max_source_bytes max_definition_depth
+    max_generated_bytes max_conditional_depth max_expression_nodes
+    compilation_mode predefined_date predefined_time command_line_source path =
+  let command = if dump then "dump-ir" else if program then "run" else "eval" in
   let fail message =
     print_command_error format ~command message;
     1
   in
-  if dump && format = Json then
+  if target <> "ir" then
+    fail "HCRUN0005: only the ir execution target is implemented"
+  else if dump && format = Json then
     fail "JSON graph output is not supported; use --format=human"
   else if (not dump) && max_steps <= 0 then
     fail "HCIRVM0001: max_steps must be greater than zero"
@@ -409,13 +450,27 @@ let integer_expression_file dump max_steps format include_roots templeos_root
         | Error message ->
             fail ("invalid preprocessor configuration: " ^ message)
         | Ok config -> (
+            let program_value (result : _ Holyc_lib.integer_program_result) =
+              if result.diagnostics <> [] then
+                print_diagnostics format session result.diagnostics;
+              result.value
+            in
             let output =
               if dump then
-                Holyc_lib.lower_integer_expression session ~config ~source
+                (if program then
+                   Holyc_lib.lower_integer_program session ~config ~source
+                   |> Result.map program_value
+                 else Holyc_lib.lower_integer_expression session ~config ~source)
                 |> Result.map (fun graph ->
                     Holyc_lib.Ir_x87_stack.graph graph
                     |> Holyc_lib.Ir_block_graph.human |> output_string stdout;
                     0)
+              else if program then
+                Holyc_lib.run_integer_program session ~config ~source ~max_steps
+                |> Result.map program_value
+                |> Result.map
+                     (print_integer_program_result format compilation_mode
+                        max_steps)
               else
                 Holyc_lib.evaluate_integer_expression session ~config ~source
                   ~max_steps
@@ -432,8 +487,8 @@ let step_limit_argument =
     value & opt int 100000
     & info [ "step-limit" ] ~docv:"COUNT"
         ~doc:
-          "Execute at most this many IR instructions, including the return \
-           harness. Must be positive.")
+          "Execute at most this many IR instructions, including terminators \
+           and control-flow instructions. Must be positive.")
 
 let expression_exits =
   Cmd.Exit.info 1
@@ -447,7 +502,33 @@ let eval_command =
          "Evaluate one ordinary integer expression statement (EXPR;) at \
           runtime IR semantics with a bounded instruction budget.")
     (source_parser_options
-       Term.(const (integer_expression_file false) $ step_limit_argument))
+       Term.(
+         const (integer_expression_file false "ir" false) $ step_limit_argument))
+
+let run_target_argument =
+  Arg.(
+    value & opt string "ir"
+    & info [ "target" ] ~docv:"TARGET"
+        ~doc:"Execution target. Only ir is currently implemented.")
+
+let run_command =
+  Cmd.v
+    (Cmd.info "run" ~exits:expression_exits
+       ~doc:
+         "Run integer top-level expressions, blocks, conditions and loops in \
+          the bounded IR interpreter.")
+    (source_parser_options
+       Term.(
+         const (fun target -> integer_expression_file true target false)
+         $ run_target_argument $ step_limit_argument))
+
+let program_ir_argument =
+  Arg.(
+    value & flag
+    & info [ "program" ]
+        ~doc:
+          "Lower a batch of integer top-level statements and structured \
+           control flow.")
 
 let dump_ir_command =
   Cmd.v
@@ -455,7 +536,10 @@ let dump_ir_command =
        ~doc:
          "Lower one ordinary expression statement (EXPR;) into a verified \
           return harness and print its deterministic IR without executing it.")
-    (source_parser_term (integer_expression_file true 0))
+    (source_parser_options
+       Term.(
+         const (fun program -> integer_expression_file program "ir" true 0)
+         $ program_ir_argument))
 
 let parser_term = source_parser_term parse_file
 
@@ -712,6 +796,7 @@ let root_command =
       dump_symbols_command;
       dump_layout_command;
       eval_command;
+      run_command;
       dump_ir_command;
       corpus_command;
       version_command;

@@ -450,3 +450,11 @@ let classify_global_records ?compiler_option_mask _session ~resolution module_ =
 
 let lower_integer_expression = Driver.Integer_expression.lower
 let evaluate_integer_expression = Driver.Integer_expression.evaluate
+
+type 'a integer_program_result = 'a Driver.Integer_program.checked = {
+  value : 'a;
+  diagnostics : Common.Diagnostic.t list;
+}
+
+let lower_integer_program = Driver.Integer_program.lower
+let run_integer_program = Driver.Integer_program.run

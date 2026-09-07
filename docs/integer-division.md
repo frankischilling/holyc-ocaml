@@ -43,8 +43,8 @@ partial result, including when a prior instruction filled the return latch.
 
 The current source-expression path evaluates both operand trees of Boolean
 value expressions. `0&&(1/0);` and `1||(1%0);` therefore reach their faults.
-This does not implement conditional short-circuit lowering or general
-exception handling.
+The [integer program driver](integer-programs.md) lowers conditional AND and OR
+into short-circuit branches. General exception handling remains unfinished.
 
 ## Evidence and remaining work
 

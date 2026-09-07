@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added integer top-level execution through `holyc run --target=ir` and program graphs through `holyc dump-ir --program`. Blocks, if/else, while, do/while, for and break now use verified control flow with conditional AND/OR short-circuiting and a shared instruction budget. Runtime errors retain their stage and instruction context. General program state, calls, output, compile-time execution and native backends remain unfinished.
+
 - Recorded native TempleOS division results, disassembly and fault phases in a verified isolated VM. The fixture exposes signed literal-divisor shifts, compound-modulo masking and unsigned-divisor class loss, and distinguishes constant overflow during compilation from reached execution faults. A regression test replays 13 raw arithmetic values and four faults from the captured output; optimizer emulation remains pending.
 
 - Fixed stale implementation commits in `holyc version`. Build metadata now refreshes whenever a Dune build requires it, so commits, branch switches, packed refs, linked worktrees and release overrides cannot reuse an older cached identity. A Dune integration probe covers those changes without cleaning or modifying the implementation repository.
