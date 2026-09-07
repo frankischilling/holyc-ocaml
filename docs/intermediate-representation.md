@@ -24,6 +24,8 @@ The field names describe the pinned table and its observed consumers. They are n
 
 Construction checks the opcode table's fixed or variable operand shape and exact result count. A produced value must have a target type; a no-result instruction may still carry one. Construction also rejects invalid spans, flag bits outside the pinned fields, duplicate instruction or value IDs, forward uses, and missing definitions. Failures use stable `HCIR0001` through `HCIR0010` codes and retain the offending instruction and span when available. A successful value is immutable and exposes only ordered traversal.
 
+Every operand must refer to an earlier instruction's result. An instruction's own result becomes available only after its operands have been checked. Unary and binary self-references report `HCIR0008`, including those inside unreachable blocks. [Issue #580](https://github.com/frankischilling/holyc-ocaml/issues/580) records this constructor invariant; it is not a claim about native TempleOS accepting a serialized IR format.
+
 `human` emits the versioned `holyc-ir-v1` form. It uses `IC_*` source names, decimal signed `I64` values, hexadecimal `F64` bit patterns, escaped bytes, resolved symbol IDs, kinds, and names, explicit block payloads, stable instruction and value IDs, target types, flag masks, and source ID plus byte range. The reference commit appears in the header, so a dump cannot be mistaken for a result from a moving TempleOS branch.
 
 ## Control-flow classification

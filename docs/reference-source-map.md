@@ -2,6 +2,8 @@
 
 All findings in this document refer to TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
+The canonical OCaml IR also has representation invariants. [Issue #580](https://github.com/frankischilling/holyc-ocaml/issues/580) requires every operand to have an earlier definition in the same sequence. `Ir.Instruction_sequence.create` checks operands before publishing the current result, and `Ir.Block_graph.create` applies that rule to unreachable blocks as well. Sequence and graph regressions cover self-referencing unary and binary instructions and retain valid repeated uses of prior results. This is structural validation of the project representation, separate from TempleOS execution evidence.
+
 ## Compiler assembly order
 
 `Compiler/Compiler.PRJ` includes kernel headers first, enables conversion of extern declarations to imports while loading later kernel headers, and then loads compiler units in this order: templates, extensions, initialization, exceptions, lexer, hashes, assembler, parser, optimizer, backend, and final optimization passes. The OCaml architecture keeps the same conceptual dependencies without copying the source's global-state layout.
