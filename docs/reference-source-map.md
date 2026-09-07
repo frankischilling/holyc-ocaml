@@ -1,5 +1,14 @@
 # Reference source map
 
+Integer function-frame execution under issue #595 joins the existing frame
+layout and address proofs with `PrsExp.HC:762-805`, assignment class handling at
+`OptPass012.HC:866-896`, and the destination/result moves at `BackC.HC:159-189`.
+The optional frame context in expression/return lowering and the named-body
+interpreter share exact checked symbols, locations and types. The hosted
+uninitialized-read diagnostic and allocation budget are explicit execution
+limits, not new native TempleOS observations. See
+[integer function frames](integer-function-frames.md).
+
 Integer comparison-chain values under issue #592 use `PrsExp.HC:49-52,225-230`
 and the six `IST_CMP` entries in `CInit.HC`. `src/ir/expression_lowering.ml`
 shares the middle operand and combines adjacent comparisons with `IC_AND_AND`.

@@ -174,6 +174,12 @@ The termination line may instead be `returned:none` or `returned:<i64|u64>:0x<16
 
 ## Named function bodies
 
+The optional checked-frame path now connects scalar parameter/local reads and
+simple assignments to execution of one verified named body. See
+[integer function frames](integer-function-frames.md) for the precise
+`execute_function` contract, storage lifetime, type rules and limits. The
+graph-only interpreter described above retains its existing boundary.
+
 `Holyc_lib.Ir_function_body` wraps one checked graph in the metadata needed to identify a named HolyC function. The immutable value keeps a stable function ID, the function symbol and its declaration scope, a distinct function-body scope, return type, source-ordered parameter and local inventories, the stored `Ff_*` mask, a compiler-option snapshot, and optional source spans. Each parameter and local retains its semantic symbol, declared type, source position, and optional span. Positions are metadata from the owning declaration pass; the wrapper preserves list order and does not sort the inventory.
 
 Construction accepts only a function symbol, parameter symbols and local-variable symbols from the body scope, nonnegative member positions, known stored flags, and known compiler options. It rejects `Ff_ARGPOP` combined with `Ff_NOARGPOP` and rejects `Ff_HASERRCODE` without `Ff_INTERRUPT`. Duplicate positions within either inventory and duplicate symbols across both inventories also fail. `HCIR0026` through `HCIR0033` cover these checks. The constructor runs x87 verification before returning and adds the function identity to any `HCIR0021` through `HCIR0025` failure.

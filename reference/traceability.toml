@@ -4477,7 +4477,7 @@ hosted_safety_strengthening = "rejecting overflow, an unresolved dimension, or a
 mutation = "none"
 compilation_modes = ["jit", "aot"]
 frame_address_status = "supported non-static object locations are consumed separately by HC-IR-FRAME-ADDRESS-LOWERING"
-static_allocation_function_pointer_preparation_register_selection_machine_frame_lowering_and_execution = "not implemented"
+static_allocation_function_pointer_preparation_register_selection_machine_frame_lowering_and_execution = "scalar slot execution is implemented separately by HC-IR-INTEGER-FUNCTION-FRAMES; static allocation, callback preparation, registers and machine frames remain unimplemented"
 native_oracle_status = "not required; the pinned PrsVar, PrsStmt, PrsExp, PrsLib, CInit, and ScopingLinkage paths state the retained offsets and sizes directly"
 
 [[feature]]
@@ -4516,7 +4516,7 @@ failure_behavior = "unsupported or invalid input exposes no sequence and no adva
 dump_schema = "holyc-ir-frame-address-v1"
 compilation_modes = ["jit", "aot"]
 focused_tests = 6
-loads_stores_index_scaling_callback_preparation_static_or_global_addresses_expression_integration_execution_and_machine_emission = "not implemented"
+loads_stores_index_scaling_callback_preparation_static_or_global_addresses_expression_integration_execution_and_machine_emission = "scalar frame loads, stores, expression integration and named-body IR execution are implemented separately by HC-IR-INTEGER-FUNCTION-FRAMES; other listed domains remain unimplemented"
 native_oracle_status = "not required for this structural fragment; the pinned parser branch and opcode tables directly define its order and shape"
 
 [[feature]]
@@ -11039,3 +11039,32 @@ result = "eval returns 42 in ten attempted instructions in JIT and AOT mode; run
 comparison_class = "cumulative unsigned promotion; internal word views preserve shared bits without reexecuting producers"
 excluded = ["conditional comparison chains", "floating comparison chains", "multiple pending comparison reductions (#593)", "calls and variable storage", "native optimizer strength reductions"]
 native_oracle_status = "source audit and hosted integration; no new native execution capture"
+
+[[feature]]
+id = "HC-IR-INTEGER-FUNCTION-FRAMES"
+description = "Checked scalar I64/U64 frame loads and assignments execute in one verified named body with bounded, independent slot storage."
+sources = [
+  "Compiler/PrsStmt.HC:114-124,143-169 parameter offsets and function frame boundary",
+  "Compiler/PrsExp.HC:762-805 checked frame-relative identifier addresses",
+  "Compiler/PrsExp.HC:128-132,728-747,773-776 array value and parenthesized lvalue boundaries",
+  "Compiler/OptPass012.HC:191-192 internal-only unsigned negation type change",
+  "Compiler/PrsStmt.HC:1114-1117 declared return class",
+  "Compiler/OptPass012.HC:866-896 assignment class and conversion intent",
+  "Compiler/BackC.HC:159-189 assignment destination and result moves"
+]
+implementation = [
+  "src/ir/frame_address_lowering.ml", "src/ir/expression_lowering.ml",
+  "src/ir/return_lowering.ml", "src/ir/integer_interpreter.ml"
+]
+tests = ["test/test_ir_integer_frames.ml"]
+status = "implemented"
+issue = 595
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "one verified named body with its exact ordinary scalar I64/U64 frame and explicit argument bits; graph-only execute and source eval/run remain unchanged"
+ownership = "match function symbol, scope, ordered member identities and types against the immutable frame; canonical addresses resolve only to its allocated slots"
+state = "arguments initialize parameters; automatic locals are initially unavailable; slots persist across block transfers and are independent per invocation"
+limits = "positive max_steps and max_frame_bytes; allocation bound includes parameter slots and the checked local frame size; every address/load/store instruction costs one step"
+diagnostics = ["HCIRVM0011 invalid, unsupported or over-budget frame", "HCIRVM0012 reached uninitialized slot read", "HCIRVM0013 integer return without a value"]
+unsupported = ["source initializer/body/call composition", "IC_ENTER and IC_LEAVE", "native ABI", "globals", "static locals", "arrays", "callbacks", "aggregates", "floating storage", "numerical casts", "arbitrary pointer arithmetic"]
+native_oracle_status = "no new capture; raw slot and assignment behavior follows the pinned source, while uninitialized-read rejection and resource bounds are explicit hosted limits"

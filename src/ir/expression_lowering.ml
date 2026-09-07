@@ -38,6 +38,17 @@ type cancellation =
   | Canceled_dereference of Semantic_result.expression_result
 
 type plan_node =
+  | Frame_address of {
+      result : Semantic_result.expression_result;
+      address : Frame_address_lowering.prepared_address;
+    }
+  | Frame_load of {
+      result : Semantic_result.expression_result;
+      address : Frame_address_lowering.prepared_address;
+      result_type : Type.t;
+      span : Common.Span.t;
+      conversion : result_conversion;
+    }
   | Literal of {
       result : Semantic_result.expression_result;
       conversion : result_conversion;
@@ -192,6 +203,23 @@ let checked_integer_type result =
       | ( (Semantic_result.F64_result | Semantic_result.Unresolved_actual_class),
           _,
           (Type.Primitive _ | Type.Aggregate _) ) -> Ok Unsupported_type)
+
+let checked_frame_word result =
+  match checked_integer_type result with
+  | Ok (Checked_type type_) when Semantic_result.result_array_rank result = 0
+    -> (
+      match Type.base type_ with
+      | Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) ->
+          Ok (Checked_type type_)
+      | _ -> Ok Unsupported_type)
+  | Ok (Checked_type _) -> Ok Unsupported_type
+  | other -> other
+
+let checked_frame_scalar result =
+  match Semantic_result.result_category result with
+  | Semantic_result.Object_value | Semantic_result.Lvalue ->
+      checked_frame_word result
+  | _ -> Ok Unsupported_type
 
 let checked_f64_type result =
   match Semantic_result.result_type result with
@@ -1265,7 +1293,18 @@ let validate_binary result opcode left right =
         ~operation_flags:0L result left right
   | Ok false -> Ok Unsupported_binary
 
-let plan root =
+let rec prepare_assignment_address ~frame result =
+  match
+    Semantic_source.argument_expression_kind
+      (Semantic_result.result_source result)
+  with
+  | Semantic_source.Parenthesized_expression source -> (
+      match checked_operand result source "parenthesized assignment target" with
+      | Error item -> Error [ item ]
+      | Ok operand -> prepare_assignment_address ~frame operand)
+  | _ -> Frame_address_lowering.prepare ~frame result
+
+let plan ?frame root =
   let root_conversion = requested_conversion root in
   let pending = ref [] in
   let reversed = ref [] in
@@ -1287,6 +1326,26 @@ let plan root =
               Semantic_result.result_source result
               |> Semantic_source.argument_expression_kind
             with
+            | Semantic_source.Bound_identifier_expression _ -> (
+                match
+                  (frame, checked_frame_scalar result, result_span result)
+                with
+                | _, Error item, _ -> error := Some item
+                | Some frame, Ok (Checked_type result_type), Some span -> (
+                    match Frame_address_lowering.prepare ~frame result with
+                    | Error (item :: _) -> error := Some item
+                    | Error [] ->
+                        error :=
+                          Some
+                            (metadata_error ~span
+                               "frame address validation failed")
+                    | Ok None -> unsupported := true
+                    | Ok (Some address) ->
+                        reversed :=
+                          Frame_load
+                            { result; address; result_type; span; conversion }
+                          :: !reversed)
+                | _ -> unsupported := true)
             | Semantic_source.Integer_literal _
             | Semantic_source.Character_literal _ -> (
                 match checked_integer_type result with
@@ -1419,6 +1478,8 @@ let plan root =
                                   conversion;
                                 }
                               :: !reversed
+                        | Ok None when Option.is_some frame ->
+                            unsupported := true
                         | Ok None -> (
                             match
                               validate_pointer_unary result opcode operand
@@ -1510,7 +1571,12 @@ let plan root =
                                   :: !pending))))
             | Semantic_source.Binary_expression binary -> (
                 let opcode = Semantic_source.binary_operator binary in
-                if not (accepted_binary_opcode opcode) then unsupported := true
+                if
+                  not
+                    (accepted_binary_opcode opcode
+                    || Option.is_some frame
+                       && Opcode.equal opcode Opcode.Ic_assign)
+                then unsupported := true
                 else
                   match
                     ( checked_binary_operands result binary,
@@ -1518,92 +1584,129 @@ let plan root =
                   with
                   | Error item, _ | _, Error item -> error := Some item
                   | Ok (left, right), Ok span -> (
-                      let left_kind =
-                        Semantic_result.result_source left
-                        |> Semantic_source.argument_expression_kind
-                      in
-                      match left_kind with
-                      | Semantic_source.Binary_expression previous
-                        when accepted_f64_comparison_opcode opcode
-                             && accepted_f64_comparison_opcode
-                                  (Semantic_source.binary_operator previous)
-                        -> (
-                          match checked_binary_operands left previous with
-                          | Error item -> error := Some item
-                          | Ok (_, middle) when is_comparison_result middle ->
-                              (* Multiple pending comparison reductions have a
+                      if Opcode.equal opcode Opcode.Ic_assign then
+                        match
+                          ( frame,
+                            validate_binary_with checked_frame_word result left
+                              right )
+                        with
+                        | _, Error item -> error := Some item
+                        | Some frame, Ok true -> (
+                            match prepare_assignment_address ~frame left with
+                            | Error (item :: _) -> error := Some item
+                            | Error [] ->
+                                error :=
+                                  Some
+                                    (metadata_error ~span
+                                       "assignment address validation failed")
+                            | Ok None -> unsupported := true
+                            | Ok (Some address) ->
+                                reversed :=
+                                  Frame_address { result = left; address }
+                                  :: !reversed;
+                                pending :=
+                                  Visit
+                                    { result = right; conversion = Keep_result }
+                                  :: Finish_binary
+                                       {
+                                         result;
+                                         opcode;
+                                         span;
+                                         left;
+                                         right;
+                                         conversion;
+                                         operation_flags = 0L;
+                                       }
+                                  :: !pending)
+                        | _ -> unsupported := true
+                      else
+                        let left_kind =
+                          Semantic_result.result_source left
+                          |> Semantic_source.argument_expression_kind
+                        in
+                        match left_kind with
+                        | Semantic_source.Binary_expression previous
+                          when accepted_f64_comparison_opcode opcode
+                               && accepted_f64_comparison_opcode
+                                    (Semantic_source.binary_operator previous)
+                          -> (
+                            match checked_binary_operands left previous with
+                            | Error item -> error := Some item
+                            | Ok (_, middle) when is_comparison_result middle ->
+                                (* Multiple pending comparison reductions have a
                                  separate source stack shape. Parentheses end
                                  that stack before the outer comparison. *)
-                              unsupported := true
-                          | Ok (first, middle) -> (
-                              match
-                                ( validate_binary_with checked_integer_type left
-                                    first middle,
-                                  validate_binary_with checked_integer_type
-                                    result middle right )
-                              with
-                              | Error item, _ | _, Error item ->
-                                  error := Some item
-                              | Ok false, _ | _, Ok false -> unsupported := true
-                              | Ok true, Ok true ->
-                                  (* PrsExp.HC:225-230 keeps the previous right
+                                unsupported := true
+                            | Ok (first, middle) -> (
+                                match
+                                  ( validate_binary_with checked_integer_type
+                                      left first middle,
+                                    validate_binary_with checked_integer_type
+                                      result middle right )
+                                with
+                                | Error item, _ | _, Error item ->
+                                    error := Some item
+                                | Ok false, _ | _, Ok false ->
+                                    unsupported := true
+                                | Ok true, Ok true ->
+                                    (* PrsExp.HC:225-230 keeps the previous right
                                      operand for the next comparison. Grouping
                                      and tighter right operands stay intact. *)
-                                  pending :=
-                                    Visit
-                                      {
-                                        result = left;
-                                        conversion = Keep_result;
-                                      }
-                                    :: Visit
-                                         {
-                                           result = right;
-                                           conversion = Keep_result;
-                                         }
-                                    :: Finish_chain_link
-                                         {
-                                           result;
-                                           previous = left;
-                                           middle;
-                                           right;
-                                           opcode;
-                                           span;
-                                           conversion;
-                                         }
-                                    :: !pending))
-                      | _ -> (
-                          match validate_binary result opcode left right with
-                          | Error item -> error := Some item
-                          | Ok Unsupported_binary -> unsupported := true
-                          | Ok
-                              (Supported_binary
-                                 {
-                                   left_conversion;
-                                   right_conversion;
-                                   operation_flags;
-                                 }) ->
-                              pending :=
-                                Visit
-                                  {
-                                    result = left;
-                                    conversion = left_conversion;
-                                  }
-                                :: Visit
-                                     {
-                                       result = right;
-                                       conversion = right_conversion;
-                                     }
-                                :: Finish_binary
-                                     {
-                                       result;
-                                       opcode;
-                                       span;
-                                       left;
-                                       right;
-                                       conversion;
-                                       operation_flags;
-                                     }
-                                :: !pending)))
+                                    pending :=
+                                      Visit
+                                        {
+                                          result = left;
+                                          conversion = Keep_result;
+                                        }
+                                      :: Visit
+                                           {
+                                             result = right;
+                                             conversion = Keep_result;
+                                           }
+                                      :: Finish_chain_link
+                                           {
+                                             result;
+                                             previous = left;
+                                             middle;
+                                             right;
+                                             opcode;
+                                             span;
+                                             conversion;
+                                           }
+                                      :: !pending))
+                        | _ -> (
+                            match validate_binary result opcode left right with
+                            | Error item -> error := Some item
+                            | Ok Unsupported_binary -> unsupported := true
+                            | Ok
+                                (Supported_binary
+                                   {
+                                     left_conversion;
+                                     right_conversion;
+                                     operation_flags;
+                                   }) ->
+                                pending :=
+                                  Visit
+                                    {
+                                      result = left;
+                                      conversion = left_conversion;
+                                    }
+                                  :: Visit
+                                       {
+                                         result = right;
+                                         conversion = right_conversion;
+                                       }
+                                  :: Finish_binary
+                                       {
+                                         result;
+                                         opcode;
+                                         span;
+                                         left;
+                                         right;
+                                         conversion;
+                                         operation_flags;
+                                       }
+                                  :: !pending)))
             | Semantic_source.Postfix_cast_expression (source_operand, target)
               -> (
                 match
@@ -1630,7 +1733,6 @@ let plan root =
                           :: !pending))
             | Semantic_source.Postfix_expression _
             | Semantic_source.Index_expression _
-            | Semantic_source.Bound_identifier_expression _
             | Semantic_source.Aggregate_offset_base_expression _
             | Semantic_source.Top_level_bound_identifier_expression _
             | Semantic_source.Unresolved_expression
@@ -1818,10 +1920,76 @@ let emit_plan ~instruction_id ~value_id nodes =
   let comparison_domains = ref Int_map.empty in
   let descriptions_rev = ref [] in
   let error = ref None in
+  let frame_address address =
+    match
+      ( Sequence.Instruction_id.of_int allocator.instruction,
+        Sequence.Value_id.of_int allocator.value )
+    with
+    | Error item, _ | _, Error item -> Error item
+    | Ok instruction_id, Ok value_id -> (
+        match
+          Frame_address_lowering.lower_prepared ~instruction_id ~value_id
+            address
+        with
+        | Error (item :: _) -> Error item
+        | Error [] ->
+            Error (metadata_error "prepared frame address emission failed")
+        | Ok result ->
+            allocator.instruction <-
+              Sequence.Instruction_id.to_int
+                (Frame_address_lowering.next_instruction_id result);
+            allocator.value <-
+              Sequence.Value_id.to_int
+                (Frame_address_lowering.next_value_id result);
+            let descriptions =
+              Frame_address_lowering.sequence result
+              |> Sequence.instructions
+              |> List.map Sequence.description
+            in
+            Ok
+              ( descriptions,
+                {
+                  lowered_value = Frame_address_lowering.result_value result;
+                  lowered_type = Frame_address_lowering.result_type result;
+                } ))
+  in
   List.iter
     (fun node ->
       if Option.is_none !error then
         match node with
+        | Frame_address { result; address } -> (
+            match frame_address address with
+            | Error item -> error := Some item
+            | Ok (descriptions, node) ->
+                descriptions_rev :=
+                  List.rev_append descriptions !descriptions_rev;
+                lowered := Int_map.add (result_key result) node !lowered)
+        | Frame_load { result; address; result_type; span; conversion } -> (
+            match frame_address address with
+            | Error item -> error := Some item
+            | Ok (descriptions, address) -> (
+                match take_identity allocator (Some span) with
+                | Error item -> error := Some item
+                | Ok (instruction_id, value_id) ->
+                    let description : Sequence.description =
+                      {
+                        instruction_id;
+                        opcode = Opcode.Ic_deref;
+                        operands = [ address.lowered_value ];
+                        result = Some { value_id };
+                        target_type = Some result_type;
+                        payload = None;
+                        flags = conversion_flags conversion;
+                        span = Some span;
+                      }
+                    in
+                    descriptions_rev :=
+                      description
+                      :: List.rev_append descriptions !descriptions_rev;
+                    lowered :=
+                      Int_map.add (result_key result)
+                        { lowered_value = value_id; lowered_type = result_type }
+                        !lowered))
         | Literal { result; conversion } -> (
             match lower_literal allocator result with
             | Error item -> error := Some item
@@ -2156,6 +2324,8 @@ let emit_plan ~instruction_id ~value_id nodes =
           | Ok sequence -> (
               let root =
                 match List.rev nodes with
+                | Frame_address { result; _ } :: _
+                | Frame_load { result; _ } :: _
                 | Literal { result; _ } :: _
                 | Current_position { result; _ } :: _
                 | Integer_constant { result; _ } :: _
@@ -2185,8 +2355,8 @@ let emit_plan ~instruction_id ~value_id nodes =
                         }
                   | Error item, _ | _, Error item -> Error [ item ]))))
 
-let lower_typed_result ~instruction_id ~value_id result =
-  match plan result with
+let lower_typed_result ?frame ~instruction_id ~value_id result =
+  match plan ?frame result with
   | Error items -> Error items
   | Ok Unsupported_plan -> Ok Unsupported_expression
   | Ok (Planned nodes) ->

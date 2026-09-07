@@ -22,6 +22,8 @@ type checked_location = {
   span : Common.Span.t;
 }
 
+type prepared_address = checked_location
+
 let reference_commit = Opcode.reference_commit
 
 let lowering_error ?span code message =
@@ -352,9 +354,20 @@ let lower_supported ~instruction_id ~value_id checked =
                  next_value_id_;
                }))
 
-let lower ~instruction_id ~value_id ~frame result =
+let prepare ~frame result =
   match checked_location frame result with
   | Error error -> Error [ error ]
+  | Ok checked -> Ok checked
+
+let lower_prepared ~instruction_id ~value_id checked =
+  match lower_supported ~instruction_id ~value_id checked with
+  | Error errors -> Error errors
+  | Ok (Lowered result) -> Ok result
+  | Ok Unsupported_location -> assert false
+
+let lower ~instruction_id ~value_id ~frame result =
+  match prepare ~frame result with
+  | Error errors -> Error errors
   | Ok None -> Ok Unsupported_location
   | Ok (Some checked) -> lower_supported ~instruction_id ~value_id checked
 

@@ -4,6 +4,7 @@ type lowering_result = Lowered of t | Unsupported_expression
 val reference_commit : string
 
 val lower_typed_result :
+  ?frame:Sema.Function_frame_layout.function_layout ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   Sema.Function_call_expression_result.expression_result ->
@@ -43,8 +44,11 @@ val lower_typed_result :
     composition marks only its final producer for pushing. A postfix cast emits
     [IC_HOLYC_TYPECAST] with the full cast span and pinned [was_paren] payload.
     The module owns source-order traversal, TempleOS's immediate
-    address/dereference cancellation, and consecutive identity allocation.
-    Expressions outside the implemented tree shapes return
+    address/dereference cancellation, and consecutive identity allocation. With
+    [frame], scalar I64/U64 bound identifiers load their exact checked slots,
+    and simple assignments store through the checked destination address without
+    reading its old contents. Other pointer operations in that context remain
+    unsupported. Expressions outside the implemented tree shapes return
     [Unsupported_expression] without returning a partial sequence. *)
 
 val sequence : t -> Instruction_sequence.t
