@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-- Added persistent scalar I64/U64 static locals and checked constant initial images through source execution and the CLI. Statics survive calls and recursion, use no invocation-frame slots, and share the global storage and initializer preparation bounds. Unused and unreachable declarations still prepare; exact declaring-frame checks also cover raw IR. Nonconstant static initialization remains an explicit phase boundary.
+- Added scalar static declaration initializers with persistent effects and direct calls at source declaration positions in both modes. Checked regions retain owners and phases; JIT publication checks follow actual callee bodies transitively. Initializers have no containing invocation frame, and called functions consume their own frame budgets. The nonconstant counter returns 42 in 32 runtime steps with no constant preparation.
+
+- Added persistent scalar I64/U64 static locals and checked constant initial images through source execution and the CLI. Statics survive calls and recursion, use no invocation-frame slots, and share the global storage and initializer preparation bounds. Unused and unreachable declarations still prepare; exact declaring-frame checks also cover raw IR.
 
 - Added scalar I64/U64 compound assignments and prefix/postfix increment/decrement to source execution. Canonical update ICs read the destination after RHS effects, preserve old/new results and destination signedness, and share existing frame/global limits. Initializer classification and transitive optimizer guards cover the new operations. Pointer and other storage domains, optimizer parity and native execution remain unfinished.
 

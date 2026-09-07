@@ -37,6 +37,7 @@ let static_root (item : static_item) = snd item.root_
 let static_slot (item : static_item) = fst item.root_
 let static_value_graph (item : static_item) = item.value_graph_
 let static_item_steps (item : static_item) = item.steps
+let static_classification (item : static_item) = item.classification_
 let executed_steps (prepared : t) = prepared.steps
 let root item = item.root_
 let value_graph item = item.value_graph_
@@ -57,7 +58,8 @@ let value_instructions graph =
       | Ir.Opcode.Ic_end_exp | Ic_end -> false
       | _ -> true)
 
-let prepare ~max_steps ~span ~globals ~top_calls ~functions =
+let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
+    ~functions () =
   let invalid ?(notes = []) ?(at = span) code message =
     Error
       [
@@ -148,7 +150,7 @@ let prepare ~max_steps ~span ~globals ~top_calls ~functions =
           in
           let* value_graph_ =
             Ir.Integer_program_lowering.lower ?frame ~globals ~top_calls
-              ~span:at
+              ~function_calls ~span:at
               [ Ir.Integer_program_lowering.Expression value ]
             |> Result.map_error (fun errors ->
                 match root_ with
@@ -160,9 +162,8 @@ let prepare ~max_steps ~span ~globals ~top_calls ~functions =
                           Common.Diagnostic.make ~code:"HCRUN0006"
                             ~severity:Common.Diagnostic.Error
                             ~message:
-                              "static initializer is outside checked constant \
-                               preparation; phase-aware effects and calls are \
-                               not implemented"
+                              "static initializer expression is outside \
+                               checked scalar storage and direct-call lowering"
                             ~primary:at ~notes ()
                         else error)
                       errors)
@@ -248,10 +249,31 @@ let prepare ~max_steps ~span ~globals ~top_calls ~functions =
                     guard_callees (symbol :: visited) (called code @ rest))
           in
           let* () = guard_callees [] (called value_code) in
-          if (not constant) && Option.is_some frame then
+          if
+            Option.is_some frame
+            && List.exists
+                 (fun (item : Seq.description) ->
+                   item.opcode = Ir.Opcode.Ic_rbp)
+                 value_code
+          then
             invalid ~at ~notes "HCRUN0006"
-              "static initializer requires a constant value; parameter/local \
-               reads and phase-aware effects or calls are not implemented"
+              "static initialization has no invocation frame for parameter or \
+               automatic-local reads"
+          else if
+            (not constant)
+            &&
+            match root_ with
+            | Static (slot, _) ->
+                Globals.storage_opcode (Globals.static_storage slot)
+                = Ir.Opcode.Ic_abs_addr
+                && Sema.Compiler_option.is_enabled
+                     ~mask:(Globals.static_compiler_options slot)
+                     Sema.Compiler_option.Globals_on_data_heap
+            | Global _ -> false
+          then
+            invalid ~at ~notes "HCRUN0006"
+              "nonconstant AOT static initialization with globals-on-data-heap \
+               requires a separate compile-time phase"
           else if not constant then
             collect total updates
               ({ root_; value_graph_; classification_ = Scheduled; steps = 0 }

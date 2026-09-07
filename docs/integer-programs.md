@@ -23,8 +23,9 @@ reached top-level expression value; it has no implemented Print operation.
 
 [Scalar static locals](integer-statics.md) retain persistent function-owned
 words, supported constant initial images and definition-time faults. They share
-the global byte budget and use no invocation-frame slots. Nonconstant static
-initialization remains an explicit phase boundary.
+the global byte budget and use no invocation-frame slots. [Nonconstant static
+initializers](integer-static-initializers.md) execute at declaration positions
+with checked JIT publication and AOT load phases.
 
 Ordinary scalar I64/U64 code-heap globals without aliases also execute through
 this path. [Declaration initializers](integer-global-initializers.md) retain

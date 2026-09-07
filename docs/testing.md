@@ -1,5 +1,13 @@
 # Testing holyc-ocaml
 
+The thirteen `source static initializers` groups cover the four source gates,
+unreachable effects and faults, declaration order, nested and recursive calls,
+containing-frame rejection, actual transitive callee replacement and publication,
+call provenance, fresh replay, exact 32/0 instruction counts, malformed regions,
+escaped addresses, callee authority and nondefault options. The CLI executes
+`examples/integer-static-initializers.hc` in both modes and verifies exact bounds
+and deterministic phase dumps. See [static initializers](integer-static-initializers.md).
+
 The `source integer statics` group checks persistent counters, recursion,
 separate owners, all updates, definition-time preparation and faults, unknown
 JIT reads, AOT zero images, exact budgets, fresh replay, canonical addresses,

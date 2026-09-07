@@ -57,7 +57,10 @@ val execute_program :
     Prefix/compound results are new words; postfix results are old words. Static
     locals share persistent words and the global byte bound, occupy no
     invocation slots, and require their exact declaring frame and options.
-    Static addresses in another function or the entry graph fail preflight. *)
+    Static address producers and storage consumers also accept their owner's
+    checked entry initializer region. Other entry instructions and functions
+    fail preflight; region authority never enters a called function. JIT static
+    calls require transitively earlier definitions in the supplied bodies. *)
 
 val final_value : t -> word option
 (** Last reached top-level expression value from [execute_program], separate

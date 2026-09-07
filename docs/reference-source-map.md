@@ -1,5 +1,11 @@
 # Reference source map
 
+Issue #609 follows `Kernel/KTask.HC:338-351`,
+`Compiler/PrsVar.HC:53-112,215-244`, `Compiler/CMain.HC:82-90,513-531`,
+`Kernel/KLoad.HC:158-165` and `Compiler/PrsStmt.HC:160-184` for static declaration
+effects, MAIN ordering, option-dependent deferral and containing-function
+publication. The hosted boundary is recorded in [static initializers](integer-static-initializers.md).
+
 Issue #607 connects static allocation in `PrsVar.HC:534-588` and canonical
 addresses in `PrsExp.HC:776-784` to the existing persistent scalar executor.
 `PrsVar.HC:53-112,215-244` supplies definition-time constant preparation and

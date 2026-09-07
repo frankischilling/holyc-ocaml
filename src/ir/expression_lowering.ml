@@ -2737,6 +2737,43 @@ let lower_global_initializer ~globals ?lower_call ~instruction_id ~value_id root
     ~instruction_id ~value_id
     (Semantic_result.top_level_root_value root)
 
+let lower_static_initializer ~globals ?lower_call ~instruction_id ~value_id slot
+    =
+  let ( let* ) = Result.bind in
+  match Integer_globals.static_initializer slot with
+  | None ->
+      Error
+        [ metadata_error "static initializer has no checked declaration root" ]
+  | Some root ->
+      let* prepared =
+        Global_address_lowering.prepare_static_initializer ~globals slot root
+      in
+      let lower_address ~instruction_id ~value_id =
+        let* address =
+          Global_address_lowering.lower_prepared ~instruction_id ~value_id
+            prepared
+        in
+        Ok
+          ( Global_address_lowering.sequence address,
+            Global_address_lowering.result_value address,
+            Global_address_lowering.next_instruction_id address,
+            Global_address_lowering.next_value_id address )
+      in
+      let span =
+        match
+          Semantic_result.initializer_source root
+          |> Semantic_source.initializer_origin
+        with
+        | Sema.Symbol.Source_location location -> Some location.span
+        | _ -> None
+      in
+      lower_store_initializer
+        ~frame:(Integer_globals.static_frame slot)
+        ~globals ?lower_call ~lower_address
+        ~target_type:(Semantic_result.initializer_target_type root)
+        ~span ~instruction_id ~value_id
+        (Semantic_result.initializer_value root)
+
 let result_value lowered = lowered.result_value_
 let result_type lowered = lowered.result_type_
 let next_instruction_id lowered = lowered.next_instruction_id_

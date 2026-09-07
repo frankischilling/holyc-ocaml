@@ -56,6 +56,12 @@ constant-folding equivalence or native shift oracle is claimed.
 
 ## Integer source execution
 
+`holyc run --target=ir examples/integer-static-initializers.hc` initializes a
+static counter through an earlier function call and returns 42 after two calls,
+in 32 runtime steps and zero preparation steps. [Static declaration
+initializers](docs/integer-static-initializers.md) retain JIT compile/AOT load
+phases, source order, exact owners and callee publication checks.
+
 `holyc run --target=ir examples/integer-statics.hc` calls a persistent static
 counter twice and returns 42 in both modes. Scalar I64/U64 statics share the
 global byte budget, occupy no invocation-frame slots, and prepare supported

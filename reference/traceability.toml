@@ -11227,3 +11227,23 @@ options = "static code-heap allocation ignores globals-on-data-heap; exact optio
 focused_tests = 11
 excluded = ["nonconstant static effects and calls", "first-call parameter capture", "narrow/floating/pointer/array/aggregate storage", "general runtime output", "stateful compilation", "complete optimizer parity", "native/BIN/loader execution", "bootstrap"]
 native_oracle_status = "hosted source, private producer and malformed-IR regressions with pinned-source audit; no new native capture"
+
+[[feature]]
+id = "HC-SOURCE-INTEGER-STATIC-INITIALIZERS"
+description = "Nonconstant scalar static initializers execute at their declaration phases through checked regions and direct calls."
+sources = ["Kernel/KTask.HC:338-351 JIT statement execution", "Compiler/PrsVar.HC:53-112,215-244 initializer phase and AOT option deferral", "Compiler/CMain.HC:82-90,513-531 MAIN ordering", "Kernel/KLoad.HC:158-165 MAIN calls", "Compiler/PrsStmt.HC:160-184 function publication"]
+implementation = ["src/ir/global_initialization.ml", "src/ir/global_address_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_initializers.ml", "src/driver/integer_program.ml"]
+tests = ["test/test_integer_static_initializers.ml", "test/test_integer_statics.ml", "test/test_integer_program_cli.ml", "examples/integer-static-initializers.hc", "test/dune"]
+documentation = ["docs/integer-static-initializers.md", "docs/integer-statics.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/integer-global-initializers.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 609
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "unused static side effect 7; early snapshot 1; late snapshot 7; earlier Seed call counter 42 in 32 runtime and zero constant-preparation instructions, both modes"
+ownership = "exact published static slot/root/frame, complete source-ordered regions, canonical closed stores, exact entry/image; producer and consumer checks prohibit escaping pointers and callee authority"
+publication = "JIT static callees must precede containing definition, transitively checked against actual supplied bodies; AOT load can use completed containing function; caller and initializer provenance retained"
+frames = "no containing invocation frame; actual parameter/automatic reads reject, callees receive their own active frames"
+options = "static code-heap allocation preserved; nonconstant AOT globals-on-data-heap compile-time phase rejects with HCRUN0006"
+focused_tests = 13
+excluded = ["AOT globals-on-data-heap nonconstant compile phase", "containing-frame capture", "general memory and output", "stateful compilation and #exe", "full optimizer parity", "native/BIN/loader execution", "bootstrap"]
+native_oracle_status = "hosted source and malformed-IR tests with pinned-source audit; no new native capture"
