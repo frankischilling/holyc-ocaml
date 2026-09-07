@@ -7,6 +7,7 @@ type switch_case_pattern =
 
 type root_role =
   | Expression_statement of { statement_index : int }
+  | Global_initializer of Global_initializer_binding.resolved_global
   | Implicit_output_fixed of {
       output_index : int;
       target : Function_call_resolution.implicit_output_target;
@@ -132,6 +133,10 @@ let switch_case_pattern_name = function
   | Ranged_case_pattern _ -> "ranged"
 
 let root_role_name = function
+  | Global_initializer global ->
+      Printf.sprintf "global:%d:initializer"
+        (Global_initializer_binding.global_symbol global
+        |> Symbol.id |> Symbol.Id.to_int)
   | Expression_statement { statement_index } ->
       Printf.sprintf "expression-statement:%d" statement_index
   | Implicit_output_fixed { output_index; target; source; _ } ->
@@ -173,6 +178,9 @@ let valid_origin = function
   | Symbol.Synthesized description -> not (String.equal description "")
 
 let role_is_valid = function
+  | Global_initializer global ->
+      Option.is_some
+        (Global_initializer_binding.global_initializer_origin global)
   | Expression_statement { statement_index }
   | Return_value { return_index = statement_index } -> statement_index >= 0
   | Implicit_output_fixed { output_index; marker_origin; _ } ->
@@ -272,7 +280,44 @@ let indexes_increase accessor values =
   loop None values
 
 let make_statement ~source ~roots ~calls ~switch_cases =
-  if not (indexes_increase root_index roots) then
+  let initializer_matches =
+    let owner =
+      source |> Top_level_outer_expression_binding.statement_source
+      |> Top_level_expression_binding.statement_initializer
+    in
+    match (owner, roots) with
+    | None, roots ->
+        not
+          (List.exists
+             (fun root ->
+               match root.role with
+               | Global_initializer _ -> true
+               | _ -> false)
+             roots)
+    | ( Some owner,
+        [ { role = Global_initializer selected; expression; origin; _ } ] ) -> (
+        owner == selected && switch_cases = []
+        &&
+        match
+          owner |> Global_initializer_binding.global_record
+          |> Global_resolution.global_record_global
+          |> Global_type_resolution.global_initializer
+        with
+        | Some initial ->
+            Global_type_resolution.initializer_kind initial
+            = Global_type_resolution.Scalar_initializer
+            && Global_type_resolution.initializer_value_origin initial = origin
+            && Function_call_resolution.argument_expression_origin expression
+               = origin
+        | None -> false)
+    | Some _, _ -> false
+  in
+  if not initializer_matches then
+    Error
+      (invalid_input
+         ~origin:(Top_level_outer_expression_binding.statement_origin source)
+         "global initializer root does not match its exact declaration owner")
+  else if not (indexes_increase root_index roots) then
     Error
       (invalid_input
          ~origin:(Top_level_outer_expression_binding.statement_origin source)

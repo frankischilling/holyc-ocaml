@@ -80,6 +80,17 @@ val lower_initializer :
 (** Store a checked scalar I64/U64 initializer into its exact automatic frame
     slot, preserving the source value and destination class. *)
 
+val lower_global_initializer :
+  globals:Integer_globals.t ->
+  ?lower_call:call_lowerer ->
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  Sema.Function_call_expression_result.top_level_root_result ->
+  (lowering_result, Instruction_sequence.error list) result
+(** Store an exact declaration-owned initializer through its checked global
+    destination. This emits the store; scheduling and constant preparation
+    remain the program initialization context's responsibility. *)
+
 val sequence : t -> Instruction_sequence.t
 val result_value : t -> Instruction_sequence.Value_id.t
 val result_type : t -> Sema.Type.t

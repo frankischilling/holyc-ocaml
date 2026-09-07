@@ -2512,11 +2512,9 @@ let lower_typed_result ?frame ?globals ?lower_call ~instruction_id ~value_id
 
 let sequence lowered = lowered.sequence_
 
-let lower_initializer ~frame ?globals ?lower_call ~instruction_id ~value_id
-    initial =
+let lower_store_initializer ?frame ?globals ?lower_call ~lower_address
+    ~target_type ~span ~instruction_id ~value_id value =
   let ( let* ) = Result.bind in
-  let value = Semantic_result.initializer_value initial in
-  let target_type = Semantic_result.initializer_target_type initial in
   let target_is_word =
     Type.pointer_depth target_type = 0
     &&
@@ -2524,20 +2522,17 @@ let lower_initializer ~frame ?globals ?lower_call ~instruction_id ~value_id
     | Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
     | _ -> false
   in
-  let* address = Frame_address_lowering.prepare_initializer ~frame initial in
   let* value_type =
     checked_frame_word value |> Result.map_error (fun error -> [ error ])
   in
-  match (address, value_type) with
-  | Some address, Checked_type _ when target_is_word -> (
-      let* address =
-        Frame_address_lowering.lower_prepared ~instruction_id ~value_id address
+  match value_type with
+  | Checked_type _ when target_is_word -> (
+      let* address_sequence, address_value, next_instruction, next_value =
+        lower_address ~instruction_id ~value_id
       in
       let* lowered =
-        lower_typed_result ~frame ?globals ?lower_call
-          ~instruction_id:(Frame_address_lowering.next_instruction_id address)
-          ~value_id:(Frame_address_lowering.next_value_id address)
-          value
+        lower_typed_result ?frame ?globals ?lower_call
+          ~instruction_id:next_instruction ~value_id:next_value value
       in
       match lowered with
       | Unsupported_expression -> Ok Unsupported_expression
@@ -2549,14 +2544,6 @@ let lower_initializer ~frame ?globals ?lower_call ~instruction_id ~value_id
               value = Sequence.Value_id.to_int value.next_value_id_;
             }
           in
-          let span =
-            match
-              Semantic_source.initializer_origin
-                (Semantic_result.initializer_source initial)
-            with
-            | Sema.Symbol.Source_location location -> Some location.span
-            | _ -> None
-          in
           let* instruction_id, value_id =
             take_identity allocator span
             |> Result.map_error (fun error -> [ error ])
@@ -2565,11 +2552,7 @@ let lower_initializer ~frame ?globals ?lower_call ~instruction_id ~value_id
             {
               instruction_id;
               opcode = Opcode.Ic_assign;
-              operands =
-                [
-                  Frame_address_lowering.result_value address;
-                  value.result_value_;
-                ];
+              operands = [ address_value; value.result_value_ ];
               result = Some { value_id };
               target_type = Some target_type;
               payload = None;
@@ -2582,7 +2565,7 @@ let lower_initializer ~frame ?globals ?lower_call ~instruction_id ~value_id
           in
           let* sequence_ =
             Sequence.create
-              (descriptions (Frame_address_lowering.sequence address)
+              (descriptions address_sequence
               @ descriptions value.sequence_
               @ [ store ])
           in
@@ -2604,6 +2587,78 @@ let lower_initializer ~frame ?globals ?lower_call ~instruction_id ~value_id
                  next_value_id_;
                }))
   | _ -> Ok Unsupported_expression
+
+let lower_initializer ~frame ?globals ?lower_call ~instruction_id ~value_id
+    initial =
+  let ( let* ) = Result.bind in
+  let* address = Frame_address_lowering.prepare_initializer ~frame initial in
+  match address with
+  | None -> Ok Unsupported_expression
+  | Some prepared ->
+      let lower_address ~instruction_id ~value_id =
+        let* address =
+          Frame_address_lowering.lower_prepared ~instruction_id ~value_id
+            prepared
+        in
+        Ok
+          ( Frame_address_lowering.sequence address,
+            Frame_address_lowering.result_value address,
+            Frame_address_lowering.next_instruction_id address,
+            Frame_address_lowering.next_value_id address )
+      in
+      let span =
+        match
+          initial |> Semantic_result.initializer_source
+          |> Semantic_source.initializer_origin
+        with
+        | Sema.Symbol.Source_location location -> Some location.span
+        | _ -> None
+      in
+      lower_store_initializer ~frame ?globals ?lower_call ~lower_address
+        ~target_type:(Semantic_result.initializer_target_type initial)
+        ~span ~instruction_id ~value_id
+        (Semantic_result.initializer_value initial)
+
+let lower_global_initializer ~globals ?lower_call ~instruction_id ~value_id root
+    =
+  let ( let* ) = Result.bind in
+  let* prepared = Global_address_lowering.prepare_initializer ~globals root in
+  let* target_type, span =
+    match
+      root |> Semantic_result.top_level_root_source
+      |> Sema.Top_level_expression_tree.root_role
+    with
+    | Sema.Top_level_expression_tree.Global_initializer owner ->
+        let type_ =
+          owner |> Sema.Global_initializer_binding.global_record
+          |> Sema.Global_resolution.global_record_global
+          |> Sema.Global_type_resolution.global_type_reference
+          |> Sema.Type_reference.resolved_type
+        in
+        let span =
+          match
+            Sema.Global_initializer_binding.global_initializer_origin owner
+          with
+          | Some (Sema.Symbol.Source_location location) -> Some location.span
+          | _ -> None
+        in
+        Ok (type_, span)
+    | _ ->
+        Error [ metadata_error "global initializer has no declaration owner" ]
+  in
+  let lower_address ~instruction_id ~value_id =
+    let* address =
+      Global_address_lowering.lower_prepared ~instruction_id ~value_id prepared
+    in
+    Ok
+      ( Global_address_lowering.sequence address,
+        Global_address_lowering.result_value address,
+        Global_address_lowering.next_instruction_id address,
+        Global_address_lowering.next_value_id address )
+  in
+  lower_store_initializer ~globals ?lower_call ~lower_address ~target_type ~span
+    ~instruction_id ~value_id
+    (Semantic_result.top_level_root_value root)
 
 let result_value lowered = lowered.result_value_
 let result_type lowered = lowered.result_type_

@@ -1,5 +1,12 @@
 # holyc-ocaml compatibility status
 
+[#603](https://github.com/frankischilling/holyc-ocaml/issues/603) connects
+[scalar global declaration initializers](integer-global-initializers.md):
+supported pure constant images, source-ordered nonconstant compile/load regions,
+initializer calls, exact context checks and separate preparation limits.
+The initialized accumulator reports 42 in both modes. Stateful fault ordering,
+general storage and the guarded shift/division optimizer domain remain open.
+
 [Issue #590](https://github.com/frankischilling/holyc-ocaml/issues/590) adds the
 source-to-IR execution path for integer top-level expressions, blocks, if/else,
 while, do/while, for and break. Conditional AND/OR short-circuit; ordinary values

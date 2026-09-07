@@ -32,7 +32,8 @@ in human output and `global_byte_limit` in JSON. Every resource limit must be
 positive.
 
 The accepted declarations are ordinary public I64/U64 scalar objects on the
-code heap, without declaration initializers or aliases. Comma groups and
+code heap, without aliases. [Scalar declaration initializers](integer-global-initializers.md)
+now retain bounded constant preparation and source-ordered compile/load regions. Comma groups and
 source-visible distinct objects work. Loads and simple assignments compose in
 top-level expressions, loop bodies, call arguments, automatic-local initializer
 values and returns. Assignments preserve bits and use the destination's declared
@@ -43,7 +44,7 @@ objects, while AOT creates an alias and retains the explicit alias boundary.
 
 `Integer_globals` retains immutable declaration and storage evidence. The
 compiled-program API exposes it through `integer_program_globals`; pass that
-context and `integer_program_functions` to `Ir_integer_interpreter.execute_program`
+context, `integer_program_initialization` and `integer_program_functions` to `Ir_integer_interpreter.execute_program`
 when using the lower-level entry graph. `run_integer_program` does this join and
 accepts optional `max_global_bytes`. `lower_integer_program` and graph-only
 `execute` retain their previous storage boundary. Global metadata participates
@@ -70,7 +71,7 @@ executor does not claim that TempleOS initializes or checks the same JIT read.
 Faults retain their execution stage, attempted instruction count, block,
 instruction, source span and active function.
 
-Declaration initializers remain a distinct required connection.
+Declaration initializers have a [distinct checked execution path](integer-global-initializers.md).
 `PrsStmt.HC:409-433` publishes an object before initializing it.
 `Compiler/PrsVar.HC:51-112` evaluates eligible initializers during compilation
 and emits nonconstant AOT code-heap initialization as `IET_MAIN` routines.
@@ -78,8 +79,8 @@ and emits nonconstant AOT code-heap initialization as `IET_MAIN` routines.
 globals reject `=` at `PrsStmt.HC:336-338`. The source assignment in the first
 fixture establishes shared storage without erasing these phase rules.
 
-Static locals, external/import/data-heap storage, aliases, declaration
-initializers, arrays, aggregates, pointers, callbacks and narrow/floating
+Static locals, external/import/data-heap storage, aliases, arrays,
+aggregates, pointers, callbacks and narrow/floating
 storage remain unsupported, even in unused declarations. Runtime output,
 stateful compilation and #exe, optimizer parity, native backends, actual-loader
 acceptance and bootstrap remain full-compiler requirements. These tests add

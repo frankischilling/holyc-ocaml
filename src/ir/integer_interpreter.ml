@@ -50,12 +50,16 @@ type error = {
   span : Common.Span.t option;
   function_id : int option;
   function_name : string option;
+  initializer_phase : Global_initialization.phase option;
+  initializer_symbol_id : int option;
+  initializer_name : string option;
 }
 
 type t = {
   termination_ : termination;
   executed_steps_ : int;
   final_value_ : word option;
+  compiled_initializer_steps_ : int;
 }
 
 type prepared_operand = { value_id : Value_id.t; expected_type : word_type }
@@ -183,7 +187,23 @@ let make_error ?block_id ?instruction_id ?span ~stage ~executed_steps code
     span;
     function_id = None;
     function_name = None;
+    initializer_phase = None;
+    initializer_symbol_id = None;
+    initializer_name = None;
   }
+
+let identify_initializer region error =
+  match region with
+  | None -> error
+  | Some region ->
+      let symbol = Global_initialization.symbol region in
+      {
+        error with
+        initializer_phase = Some (Global_initialization.phase region);
+        initializer_symbol_id =
+          Some (Sema.Symbol.id symbol |> Sema.Symbol.Id.to_int);
+        initializer_name = Some (Sema.Symbol.name symbol);
+      }
 
 let preflight_error block_id (description : Sequence.description) code message =
   make_error ~stage:Preflight ~executed_steps:0 ~block_id
@@ -1149,7 +1169,7 @@ type caller = {
 }
 
 let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
-    ?(max_call_depth = Int.max_int) ?(capture_last = false)
+    ?(max_call_depth = Int.max_int) ?(capture_last = false) ?initialization
     ?(global_words = [||]) ~max_steps program =
   let current_block = ref program.entry_index in
   let current_instruction = ref 0 in
@@ -1165,6 +1185,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
   let steps = ref 0 in
   let completed = ref None in
   let failed = ref None in
+  let active_initializer = ref None in
   let transfer target =
     current_block := target;
     current_instruction := 0;
@@ -1198,6 +1219,12 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                    "execution reached an impossible final-block fallthrough")
       else
         let instruction = block.instructions.(!current_instruction) in
+        let () =
+          if not !program.is_function then
+            active_initializer :=
+              Option.bind initialization (fun context ->
+                  Global_initialization.find context instruction.instruction_id)
+        in
         if !steps >= max_steps then
           failed :=
             Some
@@ -1348,8 +1375,10 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                                  message))))
           | Discard operand ->
               let value = require_operand block instruction operand in
-              if capture_last && not !program.is_function then
-                final_value := value
+              if
+                capture_last && (not !program.is_function)
+                && Option.is_none !active_initializer
+              then final_value := value
           | Return_value (operand, type_) -> (
               match require_operand block instruction operand with
               | Some word -> pending_return := Some { type_; bits = word.bits }
@@ -1429,13 +1458,16 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
               function_name = Some function_name;
             }
       in
-      Error [ error ]
+      Error [ identify_initializer !active_initializer error ]
   | None, Some termination ->
       Ok
         {
           termination_ = termination;
           executed_steps_ = !steps;
           final_value_ = !final_value;
+          compiled_initializer_steps_ =
+            Option.fold ~none:0 ~some:Global_initialization.prepared_steps
+              initialization;
         }
   | None, None ->
       Error
@@ -1480,8 +1512,8 @@ let execute_function ~max_steps ~max_frame_bytes ~frame ~arguments function_ =
                       Sema.Symbol.name (Function.symbol function_) );
               })
 
-let execute_program ?globals ?(max_global_bytes = 1_048_576) ~max_steps
-    ~max_frame_bytes ~max_call_depth ~functions checked =
+let execute_program ?globals ?initialization ?(max_global_bytes = 1_048_576)
+    ~max_steps ~max_frame_bytes ~max_call_depth ~functions checked =
   let ( let* ) = Result.bind in
   if
     max_steps <= 0 || max_frame_bytes <= 0 || max_call_depth <= 0
@@ -1503,6 +1535,23 @@ let execute_program ?globals ?(max_global_bytes = 1_048_576) ~max_steps
       [
         make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0016"
           "program global storage exceeds the global byte limit";
+      ]
+  else if
+    match (globals, initialization) with
+    | Some globals, Some context ->
+        not (Global_initialization.matches context ~globals ~entry:checked)
+    | None, Some _ -> true
+    | Some globals, None ->
+        List.exists
+          (fun slot -> Option.is_some (Integer_globals.slot_initializer slot))
+          (Integer_globals.slots globals)
+    | None, None -> false
+  then
+    Error
+      [
+        make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0017"
+          "global initializer execution requires its matching checked \
+           initialization context";
       ]
   else
     let owner body =
@@ -1589,7 +1638,19 @@ let execute_program ?globals ?(max_global_bytes = 1_048_576) ~max_steps
             rest
     in
     let* programs = bodies [] summaries in
-    let* entry = prepare ?globals ~callees (X87.graph checked) in
+    let* entry =
+      prepare ?globals ~callees (X87.graph checked)
+      |> Result.map_error
+           (List.map (fun (error : error) ->
+                let region =
+                  Option.bind initialization (fun context ->
+                      Option.bind error.instruction_id (fun id ->
+                          match Instruction_id.of_int id with
+                          | Ok id -> Global_initialization.find context id
+                          | Error _ -> None))
+                in
+                identify_initializer region error))
+    in
     let global_words =
       Option.fold ~none:[] ~some:Integer_globals.slots globals
       |> List.map (fun slot ->
@@ -1605,11 +1666,12 @@ let execute_program ?globals ?(max_global_bytes = 1_048_576) ~max_steps
       |> Array.of_list
     in
     execute_prepared ~callees:programs ~max_frame_bytes ~max_call_depth
-      ~global_words ~capture_last:true ~max_steps entry
+      ?initialization ~global_words ~capture_last:true ~max_steps entry
 
 let termination execution = execution.termination_
 let executed_steps execution = execution.executed_steps_
 let final_value execution = execution.final_value_
+let compiled_initializer_steps execution = execution.compiled_initializer_steps_
 
 let word_type_name = function
   | I64 -> "i64"

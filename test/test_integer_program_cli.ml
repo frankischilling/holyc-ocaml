@@ -236,4 +236,112 @@ let () =
       require
         (String.starts_with ~prefix:"holyc: run: HCIRVM0001" stderr)
         "global limit configuration diagnostic");
+  List.iter
+    (fun mode ->
+      let source = Sys.argv.(6) in
+      let result =
+        success
+          [
+            "run";
+            "--format=json";
+            "--mode=" ^ mode;
+            "--initializer-step-limit=3";
+            "--global-byte-limit=8";
+            source;
+          ]
+        |> Yojson.Safe.from_string
+      in
+      require
+        (result |> member "final_value" |> member "value" |> to_string = "42")
+        "initialized accumulator returns 42";
+      require
+        (result |> member "initializer_step_limit" |> to_int = 3)
+        "reported initializer preparation budget";
+      require
+        (result |> member "compiled_initializer_steps" |> to_int = 3)
+        "constant preparation has a separate count";
+      require
+        (result |> member "executed_steps" |> to_int = 46)
+        "initializer preparation is excluded from source execution steps";
+      let human =
+        success
+          [ "run"; "--mode=" ^ mode; "--initializer-step-limit=3"; source ]
+      in
+      require
+        (String.split_on_char '\n' human
+        |> List.map String.trim
+        |> List.mem "compiled-initializer-steps=3")
+        "human preparation count";
+      let command =
+        [
+          "dump-ir";
+          "--program";
+          "--mode=" ^ mode;
+          "--initializer-step-limit=3";
+          source;
+        ]
+      in
+      require
+        (success command = success command)
+        "deterministic initialized program IR";
+      List.iter
+        (fun command ->
+          let status, stdout, stderr =
+            invoke
+              (command
+              @ [
+                  "--format=json";
+                  "--mode=" ^ mode;
+                  "--initializer-step-limit=2";
+                  source;
+                ])
+          in
+          require
+            (status = Unix.WEXITED 1 && stdout = "")
+            "constant preparation limit fails before output";
+          require
+            (Yojson.Safe.from_string stderr
+            |> to_list |> List.hd |> member "code" |> to_string = "HCIRVM0007")
+            "preparation limit diagnostic")
+        [ [ "run" ] ];
+      with_file ".hc" "I64 Fail(I64 d){return 1/d;}I64 G=Fail(0);"
+        (fun source ->
+          let status, stdout, stderr =
+            invoke [ "run"; "--format=json"; "--mode=" ^ mode; source ]
+          in
+          require
+            (status = Unix.WEXITED 1 && stdout = "")
+            "initializer fault has no result";
+          let notes =
+            Yojson.Safe.from_string stderr
+            |> to_list |> List.hd |> member "notes" |> to_list
+            |> List.map to_string
+          in
+          require
+            (List.mem "initializer=G" notes && List.mem "function=Fail" notes)
+            "fault retains initializer and active function";
+          require
+            (List.mem
+               ("initializer_phase="
+               ^
+               if mode = "jit" then "compile-initializer"
+               else "load-initializer")
+               notes)
+            "fault phase"))
+    [ "jit"; "aot" ];
+  with_file ".hc" "@invalid" (fun source ->
+      List.iter
+        (fun command ->
+          let status, stdout, stderr =
+            invoke (command @ [ "--initializer-step-limit=0"; source ])
+          in
+          require
+            (status = Unix.WEXITED 1 && stdout = "")
+            "invalid initializer limit rejects before parsing";
+          require
+            (String.starts_with
+               ~prefix:("holyc: " ^ List.hd command ^ ": HCIRVM0001")
+               stderr)
+            "initializer limit configuration diagnostic")
+        [ [ "run" ]; [ "dump-ir"; "--program" ] ]);
   print_endline "Integer program CLI checks passed."

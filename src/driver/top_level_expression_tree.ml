@@ -1015,19 +1015,55 @@ and switch_element state = function
   | Frontend.Ast.Switch_statement_element statement_ ->
       statement state statement_
 
-let ast_statements (module_ : Frontend.Ast.module_) =
-  module_.items
-  |> List.mapi (fun item_index item -> (item_index, item))
-  |> List.filter_map (function
-    | item_index, Frontend.Ast.Top_level_statement statement ->
-        Some (item_index, statement)
-    | _ -> None)
+let ast_statements ~table source (module_ : Frontend.Ast.module_) =
+  let ordinary =
+    module_.items
+    |> List.mapi (fun item_index item -> (item_index, item))
+    |> List.filter_map (function
+      | item_index, Frontend.Ast.Top_level_statement statement ->
+          Some (item_index, `Statement statement)
+      | _ -> None)
+  in
+  let initializers =
+    source |> Sema.Top_level_outer_expression_binding.source
+    |> Sema.Top_level_expression_binding.initializer_bindings
+  in
+  let initialized =
+    match initializers with
+    | None -> Ok []
+    | Some bindings ->
+        Global_initializer_binding.scalar_initializers ~table ~bindings module_
+  in
+  Result.map
+    (fun globals ->
+      ordinary
+      @ List.map
+          (fun (global, initial) ->
+            ( Sema.Global_initializer_binding.global_item_index global,
+              `Initializer (global, initial) ))
+          globals
+      |> List.stable_sort (fun (left, _) (right, _) -> Int.compare left right))
+    initialized
 
 let source_matches_ast expected item_index ast =
+  let initial_owner =
+    expected |> Sema.Top_level_outer_expression_binding.statement_source
+    |> Sema.Top_level_expression_binding.statement_initializer
+  in
+  let location_matches =
+    match (initial_owner, ast) with
+    | None, `Statement node ->
+        Sema.Top_level_outer_expression_binding.statement_origin expected
+        = origin (Frontend.Ast.statement_location node)
+    | Some owner, `Initializer (selected, initial) ->
+        owner == selected
+        && Sema.Top_level_outer_expression_binding.statement_origin expected
+           = origin initial.Frontend.Ast.global_initializer_location
+    | _ -> false
+  in
   Sema.Top_level_outer_expression_binding.statement_item_index expected
   = item_index
-  && Sema.Top_level_outer_expression_binding.statement_origin expected
-     = origin (Frontend.Ast.statement_location ast)
+  && location_matches
 
 let statement_input counters expected (item_index, ast) =
   if not (source_matches_ast expected item_index ast) then
@@ -1052,7 +1088,17 @@ let statement_input counters expected (item_index, ast) =
         ~module_expressions:counters.module_expressions ~item_index occurrences
         queries
     in
-    match statement state ast with
+    let lowered =
+      match ast with
+      | `Statement node -> statement state node
+      | `Initializer (global, initial) -> (
+          match initial.Frontend.Ast.global_initializer_value with
+          | Frontend.Ast.Scalar_initializer value ->
+              add_root state
+                (Sema.Top_level_expression_tree.Global_initializer global) value
+          | _ -> Error "global initializer expression group is not scalar")
+    in
+    match lowered with
     | Error _ as error -> error
     | Ok state -> (
         if state.occurrence_cursor <> Array.length state.occurrences then
@@ -1079,7 +1125,7 @@ let statement_input counters expected (item_index, ast) =
               Error (Sema.Top_level_expression_tree.error_to_string error)
           | Ok prepared -> Ok (state, prepared))
 
-let build_statements source module_ =
+let build_statements ~table source module_ =
   let rec loop counters rev expected ast =
     match (expected, ast) with
     | [], [] -> Ok (List.rev rev)
@@ -1100,9 +1146,12 @@ let build_statements source module_ =
       ~next_selector:0 ~next_case:0 ~next_local_declaration:0 ~next_return:0
       ~module_expressions ~item_index:0 [] []
   in
-  loop counters []
-    (Sema.Top_level_outer_expression_binding.statements source)
-    (ast_statements module_)
+  match ast_statements ~table source module_ with
+  | Error _ as error -> error
+  | Ok ast ->
+      loop counters []
+        (Sema.Top_level_outer_expression_binding.statements source)
+        ast
 
 let build ~table ~declarations ~compilation_mode ~expressions module_ =
   let parent = Sema.Declaration_collection.scope declarations in
@@ -1128,7 +1177,7 @@ let build ~table ~declarations ~compilation_mode ~expressions module_ =
       | Error error ->
           Error (Top_level_statement_validation.error_to_string error)
       | Ok () -> (
-          match build_statements expressions module_ with
+          match build_statements ~table expressions module_ with
           | Error _ as error -> error
           | Ok statements ->
               Sema.Top_level_expression_tree.create ~table ~source:expressions

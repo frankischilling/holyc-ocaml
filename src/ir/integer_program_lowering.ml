@@ -6,6 +6,7 @@ type statement =
   | Empty of Common.Span.t
   | Expression of Typed.expression_result
   | Initialize of Typed.initializer_result
+  | Initialize_global of Typed.top_level_root_result
   | Return of Typed.return_result
   | Block of statement list
   | If of Typed.expression_result * statement * statement option
@@ -29,12 +30,13 @@ let span_of_result fallback result =
   | Sema.Symbol.Source_location location -> location.span
   | _ -> fallback
 
-let lower ?frame ?globals ?(top_calls = []) ?(function_calls = []) ~span
-    statements =
+let lower_with_initializers ?frame ?globals ?(top_calls = [])
+    ?(function_calls = []) ~span statements =
   try
     let instruction_count = ref 0
     and value_count = ref 0
     and block_count = ref 0 in
+    let initial_regions = ref [] in
     let checked_id = function
       | Ok value -> value
       | Error (e : Sequence.error) -> fail span e.code e.message
@@ -260,6 +262,38 @@ let lower ?frame ?globals ?(top_calls = []) ?(function_calls = []) ~span
     in
     let rec statement break_target = function
       | Empty _ -> ()
+      | Initialize_global root -> (
+          let at = span_of_result span (Typed.top_level_root_value root) in
+          match (globals, frame) with
+          | Some globals, None -> (
+              let first =
+                Sequence.Instruction_id.of_int !instruction_count |> checked_id
+              in
+              match
+                Expression_lowering.lower_global_initializer ~globals
+                  ~lower_call:direct_call ~instruction_id:first
+                  ~value_id:(Sequence.Value_id.of_int !value_count |> checked_id)
+                  root
+              with
+              | Error errors -> lower_errors errors
+              | Ok Expression_lowering.Unsupported_expression ->
+                  fail at "HCRUN0003"
+                    "global initializer is outside integer program lowering"
+              | Ok (Expression_lowering.Lowered result) ->
+                  let operand = append_expression result in
+                  let last =
+                    Sequence.Instruction_id.of_int !instruction_count
+                    |> checked_id
+                  in
+                  instruction ~at ~operands:[ operand ] ~flags:0x200L
+                    Opcode.Ic_end_exp;
+                  initial_regions :=
+                    { Global_initialization.root; first; last }
+                    :: !initial_regions)
+          | _ ->
+              fail at "HCRUN0004"
+                "global initializer requires program storage and a module entry"
+          )
       | Initialize initial -> (
           let value = Typed.initializer_value initial in
           let at = span_of_result span value in
@@ -391,6 +425,7 @@ let lower ?frame ?globals ?(top_calls = []) ?(function_calls = []) ~span
                   errors))
     in
     X87_stack.verify graph
+    |> Result.map (fun graph -> (graph, List.rev !initial_regions))
     |> Result.map_error
          (List.map (fun (e : X87_stack.error) ->
               Common.Diagnostic.make ~code:e.code
@@ -398,3 +433,20 @@ let lower ?frame ?globals ?(top_calls = []) ?(function_calls = []) ~span
                 ~primary:(Option.value e.span ~default:span)
                 ()))
   with Invalid diagnostics -> Error diagnostics
+
+let lower ?frame ?globals ?top_calls ?function_calls ~span statements =
+  match
+    lower_with_initializers ?frame ?globals ?top_calls ?function_calls ~span
+      statements
+  with
+  | Ok (graph, []) -> Ok graph
+  | Ok (_, _ :: _) ->
+      Error
+        [
+          Common.Diagnostic.make ~code:"HCRUN0004"
+            ~severity:Common.Diagnostic.Error
+            ~message:
+              "global initializer regions require the compiled-program API"
+            ~primary:span ();
+        ]
+  | Error errors -> Error errors

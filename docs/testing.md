@@ -1,5 +1,12 @@
 # Testing holyc-ocaml
 
+The `source global initializers` group covers the initialized accumulator,
+declaration/commagroup order, exact and foreign roots, constant images, signedness,
+separate preparation bounds, source-order side effects, nested call faults,
+recursion and shared runtime limits, repeated-run isolation, self-reads and
+malformed initializer regions. The CLI checks both modes, separate counts and
+limits, fault provenance and deterministic dumps. See [global initializers](integer-global-initializers.md).
+
 The `source integer globals` group covers the shared source accumulator, global
 loads/stores in expression and call contexts, local shadowing, signedness,
 JIT/AOT initial state, allocation bounds, whole-program preflight, foreign

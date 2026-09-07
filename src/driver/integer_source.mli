@@ -4,6 +4,7 @@ val source_span : Common.Source_file.t -> Common.Span.t
 type prepared
 
 val prepare_unit :
+  ?include_global_initializers:bool ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->
   span:Common.Span.t ->
@@ -25,3 +26,4 @@ val prepare :
   result
 
 val global_records : prepared -> Sema.Global_record_classification.t
+val initializers : prepared -> Sema.Global_initializer_binding.t option

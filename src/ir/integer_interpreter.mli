@@ -19,6 +19,9 @@ type error = private {
   span : Common.Span.t option;
   function_id : int option;
   function_name : string option;
+  initializer_phase : Global_initialization.phase option;
+  initializer_symbol_id : int option;
+  initializer_name : string option;
 }
 
 type t
@@ -27,6 +30,7 @@ val reference_commit : string
 
 val execute_program :
   ?globals:Integer_globals.t ->
+  ?initialization:Global_initialization.t ->
   ?max_global_bytes:int ->
   max_steps:int ->
   max_frame_bytes:int ->
@@ -41,8 +45,12 @@ val execute_program :
     binary operations without requiring a local frame. [globals] supplies exact
     shared scalar objects, bounded separately by positive [max_global_bytes]
     (default 1,048,576). Every execution owns fresh words; calls and block
-    transfers preserve them. AOT code-heap words start at zero, while a reached
-    unknown JIT word produces a labeled hosted diagnostic. *)
+    transfers preserve them. Prepared constants supply initial-image bits; other
+    AOT code-heap words start at zero, while a reached unknown JIT word produces
+    a labeled hosted diagnostic. Initializer-bearing storage requires the exact
+    [initialization] context. Its regions preserve declaration owner and
+    compile/load phase through calls and faults, and do not replace the last
+    ordinary top-level expression value. *)
 
 val final_value : t -> word option
 (** Last reached top-level expression value from [execute_program], separate
@@ -78,6 +86,11 @@ val execute_function :
 
 val termination : t -> termination
 val executed_steps : t -> int
+
+val compiled_initializer_steps : t -> int
+(** Constant preparation evidence retained by the initialization context. These
+    steps are separate from runtime [executed_steps] and its instruction limit.
+*)
 
 val human : t -> string
 (** Render the versioned, deterministic execution result. *)

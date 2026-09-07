@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added scalar integer global declaration initializers through the existing module expression engine. Supported constant values populate immutable initial images under a separate positive preparation budget; nonconstant initializers execute in source order with JIT compile or AOT load phase and declaration ownership retained through calls and faults. The initialized accumulator returns 42 in 46 runtime instructions plus 3 preparation steps. Exact context validation and initializer arithmetic guards cover transitive callees; general storage, stateful compilation and optimizer parity remain unfinished.
+
 - Added shared scalar I64/U64 global storage to source execution, with canonical JIT/AOT address intent, global loads and assignments across calls, and a separate positive global-byte limit. The accumulator fixture returns 42 in 50 instructions in both modes. AOT code-heap storage starts at zero; reached unknown JIT reads report a labeled hosted diagnostic. Declaration initializers, aliases and broader storage remain explicit boundaries.
 
 - Added nested integer call expressions through the source execution path. Returned words now compose in arithmetic, arguments, initializers, conditions and returns, including returned recursion and mutable loops. Caller values and argument scopes survive nested calls under existing shared limits. Program execution accepts checked public I64/U64 call results in top-level arithmetic; graph-only execution keeps its existing type boundary.

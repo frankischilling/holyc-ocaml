@@ -7,6 +7,7 @@ type switch_case_pattern =
 
 type root_role =
   | Expression_statement of { statement_index : int }
+  | Global_initializer of Global_initializer_binding.resolved_global
   | Implicit_output_fixed of {
       output_index : int;
       target : Function_call_resolution.implicit_output_target;

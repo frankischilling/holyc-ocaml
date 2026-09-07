@@ -1,12 +1,20 @@
 # Reference source map
 
+Issue #603 joins scalar declaration roots to `PrsVar.HC:51-112` initialization
+phases and `KLoad.HC:153-181` entry order. Constantness uses the original-opcode
+metadata from `CInit.HC:27-108` and `OptPass012.HC:66-68`, before adding the
+destination address/store. `OptPass012.HC:419-430` establishes the initializer
+constant-divisor boundary, also checked in transitive callees. See
+[global initializers](integer-global-initializers.md) for hosted fault-order
+limits and the absence of new BIN/native execution claims.
+
 Issue #601 connects global address forms from `Compiler/PrsExp.HC:867-902` and
 allocation/publication from `Compiler/PrsStmt.HC:334-410` to shared scalar
 storage. `Kernel/KStart32.HC:17-29` supplies the configurable JIT fill context.
 The hosted executor preserves AOT code-heap initial zero and diagnoses reached
 unknown JIT reads. Declaration initializer phases in `Compiler/PrsVar.HC:51-112`
-and `Kernel/KLoad.HC:153-181` remain a required follow-up; the source fixture
-initializes through an explicit assignment. See [shared globals](integer-globals.md).
+and `Kernel/KLoad.HC:153-181` are connected separately by #603; the original
+storage fixture still initializes through an explicit assignment. See [shared globals](integer-globals.md).
 
 Issue #599 composes the checked call result from `PrsExp.HC:438-586` into the
 expression planner, initializer stores and return fragments. It retains COC

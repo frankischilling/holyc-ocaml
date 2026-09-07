@@ -382,7 +382,7 @@ let print_integer_result format result =
       1
 
 let print_integer_program_result format mode max_steps max_frame_bytes
-    max_call_depth max_global_bytes result =
+    max_call_depth max_global_bytes max_initializer_steps result =
   let module VM = Holyc_lib.Ir_integer_interpreter in
   let mode =
     match mode with
@@ -413,6 +413,9 @@ let print_integer_program_result format mode max_steps max_frame_bytes
       Printf.printf "frame-byte-limit=%d\ncall-depth-limit=%d\n" max_frame_bytes
         max_call_depth;
       Printf.printf "global-byte-limit=%d\n" max_global_bytes;
+      Printf.printf "initializer-step-limit=%d\ncompiled-initializer-steps=%d\n"
+        max_initializer_steps
+        (VM.compiled_initializer_steps result);
       match final_value with
       | None -> print_endline "final-value=none"
       | Some word ->
@@ -437,6 +440,9 @@ let print_integer_program_result format mode max_steps max_frame_bytes
           ("frame_byte_limit", `Int max_frame_bytes);
           ("call_depth_limit", `Int max_call_depth);
           ("global_byte_limit", `Int max_global_bytes);
+          ("initializer_step_limit", `Int max_initializer_steps);
+          ( "compiled_initializer_steps",
+            `Int (VM.compiled_initializer_steps result) );
           ( "final_value",
             match final_value with
             | None -> `Null
@@ -455,12 +461,12 @@ let print_integer_program_result format mode max_steps max_frame_bytes
       |> Yojson.Safe.pretty_to_string |> print_endline);
   0
 
-let integer_expression_file ?(max_global_bytes = 1_048_576)
-    ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128) program target dump
-    max_steps format include_roots templeos_root max_include_depth
-    max_source_bytes max_definition_depth max_generated_bytes
-    max_conditional_depth max_expression_nodes compilation_mode predefined_date
-    predefined_time command_line_source path =
+let integer_expression_file ?(max_initializer_steps = 100_000)
+    ?(max_global_bytes = 1_048_576) ?(max_frame_bytes = 1_048_576)
+    ?(max_call_depth = 128) program target dump max_steps format include_roots
+    templeos_root max_include_depth max_source_bytes max_definition_depth
+    max_generated_bytes max_conditional_depth max_expression_nodes
+    compilation_mode predefined_date predefined_time command_line_source path =
   let command = if dump then "dump-ir" else if program then "run" else "eval" in
   let fail message =
     print_command_error format ~command message;
@@ -474,11 +480,12 @@ let integer_expression_file ?(max_global_bytes = 1_048_576)
     fail "HCIRVM0001: max_steps must be greater than zero"
   else if
     program
-    && (max_frame_bytes <= 0 || max_call_depth <= 0 || max_global_bytes <= 0)
+    && (max_frame_bytes <= 0 || max_call_depth <= 0 || max_global_bytes <= 0
+      || max_initializer_steps <= 0)
   then
     fail
-      "HCIRVM0001: max_frame_bytes, max_call_depth and max_global_bytes must \
-       be greater than zero"
+      "HCIRVM0001: max_frame_bytes, max_call_depth, max_global_bytes and \
+       max_initializer_steps must be greater than zero"
   else
     let session = Holyc_lib.Session.create () in
     match Holyc_lib.Session.load_source session ~path with
@@ -502,7 +509,8 @@ let integer_expression_file ?(max_global_bytes = 1_048_576)
             let output =
               if dump then
                 (if program then
-                   Holyc_lib.compile_integer_program session ~config ~source
+                   Holyc_lib.compile_integer_program ~max_initializer_steps
+                     session ~config ~source
                    |> Result.map program_value
                    |> Result.map Holyc_lib.integer_program_human
                  else
@@ -514,13 +522,14 @@ let integer_expression_file ?(max_global_bytes = 1_048_576)
                     output_string stdout text;
                     0)
               else if program then
-                Holyc_lib.run_integer_program ~max_global_bytes ~max_frame_bytes
-                  ~max_call_depth session ~config ~source ~max_steps
+                Holyc_lib.run_integer_program ~max_initializer_steps
+                  ~max_global_bytes ~max_frame_bytes ~max_call_depth session
+                  ~config ~source ~max_steps
                 |> Result.map program_value
                 |> Result.map
                      (print_integer_program_result format compilation_mode
                         max_steps max_frame_bytes max_call_depth
-                        max_global_bytes)
+                        max_global_bytes max_initializer_steps)
               else
                 Holyc_lib.evaluate_integer_expression session ~config ~source
                   ~max_steps
@@ -544,6 +553,16 @@ let expression_exits =
   Cmd.Exit.info 1
     ~doc:"on an input, configuration, lowering, or evaluation error"
   :: Cmd.Exit.defaults
+
+let initializer_step_limit_argument =
+  Arg.(
+    value & opt int 100000
+    & info
+        [ "initializer-step-limit" ]
+        ~docv:"COUNT"
+        ~doc:
+          "Maximum total IR instructions used to prepare constant global \
+           initializers. Separate from runtime steps; must be positive.")
 
 let eval_command =
   Cmd.v
@@ -591,12 +610,12 @@ let run_command =
           flow in the bounded IR interpreter.")
     (source_parser_options
        Term.(
-         const (fun target steps bytes depth globals ->
-             integer_expression_file ~max_global_bytes:globals
-               ~max_frame_bytes:bytes ~max_call_depth:depth true target false
-               steps)
+         const (fun target steps bytes depth globals initial_steps ->
+             integer_expression_file ~max_initializer_steps:initial_steps
+               ~max_global_bytes:globals ~max_frame_bytes:bytes
+               ~max_call_depth:depth true target false steps)
          $ run_target_argument $ step_limit_argument $ frame_limit $ call_depth
-         $ global_limit))
+         $ global_limit $ initializer_step_limit_argument))
 
 let program_ir_argument =
   Arg.(
@@ -611,11 +630,14 @@ let dump_ir_command =
     (Cmd.info "dump-ir" ~exits:expression_exits
        ~doc:
          "Lower one ordinary expression statement (EXPR;) into a verified \
-          return harness and print its deterministic IR without executing it.")
+          return harness and print its deterministic IR. Program mode also \
+          prepares constant global initializers within its preparation budget.")
     (source_parser_options
        Term.(
-         const (fun program -> integer_expression_file program "ir" true 0)
-         $ program_ir_argument))
+         const (fun program initial_steps ->
+             integer_expression_file ~max_initializer_steps:initial_steps
+               program "ir" true 0)
+         $ program_ir_argument $ initializer_step_limit_argument))
 
 let parser_term = source_parser_term parse_file
 

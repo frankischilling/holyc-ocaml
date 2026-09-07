@@ -4103,6 +4103,7 @@ let type_top_level_root table members policies ~before_item_index state source =
           | Top_level_expression_tree.Expression_statement _ ->
               Some Result_not_used
           | Top_level_expression_tree.Implicit_output_fixed _
+          | Top_level_expression_tree.Global_initializer _
           | Top_level_expression_tree.Implicit_output_argument _
           | Top_level_expression_tree.Condition _
           | Top_level_expression_tree.Switch_selector _

@@ -21,10 +21,59 @@ module Ir_control_flow = Ir.Control_flow
 module Ir_block_graph = Ir.Block_graph
 module Ir_effects = Ir.Effects
 module Ir_x87_stack = Ir.X87_stack
-module Ir_integer_globals = Ir.Integer_globals
+
+module Ir_integer_globals : sig
+  type t = Ir.Integer_globals.t
+  type slot = Ir.Integer_globals.slot
+
+  val create :
+    ?initializers:Sema.Function_call_expression_result.top_level_t ->
+    span:Common.Span.t ->
+    Sema.Global_record_classification.t ->
+    (t, Common.Diagnostic.t list) result
+
+  val slots : t -> slot list
+  val byte_size : t -> int
+  val find : t -> Sema.Symbol.t -> slot option
+  val slot_index : slot -> int
+  val slot_symbol : slot -> Sema.Symbol.t
+  val slot_type : slot -> Sema.Type.t
+  val slot_record : slot -> Sema.Global_record_classification.classified_record
+  val slot_opcode : slot -> Ir.Opcode.t
+  val slot_initial_bits : slot -> int64 option
+
+  val slot_initializer :
+    slot -> Sema.Function_call_expression_result.top_level_root_result option
+
+  val slot_initializer_materialized : slot -> bool
+  val slot_initializer_preparation_steps : slot -> int
+  val requires_initializer_execution : t -> bool
+  val human : t -> string
+end
+
 module Ir_global_address_lowering = Ir.Global_address_lowering
 module Ir_integer_interpreter = Ir.Integer_interpreter
 module Ir_integer_program_lowering = Ir.Integer_program_lowering
+module Ir_global_initialization = Ir.Global_initialization
+
+module Integer_initializer_preparation : sig
+  type classification = Driver.Integer_initializers.classification =
+    | Prepared_constant of int64
+    | Scheduled
+
+  type item = Driver.Integer_initializers.item
+  type t = Driver.Integer_initializers.t
+
+  val globals : t -> Ir.Integer_globals.t
+  val items : t -> item list
+  val executed_steps : t -> int
+  val root : item -> Sema.Function_call_expression_result.top_level_root_result
+  val value_graph : item -> Ir.X87_stack.t
+  val classification : item -> classification
+  val item_steps : item -> int
+  val human : t -> string
+end
+
 module Ir_integer_unary_folding = Ir.Integer_unary_folding
 module Ir_function_body = Ir.Function_body
 module Ir_top_level_body = Ir.Top_level_body
@@ -370,6 +419,7 @@ val resolve_top_level_expressions :
   Session.t ->
   declarations:Semantic_declaration_collection.t ->
   module_expressions:Semantic_module_expression_binding.t ->
+  ?initializers:Semantic_global_initializer_binding.t ->
   Ast.module_ ->
   (Semantic_top_level_expression_binding.t, string) result
 (** Bind ordinary names and retain specialized [defined] queries under
@@ -711,6 +761,7 @@ val lower_integer_program :
 type integer_program
 
 val compile_integer_program :
+  ?max_initializer_steps:int ->
   Session.t ->
   config:Preprocessor.Config.t ->
   source:Source_file.t ->
@@ -719,12 +770,19 @@ val compile_integer_program :
 val integer_program_entry : integer_program -> Ir_x87_stack.t
 val integer_program_globals : integer_program -> Ir_integer_globals.t
 
+val integer_program_initialization :
+  integer_program -> Ir_global_initialization.t
+
+val integer_program_initializer_preparation :
+  integer_program -> Integer_initializer_preparation.t
+
 val integer_program_functions :
   integer_program -> Ir_integer_interpreter.function_definition list
 
 val integer_program_human : integer_program -> string
 
 val run_integer_program :
+  ?max_initializer_steps:int ->
   ?max_global_bytes:int ->
   ?max_frame_bytes:int ->
   ?max_call_depth:int ->
@@ -735,11 +793,14 @@ val run_integer_program :
   (Ir_integer_interpreter.t integer_program_result, Diagnostic.t list) result
 (** Execute integer source statements and checked I64/U64 function definitions
     with fixed parameters, automatic locals, direct call expressions and
-    ordinary scalar I64/U64 code-heap globals without declaration initializers
-    or aliases. Instructions, active frame bytes, global bytes and call depth
-    have positive bounds. Global words are shared by all calls in one execution.
-    Conditions short-circuit AND and OR; ordinary values and XOR remain eager.
-    Arithmetic uses raw runtime IR semantics. General memory, output,
+    ordinary non-aliased scalar I64/U64 code-heap globals with supported
+    declaration initializers. Constant preparation, runtime instructions, active
+    frame bytes, global bytes and call depth have separate positive bounds.
+    Global words are shared by all calls in one execution. Conditions
+    short-circuit AND and OR; ordinary values and XOR remain eager. Scheduled
+    arithmetic uses runtime IR semantics; initializers and their transitive
+    callees retain explicit shift and constant-divisor optimizer boundaries.
+    Supported pure constants supply initial-image bits. General memory, output,
     indirect/external calls and native code remain unsupported. *)
 
 val lower_integer_expression :

@@ -21,8 +21,10 @@ call shapes, argument order and storage limits. The report retains the last
 reached top-level expression value; it has no implemented Print operation.
 `holyc eval` continues to return the value of exactly one expression statement.
 
-Ordinary scalar I64/U64 code-heap globals without declaration initializers or
-aliases also execute through this path. Top-level and function expressions
+Ordinary scalar I64/U64 code-heap globals without aliases also execute through
+this path. [Declaration initializers](integer-global-initializers.md) retain
+constant initial images and source-ordered compile/load regions with a separate
+positive `--initializer-step-limit`. Top-level and function expressions
 share their storage across calls and loops. The [global accumulator](integer-globals.md)
 returns 42 in 50 instructions in both modes and introduces `--global-byte-limit`.
 
@@ -93,6 +95,8 @@ comparison class. Multiple pending comparison reductions, such as
 [issue #593](https://github.com/frankischilling/holyc-ocaml/issues/593).
 `HCRUN0004` reports an inconsistent
 source/IR join, and `HCRUN0005` rejects an unavailable execution target.
+`HCRUN0006` retains the initializer optimizer boundary, including transitive
+callees; `HCIRVM0017` rejects missing or inconsistent initialization contexts.
 
 General memory, indirect/external execution, compiler-state changes, `#exe`, native emission and
 general program execution remain unfinished under [M5 issue #396](https://github.com/frankischilling/holyc-ocaml/issues/396)

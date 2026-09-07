@@ -2,6 +2,7 @@ type 'a checked = { value : 'a; diagnostics : Common.Diagnostic.t list }
 type compiled
 
 val compile :
+  ?max_initializer_steps:int ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->
   source:Common.Source_file.t ->
@@ -9,6 +10,8 @@ val compile :
 
 val entry : compiled -> Ir.X87_stack.t
 val globals : compiled -> Ir.Integer_globals.t
+val initialization : compiled -> Ir.Global_initialization.t
+val initializer_preparation : compiled -> Integer_initializers.t
 val functions : compiled -> Ir.Integer_interpreter.function_definition list
 val human : compiled -> string
 
@@ -19,6 +22,7 @@ val lower :
   (Ir.X87_stack.t checked, Common.Diagnostic.t list) result
 
 val run :
+  ?max_initializer_steps:int ->
   ?max_global_bytes:int ->
   ?max_frame_bytes:int ->
   ?max_call_depth:int ->

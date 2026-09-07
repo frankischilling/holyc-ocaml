@@ -146,7 +146,7 @@ let unsupported () =
       List.iter
         (fun text -> ignore (F.first_error (run ~mode text)))
         [
-          "I64 G=0;42;";
+          "I64 G={0};42;";
           "I64 G=Missing();42;";
           "I64 G=1/0;42;";
           "I64 G[1];42;";

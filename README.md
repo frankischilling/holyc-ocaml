@@ -59,8 +59,10 @@ constant-folding equivalence or native shift oracle is claimed.
 `holyc run --target=ir examples/integer-globals.hc` shares one integer global
 between top-level code and repeated function calls, returning 42 in 50
 instructions in both modes. `--global-byte-limit` bounds that storage separately
-from active frames. See [shared integer globals](docs/integer-globals.md) for
-initial-state rules, the public API and remaining initializer work.
+from active frames. The [declaration-initialized version](docs/integer-global-initializers.md)
+returns 42 in 46 runtime instructions, with 3 separately bounded constant-preparation
+steps. Nonconstant initializers preserve source order and their JIT compile or AOT
+load phase. See [shared integer globals](docs/integer-globals.md) for storage rules.
 
 `holyc run --target=ir examples/integer-function.hc` executes the original Add
 function with two parameters, an initialized local and a returned 42. Both JIT

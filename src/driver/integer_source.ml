@@ -7,6 +7,7 @@ type prepared = {
   frames_ : Sema.Function_frame_layout.t;
   records_ : Sema.Function_record_classification.t;
   global_records_ : Sema.Global_record_classification.t;
+  initializers_ : Sema.Global_initializer_binding.t option;
 }
 
 let top_level prepared = prepared.top_level_
@@ -14,6 +15,7 @@ let functions prepared = prepared.functions_
 let frames prepared = prepared.frames_
 let records prepared = prepared.records_
 let global_records prepared = prepared.global_records_
+let initializers prepared = prepared.initializers_
 let ( let* ) = Result.bind
 
 let diagnostic ~span code message =
@@ -35,7 +37,8 @@ let message_diagnostic ~span message =
               (String.length message - separator - 1)))
   | _ -> diagnostic ~span "HCEVAL0003" message
 
-let prepare_unit session ~config ~span ast =
+let prepare_unit ?(include_global_initializers = false) session ~config ~span
+    ast =
   let table = Session.semantic_symbols session in
   let mode = Frontend.Preprocessor.Config.compilation_mode config in
   let checked result =
@@ -147,8 +150,16 @@ let prepare_unit session ~config ~span ast =
     |> checked
   in
   let* expressions =
+    if include_global_initializers then
+      Global_initializer_binding.resolve ~table ~environment
+        ~expressions:module_expressions ~globals ast
+      |> checked |> Result.map Option.some
+    else Ok None
+  in
+  let initializers_ = expressions in
+  let* expressions =
     Top_level_expression_binding.resolve ~table ~declarations
-      ~module_expressions ast
+      ~module_expressions ?initializers:initializers_ ast
     |> checked
   in
   let* expressions =
@@ -196,6 +207,7 @@ let prepare_unit session ~config ~span ast =
   Ok
     {
       global_records_ = global_records;
+      initializers_;
       top_level_ = typed;
       functions_ = function_results;
       frames_ = frames;
