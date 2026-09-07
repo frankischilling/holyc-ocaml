@@ -3,6 +3,7 @@
  (modules
   test_main
   test_integer_expression
+  test_ir_integer_division
   test_source
   test_lexer
   test_preprocessor
@@ -4406,3 +4407,124 @@
    (diff
     cli/integer-expression-malformed.human
     integer-eval-malformed.stderr.actual))))
+
+(rule
+ (alias runtest)
+ (targets integer-division.stdout.actual integer-division.stderr.actual)
+ (deps
+  cli/integer-division.hc
+  cli/integer-division.human
+  cli/integer-expression-empty.stdout)
+ (action
+  (progn
+   (with-stdout-to
+    integer-division.stdout.actual
+    (with-stderr-to
+     integer-division.stderr.actual
+     (run %{exe:../bin/holyc.exe} eval cli/integer-division.hc)))
+   (diff cli/integer-division.human integer-division.stdout.actual)
+   (diff cli/integer-expression-empty.stdout integer-division.stderr.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  integer-division-unsigned.stdout.actual
+  integer-division-unsigned.stderr.actual)
+ (deps
+  cli/integer-division-unsigned.hc
+  cli/integer-division-unsigned.json
+  cli/integer-expression-empty.stdout)
+ (action
+  (progn
+   (with-stdout-to
+    integer-division-unsigned.stdout.actual
+    (with-stderr-to
+     integer-division-unsigned.stderr.actual
+     (run
+      %{exe:../bin/holyc.exe}
+      eval
+      --format=json
+      cli/integer-division-unsigned.hc)))
+   (diff
+    cli/integer-division-unsigned.json
+    integer-division-unsigned.stdout.actual)
+   (diff
+    cli/integer-expression-empty.stdout
+    integer-division-unsigned.stderr.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  integer-division-zero.stdout.actual
+  integer-division-zero.stderr.actual)
+ (deps
+  cli/integer-division-zero.hc
+  cli/integer-division-zero.human
+  cli/integer-expression-empty.stdout)
+ (action
+  (progn
+   (with-stdout-to
+    integer-division-zero.stdout.actual
+    (with-stderr-to
+     integer-division-zero.stderr.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} eval cli/integer-division-zero.hc))))
+   (diff
+    cli/integer-expression-empty.stdout
+    integer-division-zero.stdout.actual)
+   (diff cli/integer-division-zero.human integer-division-zero.stderr.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  integer-division-zero-json.stdout.actual
+  integer-division-zero-json.stderr.actual)
+ (deps
+  cli/integer-division-zero.hc
+  cli/integer-division-zero.json
+  cli/integer-expression-empty.stdout)
+ (action
+  (progn
+   (with-stdout-to
+    integer-division-zero-json.stdout.actual
+    (with-stderr-to
+     integer-division-zero-json.stderr.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       eval
+       --format=json
+       cli/integer-division-zero.hc))))
+   (diff
+    cli/integer-expression-empty.stdout
+    integer-division-zero-json.stdout.actual)
+   (diff
+    cli/integer-division-zero.json
+    integer-division-zero-json.stderr.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  integer-division-overflow.stdout.actual
+  integer-division-overflow.stderr.actual)
+ (deps
+  cli/integer-division-overflow.hc
+  cli/integer-division-overflow.human
+  cli/integer-expression-empty.stdout)
+ (action
+  (progn
+   (with-stdout-to
+    integer-division-overflow.stdout.actual
+    (with-stderr-to
+     integer-division-overflow.stderr.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} eval cli/integer-division-overflow.hc))))
+   (diff
+    cli/integer-expression-empty.stdout
+    integer-division-overflow.stdout.actual)
+   (diff
+    cli/integer-division-overflow.human
+    integer-division-overflow.stderr.actual))))

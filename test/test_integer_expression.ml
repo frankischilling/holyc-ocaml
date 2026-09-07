@@ -75,7 +75,15 @@ let unsupported () =
   Alcotest.(check bool)
     "VM owns floating domain rejection" true
     (String.starts_with ~prefix:"HCIRVM" diagnostic.code);
-  ignore (error "1/0;" : Diagnostic.t)
+  ignore (error "1.0/0.0;" : Diagnostic.t)
+
+let arithmetic_faults () =
+  List.iter
+    (fun text -> Alcotest.(check string) text "HCIRVM0009" (error text).code)
+    [ "1/0;"; "1%0;"; "0&&(1/0);"; "1||(1%0);" ];
+  List.iter
+    (fun text -> Alcotest.(check string) text "HCIRVM0010" (error text).code)
+    [ "(-9223372036854775807-1)/-1;"; "(-9223372036854775807-1)%-1;" ]
 
 let replay_and_folding () =
   let lower () =
@@ -109,6 +117,18 @@ let tests =
     [
       ("multiply", "(6*7);", VM.I64, 42L);
       ("nested arithmetic", "(2+3)*(11-4);", VM.I64, 35L);
+      ("division and remainder", "(85/2)+(85%2);", VM.I64, 43L);
+      ("signed truncation", "-7/3;", VM.I64, -2L);
+      ("signed remainder", "-7%3;", VM.I64, -1L);
+      ( "unsigned division",
+        "0xFFFFFFFFFFFFFFFF/3;",
+        VM.U64,
+        6148914691236517205L );
+      ("mixed division", "-1/0x8000000000000000;", VM.U64, 1L);
+      ( "unsigned remainder",
+        "0xFFFFFFFFFFFFFFFF%0x8000000000000000;",
+        VM.U64,
+        Int64.max_int );
       ("negative", "-42;", VM.I64, -42L);
       ("high bit", "0x8000000000000000;", VM.U64, Int64.min_int);
       ("unsigned maximum", "0xFFFFFFFFFFFFFFFF;", VM.U64, -1L);
@@ -137,5 +157,7 @@ let tests =
       Alcotest.test_case "exact budget" `Quick budget;
       Alcotest.test_case "input boundary" `Quick boundary;
       Alcotest.test_case "unsupported operations" `Quick unsupported;
+      Alcotest.test_case "division faults and eager logical values" `Quick
+        arithmetic_faults;
       Alcotest.test_case "replay and unary folding" `Quick replay_and_folding;
     ]

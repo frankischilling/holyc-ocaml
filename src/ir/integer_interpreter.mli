@@ -20,7 +20,10 @@ val reference_commit : string
 val execute : max_steps:int -> X87_stack.t -> (t, error list) result
 (** Preflight and execute the source-audited integer subset. Every executed
     instruction consumes one step, and all unsupported instructions are rejected
-    before execution, including instructions in unreachable blocks. *)
+    before execution, including instructions in unreachable blocks. Division and
+    remainder use signed truncation for two I64 operands and unsigned arithmetic
+    otherwise. Zero divisors and signed minimum divided or reduced modulo minus
+    one fail at execution, consuming the faulting instruction's step. *)
 
 val termination : t -> termination
 val executed_steps : t -> int
