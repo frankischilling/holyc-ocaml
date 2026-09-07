@@ -1,5 +1,13 @@
 # holyc-ocaml compatibility status
 
+[Issue #615](https://github.com/frankischilling/holyc-ocaml/issues/615) extends
+the automatic storage path to [U8 bytes](integer-bytes.md), including indexed
+loads, plain stores, exact aliases and independently retained assignment
+results. The Sum fixture returns I64 42 in both modes, using 69 runtime
+instructions, zero preparation, 16 frame bytes and depth two. This slice
+preserves I64/U64 numeric function
+boundaries and leaves persistent bytes, narrow updates and output unsupported.
+
 Automatic I64/U64 array indexing is connected through hosted source execution.
 See [integer arrays](integer-arrays.md) for grouping, any-rank pointer decay,
 source strides, declared-object bounds and explicit remaining memory domains.

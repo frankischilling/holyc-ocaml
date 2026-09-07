@@ -61,20 +61,28 @@ val execute_program :
     checked entry initializer region. Other entry instructions and functions
     fail preflight; region authority never enters a called function. JIT static
     calls require transitively earlier definitions in the supplied bodies.
-    Checked one-level I64/U64 pointer locals and fixed parameters hold
-    references to scalar objects and automatic I64/U64 array elements. Checked
-    indexing retains declared-object extents and remaining array strides;
-    grouping/materialization consumes dimensions. Final pointer values may be
-    one-past; memory access must be within the original object. Scale/add
+    Checked one-level I64/U64/U8 pointer locals and fixed parameters hold
+    references to scalar objects and automatic I64/U64/U8 array elements. U8
+    memory stores retain the low eight bits and reads zero-extend them. Plain
+    assignment expressions retain the full RHS bits independently of narrowed
+    storage. Arithmetic retains checked raw classes: U8 with I64 selects I64,
+    while two U8 operands retain U8 computation class without truncating the
+    register result. U8 compound and prefix/postfix updates remain unsupported,
+    as does U8 unary minus, whose pinned result class is the unsupported I8.
+    Checked indexing retains declared-object extents and remaining array
+    strides; grouping/materialization consumes dimensions. Final pointer values
+    may be one-past; memory access must be within the original object. Scale/add
     overflow and object bounds report HCIRVM0020 and HCIRVM0019 respectively.
-    Every array cell is budgeted before expansion. [IC_ADDR] materializes a
-    reference without reading the object, with its own static-consumer ownership
-    check. Dereferences and updates retain the actual caller or recursive
-    activation, even when slots have identical offsets. Explicit references can
-    pass to callees without granting canonical static-address authority.
-    Returned frames are invalidated; pointer returns, arbitrary integer
-    addresses and pointer arithmetic remain unsupported. Public results remain
-    words. *)
+    Offsets, strides and object extents use actual element byte widths. Active
+    allocation charges the checked padded local frame plus eight-byte parameter
+    slots. Cell counts and allocation bytes are bounded before expansion.
+    [IC_ADDR] materializes a reference without reading the object, with its own
+    static-consumer ownership check. Dereferences and updates retain the actual
+    caller or recursive activation, even when slots have identical offsets.
+    Explicit references can pass to callees without granting canonical
+    static-address authority. Returned frames are invalidated; pointer returns,
+    arbitrary integer addresses and pointer arithmetic remain unsupported.
+    Public results remain words. *)
 
 val final_value : t -> word option
 (** Last reached top-level expression value from [execute_program], separate
@@ -107,9 +115,10 @@ val execute_function :
     Public U64 negation retains U64, while internal U64 negation yields internal
     I64. Same-width integer returns preserve bits and adopt the declared type.
     Checked pointer locals can reference this invocation's scalar slots and
-    automatic integer array elements through checked indexing. The [arguments]
-    bit interface cannot supply pointer parameters. This entry point does not
-    execute calls or arbitrary pointer operations. *)
+    automatic I64/U64/U8 array elements through checked indexing. U8 automatic
+    scalars and elements have independent byte initialization state. The
+    [arguments] bit interface cannot supply pointer parameters. This entry point
+    does not execute calls or arbitrary pointer operations. *)
 
 val termination : t -> termination
 val executed_steps : t -> int

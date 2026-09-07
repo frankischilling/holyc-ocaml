@@ -2,6 +2,14 @@
 
 `holyc-ocaml` is an OCaml implementation of the HolyC compiler. The command is `holyc`, and the public OCaml library is `holyc_lib`. Compatibility work follows the TempleOS source tree at commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
+## Byte storage and indexing
+
+The U8 continuation in [issue #615](https://github.com/frankischilling/holyc-ocaml/issues/615)
+uses `examples/integer-bytes.hc` through `holyc run --target=ir` in both modes.
+Its source-derived expected result is 42. [Byte storage](docs/integer-bytes.md)
+describes narrowing stores, zero-extending loads, exact aliases, frame limits
+and the remaining execution boundaries.
+
 ## Automatic integer arrays
 
 `holyc run --target=ir examples/integer-arrays.hc` writes an array element through
