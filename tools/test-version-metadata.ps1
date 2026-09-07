@@ -15,6 +15,14 @@ function Write-FixtureText([string]$Path, [string]$Text) {
   [System.IO.File]::WriteAllText($Path, $Text, $utf8)
 }
 
+function Remove-FixtureEnvironment([string]$Name) {
+  # On PowerShell 7.5+, SetEnvironmentVariable with $null sets an empty value.
+  $environmentPath = 'Env:' + $Name
+  if (Test-Path -LiteralPath $environmentPath) {
+    Remove-Item -LiteralPath $environmentPath
+  }
+}
+
 function New-ProjectFixture([string]$Name) {
   $projectRoot = Join-Path $fixtureRoot $Name
   New-Item -ItemType Directory -Path (Join-Path $projectRoot 'src') -Force | Out-Null
@@ -45,7 +53,7 @@ function Assert-Metadata([string]$ProjectRoot, [string]$Expected, [string]$Label
 try {
   foreach ($name in $environmentNames) {
     $savedEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
-    [Environment]::SetEnvironmentVariable($name, $null, 'Process')
+    Remove-FixtureEnvironment $name
   }
   $normal = New-ProjectFixture 'normal'
   $gitDir = Join-Path $normal '.git'
@@ -88,14 +96,18 @@ try {
   Assert-Metadata $linked $fourth 'changed release override'
   $env:HOLYC_IMPLEMENTATION_COMMIT = 'invalid-override'
   Assert-Metadata $linked $first 'invalid override falls back to Git'
-  [Environment]::SetEnvironmentVariable('HOLYC_IMPLEMENTATION_COMMIT', $null, 'Process')
+  Remove-FixtureEnvironment 'HOLYC_IMPLEMENTATION_COMMIT'
   Assert-Metadata $linked $first 'removed release override'
   $archive = New-ProjectFixture 'archive'
   $env:HOLYC_IMPLEMENTATION_COMMIT = $third
   Assert-Metadata $archive $third 'explicit source-archive provenance'
 } finally {
   foreach ($name in $savedEnvironment.Keys) {
-    [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process')
+    if ($null -eq $savedEnvironment[$name]) {
+      Remove-FixtureEnvironment $name
+    } else {
+      [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process')
+    }
   }
   $resolvedFixture = [System.IO.Path]::GetFullPath($fixtureRoot)
   $expectedParent = [System.IO.Path]::GetFullPath($temporaryRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
