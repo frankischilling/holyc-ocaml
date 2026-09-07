@@ -15,31 +15,36 @@ val lower_typed_result :
     unresolved nonlocal names remain unsupported. [$$] emits a checked
     zero-operand [IC_RIP] address producer, while concrete address selection
     remains backend work. Integer trees accept the checked integer binary
-    operations; pure [F64] trees and mixed integer/[F64] trees accept shifts,
-    multiplication, division, modulo, bitwise operations, addition, subtraction,
-    the six comparisons, and the three logical binary operations. A mixed edge
-    marks the retained integer producer with [ICF_RES_TO_F64] without folding
-    its payload. A retained root conversion applies [ICF_RES_TO_F64] to an
-    integer producer or [ICF_RES_TO_INT] to an [F64] producer; grouping and
-    unary plus forward that request to the final retained instruction. Floating
-    comparisons also carry [ICF_USE_F64], while floating logical operations
-    remain unflagged; both retain the checked internal [I64] result. A completed
-    aggregate offset emits an internal [I64] [IC_IMM_I64] from its retained
-    final cumulative byte offset without repeating member lookup or layout.
-    HolyC power accepts every checked integer/[F64] operand pair, marks each
-    integer producer with [ICF_RES_TO_F64], and emits an unflagged [IC_POWER]
-    with an internal [F64] result. Numeric prefixes and primitive postfix casts
-    compose within their checked domain; address and dereference remain confined
-    to integer and pointer trees. An exact checked direct [address-of Function]
-    emits a canonical-symbol [IC_IMM_I64] in resolved JIT mode, a
-    canonical-symbol [IC_ABS_ADDR] in resolved AOT mode, or an [IC_IMM_I64]
-    address-slot producer followed by [IC_DEREF] for an unresolved JIT extern.
-    The same atomic node is available in function-body and executable top-level
-    trees, and direct-call composition marks only its final producer for
-    pushing. A postfix cast emits [IC_HOLYC_TYPECAST] with the full cast span
-    and pinned [was_paren] payload. The module owns source-order traversal,
-    TempleOS's immediate address/dereference cancellation, and consecutive
-    identity allocation. Expressions outside the implemented tree shapes return
+    operations. Integer comparison chains share each middle operand and combine
+    adjacent comparisons with eager [IC_AND_AND]. The cumulative unsigned
+    comparison class is carried by an internal [U64] view where needed. Grouping
+    and tighter right operands retain their source precedence; multiple pending
+    comparison reductions and floating chains are unsupported. Pure [F64] trees
+    and mixed integer/[F64] trees accept shifts, multiplication, division,
+    modulo, bitwise operations, addition, subtraction, the six comparisons, and
+    the three logical binary operations. A mixed edge marks the retained integer
+    producer with [ICF_RES_TO_F64] without folding its payload. A retained root
+    conversion applies [ICF_RES_TO_F64] to an integer producer or
+    [ICF_RES_TO_INT] to an [F64] producer; grouping and unary plus forward that
+    request to the final retained instruction. Floating comparisons also carry
+    [ICF_USE_F64], while floating logical operations remain unflagged; both
+    retain the checked internal [I64] result. A completed aggregate offset emits
+    an internal [I64] [IC_IMM_I64] from its retained final cumulative byte
+    offset without repeating member lookup or layout. HolyC power accepts every
+    checked integer/[F64] operand pair, marks each integer producer with
+    [ICF_RES_TO_F64], and emits an unflagged [IC_POWER] with an internal [F64]
+    result. Numeric prefixes and primitive postfix casts compose within their
+    checked domain; address and dereference remain confined to integer and
+    pointer trees. An exact checked direct [address-of Function] emits a
+    canonical-symbol [IC_IMM_I64] in resolved JIT mode, a canonical-symbol
+    [IC_ABS_ADDR] in resolved AOT mode, or an [IC_IMM_I64] address-slot producer
+    followed by [IC_DEREF] for an unresolved JIT extern. The same atomic node is
+    available in function-body and executable top-level trees, and direct-call
+    composition marks only its final producer for pushing. A postfix cast emits
+    [IC_HOLYC_TYPECAST] with the full cast span and pinned [was_paren] payload.
+    The module owns source-order traversal, TempleOS's immediate
+    address/dereference cancellation, and consecutive identity allocation.
+    Expressions outside the implemented tree shapes return
     [Unsupported_expression] without returning a partial sequence. *)
 
 val sequence : t -> Instruction_sequence.t

@@ -1,5 +1,13 @@
 # Testing holyc-ocaml
 
+The `comparison chains` group runs integer chains through the shared semantic
+and lowering passes and checks the observed VM result. It also checks shared
+middle operands, operator spans, eager faults, exact budgets, JIT/AOT function
+contexts and the unsupported conditional/floating domain. Run it with
+`opam exec -- dune exec test/test_main.exe -- test "comparison chains"`.
+`dune runtest` evaluates `examples/integer-comparison-chain.hc` through the CLI
+in both parsing modes and checks its output of 42 with a ten-instruction limit.
+
 The `source integer program` group runs parsed top-level control flow through
 the checked semantic passes and VM. `test_integer_program_cli` invokes the built
 compiler and checks execution metadata, diagnostics, exact budgets and program

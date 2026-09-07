@@ -90,6 +90,15 @@ type plan_node =
       conversion : result_conversion;
       operation_flags : int64;
     }
+  | Chain_link of {
+      result : Semantic_result.expression_result;
+      previous : Semantic_result.expression_result;
+      middle : Semantic_result.expression_result;
+      right : Semantic_result.expression_result;
+      opcode : Opcode.t;
+      span : Common.Span.t;
+      conversion : result_conversion;
+    }
 
 type task =
   | Visit of {
@@ -122,6 +131,15 @@ type task =
       right : Semantic_result.expression_result;
       conversion : result_conversion;
       operation_flags : int64;
+    }
+  | Finish_chain_link of {
+      result : Semantic_result.expression_result;
+      previous : Semantic_result.expression_result;
+      middle : Semantic_result.expression_result;
+      right : Semantic_result.expression_result;
+      opcode : Opcode.t;
+      span : Common.Span.t;
+      conversion : result_conversion;
     }
 
 type planned = Planned of plan_node list | Unsupported_plan
@@ -473,6 +491,21 @@ let accepted_f64_comparison_opcode = function
   | Opcode.Ic_greater
   | Opcode.Ic_less_equ -> true
   | _ -> false
+
+let is_comparison_result result =
+  match
+    Semantic_result.result_source result
+    |> Semantic_source.argument_expression_kind
+  with
+  | Semantic_source.Binary_expression binary ->
+      accepted_f64_comparison_opcode (Semantic_source.binary_operator binary)
+  | _ -> false
+
+let unsigned_integer_type type_ =
+  match Type.base type_ with
+  | Type.Primitive (_, primitive) ->
+      (Sema.Primitive_type.info primitive).raw_is_unsigned
+  | Type.Aggregate _ -> false
 
 let accepted_f64_logical_opcode = function
   | Opcode.Ic_and_and | Opcode.Ic_or_or | Opcode.Ic_xor_xor -> true
@@ -1485,35 +1518,92 @@ let plan root =
                   with
                   | Error item, _ | _, Error item -> error := Some item
                   | Ok (left, right), Ok span -> (
-                      match validate_binary result opcode left right with
-                      | Error item -> error := Some item
-                      | Ok Unsupported_binary -> unsupported := true
-                      | Ok
-                          (Supported_binary
-                             {
-                               left_conversion;
-                               right_conversion;
-                               operation_flags;
-                             }) ->
-                          pending :=
-                            Visit
-                              { result = left; conversion = left_conversion }
-                            :: Visit
+                      let left_kind =
+                        Semantic_result.result_source left
+                        |> Semantic_source.argument_expression_kind
+                      in
+                      match left_kind with
+                      | Semantic_source.Binary_expression previous
+                        when accepted_f64_comparison_opcode opcode
+                             && accepted_f64_comparison_opcode
+                                  (Semantic_source.binary_operator previous)
+                        -> (
+                          match checked_binary_operands left previous with
+                          | Error item -> error := Some item
+                          | Ok (_, middle) when is_comparison_result middle ->
+                              (* Multiple pending comparison reductions have a
+                                 separate source stack shape. Parentheses end
+                                 that stack before the outer comparison. *)
+                              unsupported := true
+                          | Ok (first, middle) -> (
+                              match
+                                ( validate_binary_with checked_integer_type left
+                                    first middle,
+                                  validate_binary_with checked_integer_type
+                                    result middle right )
+                              with
+                              | Error item, _ | _, Error item ->
+                                  error := Some item
+                              | Ok false, _ | _, Ok false -> unsupported := true
+                              | Ok true, Ok true ->
+                                  (* PrsExp.HC:225-230 keeps the previous right
+                                     operand for the next comparison. Grouping
+                                     and tighter right operands stay intact. *)
+                                  pending :=
+                                    Visit
+                                      {
+                                        result = left;
+                                        conversion = Keep_result;
+                                      }
+                                    :: Visit
+                                         {
+                                           result = right;
+                                           conversion = Keep_result;
+                                         }
+                                    :: Finish_chain_link
+                                         {
+                                           result;
+                                           previous = left;
+                                           middle;
+                                           right;
+                                           opcode;
+                                           span;
+                                           conversion;
+                                         }
+                                    :: !pending))
+                      | _ -> (
+                          match validate_binary result opcode left right with
+                          | Error item -> error := Some item
+                          | Ok Unsupported_binary -> unsupported := true
+                          | Ok
+                              (Supported_binary
                                  {
-                                   result = right;
-                                   conversion = right_conversion;
-                                 }
-                            :: Finish_binary
-                                 {
-                                   result;
-                                   opcode;
-                                   span;
-                                   left;
-                                   right;
-                                   conversion;
+                                   left_conversion;
+                                   right_conversion;
                                    operation_flags;
-                                 }
-                            :: !pending))
+                                 }) ->
+                              pending :=
+                                Visit
+                                  {
+                                    result = left;
+                                    conversion = left_conversion;
+                                  }
+                                :: Visit
+                                     {
+                                       result = right;
+                                       conversion = right_conversion;
+                                     }
+                                :: Finish_binary
+                                     {
+                                       result;
+                                       opcode;
+                                       span;
+                                       left;
+                                       right;
+                                       conversion;
+                                       operation_flags;
+                                     }
+                                :: !pending)))
             | Semantic_source.Postfix_cast_expression (source_operand, target)
               -> (
                 match
@@ -1572,6 +1662,12 @@ let plan root =
                   conversion;
                   operation_flags;
                 }
+              :: !reversed
+        | Finish_chain_link
+            { result; previous; middle; right; opcode; span; conversion } ->
+            reversed :=
+              Chain_link
+                { result; previous; middle; right; opcode; span; conversion }
               :: !reversed)
   done;
   match (!error, !unsupported) with
@@ -1719,6 +1815,7 @@ let emit_plan ~instruction_id ~value_id nodes =
     }
   in
   let lowered = ref Int_map.empty in
+  let comparison_domains = ref Int_map.empty in
   let descriptions_rev = ref [] in
   let error = ref None in
   List.iter
@@ -1917,11 +2014,134 @@ let emit_plan ~instruction_id ~value_id nodes =
                         span = Some span;
                       }
                     in
+                    if accepted_f64_comparison_opcode opcode then
+                      comparison_domains :=
+                        Int_map.add (result_key result)
+                          (unsigned_integer_type left_node.lowered_type
+                          || unsigned_integer_type right_node.lowered_type)
+                          !comparison_domains;
                     descriptions_rev := description :: !descriptions_rev;
                     lowered :=
                       Int_map.add (result_key result)
                         { lowered_value = value_id; lowered_type = result_type }
-                        !lowered)))
+                        !lowered))
+        | Chain_link
+            { result; previous; middle; right; opcode; span; conversion } -> (
+            match
+              ( find_lowered !lowered previous "previous comparison",
+                find_lowered !lowered middle "shared comparison operand",
+                find_lowered !lowered right "right comparison operand",
+                Semantic_result.result_type result,
+                Int_map.find_opt (result_key previous) !comparison_domains )
+            with
+            | Error item, _, _, _, _
+            | _, Error item, _, _, _
+            | _, _, Error item, _, _ -> error := Some item
+            | _, _, _, None, _ | _, _, _, _, None ->
+                error :=
+                  Some
+                    (metadata_error ~span
+                       "comparison chain does not have its checked type and \
+                        prior domain")
+            | ( Ok previous_node,
+                Ok middle_node,
+                Ok right_node,
+                Some result_type,
+                Some previous_unsigned ) -> (
+                let shared =
+                  (* OptPass012.HC:141-150,809-820 carries the promoted class
+                     through PUSH_CMP. Keep the original producer's arithmetic
+                     intact and reinterpret only its shared word. *)
+                  if
+                    previous_unsigned
+                    && not (unsigned_integer_type middle_node.lowered_type)
+                  then
+                    match take_identity allocator (Some span) with
+                    | Error item -> Error item
+                    | Ok (instruction_id, value_id) -> (
+                        match
+                          Type.make_primitive ~form:Type.Internal_storage
+                            ~primitive:Sema.Primitive_type.U64 ~pointer_depth:0
+                        with
+                        | Error message -> Error (metadata_error ~span message)
+                        | Ok type_ ->
+                            let description : Sequence.description =
+                              {
+                                instruction_id;
+                                opcode = Opcode.Ic_holyc_typecast;
+                                operands = [ middle_node.lowered_value ];
+                                result = Some { value_id };
+                                target_type = Some type_;
+                                payload = Some (Sequence.Integer 0L);
+                                flags = 0L;
+                                span = Some span;
+                              }
+                            in
+                            Ok
+                              ( [ description ],
+                                {
+                                  lowered_value = value_id;
+                                  lowered_type = type_;
+                                } ))
+                  else Ok ([], middle_node)
+                in
+                match shared with
+                | Error item -> error := Some item
+                | Ok (views, middle_node) -> (
+                    match take_identity allocator (Some span) with
+                    | Error item -> error := Some item
+                    | Ok (comparison_id, comparison_value) -> (
+                        match take_identity allocator (Some span) with
+                        | Error item -> error := Some item
+                        | Ok (instruction_id, value_id) ->
+                            let comparison : Sequence.description =
+                              {
+                                instruction_id = comparison_id;
+                                opcode;
+                                operands =
+                                  [
+                                    middle_node.lowered_value;
+                                    right_node.lowered_value;
+                                  ];
+                                result = Some { value_id = comparison_value };
+                                target_type = Some result_type;
+                                payload = None;
+                                flags = 0L;
+                                span = Some span;
+                              }
+                            in
+                            let combination : Sequence.description =
+                              {
+                                instruction_id;
+                                opcode = Opcode.Ic_and_and;
+                                operands =
+                                  [
+                                    previous_node.lowered_value;
+                                    comparison_value;
+                                  ];
+                                result = Some { value_id };
+                                target_type = Some result_type;
+                                payload = None;
+                                flags = conversion_flags conversion;
+                                span = Some span;
+                              }
+                            in
+                            descriptions_rev :=
+                              combination :: comparison
+                              :: List.rev_append views !descriptions_rev;
+                            comparison_domains :=
+                              Int_map.add (result_key result)
+                                (previous_unsigned
+                                || unsigned_integer_type right_node.lowered_type
+                                )
+                                !comparison_domains;
+                            lowered :=
+                              Int_map.add (result_key result)
+                                {
+                                  lowered_value = value_id;
+                                  lowered_type = result_type;
+                                }
+                                !lowered)))))
     nodes;
   match !error with
   | Some item -> Error [ item ]
@@ -1943,7 +2163,8 @@ let emit_plan ~instruction_id ~value_id nodes =
                 | Alias { result; _ } :: _
                 | Unary { result; _ } :: _
                 | Cast { result; _ } :: _
-                | Binary { result; _ } :: _ -> result
+                | Binary { result; _ } :: _
+                | Chain_link { result; _ } :: _ -> result
                 | [] -> assert false
               in
               match find_lowered !lowered root "expression result" with

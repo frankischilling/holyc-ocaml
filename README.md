@@ -34,6 +34,12 @@ exact decimal `word` as a string, and `executed_steps`. Failures return status 1
 write diagnostics to stderr, and produce no successful stdout result. `dump-ir`
 uses `holyc-ir-graph-v1` in human mode; JSON graph output is unsupported.
 
+Integer comparison chains share middle operands: `2==2==2` evaluates to one.
+`holyc eval examples/integer-comparison-chain.hc` prints 42 in ten instructions.
+The unsigned comparison domain carries through later links. Conditional,
+floating and multiple-pending-reduction chains remain unsupported; see
+[the IR guide](docs/intermediate-representation.md#integer-comparison-chain-values).
+
 The public library exposes `lower_integer_expression session ~config ~source`
 and `evaluate_integer_expression session ~config ~source ~max_steps`. Lowering
 returns a verified `Ir_x87_stack.t`; evaluation returns `Ir_integer_interpreter.t`.

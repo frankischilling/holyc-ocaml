@@ -73,10 +73,16 @@ execution performs the VM-domain preflight before running any instruction.
 `HCRUN0001` rejects declarations, function definitions, output, returns, labels,
 `goto`, switches, exceptions and locks, even inside unreachable source.
 `HCRUN0002` reports a break without an enclosing loop target. `HCRUN0003`
-rejects unsupported expressions, including comparison chains such as
-`1<2==2`. `PrsExp.HC:49-52,225-230` requires shared-operand semantics for
-those chains. Parenthesized comparisons and tighter right operands such as
-`0==1<2` remain ordinary expressions. `HCRUN0004` reports an inconsistent
+rejects unsupported expressions, including chains inside conditions.
+Ordinary integer value chains such as `1<2==2` share their middle operands
+and eagerly combine adjacent comparisons. `PrsExp.HC:49-52,225-230` supplies
+the source rule. Parenthesized comparisons and tighter right operands such as
+`0==1<2` retain their grouping and precedence. Floating chains and conditional
+chains remain unsupported. Integer chains carry the cumulative unsigned
+comparison class. Multiple pending comparison reductions, such as
+`1==2<3==1`, remain unsupported under
+[issue #593](https://github.com/frankischilling/holyc-ocaml/issues/593).
+`HCRUN0004` reports an inconsistent
 source/IR join, and `HCRUN0005` rejects an unavailable execution target.
 
 Memory, variables, calls, compiler-state changes, `#exe`, native emission and

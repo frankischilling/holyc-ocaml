@@ -104,6 +104,7 @@ let () =
       ("IR x87 stack", Test_ir_x87_stack.tests);
       ("source integer expression", Test_integer_expression.tests);
       ("source integer program", Test_integer_program.tests);
+      ("comparison chains", Test_ir_comparison_chains.tests);
       ("IR bounded integer interpreter", Test_ir_integer_interpreter.tests);
       ("IR integer division", Test_ir_integer_division.tests);
       ("IR integer unary folding", Test_ir_integer_unary_folding.tests);
