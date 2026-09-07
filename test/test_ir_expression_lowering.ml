@@ -10,6 +10,8 @@ module Preprocessor = Holyc_lib.Preprocessor
 module Semantic_result = Holyc_lib.Semantic_function_call_expression_result
 module Semantic_source = Holyc_lib.Semantic_function_call_resolution
 module Semantic_symbol = Holyc_lib.Semantic_symbol
+module Function_resolution = Holyc_lib.Semantic_function_resolution
+module Module_binding = Holyc_lib.Semantic_module_expression_binding
 
 let require_ok show = function
   | Ok value -> value
@@ -301,6 +303,66 @@ let source_span result =
   | Semantic_symbol.Source_location location -> location.span
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
       Alcotest.fail "expected an expression backed by source text"
+
+let prefix_operator_span result =
+  match
+    result |> Semantic_result.result_source
+    |> Semantic_source.argument_expression_kind
+  with
+  | Semantic_source.Prefix_expression prefix -> (
+      match Semantic_source.prefix_operator_origin prefix with
+      | Semantic_symbol.Source_location location -> location.span
+      | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+          Alcotest.fail "expected a source-backed prefix operator")
+  | _ -> Alcotest.fail "expected a prefix expression"
+
+let direct_function_operand result =
+  match Semantic_result.result_operand result with
+  | Some operand -> (
+      match
+        operand |> Semantic_result.result_source
+        |> Semantic_source.argument_expression_kind
+      with
+      | Semantic_source.Bound_identifier_expression identifier
+        when Semantic_source.bound_identifier_shape identifier
+             = Semantic_source.Direct_function_value -> (operand, identifier)
+      | _ -> Alcotest.fail "expected a retained direct-function operand")
+  | None -> Alcotest.fail "expected a retained address operand"
+
+let direct_function_publication identifier =
+  match
+    identifier |> Semantic_source.bound_identifier_occurrence
+    |> Module_binding.occurrence_resolution
+  with
+  | Module_binding.Module_binding publication -> publication
+  | Module_binding.Local_binding _ | Module_binding.Outer_candidate ->
+      Alcotest.fail "expected a module function publication"
+
+let direct_function_declaration result =
+  match Semantic_result.result_function_declaration result with
+  | Some declaration -> declaration
+  | None -> Alcotest.fail "expected a retained function declaration"
+
+let direct_function_path_name result =
+  match Semantic_result.result_function_address_path result with
+  | Some path -> Semantic_source.direct_function_address_path_name path
+  | None -> Alcotest.fail "expected a retained function-address path"
+
+let symbol_payload (description : Sequence.description) =
+  match description.payload with
+  | Some (Sequence.Symbol symbol) -> symbol
+  | Some
+      ( Sequence.Integer _
+      | Sequence.Float_bits _
+      | Sequence.Bytes _
+      | Sequence.Block _
+      | Sequence.Block_targets _ )
+  | None -> Alcotest.fail "expected a symbolic instruction payload"
+
+let produced_value_id (description : Sequence.description) =
+  match description.result with
+  | Some result -> Sequence.Value_id.to_int result.value_id
+  | None -> Alcotest.fail "expected an instruction result"
 
 let pointer_depth expected = function
   | Some type_ -> Type.pointer_depth type_ = expected
@@ -3272,6 +3334,276 @@ let deterministic_sizeof_dump_records_payload () =
     (contains_substring dump
        "%v90:internal:I64 = IC_IMM_I64 i64:8 flags=0x000000000")
 
+let resolved_direct_function_addresses_use_checked_paths () =
+  let source =
+    "extern I64 Handler();\n\
+     extern I64 Target(I64 address);\n\
+     I64 Handler(){return 1;}\n\
+     I64 Caller(){return Target(&Handler);}"
+  in
+  [
+    (Preprocessor.Jit, "jit-immediate", "IC_IMM_I64");
+    (Preprocessor.Aot, "aot-absolute", "IC_ABS_ADDR");
+  ]
+  |> List.iter (fun (mode, expected_path, expected_opcode) ->
+      let root =
+        function_roots ~mode
+          ~path:("ir-direct-function-" ^ expected_path ^ ".HC")
+          source
+        |> List.hd
+      in
+      let operand, identifier = direct_function_operand root in
+      let publication = direct_function_publication identifier in
+      let source_symbol =
+        Module_binding.publication_source_symbol publication
+      in
+      let canonical_symbol =
+        Module_binding.publication_canonical_symbol publication
+      in
+      let declaration = direct_function_declaration root in
+      let identity_symbol =
+        Function_resolution.resolved_declaration_identity_symbol declaration
+      in
+      Alcotest.(check string)
+        "the semantic path selects the address opcode" expected_path
+        (direct_function_path_name root);
+      Alcotest.(check string)
+        "the operand retains the same address path" expected_path
+        (direct_function_path_name operand);
+      Alcotest.(check bool)
+        "the address and operand retain the same declaration" true
+        (declaration == direct_function_declaration operand);
+      Alcotest.(check int)
+        "the address selects the replacement header" 2
+        (Module_binding.publication_item_index publication);
+      Alcotest.(check bool)
+        "the replacement header and canonical identity stay distinct" false
+        (Semantic_symbol.Id.equal
+           (Semantic_symbol.id source_symbol)
+           (Semantic_symbol.id canonical_symbol));
+      Alcotest.(check bool)
+        "the declaration identity matches the canonical publication" true
+        (identity_symbol == canonical_symbol);
+      let lower_once () =
+        lower ~instruction:40 ~value:60 root |> require_lowered
+      in
+      let first = lower_once () in
+      let item = descriptions first |> List.hd in
+      Alcotest.(check (list string))
+        "a resolved address emits one checked producer" [ expected_opcode ]
+        (opcode_names first);
+      Alcotest.(check int)
+        "the producer uses the starting instruction ID" 40
+        (Sequence.Instruction_id.to_int item.instruction_id);
+      Alcotest.(check (list int))
+        "the producer has no operands" []
+        (List.map Sequence.Value_id.to_int item.operands);
+      Alcotest.(check int)
+        "the producer uses the starting value ID" 60 (produced_value_id item);
+      Alcotest.(check bool)
+        "the producer retains internal RT_PTR" true
+        (internal_i64_type item.target_type);
+      Alcotest.(check bool)
+        "the symbolic payload uses the canonical identity" true
+        (item |> symbol_payload == canonical_symbol);
+      Alcotest.(check int64) "resolved address flags" 0L item.flags;
+      Alcotest.(check bool)
+        "the producer keeps the address operator span" true
+        (item.span = Some (prefix_operator_span root));
+      Alcotest.(check int)
+        "the final value is the producer result" 60
+        (Expression.result_value first |> Sequence.Value_id.to_int);
+      Alcotest.(check bool)
+        "the lowered result retains internal RT_PTR" true
+        (internal_i64_value_type (Expression.result_type first));
+      Alcotest.(check (pair int int))
+        "one producer advances both cursors once" (41, 61)
+        ( Expression.next_instruction_id first |> Sequence.Instruction_id.to_int,
+          Expression.next_value_id first |> Sequence.Value_id.to_int );
+      Alcotest.(check string)
+        "resolved address lowering is deterministic" (Expression.human first)
+        (Expression.human (lower_once ())))
+
+let jit_extern_function_addresses_load_the_checked_slot () =
+  let root =
+    function_roots ~mode:Preprocessor.Jit
+      ~path:"ir-direct-function-jit-extern-slot.HC"
+      "extern I64 Handler();\n\
+       extern F64 Target(F64 address);\n\
+       F64 Caller(){return Target(&Handler);}"
+    |> List.hd
+  in
+  Alcotest.(check string)
+    "the unresolved function retains its JIT slot path" "jit-extern-slot"
+    (direct_function_path_name root);
+  Alcotest.(check bool)
+    "the F64 parameter requests conversion from RT_PTR" true
+    (Semantic_result.result_intrinsic_conversion root
+    = Semantic_result.Result_to_f64);
+  let canonical_symbol =
+    root |> direct_function_declaration
+    |> Function_resolution.resolved_declaration_identity_symbol
+  in
+  let lower_once () = lower ~instruction:70 ~value:90 root |> require_lowered in
+  let first = lower_once () in
+  let items = descriptions first in
+  let immediate = List.hd items in
+  let dereference = List.nth items 1 in
+  Alcotest.(check (list string))
+    "a JIT extern loads and dereferences its address slot"
+    [ "IC_IMM_I64"; "IC_DEREF" ]
+    (opcode_names first);
+  Alcotest.(check (list int))
+    "the slot load uses consecutive instruction IDs" [ 70; 71 ]
+    (List.map
+       (fun item -> Sequence.Instruction_id.to_int item.Sequence.instruction_id)
+       items);
+  Alcotest.(check (list int))
+    "the slot load uses consecutive value IDs" [ 90; 91 ]
+    (List.map produced_value_id items);
+  Alcotest.(check (list (list int)))
+    "the dereference consumes the slot address" [ []; [ 90 ] ]
+    (List.map
+       (fun item -> List.map Sequence.Value_id.to_int item.Sequence.operands)
+       items);
+  Alcotest.(check bool)
+    "the slot payload uses the canonical identity" true
+    (immediate |> symbol_payload == canonical_symbol);
+  Alcotest.(check bool)
+    "the dereference has no payload" true
+    (Option.is_none dereference.payload);
+  Alcotest.(check (list bool))
+    "both producers retain internal RT_PTR" [ true; true ]
+    (List.map (fun item -> internal_i64_type item.Sequence.target_type) items);
+  Alcotest.(check (list int64))
+    "only the final producer carries the checked conversion"
+    [ 0L; result_to_f64 ] (instruction_flags first);
+  Alcotest.(check bool)
+    "both instructions keep the address operator span" true
+    (List.for_all
+       (fun item -> item.Sequence.span = Some (prefix_operator_span root))
+       items);
+  Alcotest.(check int)
+    "the dereference is the expression result" 91
+    (Expression.result_value first |> Sequence.Value_id.to_int);
+  Alcotest.(check (pair int int))
+    "the two producers advance both cursors twice" (72, 92)
+    ( Expression.next_instruction_id first |> Sequence.Instruction_id.to_int,
+      Expression.next_value_id first |> Sequence.Value_id.to_int );
+  Alcotest.(check string)
+    "JIT extern address lowering is deterministic" (Expression.human first)
+    (Expression.human (lower_once ()))
+
+let non_direct_address_boundaries_remain_unsupported () =
+  let roots =
+    function_roots ~mode:Preprocessor.Jit
+      ~path:"ir-direct-function-address-boundaries.HC"
+      "I64 Global;\n\
+       extern I64 Target(I64 global_address,I64 callback_address);\n\
+       I64 Caller(I64 (*callback)()){return Target(&Global,&callback);}"
+  in
+  Alcotest.(check int)
+    "the fixture retains each boundary expression" 2 (List.length roots);
+  List.iter
+    (fun root ->
+      match lower root with
+      | Expression.Unsupported_expression -> ()
+      | Expression.Lowered _ ->
+          Alcotest.fail "a global or callback address returned partial IR")
+    roots
+
+let top_level_direct_function_addresses_use_shared_lowering () =
+  [ (Preprocessor.Jit, "IC_IMM_I64"); (Preprocessor.Aot, "IC_ABS_ADDR") ]
+  |> List.iter (fun (mode, expected_opcode) ->
+      let root =
+        top_level_roots ~mode ~path:"ir-top-level-direct-function-address.HC"
+          "I64 Handler(){return 1;}&Handler;"
+        |> List.hd
+      in
+      let declaration = direct_function_declaration root in
+      let canonical_symbol =
+        Function_resolution.resolved_declaration_identity_symbol declaration
+      in
+      let lowered = lower ~instruction:80 ~value:100 root |> require_lowered in
+      let item = descriptions lowered |> List.hd in
+      Alcotest.(check (list string))
+        "top-level and function-body addresses share the opcode mapping"
+        [ expected_opcode ] (opcode_names lowered);
+      Alcotest.(check bool)
+        "top-level lowering keeps the canonical function identity" true
+        (item |> symbol_payload == canonical_symbol);
+      Alcotest.(check bool)
+        "top-level lowering keeps the address operator span" true
+        (item.span = Some (prefix_operator_span root));
+      Alcotest.(check (pair int int))
+        "top-level lowering advances both cursors once" (81, 101)
+        ( Expression.next_instruction_id lowered
+          |> Sequence.Instruction_id.to_int,
+          Expression.next_value_id lowered |> Sequence.Value_id.to_int ));
+  let extern_root =
+    top_level_roots ~mode:Preprocessor.Jit
+      ~path:"ir-top-level-direct-function-extern-address.HC"
+      "extern I64 Handler();&Handler;"
+    |> List.hd
+  in
+  let canonical_symbol =
+    extern_root |> direct_function_declaration
+    |> Function_resolution.resolved_declaration_identity_symbol
+  in
+  let extern_lowered =
+    lower ~instruction:90 ~value:110 extern_root |> require_lowered
+  in
+  let extern_items = descriptions extern_lowered in
+  Alcotest.(check string)
+    "the top-level extern keeps the checked slot path" "jit-extern-slot"
+    (direct_function_path_name extern_root);
+  Alcotest.(check (list string))
+    "a top-level JIT extern uses the shared slot dataflow"
+    [ "IC_IMM_I64"; "IC_DEREF" ]
+    (opcode_names extern_lowered);
+  Alcotest.(check (list (list int)))
+    "the top-level dereference consumes the slot address" [ []; [ 110 ] ]
+    (List.map
+       (fun item -> List.map Sequence.Value_id.to_int item.Sequence.operands)
+       extern_items);
+  Alcotest.(check bool)
+    "the top-level slot payload keeps the canonical function identity" true
+    (List.hd extern_items |> symbol_payload == canonical_symbol);
+  Alcotest.(check bool)
+    "the top-level dereference has no symbolic payload" true
+    (Option.is_none (List.nth extern_items 1).Sequence.payload)
+
+let jit_extern_address_exhaustion_is_atomic () =
+  let root =
+    function_roots ~mode:Preprocessor.Jit
+      ~path:"ir-direct-function-address-exhaustion.HC"
+      "extern I64 Handler();\n\
+       extern I64 Target(I64 address);\n\
+       I64 Caller(){return Target(&Handler);}"
+    |> List.hd
+  in
+  let expected_span = prefix_operator_span root in
+  let check label result =
+    match result with
+    | Error [ (error : Sequence.error) ] ->
+        Alcotest.(check string)
+          (label ^ " diagnostic code")
+          "HCIRL0005" error.code;
+        Alcotest.(check (option int))
+          (label ^ " has no partial instruction")
+          None error.instruction_id;
+        Alcotest.(check bool)
+          (label ^ " keeps the address operator span")
+          true
+          (error.span = Some expected_span)
+    | Error errors ->
+        Alcotest.failf "%s returned %d errors" label (List.length errors)
+    | Ok _ -> Alcotest.failf "%s returned partial address IR" label
+  in
+  check "instruction exhaustion"
+    (lower_result ~instruction:(Int.max_int - 1) root);
+  check "value exhaustion" (lower_result ~value:(Int.max_int - 1) root)
+
 let inconsistent_postfix_cast_metadata_reports_no_partial_sequence () =
   let root =
     top_level_roots ~mode:Preprocessor.Jit
@@ -3553,6 +3885,16 @@ let tests =
       shadowed_and_nonprimitive_sizeof_return_no_sequence;
     Alcotest.test_case "deterministic sizeof dump" `Quick
       deterministic_sizeof_dump_records_payload;
+    Alcotest.test_case "resolved direct function address paths" `Quick
+      resolved_direct_function_addresses_use_checked_paths;
+    Alcotest.test_case "JIT extern function address dataflow" `Quick
+      jit_extern_function_addresses_load_the_checked_slot;
+    Alcotest.test_case "non-direct address boundaries" `Quick
+      non_direct_address_boundaries_remain_unsupported;
+    Alcotest.test_case "top-level direct function addresses" `Quick
+      top_level_direct_function_addresses_use_shared_lowering;
+    Alcotest.test_case "JIT extern address identity exhaustion" `Quick
+      jit_extern_address_exhaustion_is_atomic;
     Alcotest.test_case "postfix cast metadata validation" `Quick
       inconsistent_postfix_cast_metadata_reports_no_partial_sequence;
     Alcotest.test_case "unsupported expression shapes" `Quick
