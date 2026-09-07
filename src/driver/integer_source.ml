@@ -1,6 +1,17 @@
 module Diagnostic = Common.Diagnostic
 module Typed = Sema.Function_call_expression_result
 
+type prepared = {
+  top_level_ : Typed.top_level_t;
+  functions_ : Typed.t;
+  frames_ : Sema.Function_frame_layout.t;
+  records_ : Sema.Function_record_classification.t;
+}
+
+let top_level prepared = prepared.top_level_
+let functions prepared = prepared.functions_
+let frames prepared = prepared.frames_
+let records prepared = prepared.records_
 let ( let* ) = Result.bind
 
 let diagnostic ~span code message =
@@ -22,7 +33,7 @@ let message_diagnostic ~span message =
               (String.length message - separator - 1)))
   | _ -> diagnostic ~span "HCEVAL0003" message
 
-let prepare session ~config ~span ast =
+let prepare_unit session ~config ~span ast =
   let table = Session.semantic_symbols session in
   let mode = Frontend.Preprocessor.Config.compilation_mode config in
   let checked result =
@@ -164,4 +175,26 @@ let prepare session ~config ~span ast =
     |> Result.map_error Typed.error_to_string
     |> checked
   in
-  Ok typed
+  let* function_results =
+    Typed.analyze ~table ~members policies
+    |> Result.map_error Typed.error_to_string
+    |> checked
+  in
+  let* frames =
+    Function_frame_layout.layout ~table ~declarations ~bindings ~function_types
+      ~local_types ~aggregate_layouts:layouts ast
+    |> checked
+  in
+  let* records =
+    Function_record_classification.classify ~resolution:functions ast |> checked
+  in
+  Ok
+    {
+      top_level_ = typed;
+      functions_ = function_results;
+      frames_ = frames;
+      records_ = records;
+    }
+
+let prepare session ~config ~span ast =
+  prepare_unit session ~config ~span ast |> Result.map top_level

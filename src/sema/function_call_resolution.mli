@@ -137,6 +137,7 @@ type switch_case_pattern =
 
 type switch_case_input
 type return_input
+type initializer_input
 type function_input
 
 val make_callable :
@@ -329,6 +330,15 @@ val make_return :
   origin:Symbol.origin ->
   (return_input, string) result
 
+val make_initializer :
+  index:int ->
+  local:Local_type_resolution.local ->
+  expression:argument_expression ->
+  origin:Symbol.origin ->
+  (initializer_input, string) result
+(** Retain a scalar initializer with the exact checked local declaration and
+    matching initializer/expression source locations. *)
+
 val make_condition :
   index:int ->
   role:condition_role ->
@@ -391,6 +401,7 @@ val make_function :
   ?selectors:selector_input list ->
   ?switch_cases:switch_case_input list ->
   ?returns:return_input list ->
+  ?initializers:initializer_input list ->
   call list ->
   (function_input, string) result
 
@@ -513,6 +524,11 @@ val function_conditions : resolved_function -> condition_input list
 val function_selectors : resolved_function -> selector_input list
 val function_switch_cases : resolved_function -> switch_case_input list
 val function_returns : resolved_function -> return_input list
+val function_initializers : resolved_function -> initializer_input list
+val initializer_index : initializer_input -> int
+val initializer_local : initializer_input -> Local_type_resolution.local
+val initializer_expression : initializer_input -> argument_expression
+val initializer_origin : initializer_input -> Symbol.origin
 val call_index : call -> int
 val call_callee_occurrence_index : call -> int
 val call_callee_name : call -> string

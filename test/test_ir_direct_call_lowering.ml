@@ -492,16 +492,16 @@ let multiple_arguments_preserve_order () =
       in
       let items = descriptions first in
       Alcotest.(check (list string))
-        "fixed argument trees retain parameter order"
+        "fixed argument trees execute right to left"
         [
           "IC_CALL_START";
           "IC_IMM_I64";
           "IC_IMM_I64";
-          "IC_ADD";
-          "IC_IMM_I64";
-          "IC_IMM_I64";
-          "IC_IMM_I64";
           "IC_MUL";
+          "IC_IMM_I64";
+          "IC_IMM_I64";
+          "IC_IMM_I64";
+          "IC_ADD";
           "IC_CALL";
           "IC_ADD_RSP1";
           "IC_CALL_END";
@@ -610,7 +610,7 @@ let empty_variadic_tail_emits_hidden_count () =
         "empty variadic dumps replay exactly" (Lowering.human first)
         (Lowering.human second))
 
-let fixed_arguments_precede_hidden_variadic_count () =
+let hidden_variadic_count_precedes_fixed_arguments () =
   let source =
     "I64 Callee(I64 first,F64 second,...){return first;}I64 Caller(){return \
      Callee(1+2,3);}"
@@ -624,14 +624,14 @@ let fixed_arguments_precede_hidden_variadic_count () =
         |> lowered |> descriptions
       in
       Alcotest.(check (list string))
-        "fixed trees precede the hidden count"
+        "hidden count precedes reversed fixed trees"
         [
           "IC_CALL_START";
           "IC_IMM_I64";
           "IC_IMM_I64";
+          "IC_IMM_I64";
+          "IC_IMM_I64";
           "IC_ADD";
-          "IC_IMM_I64";
-          "IC_IMM_I64";
           "IC_CALL";
           "IC_ADD_RSP";
           "IC_CALL_END";
@@ -639,7 +639,7 @@ let fixed_arguments_precede_hidden_variadic_count () =
         (opcode_names items);
       Alcotest.(check (list int64))
         "fixed roots and hidden count are pushed once"
-        [ 0L; 0L; 0L; 0x000002000L; 0x000002001L; 0x000002000L; 0L; 0L; 0L ]
+        [ 0L; 0x000002000L; 0x000002001L; 0L; 0L; 0x000002000L; 0L; 0L; 0L ]
         (List.map (fun item -> item.Sequence.flags) items);
       Alcotest.(check (option int64))
         "two fixed slots plus argc clean 24 bytes" (Some 24L)
@@ -647,7 +647,7 @@ let fixed_arguments_precede_hidden_variadic_count () =
         | Some (Sequence.Integer value) -> Some value
         | _ -> None))
 
-let one_variadic_argument_follows_hidden_count () =
+let one_variadic_argument_precedes_hidden_count () =
   [ Preprocessor.Jit; Preprocessor.Aot ]
   |> List.iter (fun mode ->
       let prepared =
@@ -684,13 +684,13 @@ let one_variadic_argument_follows_hidden_count () =
       in
       let items = descriptions first in
       Alcotest.(check (list string))
-        "the variadic tree follows its hidden count"
+        "the variadic tree precedes its hidden count"
         [
           "IC_CALL_START";
-          "IC_IMM_I64";
           "IC_IMM_F64";
           "IC_IMM_F64";
           "IC_ADD";
+          "IC_IMM_I64";
           "IC_CALL";
           "IC_ADD_RSP";
           "IC_CALL_END";
@@ -698,9 +698,9 @@ let one_variadic_argument_follows_hidden_count () =
         (opcode_names items);
       Alcotest.(check (list int64))
         "the hidden count and variadic root are pushed"
-        [ 0L; 0x000002000L; 0L; 0L; 0x000002000L; 0L; 0L; 0L ]
+        [ 0L; 0L; 0L; 0x000002000L; 0x000002000L; 0L; 0L; 0L ]
         (List.map (fun item -> item.Sequence.flags) items);
-      let hidden = List.nth items 1 in
+      let hidden = List.nth items 4 in
       Alcotest.(check (option int64))
         "the hidden count records one supplied value" (Some 1L)
         (match hidden.Sequence.payload with
@@ -721,7 +721,7 @@ let one_variadic_argument_follows_hidden_count () =
         (List.map
            (fun item -> span_pair item.Sequence.span)
            expected_argument_descriptions)
-        ([ 2; 3; 4 ]
+        ([ 1; 2; 3 ]
         |> List.map (fun index ->
             span_pair (List.nth items index).Sequence.span));
       Alcotest.(check (list int))
@@ -761,15 +761,15 @@ let multiple_variadic_arguments_preserve_order () =
       in
       let items = descriptions lowered in
       Alcotest.(check (list string))
-        "fixed, count, and variadic trees retain source order"
+        "reversed variadic trees precede count and fixed arguments"
         [
           "IC_CALL_START";
           "IC_IMM_I64";
           "IC_IMM_I64";
-          "IC_IMM_I64";
-          "IC_IMM_I64";
-          "IC_IMM_I64";
           "IC_MUL";
+          "IC_IMM_I64";
+          "IC_IMM_I64";
+          "IC_IMM_I64";
           "IC_CALL";
           "IC_ADD_RSP";
           "IC_CALL_END";
@@ -779,11 +779,11 @@ let multiple_variadic_arguments_preserve_order () =
         "every logical argument root is pushed once"
         [
           0L;
-          0x000002000L;
-          0x000002000L;
-          0x000002000L;
           0L;
           0L;
+          0x000002000L;
+          0x000002000L;
+          0x000002000L;
           0x000002000L;
           0L;
           0L;
@@ -792,7 +792,7 @@ let multiple_variadic_arguments_preserve_order () =
         (List.map (fun item -> item.Sequence.flags) items);
       Alcotest.(check (option int64))
         "the hidden count records both supplied values" (Some 2L)
-        (match (List.nth items 2).Sequence.payload with
+        (match (List.nth items 5).Sequence.payload with
         | Some (Sequence.Integer value) -> Some value
         | _ -> None);
       Alcotest.(check int)
@@ -1124,10 +1124,10 @@ let tests =
       multiple_arguments_preserve_order;
     Alcotest.test_case "empty variadic hidden count" `Quick
       empty_variadic_tail_emits_hidden_count;
-    Alcotest.test_case "fixed arguments before variadic count" `Quick
-      fixed_arguments_precede_hidden_variadic_count;
+    Alcotest.test_case "variadic count before fixed arguments" `Quick
+      hidden_variadic_count_precedes_fixed_arguments;
     Alcotest.test_case "one supplied variadic argument" `Quick
-      one_variadic_argument_follows_hidden_count;
+      one_variadic_argument_precedes_hidden_count;
     Alcotest.test_case "multiple supplied variadic arguments" `Quick
       multiple_variadic_arguments_preserve_order;
     Alcotest.test_case "extern and import call opcodes" `Quick

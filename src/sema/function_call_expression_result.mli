@@ -76,6 +76,7 @@ type switch_case_pattern_result =
 
 type switch_case_result
 type return_result
+type initializer_result
 type resolved_function
 type t
 type top_level_root_result
@@ -240,6 +241,14 @@ val switch_case_pattern : switch_case_result -> switch_case_pattern_result
 val switch_case_value_result : switch_case_value -> expression_result
 val switch_case_value_conversion : switch_case_value -> intrinsic_conversion
 val function_returns : resolved_function -> return_result list
+val function_initializers : resolved_function -> initializer_result list
+
+val initializer_source :
+  initializer_result -> Function_call_resolution.initializer_input
+
+val initializer_value : initializer_result -> expression_result
+val initializer_target_type : initializer_result -> Type.t
+val initializer_conversion : initializer_result -> intrinsic_conversion
 val return_source : return_result -> Function_call_resolution.return_input
 val return_declared_type : return_result -> Type.t
 val return_declared_class : return_result -> result_class

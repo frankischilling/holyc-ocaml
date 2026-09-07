@@ -54,7 +54,15 @@ remain open. Runtime shifts retain the constant-versus-runtime discrepancy in
 [issue #574](https://github.com/frankischilling/holyc-ocaml/issues/574); no
 constant-folding equivalence or native shift oracle is claimed.
 
-## Integer top-level control flow
+## Integer source execution
+
+`holyc run --target=ir examples/integer-function.hc` executes the original Add
+function with two parameters, an initialized local and a returned 42. Both JIT
+and AOT modes take 29 instructions. The report exposes the final expression
+value, bits and type; successful process status is 0. Checked function frames,
+direct calls and caller continuation share explicit resource limits. See
+[integer source functions](docs/integer-functions.md) for the public API,
+right-to-left argument evaluation and supported call shapes.
 
 `holyc run --target=ir examples/integer-control-flow.hc` executes integer
 expression statements, blocks, conditions, loops and `break` without a `main`
@@ -64,8 +72,8 @@ verified graph, and `run --format=json` records build and execution metadata.
 The example completes in 23 instructions. A limit of 22 fails before the final
 stream-end instruction.
 
-This initial execution domain has no declarations, variable storage, calls,
-printing, exceptions, `#exe` or native backend. Unsupported source produces a
+Printing, general memory, exceptions, `#exe` and native backends remain
+unfinished. Unsupported source produces a
 diagnostic, including in unreachable branches. See [integer programs](docs/integer-programs.md)
 for the source rules, accepted domain, fault semantics and test commands.
 
@@ -76,8 +84,9 @@ The low-level `Ir_integer_interpreter.execute_function` now executes checked
 Expression and return lowering can use the same exact frame. Storage survives
 branches, and each invocation has independent storage and explicit resource
 limits. See [integer function frames](docs/integer-function-frames.md).
-Full source function execution still needs initializer retention, body
-composition and direct-call continuation for the V1 Add program.
+The source program path now joins initializer stores, named bodies and direct
+calls to this storage and executes the V1 Add program. See
+[integer source functions](docs/integer-functions.md) for its supported domain.
 
 `holyc version` records the implementation commit at build time and the pinned
 TempleOS reference. Incremental builds refresh that metadata, including after

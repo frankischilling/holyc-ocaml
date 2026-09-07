@@ -266,6 +266,14 @@ type resolved_function = {
   selectors : selector_result list;
   switch_cases : switch_case_result list;
   returns : return_result list;
+  initializers : initializer_result list;
+}
+
+and initializer_result = {
+  initializer_source : Function_call_resolution.initializer_input;
+  initializer_value : expression_result;
+  initializer_target_type : Type.t;
+  initializer_conversion : intrinsic_conversion;
 }
 
 type t = {
@@ -414,6 +422,21 @@ let switch_case_pattern result = result.switch_case_pattern
 let switch_case_value_result result = result.switch_case_value_result
 let switch_case_value_conversion result = result.switch_case_value_conversion
 let function_returns (function_ : resolved_function) = function_.returns
+
+let function_initializers (function_ : resolved_function) =
+  function_.initializers
+
+let initializer_source (initial : initializer_result) =
+  initial.initializer_source
+
+let initializer_value (initial : initializer_result) = initial.initializer_value
+
+let initializer_target_type (initial : initializer_result) =
+  initial.initializer_target_type
+
+let initializer_conversion (initial : initializer_result) =
+  initial.initializer_conversion
+
 let return_source result = result.return_source
 let return_declared_type result = result.return_declared_type
 let return_declared_class result = result.return_declared_class
@@ -3798,6 +3821,40 @@ let type_return table members policies ~before_item_index ~declared_type state
                       },
                       state ))))
 
+let type_initializer table members policies ~before_item_index state source =
+  let target_type =
+    source |> Function_call_resolution.initializer_local
+    |> Local_type_resolution.local_type_reference
+    |> Type_reference.resolved_type
+  in
+  match known_type table target_type with
+  | Error _ as error -> error
+  | Ok initializer_target_type -> (
+      match
+        type_expression table members policies ~before_item_index
+          ~context:Value_context state
+          (Function_call_resolution.initializer_expression source)
+      with
+      | Error _ as error -> error
+      | Ok (value, state) -> (
+          let initializer_conversion =
+            select_return_conversion
+              (forwarded_class policies ~before_item_index
+                 initializer_target_type)
+              value.result_class
+          in
+          match set_intrinsic_conversion state value initializer_conversion with
+          | Error _ as error -> error
+          | Ok (initializer_value, state) ->
+              Ok
+                ( {
+                    initializer_source = source;
+                    initializer_value;
+                    initializer_target_type;
+                    initializer_conversion;
+                  },
+                  state )))
+
 let type_function table members policies outer state source =
   let outer_function =
     Option.bind outer (fun outer ->
@@ -3876,36 +3933,48 @@ let type_function table members policies outer state source =
                                  state
                           with
                           | Error _ as error -> error
-                          | Ok (implicit_outputs, state) ->
-                              Ok
-                                ( {
-                                    symbol =
-                                      Function_call_conversion_policy
-                                      .function_symbol source;
-                                    scope =
-                                      Function_call_conversion_policy
-                                      .function_scope source;
-                                    item_index;
-                                    calls;
-                                    outer_callback_calls =
-                                      List.sort
-                                        (fun left right ->
-                                          Int.compare
-                                            (left.outer_callback_source
-                                           |> Function_call_resolution
-                                              .call_index)
-                                            (right.outer_callback_source
-                                           |> Function_call_resolution
-                                              .call_index))
-                                        state.outer_callback_calls_rev;
-                                    expression_statements;
-                                    implicit_outputs;
-                                    conditions;
-                                    selectors;
-                                    switch_cases;
-                                    returns;
-                                  },
-                                  state )))))))
+                          | Ok (implicit_outputs, state) -> (
+                              match
+                                source
+                                |> Function_call_conversion_policy
+                                   .function_initializers
+                                |> map_state
+                                     (type_initializer table members policies
+                                        ~before_item_index:item_index)
+                                     state
+                              with
+                              | Error _ as error -> error
+                              | Ok (initializers, state) ->
+                                  Ok
+                                    ( {
+                                        symbol =
+                                          Function_call_conversion_policy
+                                          .function_symbol source;
+                                        scope =
+                                          Function_call_conversion_policy
+                                          .function_scope source;
+                                        item_index;
+                                        calls;
+                                        outer_callback_calls =
+                                          List.sort
+                                            (fun left right ->
+                                              Int.compare
+                                                (left.outer_callback_source
+                                               |> Function_call_resolution
+                                                  .call_index)
+                                                (right.outer_callback_source
+                                               |> Function_call_resolution
+                                                  .call_index))
+                                            state.outer_callback_calls_rev;
+                                        expression_statements;
+                                        implicit_outputs;
+                                        conditions;
+                                        selectors;
+                                        switch_cases;
+                                        returns;
+                                        initializers;
+                                      },
+                                      state ))))))))
 
 let validate_outer policies outer =
   if

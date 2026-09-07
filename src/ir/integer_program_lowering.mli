@@ -1,6 +1,8 @@
 type statement =
   | Empty of Common.Span.t
   | Expression of Sema.Function_call_expression_result.expression_result
+  | Initialize of Sema.Function_call_expression_result.initializer_result
+  | Return of Sema.Function_call_expression_result.return_result
   | Block of statement list
   | If of
       Sema.Function_call_expression_result.expression_result
@@ -17,9 +19,15 @@ type statement =
   | Break of Common.Span.t
 
 val lower :
+  ?frame:Sema.Function_frame_layout.function_layout ->
+  ?top_calls:Sema.Top_level_function_call_target_classification.t list ->
+  ?function_calls:Sema.Function_call_target_classification.t list ->
   span:Common.Span.t ->
   statement list ->
   (X87_stack.t, Common.Diagnostic.t list) result
-(** Lower integer top-level control flow with block-local values, conditional
-    short-circuit branches and one stream-end marker. The complete graph passes
-    graph and x87 verification. Integer VM preflight belongs to execution. *)
+(** Lower integer statements with block-local values and conditional
+    short-circuit branches. A checked frame enables initializer stores and
+    returns through a shared leave block; top-level graphs end the stream.
+    Classified calls are accepted only as complete expression roots. The graph
+    passes graph and x87 verification; integer VM preflight belongs to
+    execution. *)

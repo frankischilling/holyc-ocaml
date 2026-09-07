@@ -535,6 +535,9 @@ type state = {
   switch_cases_rev : Sema.Function_call_resolution.switch_case_input list;
   next_return : int;
   returns_rev : Sema.Function_call_resolution.return_input list;
+  next_initializer : int;
+  initializers_rev : Sema.Function_call_resolution.initializer_input list;
+  locals : Sema.Local_type_resolution.local list;
   visible_aggregates : Sema.Module_expression_binding.publication String_map.t;
   typed_values : typed_environment;
   global_values : typed_environment;
@@ -543,7 +546,7 @@ type state = {
 }
 
 let empty_state member_index before_item_index visible_aggregates typed_values
-    global_values occurrences defined_queries =
+    global_values occurrences defined_queries locals =
   {
     member_index;
     before_item_index;
@@ -562,6 +565,9 @@ let empty_state member_index before_item_index visible_aggregates typed_values
     switch_cases_rev = [];
     next_return = 0;
     returns_rev = [];
+    next_initializer = 0;
+    initializers_rev = [];
+    locals;
     visible_aggregates;
     typed_values;
     global_values;
@@ -1328,8 +1334,55 @@ let array_dimension state (dimension : Frontend.Ast.array_dimension) =
   | None -> Ok state
   | Some value -> expression state value
 
-let local_initializer state (initial : Frontend.Ast.local_initializer) =
-  initial_value state initial.local_initializer_value
+let local_initializer state (declarator : Frontend.Ast.local_declarator)
+    (initial : Frontend.Ast.local_initializer) =
+  match initial.local_initializer_value with
+  | Frontend.Ast.Braced_initializer _
+  | Frontend.Ast.Unbraced_array_initializer _ ->
+      initial_value state initial.local_initializer_value
+  | Frontend.Ast.Scalar_initializer value -> (
+      let first_occurrence = state.next_occurrence in
+      match expression state value with
+      | Error _ as error -> error
+      | Ok state -> (
+          let cursor = ref first_occurrence in
+          match
+            argument_expression state.member_index state.before_item_index
+              state.visible_aggregates state.typed_values state.global_values
+              state.occurrences state.defined_queries cursor value
+          with
+          | Error _ as error -> error
+          | Ok _ when !cursor <> state.next_occurrence ->
+              Error
+                "function initializer traversal disagrees with expression \
+                 binding"
+          | Ok expression -> (
+              match
+                List.find_opt
+                  (fun local ->
+                    Sema.Local_type_resolution.local_declarator_origin local
+                    = origin declarator.local_declarator_location)
+                  state.locals
+              with
+              | None ->
+                  Error "function initializer has no matching checked local"
+              | Some local -> (
+                  if state.next_initializer = max_int then
+                    Error "function initializer identity space is exhausted"
+                  else
+                    match
+                      Sema.Function_call_resolution.make_initializer
+                        ~index:state.next_initializer ~local ~expression
+                        ~origin:(origin initial.local_initializer_location)
+                    with
+                    | Error _ as error -> error
+                    | Ok input ->
+                        Ok
+                          {
+                            state with
+                            next_initializer = state.next_initializer + 1;
+                            initializers_rev = input :: state.initializers_rev;
+                          }))))
 
 let local_declaration state (declaration : Frontend.Ast.local_declaration) =
   let declarator state (declarator : Frontend.Ast.local_declarator) =
@@ -1340,7 +1393,7 @@ let local_declaration state (declaration : Frontend.Ast.local_declaration) =
     | Ok state -> (
         match declarator.local_initializer with
         | None -> Ok state
-        | Some initial -> local_initializer state initial)
+        | Some initial -> local_initializer state declarator initial)
   in
   fold_result declarator state declaration.local_declarators
 
@@ -1833,6 +1886,7 @@ let function_input table member_index visible_aggregates global_values
               global_values
               (occurrence_map expected_occurrences)
               defined_queries
+              (Sema.Local_type_resolution.function_locals locals)
           in
           match body with
           | None -> Ok state
@@ -1855,6 +1909,7 @@ let function_input table member_index visible_aggregates global_values
                 ~selectors:(List.rev state.selectors_rev)
                 ~switch_cases:(List.rev state.switch_cases_rev)
                 ~returns:(List.rev state.returns_rev)
+                ~initializers:(List.rev state.initializers_rev)
                 (List.rev state.calls_rev))
 
 let publish_aggregates_before visible publications item_index =

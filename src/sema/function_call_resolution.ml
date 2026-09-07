@@ -308,6 +308,13 @@ type return_input = {
   origin : Symbol.origin;
 }
 
+type initializer_input = {
+  index : int;
+  local : Local_type_resolution.local;
+  expression : argument_expression;
+  origin : Symbol.origin;
+}
+
 type function_input = {
   symbol : Symbol.t;
   scope : Symbol_table.scope;
@@ -319,6 +326,7 @@ type function_input = {
   selectors : selector_input list;
   switch_cases : switch_case_input list;
   returns : return_input list;
+  initializers : initializer_input list;
 }
 
 type default_use = {
@@ -384,6 +392,7 @@ type resolved_function = {
   selectors : selector_input list;
   switch_cases : switch_case_input list;
   returns : return_input list;
+  initializers : initializer_input list;
 }
 
 module Int_map = Map.Make (Int)
@@ -437,6 +446,14 @@ let function_switch_cases (function_ : resolved_function) =
   function_.switch_cases
 
 let function_returns (function_ : resolved_function) = function_.returns
+
+let function_initializers (function_ : resolved_function) =
+  function_.initializers
+
+let initializer_index (initial : initializer_input) = initial.index
+let initializer_local (initial : initializer_input) = initial.local
+let initializer_expression (initial : initializer_input) = initial.expression
+let initializer_origin (initial : initializer_input) = initial.origin
 let call_index (call : call) = call.index
 let call_callee_occurrence_index (call : call) = call.callee_occurrence_index
 let call_callee_name (call : call) = call.callee_name
@@ -1643,6 +1660,23 @@ let make_return ~index ~keyword_origin ~expression ~origin =
     Error "function return statement has an invalid source origin"
   else Ok { index; keyword_origin; expression; origin }
 
+let make_initializer ~index ~local ~expression ~origin =
+  if index < 0 then Error "function initializer index cannot be negative"
+  else if not (valid_origin origin) then
+    Error "function initializer has an invalid source origin"
+  else
+    match Local_type_resolution.local_initializer local with
+    | Some initial
+      when Local_type_resolution.initializer_kind initial
+           = Local_type_resolution.Scalar_initializer
+           && Local_type_resolution.initializer_origin initial = origin
+           && Local_type_resolution.initializer_value_origin initial
+              = argument_expression_origin expression ->
+        Ok { index; local; expression; origin }
+    | _ ->
+        Error
+          "function initializer does not match its checked local declaration"
+
 let make_condition ~index ~role ~keyword_origin ~expression ~origin =
   if index < 0 then Error "function condition index cannot be negative"
   else if not (valid_origin keyword_origin) then
@@ -1790,14 +1824,21 @@ let validate_return_indexes returns =
 
 let make_function ~symbol ~scope ~item_index ?(expression_statements = [])
     ?(implicit_outputs = []) ?(conditions = []) ?(selectors = [])
-    ?(switch_cases = []) ?(returns = []) (calls : call list) :
-    (function_input, string) result =
+    ?(switch_cases = []) ?(returns = []) ?(initializers = [])
+    (calls : call list) : (function_input, string) result =
   if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Function) then
     Error "function call owner is not a function"
   else if Symbol_table.scope_kind scope <> Symbol_table.Function then
     Error "function call owner does not use a function scope"
   else if item_index < 0 then
     Error "function call owner item index cannot be negative"
+  else if
+    not
+      (List.mapi
+         (fun index (initial : initializer_input) -> initial.index = index)
+         initializers
+      |> List.for_all Fun.id)
+  then Error "function initializer indexes are not contiguous"
   else
     match validate_expression_statement_indexes expression_statements with
     | Error _ as error -> error
@@ -1829,6 +1870,7 @@ let make_function ~symbol ~scope ~item_index ?(expression_statements = [])
                                  selectors;
                                  switch_cases;
                                  returns;
+                                 initializers;
                                }
                                 : function_input))))))
 
@@ -2726,6 +2768,38 @@ let validate_switch_cases table parent visible declarations compilation_mode
   in
   loop 0 cases
 
+let validate_initializers table parent visible declarations compilation_mode
+    scope initializers occurrences queries =
+  let occurrence_by_index = occurrence_map occurrences in
+  let query_by_index = query_map queries in
+  let rec loop expected = function
+    | [] -> Ok ()
+    | (initial : initializer_input) :: rest -> (
+        let symbol = Local_type_resolution.local_symbol initial.local in
+        if
+          initial.index <> expected
+          || (not (Symbol_table.owns_symbol table symbol))
+          || not (symbol_in_scope symbol scope)
+        then
+          Error
+            (invalid_input
+               "function initializer has inconsistent local ownership or order")
+        else
+          match
+            validate_argument_expression table parent visible declarations
+              compilation_mode initial.expression
+          with
+          | Error _ as error -> error
+          | Ok () -> (
+              match
+                validate_bound_evidence occurrence_by_index query_by_index
+                  initial.expression
+              with
+              | Error _ as error -> error
+              | Ok () -> loop (expected + 1) rest))
+  in
+  loop 0 initializers
+
 let validate_function_input table parent visible declarations compilation_mode
     expected queries (input : function_input) =
   let symbol = Module_expression_binding.function_symbol expected in
@@ -2749,59 +2823,68 @@ let validate_function_input table parent visible declarations compilation_mode
   else if not (symbol_in_scope input.symbol parent) then
     Error (invalid_input "function call owner has the wrong module scope")
   else
-    match
-      validate_argument_expressions table parent visible declarations
-        compilation_mode input.calls
-    with
-    | Error _ as error -> error
-    | Ok () -> (
-        let occurrences =
-          Module_expression_binding.function_occurrences expected
-        in
-        match validate_call_bound_evidence input.calls occurrences queries with
+    Result.bind
+      (validate_initializers table parent visible declarations compilation_mode
+         scope input.initializers
+         (Module_expression_binding.function_occurrences expected)
+         queries)
+      (fun () ->
+        match
+          validate_argument_expressions table parent visible declarations
+            compilation_mode input.calls
+        with
         | Error _ as error -> error
         | Ok () -> (
-            match validate_calls input.calls occurrences with
+            let occurrences =
+              Module_expression_binding.function_occurrences expected
+            in
+            match
+              validate_call_bound_evidence input.calls occurrences queries
+            with
             | Error _ as error -> error
             | Ok () -> (
-                match
-                  validate_expression_statements table parent visible
-                    declarations compilation_mode input.expression_statements
-                    occurrences queries
-                with
+                match validate_calls input.calls occurrences with
                 | Error _ as error -> error
                 | Ok () -> (
                     match
-                      validate_implicit_outputs table parent visible
-                        declarations compilation_mode input.implicit_outputs
-                        occurrences queries
+                      validate_expression_statements table parent visible
+                        declarations compilation_mode
+                        input.expression_statements occurrences queries
                     with
                     | Error _ as error -> error
                     | Ok () -> (
                         match
-                          validate_conditions table parent visible declarations
-                            compilation_mode input.conditions occurrences
-                            queries
+                          validate_implicit_outputs table parent visible
+                            declarations compilation_mode input.implicit_outputs
+                            occurrences queries
                         with
                         | Error _ as error -> error
                         | Ok () -> (
                             match
-                              validate_selectors table parent visible
-                                declarations compilation_mode input.selectors
+                              validate_conditions table parent visible
+                                declarations compilation_mode input.conditions
                                 occurrences queries
                             with
                             | Error _ as error -> error
                             | Ok () -> (
                                 match
-                                  validate_switch_cases table parent visible
+                                  validate_selectors table parent visible
                                     declarations compilation_mode
-                                    input.switch_cases occurrences queries
+                                    input.selectors occurrences queries
                                 with
                                 | Error _ as error -> error
-                                | Ok () ->
-                                    validate_returns table parent visible
-                                      declarations compilation_mode
-                                      input.returns occurrences queries)))))))
+                                | Ok () -> (
+                                    match
+                                      validate_switch_cases table parent visible
+                                        declarations compilation_mode
+                                        input.switch_cases occurrences queries
+                                    with
+                                    | Error _ as error -> error
+                                    | Ok () ->
+                                        validate_returns table parent visible
+                                          declarations compilation_mode
+                                          input.returns occurrences queries)))))
+                )))
 
 let validate_function_inputs table parent expressions declarations
     compilation_mode outer inputs =
@@ -3412,6 +3495,7 @@ let resolve_function ?members types declarations expected
                 selectors = input.selectors;
                 switch_cases = input.switch_cases;
                 returns = input.returns;
+                initializers = input.initializers;
               })
     | call :: rest -> (
         match
