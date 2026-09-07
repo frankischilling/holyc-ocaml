@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed stale implementation commits in `holyc version`. Build metadata now refreshes whenever a Dune build requires it, so commits, branch switches, packed refs, linked worktrees and release overrides cannot reuse an older cached identity. A Dune integration probe covers those changes without cleaning or modifying the implementation repository.
+
 - Added raw integer division and remainder to the bounded IR interpreter and `holyc eval`. Both `I64` operands select signed truncation toward zero; any `U64` operand selects unsigned arithmetic. Zero divisors report `HCIRVM0009`, and signed quotient overflow reports `HCIRVM0010` for both division and modulo. Faults retain the instruction context, consume one step, and expose no partial result. Table tests, independent long-division properties, source programs, and CLI goldens cover values, faults, preflight, and budgets. Native optimizer and fault-phase compatibility remains tracked by #585.
 
 - Added `holyc eval FILE`, `holyc dump-ir FILE`, and public library entry points for exactly one preprocessed ordinary expression statement. The checked semantic chain and expression lowerer preserve the value in an x87-verified `IC_RETURN_VAL`/`IC_RET` harness. Evaluation runs only through the bounded integer interpreter, prints exact signed or unsigned decimal, and supports versioned JSON with the word encoded as a string. Invalid input, unsupported operations, and exhausted budgets return diagnostics without a successful result. The default budget is 100000; `(6*7);` returns 42 in five steps. General source execution, native compilation, `#exe`, and M5 remain pending; issue #574's runtime-versus-constant shift boundary is unchanged.

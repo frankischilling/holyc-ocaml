@@ -10,6 +10,16 @@ dune runtest
 powershell -File tools/verify-reference.ps1
 ```
 
+CI also runs `opam exec -- pwsh -NoProfile -File tools/test-version-metadata.ps1`.
+On Windows PowerShell, use `opam exec -- powershell -NoProfile -File
+tools/test-version-metadata.ps1` (or the shell's full path). The probe copies
+the production metadata rule and generator into temporary projects, changes
+synthetic loose/packed refs and detached HEADs, exercises a linked-worktree
+gitfile and release overrides, and rebuilds without cleaning. It checks actual
+generated metadata, restores process environment variables, and verifies the
+temporary directory before removing it. The fixture refs are test identities,
+not compatibility results or commits in the implementation repository.
+
 Unit tests cover source positions, spans, token construction, literal decoding, comments, diagnostic rendering, include and generated-value frames, predefined values, primitive, internal, and named declaration types, declaration modifiers and bindings, comma-separated groups, pointer layers, strict extraction of the complete opcode database, operator tables, primitive type metadata, compiler options, function flags, member-list flags, global record flags, the complete intermediate-code table, and the TempleOS BIN specification. The generated-table tests reject malformed statements, duplicate records, missing or reordered entries, changed aliases, unknown opcode arguments, excess instruction bytes or forms, unknown operator tokens or ICs, precedence drift, unavailable-type drift, option default drift, function-flag expression or transition drift, member-list flag or consumer drift, global-record flag or consumer drift, BIN record or loader-formula drift, API contract drift, and source checksum mismatches. The option, function-flag, member-list flag, global-record flag, and BIN scanners also prove that comments and literals do not create false consumers; the option tests separately confirm that `_BEQU` retains its previous-state result.
 
 The current test binary runs 1,640 cases: 1,631 ordinary Alcotest cases and nine registered property tests. `test/dune` also defines 238 golden rules. A passing count describes only the implemented slices listed below; it is not a whole-compiler compatibility percentage. The reference verifier checks 80 individually audited Git blobs, and both corpus phases account for all 528 relevant blobs from the pinned Git tree.
