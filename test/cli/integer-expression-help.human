@@ -1,0 +1,88 @@
+NAME
+       holyc-eval - Evaluate one ordinary integer expression statement
+       (EXPR;) at runtime IR semantics with a bounded instruction budget.
+
+SYNOPSIS
+       holyc eval [OPTION]… FILE
+
+ARGUMENTS
+       FILE (required)
+           HolyC source file to read.
+
+OPTIONS
+       --command-line-source
+           Make __CMD_LINE__ true at TempleOS source depths below one.
+
+       --conditional-depth-limit=COUNT (absent=64)
+           Allow at most this many nested conditional directives.
+
+       --conditional-expression-node-limit=COUNT (absent=512)
+           Allow at most this many terms and operators in one #if or #assert
+           expression.
+
+       --definition-depth-limit=COUNT (absent=64)
+           Allow at most this many active definition or predefined-value
+           expansions.
+
+       --format=FORMAT (absent=human)
+           Select human or JSON output.
+
+       --generated-definition-byte-limit=BYTES, --generated-byte-limit=BYTES
+       (absent=16777216)
+           Allow at most this many generated replacement bytes during one
+           preprocessing run. Definitions and predefined values share the
+           budget.
+
+       -I DIR, --include=DIR
+           Search this directory after the compiler working directory. Repeat
+           the option to add roots in order.
+
+       --include-byte-limit=BYTES (absent=67108864)
+           Reject an included source larger than this many bytes.
+
+       --include-depth-limit=COUNT (absent=64)
+           Allow at most this many simultaneously included files. The root
+           file does not count toward the limit.
+
+       --mode=MODE (absent=jit)
+           Select which #ifjit or #ifaot branch the preprocessor returns.
+
+       --predefined-date=MM/DD/YY (absent=01/01/70)
+           Set the deterministic MM/DD/YY string returned by __DATE__.
+
+       --predefined-time=HH:MM:SS (absent=00:00:00)
+           Set the deterministic HH:MM:SS string returned by __TIME__.
+
+       --step-limit=COUNT (absent=100000)
+           Execute at most this many IR instructions, including the return
+           harness. Must be positive.
+
+       --templeos-root=DIR
+           Map TempleOS paths beginning with / or ::/ to this source-tree
+           root.
+
+COMMON OPTIONS
+       --help[=FMT] (default=auto)
+           Show this help in format FMT. The value FMT must be one of auto,
+           pager, groff or plain. With auto, the format is pager or plain
+           whenever the TERM env var is dumb or undefined.
+
+       --version
+           Show version information.
+
+EXIT STATUS
+       holyc eval exits with:
+
+       0   on success.
+
+       1   on an input, configuration, lowering, or evaluation error
+
+       123 on indiscriminate errors reported on standard error.
+
+       124 on command line parsing errors.
+
+       125 on unexpected internal errors (bugs).
+
+SEE ALSO
+       holyc(1)
+

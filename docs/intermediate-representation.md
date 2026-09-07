@@ -309,3 +309,44 @@ The implicit-output argument binder is also a semantic record, not a call instru
 Function switch selectors are also semantic results rather than IR values. They retain bounded or no-bound mode, source type, result class, and nested call identity without creating the range subtraction, jump table, or switch instruction.
 
 Switch cases remain semantic patterns at this stage. An implicit label has no fabricated expression. A single label has one checked value, while a ranged label keeps its checked start and end together. An explicit `F64` value records `ICF_RES_TO_INT`, matching the conversion inside `LexExpressionI64`; the value is not evaluated. Later constant execution and switch lowering must assign implicit values, normalize ranges, reject duplicates, and construct labels and jump-table data.
+
+## One source expression and its return harness
+
+`Holyc_lib.lower_integer_expression session ~config ~source` returns
+`(Ir_x87_stack.t, Diagnostic.t list) result`. `Driver.Integer_expression` parses
+with the supplied preprocessing configuration, requires exactly one ordinary
+expression statement, and constructs the checked declaration, aggregate, member,
+function, local/global, module/outer binding, expression-tree, identifier, and
+result ownership chain. Empty environments still pass through their checked
+constructors. No wrapper source is synthesized and no AST item is discarded.
+
+The exact typed root enters `Ir.Expression_lowering.lower_typed_result` at
+instruction and value ID zero. Its final value identity and type feed
+`IC_RETURN_VAL`; `IC_RET` follows. The adapter checks consecutive IDs, constructs
+one block, and runs x87 verification before publishing the graph. Arithmetic
+instructions retain their operator spans and operands. Both return instructions
+retain the complete expression span. Unsupported tree shapes return
+`HCEVAL0002` without a partial graph; invalid input shape uses `HCEVAL0001`.
+Semantic, IR, and VM diagnostic codes survive the adapter; `HCEVAL0003` covers
+adapter invariants when no underlying diagnostic code exists.
+
+`Holyc_lib.evaluate_integer_expression session ~config ~source ~max_steps`
+returns `(Ir_integer_interpreter.t, Diagnostic.t list) result` and executes only
+through `Ir.Integer_interpreter.execute`. A nonpositive budget returns
+`HCIRVM0001` before parsing. Every harness instruction costs one step, so `(6*7);`
+returns internal `I64` bits `42` at limit 5 and reports `HCIRVM0007` at limit 4.
+VM failures retain the original code and instruction span when available.
+
+`holyc dump-ir` prints the existing `holyc-ir-graph-v1` format and performs no VM
+preflight or execution. For example, `1.0;` lowers to a verified floating graph
+but `holyc eval` rejects it during integer-VM preflight. This distinction also
+applies to represented opcodes and flags outside the VM domain. JSON graph output
+uses the existing command-error path because no JSON graph schema is defined.
+Evaluation JSON uses `holyc-integer-expression-v1` with `reference_commit`,
+`word_type` (`I64` or `U64`), decimal `word` as a string, and `executed_steps`.
+
+This is bounded runtime IR evaluation. It does not implement the TempleOS native
+`LexExpression2Bin` backend, `#exe`, whole-program execution, or M5. In particular,
+`1<<64;` evaluates to 1 under the raw runtime count mask; constant-form rewrites
+remain separate under issue #574. The source integration test compares original
+and integer-unary-folded results through the production interpreter.

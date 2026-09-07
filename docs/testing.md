@@ -499,3 +499,29 @@ dune exec test/test_main.exe -- test "IR top-level batch lowering"
 Terminal-global-comma cases cover the exact `Demo/Graphics/Life.HC:4` spelling, initialized and bound globals, recursive function pointers, aggregate-attached globals, JIT and AOT modes, definition and include provenance, deterministic dumps, and semantic termination without a phantom symbol. In the earlier negative-case inventory, “trailing declaration commas” means a comma followed by something other than the required semicolon; `name,;` is accepted.
 
 Corpus, differential, fuzz, loader, and bootstrap suites will be added with the stages they exercise. A suite is not marked passing until its command runs in CI and publishes its exact reference commit.
+
+## Bounded source expression evaluation
+
+`test/test_integer_expression.ml` exercises the public source lowering and
+evaluation entry points. It checks actual typed return bits for arithmetic,
+negative and high-bit words, bitwise operations, runtime shifts, comparisons,
+logical values, macro expansion, and JIT/AOT preprocessing. Boundary cases cover
+missing delimiters, empty or excess statements, declarations, control flow,
+implicit output, parser errors, unsupported lowerer/VM domains, and nonpositive
+budgets before parsing. The five-instruction `(6*7);` harness succeeds at limit 5
+and fails at 4. Fresh sessions reproduce the graph, and the production interpreter
+returns the same bits before and after verified integer-unary folding.
+
+The `integer-expression*` fixtures under `test/cli` check 42, exact U64 maximum
+in decimal and JSON, parser options in help, invalid input with empty stdout,
+budget exhaustion, unsupported JSON graph format, and canonical arithmetic IR.
+The IR fixture is hand reviewed: constants 6 and 7 produce `%v0` and `%v1`,
+`IC_MUL` produces `%v2`, and the typed return consumes `%v2` before `IC_RET`.
+These are hosted integration tests, not results from a TempleOS oracle.
+
+Run the focused library suite with
+`opam exec -- dune exec test/test_main.exe -- test "source integer expression"`.
+Run all CLI golden rules with `opam exec -- dune runtest`. Check changed OCaml
+files directly with `opam exec -- ocamlformat --check FILE...` as well as the
+normal build and generated-source checks; the Windows Dune formatting alias can
+omit checks that run in Linux CI. Review new golden output before accepting it.

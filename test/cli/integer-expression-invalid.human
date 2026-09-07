@@ -1,0 +1,3 @@
+cli/integer-expression-invalid.hc:1:1: error[HCEVAL0001]: expected exactly one top-level ordinary expression statement
+    1 | 1;2;
+      | ^^^^^

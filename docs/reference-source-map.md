@@ -708,3 +708,23 @@ The pinned lexer nests `/* ... */` comments. It consumes `//` through the end of
 - Allowed-root enforcement, active-path cycle diagnostics, and nesting and size limits are hosted security differences. They are not attributed to the native TempleOS lexer.
 - Ordinary dollar-delimited text remains comment trivia outside strings. Complete commands inside strings are retained as literal bytes but are not parsed or rendered. In a NUL-terminated saved DolDoc source, `$IB,...,BI=n$` and `$IS,...,BI=n$` select a numbered `CDocBin` record and become typed literal tokens. `$$` remains the HolyC current-position token. Other DolDoc commands are not interpreted by this slice.
 - Strict hosted decoding rejects truncated headers, truncated payloads, duplicate record numbers, and missing references. The pinned Git objects contain newline-normalized trailers whose declared sizes cannot reliably locate every following record. Corpus mode uses an explicit recovery path and marks shortened or missing records incomplete; it never presents those bytes as an intact oracle payload.
+
+## Bounded source expression evaluation
+
+At pinned commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`,
+`Compiler/PrsExp.HC:1117-1127` implements `LexExpression2Bin`: after parsing an
+expression, it appends `IC_RETURN_VAL` and `IC_RET` before native compilation.
+`Driver.Integer_expression` reuses this return-tail shape for one checked source
+expression. Its backend is the existing hosted integer interpreter, so the
+source evidence supports the preparation shape without claiming native compiler
+or loader compatibility.
+
+Integer immediate and unary evidence comes from `Compiler/PrsExp.HC:608-616,678-686`.
+`Compiler/OptLib.HC:92-180,196-225` supplies the integer type rules;
+`Compiler/OptPass012.HC:153-192,308-319,485-494,619-628` supplies unary,
+multiplication, addition, and subtraction behavior.
+`Compiler/OptPass789A.HC:418-420,779-786` consumes return values and emits `RET`.
+The existing runtime shift, comparison, and logical evidence in this map applies
+to the same VM after source lowering. Issue #574 still tracks constant-form
+shift questions, and issue #396 still tracks the broader IR work. No TempleOS
+execution oracle was run for this hosted integration.

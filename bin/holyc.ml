@@ -343,14 +343,119 @@ let parse_file format include_roots templeos_root max_include_depth
               print_ast format session ast;
               0))
 
-let source_parser_term run =
+let source_parser_options run =
   Term.(
-    const run $ format_argument $ include_roots_argument
-    $ templeos_root_argument $ include_depth_argument $ include_bytes_argument
+    run $ format_argument $ include_roots_argument $ templeos_root_argument
+    $ include_depth_argument $ include_bytes_argument
     $ definition_depth_argument $ generated_bytes_argument
     $ conditional_depth_argument $ expression_nodes_argument
     $ compilation_mode_argument $ predefined_date_argument
     $ predefined_time_argument $ command_line_source_argument $ file_argument)
+
+let source_parser_term run = source_parser_options Term.(const run)
+
+let print_integer_result format result =
+  let module VM = Holyc_lib.Ir_integer_interpreter in
+  match VM.termination result with
+  | VM.Returned (Some word) ->
+      let word_type, decimal =
+        match word.type_ with
+        | VM.I64 -> ("I64", Int64.to_string word.bits)
+        | VM.U64 -> ("U64", Printf.sprintf "%Lu" word.bits)
+      in
+      (match format with
+      | Human -> print_endline decimal
+      | Json ->
+          `Assoc
+            [
+              ("schema", `String "holyc-integer-expression-v1");
+              ("reference_commit", `String VM.reference_commit);
+              ("word_type", `String word_type);
+              ("word", `String decimal);
+              ("executed_steps", `Int (VM.executed_steps result));
+            ]
+          |> Yojson.Safe.pretty_to_string |> print_endline);
+      0
+  | VM.Stream_end | VM.Returned None ->
+      print_command_error format ~command:"eval"
+        "HCEVAL0003: expression execution did not return an integer word";
+      1
+
+let integer_expression_file dump max_steps format include_roots templeos_root
+    max_include_depth max_source_bytes max_definition_depth max_generated_bytes
+    max_conditional_depth max_expression_nodes compilation_mode predefined_date
+    predefined_time command_line_source path =
+  let command = if dump then "dump-ir" else "eval" in
+  let fail message =
+    print_command_error format ~command message;
+    1
+  in
+  if dump && format = Json then
+    fail "JSON graph output is not supported; use --format=human"
+  else if (not dump) && max_steps <= 0 then
+    fail "HCIRVM0001: max_steps must be greater than zero"
+  else
+    let session = Holyc_lib.Session.create () in
+    match Holyc_lib.Session.load_source session ~path with
+    | Error message ->
+        fail (Printf.sprintf "could not read %s: %s" path message)
+    | Ok source -> (
+        match
+          make_preprocessor_config include_roots templeos_root max_include_depth
+            max_source_bytes max_definition_depth max_generated_bytes
+            max_conditional_depth max_expression_nodes compilation_mode
+            predefined_date predefined_time command_line_source
+        with
+        | Error message ->
+            fail ("invalid preprocessor configuration: " ^ message)
+        | Ok config -> (
+            let output =
+              if dump then
+                Holyc_lib.lower_integer_expression session ~config ~source
+                |> Result.map (fun graph ->
+                    Holyc_lib.Ir_x87_stack.graph graph
+                    |> Holyc_lib.Ir_block_graph.human |> output_string stdout;
+                    0)
+              else
+                Holyc_lib.evaluate_integer_expression session ~config ~source
+                  ~max_steps
+                |> Result.map (print_integer_result format)
+            in
+            match output with
+            | Ok status -> status
+            | Error diagnostics ->
+                print_diagnostics format session diagnostics;
+                1))
+
+let step_limit_argument =
+  Arg.(
+    value & opt int 100000
+    & info [ "step-limit" ] ~docv:"COUNT"
+        ~doc:
+          "Execute at most this many IR instructions, including the return \
+           harness. Must be positive.")
+
+let expression_exits =
+  Cmd.Exit.info 1
+    ~doc:"on an input, configuration, lowering, or evaluation error"
+  :: Cmd.Exit.defaults
+
+let eval_command =
+  Cmd.v
+    (Cmd.info "eval" ~exits:expression_exits
+       ~doc:
+         "Evaluate one ordinary integer expression statement (EXPR;) at \
+          runtime IR semantics with a bounded instruction budget.")
+    (source_parser_options
+       Term.(const (integer_expression_file false) $ step_limit_argument))
+
+let dump_ir_command =
+  Cmd.v
+    (Cmd.info "dump-ir" ~exits:expression_exits
+       ~doc:
+         "Lower one ordinary expression statement (EXPR;) into a verified \
+          return harness and print its deterministic IR without executing it.")
+    (source_parser_term (integer_expression_file true 0))
 
 let parser_term = source_parser_term parse_file
 
@@ -606,6 +711,8 @@ let root_command =
       dump_ast_command;
       dump_symbols_command;
       dump_layout_command;
+      eval_command;
+      dump_ir_command;
       corpus_command;
       version_command;
     ]
