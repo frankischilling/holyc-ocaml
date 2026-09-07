@@ -1,0 +1,5 @@
+{
+  "schema": "holyc-command-error-v1",
+  "command": "dump-ir",
+  "message": "JSON graph output is not supported; use --format=human"
+}

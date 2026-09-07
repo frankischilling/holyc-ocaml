@@ -10918,3 +10918,32 @@ excluded_types = ["public U64", "narrow integer types", "pointers"]
 compilation_modes = ["jit", "aot"]
 focused_tests = 2
 native_oracle_status = "not required; the pinned parser and optimizer branches state the literal and result-type transitions directly"
+
+[[feature]]
+id = "HC-DRIVER-INTEGER-EXPRESSION-EVALUATION"
+description = "One preprocessed ordinary source expression lowers into a verified return harness and executes through the bounded integer interpreter."
+sources = [
+  "Compiler/PrsExp.HC:1117-1127 expression preparation with IC_RETURN_VAL and IC_RET",
+  "Compiler/PrsExp.HC:608-616,678-686 unary operations and integer immediate selection",
+  "Compiler/OptLib.HC:92-180,196-225 integer operand and result types",
+  "Compiler/OptPass012.HC:153-192,308-319,485-494,619-628 unary and arithmetic word operations",
+  "Compiler/OptPass789A.HC:418-420,779-786 return preparation and RET"
+]
+implementation = ["src/driver/integer_expression.ml", "src/driver/integer_expression.mli", "src/holyc_lib.ml", "src/holyc_lib.mli", "bin/holyc.ml"]
+tests = ["test/test_integer_expression.ml", "test/cli/integer-expression.ir", "test/cli/integer-expression.json", "test/cli/integer-expression-unsigned.json", "test/cli/integer-expression-invalid.human", "test/cli/integer-expression-budget.human", "test/cli/integer-expression-help.human", "test/dune"]
+documentation = ["README.md", "CHANGELOG.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md"]
+status = "implemented"
+issue = 581
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+input_boundary = "exactly one ordinary expression statement after preprocessing; no generated wrapper or ignored AST items"
+semantic_boundary = "checked declaration/member/function environments, module and outer bindings, top-level expression trees, identifier classification, and typed root"
+lowering_boundary = "exact expression lowerer value and type followed by checked IC_RETURN_VAL and IC_RET in an x87-verified single block"
+evaluation_boundary = "existing integer VM owns preflight and execution; positive mandatory library max_steps; CLI default 100000"
+result_schema = "holyc-integer-expression-v1; pinned reference_commit, I64/U64 word_type, exact decimal word string, executed_steps"
+reference_fixture = "(6*7); returns I64 bits 42 in five instructions; limit four fails"
+focused_tests = 20
+cli_golden_rules = 11
+constant_shift_issue = 574
+excluded = ["general run or compile", "native code generation", "whole-program execution", "arbitrary #exe", "constant-folding shift equivalence", "completion of M5"]
+native_oracle_status = "not run; hosted source-to-IR-to-interpreter integration with pinned source evidence"

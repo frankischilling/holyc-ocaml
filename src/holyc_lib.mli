@@ -691,3 +691,22 @@ val classify_global_records :
     agree on [OPTf_EXTERNS_TO_IMPORTS] and [OPTf_GLBLS_ON_DATA_HEAP].
     Source-positioned option execution, allocation, address resolution, and
     record emission remain separate. *)
+
+val lower_integer_expression :
+  Session.t ->
+  config:Preprocessor.Config.t ->
+  source:Source_file.t ->
+  (Ir_x87_stack.t, Diagnostic.t list) result
+(** Lower exactly one ordinary [EXPR;] statement into a verified return harness.
+    Preprocessing and semantic checking use the supplied session and config. VM
+    opcode, type and flag restrictions are checked only during evaluation. *)
+
+val evaluate_integer_expression :
+  Session.t ->
+  config:Preprocessor.Config.t ->
+  source:Source_file.t ->
+  max_steps:int ->
+  (Ir_integer_interpreter.t, Diagnostic.t list) result
+(** Evaluate one source expression through the bounded integer interpreter.
+    [max_steps] must be positive; validation precedes parsing. Every harness
+    instruction, including return preparation and return, consumes one step. *)

@@ -2,6 +2,7 @@
  (name test_main)
  (modules
   test_main
+  test_integer_expression
   test_source
   test_lexer
   test_preprocessor
@@ -4156,3 +4157,252 @@
    (diff
     cli/dump-layout-parse-error.json
     dump-layout-parse-error.json.diagnostics.actual))))
+
+(rule
+ (alias runtest)
+ (targets integer-expression.human.actual)
+ (deps cli/integer-expression.hc cli/integer-expression.human)
+ (action
+  (progn
+   (with-stdout-to
+    integer-expression.human.actual
+    (run %{exe:../bin/holyc.exe} eval cli/integer-expression.hc))
+   (diff cli/integer-expression.human integer-expression.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets integer-eval-json.stdout.actual integer-eval-json.stderr.actual)
+ (deps
+  cli/integer-expression.hc
+  cli/integer-expression.json
+  cli/integer-expression-empty.stdout)
+ (action
+  (progn
+   (with-stdout-to
+    integer-eval-json.stdout.actual
+    (with-stderr-to
+     integer-eval-json.stderr.actual
+     (run
+      %{exe:../bin/holyc.exe}
+      eval
+      --format=json
+      cli/integer-expression.hc)))
+   (diff cli/integer-expression.json integer-eval-json.stdout.actual)
+   (diff cli/integer-expression-empty.stdout integer-eval-json.stderr.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  integer-eval-unsigned.stdout.actual
+  integer-eval-unsigned.stderr.actual)
+ (deps
+  cli/integer-expression-unsigned.hc
+  cli/integer-expression-unsigned.human
+  cli/integer-expression-empty.stdout)
+ (action
+  (progn
+   (with-stdout-to
+    integer-eval-unsigned.stdout.actual
+    (with-stderr-to
+     integer-eval-unsigned.stderr.actual
+     (run %{exe:../bin/holyc.exe} eval cli/integer-expression-unsigned.hc)))
+   (diff
+    cli/integer-expression-unsigned.human
+    integer-eval-unsigned.stdout.actual)
+   (diff
+    cli/integer-expression-empty.stdout
+    integer-eval-unsigned.stderr.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  integer-eval-unsigned-json.stdout.actual
+  integer-eval-unsigned-json.stderr.actual)
+ (deps
+  cli/integer-expression-unsigned.hc
+  cli/integer-expression-unsigned.json
+  cli/integer-expression-empty.stdout)
+ (action
+  (progn
+   (with-stdout-to
+    integer-eval-unsigned-json.stdout.actual
+    (with-stderr-to
+     integer-eval-unsigned-json.stderr.actual
+     (run
+      %{exe:../bin/holyc.exe}
+      eval
+      --format=json
+      cli/integer-expression-unsigned.hc)))
+   (diff
+    cli/integer-expression-unsigned.json
+    integer-eval-unsigned-json.stdout.actual)
+   (diff
+    cli/integer-expression-empty.stdout
+    integer-eval-unsigned-json.stderr.actual))))
+
+(rule
+ (alias runtest)
+ (targets integer-dump-ir.stdout.actual integer-dump-ir.stderr.actual)
+ (deps
+  cli/integer-expression.hc
+  cli/integer-expression.ir
+  cli/integer-expression-empty.stdout)
+ (action
+  (progn
+   (with-stdout-to
+    integer-dump-ir.stdout.actual
+    (with-stderr-to
+     integer-dump-ir.stderr.actual
+     (run %{exe:../bin/holyc.exe} dump-ir cli/integer-expression.hc)))
+   (diff cli/integer-expression.ir integer-dump-ir.stdout.actual)
+   (diff cli/integer-expression-empty.stdout integer-dump-ir.stderr.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  integer-eval-budget.stdout.actual
+  integer-eval-budget.stderr.actual)
+ (deps
+  cli/integer-expression.hc
+  cli/integer-expression-empty.stdout
+  cli/integer-expression-budget.human)
+ (action
+  (progn
+   (with-stdout-to
+    integer-eval-budget.stdout.actual
+    (with-stderr-to
+     integer-eval-budget.stderr.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       eval
+       --step-limit=4
+       cli/integer-expression.hc))))
+   (diff
+    cli/integer-expression-empty.stdout
+    integer-eval-budget.stdout.actual)
+   (diff
+    cli/integer-expression-budget.human
+    integer-eval-budget.stderr.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  integer-eval-invalid.stdout.actual
+  integer-eval-invalid.stderr.actual)
+ (deps
+  cli/integer-expression-invalid.hc
+  cli/integer-expression-empty.stdout
+  cli/integer-expression-invalid.human)
+ (action
+  (progn
+   (with-stdout-to
+    integer-eval-invalid.stdout.actual
+    (with-stderr-to
+     integer-eval-invalid.stderr.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} eval cli/integer-expression-invalid.hc))))
+   (diff
+    cli/integer-expression-empty.stdout
+    integer-eval-invalid.stdout.actual)
+   (diff
+    cli/integer-expression-invalid.human
+    integer-eval-invalid.stderr.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  integer-dump-format.stdout.actual
+  integer-dump-format.stderr.actual)
+ (deps
+  cli/integer-expression.hc
+  cli/integer-expression-empty.stdout
+  cli/integer-expression-format.json)
+ (action
+  (progn
+   (with-stdout-to
+    integer-dump-format.stdout.actual
+    (with-stderr-to
+     integer-dump-format.stderr.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       dump-ir
+       --format=json
+       cli/integer-expression.hc))))
+   (diff
+    cli/integer-expression-empty.stdout
+    integer-dump-format.stdout.actual)
+   (diff
+    cli/integer-expression-format.json
+    integer-dump-format.stderr.actual))))
+
+(rule
+ (alias runtest)
+ (targets integer-eval-help.stdout.actual integer-eval-help.stderr.actual)
+ (deps cli/integer-expression-help.human cli/integer-expression-empty.stdout)
+ (action
+  (progn
+   (with-stdout-to
+    integer-eval-help.stdout.actual
+    (with-stderr-to
+     integer-eval-help.stderr.actual
+     (run %{exe:../bin/holyc.exe} eval --help=plain)))
+   (diff cli/integer-expression-help.human integer-eval-help.stdout.actual)
+   (diff cli/integer-expression-empty.stdout integer-eval-help.stderr.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  integer-eval-missing-delimiter.stdout.actual
+  integer-eval-missing-delimiter.stderr.actual)
+ (deps
+  cli/integer-expression-missing-delimiter.hc
+  cli/integer-expression-empty.stdout
+  cli/integer-expression-missing-delimiter.human)
+ (action
+  (progn
+   (with-stdout-to
+    integer-eval-missing-delimiter.stdout.actual
+    (with-stderr-to
+     integer-eval-missing-delimiter.stderr.actual
+     (with-accepted-exit-codes
+      1
+      (run
+       %{exe:../bin/holyc.exe}
+       eval
+       cli/integer-expression-missing-delimiter.hc))))
+   (diff
+    cli/integer-expression-empty.stdout
+    integer-eval-missing-delimiter.stdout.actual)
+   (diff
+    cli/integer-expression-missing-delimiter.human
+    integer-eval-missing-delimiter.stderr.actual))))
+
+(rule
+ (alias runtest)
+ (targets
+  integer-eval-malformed.stdout.actual
+  integer-eval-malformed.stderr.actual)
+ (deps
+  cli/integer-expression-malformed.hc
+  cli/integer-expression-empty.stdout
+  cli/integer-expression-malformed.human)
+ (action
+  (progn
+   (with-stdout-to
+    integer-eval-malformed.stdout.actual
+    (with-stderr-to
+     integer-eval-malformed.stderr.actual
+     (with-accepted-exit-codes
+      1
+      (run %{exe:../bin/holyc.exe} eval cli/integer-expression-malformed.hc))))
+   (diff
+    cli/integer-expression-empty.stdout
+    integer-eval-malformed.stdout.actual)
+   (diff
+    cli/integer-expression-malformed.human
+    integer-eval-malformed.stderr.actual))))

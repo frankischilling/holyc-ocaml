@@ -1,0 +1,9 @@
+holyc-ir-graph-v1 reference=c26482bb6ad3f80106d28504ec5db3c6a360732c
+entry=^b0
+block ^b0
+!i0 %v0:internal:I64 = IC_IMM_I64 i64:6 flags=0x000000000 @source=0:1..2
+!i1 %v1:internal:I64 = IC_IMM_I64 i64:7 flags=0x000000000 @source=0:3..4
+!i2 %v2:internal:I64 = IC_MUL %v0 %v1 flags=0x000000000 @source=0:2..3
+!i3 IC_RETURN_VAL %v2 type=internal:I64 flags=0x000000000 @source=0:0..5
+!i4 IC_RET flags=0x000000000 @source=0:0..5
+successors=[]

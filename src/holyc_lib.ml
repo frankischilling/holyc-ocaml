@@ -447,3 +447,6 @@ let resolve_global_records ?compiler_option_mask session ~declarations ~globals
 let classify_global_records ?compiler_option_mask _session ~resolution module_ =
   Driver.Global_record_classification.classify ?compiler_option_mask ~resolution
     module_
+
+let lower_integer_expression = Driver.Integer_expression.lower
+let evaluate_integer_expression = Driver.Integer_expression.evaluate

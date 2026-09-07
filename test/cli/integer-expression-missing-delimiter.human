@@ -1,0 +1,1 @@
+cli/integer-expression-missing-delimiter.hc:2:1: error[HCPARSE0047]: expected ';' or ',' after statement expression, but found end of input

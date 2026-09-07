@@ -1,0 +1,7 @@
+{
+  "schema": "holyc-integer-expression-v1",
+  "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+  "word_type": "U64",
+  "word": "18446744073709551615",
+  "executed_steps": 3
+}
