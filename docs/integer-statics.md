@@ -1,5 +1,10 @@
 # Scalar static locals
 
+[Scalar pointer aliases](integer-pointers.md) can refer to existing static words
+and be explicitly passed to callees. Materializing the reference requires the
+declaring frame or its exact initializer region. Pointer-valued statics remain
+outside this hosted storage domain.
+
 `holyc run --target=ir examples/integer-statics.hc` calls `Next` twice and
 returns 42 in 21 runtime instructions plus 4 preparation instructions in JIT
 and AOT modes. Its `static I64 n=40` owns one persistent

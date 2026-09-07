@@ -1,5 +1,9 @@
 # Scalar integer update expressions
 
+[Scalar pointer aliases](integer-pointers.md) use the same word updates through
+checked dereferences. The destination reference is captured before the RHS;
+the original object's word is read after RHS effects, including aliasing calls.
+
 `holyc run --target=ir examples/integer-updates.hc` returns 42 in 40 runtime
 instructions plus 3 constant-preparation instructions in JIT and AOT modes.
 `Total+=n` shares the original scalar global with both calls. Local

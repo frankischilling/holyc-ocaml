@@ -1,5 +1,10 @@
 # Scalar static declaration initializers
 
+A declaration region can materialize [scalar references](integer-pointers.md)
+for fixed pointer arguments. `IC_ADDR` checks authority at its own instruction;
+canonical metadata cannot be borrowed after the region ends. Explicit references
+retain their object when passed to a callee, without passing region authority.
+
 `holyc run --target=ir examples/integer-static-initializers.hc` initializes
 `Next`'s static word by calling the earlier `Seed` definition, then calls `Next`
 twice. It returns 42 in 32 runtime instructions and zero constant-preparation

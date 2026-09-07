@@ -56,6 +56,11 @@ constant-folding equivalence or native shift oracle is claimed.
 
 ## Integer source execution
 
+`holyc run --target=ir examples/integer-pointers.hc` passes a caller's local to
+a pointer parameter and returns the updated 42 in 43 runtime instructions.
+[Scalar pointer aliases](docs/integer-pointers.md) retain actual local, global
+and static objects through copies, indirect updates and recursive calls.
+
 `holyc run --target=ir examples/integer-static-initializers.hc` initializes a
 static counter through an earlier function call and returns 42 after two calls,
 in 32 runtime steps and zero preparation steps. [Static declaration

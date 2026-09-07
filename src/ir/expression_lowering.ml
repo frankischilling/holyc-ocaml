@@ -48,6 +48,10 @@ type storage_address =
   | Frame_slot of Frame_address_lowering.prepared_address
   | Global_slot of Global_address_lowering.prepared_address
 
+type assignment_address =
+  | Direct_address of storage_address
+  | Indirect_address_value of Semantic_result.expression_result
+
 type plan_node =
   | Call of {
       result : Semantic_result.expression_result;
@@ -56,6 +60,10 @@ type plan_node =
   | Storage_address of {
       result : Semantic_result.expression_result;
       address : storage_address;
+    }
+  | Indirect_address of {
+      result : Semantic_result.expression_result;
+      pointer : Semantic_result.expression_result;
     }
   | Storage_load of {
       result : Semantic_result.expression_result;
@@ -130,6 +138,10 @@ type task =
   | Visit of {
       result : Semantic_result.expression_result;
       conversion : result_conversion;
+    }
+  | Finish_indirect_address of {
+      result : Semantic_result.expression_result;
+      pointer : Semantic_result.expression_result;
     }
   | Finish_alias of {
       result : Semantic_result.expression_result;
@@ -230,10 +242,26 @@ let checked_frame_word result =
   | Ok (Checked_type _) -> Ok Unsupported_type
   | other -> other
 
+let scalar_pointer_type type_ =
+  Type.pointer_depth type_ = 1
+  &&
+  match Type.base type_ with
+  | Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
+  | _ -> false
+
+let checked_frame_value result =
+  match Semantic_result.result_type result with
+  | Some type_
+    when scalar_pointer_type type_
+         && Semantic_result.result_array_rank result = 0
+         && Semantic_result.result_class result = Semantic_result.Integer_result
+    -> Ok (Checked_type type_)
+  | _ -> checked_frame_word result
+
 let checked_frame_scalar result =
   match Semantic_result.result_category result with
   | Semantic_result.Object_value | Semantic_result.Lvalue ->
-      checked_frame_word result
+      checked_frame_value result
   | _ -> Ok Unsupported_type
 
 let checked_f64_type result =
@@ -1331,7 +1359,42 @@ let rec prepare_assignment_address ?frame ?globals result =
       match checked_operand result source "parenthesized assignment target" with
       | Error item -> Error [ item ]
       | Ok operand -> prepare_assignment_address ?frame ?globals operand)
-  | _ -> prepare_storage_address ?frame ?globals result
+  | Semantic_source.Prefix_expression prefix
+    when Semantic_source.prefix_operator prefix = Semantic_source.Dereference ->
+      let ( let* ) = Result.bind in
+      let* pointer =
+        checked_operand result
+          (Semantic_source.prefix_operand prefix)
+          "dereference destination"
+        |> Result.map_error (fun e -> [ e ])
+      in
+      let* valid =
+        validate_pointer_unary result Opcode.Ic_deref pointer
+        |> Result.map_error (fun e -> [ e ])
+      in
+      if
+        valid
+        && Option.fold ~none:false ~some:scalar_pointer_type
+             (Semantic_result.result_type pointer)
+      then Ok (Some (Indirect_address_value pointer))
+      else Ok None
+  | _ ->
+      prepare_storage_address ?frame ?globals result
+      |> Result.map (Option.map (fun a -> Direct_address a))
+
+let validate_frame_assignment result left right =
+  let ( let* ) = Result.bind in
+  let* valid = validate_binary_with checked_frame_value result left right in
+  if not valid then Ok false
+  else
+    let r = Option.get (Semantic_result.result_type result)
+    and l = Option.get (Semantic_result.result_type left)
+    and v = Option.get (Semantic_result.result_type right) in
+    Ok
+      (Type.pointer_depth r = 0
+       && Type.pointer_depth l = 0
+       && Type.pointer_depth v = 0
+      || (scalar_pointer_type r && Type.equal r l && Type.equal l v))
 
 let compound_assignment = function
   | Opcode.Ic_add_equ
@@ -1371,6 +1434,18 @@ let plan ?frame ?globals ~allow_calls root =
   let reversed = ref [] in
   let unsupported = ref false in
   let error = ref None in
+  let address_tasks result address after =
+    match address with
+    | Direct_address address ->
+        reversed := Storage_address { result; address } :: !reversed;
+        pending := after @ !pending
+    | Indirect_address_value pointer ->
+        pending :=
+          Visit { result = pointer; conversion = Keep_result }
+          :: Finish_indirect_address { result; pointer }
+          :: after
+          @ !pending
+  in
   let update result source_operand opcode origin conversion =
     match
       ( checked_operand result source_operand "scalar update",
@@ -1386,12 +1461,8 @@ let plan ?frame ?globals ~allow_calls root =
                 (metadata_error ~span "scalar update address validation failed")
         | Ok None -> unsupported := true
         | Ok (Some address) ->
-            (* Preserve the original update IC, including its constant barrier.
-               The address is prepared without reading the old storage word. *)
-            reversed :=
-              Unary { result; opcode; span; operand; conversion }
-              :: Storage_address { result = operand; address }
-              :: !reversed)
+            address_tasks operand address
+              [ Finish_unary { result; opcode; span; operand; conversion } ])
   in
   (match validate_conversion root root_conversion with
   | Error item -> error := Some item
@@ -1568,8 +1639,65 @@ let plan ?frame ?globals ~allow_calls root =
                                   conversion;
                                 }
                               :: !reversed
-                        | Ok None when Option.is_some frame ->
-                            unsupported := true
+                        | Ok None
+                          when Option.is_some frame || Option.is_some globals
+                          -> (
+                            match
+                              validate_pointer_unary result opcode operand
+                            with
+                            | Error item -> error := Some item
+                            | Ok false -> unsupported := true
+                            | Ok true -> (
+                                if opcode = Opcode.Ic_addr then
+                                  match Semantic_result.result_type result with
+                                  | Some type_
+                                    when scalar_pointer_type type_
+                                         && conversion = Keep_result -> (
+                                      match
+                                        prepare_assignment_address ?frame
+                                          ?globals operand
+                                      with
+                                      | Ok (Some address) ->
+                                          address_tasks operand address
+                                            [
+                                              Finish_unary
+                                                {
+                                                  result;
+                                                  opcode;
+                                                  span;
+                                                  operand;
+                                                  conversion;
+                                                };
+                                            ]
+                                      | Ok None -> unsupported := true
+                                      | Error (item :: _) -> error := Some item
+                                      | Error [] -> unsupported := true)
+                                  | _ -> unsupported := true
+                                else
+                                  match
+                                    ( checked_frame_word result,
+                                      checked_frame_value operand )
+                                  with
+                                  | Ok (Checked_type _), Ok (Checked_type type_)
+                                    when scalar_pointer_type type_ ->
+                                      pending :=
+                                        Visit
+                                          {
+                                            result = operand;
+                                            conversion = Keep_result;
+                                          }
+                                        :: Finish_unary
+                                             {
+                                               result;
+                                               opcode;
+                                               span;
+                                               operand;
+                                               conversion;
+                                             }
+                                        :: !pending
+                                  | Error item, _ | _, Error item ->
+                                      error := Some item
+                                  | _ -> unsupported := true))
                         | Ok None -> (
                             match
                               validate_pointer_unary result opcode operand
@@ -1680,8 +1808,11 @@ let plan ?frame ?globals ~allow_calls root =
                         || compound_assignment opcode
                       then
                         match
-                          validate_binary_with checked_frame_word result left
-                            right
+                          if opcode = Opcode.Ic_assign then
+                            validate_frame_assignment result left right
+                          else
+                            validate_binary_with checked_frame_word result left
+                              right
                         with
                         | Error item -> error := Some item
                         | Ok true -> (
@@ -1700,23 +1831,24 @@ let plan ?frame ?globals ~allow_calls root =
                                        "assignment address validation failed")
                             | Ok None -> unsupported := true
                             | Ok (Some address) ->
-                                reversed :=
-                                  Storage_address { result = left; address }
-                                  :: !reversed;
-                                pending :=
-                                  Visit
-                                    { result = right; conversion = Keep_result }
-                                  :: Finish_binary
-                                       {
-                                         result;
-                                         opcode;
-                                         span;
-                                         left;
-                                         right;
-                                         conversion;
-                                         operation_flags = 0L;
-                                       }
-                                  :: !pending)
+                                address_tasks left address
+                                  [
+                                    Visit
+                                      {
+                                        result = right;
+                                        conversion = Keep_result;
+                                      };
+                                    Finish_binary
+                                      {
+                                        result;
+                                        opcode;
+                                        span;
+                                        left;
+                                        right;
+                                        conversion;
+                                        operation_flags = 0L;
+                                      };
+                                  ])
                         | _ -> unsupported := true
                       else
                         let left_kind =
@@ -1849,6 +1981,8 @@ let plan ?frame ?globals ~allow_calls root =
                 | Semantic_source.Offset_expression
                 | Semantic_source.Postfix_cast_expression
                 | Semantic_source.Call_expression ) -> unsupported := true)
+        | Finish_indirect_address { result; pointer } ->
+            reversed := Indirect_address { result; pointer } :: !reversed
         | Finish_alias { result; operand } ->
             reversed := Alias { result; operand } :: !reversed
         | Finish_unary { result; opcode; span; operand; conversion } ->
@@ -2180,6 +2314,26 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
                 descriptions_rev :=
                   List.rev_append descriptions !descriptions_rev;
                 lowered := Int_map.add (result_key result) node !lowered)
+        | Indirect_address { result; pointer } -> (
+            match
+              ( find_lowered !lowered pointer "indirect destination",
+                Semantic_result.result_type result )
+            with
+            | Ok node, Some type_ -> (
+                match Type.pointer_to type_ with
+                | Ok expected when Type.equal expected node.lowered_type ->
+                    lowered := Int_map.add (result_key result) node !lowered
+                | _ ->
+                    error :=
+                      Some
+                        (metadata_error ?span:(result_span result)
+                           "indirect destination has a mismatched pointer type")
+                )
+            | Error item, _ -> error := Some item
+            | _ ->
+                error :=
+                  Some
+                    (metadata_error "indirect destination has no checked type"))
         | Storage_load { result; address; result_type; span; conversion } -> (
             match storage_address address with
             | Error item -> error := Some item
@@ -2543,6 +2697,7 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
                 match List.rev nodes with
                 | Call { result; _ } :: _
                 | Storage_address { result; _ } :: _
+                | Indirect_address { result; _ } :: _
                 | Storage_load { result; _ } :: _
                 | Literal { result; _ } :: _
                 | Current_position { result; _ } :: _
@@ -2600,10 +2755,14 @@ let lower_store_initializer ?frame ?globals ?lower_call ~lower_address
     | _ -> false
   in
   let* value_type =
-    checked_frame_word value |> Result.map_error (fun error -> [ error ])
+    checked_frame_value value |> Result.map_error (fun error -> [ error ])
   in
   match value_type with
-  | Checked_type _ when target_is_word -> (
+  | Checked_type value_type
+    when (target_is_word && Type.pointer_depth value_type = 0)
+         || Option.is_some frame
+            && scalar_pointer_type target_type
+            && Type.equal target_type value_type -> (
       let* address_sequence, address_value, next_instruction, next_value =
         lower_address ~instruction_id ~value_id
       in

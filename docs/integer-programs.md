@@ -1,5 +1,9 @@
 # Integer programs in the IR interpreter
 
+[Scalar pointer aliases](integer-pointers.md) connect one-level I64/U64 pointer
+locals and fixed parameters to existing scalar local, global and static storage.
+The caller-writeback fixture returns 42 in 43 steps under exact frame/depth limits.
+
 Reference commit: `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
 `holyc run --target=ir FILE` executes checked integer functions and a batch of top-level statements.
@@ -27,7 +31,7 @@ the global byte budget and use no invocation-frame slots. [Nonconstant static
 initializers](integer-static-initializers.md) execute at declaration positions
 with checked JIT publication and AOT load phases.
 
-Ordinary scalar I64/U64 code-heap globals without aliases also execute through
+Ordinary scalar I64/U64 code-heap globals also execute through
 this path. [Declaration initializers](integer-global-initializers.md) retain
 constant initial images and source-ordered compile/load regions with a separate
 positive `--initializer-step-limit`. Top-level and function expressions

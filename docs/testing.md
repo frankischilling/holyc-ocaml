@@ -1,5 +1,15 @@
 # Testing holyc-ocaml
 
+The nineteen `source integer pointers` groups cover seven original gates,
+copies and parameter reassignment, indirect updates, unsigned bits, mixed argument
+order, recursion with equal frame offsets, control flow, initializer calls and
+fault provenance, unknown values, explicit unsupported domains, fresh images,
+exact limits, malformed pointer operands and types, raw integer arguments, and
+`IC_ADDR` borrowing metadata outside a static region. The latter starts from a
+valid scalar-returning call and requires failure at the changed address consumer.
+The CLI checks 42 in 43 steps, 16 frame bytes, depth two and deterministic dumps
+from `examples/integer-pointers.hc` in both modes. See [pointers](integer-pointers.md).
+
 The thirteen `source static initializers` groups cover the four source gates,
 unreachable effects and faults, declaration order, nested and recursive calls,
 containing-frame rejection, actual transitive callee replacement and publication,

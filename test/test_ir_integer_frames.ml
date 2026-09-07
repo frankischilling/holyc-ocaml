@@ -437,7 +437,7 @@ let lowering_boundaries () =
       "I64 Add(){I64 c[1];c;return 0;}";
       "I64 Add(){I64 c[2];c;return 0;}";
       "I64 Add(){F64 c;c=1.0;return 0;}";
-      "I64 Add(){I64 c;&c;return 0;}";
+      "I64 Add(){I32 c;&c;return 0;}";
       "I64 global; I64 Add(){global=1;return 0;}";
     ]
 
@@ -462,7 +462,7 @@ let frame_boundaries () =
       "I64 Add(){F64 c;}";
       "I64 Add(){I64 c[2];}";
       "I64 Add(){static I64 c;}";
-      "I64 Add(){I64 *c;}";
+      "I64 Add(){I32 *c;}";
     ];
   let malformed =
     body frame H.public_i64

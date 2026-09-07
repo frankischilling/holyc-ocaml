@@ -499,4 +499,54 @@ let () =
           ("--global-byte-limit=7", "HCIRVM0016");
         ])
     [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      let source = Sys.argv.(10) in
+      let result =
+        success
+          [
+            "run";
+            "--format=json";
+            "--mode=" ^ mode;
+            "--frame-byte-limit=16";
+            "--call-depth-limit=2";
+            "--step-limit=43";
+            source;
+          ]
+        |> Yojson.Safe.from_string
+      in
+      require
+        (result |> member "final_value" |> member "value" |> to_string = "42")
+        "callee writes the original caller object";
+      require
+        (result |> member "executed_steps" |> to_int = 43)
+        "pointer instruction count";
+      require
+        (result |> member "compiled_initializer_steps" |> to_int = 0)
+        "pointer preparation count";
+      let command = [ "dump-ir"; "--program"; "--mode=" ^ mode; source ] in
+      let dump = success command in
+      require (dump = success command) "deterministic pointer dump";
+      require
+        (contains dump "IC_ADDR" && contains dump "IC_ADD_EQU"
+        && contains dump "public:I64**")
+        "materialized reference, indirect update and pointer parameter slot";
+      List.iter
+        (fun (limit, code) ->
+          let status, stdout, stderr =
+            invoke [ "run"; "--format=json"; "--mode=" ^ mode; limit; source ]
+          in
+          require
+            (status = Unix.WEXITED 1 && stdout = "")
+            "pointer limit fails without a result";
+          require
+            (Yojson.Safe.from_string stderr
+            |> to_list |> List.hd |> member "code" |> to_string = code)
+            "pointer limit diagnostic")
+        [
+          ("--step-limit=42", "HCIRVM0007");
+          ("--frame-byte-limit=15", "HCIRVM0011");
+          ("--call-depth-limit=1", "HCIRVM0015");
+        ])
+    [ "jit"; "aot" ];
   print_endline "Integer program CLI checks passed."

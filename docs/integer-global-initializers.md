@@ -1,5 +1,10 @@
 # Scalar integer global initializers
 
+Initializer expressions can pass [checked scalar addresses](integer-pointers.md)
+to fixed pointer parameters. Callees modify the original persistent objects;
+declaration phases, publication checks and transitive arithmetic guards remain.
+Pointer-valued initial images remain unsupported.
+
 Reference: `c26482bb6ad3f80106d28504ec5db3c6a360732c`. Issue: #603.
 
 The initialized accumulator now runs directly from source:

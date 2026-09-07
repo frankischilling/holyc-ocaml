@@ -10,7 +10,8 @@
   ../examples/integer-global-initializers.hc
   ../examples/integer-updates.hc
   ../examples/integer-statics.hc
-  ../examples/integer-static-initializers.hc)
+  ../examples/integer-static-initializers.hc
+  ../examples/integer-pointers.hc)
  (action
   (run
    %{test}
@@ -22,7 +23,8 @@
    %{dep:../examples/integer-global-initializers.hc}
    %{dep:../examples/integer-updates.hc}
    %{dep:../examples/integer-statics.hc}
-   %{dep:../examples/integer-static-initializers.hc})))
+   %{dep:../examples/integer-static-initializers.hc}
+   %{dep:../examples/integer-pointers.hc})))
 
 (test
  (name test_main)
@@ -36,6 +38,7 @@
   test_integer_updates
   test_integer_statics
   test_integer_static_initializers
+  test_integer_pointers
   test_integer_global_initializers
   test_ir_comparison_chains
   test_ir_integer_frames

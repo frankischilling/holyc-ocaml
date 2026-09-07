@@ -65,12 +65,16 @@ val lower_typed_result :
     prefix/postfix increment/decrement use those addresses and retain their
     original update ICs. Compound RHS evaluation precedes the destination word
     read; prefix/compound results use the new word and postfix uses the old
-    word. With [frame], other pointer operations remain unsupported. Without
-    [frame], pointer-tree lowering keeps its existing domain; pointer execution
-    remains outside the bounded program VM. [lower_call] composes calls as
-    expression nodes and applies retained result conversion only to the final
-    call-end producer. Expressions outside the implemented tree shapes return
-    [Unsupported_expression] without returning a partial sequence. *)
+    word. Checked one-level I64/U64 pointer locals and fixed parameters load and
+    store references. Address-of emits [IC_ADDR] over a canonical scalar address
+    or the retained reference in [&*p], without loading the pointee. Indirect
+    assignments capture their checked address before evaluating the RHS. Other
+    pointer domains remain unsupported by storage execution. Without storage
+    context, pointer-tree lowering keeps its existing domain. [lower_call]
+    composes calls as expression nodes and applies retained result conversion
+    only to the final call-end producer. Expressions outside the implemented
+    tree shapes return [Unsupported_expression] without returning a partial
+    sequence. *)
 
 val lower_initializer :
   frame:Sema.Function_frame_layout.function_layout ->
@@ -80,8 +84,9 @@ val lower_initializer :
   value_id:Instruction_sequence.Value_id.t ->
   Sema.Function_call_expression_result.initializer_result ->
   (lowering_result, Instruction_sequence.error list) result
-(** Store a checked scalar I64/U64 initializer into its exact automatic frame
-    slot, preserving the source value and destination class. *)
+(** Store a checked scalar I64/U64 word or one-level pointer initializer into
+    its exact automatic frame slot, preserving the value and destination class.
+*)
 
 val lower_static_initializer :
   globals:Integer_globals.t ->
