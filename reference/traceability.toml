@@ -10947,3 +10947,54 @@ cli_golden_rules = 11
 constant_shift_issue = 574
 excluded = ["general run or compile", "native code generation", "whole-program execution", "arbitrary #exe", "constant-folding shift equivalence", "completion of M5"]
 native_oracle_status = "not run; hosted source-to-IR-to-interpreter integration with pinned source evidence"
+
+[[feature]]
+id = "HC-IR-INTEGER-DIVISION-REMAINDER"
+description = "Raw internal-word division and remainder execute through verified IR and the bounded source evaluator."
+sources = [
+  "Compiler/CInit.HC:66-67,293-294 binary metadata and source operators",
+  "Compiler/OptLib.HC:96-179 common integer class",
+  "Compiler/OptPass789A.HC:524-534 integer backend selection",
+  "Compiler/BackA.HC:355-370,425-440 DIV and IDIV quotient/remainder consumers",
+  "Compiler/OpCodes.DD:704-713,780 DIV, IDIV and CQO encodings",
+  "Compiler/OptPass012.HC:403-455 distinct constant folding and strength reductions"
+]
+implementation = ["src/ir/integer_interpreter.ml", "src/ir/integer_interpreter.mli", "src/driver/integer_expression.ml"]
+tests = ["test/test_ir_integer_division.ml", "test/test_integer_expression.ml", "test/cli/integer-division.hc", "test/cli/integer-division-unsigned.json", "test/cli/integer-division-zero.human", "test/cli/integer-division-zero.json", "test/cli/integer-division-overflow.human", "test/dune"]
+documentation = ["docs/integer-division.md", "docs/intermediate-representation.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 584
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+opcodes = ["IC_DIV", "IC_MOD"]
+operand_domain = "zero-depth internal I64/U64; zero flags; no payload; two operands and one result"
+result_type = "I64 for two I64 operands; U64 otherwise"
+signed_semantics = "quotient truncates toward zero; nonzero remainder has the dividend sign"
+unsigned_semantics = "quotient and remainder over full 64-bit unsigned payloads"
+zero_divisor = "HCIRVM0009 at execution for both opcodes and every operand pairing"
+signed_overflow = "HCIRVM0010 at execution for I64 minimum with I64 minus one, including modulo"
+budget = "one step per attempted instruction; exhausted budget precedes the next arithmetic operation"
+preflight = "validate the entire graph before execution; supported arithmetic faults depend on reachability"
+result_atomicity = "execution failure exposes no successful result, even after a return value was latched"
+focused_tests = 5
+property_iterations = 500
+property_evidence = "independent bit-at-a-time long division computes quotient and remainder for random full-width signed and unsigned operands"
+source_tests = 7
+cli_golden_rules = 5
+native_oracle_status = "not run; hosted runtime-IR execution with pinned backend source evidence"
+optimizer_oracle_issue = 585
+excluded = ["F64 division", "compound assignments", "division strength reductions", "native exception delivery", "general run or compile", "arbitrary #exe"]
+
+[[feature]]
+id = "HC-OPT-DIVISION-FAULT-PHASE-ORACLE"
+description = "Division strength reductions and arithmetic fault phases require a source reachability audit and native execution evidence."
+sources = ["Compiler/OptPass012.HC:403-455", "Compiler/BackA.HC:355-440,573-600", "Compiler/OptPass789A.HC:524-534"]
+implementation = []
+tests = []
+documentation = ["docs/integer-division.md", "docs/optimizer.md", "docs/compatibility.md"]
+status = "planned"
+issue = 585
+related_shift_issue = 574
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+question = "compare constant folding, literal-divisor strength reductions, variable-divisor execution, and compound assignments; retain rounding, type and first-fault-phase differences"
+native_oracle_status = "pending; no verified TempleOS execution capture"

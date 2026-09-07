@@ -2,6 +2,8 @@
 
 All findings in this document refer to TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
+Raw integer division and remainder follow `CInit.HC:66-67,293-294`, `OptLib.HC:96-179`, `OptPass789A.HC:524-534`, and `BackA.HC:355-370,425-440`. `src/ir/integer_interpreter.ml` implements those operations through the existing source-expression driver. `test/test_ir_integer_division.ml`, the source-expression suite, and CLI fixtures verify arithmetic, faults, and budgets. The separate strength reductions in `OptPass012.HC:403-455` still require native oracle evidence in [issue #585](https://github.com/frankischilling/holyc-ocaml/issues/585). See the [division audit](integer-division.md).
+
 The canonical OCaml IR also has representation invariants. [Issue #580](https://github.com/frankischilling/holyc-ocaml/issues/580) requires every operand to have an earlier definition in the same sequence. `Ir.Instruction_sequence.create` checks operands before publishing the current result, and `Ir.Block_graph.create` applies that rule to unreachable blocks as well. Sequence and graph regressions cover self-referencing unary and binary instructions and retain valid repeated uses of prior results. This is structural validation of the project representation, separate from TempleOS execution evidence.
 
 ## Compiler assembly order

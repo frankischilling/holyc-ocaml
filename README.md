@@ -5,6 +5,16 @@
 ## Bounded expression evaluation
 
 `holyc eval examples/integer-expression.hc` evaluates `(6*7);` and prints `42`.
+`holyc eval examples/integer-division.hc` evaluates `(85/2)+(85%2);` and prints
+`43`. Division and remainder use signed truncation toward zero for two `I64`
+operands and unsigned arithmetic when either operand is `U64`. Zero divisors
+report `HCIRVM0009`; signed minimum divided or reduced modulo minus one reports
+`HCIRVM0010`. Faults produce diagnostics without a successful output value.
+
+These are raw runtime IR operations. Division strength reductions and native
+fault timing still need the TempleOS evidence tracked in
+[issue #585](https://github.com/frankischilling/holyc-ocaml/issues/585).
+
 `holyc dump-ir examples/integer-expression.hc` prints the checked arithmetic and
 return harness without executing it. Both commands accept the parser's include,
 JIT/AOT mode, and deterministic preprocessing options.

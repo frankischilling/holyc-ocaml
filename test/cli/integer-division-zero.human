@@ -1,0 +1,3 @@
+cli/integer-division-zero.hc:1:2: error[HCIRVM0009]: IC_DIV divisor is zero
+    1 | 1/0;
+      |  ^

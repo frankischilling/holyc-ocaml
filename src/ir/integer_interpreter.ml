@@ -50,6 +50,8 @@ type binary_operation =
   | Add
   | Subtract
   | Multiply
+  | Divide
+  | Remainder
   | Bitwise_and
   | Bitwise_or
   | Bitwise_xor
@@ -130,6 +132,8 @@ let opcode_kind = function
   | Opcode.Ic_add -> Some (Binary_kind Add)
   | Opcode.Ic_sub -> Some (Binary_kind Subtract)
   | Opcode.Ic_mul -> Some (Binary_kind Multiply)
+  | Opcode.Ic_div -> Some (Binary_kind Divide)
+  | Opcode.Ic_mod -> Some (Binary_kind Remainder)
   | Opcode.Ic_and -> Some (Binary_kind Bitwise_and)
   | Opcode.Ic_or -> Some (Binary_kind Bitwise_or)
   | Opcode.Ic_xor -> Some (Binary_kind Bitwise_xor)
@@ -205,6 +209,8 @@ let expected_binary_result_type operation left right =
   | Add
   | Subtract
   | Multiply
+  | Divide
+  | Remainder
   | Bitwise_and
   | Bitwise_or
   | Bitwise_xor
@@ -240,6 +246,49 @@ let logical_bits operation left right =
     | Logical_xor -> left <> right
   in
   if predicate then 1L else 0L
+
+let divide_bits ~remainder result_type left right =
+  let opcode = if remainder then "IC_MOD" else "IC_DIV" in
+  if Int64.equal right.bits 0L then
+    Error ("HCIRVM0009", opcode ^ " divisor is zero")
+  else if
+    result_type = I64
+    && Int64.equal left.bits Int64.min_int
+    && Int64.equal right.bits (-1L)
+  then
+    (* BackA.HC:ICDiv and ICMod both execute IDIV. Its quotient overflows
+       even when only the remainder would be consumed. *)
+    Error ("HCIRVM0010", opcode ^ " signed quotient overflows I64")
+  else
+    let operation =
+      match (result_type, remainder) with
+      | I64, false -> Int64.div
+      | I64, true -> Int64.rem
+      | U64, false -> Int64.unsigned_div
+      | U64, true -> Int64.unsigned_rem
+    in
+    Ok (operation left.bits right.bits)
+
+let binary_bits operation left right result_type =
+  match operation with
+  | Divide -> divide_bits ~remainder:false result_type left right
+  | Remainder -> divide_bits ~remainder:true result_type left right
+  | Add -> Ok (Int64.add left.bits right.bits)
+  | Subtract -> Ok (Int64.sub left.bits right.bits)
+  | Multiply -> Ok (Int64.mul left.bits right.bits)
+  | Bitwise_and -> Ok (Int64.logand left.bits right.bits)
+  | Bitwise_or -> Ok (Int64.logor left.bits right.bits)
+  | Bitwise_xor -> Ok (Int64.logxor left.bits right.bits)
+  | Shift_left -> Ok (Int64.shift_left left.bits (shift_count right.bits))
+  | Shift_right ->
+      let shift =
+        match result_type with
+        | I64 -> Int64.shift_right
+        | U64 -> Int64.shift_right_logical
+      in
+      Ok (shift left.bits (shift_count right.bits))
+  | Compare comparison -> Ok (comparison_bits comparison left right)
+  | Logical logical -> Ok (logical_bits logical left right)
 
 let malformed block_id description =
   preflight_error block_id description "HCIRVM0004"
@@ -560,33 +609,18 @@ let execute_prepared ~max_steps program =
               | Some left -> (
                   match require_operand block instruction right with
                   | None -> ()
-                  | Some right ->
-                      let bits =
-                        match operation with
-                        | Add -> Int64.add left.bits right.bits
-                        | Subtract -> Int64.sub left.bits right.bits
-                        | Multiply -> Int64.mul left.bits right.bits
-                        | Bitwise_and -> Int64.logand left.bits right.bits
-                        | Bitwise_or -> Int64.logor left.bits right.bits
-                        | Bitwise_xor -> Int64.logxor left.bits right.bits
-                        | Shift_left ->
-                            Int64.shift_left left.bits (shift_count right.bits)
-                        | Shift_right -> (
-                            match result_type with
-                            | I64 ->
-                                Int64.shift_right left.bits
-                                  (shift_count right.bits)
-                            | U64 ->
-                                Int64.shift_right_logical left.bits
-                                  (shift_count right.bits))
-                        | Compare comparison ->
-                            comparison_bits comparison left right
-                        | Logical logical -> logical_bits logical left right
-                      in
-                      values :=
-                        Value_map.add result
-                          { type_ = result_type; bits }
-                          !values))
+                  | Some right -> (
+                      match binary_bits operation left right result_type with
+                      | Ok bits ->
+                          values :=
+                            Value_map.add result
+                              { type_ = result_type; bits }
+                              !values
+                      | Error (code, message) ->
+                          failed :=
+                            Some
+                              (runtime_error ~instruction block !steps code
+                                 message))))
           | Discard operand ->
               ignore (require_operand block instruction operand)
           | Return_value operand -> (

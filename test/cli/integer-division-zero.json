@@ -1,0 +1,19 @@
+[
+  {
+    "code": "HCIRVM0009",
+    "severity": "error",
+    "message": "IC_DIV divisor is zero",
+    "primary": {
+      "path": "cli/integer-division-zero.hc",
+      "line": 1,
+      "column": 2,
+      "source_id": 0,
+      "start": 1,
+      "stop": 2
+    },
+    "secondary": [],
+    "include_stack": [],
+    "notes": [],
+    "help": null
+  }
+]
