@@ -1,5 +1,10 @@
 # holyc-ocaml compatibility status
 
+Automatic I64/U64 array indexing is connected through hosted source execution.
+See [integer arrays](integer-arrays.md) for grouping, any-rank pointer decay,
+source strides, declared-object bounds and explicit remaining memory domains.
+This does not claim native invalid-pointer behavior or a new native capture.
+
 [#611](https://github.com/frankischilling/holyc-ocaml/issues/611) connects
 [scalar pointer aliases](integer-pointers.md) to existing local, global and
 static objects through direct calls. Checked references preserve caller and

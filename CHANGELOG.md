@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added automatic I64/U64 arrays with indexed loads, assignments, updates and element aliases. Checked strides and declared-object extents survive pointer copies and recursion; grouping discards dimensions and explicit array address-of retains its extra pointer layer. The caller-element fixture returns 42 in 51 runtime steps with 24 active frame bytes and depth two. Bounds and address overflow retain explicit hosted diagnostics.
+
 - Added checked I64/U64 pointer locals and fixed parameters that alias existing scalar objects through address-of, dereference, assignment and updates. References retain caller and recursive activation identity; static address materialization checks the exact owner or initializer region. The caller-writeback fixture returns 42 in 43 runtime steps with 16 active frame bytes and call depth two. Pointer returns, casts, arithmetic and broader memory remain unfinished.
 
 - Added scalar static declaration initializers with persistent effects and direct calls at source declaration positions in both modes. Checked regions retain owners and phases; JIT publication checks follow actual callee bodies transitively. Initializers have no containing invocation frame, and called functions consume their own frame budgets. The nonconstant counter returns 42 in 32 runtime steps with no constant preparation.

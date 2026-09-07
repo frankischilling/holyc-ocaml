@@ -1597,7 +1597,116 @@ let indexes_retain_element_types_ranks_and_integer_intent () =
       Alcotest.(check (list string))
         "integer intent does not erase the subscript source types"
         [ "I64"; "F64"; "I64"; "I64"; "I64"; "F64"; "I64"; "I64" ]
-        (List.map type_name index_values))
+        (List.map type_name index_values);
+      let module R = Semantic_function_call_expression_result in
+      let module Source = Semantic_function_call_resolution in
+      let all = R.all_results results in
+      List.iter
+        (fun result ->
+          match Source.argument_expression_kind (R.result_source result) with
+          | Source.Index_expression index -> (
+              match R.result_index_operands result with
+              | None -> Alcotest.fail "index lost its checked children"
+              | Some (base, value) ->
+                  List.iter
+                    (fun (child, source) ->
+                      Alcotest.(check bool)
+                        "exact index child source" true
+                        (R.result_source child == source);
+                      Alcotest.(check bool)
+                        "exact recorded child result" true
+                        (List.exists (( == ) child) all);
+                      Alcotest.(check bool)
+                        "index child origin" true
+                        (R.result_origin child
+                        = Source.argument_expression_origin source))
+                    [
+                      (base, Source.index_base index);
+                      (value, Source.index_value index);
+                    ];
+                  Alcotest.(check bool)
+                    "index integer conversion retained" true
+                    (R.result_intrinsic_conversion value = R.Result_to_int))
+          | _ ->
+              Alcotest.(check bool)
+                "non-index has no index children" true
+                (Option.is_none (R.result_index_operands result)))
+        all)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let grouped_arrays_discard_dimensions_without_retyping_callbacks () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"grouped-arrays.HC"
+          "extern I64 Target(I64 *p,I64 *q,I64 x,I64 *r,I64 y,I64 z);\n\
+           I64 Caller(){I64 a[2][3];I64 (*callbacks)()[2];return \
+           Target((a),((a)),(a)[1],(a[1]),*a,(callbacks));}"
+      in
+      let _, results = analyze prepared in
+      let roots = root_results results "Caller" in
+      Alcotest.(check (list string))
+        "grouping keeps only the element pointer"
+        [ "I64*"; "I64*"; "I64"; "I64*"; "I64"; "I64" ]
+        (List.map type_name roots);
+      Alcotest.(check (list int))
+        "ordinary grouping and dereference lose rank" [ 0; 0; 0; 0; 0; 1 ]
+        (array_ranks roots);
+      Alcotest.(check (list string))
+        "callback arrays retain their own domain"
+        [
+          "object-value";
+          "object-value";
+          "object-value";
+          "object-value";
+          "object-value";
+          "array-value";
+        ]
+        (category_names roots);
+      let module R = Semantic_function_call_expression_result in
+      let module Source = Semantic_function_call_resolution in
+      Alcotest.(check (list bool))
+        "grouped and dereferenced results clear array address evidence"
+        [ false; false; false; false; false; false ]
+        (List.map R.result_is_array_address roots);
+      List.iter
+        (fun result ->
+          match Source.argument_expression_kind (R.result_source result) with
+          | Source.Bound_identifier_expression identifier
+            when Source.bound_identifier_array_rank identifier > 0 ->
+              let name =
+                identifier |> Source.bound_identifier_occurrence
+                |> Semantic_module_expression_binding.occurrence_name
+              in
+              Alcotest.(check bool)
+                "only the exact ordinary declarator establishes array address \
+                 evidence"
+                (name = "a")
+                (R.result_is_array_address result)
+          | _ -> ())
+        (R.all_results results);
+      let element_type = Option.get (R.result_type (List.nth roots 5)) in
+      Alcotest.(check bool)
+        "ordinary array evidence cannot mark a scalar" true
+        (Result.is_error
+           (Source.make_identifier_value ~resolved_type:element_type
+              ~shape:Source.Object_value ~array_rank:0 ~ordinary_array:true ())))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let array_address_of_adds_a_layer_after_array_decay () =
+  List.iter
+    (fun mode ->
+      let prepared =
+        prepare ~mode ~path:"array-address-of.HC"
+          "extern I64 Target(I64 p,I64 **q,I64 *r,I64 **s,I64 **t,I64 *u);\n\
+           I64 Caller(){I64 a[2],b[2][3];return \
+           Target(a,&a,&a[0],&b,&b[1],&b[1][2]);}"
+      in
+      let _, results = analyze prepared in
+      Alcotest.(check (list string))
+        "address-of follows the native array pointer class"
+        [ "I64"; "I64**"; "I64*"; "I64**"; "I64**"; "I64*" ]
+        (List.map type_name (root_results results "Caller")))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let indexes_retain_pointer_depths_and_primitive_forms () =
@@ -6822,6 +6931,10 @@ let tests =
       function_implicit_outputs_keep_targets_values_and_calls;
     Alcotest.test_case "included implicit output replay" `Quick
       included_implicit_outputs_replay_without_mutation;
+    Alcotest.test_case "grouped ordinary and callback arrays" `Quick
+      grouped_arrays_discard_dimensions_without_retyping_callbacks;
+    Alcotest.test_case "address of remaining-rank arrays" `Quick
+      array_address_of_adds_a_layer_after_array_decay;
     Alcotest.test_case "indexed callback-array results" `Quick
       indexed_callback_arrays_keep_callee_results;
     Alcotest.test_case "typed outer global expression shapes" `Quick

@@ -623,11 +623,23 @@ let top_level_outer_globals_retain_checked_shapes () =
         [
           "F64:object-value:f64-result:rank-0";
           "I64*:object-value:integer-result:rank-0";
-          "I64:array-value:integer-result:rank-1";
+          "I64*:object-value:integer-result:rank-0";
           "I64:callback-value:integer-result:rank-0";
           "Box:object-value:integer-result:rank-0";
         ]
         (root_values result |> List.map descriptor);
+      let grouped_array = List.nth (root_values result) 2 in
+      let array_operand =
+        Semantic_function_call_expression_result.result_operand grouped_array
+        |> Option.get
+      in
+      Alcotest.(check string)
+        "grouping keeps the checked outer array as its operand"
+        "I64:array-value:integer-result:rank-1" (descriptor array_operand);
+      Alcotest.(check bool)
+        "grouping materializes an element pointer" false
+        (Semantic_function_call_expression_result.result_is_array_address
+           grouped_array);
       let names =
         root_values result
         |> List.map (fun value ->

@@ -66,15 +66,19 @@ val lower_typed_result :
     original update ICs. Compound RHS evaluation precedes the destination word
     read; prefix/compound results use the new word and postfix uses the old
     word. Checked one-level I64/U64 pointer locals and fixed parameters load and
-    store references. Address-of emits [IC_ADDR] over a canonical scalar address
-    or the retained reference in [&*p], without loading the pointee. Indirect
-    assignments capture their checked address before evaluating the RHS. Other
-    pointer domains remain unsupported by storage execution. Without storage
-    context, pointer-tree lowering keeps its existing domain. [lower_call]
-    composes calls as expression nodes and applies retained result conversion
-    only to the final call-end producer. Expressions outside the implemented
-    tree shapes return [Unsupported_expression] without returning a partial
-    sequence. *)
+    store references. Ordinary automatic integer arrays retain exact index
+    children and frame dimensions; shared address plans emit
+    stride/index/mul/add for loads, assignments and updates. Any-rank array
+    values materialize an element pointer with [IC_ADDR]; grouping discards the
+    dimension cursor. Address-of emits [IC_ADDR] over a canonical scalar or
+    indexed address or the retained reference in [&*p], without loading the
+    pointee. Indirect assignments capture their checked address before
+    evaluating the RHS. Other pointer domains remain unsupported by storage
+    execution. Without storage context, pointer-tree lowering keeps its existing
+    domain. [lower_call] composes calls as expression nodes and applies retained
+    result conversion only to the final call-end producer. Expressions outside
+    the implemented tree shapes return [Unsupported_expression] without
+    returning a partial sequence. *)
 
 val lower_initializer :
   frame:Sema.Function_frame_layout.function_layout ->

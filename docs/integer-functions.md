@@ -1,5 +1,9 @@
 # Integer source functions
 
+[Automatic integer arrays](integer-arrays.md) add element loads, stores, updates
+and pointer arguments at any rank. References retain the caller's full object
+extent through copies and recursion; the caller-element fixture returns 42.
+
 [Scalar pointers](integer-pointers.md) extend fixed parameters and automatic
 locals with one-level I64/U64 references. Explicit arguments retain the original
 caller's object across calls and recursion; pointer reassignment changes only

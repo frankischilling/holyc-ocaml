@@ -256,6 +256,7 @@ val make_bound_identifier_argument_expression :
   resolved_type:Type.t ->
   shape:identifier_value_shape ->
   array_rank:int ->
+  ?ordinary_array:bool ->
   ?function_declaration:Function_resolution.resolved_declaration ->
   ?function_address_path:direct_function_address_path ->
   unit ->
@@ -280,6 +281,7 @@ val make_identifier_value :
   resolved_type:Type.t ->
   shape:identifier_value_shape ->
   array_rank:int ->
+  ?ordinary_array:bool ->
   ?function_declaration:Function_resolution.resolved_declaration ->
   ?function_address_path:direct_function_address_path ->
   unit ->
@@ -294,6 +296,12 @@ val direct_function_identifier_value :
   (identifier_value, string) result
 
 val identifier_value_type : identifier_value -> Type.t
+
+val identifier_value_is_ordinary_array : identifier_value -> bool
+(** Positive evidence supplied from an ordinary object declarator. False leaves
+    the array kind unproven; callback signatures must not be inferred from
+    Type.t. *)
+
 val identifier_value_shape : identifier_value -> identifier_value_shape
 val identifier_value_array_rank : identifier_value -> int
 
@@ -676,6 +684,7 @@ val aggregate_offset_base_publication :
   aggregate_offset_base -> Module_expression_binding.publication
 
 val bound_identifier_type : bound_identifier -> Type.t
+val bound_identifier_is_ordinary_array : bound_identifier -> bool
 val bound_identifier_shape : bound_identifier -> identifier_value_shape
 val bound_identifier_array_rank : bound_identifier -> int
 

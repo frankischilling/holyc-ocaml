@@ -1,5 +1,10 @@
 # Scalar pointer aliases
 
+[Array indexing](integer-arrays.md) extends references with full declared-object
+extents and byte offsets. Any-rank ordinary arrays can supply an element
+pointer; one-past pointers can be copied but cannot be dereferenced. Explicit
+address-of a remaining-rank array adds a deeper pointer layer and is excluded.
+
 `holyc run --target=ir examples/integer-pointers.hc` passes the address of a
 caller's local to `Set`. The callee adds two through its pointer parameter;
 the caller reads its original local and returns 42. Both JIT and AOT modes use

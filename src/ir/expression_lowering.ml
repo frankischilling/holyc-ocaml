@@ -51,8 +51,34 @@ type storage_address =
 type assignment_address =
   | Direct_address of storage_address
   | Indirect_address_value of Semantic_result.expression_result
+  | Pointer_base of Semantic_result.expression_result
+  | Indexed_address of {
+      base : Semantic_result.expression_result;
+      address : assignment_address;
+      index : Semantic_result.expression_result;
+      stride : int64;
+      pointer_type : Type.t;
+      span : Common.Span.t;
+    }
+
+type index_step = {
+  indexed_result : Semantic_result.expression_result;
+  indexed_base : Semantic_result.expression_result;
+  index_value : Semantic_result.expression_result;
+  index_stride : int64;
+  index_type : Type.t;
+  index_span : Common.Span.t;
+}
 
 type plan_node =
+  | Index_stride of index_step
+  | Index_address of index_step
+  | Materialize_array of {
+      result : Semantic_result.expression_result;
+      operand : Semantic_result.expression_result;
+      pointer_type : Type.t;
+      span : Common.Span.t;
+    }
   | Call of {
       result : Semantic_result.expression_result;
       conversion : result_conversion;
@@ -135,6 +161,14 @@ type plan_node =
     }
 
 type task =
+  | Emit_index_stride of index_step
+  | Finish_index_address of index_step
+  | Finish_materialize_array of {
+      result : Semantic_result.expression_result;
+      operand : Semantic_result.expression_result;
+      pointer_type : Type.t;
+      span : Common.Span.t;
+    }
   | Visit of {
       result : Semantic_result.expression_result;
       conversion : result_conversion;
@@ -251,6 +285,10 @@ let scalar_pointer_type type_ =
 
 let checked_frame_value result =
   match Semantic_result.result_type result with
+  | Some type_ when Semantic_result.result_is_array_address result -> (
+      match Type.pointer_to type_ with
+      | Ok pointer when scalar_pointer_type pointer -> Ok (Checked_type pointer)
+      | _ -> Ok Unsupported_type)
   | Some type_
     when scalar_pointer_type type_
          && Semantic_result.result_array_rank result = 0
@@ -1088,11 +1126,17 @@ let checked_pointer_unary_types result opcode operand =
   | Some result_type, Some operand_type -> (
       let expected =
         match opcode with
+        | Opcode.Ic_deref when Semantic_result.result_is_array_address operand
+          -> Ok operand_type
         | Opcode.Ic_deref -> (
             match Type.dereference operand_type with
             | Ok type_ -> Ok type_
             | Error _ -> Ok operand_type)
-        | Opcode.Ic_addr -> Type.pointer_to operand_type
+        | Opcode.Ic_addr ->
+            let pointer = Type.pointer_to operand_type in
+            if Semantic_result.result_is_array_address operand then
+              Result.bind pointer Type.pointer_to
+            else pointer
         | _ -> Error "not a pointer prefix opcode"
       in
       match expected with
@@ -1185,17 +1229,22 @@ let validate_numeric_unary result opcode operand =
             (checked_numeric_unary_types result opcode operand))
 
 let validate_pointer_unary result opcode operand =
-  match checked_integer_or_pointer_type operand with
-  | Error item -> Error item
-  | Ok Unsupported_type -> Ok false
-  | Ok (Checked_type _) -> (
-      match checked_integer_or_pointer_type result with
-      | Error item -> Error item
-      | Ok Unsupported_type -> Ok false
-      | Ok (Checked_type _) ->
-          Result.map
-            (fun () -> true)
-            (checked_pointer_unary_types result opcode operand))
+  if
+    Semantic_result.result_array_rank operand > 0
+    && not (Semantic_result.result_is_array_address operand)
+  then Ok false
+  else
+    match checked_integer_or_pointer_type operand with
+    | Error item -> Error item
+    | Ok Unsupported_type -> Ok false
+    | Ok (Checked_type _) -> (
+        match checked_integer_or_pointer_type result with
+        | Error item -> Error item
+        | Ok Unsupported_type -> Ok false
+        | Ok (Checked_type _) ->
+            Result.map
+              (fun () -> true)
+              (checked_pointer_unary_types result opcode operand))
 
 let cancellable_dereference operand =
   let current = ref operand in
@@ -1350,11 +1399,201 @@ let prepare_storage_address ?frame ?globals result =
       Global_address_lowering.prepare ?frame ~globals result
       |> Result.map (Option.map (fun address -> Global_slot address))
 
+let rec prepare_index_address ?frame result =
+  let ( let* ) = Result.bind in
+  let invalid message =
+    Error [ metadata_error ?span:(result_span result) message ]
+  in
+  let* value_type =
+    checked_frame_value result |> Result.map_error (fun e -> [ e ])
+  in
+  match value_type with
+  | Unsupported_type -> Ok None
+  | Checked_type _ -> (
+      match
+        Semantic_source.argument_expression_kind
+          (Semantic_result.result_source result)
+      with
+      | Semantic_source.Bound_identifier_expression identifier
+        when Semantic_result.result_is_array_address result -> (
+          match frame with
+          | None -> Ok None
+          | Some frame -> (
+              let* prepared = Frame_address_lowering.prepare ~frame result in
+              match prepared with
+              | None -> Ok None
+              | Some prepared -> (
+                  let occurrence =
+                    Semantic_source.bound_identifier_occurrence identifier
+                  in
+                  match Module_binding.occurrence_resolution occurrence with
+                  | Module_binding.Local_binding binding -> (
+                      match
+                        Sema.Function_frame_layout.find_binding_location frame
+                          binding
+                      with
+                      | Some location ->
+                          let module F = Sema.Function_frame_layout in
+                          if
+                            F.location_kind location <> F.Automatic_local
+                            || F.location_declarator_shape location <> F.Object
+                            || F.location_element_size location <> 8L
+                          then Ok None
+                          else
+                            let rec strides = function
+                              | [] -> Ok (8L, [])
+                              | dimension :: rest ->
+                                  let* bytes, tail = strides rest in
+                                  let count = F.dimension_value dimension in
+                                  if
+                                    count <= 0L
+                                    || count > Int64.div Int64.max_int bytes
+                                  then
+                                    invalid
+                                      "array dimensions require positive \
+                                       representable storage"
+                                  else Ok (Int64.mul count bytes, bytes :: tail)
+                            in
+                            let* bytes, strides =
+                              strides (F.location_dimensions location)
+                            in
+                            if
+                              bytes <> F.location_allocated_size location
+                              || List.length strides
+                                 <> Semantic_result.result_array_rank result
+                            then
+                              invalid
+                                "array dimensions disagree with the exact \
+                                 frame extent"
+                            else
+                              Ok
+                                (Some
+                                   ( Direct_address (Frame_slot prepared),
+                                     strides ))
+                      | None ->
+                          invalid "array root lost its exact frame location")
+                  | _ -> Ok None)))
+      | Semantic_source.Index_expression source -> (
+          match Semantic_result.result_index_operands result with
+          | None -> invalid "indexed expression lost its checked operands"
+          | Some (base, index) -> (
+              if
+                Semantic_result.result_source base
+                != Semantic_source.index_base source
+                || Semantic_result.result_source index
+                   != Semantic_source.index_value source
+              then
+                invalid
+                  "indexed expression operands do not match their exact sources"
+              else
+                let* index_type =
+                  checked_frame_word index |> Result.map_error (fun e -> [ e ])
+                in
+                match index_type with
+                | Unsupported_type -> Ok None
+                | Checked_type _
+                  when Semantic_result.result_category index
+                       <> Semantic_result.Object_value
+                       && Semantic_result.result_category index
+                          <> Semantic_result.Lvalue -> Ok None
+                | Checked_type _ -> (
+                    if
+                      Semantic_result.result_intrinsic_conversion index
+                      <> Semantic_result.Result_to_int
+                    then
+                      invalid "index operand lost its integer conversion intent"
+                    else
+                      let* base_address =
+                        if Semantic_result.result_is_array_address base then
+                          prepare_index_address ?frame base
+                        else
+                          match checked_frame_value base with
+                          | Error e -> Error [ e ]
+                          | Ok (Checked_type pointer)
+                            when scalar_pointer_type pointer
+                                 && Semantic_result.result_array_rank base = 0
+                                 &&
+                                 match Semantic_result.result_category base with
+                                 | Semantic_result.Object_value
+                                 | Lvalue
+                                 | Address_value -> true
+                                 | _ -> false ->
+                              Ok (Some (Pointer_base base, [ 8L ]))
+                          | _ -> Ok None
+                      in
+                      match base_address with
+                      | None -> Ok None
+                      | Some (_, []) ->
+                          invalid "index base has no checked remaining stride"
+                      | Some (address, stride :: remaining) ->
+                          let base_type =
+                            Option.get (Semantic_result.result_type base)
+                          in
+                          let* element =
+                            (if Semantic_result.result_is_array_address base
+                             then Ok base_type
+                             else Type.dereference base_type)
+                            |> Result.map_error (fun message ->
+                                [
+                                  metadata_error ?span:(result_span result)
+                                    message;
+                                ])
+                          in
+                          let expected_rank = List.length remaining in
+                          if
+                            (not
+                               (Option.fold ~none:false
+                                  ~some:(Type.equal element)
+                                  (Semantic_result.result_type result)))
+                            || Semantic_result.result_array_rank result
+                               <> expected_rank
+                            || Semantic_result.result_is_array_address result
+                               <> (expected_rank > 0)
+                            ||
+                            if expected_rank > 0 then
+                              Semantic_result.result_category result
+                              <> Semantic_result.Array_value
+                            else
+                              Semantic_result.result_category result
+                              <> Semantic_result.Object_value
+                              && Semantic_result.result_category result
+                                 <> Semantic_result.Lvalue
+                          then
+                            invalid
+                              "index result disagrees with its element type \
+                               and remaining dimensions"
+                          else
+                            let* span =
+                              operator_span result "array index"
+                                (Semantic_source.index_opening_origin source)
+                              |> Result.map_error (fun e -> [ e ])
+                            in
+                            let* pointer_type =
+                              Type.pointer_to element
+                              |> Result.map_error (fun message ->
+                                  [ metadata_error ~span message ])
+                            in
+                            Ok
+                              (Some
+                                 ( Indexed_address
+                                     {
+                                       base;
+                                       address;
+                                       index;
+                                       stride;
+                                       pointer_type;
+                                       span;
+                                     },
+                                   remaining )))))
+      | _ -> Ok None)
+
 let rec prepare_assignment_address ?frame ?globals result =
   match
     Semantic_source.argument_expression_kind
       (Semantic_result.result_source result)
   with
+  | Semantic_source.Index_expression _ ->
+      prepare_index_address ?frame result |> Result.map (Option.map fst)
   | Semantic_source.Parenthesized_expression source -> (
       match checked_operand result source "parenthesized assignment target" with
       | Error item -> Error [ item ]
@@ -1374,8 +1613,10 @@ let rec prepare_assignment_address ?frame ?globals result =
       in
       if
         valid
-        && Option.fold ~none:false ~some:scalar_pointer_type
-             (Semantic_result.result_type pointer)
+        &&
+        match checked_frame_value pointer with
+        | Ok (Checked_type type_) -> scalar_pointer_type type_
+        | _ -> false
       then Ok (Some (Indirect_address_value pointer))
       else Ok None
   | _ ->
@@ -1389,7 +1630,11 @@ let validate_frame_assignment result left right =
   else
     let r = Option.get (Semantic_result.result_type result)
     and l = Option.get (Semantic_result.result_type left)
-    and v = Option.get (Semantic_result.result_type right) in
+    and v =
+      match checked_frame_value right with
+      | Ok (Checked_type v) -> v
+      | _ -> assert false
+    in
     Ok
       (Type.pointer_depth r = 0
        && Type.pointer_depth l = 0
@@ -1434,7 +1679,7 @@ let plan ?frame ?globals ~allow_calls root =
   let reversed = ref [] in
   let unsupported = ref false in
   let error = ref None in
-  let address_tasks result address after =
+  let rec address_tasks result address after =
     match address with
     | Direct_address address ->
         reversed := Storage_address { result; address } :: !reversed;
@@ -1445,6 +1690,40 @@ let plan ?frame ?globals ~allow_calls root =
           :: Finish_indirect_address { result; pointer }
           :: after
           @ !pending
+    | Pointer_base pointer ->
+        pending :=
+          (Visit { result = pointer; conversion = Keep_result } :: after)
+          @ !pending
+    | Indexed_address { base; address; index; stride; pointer_type; span } ->
+        let step =
+          {
+            indexed_result = result;
+            indexed_base = base;
+            index_value = index;
+            index_stride = stride;
+            index_type = pointer_type;
+            index_span = span;
+          }
+        in
+        address_tasks base address
+          (Emit_index_stride step
+          :: Visit { result = index; conversion = Keep_result }
+          :: Finish_index_address step :: after)
+  in
+  let array_value result operand conversion =
+    match (checked_frame_value operand, result_span result) with
+    | Error item, _ -> error := Some item
+    | Ok (Checked_type pointer_type), Some span
+      when scalar_pointer_type pointer_type && conversion = Keep_result -> (
+        match prepare_index_address ?frame operand with
+        | Error (item :: _) -> error := Some item
+        | Ok (Some (address, _)) ->
+            address_tasks operand address
+              [
+                Finish_materialize_array { result; operand; pointer_type; span };
+              ]
+        | _ -> unsupported := true)
+    | _ -> unsupported := true
   in
   let update result source_operand opcode origin conversion =
     match
@@ -1480,6 +1759,26 @@ let plan ?frame ?globals ~allow_calls root =
               Semantic_result.result_source result
               |> Semantic_source.argument_expression_kind
             with
+            | _ when Semantic_result.result_is_array_address result ->
+                array_value result result conversion
+            | Semantic_source.Index_expression _ -> (
+                match
+                  (prepare_index_address ?frame result, result_span result)
+                with
+                | Error (item :: _), _ -> error := Some item
+                | Ok (Some (address, [])), Some span ->
+                    address_tasks result address
+                      [
+                        Finish_unary
+                          {
+                            result;
+                            opcode = Opcode.Ic_deref;
+                            span;
+                            operand = result;
+                            conversion;
+                          };
+                      ]
+                | _ -> unsupported := true)
             | Semantic_source.Bound_identifier_expression _
             | Semantic_source.Top_level_bound_identifier_expression _ -> (
                 match (checked_frame_scalar result, result_span result) with
@@ -1571,6 +1870,22 @@ let plan ?frame ?globals ~allow_calls root =
                   checked_operand result source "parenthesized expression"
                 with
                 | Error item -> error := Some item
+                | Ok operand
+                  when Semantic_result.result_is_array_address operand -> (
+                    match
+                      ( Semantic_result.result_type result,
+                        checked_frame_value operand )
+                    with
+                    | Some actual, Ok (Checked_type expected)
+                      when Type.equal actual expected
+                           && Semantic_result.result_array_rank result = 0 ->
+                        array_value result operand conversion
+                    | _ ->
+                        error :=
+                          Some
+                            (metadata_error ?span:(result_span result)
+                               "grouped array has a mismatched element pointer")
+                    )
                 | Ok operand ->
                     pending :=
                       Visit { result = operand; conversion }
@@ -1974,13 +2289,19 @@ let plan ?frame ?globals ~allow_calls root =
                   | Semantic_source.Post_decrement -> Opcode.Ic__mm)
                   (Semantic_source.postfix_operator_origin postfix)
                   conversion
-            | Semantic_source.Index_expression _
             | Semantic_source.Aggregate_offset_base_expression _
             | Semantic_source.Unresolved_expression
                 ( Semantic_source.Identifier_expression
                 | Semantic_source.Offset_expression
                 | Semantic_source.Postfix_cast_expression
                 | Semantic_source.Call_expression ) -> unsupported := true)
+        | Emit_index_stride step -> reversed := Index_stride step :: !reversed
+        | Finish_index_address step ->
+            reversed := Index_address step :: !reversed
+        | Finish_materialize_array { result; operand; pointer_type; span } ->
+            reversed :=
+              Materialize_array { result; operand; pointer_type; span }
+              :: !reversed
         | Finish_indirect_address { result; pointer } ->
             reversed := Indirect_address { result; pointer } :: !reversed
         | Finish_alias { result; operand } ->
@@ -2230,10 +2551,30 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
     }
   in
   let lowered = ref Int_map.empty in
+  let index_strides = ref Int_map.empty in
   let comparison_domains = ref Int_map.empty in
   let descriptions_rev = ref [] in
   let error = ref None in
   let unsupported = ref false in
+  let emit_index_value ~opcode ~operands ~target_type ~payload ~span =
+    match take_identity allocator (Some span) with
+    | Error _ as error -> error
+    | Ok (instruction_id, value_id) ->
+        let description : Sequence.description =
+          {
+            instruction_id;
+            opcode;
+            operands;
+            result = Some { value_id };
+            target_type = Some target_type;
+            payload;
+            flags = 0L;
+            span = Some span;
+          }
+        in
+        descriptions_rev := description :: !descriptions_rev;
+        Ok { lowered_value = value_id; lowered_type = target_type }
+  in
   let storage_address address =
     match
       ( Sequence.Instruction_id.of_int allocator.instruction,
@@ -2280,6 +2621,70 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
     (fun node ->
       if Option.is_none !error && not !unsupported then
         match node with
+        | Index_stride step -> (
+            match
+              emit_index_value ~opcode:Opcode.Ic_imm_i64 ~operands:[]
+                ~target_type:step.index_type
+                ~payload:(Some (Sequence.Integer step.index_stride))
+                ~span:step.index_span
+            with
+            | Error item -> error := Some item
+            | Ok node ->
+                index_strides :=
+                  Int_map.add
+                    (result_key step.indexed_result)
+                    node !index_strides)
+        | Index_address step -> (
+            let ( let* ) = Result.bind in
+            let emitted =
+              let* base =
+                find_lowered !lowered step.indexed_base "index base"
+              in
+              let* index =
+                find_lowered !lowered step.index_value "index value"
+              in
+              let* stride =
+                find_lowered !index_strides step.indexed_result "index stride"
+              in
+              if not (Type.equal base.lowered_type step.index_type) then
+                Error
+                  (metadata_error ~span:step.index_span
+                     "indexed base has a mismatched pointer type")
+              else
+                let* scaled =
+                  emit_index_value ~opcode:Opcode.Ic_mul
+                    ~operands:[ stride.lowered_value; index.lowered_value ]
+                    ~target_type:step.index_type ~payload:None
+                    ~span:step.index_span
+                in
+                emit_index_value ~opcode:Opcode.Ic_add
+                  ~operands:[ base.lowered_value; scaled.lowered_value ]
+                  ~target_type:step.index_type ~payload:None
+                  ~span:step.index_span
+            in
+            match emitted with
+            | Error item -> error := Some item
+            | Ok node ->
+                lowered :=
+                  Int_map.add (result_key step.indexed_result) node !lowered)
+        | Materialize_array { result; operand; pointer_type; span } -> (
+            match find_lowered !lowered operand "array address" with
+            | Error item -> error := Some item
+            | Ok address when Type.equal address.lowered_type pointer_type -> (
+                match
+                  emit_index_value ~opcode:Opcode.Ic_addr
+                    ~operands:[ address.lowered_value ]
+                    ~target_type:pointer_type ~payload:None ~span
+                with
+                | Error item -> error := Some item
+                | Ok node ->
+                    lowered := Int_map.add (result_key result) node !lowered)
+            | Ok _ ->
+                error :=
+                  Some
+                    (metadata_error ~span
+                       "array materialization changes its checked pointer type")
+            )
         | Call { result; conversion } -> (
             match
               ( lower_call,
@@ -2698,6 +3103,9 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
                 | Call { result; _ } :: _
                 | Storage_address { result; _ } :: _
                 | Indirect_address { result; _ } :: _
+                | Index_stride { indexed_result = result; _ } :: _
+                | Index_address { indexed_result = result; _ } :: _
+                | Materialize_array { result; _ } :: _
                 | Storage_load { result; _ } :: _
                 | Literal { result; _ } :: _
                 | Current_position { result; _ } :: _

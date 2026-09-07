@@ -1,5 +1,10 @@
 # Reference source map
 
+The [automatic array connection](integer-arrays.md) follows PrsVar.HC:247-281,
+532,590-615 and PrsExp.HC:72,97-118,151-161,201-208,470-484,739-746,766-774,
+1055-1098, with delayed update reads at BackA.HC:555-566. All refer to pinned
+commit c26482bb6ad3f80106d28504ec5db3c6a360732c; no new native capture is claimed.
+
 Issue #611 follows `Compiler/PrsExp.HC:151-161,776-784,800-802,877-896`,
 `Compiler/OptPass789A.HC:461-464`, `Compiler/OptPass3.HC:519-543`,
 `Compiler/BackLib.HC:693-707` and `Compiler/BackC.HC:159-204` for address

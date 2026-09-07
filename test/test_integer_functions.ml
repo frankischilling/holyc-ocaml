@@ -175,7 +175,18 @@ let limits () =
     (List.mem "function=Add" error.notes);
   Alcotest.(check bool)
     "callee fault retains shared steps" true
-    (List.mem "executed_steps=10" error.notes)
+    (List.mem "executed_steps=10" error.notes);
+  List.iter
+    (fun mode ->
+      let text = "I64 F(){I64 a[1];return 1;}(F());" in
+      ignore (run ~mode ~max_frame_bytes:8 ~max_call_depth:1 text |> expect 1L);
+      let error = first_error (run ~mode ~max_frame_bytes:7 text) in
+      Alcotest.(check string)
+        "unused array still occupies its frame" "HCIRVM0011" error.code;
+      Alcotest.(check bool)
+        "array allocation is checked before execution" true
+        (List.mem "executed_steps=0" error.notes))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let recursion () =
   let text = "I64 F(I64 a){if(a>0){F(a-1);}return a;}(F(3));" in
@@ -222,7 +233,7 @@ let unsupported () =
     (fun text -> ignore (first_error (run text)))
     [
       "I64 F(){I32 a;return 1;}(F());";
-      "I64 F(){I64 a[1];return 1;}(F());";
+      "I64 F(){I64 *a[1];return 1;}(F());";
       "I64 F(){static I32 a;return 1;}(F());";
       "I64 F(I64 *a){return 1;}(F(0));";
       "I64 F(I64 a=1){return a;}(F());";

@@ -1,5 +1,11 @@
 # Testing holyc-ocaml
 
+Array regressions in `test/test_integer_arrays.ml` cover the eight #613 source
+gates, grouping/decay, effects, recursive ownership, unsigned values, unwritten
+elements, bounds, overflow, exact limits and malformed stride/rank IR. The CLI
+fixture locks 42/51+0, 24 bytes and depth two in both modes. Semantic tests retain
+exact index children, declarator evidence and source-correct pointer layers.
+
 The nineteen `source integer pointers` groups cover seven original gates,
 copies and parameter reassignment, indirect updates, unsigned bits, mixed argument
 order, recursion with equal frame offsets, control flow, initializer calls and

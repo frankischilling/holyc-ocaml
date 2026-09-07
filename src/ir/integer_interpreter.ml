@@ -26,11 +26,16 @@ type word = { type_ : word_type; bits : int64 }
 type function_definition = { frame : Frame.function_layout; body : Function.t }
 type stored_type = Stored_word of word_type | Stored_pointer of Type.t
 
-type runtime_value = Runtime_word of word | Runtime_pointer of runtime_address
+type runtime_value =
+  | Runtime_word of word
+  | Runtime_pointer of runtime_address
+  | Runtime_offset of int64
 
 and runtime_address = {
   pointer_storage : runtime_storage;
-  pointer_index : int;
+  pointer_base : int;
+  pointer_count : int;
+  pointer_offset : int64;
   pointer_pointee : Type.t;
 }
 
@@ -44,6 +49,8 @@ type frame_slot = {
   slot_type : Type.t;
   stored_type : stored_type;
   initial : runtime_value option;
+  object_count : int;
+  strides : int64 list;
 }
 
 type frame_context = {
@@ -114,9 +121,10 @@ type binary_operation =
 type branch_condition = Zero | Not_zero
 
 type storage_location =
-  | Frame_slot of int
+  | Frame_slot of int * int
   | Global_slot of int
   | Indirect_slot of prepared_pointer
+  | Indexed_slot of prepared_pointer
 
 type prepared_operation =
   | Call_start
@@ -124,6 +132,8 @@ type prepared_operation =
   | Call_cleanup
   | Call_end of Value_id.t * word_type
   | Frame_address_tick
+  | Scale_index of prepared_operand * int64 * Value_id.t
+  | Index_address of storage_location * Value_id.t * Value_id.t * Type.t
   | Materialize_address of storage_location * Value_id.t * Type.t
   | Load_slot of storage_location * Value_id.t
   | Store_slot of storage_location * prepared_value * Value_id.t * stored_type
@@ -184,6 +194,8 @@ type call_phase = Collecting of int | Needs_cleanup | Needs_end
 type checked_call = { callee : callee; phase : call_phase }
 
 type opcode_kind =
+  | Scale_index_kind
+  | Index_address_kind
   | Pointer_address_kind
   | Global_address_kind
   | Frame_address_kind
@@ -209,6 +221,8 @@ type declared_type =
   | Frame_offset of Type.t * int64
   | Frame_address of int
   | Global_address of Integer_globals.storage_slot
+  | Index_offset of Type.t * int64 * prepared_operand
+  | Indexed_address of Type.t * int64 list
   | Unsupported
 
 let reference_commit = Sequence.reference_commit
@@ -426,23 +440,47 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
         locations
     in
     let arguments = ref arguments in
-    let slots_rev = ref []
-    and offsets = ref Offset_map.empty
-    and error = ref None in
-    List.iteri
-      (fun index location ->
+    let prepared_rev = ref [] and total_cells = ref 0L and error = ref None in
+    let max_cells =
+      Int64.of_int (min Sys.max_array_length (max_frame_bytes / 8))
+    in
+    List.iter
+      (fun location ->
+        let dimensions = Frame.location_dimensions location in
+        let rec array_strides = function
+          | [] -> Some (8L, [])
+          | dimension :: rest -> (
+              match array_strides rest with
+              | Some (bytes, strides) ->
+                  let count = Frame.dimension_value dimension in
+                  if count <= 0L || count > Int64.div Int64.max_int bytes then
+                    None
+                  else Some (Int64.mul count bytes, bytes :: strides)
+              | None -> None)
+        in
         match
           ( stored_type (Frame.location_checked_type location),
-            Frame.location_frame_slot location )
+            Frame.location_frame_slot location,
+            array_strides dimensions )
         with
-        | Some stored_type, Some slot
+        | Some stored_type, Some slot, Some (bytes, strides)
           when Frame.location_declarator_shape location = Frame.Object
-               && Frame.location_value_shape location = Frame.Scalar
-               && Frame.location_allocated_size location = 8L
-               && Frame.frame_slot_size slot = 8L ->
+               && Frame.location_element_size location = 8L
+               && Frame.location_allocated_size location = bytes
+               && Frame.frame_slot_size slot = bytes
+               && (dimensions = []
+                   && Frame.location_value_shape location = Frame.Scalar
+                  || dimensions <> []
+                     && Frame.location_value_shape location = Frame.Array
+                     && Frame.location_kind location = Frame.Automatic_local
+                     &&
+                     match stored_type with
+                     | Stored_word _ -> true
+                     | _ -> false) ->
             let offset = Frame.frame_slot_displacement slot in
-            if Offset_map.mem offset !offsets then
-              error := Some "the checked frame contains overlapping slots"
+            let count = Int64.div bytes 8L in
+            if count > Int64.sub max_cells !total_cells then
+              error := Some "the flattened frame exceeds the cell or byte limit"
             else
               let initial =
                 match (Frame.location_kind location, !arguments) with
@@ -459,14 +497,18 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
                         None)
                 | _ -> None
               in
-              offsets := Offset_map.add offset index !offsets;
-              slots_rev :=
+              let entry =
                 {
                   slot_type = Frame.location_checked_type location;
                   stored_type;
                   initial;
+                  object_count = Int64.to_int count;
+                  strides;
                 }
-                :: !slots_rev
+              in
+              prepared_rev :=
+                (Int64.to_int !total_cells, offset, entry) :: !prepared_rev;
+              total_cells := Int64.add !total_cells count
         | _ ->
             error :=
               Some
@@ -475,14 +517,36 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
       locations;
     match !error with
     | Some message -> invalid message
-    | None ->
-        Ok
-          {
-            layout = frame;
-            slots = Array.of_list (List.rev !slots_rev);
-            offsets = !offsets;
-            return_type = Function.return_type function_;
-          }
+    | None -> (
+        let slots =
+          Array.make
+            (Int64.to_int !total_cells)
+            {
+              slot_type = Function.return_type function_;
+              stored_type = Stored_word I64;
+              initial = None;
+              object_count = 1;
+              strides = [];
+            }
+        in
+        let offsets = ref Offset_map.empty in
+        List.iter
+          (fun (base, offset, entry) ->
+            if Offset_map.mem offset !offsets then
+              error := Some "the checked frame contains overlapping roots";
+            offsets := Offset_map.add offset base !offsets;
+            Array.fill slots base entry.object_count entry)
+          (List.rev !prepared_rev);
+        match !error with
+        | Some message -> invalid message
+        | None ->
+            Ok
+              {
+                layout = frame;
+                slots;
+                offsets = !offsets;
+                return_type = Function.return_type function_;
+              })
 
 let frame_pointer type_ =
   (Type.pointer_depth type_ = 1 || Type.pointer_depth type_ = 2)
@@ -540,6 +604,44 @@ let global_address frame globals initialization
       | _ -> None)
   | _ -> None
 
+let index_offset types (description : Sequence.description) =
+  match (description.operands, description.target_type) with
+  | [ stride_id; value_id ], Some pointer when scalar_pointer_type pointer -> (
+      match
+        (Value_map.find_opt stride_id types, Value_map.find_opt value_id types)
+      with
+      | ( Some (Frame_offset (stride_type, stride)),
+          Some (Supported (expected_type, _)) )
+        when Type.equal pointer stride_type && stride > 0L ->
+          Index_offset (pointer, stride, { value_id; expected_type })
+      | _ -> Unsupported)
+  | _ -> Unsupported
+
+let indexed_address frame types (description : Sequence.description) =
+  match (description.operands, description.target_type) with
+  | [ base; offset ], Some pointer when scalar_pointer_type pointer -> (
+      let strides =
+        match Value_map.find_opt base types with
+        | Some (Frame_address index) ->
+            Option.bind frame (fun context ->
+                let slot = context.slots.(index) in
+                match Type.pointer_to slot.slot_type with
+                | Ok expected when Type.equal expected pointer ->
+                    Some slot.strides
+                | _ -> None)
+        | Some (Indexed_address (expected, strides))
+          when Type.equal expected pointer -> Some strides
+        | Some (Pointer_value expected) when Type.equal expected pointer ->
+            Some [ 8L ]
+        | _ -> None
+      in
+      match (strides, Value_map.find_opt offset types) with
+      | Some (stride :: remaining), Some (Index_offset (expected, actual, _))
+        when stride = actual && Type.equal expected pointer ->
+          Indexed_address (pointer, remaining)
+      | _ -> Unsupported)
+  | _ -> Unsupported
+
 let declared_types ?frame ?globals ?initialization ?(allow_calls = false) block
     =
   Graph.instructions block |> Sequence.instructions
@@ -582,14 +684,27 @@ let declared_types ?frame ?globals ?initialization ?(allow_calls = false) block
                              | None -> Unsupported)
                          | Some _, Opcode.Ic_rbp when frame_pointer type_ ->
                              Frame_base type_
-                         | Some _, Opcode.Ic_imm_i64 when frame_pointer type_
-                           -> (
+                         | _, Opcode.Ic_imm_i64
+                           when frame_pointer type_
+                                && (Option.is_some frame
+                                  || Option.is_some globals) -> (
                              match description.payload with
                              | Some (Sequence.Integer offset) ->
                                  Frame_offset (type_, offset)
                              | _ -> Unsupported)
-                         | Some context, Opcode.Ic_add when frame_pointer type_
-                           -> address_slot context types description
+                         | _, Opcode.Ic_mul
+                           when scalar_pointer_type type_
+                                && (Option.is_some frame
+                                  || Option.is_some globals) ->
+                             index_offset types description
+                         | _, Opcode.Ic_add when frame_pointer type_ -> (
+                             match indexed_address frame types description with
+                             | Indexed_address _ as indexed -> indexed
+                             | _ -> (
+                                 match frame with
+                                 | Some context ->
+                                     address_slot context types description
+                                 | None -> Unsupported))
                          | _, opcode
                            when (Option.is_some frame || Option.is_some globals
                                || allow_calls)
@@ -618,6 +733,8 @@ let operand_of_value types value_id =
       | Frame_base _
       | Frame_offset _
       | Frame_address _
+      | Index_offset _
+      | Indexed_address _
       | Global_address _ )
   | None -> None
 
@@ -641,11 +758,17 @@ let value_matches stored operand =
       Type.equal expected actual.pointer_type
   | _ -> false
 
-let storage_operand frame initialization types instruction address =
+let storage_operand ?(allow_array = false) frame initialization types
+    instruction address =
   match (frame, Value_map.find_opt address types) with
   | Some context, Some (Frame_address index) ->
       let slot = context.slots.(index) in
-      Some (Frame_slot index, slot.slot_type, slot.stored_type)
+      if slot.strides <> [] && not allow_array then None
+      else
+        Some
+          ( Frame_slot (index, slot.object_count),
+            slot.slot_type,
+            slot.stored_type )
   | _, Some (Global_address slot)
     when storage_allowed frame initialization instruction slot ->
       let type_ = Integer_globals.storage_type slot in
@@ -653,6 +776,17 @@ let storage_operand frame initialization types instruction address =
         (fun kind ->
           (Global_slot (Integer_globals.storage_index slot), type_, kind))
         (stored_type type_)
+  | _, Some (Indexed_address (pointer_type, remaining))
+    when allow_array || remaining = [] -> (
+      match Type.dereference pointer_type with
+      | Ok pointee ->
+          Option.map
+            (fun word ->
+              ( Indexed_slot { pointer_value = address; pointer_type },
+                pointee,
+                Stored_word word ))
+            (return_word_type pointee)
+      | Error _ -> None)
   | _, Some (Pointer_value pointer_type) -> (
       match Type.dereference pointer_type with
       | Ok pointee ->
@@ -797,8 +931,20 @@ let invalid_type_matrix block_id description =
 
 let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
     block_index types block_id (description : Sequence.description) =
+  let produced =
+    Option.bind description.result (fun result ->
+        Value_map.find_opt result.value_id types)
+  in
   let kind =
     match (frame, description.opcode) with
+    | _, Opcode.Ic_mul
+      when match produced with
+           | Some (Index_offset _) -> true
+           | _ -> false -> Some Scale_index_kind
+    | _, Opcode.Ic_add
+      when match produced with
+           | Some (Indexed_address _) -> true
+           | _ -> false -> Some Index_address_kind
     | _, Opcode.Ic_addr when Option.is_some frame || Option.is_some globals ->
         Some Pointer_address_kind
     | _, (Opcode.Ic_imm_i64 | Opcode.Ic_abs_addr)
@@ -808,10 +954,11 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
            | Some (Sequence.Symbol _) -> true
            | _ -> false -> Some Global_address_kind
     | Some _, Opcode.Ic_rbp -> Some Frame_address_kind
-    | Some _, (Opcode.Ic_imm_i64 | Opcode.Ic_add)
-      when Option.fold ~none:false
-             ~some:(fun type_ -> Type.pointer_depth type_ > 0)
-             description.target_type -> Some Frame_address_kind
+    | _, (Opcode.Ic_imm_i64 | Opcode.Ic_add)
+      when (Option.is_some frame || Option.is_some globals)
+           && Option.fold ~none:false
+                ~some:(fun type_ -> Type.pointer_depth type_ > 0)
+                description.target_type -> Some Frame_address_kind
     | _, Opcode.Ic_deref when Option.is_some frame || Option.is_some globals ->
         Some Load_slot_kind
     | _, Opcode.Ic_assign when Option.is_some frame || Option.is_some globals ->
@@ -842,6 +989,42 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
       else
         let operation =
           match kind with
+          | Scale_index_kind -> (
+              match
+                ( description.operands,
+                  description.result,
+                  description.payload,
+                  produced )
+              with
+              | ( [ _; _ ],
+                  Some result,
+                  None,
+                  Some (Index_offset (_, stride, operand)) ) ->
+                  Ok (Scale_index (operand, stride, result.value_id))
+              | _ -> Error (malformed block_id description))
+          | Index_address_kind -> (
+              match
+                ( description.operands,
+                  description.result,
+                  description.payload,
+                  produced )
+              with
+              | ( [ base; offset ],
+                  Some result,
+                  None,
+                  Some (Indexed_address (pointer, _)) ) -> (
+                  match
+                    ( storage_operand ~allow_array:true frame initialization
+                        types description.instruction_id base,
+                      Type.dereference pointer )
+                  with
+                  | Some (location, actual, Stored_word _), Ok pointee
+                    when Type.equal actual pointee ->
+                      Ok
+                        (Index_address
+                           (location, offset, result.value_id, pointee))
+                  | _ -> Error (malformed block_id description))
+              | _ -> Error (malformed block_id description))
           | Pointer_address_kind -> (
               match
                 ( description.operands,
@@ -852,7 +1035,7 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
               | [ address ], Some result, Some target_type, None
                 when scalar_pointer_type target_type -> (
                   match
-                    storage_operand frame initialization types
+                    storage_operand ~allow_array:true frame initialization types
                       description.instruction_id address
                   with
                   | Some (location, pointee, Stored_word _) -> (
@@ -1465,15 +1648,41 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                "a prepared operand is unavailable or has the wrong word type");
         None
   in
-  let require_pointer block instruction operand =
+  let address_bounds ~one_past block instruction address =
+    let offset = address.pointer_offset in
+    let cells = Int64.div offset 8L in
+    if
+      offset < 0L
+      || Int64.rem offset 8L <> 0L
+      ||
+      if one_past then cells > Int64.of_int address.pointer_count
+      else cells >= Int64.of_int address.pointer_count
+    then (
+      failed :=
+        Some
+          (runtime_error ~instruction block !steps "HCIRVM0019"
+             "indexed address is outside its declared object extent");
+      false)
+    else true
+  in
+  let require_pointer ?(bounded = true) block instruction operand =
     match Value_map.find_opt operand.pointer_value !values with
     | Some (Runtime_pointer address) -> (
         match Type.dereference operand.pointer_type with
         | Ok expected
           when Type.equal expected address.pointer_pointee
-               && address.pointer_storage.live && address.pointer_index >= 0
-               && address.pointer_index
-                  < Array.length address.pointer_storage.cells -> Some address
+               && address.pointer_storage.live && address.pointer_base >= 0
+               && address.pointer_count > 0
+               && address.pointer_count
+                  <= Array.length address.pointer_storage.cells
+               && address.pointer_base
+                  <= Array.length address.pointer_storage.cells
+                     - address.pointer_count ->
+            if
+              (not bounded)
+              || address_bounds ~one_past:true block instruction address
+            then Some address
+            else None
         | _ ->
             failed :=
               Some
@@ -1499,6 +1708,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
           (require_pointer block instruction operand)
   in
   let coerce_value expected = function
+    | Runtime_offset _ -> None
     | Runtime_word word -> (
         match expected with
         | Stored_word type_ -> Some (Runtime_word { type_; bits = word.bits })
@@ -1513,13 +1723,36 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
             | _ -> None)
         | _ -> None)
   in
+  let resolve_address block instruction location pointer_pointee =
+    let root pointer_storage pointer_base pointer_count =
+      Some
+        {
+          pointer_storage;
+          pointer_base;
+          pointer_count;
+          pointer_offset = 0L;
+          pointer_pointee;
+        }
+    in
+    match location with
+    | Frame_slot (base, count) -> root !slots base count
+    | Global_slot base -> root global_storage base 1
+    | Indirect_slot operand -> require_pointer block instruction operand
+    | Indexed_slot operand ->
+        require_pointer ~bounded:false block instruction operand
+  in
   let resolve_location block instruction = function
-    | Frame_slot index -> Some (!slots, index)
+    | Frame_slot (index, _) -> Some (!slots, index)
     | Global_slot index -> Some (global_storage, index)
-    | Indirect_slot operand ->
-        Option.map
-          (fun address -> (address.pointer_storage, address.pointer_index))
-          (require_pointer block instruction operand)
+    | Indirect_slot operand | Indexed_slot operand ->
+        Option.bind (require_pointer ~bounded:false block instruction operand)
+          (fun address ->
+            if address_bounds ~one_past:false block instruction address then
+              Some
+                ( address.pointer_storage,
+                  address.pointer_base
+                  + Int64.to_int (Int64.div address.pointer_offset 8L) )
+            else None)
   in
   while Option.is_none !completed && Option.is_none !failed do
     if !current_block < 0 || !current_block >= Array.length !program.blocks then
@@ -1628,15 +1861,67 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                       (runtime_error ~instruction block !steps "HCIRVM0008"
                          "direct call did not supply its declared return word"))
           | Frame_address_tick -> ()
+          | Scale_index (operand, stride, result) -> (
+              match require_operand block instruction operand with
+              | None -> ()
+              | Some index ->
+                  if
+                    (index.type_ = U64 && index.bits < 0L)
+                    || index.bits > Int64.div Int64.max_int stride
+                    || index.bits < Int64.div Int64.min_int stride
+                  then
+                    failed :=
+                      Some
+                        (runtime_error ~instruction block !steps "HCIRVM0020"
+                           "index byte scaling exceeds the hosted signed \
+                            address range")
+                  else
+                    values :=
+                      Value_map.add result
+                        (Runtime_offset (Int64.mul index.bits stride))
+                        !values)
+          | Index_address (location, offset, result, pointee) -> (
+              match
+                ( resolve_address block instruction location pointee,
+                  Value_map.find_opt offset !values )
+              with
+              | Some address, Some (Runtime_offset delta) ->
+                  if
+                    delta > 0L
+                    && address.pointer_offset > Int64.sub Int64.max_int delta
+                    || delta < 0L
+                       && address.pointer_offset < Int64.sub Int64.min_int delta
+                  then
+                    failed :=
+                      Some
+                        (runtime_error ~instruction block !steps "HCIRVM0020"
+                           "index address addition exceeds the hosted signed \
+                            address range")
+                  else
+                    values :=
+                      Value_map.add result
+                        (Runtime_pointer
+                           {
+                             address with
+                             pointer_offset =
+                               Int64.add address.pointer_offset delta;
+                           })
+                        !values
+              | None, _ -> ()
+              | _ ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0008"
+                         "prepared index offset is unavailable"))
           | Materialize_address (location, result, pointer_pointee) -> (
-              match resolve_location block instruction location with
-              | Some (pointer_storage, pointer_index) ->
+              match
+                resolve_address block instruction location pointer_pointee
+              with
+              | Some address
+                when address_bounds ~one_past:true block instruction address ->
                   values :=
-                    Value_map.add result
-                      (Runtime_pointer
-                         { pointer_storage; pointer_index; pointer_pointee })
-                      !values
-              | None -> ())
+                    Value_map.add result (Runtime_pointer address) !values
+              | _ -> ())
           | Load_slot (location, result) -> (
               match resolve_location block instruction location with
               | None -> ()
@@ -1685,7 +1970,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                             Some
                               (runtime_error ~instruction block !steps
                                  "HCIRVM0012" storage.unknown_message)
-                      | Some (Runtime_pointer _) ->
+                      | Some (Runtime_pointer _ | Runtime_offset _) ->
                           failed :=
                             Some
                               (runtime_error ~instruction block !steps
@@ -1756,7 +2041,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
               let value =
                 Option.bind (require_value block instruction operand) (function
                   | Runtime_word word -> Some word
-                  | Runtime_pointer _ -> None)
+                  | Runtime_pointer _ | Runtime_offset _ -> None)
               in
               if
                 capture_last && (not !program.is_function)

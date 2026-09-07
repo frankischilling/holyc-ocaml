@@ -14,6 +14,7 @@ type typed_value = {
   resolved_type : Sema.Type.t;
   shape : Sema.Function_call_resolution.identifier_value_shape;
   array_rank : int;
+  ordinary_array : bool;
   callable : Sema.Function_call_resolution.callable option;
   function_declaration : Sema.Function_resolution.resolved_declaration option;
   function_address_path :
@@ -37,6 +38,8 @@ let typed_value_of_identifier ?callable value =
     resolved_type = Sema.Function_call_resolution.identifier_value_type value;
     shape = Sema.Function_call_resolution.identifier_value_shape value;
     array_rank = Sema.Function_call_resolution.identifier_value_array_rank value;
+    ordinary_array =
+      Sema.Function_call_resolution.identifier_value_is_ordinary_array value;
     callable;
     function_declaration =
       Sema.Function_call_resolution.identifier_value_function_declaration value;
@@ -49,6 +52,7 @@ let object_value reference =
     resolved_type = Sema.Type_reference.resolved_type reference;
     shape = Sema.Function_call_resolution.Object_value;
     array_rank = 0;
+    ordinary_array = false;
     callable = None;
     function_declaration = None;
     function_address_path = None;
@@ -59,6 +63,7 @@ let callback_value reference pointer =
     resolved_type = Sema.Type_reference.resolved_type reference;
     shape = Sema.Function_call_resolution.Function_pointer_value;
     array_rank = 0;
+    ordinary_array = false;
     callable =
       Some
         (Sema.Function_call_resolution.make_callable ~return_type:reference
@@ -94,6 +99,7 @@ let synthetic_value binding =
     resolved_type = Sema.Function_type_resolution.synthetic_binding_type binding;
     shape;
     array_rank;
+    ordinary_array = array_rank > 0;
     callable = None;
     function_declaration = None;
     function_address_path = None;
@@ -120,6 +126,10 @@ let local_value local =
     resolved_type = Sema.Type_reference.resolved_type reference;
     shape;
     array_rank = List.length dimensions;
+    ordinary_array =
+      dimensions <> []
+      && Sema.Local_type_resolution.local_declarator_kind local
+         = Sema.Local_type_resolution.Object;
     callable;
     function_declaration = None;
     function_address_path = None;
@@ -354,6 +364,10 @@ let typed_value_for_outer_binding binding =
             |> Sema.Type_reference.resolved_type;
           shape;
           array_rank;
+          ordinary_array =
+            array_rank > 0
+            && Sema.Outer_environment.global_declarator_kind metadata
+               = Sema.Outer_environment.Object_global;
           callable = None;
           function_declaration = None;
           function_address_path = None;
@@ -405,6 +419,7 @@ let aggregate_publication_value member_index ~before_item_index publication =
               resolved_type;
               shape = Sema.Function_call_resolution.Object_value;
               array_rank = 0;
+              ordinary_array = false;
               callable = None;
               function_declaration = None;
               function_address_path = None;
@@ -511,7 +526,7 @@ let make_sizeof_members member_index ~before_item_index root_type source_members
 let identifier_value_for_typed_value value =
   Sema.Function_call_resolution.make_identifier_value
     ~resolved_type:value.resolved_type ~shape:value.shape
-    ~array_rank:value.array_rank
+    ~array_rank:value.array_rank ~ordinary_array:value.ordinary_array
     ?function_declaration:value.function_declaration
     ?function_address_path:value.function_address_path ()
 
@@ -952,6 +967,7 @@ let rec argument_expression member_index before_item_index visible locals
                     .make_bound_identifier_argument_expression ~occurrence
                       ~resolved_type:value.resolved_type ~shape:value.shape
                       ~array_rank:value.array_rank
+                      ~ordinary_array:value.ordinary_array
                       ?function_declaration:value.function_declaration
                       ?function_address_path:value.function_address_path ())))
     | Frontend.Ast.Current_position_expression _ ->
