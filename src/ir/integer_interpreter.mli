@@ -1,5 +1,11 @@
 type word_type = I64 | U64
 type word = private { type_ : word_type; bits : int64 }
+
+type function_definition = {
+  frame : Sema.Function_frame_layout.function_layout;
+  body : Function_body.t;
+}
+
 type termination = Stream_end | Returned of word option
 type error_stage = Configuration | Preflight | Execution
 
@@ -11,11 +17,28 @@ type error = private {
   block_id : int option;
   instruction_id : int option;
   span : Common.Span.t option;
+  function_id : int option;
+  function_name : string option;
 }
 
 type t
 
 val reference_commit : string
+
+val execute_program :
+  max_steps:int ->
+  max_frame_bytes:int ->
+  max_call_depth:int ->
+  functions:function_definition list ->
+  X87_stack.t ->
+  (t, error list) result
+(** Preflight the entry and every checked definition, then execute direct calls
+    with explicit continuations and independent slots. Limits cover the total
+    instruction count, simultaneously active frame bytes and active calls. *)
+
+val final_value : t -> word option
+(** Last reached top-level expression value from [execute_program], separate
+    from stream termination and function return values. *)
 
 val execute : max_steps:int -> X87_stack.t -> (t, error list) result
 (** Preflight and execute the source-audited integer subset. Every executed

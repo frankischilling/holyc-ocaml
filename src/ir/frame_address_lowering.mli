@@ -17,6 +17,13 @@ val lower_prepared :
   prepared_address ->
   (t, Instruction_sequence.error list) result
 
+val prepare_initializer :
+  frame:Sema.Function_frame_layout.function_layout ->
+  Sema.Function_call_expression_result.initializer_result ->
+  (prepared_address option, Instruction_sequence.error list) result
+(** Validate the exact local symbol, declaration positions and retained type
+    reference of a scalar initializer without inventing a source occurrence. *)
+
 val lower :
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->

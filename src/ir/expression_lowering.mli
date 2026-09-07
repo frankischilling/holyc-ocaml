@@ -51,6 +51,15 @@ val lower_typed_result :
     unsupported. Expressions outside the implemented tree shapes return
     [Unsupported_expression] without returning a partial sequence. *)
 
+val lower_initializer :
+  frame:Sema.Function_frame_layout.function_layout ->
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  Sema.Function_call_expression_result.initializer_result ->
+  (lowering_result, Instruction_sequence.error list) result
+(** Store a checked scalar I64/U64 initializer into its exact automatic frame
+    slot, preserving the source value and destination class. *)
+
 val sequence : t -> Instruction_sequence.t
 val result_value : t -> Instruction_sequence.Value_id.t
 val result_type : t -> Sema.Type.t

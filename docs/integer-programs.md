@@ -2,7 +2,7 @@
 
 Reference commit: `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
-`holyc run --target=ir FILE` executes a batch of integer top-level statements.
+`holyc run --target=ir FILE` executes checked integer functions and a batch of top-level statements.
 The file needs no `main` function. `holyc dump-ir --program FILE` exposes the
 verified graph used by that command. Both commands accept the existing include,
 definition, deterministic predefined-value and JIT/AOT preprocessing options.
@@ -14,9 +14,11 @@ opam exec -- dune exec bin/holyc.exe -- dump-ir --program examples/integer-contr
 
 The accepted statements are ordinary integer expressions, empty statements,
 blocks, comma statement sequences, `if`/`else`, `while`, `do`/`while`, `for`,
-and `break`. Expressions use the existing internal `I64`/`U64` VM domain.
-Expression statements discard their values after evaluating them. This command
-prints an execution report; it has no implemented program-output operation.
+and `break`, plus scalar function-local declarations and returns. Functions use
+checked I64/U64 parameter/local frames and direct root calls. See
+[integer source functions](integer-functions.md) for the original Add fixture,
+call shapes, argument order and storage limits. The report retains the last
+reached top-level expression value; it has no implemented Print operation.
 `holyc eval` continues to return the value of exactly one expression statement.
 
 ## Source behavior and graph construction
@@ -60,17 +62,19 @@ retain the failure stage, executed steps, block, instruction and source span.
 Failure returns status 1 with diagnostics on stderr and no successful stdout
 report. The JSON success schema is `holyc-integer-program-v1`; it records the
 implementation commit, reference commit, mode, target, arithmetic policy,
-budget, executed steps and termination.
+budget, frame/depth limits, executed steps, termination and final expression value.
 
-The library entrypoints are `lower_integer_program` and `run_integer_program`.
-Successful results contain `value` and nonfatal `diagnostics`; the value is the
-verified graph or VM execution result respectively. A failure returns all
+The library entrypoints include `compile_integer_program` and `run_integer_program`;
+`lower_integer_program` retains its graph-only top-level boundary.
+Successful results contain `value` and nonfatal `diagnostics`; the value is a
+compiled program, VM execution result or graph, according to the entrypoint.
+A failure returns all
 earlier warnings and the error in one diagnostic list. Both `run` and program
 IR dumping print retained warnings. JSON failures emit one diagnostics array.
 Lowering can produce a graph containing a VM-unsupported type or opcode;
 execution performs the VM-domain preflight before running any instruction.
 
-`HCRUN0001` rejects declarations, function definitions, output, returns, labels,
+`HCRUN0001` rejects unsupported declarations, output, top-level returns, labels,
 `goto`, switches, exceptions and locks, even inside unreachable source.
 `HCRUN0002` reports a break without an enclosing loop target. `HCRUN0003`
 rejects unsupported expressions, including chains inside conditions.
@@ -85,7 +89,7 @@ comparison class. Multiple pending comparison reductions, such as
 `HCRUN0004` reports an inconsistent
 source/IR join, and `HCRUN0005` rejects an unavailable execution target.
 
-Memory, variables, calls, compiler-state changes, `#exe`, native emission and
+General memory, broader call expressions, compiler-state changes, `#exe`, native emission and
 general program execution remain unfinished under [M5 issue #396](https://github.com/frankischilling/holyc-ocaml/issues/396)
 and the backend milestones. The complete stateful compiler must execute source
 and compiler effects in stream order as those operations become available.

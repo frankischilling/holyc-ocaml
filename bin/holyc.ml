@@ -381,7 +381,8 @@ let print_integer_result format result =
         "HCEVAL0003: expression execution did not return an integer word";
       1
 
-let print_integer_program_result format mode max_steps result =
+let print_integer_program_result format mode max_steps max_frame_bytes
+    max_call_depth result =
   let module VM = Holyc_lib.Ir_integer_interpreter in
   let mode =
     match mode with
@@ -393,8 +394,14 @@ let print_integer_program_result format mode max_steps result =
     | VM.Stream_end -> "stream-end"
     | VM.Returned _ -> "returned"
   in
+  let final_value = VM.final_value result in
+  let decimal (word : VM.word) =
+    match word.type_ with
+    | VM.I64 -> Int64.to_string word.bits
+    | VM.U64 -> Printf.sprintf "%Lu" word.bits
+  in
   (match format with
-  | Human ->
+  | Human -> (
       Printf.printf
         "holyc-integer-program-v1 implementation=%s reference=%s\n\
          mode=%s target=ir arithmetic=runtime-ir\n\
@@ -402,7 +409,17 @@ let print_integer_program_result format mode max_steps result =
          steps=%d\n\
          termination=%s\n"
         Holyc_lib.Version.implementation_commit VM.reference_commit mode
-        max_steps (VM.executed_steps result) termination
+        max_steps (VM.executed_steps result) termination;
+      Printf.printf "frame-byte-limit=%d\ncall-depth-limit=%d\n" max_frame_bytes
+        max_call_depth;
+      match final_value with
+      | None -> print_endline "final-value=none"
+      | Some word ->
+          Printf.printf "final-value=%s type=%s bits=0x%016Lx\n" (decimal word)
+            (match word.type_ with
+            | VM.I64 -> "i64"
+            | VM.U64 -> "u64")
+            word.bits)
   | Json ->
       `Assoc
         [
@@ -416,11 +433,28 @@ let print_integer_program_result format mode max_steps result =
           ("step_limit", `Int max_steps);
           ("executed_steps", `Int (VM.executed_steps result));
           ("termination", `String termination);
+          ("frame_byte_limit", `Int max_frame_bytes);
+          ("call_depth_limit", `Int max_call_depth);
+          ( "final_value",
+            match final_value with
+            | None -> `Null
+            | Some word ->
+                `Assoc
+                  [
+                    ( "type",
+                      `String
+                        (match word.type_ with
+                        | VM.I64 -> "i64"
+                        | VM.U64 -> "u64") );
+                    ("value", `String (decimal word));
+                    ("bits", `String (Printf.sprintf "0x%016Lx" word.bits));
+                  ] );
         ]
       |> Yojson.Safe.pretty_to_string |> print_endline);
   0
 
-let integer_expression_file program target dump max_steps format include_roots
+let integer_expression_file ?(max_frame_bytes = 1_048_576)
+    ?(max_call_depth = 128) program target dump max_steps format include_roots
     templeos_root max_include_depth max_source_bytes max_definition_depth
     max_generated_bytes max_conditional_depth max_expression_nodes
     compilation_mode predefined_date predefined_time command_line_source path =
@@ -435,6 +469,9 @@ let integer_expression_file program target dump max_steps format include_roots
     fail "JSON graph output is not supported; use --format=human"
   else if (not dump) && max_steps <= 0 then
     fail "HCIRVM0001: max_steps must be greater than zero"
+  else if program && (max_frame_bytes <= 0 || max_call_depth <= 0) then
+    fail
+      "HCIRVM0001: max_frame_bytes and max_call_depth must be greater than zero"
   else
     let session = Holyc_lib.Session.create () in
     match Holyc_lib.Session.load_source session ~path with
@@ -458,19 +495,24 @@ let integer_expression_file program target dump max_steps format include_roots
             let output =
               if dump then
                 (if program then
-                   Holyc_lib.lower_integer_program session ~config ~source
+                   Holyc_lib.compile_integer_program session ~config ~source
                    |> Result.map program_value
-                 else Holyc_lib.lower_integer_expression session ~config ~source)
-                |> Result.map (fun graph ->
-                    Holyc_lib.Ir_x87_stack.graph graph
-                    |> Holyc_lib.Ir_block_graph.human |> output_string stdout;
+                   |> Result.map Holyc_lib.integer_program_human
+                 else
+                   Holyc_lib.lower_integer_expression session ~config ~source
+                   |> Result.map (fun graph ->
+                       Holyc_lib.Ir_x87_stack.graph graph
+                       |> Holyc_lib.Ir_block_graph.human))
+                |> Result.map (fun text ->
+                    output_string stdout text;
                     0)
               else if program then
-                Holyc_lib.run_integer_program session ~config ~source ~max_steps
+                Holyc_lib.run_integer_program ~max_frame_bytes ~max_call_depth
+                  session ~config ~source ~max_steps
                 |> Result.map program_value
                 |> Result.map
                      (print_integer_program_result format compilation_mode
-                        max_steps)
+                        max_steps max_frame_bytes max_call_depth)
               else
                 Holyc_lib.evaluate_integer_expression session ~config ~source
                   ~max_steps
@@ -512,15 +554,33 @@ let run_target_argument =
         ~doc:"Execution target. Only ir is currently implemented.")
 
 let run_command =
+  let frame_limit =
+    Arg.(
+      value & opt int 1_048_576
+      & info [ "frame-byte-limit" ] ~docv:"BYTES"
+          ~doc:
+            "Maximum simultaneous parameter and local frame bytes. Must be \
+             positive.")
+  in
+  let call_depth =
+    Arg.(
+      value & opt int 128
+      & info [ "call-depth-limit" ] ~docv:"COUNT"
+          ~doc:
+            "Maximum simultaneously active integer function calls. Must be \
+             positive.")
+  in
   Cmd.v
     (Cmd.info "run" ~exits:expression_exits
        ~doc:
-         "Run integer top-level expressions, blocks, conditions and loops in \
-          the bounded IR interpreter.")
+         "Run checked integer functions, expressions and structured control \
+          flow in the bounded IR interpreter.")
     (source_parser_options
        Term.(
-         const (fun target -> integer_expression_file true target false)
-         $ run_target_argument $ step_limit_argument))
+         const (fun target steps bytes depth ->
+             integer_expression_file ~max_frame_bytes:bytes
+               ~max_call_depth:depth true target false steps)
+         $ run_target_argument $ step_limit_argument $ frame_limit $ call_depth))
 
 let program_ir_argument =
   Arg.(

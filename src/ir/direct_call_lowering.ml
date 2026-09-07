@@ -247,14 +247,15 @@ let mark_argument_result ~span result_value descriptions =
       (metadata_error ~span
          "direct-call argument lowering has no unique result producer")
 
-let lower_arguments ~span ~instruction_id ~value_id arguments =
+let lower_arguments ?frame ~span ~instruction_id ~value_id arguments =
   let rec loop rev_descriptions instruction_id value_id = function
     | [] ->
         Ok
           (Argument_lowered (List.rev rev_descriptions, instruction_id, value_id))
     | argument :: rest -> (
         match
-          Expression.lower_typed_result ~instruction_id ~value_id argument
+          Expression.lower_typed_result ?frame ~instruction_id ~value_id
+            argument
         with
         | Error errors -> Error errors
         | Ok Expression.Unsupported_expression -> Ok Unsupported_argument
@@ -276,7 +277,8 @@ let lower_arguments ~span ~instruction_id ~value_id arguments =
                   (Expression.next_value_id lowered)
                   rest))
   in
-  loop [] instruction_id value_id arguments
+  (* PrsFunCall stacks source-order COCs, then appends the newest first. *)
+  loop [] instruction_id value_id (List.rev arguments)
 
 let lower_variadic_count ~span ~instruction_id ~value_id ~count = function
   | None -> Ok ([], instruction_id, value_id)
@@ -296,38 +298,38 @@ let lower_variadic_count ~span ~instruction_id ~value_id ~count = function
               next_instruction_id,
               next_value_id ))
 
-let lower_supported ~span ~instruction_id ~value_id ~symbol ~record ~arguments
-    ~variadic_count_type ~variadic_count ~variadic_arguments ~call_opcode
-    result_type =
+let lower_supported ?frame ~span ~instruction_id ~value_id ~symbol ~record
+    ~arguments ~variadic_count_type ~variadic_count ~variadic_arguments
+    ~call_opcode result_type =
   let start_id = instruction_id in
   match next_instruction_id ~span instruction_id with
   | Error error -> Error [ error ]
   | Ok argument_instruction_id -> (
       match
-        lower_arguments ~span ~instruction_id:argument_instruction_id ~value_id
-          arguments
+        lower_arguments ?frame ~span ~instruction_id:argument_instruction_id
+          ~value_id variadic_arguments
       with
       | Error _ as error -> error
       | Ok Unsupported_argument -> Ok Unsupported_call
       | Ok
           (Argument_lowered
-             (argument_descriptions, count_instruction_id, count_value_id)) -> (
+             (variadic_descriptions, count_instruction_id, count_value_id)) -> (
           match
             lower_variadic_count ~span ~instruction_id:count_instruction_id
               ~value_id:count_value_id ~count:variadic_count variadic_count_type
           with
           | Error error -> Error [ error ]
-          | Ok (count_descriptions, variadic_instruction_id, variadic_value_id)
-            -> (
+          | Ok (count_descriptions, fixed_instruction_id, fixed_value_id) -> (
               match
-                lower_arguments ~span ~instruction_id:variadic_instruction_id
-                  ~value_id:variadic_value_id variadic_arguments
+                lower_arguments ?frame ~span
+                  ~instruction_id:fixed_instruction_id ~value_id:fixed_value_id
+                  arguments
               with
               | Error _ as error -> error
               | Ok Unsupported_argument -> Ok Unsupported_call
               | Ok
                   (Argument_lowered
-                     (variadic_descriptions, call_id, call_result_value)) -> (
+                     (argument_descriptions, call_id, call_result_value)) -> (
                   match
                     ( allocate_tail_instruction_ids ~span call_id,
                       next_value_id ~span call_result_value )
@@ -360,8 +362,8 @@ let lower_supported ~span ~instruction_id ~value_id ~symbol ~record ~arguments
                             ~opcode:Opcode.Ic_call_start ~target_type:None
                             ~payload:symbol_payload ~span ();
                         ]
-                        @ argument_descriptions @ count_descriptions
-                        @ variadic_descriptions
+                        @ variadic_descriptions @ count_descriptions
+                        @ argument_descriptions
                         @ [
                             description ~instruction_id:call_id
                               ~opcode:call_opcode
@@ -392,7 +394,7 @@ let lower_supported ~span ~instruction_id ~value_id ~symbol ~record ~arguments
                                  next_value_id_;
                                }))))))
 
-let lower ~instruction_id ~value_id ~target result =
+let lower ?frame ~instruction_id ~value_id ~target result =
   match span_of_origin (Result.result_origin result) with
   | Error error -> Error [ error ]
   | Ok span -> (
@@ -426,13 +428,13 @@ let lower ~instruction_id ~value_id ~target result =
                       ]
                 | Some result_type ->
                     let direct = target_resolution target in
-                    lower_supported ~span ~instruction_id ~value_id
+                    lower_supported ?frame ~span ~instruction_id ~value_id
                       ~symbol:(Resolution.direct_target_symbol direct)
                       ~record:(Target.record target) ~arguments
                       ~variadic_count_type ~variadic_count ~variadic_arguments
                       ~call_opcode result_type)))
 
-let lower_top_level ~instruction_id ~value_id ~target result =
+let lower_top_level ?frame ~instruction_id ~value_id ~target result =
   match span_of_origin (Result.result_origin result) with
   | Error error -> Error [ error ]
   | Ok span -> (
@@ -467,7 +469,7 @@ let lower_top_level ~instruction_id ~value_id ~target result =
                       ]
                 | Some result_type ->
                     let typed = Top_target.source target in
-                    lower_supported ~span ~instruction_id ~value_id
+                    lower_supported ?frame ~span ~instruction_id ~value_id
                       ~symbol:(Result.top_level_direct_target_symbol typed)
                       ~record:(Top_target.record target) ~arguments
                       ~variadic_count_type ~variadic_count ~variadic_arguments

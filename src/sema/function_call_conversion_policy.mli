@@ -60,6 +60,9 @@ val function_switch_cases :
 val function_returns :
   resolved_function -> Function_call_resolution.return_input list
 
+val function_initializers :
+  resolved_function -> Function_call_resolution.initializer_input list
+
 val function_calls : resolved_function -> call_policy list
 val direct_source : direct_call -> Function_call_resolution.direct_call
 val direct_fixed_policies : direct_call -> fixed_policy list

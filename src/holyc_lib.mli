@@ -22,6 +22,7 @@ module Ir_block_graph = Ir.Block_graph
 module Ir_effects = Ir.Effects
 module Ir_x87_stack = Ir.X87_stack
 module Ir_integer_interpreter = Ir.Integer_interpreter
+module Ir_integer_program_lowering = Ir.Integer_program_lowering
 module Ir_integer_unary_folding = Ir.Integer_unary_folding
 module Ir_function_body = Ir.Function_body
 module Ir_top_level_body = Ir.Top_level_body
@@ -705,16 +706,35 @@ val lower_integer_program :
     statements into verified IR. Unsupported source shapes fail explicitly. VM
     opcode, type and flag restrictions are checked only during execution. *)
 
+type integer_program
+
+val compile_integer_program :
+  Session.t ->
+  config:Preprocessor.Config.t ->
+  source:Source_file.t ->
+  (integer_program integer_program_result, Diagnostic.t list) result
+
+val integer_program_entry : integer_program -> Ir_x87_stack.t
+
+val integer_program_functions :
+  integer_program -> Ir_integer_interpreter.function_definition list
+
+val integer_program_human : integer_program -> string
+
 val run_integer_program :
+  ?max_frame_bytes:int ->
+  ?max_call_depth:int ->
   Session.t ->
   config:Preprocessor.Config.t ->
   source:Source_file.t ->
   max_steps:int ->
   (Ir_integer_interpreter.t integer_program_result, Diagnostic.t list) result
-(** Execute integer top-level control flow with a positive shared instruction
-    budget. This domain has no declarations, calls, memory, output or native
-    code. Conditions short-circuit AND and OR; ordinary value expressions and
-    XOR remain eager. Arithmetic uses raw runtime IR semantics. *)
+(** Execute integer source statements and checked I64/U64 function definitions
+    with fixed parameters, automatic locals and direct expression-root calls.
+    Instructions, active frame bytes and call depth have shared positive bounds.
+    Conditions short-circuit AND and OR; ordinary values and XOR remain eager.
+    Arithmetic uses raw runtime IR semantics. General memory, output, broader
+    call expressions and native code remain unsupported. *)
 
 val lower_integer_expression :
   Session.t ->

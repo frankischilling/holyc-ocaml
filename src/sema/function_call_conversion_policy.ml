@@ -35,6 +35,7 @@ type resolved_function = {
   selectors : Function_call_resolution.selector_input list;
   switch_cases : Function_call_resolution.switch_case_input list;
   returns : Function_call_resolution.return_input list;
+  initializers : Function_call_resolution.initializer_input list;
   calls : call_policy list;
 }
 
@@ -79,6 +80,10 @@ let function_switch_cases (function_ : resolved_function) =
   function_.switch_cases
 
 let function_returns (function_ : resolved_function) = function_.returns
+
+let function_initializers (function_ : resolved_function) =
+  function_.initializers
+
 let function_calls (function_ : resolved_function) = function_.calls
 let direct_source (call : direct_call) = call.source
 let direct_fixed_policies (call : direct_call) = call.fixed_policies
@@ -344,6 +349,7 @@ let resolve_function headers source =
     selectors = Function_call_resolution.function_selectors source;
     switch_cases = Function_call_resolution.function_switch_cases source;
     returns = Function_call_resolution.function_returns source;
+    initializers = Function_call_resolution.function_initializers source;
     calls =
       source |> Function_call_resolution.function_calls
       |> List.map (call_policy headers ~before_item_index:item_index);

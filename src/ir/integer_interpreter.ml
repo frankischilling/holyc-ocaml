@@ -23,6 +23,7 @@ end)
 
 type word_type = I64 | U64
 type word = { type_ : word_type; bits : int64 }
+type function_definition = { frame : Frame.function_layout; body : Function.t }
 
 type frame_slot = {
   slot_type : Type.t;
@@ -47,9 +48,16 @@ type error = {
   block_id : int option;
   instruction_id : int option;
   span : Common.Span.t option;
+  function_id : int option;
+  function_name : string option;
 }
 
-type t = { termination_ : termination; executed_steps_ : int }
+type t = {
+  termination_ : termination;
+  executed_steps_ : int;
+  final_value_ : word option;
+}
+
 type prepared_operand = { value_id : Value_id.t; expected_type : word_type }
 type unary_operation = Complement | Logical_not | Negate
 
@@ -80,6 +88,10 @@ type binary_operation =
 type branch_condition = Zero | Not_zero
 
 type prepared_operation =
+  | Call_start
+  | Call of int
+  | Call_cleanup
+  | Call_end of Value_id.t * word_type
   | Frame_address_tick
   | Load_slot of int * Value_id.t
   | Store_slot of int * prepared_operand * Value_id.t * word_type
@@ -103,6 +115,7 @@ type prepared_instruction = {
   instruction_id : Instruction_id.t;
   span : Common.Span.t option;
   operation : prepared_operation;
+  push_result : prepared_operand option;
 }
 
 type prepared_block = {
@@ -116,7 +129,20 @@ type prepared = {
   entry_index : int;
   initial_slots : word option array;
   is_function : bool;
+  owner : (int * string) option;
 }
+
+type callee = {
+  callee_index : int;
+  callee_symbol : Sema.Symbol.t;
+  callee_return_type : Type.t;
+  parameter_types : word_type array;
+  cleanup_opcode : Opcode.t;
+  frame_bytes : int;
+}
+
+type call_phase = Collecting of int | Needs_cleanup | Needs_end
+type checked_call = { callee : callee; phase : call_phase }
 
 type opcode_kind =
   | Frame_address_kind
@@ -152,6 +178,8 @@ let make_error ?block_id ?instruction_id ?span ~stage ~executed_steps code
     block_id = Option.map Block_id.to_int block_id;
     instruction_id = Option.map Instruction_id.to_int instruction_id;
     span;
+    function_id = None;
+    function_name = None;
   }
 
 let preflight_error block_id (description : Sequence.description) code message =
@@ -357,7 +385,7 @@ let address_slot context types (description : Sequence.description) =
       | _ -> Unsupported)
   | _ -> Unsupported
 
-let declared_types ?frame block =
+let declared_types ?frame ?(allow_calls = false) block =
   Graph.instructions block |> Sequence.instructions
   |> List.fold_left
        (fun types instruction ->
@@ -368,31 +396,37 @@ let declared_types ?frame block =
              let declared =
                match description.target_type with
                | Some type_ -> (
-                   match (frame, description.opcode) with
-                   | Some _, (Opcode.Ic_deref | Opcode.Ic_assign) -> (
-                       match return_word_type type_ with
-                       | Some word_type -> Supported (word_type, type_)
-                       | None -> Unsupported)
-                   | Some _, Opcode.Ic_rbp when frame_pointer type_ ->
-                       Frame_base type_
-                   | Some _, Opcode.Ic_imm_i64 when frame_pointer type_ -> (
-                       match description.payload with
-                       | Some (Sequence.Integer offset) ->
-                           Frame_offset (type_, offset)
-                       | _ -> Unsupported)
-                   | Some context, Opcode.Ic_add when frame_pointer type_ ->
-                       address_slot context types description
-                   | Some _, opcode
-                     when match opcode_kind opcode with
-                          | Some (Unary_kind _ | Binary_kind _) -> true
-                          | _ -> false -> (
-                       match return_word_type type_ with
-                       | Some word_type -> Supported (word_type, type_)
-                       | None -> Unsupported)
-                   | _ -> (
-                       match producer_word_type type_ with
-                       | Some word_type -> Supported (word_type, type_)
-                       | None -> Unsupported))
+                   if allow_calls && description.opcode = Opcode.Ic_call_end
+                   then
+                     match return_word_type type_ with
+                     | Some word_type -> Supported (word_type, type_)
+                     | None -> Unsupported
+                   else
+                     match (frame, description.opcode) with
+                     | Some _, (Opcode.Ic_deref | Opcode.Ic_assign) -> (
+                         match return_word_type type_ with
+                         | Some word_type -> Supported (word_type, type_)
+                         | None -> Unsupported)
+                     | Some _, Opcode.Ic_rbp when frame_pointer type_ ->
+                         Frame_base type_
+                     | Some _, Opcode.Ic_imm_i64 when frame_pointer type_ -> (
+                         match description.payload with
+                         | Some (Sequence.Integer offset) ->
+                             Frame_offset (type_, offset)
+                         | _ -> Unsupported)
+                     | Some context, Opcode.Ic_add when frame_pointer type_ ->
+                         address_slot context types description
+                     | Some _, opcode
+                       when match opcode_kind opcode with
+                            | Some (Unary_kind _ | Binary_kind _) -> true
+                            | _ -> false -> (
+                         match return_word_type type_ with
+                         | Some word_type -> Supported (word_type, type_)
+                         | None -> Unsupported)
+                     | _ -> (
+                         match producer_word_type type_ with
+                         | Some word_type -> Supported (word_type, type_)
+                         | None -> Unsupported))
                | None -> Unsupported
              in
              Value_map.add result.value_id declared types)
@@ -801,10 +835,11 @@ let prepare_instruction ?frame block_index types block_id
               instruction_id = description.instruction_id;
               span = description.span;
               operation;
+              push_result = None;
             })
           operation
 
-let prepare ?frame graph =
+let prepare ?frame ?callees graph =
   let source_blocks = Graph.blocks graph in
   let block_count = List.length source_blocks in
   let block_index =
@@ -819,16 +854,184 @@ let prepare ?frame graph =
     source_blocks
     |> List.mapi (fun index block ->
         let block_id = Graph.block_id block in
-        let types = declared_types ?frame block in
+        let types =
+          declared_types ?frame ~allow_calls:(Option.is_some callees) block
+        in
         let instructions_rev = ref [] in
+        let calls = ref [] in
+        let call_error description message =
+          preflight_error block_id description "HCIRVM0014" message
+        in
+        let call_instruction description operation =
+          Ok
+            {
+              instruction_id = description.Sequence.instruction_id;
+              span = description.span;
+              operation;
+              push_result = None;
+            }
+        in
+        let prepare_call (description : Sequence.description) =
+          let no_operands =
+            description.operands = [] && description.flags = 0L
+          in
+          let target_matches callee =
+            Option.fold ~none:false
+              ~some:(Type.equal callee.callee_return_type)
+              description.target_type
+          in
+          match (description.opcode, !calls) with
+          | Opcode.Ic_call_start, stack
+            when no_operands && description.result = None
+                 && description.target_type = None -> (
+              match description.payload with
+              | Some (Sequence.Symbol symbol) -> (
+                  match
+                    Option.value callees ~default:[]
+                    |> List.find_opt (fun callee ->
+                        callee.callee_symbol == symbol)
+                  with
+                  | Some callee
+                    when match stack with
+                         | [] | { phase = Collecting _; _ } :: _ -> true
+                         | _ -> false ->
+                      calls := { callee; phase = Collecting 0 } :: stack;
+                      call_instruction description Call_start
+                  | _ ->
+                      Error
+                        (call_error description
+                           "direct call has no matching executable definition \
+                            or valid enclosing call"))
+              | _ -> Error (malformed block_id description))
+          | Opcode.Ic_call, { callee; phase = Collecting count } :: rest
+            when no_operands && description.result = None
+                 && target_matches callee -> (
+              match description.payload with
+              | Some (Sequence.Symbol symbol)
+                when symbol == callee.callee_symbol
+                     && count = Array.length callee.parameter_types ->
+                  calls := { callee; phase = Needs_cleanup } :: rest;
+                  call_instruction description (Call callee.callee_index)
+              | _ ->
+                  Error
+                    (call_error description
+                       "call target or pushed argument count disagrees with \
+                        its definition"))
+          | ( (Opcode.Ic_add_rsp | Opcode.Ic_add_rsp1),
+              { callee; phase = Needs_cleanup } :: rest )
+            when no_operands && description.result = None
+                 && target_matches callee
+                 && description.opcode = callee.cleanup_opcode -> (
+              match description.payload with
+              | Some (Sequence.Integer bytes)
+                when bytes
+                     = Int64.mul 8L
+                         (Int64.of_int (Array.length callee.parameter_types)) ->
+                  calls := { callee; phase = Needs_end } :: rest;
+                  call_instruction description Call_cleanup
+              | _ ->
+                  Error
+                    (call_error description
+                       "call cleanup does not match its fixed argument slots"))
+          | Opcode.Ic_call_end, { callee; phase = Needs_end } :: rest
+            when no_operands && target_matches callee -> (
+              match
+                ( description.payload,
+                  description.result,
+                  return_word_type callee.callee_return_type )
+              with
+              | Some (Sequence.Symbol symbol), Some result, Some type_
+                when symbol == callee.callee_symbol ->
+                  calls := rest;
+                  call_instruction description
+                    (Call_end (result.value_id, type_))
+              | _ ->
+                  Error
+                    (call_error description
+                       "call end does not match its checked target and result"))
+          | ( ( Opcode.Ic_call_start
+              | Opcode.Ic_call
+              | Opcode.Ic_call_end
+              | Opcode.Ic_add_rsp
+              | Opcode.Ic_add_rsp1 ),
+              _ ) ->
+              Error
+                (call_error description
+                   "direct call instructions have an invalid order, type or \
+                    shape")
+          | _, { phase = Needs_cleanup | Needs_end; _ } :: _ ->
+              Error
+                (call_error description
+                   "direct call cleanup and call end must follow the call")
+          | _ ->
+              prepare_instruction ?frame block_index types block_id description
+        in
         Graph.instructions block |> Sequence.instructions
         |> List.iter (fun instruction ->
             let description = Sequence.description instruction in
+            let pushes =
+              Option.is_some callees
+              && Int64.logand description.flags 0x2000L <> 0L
+            in
+            let checked_description =
+              if pushes then
+                {
+                  description with
+                  flags = Int64.logand description.flags (Int64.lognot 0x2000L);
+                }
+              else description
+            in
             match
-              prepare_instruction ?frame block_index types block_id description
+              if Option.is_some callees then prepare_call checked_description
+              else
+                prepare_instruction ?frame block_index types block_id
+                  description
             with
-            | Ok prepared -> instructions_rev := prepared :: !instructions_rev
+            | Ok prepared ->
+                let control_transfer =
+                  match prepared.operation with
+                  | Jump _ | Branch _ | Return | End -> true
+                  | _ -> false
+                in
+                if control_transfer && !calls <> [] then
+                  errors_rev :=
+                    call_error description
+                      "call protocol cannot cross a basic-block boundary"
+                    :: !errors_rev;
+                let push_result =
+                  if not pushes then None
+                  else
+                    match (description.result, !calls) with
+                    | ( Some result,
+                        ({ callee; phase = Collecting count } as call) :: rest )
+                      when count < Array.length callee.parameter_types -> (
+                        match operand_of_value types result.value_id with
+                        | Some operand ->
+                            calls :=
+                              { call with phase = Collecting (count + 1) }
+                              :: rest;
+                            Some operand
+                        | None ->
+                            errors_rev :=
+                              call_error description
+                                "pushed argument is not a checked integer word"
+                              :: !errors_rev;
+                            None)
+                    | _ ->
+                        errors_rev :=
+                          call_error description
+                            "argument push has no matching fixed parameter"
+                          :: !errors_rev;
+                        None
+                in
+                instructions_rev :=
+                  { prepared with push_result } :: !instructions_rev
             | Error error -> errors_rev := error :: !errors_rev);
+        if !calls <> [] then
+          errors_rev :=
+            make_error ~stage:Preflight ~executed_steps:0 ~block_id "HCIRVM0014"
+              "basic block ends inside an incomplete direct call"
+            :: !errors_rev;
         {
           block_id;
           instructions = Array.of_list (List.rev !instructions_rev);
@@ -855,6 +1058,7 @@ let prepare ?frame graph =
               entry_index;
               initial_slots;
               is_function = Option.is_some frame;
+              owner = None;
             }
       | None ->
           Error
@@ -873,11 +1077,30 @@ let runtime_error ?instruction block executed_steps code message =
         ~instruction_id:instruction.instruction_id ?span:instruction.span code
         message
 
-let execute_prepared ~max_steps program =
+type call_scope = { arguments_rev : word list; returned_word : word option }
+
+type caller = {
+  saved_program : prepared;
+  saved_block : int;
+  saved_instruction : int;
+  saved_values : word Value_map.t;
+  saved_slots : word option array;
+  saved_return : word option;
+  saved_calls : call_scope list;
+}
+
+let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
+    ?(max_call_depth = Int.max_int) ?(capture_last = false) ~max_steps program =
   let current_block = ref program.entry_index in
   let current_instruction = ref 0 in
   let values = ref Value_map.empty in
-  let slots = Array.copy program.initial_slots in
+  let slots = ref (Array.copy program.initial_slots) in
+  let program = ref program in
+  let callers = ref [] in
+  let calls = ref [] in
+  let depth = ref 0 in
+  let live_frame_bytes = ref (Array.length !slots * 8) in
+  let final_value = ref None in
   let pending_return = ref None in
   let steps = ref 0 in
   let completed = ref None in
@@ -898,13 +1121,13 @@ let execute_prepared ~max_steps program =
         None
   in
   while Option.is_none !completed && Option.is_none !failed do
-    if !current_block < 0 || !current_block >= Array.length program.blocks then
+    if !current_block < 0 || !current_block >= Array.length !program.blocks then
       failed :=
         Some
           (make_error ~stage:Execution ~executed_steps:!steps "HCIRVM0008"
              "the prepared block cursor is out of bounds")
     else
-      let block = program.blocks.(!current_block) in
+      let block = !program.blocks.(!current_block) in
       if !current_instruction >= Array.length block.instructions then
         match block.fallthrough with
         | Some target -> transfer target
@@ -923,10 +1146,76 @@ let execute_prepared ~max_steps program =
         else (
           steps := !steps + 1;
           current_instruction := !current_instruction + 1;
-          match instruction.operation with
+          (match instruction.operation with
+          | Call_start ->
+              calls := { arguments_rev = []; returned_word = None } :: !calls
+          | Call_cleanup -> ()
+          | Call index -> (
+              match !calls with
+              | scope :: _ when index >= 0 && index < Array.length callees ->
+                  let callee, body = callees.(index) in
+                  if !depth >= max_call_depth then
+                    failed :=
+                      Some
+                        (runtime_error ~instruction block !steps "HCIRVM0015"
+                           "the integer call depth limit was exhausted")
+                  else if
+                    callee.frame_bytes > max_frame_bytes - !live_frame_bytes
+                  then
+                    failed :=
+                      Some
+                        (runtime_error ~instruction block !steps "HCIRVM0011"
+                           "the active function frames exceed the frame byte \
+                            limit")
+                  else (
+                    callers :=
+                      {
+                        saved_program = !program;
+                        saved_block = !current_block;
+                        saved_instruction = !current_instruction;
+                        saved_values = !values;
+                        saved_slots = !slots;
+                        saved_return = !pending_return;
+                        saved_calls = !calls;
+                      }
+                      :: !callers;
+                    incr depth;
+                    live_frame_bytes := !live_frame_bytes + callee.frame_bytes;
+                    let initialized = Array.copy body.initial_slots in
+                    scope.arguments_rev
+                    |> List.iteri (fun position word ->
+                        initialized.(position) <-
+                          Some
+                            {
+                              type_ = callee.parameter_types.(position);
+                              bits = word.bits;
+                            });
+                    program := body;
+                    slots := initialized;
+                    values := Value_map.empty;
+                    pending_return := None;
+                    calls := [];
+                    current_block := body.entry_index;
+                    current_instruction := 0)
+              | _ ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0008"
+                         "prepared direct call has no available caller scope"))
+          | Call_end (result, type_) -> (
+              match !calls with
+              | { returned_word = Some word; _ } :: rest when word.type_ = type_
+                ->
+                  calls := rest;
+                  values := Value_map.add result word !values
+              | _ ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0008"
+                         "direct call did not supply its declared return word"))
           | Frame_address_tick -> ()
           | Load_slot (index, result) -> (
-              match slots.(index) with
+              match !slots.(index) with
               | Some word -> values := Value_map.add result word !values
               | None ->
                   failed :=
@@ -938,7 +1227,7 @@ let execute_prepared ~max_steps program =
               | None -> ()
               | Some operand ->
                   let word = { type_; bits = operand.bits } in
-                  slots.(index) <- Some word;
+                  !slots.(index) <- Some word;
                   values := Value_map.add result word !values)
           | Immediate (result, word) ->
               values := Value_map.add result word !values
@@ -982,7 +1271,9 @@ let execute_prepared ~max_steps program =
                               (runtime_error ~instruction block !steps code
                                  message))))
           | Discard operand ->
-              ignore (require_operand block instruction operand)
+              let value = require_operand block instruction operand in
+              if capture_last && not !program.is_function then
+                final_value := value
           | Return_value (operand, type_) -> (
               match require_operand block instruction operand with
               | Some word -> pending_return := Some { type_; bits = word.bits }
@@ -1009,18 +1300,67 @@ let execute_prepared ~max_steps program =
                                "HCIRVM0008"
                                "a conditional branch has no physical \
                                 fallthrough")))
-          | Return when program.is_function && Option.is_none !pending_return ->
+          | Return when !program.is_function && Option.is_none !pending_return
+            ->
               failed :=
                 Some
                   (runtime_error ~instruction block !steps "HCIRVM0013"
                      "the integer function returned without a value")
-          | Return -> completed := Some (Returned !pending_return)
-          | End -> completed := Some Stream_end)
+          | Return -> (
+              match !callers with
+              | [] -> completed := Some (Returned !pending_return)
+              | caller :: rest -> (
+                  let returned_word = !pending_return in
+                  callers := rest;
+                  decr depth;
+                  live_frame_bytes :=
+                    !live_frame_bytes - (Array.length !slots * 8);
+                  program := caller.saved_program;
+                  current_block := caller.saved_block;
+                  current_instruction := caller.saved_instruction;
+                  values := caller.saved_values;
+                  slots := caller.saved_slots;
+                  pending_return := caller.saved_return;
+                  calls :=
+                    match caller.saved_calls with
+                    | scope :: rest -> { scope with returned_word } :: rest
+                    | [] -> []))
+          | End -> completed := Some Stream_end);
+          if Option.is_none !failed then
+            Option.iter
+              (fun operand ->
+                match (require_operand block instruction operand, !calls) with
+                | Some word, scope :: rest ->
+                    calls :=
+                      { scope with arguments_rev = word :: scope.arguments_rev }
+                      :: rest
+                | _ ->
+                    failed :=
+                      Some
+                        (runtime_error ~instruction block !steps "HCIRVM0008"
+                           "prepared argument push has no active call"))
+              instruction.push_result)
   done;
   match (!failed, !completed) with
-  | Some error, _ -> Error [ error ]
+  | Some error, _ ->
+      let error =
+        match !program.owner with
+        | None -> error
+        | Some (function_id, function_name) ->
+            {
+              error with
+              function_id = Some function_id;
+              function_name = Some function_name;
+            }
+      in
+      Error [ error ]
   | None, Some termination ->
-      Ok { termination_ = termination; executed_steps_ = !steps }
+      Ok
+        {
+          termination_ = termination;
+          executed_steps_ = !steps;
+          final_value_ = !final_value;
+        }
   | None, None ->
       Error
         [
@@ -1053,10 +1393,119 @@ let execute_function ~max_steps ~max_frame_bytes ~frame ~arguments function_ =
     | Ok frame -> (
         match prepare ~frame (Function.body function_) with
         | Error errors -> Error errors
-        | Ok program -> execute_prepared ~max_steps program)
+        | Ok program ->
+            execute_prepared ~max_steps
+              {
+                program with
+                owner =
+                  Some
+                    ( Function.Function_id.to_int
+                        (Function.function_id function_),
+                      Sema.Symbol.name (Function.symbol function_) );
+              })
+
+let execute_program ~max_steps ~max_frame_bytes ~max_call_depth ~functions
+    checked =
+  let ( let* ) = Result.bind in
+  if max_steps <= 0 || max_frame_bytes <= 0 || max_call_depth <= 0 then
+    Error
+      [
+        make_error ~stage:Configuration ~executed_steps:0 "HCIRVM0001"
+          "max_steps, max_frame_bytes and max_call_depth must be greater than \
+           zero";
+      ]
+  else
+    let owner body =
+      ( Function.Function_id.to_int (Function.function_id body),
+        Sema.Symbol.name (Function.symbol body) )
+    in
+    let identify body error =
+      let function_id, function_name = owner body in
+      {
+        error with
+        function_id = Some function_id;
+        function_name = Some function_name;
+      }
+    in
+    let rec summaries index symbols ids rev = function
+      | [] -> Ok (List.rev rev)
+      | ({ frame; body } : function_definition) :: rest ->
+          let symbol = Function.symbol body in
+          let function_id =
+            Function.Function_id.to_int (Function.function_id body)
+          in
+          let parameter_count = List.length (Function.parameters body) in
+          if
+            List.exists
+              (fun other ->
+                Sema.Symbol.Id.equal (Sema.Symbol.id other)
+                  (Sema.Symbol.id symbol))
+              symbols
+            || List.mem function_id ids
+          then
+            Error
+              [
+                identify body
+                  (make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0014"
+                     "integer program definitions have duplicate function or \
+                      symbol identities");
+              ]
+          else if parameter_count > max_frame_bytes / 8 then
+            Error
+              [
+                identify body
+                  (make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0011"
+                     "function parameters exceed the frame byte limit");
+              ]
+          else
+            let* context =
+              frame_context ~max_frame_bytes ~frame
+                ~arguments:(List.init parameter_count (fun _ -> 0L))
+                body
+              |> Result.map_error (List.map (identify body))
+            in
+            let callee =
+              {
+                callee_index = index;
+                callee_symbol = symbol;
+                callee_return_type = Function.return_type body;
+                parameter_types =
+                  Array.init parameter_count (fun position ->
+                      context.slots.(position).word_type);
+                cleanup_opcode =
+                  (if
+                     Sema.Function_flag.caller_expects_callee_pop
+                       ~stored_mask:(Function.stored_flags body)
+                   then Opcode.Ic_add_rsp1
+                   else Opcode.Ic_add_rsp);
+                frame_bytes = Array.length context.slots * 8;
+              }
+            in
+            summaries (index + 1) (symbol :: symbols) (function_id :: ids)
+              ((callee, context, body) :: rev)
+              rest
+    in
+    let* summaries = summaries 0 [] [] [] functions in
+    let callees = List.map (fun (callee, _, _) -> callee) summaries in
+    let rec bodies rev = function
+      | [] -> Ok (Array.of_list (List.rev rev))
+      | (callee, frame, body) :: rest ->
+          let* program =
+            prepare ~frame ~callees (Function.body body)
+            |> Result.map_error (List.map (identify body))
+          in
+          bodies
+            ((callee, { program with owner = Some (owner body) }) :: rev)
+            rest
+    in
+    let* programs = bodies [] summaries in
+    let* entry = prepare ~callees (X87.graph checked) in
+    execute_prepared ~callees:programs ~max_frame_bytes ~max_call_depth
+      ~capture_last:true ~max_steps entry
 
 let termination execution = execution.termination_
 let executed_steps execution = execution.executed_steps_
+let final_value execution = execution.final_value_
 
 let word_type_name = function
   | I64 -> "i64"

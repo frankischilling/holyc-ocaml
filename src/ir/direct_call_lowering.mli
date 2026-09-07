@@ -4,6 +4,7 @@ type lowering_result = Lowered of t | Unsupported_call
 val reference_commit : string
 
 val lower :
+  ?frame:Sema.Function_frame_layout.function_layout ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   target:Sema.Function_call_target_classification.t ->
@@ -14,6 +15,7 @@ val lower :
     [Expression_lowering]. *)
 
 val lower_top_level :
+  ?frame:Sema.Function_frame_layout.function_layout ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   target:Sema.Top_level_function_call_target_classification.t ->

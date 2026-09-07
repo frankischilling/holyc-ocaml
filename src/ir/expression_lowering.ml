@@ -2364,6 +2364,99 @@ let lower_typed_result ?frame ~instruction_id ~value_id result =
       |> Result.map (fun t -> Lowered t)
 
 let sequence lowered = lowered.sequence_
+
+let lower_initializer ~frame ~instruction_id ~value_id initial =
+  let ( let* ) = Result.bind in
+  let value = Semantic_result.initializer_value initial in
+  let target_type = Semantic_result.initializer_target_type initial in
+  let target_is_word =
+    Type.pointer_depth target_type = 0
+    &&
+    match Type.base target_type with
+    | Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
+    | _ -> false
+  in
+  let* address = Frame_address_lowering.prepare_initializer ~frame initial in
+  let* value_type =
+    checked_frame_word value |> Result.map_error (fun error -> [ error ])
+  in
+  match (address, value_type) with
+  | Some address, Checked_type _ when target_is_word -> (
+      let* address =
+        Frame_address_lowering.lower_prepared ~instruction_id ~value_id address
+      in
+      let* lowered =
+        lower_typed_result ~frame
+          ~instruction_id:(Frame_address_lowering.next_instruction_id address)
+          ~value_id:(Frame_address_lowering.next_value_id address)
+          value
+      in
+      match lowered with
+      | Unsupported_expression -> Ok Unsupported_expression
+      | Lowered value ->
+          let allocator =
+            {
+              instruction =
+                Sequence.Instruction_id.to_int value.next_instruction_id_;
+              value = Sequence.Value_id.to_int value.next_value_id_;
+            }
+          in
+          let span =
+            match
+              Semantic_source.initializer_origin
+                (Semantic_result.initializer_source initial)
+            with
+            | Sema.Symbol.Source_location location -> Some location.span
+            | _ -> None
+          in
+          let* instruction_id, value_id =
+            take_identity allocator span
+            |> Result.map_error (fun error -> [ error ])
+          in
+          let store : Sequence.description =
+            {
+              instruction_id;
+              opcode = Opcode.Ic_assign;
+              operands =
+                [
+                  Frame_address_lowering.result_value address;
+                  value.result_value_;
+                ];
+              result = Some { value_id };
+              target_type = Some target_type;
+              payload = None;
+              flags = 0L;
+              span;
+            }
+          in
+          let descriptions sequence =
+            Sequence.instructions sequence |> List.map Sequence.description
+          in
+          let* sequence_ =
+            Sequence.create
+              (descriptions (Frame_address_lowering.sequence address)
+              @ descriptions value.sequence_
+              @ [ store ])
+          in
+          let* next_instruction_id_ =
+            Sequence.Instruction_id.of_int allocator.instruction
+            |> Result.map_error (fun error -> [ error ])
+          in
+          let* next_value_id_ =
+            Sequence.Value_id.of_int allocator.value
+            |> Result.map_error (fun error -> [ error ])
+          in
+          Ok
+            (Lowered
+               {
+                 sequence_;
+                 result_value_ = value_id;
+                 result_type_ = target_type;
+                 next_instruction_id_;
+                 next_value_id_;
+               }))
+  | _ -> Ok Unsupported_expression
+
 let result_value lowered = lowered.result_value_
 let result_type lowered = lowered.result_type_
 let next_instruction_id lowered = lowered.next_instruction_id_

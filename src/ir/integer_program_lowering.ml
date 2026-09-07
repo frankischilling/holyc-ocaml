@@ -5,6 +5,8 @@ module Source = Sema.Function_call_resolution
 type statement =
   | Empty of Common.Span.t
   | Expression of Typed.expression_result
+  | Initialize of Typed.initializer_result
+  | Return of Typed.return_result
   | Block of statement list
   | If of Typed.expression_result * statement * statement option
   | While of Typed.expression_result * statement
@@ -27,7 +29,7 @@ let span_of_result fallback result =
   | Sema.Symbol.Source_location location -> location.span
   | _ -> fallback
 
-let lower ~span statements =
+let lower ?frame ?(top_calls = []) ?(function_calls = []) ~span statements =
   try
     let instruction_count = ref 0
     and value_count = ref 0
@@ -45,6 +47,7 @@ let lower ~span statements =
     in
     let block () = allocate Sequence.Block_id.of_int block_count in
     let entry = block () in
+    let leave = Option.map (fun _ -> block ()) frame in
     let current = ref (Some (entry, [])) and blocks = ref [] in
     let start block_id =
       match !current with
@@ -124,13 +127,86 @@ let lower ~span statements =
           validate_expression right)
         (Typed.result_binary_operands expression)
     in
+    let append_fragment sequence next_instruction next_value result_value =
+      sequence |> Sequence.instructions
+      |> List.iter (fun instruction ->
+          append (Sequence.description instruction));
+      instruction_count := Sequence.Instruction_id.to_int next_instruction;
+      value_count := Sequence.Value_id.to_int next_value;
+      result_value
+    in
+    let append_expression result =
+      append_fragment
+        (Expression_lowering.sequence result)
+        (Expression_lowering.next_instruction_id result)
+        (Expression_lowering.next_value_id result)
+        (Expression_lowering.result_value result)
+    in
+    let lower_errors errors =
+      raise
+        (Invalid
+           (List.map
+              (fun (e : Sequence.error) ->
+                Common.Diagnostic.make ~code:e.code
+                  ~severity:Common.Diagnostic.Error ~message:e.message
+                  ~primary:(Option.value e.span ~default:span)
+                  ())
+              errors))
+    in
+    let rec call_root value =
+      match
+        ( Source.argument_expression_kind (Typed.result_source value),
+          Typed.result_operand value )
+      with
+      | Source.Parenthesized_expression source, Some child
+        when Typed.result_source child == source
+             && Typed.result_intrinsic_conversion value
+                = Typed.No_intrinsic_conversion -> call_root child
+      | _ -> value
+    in
+    let direct_call ~instruction_id ~value_id value =
+      let value = call_root value in
+      match
+        List.find_opt
+          (fun target ->
+            let call =
+              Sema.Top_level_function_call_target_classification.source target
+            in
+            Typed.Id.equal
+              (Typed.top_level_direct_result_id call)
+              (Typed.result_id value))
+          top_calls
+      with
+      | Some target ->
+          Direct_call_lowering.lower_top_level ?frame ~instruction_id ~value_id
+            ~target value
+      | None -> (
+          match
+            List.find_opt
+              (fun target ->
+                match Typed.result_call_resolution value with
+                | Some (Source.Direct_call call) ->
+                    call
+                    == (target
+                      |> Sema.Function_call_target_classification.source
+                      |> Typed.direct_source
+                      |> Sema.Function_call_conversion_policy.direct_source)
+                | _ -> false)
+              function_calls
+          with
+          | Some target ->
+              Direct_call_lowering.lower ?frame ~instruction_id ~value_id
+                ~target value
+          | None -> Ok Direct_call_lowering.Unsupported_call)
+    in
     let expression value =
       let instruction_id =
         Sequence.Instruction_id.of_int !instruction_count |> checked_id
       in
       let value_id = Sequence.Value_id.of_int !value_count |> checked_id in
       match
-        Expression_lowering.lower_typed_result ~instruction_id ~value_id value
+        Expression_lowering.lower_typed_result ?frame ~instruction_id ~value_id
+          value
       with
       | Error errors ->
           raise
@@ -142,20 +218,20 @@ let lower ~span statements =
                       ~primary:(Option.value e.span ~default:span)
                       ())
                   errors))
-      | Ok Expression_lowering.Unsupported_expression ->
-          fail
-            (span_of_result span value)
-            "HCRUN0003" "expression is outside integer program lowering"
-      | Ok (Expression_lowering.Lowered result) ->
-          result |> Expression_lowering.sequence |> Sequence.instructions
-          |> List.iter (fun instruction ->
-              append (Sequence.description instruction));
-          instruction_count :=
-            Sequence.Instruction_id.to_int
-              (Expression_lowering.next_instruction_id result);
-          value_count :=
-            Sequence.Value_id.to_int (Expression_lowering.next_value_id result);
-          Expression_lowering.result_value result
+      | Ok Expression_lowering.Unsupported_expression -> (
+          match direct_call ~instruction_id ~value_id value with
+          | Error errors -> lower_errors errors
+          | Ok Direct_call_lowering.Unsupported_call ->
+              fail
+                (span_of_result span value)
+                "HCRUN0003" "expression is outside integer program lowering"
+          | Ok (Direct_call_lowering.Lowered result) ->
+              append_fragment
+                (Direct_call_lowering.sequence result)
+                (Direct_call_lowering.next_instruction_id result)
+                (Direct_call_lowering.next_value_id result)
+                (Direct_call_lowering.result_value result))
+      | Ok (Expression_lowering.Lowered result) -> append_expression result
     in
     let rec condition value ~yes ~no =
       validate_expression value;
@@ -204,6 +280,53 @@ let lower ~span statements =
     in
     let rec statement break_target = function
       | Empty _ -> ()
+      | Initialize initial -> (
+          let value = Typed.initializer_value initial in
+          let at = span_of_result span value in
+          match frame with
+          | None ->
+              fail at "HCRUN0001" "local initializer has no function frame"
+          | Some frame -> (
+              match
+                Expression_lowering.lower_initializer ~frame
+                  ~instruction_id:
+                    (Sequence.Instruction_id.of_int !instruction_count
+                    |> checked_id)
+                  ~value_id:(Sequence.Value_id.of_int !value_count |> checked_id)
+                  initial
+              with
+              | Error errors -> lower_errors errors
+              | Ok Expression_lowering.Unsupported_expression ->
+                  fail at "HCRUN0003"
+                    "initializer is outside integer function lowering"
+              | Ok (Expression_lowering.Lowered result) ->
+                  let operand = append_expression result in
+                  instruction ~at ~operands:[ operand ] ~flags:0x200L
+                    Opcode.Ic_end_exp))
+      | Return returned -> (
+          match leave with
+          | None -> fail span "HCRUN0001" "return has no named function body"
+          | Some leave -> (
+              match
+                Return_lowering.lower_function_return ?frame
+                  ~instruction_id:
+                    (Sequence.Instruction_id.of_int !instruction_count
+                    |> checked_id)
+                  ~value_id:(Sequence.Value_id.of_int !value_count |> checked_id)
+                  ~leave returned
+              with
+              | Error errors -> lower_errors errors
+              | Ok Return_lowering.Unsupported_expression ->
+                  fail span "HCRUN0003"
+                    "return expression is outside integer function lowering"
+              | Ok (Return_lowering.Lowered result) ->
+                  ignore
+                    (append_fragment
+                       (Return_lowering.sequence result)
+                       (Return_lowering.next_instruction_id result)
+                       (Return_lowering.next_value_id result)
+                       ());
+                  finish ()))
       | Expression value ->
           let operand = expression value in
           instruction
@@ -264,7 +387,12 @@ let lower ~span statements =
           start done_
     in
     List.iter (statement None) statements;
-    instruction ~at:span Opcode.Ic_end;
+    (match leave with
+    | None -> instruction ~at:span Opcode.Ic_end
+    | Some leave ->
+        jump ~at:span leave;
+        start leave;
+        instruction ~at:span Opcode.Ic_ret);
     finish ();
     let graph =
       match Block_graph.create ~entry (List.rev !blocks) with

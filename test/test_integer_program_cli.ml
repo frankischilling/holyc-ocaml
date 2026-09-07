@@ -136,4 +136,31 @@ let () =
   require
     (String.starts_with ~prefix:"holyc: run: HCRUN0005" stderr)
     "target diagnostic";
+  List.iter
+    (fun mode ->
+      let result =
+        success
+          [
+            "run";
+            "--target=ir";
+            "--format=json";
+            "--mode=" ^ mode;
+            Sys.argv.(3);
+          ]
+        |> Yojson.Safe.from_string
+      in
+      let value = result |> member "final_value" in
+      require
+        (value |> member "value" |> to_string = "42")
+        "original source function must return 42";
+      require
+        (value |> member "type" |> to_string = "i64")
+        "source function result class";
+      require
+        (value |> member "bits" |> to_string = "0x000000000000002a")
+        "source function result bits";
+      require
+        (result |> member "termination" |> to_string = "stream-end")
+        "caller resumes and completes the source stream")
+    [ "jit"; "aot" ];
   print_endline "Integer program CLI checks passed."

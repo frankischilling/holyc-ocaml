@@ -22,6 +22,7 @@ module Ir_block_graph = Ir.Block_graph
 module Ir_effects = Ir.Effects
 module Ir_x87_stack = Ir.X87_stack
 module Ir_integer_interpreter = Ir.Integer_interpreter
+module Ir_integer_program_lowering = Ir.Integer_program_lowering
 module Ir_integer_unary_folding = Ir.Integer_unary_folding
 module Ir_function_body = Ir.Function_body
 module Ir_top_level_body = Ir.Top_level_body
@@ -457,4 +458,11 @@ type 'a integer_program_result = 'a Driver.Integer_program.checked = {
 }
 
 let lower_integer_program = Driver.Integer_program.lower
+
+type integer_program = Driver.Integer_program.compiled
+
+let compile_integer_program = Driver.Integer_program.compile
+let integer_program_entry = Driver.Integer_program.entry
+let integer_program_functions = Driver.Integer_program.functions
+let integer_program_human = Driver.Integer_program.human
 let run_integer_program = Driver.Integer_program.run

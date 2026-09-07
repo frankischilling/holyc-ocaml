@@ -64,9 +64,10 @@ opam exec -- dune exec test/test_main.exe -- test "integer frames"
 This low-level entry point does not compose complete source function bodies or
 execute calls. `IC_ENTER`, `IC_LEAVE`, native calling conventions, static/global
 storage, arrays, callbacks, aggregates, floating values and numerical casts
-remain unsupported. The existing graph-only `execute`, `eval` and source `run`
-contracts are unchanged. V1 still requires retained initializer roots, body
-composition, direct calls and caller continuation for the original source:
+remain unsupported by this entry point. The graph-only `execute` and `eval`
+contracts are unchanged. [Integer source functions](integer-functions.md) adds
+initializer retention, body composition, direct calls and caller continuation
+through `run` for the original source:
 
 ```hc
 I64 Add(I64 a, I64 b) {
@@ -76,5 +77,5 @@ I64 Add(I64 a, I64 b) {
 (Add(20, 22));
 ```
 
-These tests add no native TempleOS execution capture and do not complete V1,
-the general interpreter or M5.
+The separate source integration observes 42 in both modes. These frame tests
+add no native TempleOS capture and do not complete the general interpreter or M5.

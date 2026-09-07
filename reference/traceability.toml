@@ -4999,7 +4999,7 @@ issue = 544
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 scope = "standalone direct-call instruction sequences for typed executable top-level calls"
 ownership = "the target must own the exact typed call, and the supplied result must keep both its call result ID and exact source expression"
-composition = ["IC_CALL_START", "provided fixed expression trees", "optional hidden internal-I64 argc", "provided variadic expression trees", "selected call opcode", "IC_ADD_RSP or IC_ADD_RSP1", "IC_CALL_END"]
+composition = ["IC_CALL_START", "provided variadic expression trees in reverse source order", "optional hidden internal-I64 argc", "provided fixed expression trees in reverse parameter order", "selected call opcode", "IC_ADD_RSP or IC_ADD_RSP1", "IC_CALL_END"]
 call_opcodes = ["IC_CALL", "IC_CALL_INDIRECT2", "IC_CALL_IMPORT", "IC_CALL_EXTERN"]
 unsupported = ["declared defaults", "internal operations", "unsupported expression trees"]
 failure_behavior = "unsupported and inconsistent inputs expose no partial instruction sequence"
@@ -11061,10 +11061,52 @@ status = "implemented"
 issue = 595
 ir_epic = 396
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
-scope = "one verified named body with its exact ordinary scalar I64/U64 frame and explicit argument bits; graph-only execute and source eval/run remain unchanged"
+scope = "one verified named body with its exact ordinary scalar I64/U64 frame and explicit argument bits; HC-SOURCE-INTEGER-FUNCTIONS connects this storage to source run while graph-only execute and bounded eval remain unchanged"
 ownership = "match function symbol, scope, ordered member identities and types against the immutable frame; canonical addresses resolve only to its allocated slots"
 state = "arguments initialize parameters; automatic locals are initially unavailable; slots persist across block transfers and are independent per invocation"
 limits = "positive max_steps and max_frame_bytes; allocation bound includes parameter slots and the checked local frame size; every address/load/store instruction costs one step"
 diagnostics = ["HCIRVM0011 invalid, unsupported or over-budget frame", "HCIRVM0012 reached uninitialized slot read", "HCIRVM0013 integer return without a value"]
-unsupported = ["source initializer/body/call composition", "IC_ENTER and IC_LEAVE", "native ABI", "globals", "static locals", "arrays", "callbacks", "aggregates", "floating storage", "numerical casts", "arbitrary pointer arithmetic"]
+unsupported = ["IC_ENTER and IC_LEAVE", "native ABI", "globals", "static locals", "arrays", "callbacks", "aggregates", "floating storage", "numerical casts", "arbitrary pointer arithmetic"]
 native_oracle_status = "no new capture; raw slot and assignment behavior follows the pinned source, while uninitialized-read rejection and resource bounds are explicit hosted limits"
+
+[[feature]]
+id = "HC-SOURCE-INTEGER-FUNCTIONS"
+description = "Source I64/U64 functions execute checked initializer stores, complete supported bodies and direct calls through the public run path."
+sources = [
+  "Compiler/PrsVar.HC:592-619 local allocation and initializer expression restoration",
+  "Compiler/PrsStmt.HC:151-169,1114-1117 named body, shared leave and return class",
+  "Compiler/PrsLib.HC:107-111 COCPush stack insertion",
+  "Compiler/PrsExp.HC:438-490 source-order fixed argument parsing and conversion",
+  "Compiler/PrsExp.HC:491-555 variadic count and reverse argument append order",
+  "Compiler/PrsExp.HC:555-586 selected call, flag-dependent cleanup and call-end result"
+]
+implementation = [
+  "src/driver/function_call_resolution.ml", "src/sema/function_call_resolution.ml",
+  "src/sema/function_call_conversion_policy.ml", "src/sema/function_call_expression_result.ml",
+  "src/driver/integer_source.ml", "src/driver/integer_program.ml",
+  "src/ir/frame_address_lowering.ml", "src/ir/expression_lowering.ml",
+  "src/ir/integer_program_lowering.ml", "src/ir/direct_call_lowering.ml",
+  "src/ir/integer_interpreter.ml", "src/holyc_lib.ml", "bin/holyc.ml"
+]
+tests = ["test/test_integer_functions.ml", "test/test_integer_program_cli.ml", "test/test_ir_direct_call_lowering.ml", "examples/integer-function.hc", "test/dune"]
+documentation = ["docs/integer-functions.md", "docs/integer-programs.md", "docs/integer-function-frames.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 597
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+commands = ["holyc run --target=ir examples/integer-function.hc", "holyc dump-ir --program examples/integer-function.hc"]
+v1_evidence = "original Add source returns 42 through the public library and CLI in 29 attempted instructions in both JIT and AOT modes"
+initializer_ownership = "exact checked local symbol, source declaration positions, retained type reference and initializer root; canonical store without a manufactured identifier or prior local read"
+body_composition = "existing expression, condition, return and direct-call fragments in one shared graph builder; complete source-root consumption; shared return block"
+call_domain = "fixed scalar I64/U64 direct executable calls as complete expression roots; function statement calls and recursion"
+argument_order = "retain semantic fixed and variadic lists in source order; emit variadic trees in reverse order, hidden argc, then fixed trees in reverse order; bind supplied fixed values to original formal parameter positions"
+order_regressions = "Take(n=1,n=2) leaves n equal to 1; Sub(20,22) returns minus two; both modes; variadic IR order and push flags checked independently"
+runtime = "preflight all definitions and entry; explicit caller stack with independent slots and block-local values; canonical symbol/count/type/push/cleanup matching"
+result = "last reached top-level expression value, type and exact bits; stream-end termination and successful status zero remain separate"
+limits = "positive shared max_steps, max_frame_bytes and max_call_depth; defaults 100000, 1048576 and 128; Add requires 29 steps and 24 frame bytes"
+diagnostics = ["HCRUN0001 unsupported source shape", "HCRUN0003 unsupported expression", "HCRUN0004 inconsistent source join", "HCIRVM0011 invalid or over-budget frame", "HCIRVM0012 reached uninitialized read", "HCIRVM0013 missing return value", "HCIRVM0014 malformed call protocol", "HCIRVM0015 reached call-depth bound"]
+fault_provenance = "failure stage, total attempted steps, block, instruction, source span and owning function when active"
+preserved = ["bounded eval contract", "graph-only lower_integer_program and execute APIs", "raw runtime arithmetic policy", "exact checked semantic identities"]
+focused_tests = 9
+excluded = ["calls nested inside arithmetic, argument, initializer or return expressions", "defaults", "variadic execution", "external and indirect execution", "joined prototype identities", "globals and static locals", "arrays, callbacks, narrow or floating storage", "general memory", "IC_ENTER and IC_LEAVE execution", "native ABI and emission", "stateful #exe", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted execution tests; no new native capture or ABI compatibility claim"
