@@ -11206,3 +11206,24 @@ arithmetic = "raw hosted 64-bit arithmetic with wrapping and runtime shift count
 focused_tests = 10
 excluded = ["pointer scaling", "narrow/floating/aggregate storage", "static/import/external storage", "locked/general memory updates", "stateful compilation", "complete optimizer parity", "native/BIN/loader execution", "bootstrap"]
 native_oracle_status = "hosted source and malformed-IR regressions with pinned-source audit; no new native capture"
+
+[[feature]]
+id = "HC-SOURCE-INTEGER-STATIC-LOCALS"
+description = "Persistent scalar I64/U64 static locals and constant initial images execute through the existing source program and CLI."
+sources = ["Compiler/PrsVar.HC:534-588 definition-time static code-heap allocation and AOT zero image", "Compiler/PrsExp.HC:776-784 canonical static addresses", "Compiler/PrsVar.HC:53-112,215-244 constant preparation and nonconstant phase boundary", "Compiler/PrsStmt.HC:160-184 containing-function publication"]
+implementation = ["src/ir/integer_statics.ml", "src/ir/integer_globals.ml", "src/ir/global_address_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/ir/global_initialization.ml", "src/driver/integer_initializers.ml", "src/driver/integer_program.ml", "src/holyc_lib.mli"]
+tests = ["test/test_integer_statics.ml", "test/test_integer_functions.ml", "test/test_integer_globals.ml", "test/test_integer_updates.ml", "test/test_integer_program_cli.ml", "examples/integer-statics.hc", "test/dune"]
+documentation = ["docs/integer-statics.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/integer-global-initializers.md", "docs/integer-updates.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 607
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "Next with static I64 n=40 returns 42 after two calls in JIT and AOT modes; four bounded definition-time preparation instructions"
+ownership = "distinct opaque static slots retain exact frame/location/symbol/type/root/options; cross-kind numeric symbol-ID collisions reject; source AST/root consumption proves initializer completeness"
+runtime = "shared persistent image, exact active owner checked during canonical-address preflight, no per-call initializer store or RBP slot, fresh words on separate executions"
+initialization = "constant preparation includes unused and unreachable declarations; global/static work merged by semantic item/declarator order; static-only images require matching checked context and retain preparation counts"
+limits = "all global/static words share max_global_bytes; static words do not consume max_frame_bytes; aggregate constant preparation and runtime/depth budgets remain separate"
+options = "static code-heap allocation ignores globals-on-data-heap; exact option snapshot retained for owning function and future phase-aware initialization"
+focused_tests = 11
+excluded = ["nonconstant static effects and calls", "first-call parameter capture", "narrow/floating/pointer/array/aggregate storage", "general runtime output", "stateful compilation", "complete optimizer parity", "native/BIN/loader execution", "bootstrap"]
+native_oracle_status = "hosted source, private producer and malformed-IR regressions with pinned-source audit; no new native capture"

@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+[#607](https://github.com/frankischilling/holyc-ocaml/issues/607) connects
+[scalar static locals](integer-statics.md) to persistent storage and bounded
+constant initial images. The counter returns 42 in both modes; unused and
+unreachable declarations still prepare. Nonconstant static initialization,
+stateful compilation and broader memory remain open.
+
 [#605](https://github.com/frankischilling/holyc-ocaml/issues/605) connects
 [scalar compound assignments and increment/decrement](integer-updates.md) to
 the shared I64/U64 frame/global executor, with destination-owned signedness,

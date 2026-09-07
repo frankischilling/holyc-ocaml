@@ -54,7 +54,10 @@ val execute_program :
     and prefix/postfix updates read storage at their own instruction, after RHS
     effects. They store only successful arithmetic results and retain the
     destination class (including division and right-shift signedness).
-    Prefix/compound results are new words; postfix results are old words. *)
+    Prefix/compound results are new words; postfix results are old words. Static
+    locals share persistent words and the global byte bound, occupy no
+    invocation slots, and require their exact declaring frame and options.
+    Static addresses in another function or the entry graph fail preflight. *)
 
 val final_value : t -> word option
 (** Last reached top-level expression value from [execute_program], separate

@@ -1,5 +1,13 @@
 # Reference source map
 
+Issue #607 connects static allocation in `PrsVar.HC:534-588` and canonical
+addresses in `PrsExp.HC:776-784` to the existing persistent scalar executor.
+`PrsVar.HC:53-112,215-244` supplies definition-time constant preparation and
+the remaining nonconstant phase boundary; `PrsStmt.HC:160-184` constrains
+function publication during compile-time calls. Static allocation ignores
+the globals-on-data-heap option, while future AOT deferral must retain it.
+See [static locals](integer-statics.md) for scope, bounds and ownership.
+
 Issue #605 connects scalar updates from `PrsExp.HC:98-118,201-208` to the
 read/modify/write operations in `BackA.HC:372-431,442-595,603-658` and old/new
 result rules in `BackB.HC:304-385`. Original constant barriers come from

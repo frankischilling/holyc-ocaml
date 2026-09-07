@@ -288,7 +288,7 @@ let unsupported () =
           "I64 G[2];G++;";
           "I64 G=1;G+=1.0;";
           "I64 G=1;G<<=1.0;";
-          "I64 F(){static I64 n;n++;return n;}F();";
+          "I64 F(){static I32 n;n++;return n;}F();";
           "I64 Bad(){F64 n;n++;return 42;}42;";
           "I64 G=1;(G++)++;";
           "I64 G=1;(++G)++;";

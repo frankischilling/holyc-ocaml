@@ -1,5 +1,42 @@
 type t
 type slot
+type static_slot
+type storage_slot
+
+val with_statics :
+  span:Common.Span.t ->
+  frames:Sema.Function_frame_layout.t ->
+  functions:Sema.Function_call_expression_result.t ->
+  records:Sema.Function_record_classification.t ->
+  t ->
+  (t, Common.Diagnostic.t list) result
+(** Internal source-driver join, absent from the public library signature. *)
+
+val statics : t -> static_slot list
+val static_frame : static_slot -> Sema.Function_frame_layout.function_layout
+val static_location : static_slot -> Sema.Function_frame_layout.location
+
+val static_initializer :
+  static_slot -> Sema.Function_call_expression_result.initializer_result option
+
+val static_compiler_options : static_slot -> int64
+val static_storage : static_slot -> storage_slot
+val global_storage : slot -> storage_slot
+val storage_slots : t -> storage_slot list
+val storage_index : storage_slot -> int
+val storage_symbol : storage_slot -> Sema.Symbol.t
+val storage_type : storage_slot -> Sema.Type.t
+val storage_opcode : storage_slot -> Opcode.t
+val storage_initial_bits : storage_slot -> int64 option
+val storage_preparation_steps : storage_slot -> int
+
+val storage_frame :
+  storage_slot -> Sema.Function_frame_layout.function_layout option
+
+val find_static : t -> Sema.Symbol.t -> static_slot option
+val find_storage : t -> Sema.Symbol.t -> storage_slot option
+val has_initializers : t -> bool
+val has_unprepared_statics : t -> bool
 
 val create :
   ?initializers:Sema.Function_call_expression_result.top_level_t ->
@@ -12,7 +49,10 @@ val create :
     immutable metadata, not mutable execution storage. *)
 
 val slots : t -> slot list
+(** Ordinary global declarations only; [statics] retains separate owners. *)
+
 val byte_size : t -> int
+(** Combined global/static bytes, including unused declarations. *)
 
 val find : t -> Sema.Symbol.t -> slot option
 (** Lookup requires the exact symbol object, not just its table-local ID. *)
