@@ -194,6 +194,7 @@
   ../reference/assembly-blocks.json
   ../reference/parser-corpus-aot.json
   oracle/function-definitions.json
+  oracle/integer-division.json
   oracle/local-declarations.json
   oracle/parenthesis-free-calls.json
   golden/integer-unary-folding.ir

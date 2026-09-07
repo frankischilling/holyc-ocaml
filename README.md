@@ -11,8 +11,9 @@ operands and unsigned arithmetic when either operand is `U64`. Zero divisors
 report `HCIRVM0009`; signed minimum divided or reduced modulo minus one reports
 `HCIRVM0010`. Faults produce diagnostics without a successful output value.
 
-These are raw runtime IR operations. Division strength reductions and native
-fault timing still need the TempleOS evidence tracked in
+These are raw runtime IR operations. The [native division audit](docs/integer-division.md)
+records TempleOS results, disassembly and fault phases. Implementing its source
+optimizer differences remains tracked in
 [issue #585](https://github.com/frankischilling/holyc-ocaml/issues/585).
 
 `holyc dump-ir examples/integer-expression.hc` prints the checked arithmetic and
@@ -45,7 +46,7 @@ This bounded expression path does not implement general `run` or `compile`,
 M5 and [IR epic #396](https://github.com/frankischilling/holyc-ocaml/issues/396)
 remain open. Runtime shifts retain the constant-versus-runtime discrepancy in
 [issue #574](https://github.com/frankischilling/holyc-ocaml/issues/574); no
-constant-folding equivalence or TempleOS execution oracle is claimed.
+constant-folding equivalence or native shift oracle is claimed.
 
 ## Current status
 

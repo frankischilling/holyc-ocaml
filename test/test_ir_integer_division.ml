@@ -252,6 +252,92 @@ let division_property =
             word.type_ = expected_type && word.bits = expected)
           [ (Opcode.Ic_div, quotient); (Opcode.Ic_mod, remainder) ])
 
+let native_oracle_projection () =
+  let open Holyc_lib in
+  let open Yojson.Safe.Util in
+  let fixture_path =
+    [
+      "oracle/integer-division.json";
+      "test/oracle/integer-division.json";
+      "../test/oracle/integer-division.json";
+    ]
+    |> List.find_opt Sys.file_exists
+    |> function
+    | Some path -> path
+    | None -> Alcotest.fail "the integer-division oracle fixture is missing"
+  in
+  let fixture = Yojson.Safe.from_file fixture_path in
+  Alcotest.(check string)
+    "native reference" Version.reference_commit
+    (fixture |> member "reference" |> member "commit" |> to_string);
+  let field json name = json |> member name |> to_string in
+  let native_field projection =
+    let case_id = field projection "case_id" in
+    let case =
+      fixture |> member "checks" |> to_list
+      |> List.find (fun case -> field case "id" = case_id)
+    in
+    let prefix = field projection "field" ^ "=" in
+    case |> member "observed_output" |> to_list |> List.map to_string
+    |> List.concat_map (String.split_on_char ' ')
+    |> List.filter (String.starts_with ~prefix)
+    |> function
+    | [ value ] ->
+        String.sub value (String.length prefix)
+          (String.length value - String.length prefix)
+    | _ -> Alcotest.fail (case_id ^ " must record exactly one projected field")
+  in
+  let type_pair = function
+    | "I64" -> (i64, VM.I64)
+    | "U64" -> (u64, VM.U64)
+    | value -> Alcotest.fail ("unexpected oracle word type " ^ value)
+  in
+  let graph projection =
+    let opcode =
+      match field projection "operation" with
+      | "division" -> Opcode.Ic_div
+      | "remainder" -> Opcode.Ic_mod
+      | value -> Alcotest.fail ("unexpected oracle operation " ^ value)
+    in
+    let left_type, _ = type_pair (field projection "left_type") in
+    let right_type, _ = type_pair (field projection "right_type") in
+    let result_type, word_type = type_pair (field projection "result_type") in
+    ( arithmetic_graph ~left_type ~right_type ~result_type opcode
+        (Int64.of_string (field projection "left_bits"))
+        (Int64.of_string (field projection "right_bits")),
+      word_type )
+  in
+  let values = fixture |> member "hosted_value_projections" |> to_list in
+  Alcotest.(check bool)
+    "native value projections are present" true (values <> []);
+  List.iter
+    (fun projection ->
+      let verified, word_type = graph projection in
+      let native = native_field projection in
+      let expected =
+        Int64.of_string
+          (match field projection "format" with
+          | "decimal" -> native
+          | "hexadecimal" -> "0x" ^ native
+          | value -> Alcotest.fail ("unexpected oracle number format " ^ value))
+      in
+      require_execution verified |> require_returned
+      |> check_word (field projection "case_id") word_type expected)
+    values;
+  let faults = fixture |> member "hosted_fault_projections" |> to_list in
+  Alcotest.(check bool)
+    "native fault projections are present" true (faults <> []);
+  List.iter
+    (fun projection ->
+      Alcotest.(check string)
+        "native target fault" "DivZero" (native_field projection);
+      let verified, _ = graph projection in
+      let actual =
+        require_errors verified |> only_error (field projection "hosted_code")
+      in
+      check_stage "raw arithmetic faults during execution" VM.Execution actual)
+    faults
+
 let tests =
   [
     Alcotest.test_case "signed quotient and remainder" `Quick signed_results;
@@ -263,5 +349,7 @@ let tests =
       faults_follow_control_flow;
     Alcotest.test_case "whole-graph preflight before arithmetic" `Quick
       preflight_precedes_arithmetic;
+    Alcotest.test_case "recorded native arithmetic and fault projections" `Quick
+      native_oracle_projection;
     QCheck_alcotest.to_alcotest division_property;
   ]

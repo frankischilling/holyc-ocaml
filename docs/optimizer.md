@@ -6,11 +6,14 @@ Every TempleOS source claim on this page refers to commit `c26482bb6ad3f80106d28
 
 Raw division and remainder execute in the bounded interpreter. Their constant
 folding and strength reductions are outside the implemented optimizer. The
-power-of-two rewrite at `Compiler/OptPass012.HC:403-434` needs a source
-reachability and native execution comparison, especially for negative
-nonmultiples. [Issue #585](https://github.com/frankischilling/holyc-ocaml/issues/585)
-tracks that work and arithmetic fault phases; [the division audit](integer-division.md)
-describes the accepted runtime operations.
+power-of-two rewrite at `Compiler/OptPass012.HC:403-434` has a captured native
+difference: signed `x/2` returns `-4` for `x = -7`, while division by a variable
+returns `-3`. A signed dividend with a literal high-bit unsigned divisor can
+also lose that divisor's unsigned class during rewriting. The native fixture
+records these results, compound modulo differences and compilation-versus-
+execution fault phases. [Issue #585](https://github.com/frankischilling/holyc-ocaml/issues/585)
+tracks the remaining implementation and coverage; [the division audit](integer-division.md)
+describes the evidence and the accepted raw runtime operations.
 
 The optimizer currently consists of one source-audited pass, `Holyc_lib.Ir_integer_unary_folding`. It folds a checked integer immediate through bitwise complement, logical not, or unary minus. The public entry point is `fold : Ir.X87_stack.t -> (t, error list) result`, so an unchecked instruction sequence or block graph cannot enter the pass.
 

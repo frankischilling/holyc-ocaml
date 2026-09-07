@@ -1,0 +1,1080 @@
+{
+  "fixture_version": 1,
+  "id": "arithmetic/integer-division-001",
+  "reference": {
+    "repository": "https://github.com/cia-foundation/TempleOS",
+    "commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+    "release_tag": "final",
+    "release_url": "https://github.com/cia-foundation/TempleOS/releases/tag/final",
+    "asset": "TOS_Distro.ISO",
+    "published_sha1": "1a1ec79990e21fa3d66ac680009da63d3ac512b0",
+    "verified_sha256": "3c68ca395d0b64f779f1ffa330e2685798b17862e3c36ae4e349537fd676b40b"
+  },
+  "environment": {
+    "date": "2026-09-07",
+    "hypervisor": "QEMU 9.2.0 (v9.2.0-12071-g3dd0aeb44b)",
+    "host": "Windows x86-64",
+    "accelerator": "tcg",
+    "vcpu_count": 1,
+    "memory_mib": 512,
+    "network": "disabled",
+    "boot_media": "verified ISO attached read-only",
+    "persistent_disk": false,
+    "display": "none; PNG captures through loopback-only QMP",
+    "compilation_mode": "TempleOS native JIT shell with default compiler options",
+    "target": "TempleOS x86-64",
+    "implementation_baseline_commit": "a93b65f7bc32cb1a5272fafe53dc71609549d0f1",
+    "baseline_note": "The hosted raw arithmetic implementation is unchanged by this fixture PR; its CI run identifies the exact commit for replaying the projections."
+  },
+  "input_delivery": {
+    "qmp_command": "send-key",
+    "key_hold_milliseconds": 20,
+    "inter_key_milliseconds": 85,
+    "post_line_milliseconds": 2000,
+    "preflight_command": "\"PREFLIGHT=%d:%s\\n\",(17-2)/3,\"aA_<>!%[]{}\\\"\";",
+    "preflight_output": "PREFLIGHT=5:aA_<>!%[]{}\"",
+    "preflight_source_capture": {
+      "file": "keymap-preflight-source.png",
+      "sha256": "a0b51d83d45cd6a3203a82372368e5ad4d76c45891cb1f5d4863f13b079da4a9"
+    },
+    "preflight_result_capture": {
+      "file": "keymap-preflight-result.png",
+      "sha256": "e52166f3cb49f9d499da10a46d3d927415cada3bef2041556f533c6d3ffcfac2"
+    }
+  },
+  "setup": [
+    "Decline installation and the tour.",
+    "AutoComplete(OFF);WinMax;"
+  ],
+  "source_references": [
+    "Compiler/CInit.HC:66-67,293-294",
+    "Compiler/OptLib.HC:96-179,196-225",
+    "Compiler/OptPass012.HC:193-226,403-455,838-854",
+    "Compiler/OptPass789A.HC:524-534,676-687",
+    "Compiler/BackA.HC:355-440,573-600",
+    "Kernel/KInts.HC:150-164",
+    "Kernel/KExcept.HC:throw",
+    "Adam/ADbg.HC:254-272",
+    "Doc/GuideLines.DD:77-80",
+    "Doc/Tips.DD:38-40"
+  ],
+  "checks": [
+    {
+      "id": "compile-division",
+      "kind": "definition",
+      "command": "I64 OracleDivRaw(I64 x,I64 y){return x/y;} I64 OracleModRaw(I64 x,I64 y){return x%y;} I64 OracleDivTwo(I64 x){return x/2;} I64 OracleModTwo(I64 x){return x%2;} I64 OracleDivEqu(I64 x){x/=2;return x;} I64 OracleModEqu(I64 x){x%=2;return x;}",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "compile-division-source.png",
+        "sha256": "167b13d66342d6fd03423b6b7f10975154c5994e1085fe63e76d4dfed01cc0a7"
+      },
+      "result_capture": {
+        "file": "compile-division-result.png",
+        "sha256": "91f985a8a8622a847ac4d0f0ab95f2126a59c5c40d07f6684ee3acde494dabd8"
+      }
+    },
+    {
+      "id": "division-rounding-1",
+      "kind": "result",
+      "command": "\"CONST_DIV=%d CONST_MOD=%d RAW_DIV=%d RAW_MOD=%d\\n\",-7/2,-7%2,OracleDivRaw(-7,2),OracleModRaw(-7,2);",
+      "observed_output": [
+        "CONST_DIV=-3 CONST_MOD=-1 RAW_DIV=-3 RAW_MOD=-1"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "division-rounding-1-source.png",
+        "sha256": "1b267ec45c386d3ee46c4a785d2b18c069bd2f9834ba07af190fd19a9ee98811"
+      },
+      "result_capture": {
+        "file": "division-rounding-1-result.png",
+        "sha256": "73f2598f859f4168cf2ce437c1c0f6a230db773687af3b6cc1840276332baf51"
+      }
+    },
+    {
+      "id": "division-rounding-2",
+      "kind": "result",
+      "command": "\"LITERAL_DIV=%d LITERAL_MOD=%d EQU_DIV=%d EQU_MOD=%d\\n\",OracleDivTwo(-7),OracleModTwo(-7),OracleDivEqu(-7),OracleModEqu(-7);",
+      "observed_output": [
+        "LITERAL_DIV=-4 LITERAL_MOD=-1 EQU_DIV=-4 EQU_MOD=1"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "division-rounding-2-source.png",
+        "sha256": "0506ea6d1769c7611ba40879cc365feaa82148c459e5607b1b7aed3db073ac89"
+      },
+      "result_capture": {
+        "file": "division-rounding-2-result.png",
+        "sha256": "b38eb07396ee6163bdf2affd1a8ad223a120d75515b11977c40132ef4060a7e5"
+      }
+    },
+    {
+      "id": "disasm-raw-div",
+      "kind": "disassembly",
+      "command": "Uf(\"OracleDivRaw\");",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-raw-div-source.png",
+        "sha256": "bfb52e3169bd570c3781d785bdd5360e0def3c9e4109249788fc3b53e5510049"
+      },
+      "result_capture": {
+        "file": "disasm-raw-div-result.png",
+        "sha256": "1bce1021fed852f566ea04749a89bb005a23466a3f2e3a13ff2e68a83891f10e"
+      },
+      "decoded_instruction_excerpt": [
+        {
+          "bytes": "48 99",
+          "instruction": "CQO"
+        },
+        {
+          "bytes": "48 F7 F9",
+          "instruction": "IDIV RCX"
+        }
+      ]
+    },
+    {
+      "id": "disasm-raw-mod",
+      "kind": "disassembly",
+      "command": "Uf(\"OracleModRaw\");",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-raw-mod-source.png",
+        "sha256": "a6b9ab141791087db9f0e061b930997cbade63074e852366b4d7c95006884ac6"
+      },
+      "result_capture": {
+        "file": "disasm-raw-mod-result.png",
+        "sha256": "b6289c0d6ff63fc131bbddcc3327d9ab2b7856867152d83095ee44157538bb4f"
+      },
+      "decoded_instruction_excerpt": [
+        {
+          "bytes": "48 99",
+          "instruction": "CQO"
+        },
+        {
+          "bytes": "48 F7 F9",
+          "instruction": "IDIV RCX"
+        }
+      ]
+    },
+    {
+      "id": "disasm-literal-div",
+      "kind": "disassembly",
+      "command": "Uf(\"OracleDivTwo\");",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-literal-div-source.png",
+        "sha256": "a90c5c7f7792a307d0ccb4dd93465778f855b393ac88ff287ae9c1433e41dc9d"
+      },
+      "result_capture": {
+        "file": "disasm-literal-div-result.png",
+        "sha256": "b73493846fbff6c24f7d5f2c7140a92e8a7cafe6615a19f9abf4c145d747f1eb"
+      },
+      "decoded_instruction_excerpt": [
+        {
+          "bytes": "48 D1 F8",
+          "instruction": "SAR RAX, 1"
+        }
+      ]
+    },
+    {
+      "id": "disasm-literal-mod",
+      "kind": "disassembly",
+      "command": "Uf(\"OracleModTwo\");",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-literal-mod-source.png",
+        "sha256": "18636aed8cb3a8f5d223ba6416267cafd0cd1ba52b6078f1a20166d98e71438e"
+      },
+      "result_capture": {
+        "file": "disasm-literal-mod-result.png",
+        "sha256": "1519e8495fb4f058caacecc38926da553a9de660f2699038af165aa78b7f8992"
+      },
+      "decoded_instruction_excerpt": [
+        {
+          "bytes": "48 99",
+          "instruction": "CQO"
+        },
+        {
+          "bytes": "48 F7 F9",
+          "instruction": "IDIV RCX"
+        }
+      ]
+    },
+    {
+      "id": "disasm-equ-div",
+      "kind": "disassembly",
+      "command": "Uf(\"OracleDivEqu\");",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-equ-div-source.png",
+        "sha256": "9cd326a73078fdb2c8918507f9ec5f08c81ea62064d5ee0cc03456f8f2bbbadc"
+      },
+      "result_capture": {
+        "file": "disasm-equ-div-result.png",
+        "sha256": "08b1783d2ebe0f31b071670679ce60e6f6d9bccc71c144487583134077fbc859"
+      },
+      "decoded_instruction_excerpt": [
+        {
+          "bytes": "48 D1 FE",
+          "instruction": "SAR RSI, 1"
+        }
+      ]
+    },
+    {
+      "id": "disasm-equ-mod",
+      "kind": "disassembly",
+      "command": "Uf(\"OracleModEqu\");",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-equ-mod-source.png",
+        "sha256": "61ee18c2a7c7aa6c8b4f0c686fcc7612b8242eeec1fa6004eaee1f09c07644f8"
+      },
+      "result_capture": {
+        "file": "disasm-equ-mod-result.png",
+        "sha256": "60d836e638a9cba16e6eee158536fb614bb3089f72b344d4555886f76ac56d94"
+      },
+      "decoded_instruction_excerpt": [
+        {
+          "bytes": "48 83 E6 01",
+          "instruction": "AND RSI, 1"
+        }
+      ]
+    },
+    {
+      "id": "compile-fault-harness",
+      "kind": "definition",
+      "command": "U0 OracleFault(I64 kind,I64 x,I64 y){I64 z;try {if(kind)z=OracleModRaw(x,y);else z=OracleDivRaw(x,y);\"VALUE=%d\\n\",z;} catch {\"FAULT=%c\\n\",Fs->except_ch;Fs->catch_except=TRUE;}}",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "compile-fault-harness-source.png",
+        "sha256": "0a1c0a83b1a8a44f2e53583b8995b02359b891c5a45fd1442ad09f831524a5fd"
+      },
+      "result_capture": {
+        "file": "compile-fault-harness-result.png",
+        "sha256": "7609356b213fb08d2a06529569332f5e996177e7fcbac8171cc7b52be4b962e1"
+      }
+    },
+    {
+      "id": "raw-division-zero",
+      "kind": "result",
+      "command": "OracleFault(0,1,0);",
+      "observed_output": [
+        "FAULT=DivZero"
+      ],
+      "first_failing_phase": "execution",
+      "source_capture": {
+        "file": "raw-division-zero-source.png",
+        "sha256": "bc83ab1060c6b3e841935f999f336ed5e051545f5cfa872a8bb744fab2ac771e"
+      },
+      "result_capture": {
+        "file": "raw-division-zero-result.png",
+        "sha256": "96e1ba64306ddca7d608c6652f0311425a692be4d66007e2fc7944583044f1f7"
+      }
+    },
+    {
+      "id": "raw-modulo-zero",
+      "kind": "result",
+      "command": "OracleFault(1,1,0);",
+      "observed_output": [
+        "FAULT=DivZero"
+      ],
+      "first_failing_phase": "execution",
+      "source_capture": {
+        "file": "raw-modulo-zero-source.png",
+        "sha256": "c884b67d8af760c8a4fd941c7ae5199be65495b459d430aca1132de5acc25885"
+      },
+      "result_capture": {
+        "file": "raw-modulo-zero-result.png",
+        "sha256": "cddf85d94a65ad2cf86666c4f7482d78835df455ec5c289eabb5e03debae4252"
+      }
+    },
+    {
+      "id": "raw-division-overflow",
+      "kind": "result",
+      "command": "OracleFault(0,0x8000000000000000,-1);",
+      "observed_output": [
+        "FAULT=DivZero"
+      ],
+      "first_failing_phase": "execution",
+      "source_capture": {
+        "file": "raw-division-overflow-source.png",
+        "sha256": "071349ba2d34b38a3fb675ba17dcbc5dcd21d08fc1e2755c830e6cd1adb187f8"
+      },
+      "result_capture": {
+        "file": "raw-division-overflow-result.png",
+        "sha256": "a516c3bbca71b694d139d083e920c3b9d8afb5dcd4c5038e4b08968f6a9e62f7"
+      }
+    },
+    {
+      "id": "raw-modulo-overflow",
+      "kind": "result",
+      "command": "OracleFault(1,0x8000000000000000,-1);",
+      "observed_output": [
+        "FAULT=DivZero"
+      ],
+      "first_failing_phase": "execution",
+      "source_capture": {
+        "file": "raw-modulo-overflow-source.png",
+        "sha256": "441082ef022aba2a0fc5af76129e89da524157d11f8c2427175f77c42cfc646a"
+      },
+      "result_capture": {
+        "file": "raw-modulo-overflow-result.png",
+        "sha256": "2bcfa42ee0992484f2bae2c72ec30a8d6bd82cdd579842c309bf75892aa350e0"
+      }
+    },
+    {
+      "id": "compile-unsigned",
+      "kind": "definition",
+      "command": "U64 OracleUDiv(U64 x,U64 y){return x/y;} U64 OracleUMod(U64 x,U64 y){return x%y;} U64 OracleMixedDiv(I64 x,U64 y){return x/y;} U64 OracleMixedMod(I64 x,U64 y){return x%y;}",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "compile-unsigned-source.png",
+        "sha256": "4ac4775806e0550d3939f9430f5aee4e375d078c3a189171b09c92309598064c"
+      },
+      "result_capture": {
+        "file": "compile-unsigned-result.png",
+        "sha256": "c4b2403ebd52a5e134f44274e119040101a9c4ab4c03fc5e8092d4d112e0173a"
+      }
+    },
+    {
+      "id": "unsigned-high-words",
+      "kind": "result",
+      "command": "\"UDIV=%016X UMOD=%016X MDIV=%016X MMOD=%016X\\n\",OracleUDiv(-1,3),OracleUMod(-1,3),OracleMixedDiv(-1,3),OracleMixedMod(-1,3);",
+      "observed_output": [
+        "UDIV=5555555555555555 UMOD=0000000000000000 MDIV=5555555555555555 MMOD=0000000000000000"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "unsigned-high-words-source.png",
+        "sha256": "e03c2b27fb2ce1c0839ec42fa395eb907b723d0160346fbe965fbf8045003883"
+      },
+      "result_capture": {
+        "file": "unsigned-high-words-result.png",
+        "sha256": "16a7fd99449fbf3da652e7c5361007187d0143262b66931458c76a43874b8125"
+      }
+    },
+    {
+      "id": "unsigned-overflow-pair",
+      "kind": "result",
+      "command": "\"UDIV_EDGE=%016X UMOD_EDGE=%016X MDIV_EDGE=%016X MMOD_EDGE=%016X\\n\",OracleUDiv(0x8000000000000000,-1),OracleUMod(0x8000000000000000,-1),OracleMixedDiv(0x8000000000000000,-1),OracleMixedMod(0x8000000000000000,-1);",
+      "observed_output": [
+        "UDIV_EDGE=0000000000000000 UMOD_EDGE=8000000000000000 MDIV_EDGE=0000000000000000 MMOD_EDGE=8000000000000000"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "unsigned-overflow-pair-source.png",
+        "sha256": "a2bf82e5271fa7765c98033fde6424db2f85cf172a6153eae48a8da8cb100a90"
+      },
+      "result_capture": {
+        "file": "unsigned-overflow-pair-result.png",
+        "sha256": "fa0b67cc341ab30f464ea950c4b56e5e29dc1080cd175c2f63e41d7c9aec5757"
+      }
+    },
+    {
+      "id": "compile-phase-harness",
+      "kind": "definition",
+      "command": "U0 OracleCompile(U8 *s){try {ExePrint(\"%s\",s);\"COMPILE=OK\\n\";} catch {\"COMPILE_FAULT=%c\\n\",Fs->except_ch;Fs->catch_except=TRUE;}}",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "compile-phase-harness-source.png",
+        "sha256": "dd0654c29a7edf2148910b297286fcdc6373b43825f62f43dcaccd0b63bf61fc"
+      },
+      "result_capture": {
+        "file": "compile-phase-harness-result.png",
+        "sha256": "790e3129eebd92a06126cc711456684c1be7ce1ef9b78144a1b554e75d94030b"
+      }
+    },
+    {
+      "id": "constant-division-overflow-compile",
+      "kind": "result",
+      "command": "OracleCompile(\"I64 OracleConstOverflow(){return (-9223372036854775807-1)/-1;}\");",
+      "observed_output": [
+        "COMPILE_FAULT=DivZero"
+      ],
+      "first_failing_phase": "compilation",
+      "source_capture": {
+        "file": "constant-division-overflow-compile-source.png",
+        "sha256": "eb4218e9e9919d29f6c0c016df7a96780b554351fe07eb5ed035baa2906d84b1"
+      },
+      "result_capture": {
+        "file": "constant-division-overflow-compile-result.png",
+        "sha256": "f619973b7ed566313b444d0fd6ea6cdc79b0ca942f6df4f99525cba0739bafdf"
+      }
+    },
+    {
+      "id": "constant-modulo-overflow-compile",
+      "kind": "result",
+      "command": "OracleCompile(\"I64 OracleConstModOverflow(){return (-9223372036854775807-1)%-1;}\");",
+      "observed_output": [
+        "COMPILE_FAULT=DivZero"
+      ],
+      "first_failing_phase": "compilation",
+      "source_capture": {
+        "file": "constant-modulo-overflow-compile-source.png",
+        "sha256": "b7efce7fe3e5f66ea105585722102c653d1b26b3ab7e78416e6ee39165fd9f92"
+      },
+      "result_capture": {
+        "file": "constant-modulo-overflow-compile-result.png",
+        "sha256": "31a772130ce2431c7b7ff8ca35e8badb6cedd3cce02e344bcada098d15acaaa1"
+      }
+    },
+    {
+      "id": "constant-zero-compile",
+      "kind": "result",
+      "command": "OracleCompile(\"I64 OracleZero(){return 1/0;}\");",
+      "observed_output": [
+        "COMPILE=OK"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "constant-zero-compile-source.png",
+        "sha256": "e6d20f7727397e64df5928774d9b518ed9407b04325ab35d5f272e84c4015b1f"
+      },
+      "result_capture": {
+        "file": "constant-zero-compile-result.png",
+        "sha256": "0583280d52ac5c8f17337abcb57e1115498b5c008695d6b705858a13c783a5db"
+      }
+    },
+    {
+      "id": "unreachable-zero-compile",
+      "kind": "result",
+      "command": "OracleCompile(\"I64 OracleDeadZero(){if(0)return 1/0;return 7;}\");",
+      "observed_output": [
+        "COMPILE=OK"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "unreachable-zero-compile-source.png",
+        "sha256": "2f5e691f97e7c3e9938d83e8bf35112eed97e41b74bad725aa1a66f600a6a74c"
+      },
+      "result_capture": {
+        "file": "unreachable-zero-compile-result.png",
+        "sha256": "5087e7c9a556dbd7620d88213eb3dadf7c28a56cb28517ae6b76d8fa1e263e2d"
+      }
+    },
+    {
+      "id": "unreachable-zero-execute",
+      "kind": "result",
+      "command": "\"DEAD_ZERO=%d\\n\",OracleDeadZero();",
+      "observed_output": [
+        "DEAD_ZERO=7"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "unreachable-zero-execute-source.png",
+        "sha256": "91394f85f59b39fca8d9dbc97a07d55f7492c28ee28ce0b337b80455c8025fab"
+      },
+      "result_capture": {
+        "file": "unreachable-zero-execute-result.png",
+        "sha256": "95b6f606ec0f4771c0075ceb48dd38102a942307f316ab000c6f3063811a11a5"
+      }
+    },
+    {
+      "id": "discarded-zero-compile",
+      "kind": "result",
+      "command": "OracleCompile(\"I64 OracleDiscardZero(){1/0;return 7;}\");",
+      "observed_output": [
+        "COMPILE=OK"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "discarded-zero-compile-source.png",
+        "sha256": "f2f4807a23484e9a719c30cf583cb3350656b8258a4a6045458131cb01b4f66a"
+      },
+      "result_capture": {
+        "file": "discarded-zero-compile-result.png",
+        "sha256": "3c5c9f3fad8962ab78e4e801eed260dcc0e222c40889f87d75de950a4d28c0df"
+      }
+    },
+    {
+      "id": "compile-logical-contexts",
+      "kind": "definition",
+      "command": "I64 OracleAndValue(I64 z){return 0&&(1/z);} I64 OracleOrValue(I64 z){return 1||(1%z);} I64 OracleAndCond(I64 z){if(0&&(1/z))return 1;return 7;} I64 OracleOrCond(I64 z){if(1||(1%z))return 7;return 1;}",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "compile-logical-contexts-source.png",
+        "sha256": "9f1ba968d10c292511319a6a1267a1f671d590dbb5f6dcaee789393cd91608fd"
+      },
+      "result_capture": {
+        "file": "compile-logical-contexts-result.png",
+        "sha256": "66850945d130be20c833977f6f8c6bc8b178c0bae81eb15695e0415794b2e987"
+      }
+    },
+    {
+      "id": "short-circuit-conditions",
+      "kind": "result",
+      "command": "\"AND_COND=%d OR_COND=%d\\n\",OracleAndCond(0),OracleOrCond(0);",
+      "observed_output": [
+        "AND_COND=7 OR_COND=7"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "short-circuit-conditions-source.png",
+        "sha256": "dcc6e0573d0c3c033ff67cced36d4f91170ebe49a20dd9aa1d8e578fbcf9b7ad"
+      },
+      "result_capture": {
+        "file": "short-circuit-conditions-result.png",
+        "sha256": "2af515c972010f3b45b7c52e97fad1031927e6855696438eb67142390b0484e1"
+      }
+    },
+    {
+      "id": "unreachable-overflow-compile",
+      "kind": "result",
+      "command": "OracleCompile(\"I64 OracleDeadOverflow(){if(0)return (-9223372036854775807-1)/-1;return 7;}\");",
+      "observed_output": [
+        "COMPILE_FAULT=DivZero"
+      ],
+      "first_failing_phase": "compilation",
+      "source_capture": {
+        "file": "unreachable-overflow-compile-source.png",
+        "sha256": "477e2b6d8a52f07dcf7ef8c7a684868340ab26f411d068020fff85f4a3194214"
+      },
+      "result_capture": {
+        "file": "unreachable-overflow-compile-result.png",
+        "sha256": "4666a4485489b46ce9c339394aa03f17477bd15d6f8028d747e101e5ca7fcf1b"
+      }
+    },
+    {
+      "id": "discarded-overflow-compile",
+      "kind": "result",
+      "command": "OracleCompile(\"I64 OracleDiscardOverflow(){(-9223372036854775807-1)%-1;return 7;}\");",
+      "observed_output": [
+        "COMPILE_FAULT=DivZero"
+      ],
+      "first_failing_phase": "compilation",
+      "source_capture": {
+        "file": "discarded-overflow-compile-source.png",
+        "sha256": "0e9d241925a8e2634be6bba545a88968bede93f670a6c08276d16764024e3349"
+      },
+      "result_capture": {
+        "file": "discarded-overflow-compile-result.png",
+        "sha256": "faede3c8eac31aa4e11b4b3547448cf4995cccd9efd34d0d414fab0aa43ed7ed"
+      }
+    },
+    {
+      "id": "division-rounding-repeat",
+      "kind": "result",
+      "command": "\"REPEAT_RAW=%d REPEAT_LITERAL=%d REPEAT_MOD=%d REPEAT_MODEQU=%d\\n\",OracleDivRaw(-7,2),OracleDivTwo(-7),OracleModRaw(-7,2),OracleModEqu(-7);",
+      "observed_output": [
+        "REPEAT_RAW=-3 REPEAT_LITERAL=-4 REPEAT_MOD=-1 REPEAT_MODEQU=1"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "division-rounding-repeat-source.png",
+        "sha256": "59c40042b9a78fa2c89aac257dc963eaedfccbc2b202e26430129781f4893bbd"
+      },
+      "result_capture": {
+        "file": "division-rounding-repeat-result.png",
+        "sha256": "35a362990ab341f878a9bffb189b2373b81fcc4acdd9f77f668aa7cda1113919"
+      }
+    },
+    {
+      "id": "division-fault-repeat",
+      "kind": "result",
+      "command": "OracleFault(0,1,0);OracleFault(1,0x8000000000000000,-1);",
+      "observed_output": [
+        "FAULT=DivZero",
+        "FAULT=DivZero"
+      ],
+      "first_failing_phase": "execution",
+      "source_capture": {
+        "file": "division-fault-repeat-source.png",
+        "sha256": "bbc22df9835ba48e2af5167981265f47b744b94d1d168363b9c52429b6c95a29"
+      },
+      "result_capture": {
+        "file": "division-fault-repeat-result.png",
+        "sha256": "83af0bfd387a234f58b7c01869f7c58810fa67c4f36710dd2a5db11d3cff204d"
+      }
+    },
+    {
+      "id": "unsigned-repeat",
+      "kind": "result",
+      "command": "\"REPEAT_UDIV=%016X REPEAT_UMOD=%016X\\n\",OracleUDiv(-1,3),OracleUMod(0x8000000000000000,-1);",
+      "observed_output": [
+        "REPEAT_UDIV=5555555555555555 REPEAT_UMOD=8000000000000000"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "unsigned-repeat-source.png",
+        "sha256": "efd5ab914eed74f6ac4a315bd021e1571f41a65e5382428efea290545d81f736"
+      },
+      "result_capture": {
+        "file": "unsigned-repeat-result.png",
+        "sha256": "9b54d23ec26df76e4f5654f9c84bcc063e8992a1f8b6bfb5a4f9beea81378313"
+      }
+    },
+    {
+      "id": "constant-zero-execute-delimited",
+      "kind": "result",
+      "command": "try {\"ZERO_RETURN=%d\\n\",OracleZero();} catch {\"ZERO_FAULT=%c\\n\",Fs->except_ch;Fs->catch_except=TRUE;};\"ZERO_DONE=1\\n\";",
+      "observed_output": [
+        "ZERO_FAULT=DivZero",
+        "ZERO_DONE=1"
+      ],
+      "first_failing_phase": "execution",
+      "source_capture": {
+        "file": "constant-zero-execute-delimited-source.png",
+        "sha256": "1e91dfa9db65f0b6bbfd5696e39f95524b17ed8e9bb930f729b7fadf163cfde6"
+      },
+      "result_capture": {
+        "file": "constant-zero-execute-delimited-result.png",
+        "sha256": "89a618374069b2addec4d36039c4cb34718e51513913aecc699395f22b7d57f8"
+      }
+    },
+    {
+      "id": "discarded-zero-execute-delimited",
+      "kind": "result",
+      "command": "try {\"DISCARD_VALUE=%d\\n\",OracleDiscardZero();} catch {\"DISCARD_FAULT=%c\\n\",Fs->except_ch;Fs->catch_except=TRUE;};\"DISCARD_DONE=1\\n\";",
+      "observed_output": [
+        "DISCARD_FAULT=DivZero",
+        "DISCARD_DONE=1"
+      ],
+      "first_failing_phase": "execution",
+      "source_capture": {
+        "file": "discarded-zero-execute-delimited-source.png",
+        "sha256": "43a8361987c96af0f57c64b90671ea924dfa84a61fa1f479750dcee10b229558"
+      },
+      "result_capture": {
+        "file": "discarded-zero-execute-delimited-result.png",
+        "sha256": "0cb333f5033e6676e3bed35643d705d05ec261bc6545c5cdc03c56daa3dc7515"
+      }
+    },
+    {
+      "id": "eager-and-value-delimited",
+      "kind": "result",
+      "command": "try {\"AND_VALUE=%d\\n\",OracleAndValue(0);} catch {\"AND_FAULT=%c\\n\",Fs->except_ch;Fs->catch_except=TRUE;};\"AND_DONE=1\\n\";",
+      "observed_output": [
+        "AND_FAULT=DivZero",
+        "AND_DONE=1"
+      ],
+      "first_failing_phase": "execution",
+      "source_capture": {
+        "file": "eager-and-value-delimited-source.png",
+        "sha256": "88081ec3c185ba10253124c450631e0b0a518e3299d194dde3feed736884b8f8"
+      },
+      "result_capture": {
+        "file": "eager-and-value-delimited-result.png",
+        "sha256": "643e5185c782ec23b02fd70539cbcc6d67effaa9448ee095a1fefd1b7538f7d2"
+      }
+    },
+    {
+      "id": "eager-or-value-delimited",
+      "kind": "result",
+      "command": "try {\"OR_VALUE=%d\\n\",OracleOrValue(0);} catch {\"OR_FAULT=%c\\n\",Fs->except_ch;Fs->catch_except=TRUE;};\"OR_DONE=1\\n\";",
+      "observed_output": [
+        "OR_FAULT=DivZero",
+        "OR_DONE=1"
+      ],
+      "first_failing_phase": "execution",
+      "source_capture": {
+        "file": "eager-or-value-delimited-source.png",
+        "sha256": "40a9dc7c17d4f7ed8c02af188232ae5dcaba9654f145ad05002b8386a01fa444"
+      },
+      "result_capture": {
+        "file": "eager-or-value-delimited-result.png",
+        "sha256": "f24fcc4a16afcab513ec08fdf4c5ec448f6afec3ab1d2fa87fb1d8ae4f97da9c"
+      }
+    },
+    {
+      "id": "compile-literal-edges",
+      "kind": "definition",
+      "command": "I64 OracleDivOne(I64 x){return x/1;} I64 OracleDivHigh(I64 x){return x/0x8000000000000000;} U64 OracleUDivTwo(U64 x){return x/2;}",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "compile-literal-edges-source.png",
+        "sha256": "c1c4db56d7e8198a1fa1a02d47e76240b0b2e46d077578012fca293b99f3f21e"
+      },
+      "result_capture": {
+        "file": "compile-literal-edges-result.png",
+        "sha256": "d55785642c47ed4f2c74b77e7c992f9b89b79c9d7ec10c782051d37ae437c246"
+      }
+    },
+    {
+      "id": "literal-edges",
+      "kind": "result",
+      "command": "\"EXACT=%d BYONE=%d MIN=%016X HIGH=%016X UHALF=%016X\\n\",OracleDivTwo(-6),OracleDivOne(-7),OracleDivTwo(0x8000000000000000),OracleDivHigh(-7),OracleUDivTwo(-1);",
+      "observed_output": [
+        "EXACT=-3 BYONE=-7 MIN=C000000000000000 HIGH=FFFFFFFFFFFFFFFF UHALF=7FFFFFFFFFFFFFFF"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "literal-edges-source.png",
+        "sha256": "3de1e931ddcc137e38adb2eb7de9d45897e20c0a90f3fb44f7584e71d46585ee"
+      },
+      "result_capture": {
+        "file": "literal-edges-result.png",
+        "sha256": "b2aecd168249c99427e0e51d8958e64317cb6e5c81f5f9a02a5bf86ecc826968"
+      }
+    },
+    {
+      "id": "disasm-high-divisor",
+      "kind": "disassembly",
+      "command": "Uf(\"OracleDivHigh\");",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-high-divisor-source.png",
+        "sha256": "1eee865e46a9f835149904027bd019a8f907bf10ed9b2a679296f6de38d502dc"
+      },
+      "result_capture": {
+        "file": "disasm-high-divisor-result.png",
+        "sha256": "85de507ac28d86f989f214ef41b2293645f327ddd5b3884bcdc162b8a722f568"
+      },
+      "decoded_instruction_excerpt": [
+        {
+          "bytes": "48 C1 F8 3F",
+          "instruction": "SAR RAX, 63"
+        }
+      ]
+    },
+    {
+      "id": "literal-edges-repeat",
+      "kind": "result",
+      "command": "\"REPEAT_HIGH=%016X REPEAT_UHALF=%016X\\n\",OracleDivHigh(-7),OracleUDivTwo(-1);",
+      "observed_output": [
+        "REPEAT_HIGH=FFFFFFFFFFFFFFFF REPEAT_UHALF=7FFFFFFFFFFFFFFF"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "literal-edges-repeat-source.png",
+        "sha256": "4373a60bab62afc2abec69608db24093d0f4750c40087dd4071392152c85306d"
+      },
+      "result_capture": {
+        "file": "literal-edges-repeat-result.png",
+        "sha256": "c0c10a4879673b0d77ed12d1b462903d5b055c940b8987dbe3966fe23327081c"
+      }
+    },
+    {
+      "id": "unsigned-literal-contrast",
+      "kind": "result",
+      "command": "\"CONST_UHALF=%016X RAW_UHALF=%016X LITERAL_UHALF=%016X\\n\",0xFFFFFFFFFFFFFFFF/2,OracleUDiv(-1,2),OracleUDivTwo(-1);",
+      "observed_output": [
+        "CONST_UHALF=7FFFFFFFFFFFFFFF RAW_UHALF=7FFFFFFFFFFFFFFF LITERAL_UHALF=7FFFFFFFFFFFFFFF"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "unsigned-literal-contrast-source.png",
+        "sha256": "fa8c24e4732345aac9fbc9da82bf82705ac3c72e7cd1d636fa4fb7edd48d1f1b"
+      },
+      "result_capture": {
+        "file": "unsigned-literal-contrast-result.png",
+        "sha256": "037864275ad54c4463f7fb9e3a34d7e76a64a684e1339234d541a8d101438e3e"
+      }
+    },
+    {
+      "id": "disasm-unsigned-literal",
+      "kind": "disassembly",
+      "command": "Uf(\"OracleUDivTwo\");",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-unsigned-literal-source.png",
+        "sha256": "2d520e50dc6ca7e130a69c37024ddb1bfc7cce61d915e5580050ba5d0dc2f882"
+      },
+      "result_capture": {
+        "file": "disasm-unsigned-literal-result.png",
+        "sha256": "3154e06fa7fbad7a95bf2b278d266b6552797956a1491984a70f057a8b274df9"
+      },
+      "decoded_instruction_excerpt": [
+        {
+          "bytes": "48 D1 E8",
+          "instruction": "SHR RAX, 1"
+        }
+      ]
+    },
+    {
+      "id": "compile-left-unsigned",
+      "kind": "definition",
+      "command": "U64 OracleLeftUDiv(U64 x,I64 y){return x/y;} U64 OracleLeftUMod(U64 x,I64 y){return x%y;}",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "compile-left-unsigned-source.png",
+        "sha256": "3852d88a7d28bf6b00c03797a94aef69c22f7b1ce674593bfd4117a67ba4519f"
+      },
+      "result_capture": {
+        "file": "compile-left-unsigned-result.png",
+        "sha256": "6c88130c60ce6b4f7f2010e7d98d8b42b2d3677ce146dcdedf9da3160f506ad7"
+      }
+    },
+    {
+      "id": "left-unsigned",
+      "kind": "result",
+      "command": "\"LUDIV=%016X LUMOD=%016X\\n\",OracleLeftUDiv(-1,3),OracleLeftUMod(0x8000000000000000,-1);",
+      "observed_output": [
+        "LUDIV=5555555555555555 LUMOD=8000000000000000"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "left-unsigned-source.png",
+        "sha256": "2a7115895540a648ccc32771d4bfa9fe4871a734a1636df39d814b49dd335eb3"
+      },
+      "result_capture": {
+        "file": "left-unsigned-result.png",
+        "sha256": "1467869c2469869b5c59c0496eaf9e04dfd243914f2858648ae75f76fccd966e"
+      }
+    },
+    {
+      "id": "unsigned-literal-contrast-repeat",
+      "kind": "result",
+      "command": "\"CONST_UHALF=%016X RAW_UHALF=%016X LITERAL_UHALF=%016X\\n\",0xFFFFFFFFFFFFFFFF/2,OracleUDiv(-1,2),OracleUDivTwo(-1);",
+      "observed_output": [
+        "CONST_UHALF=7FFFFFFFFFFFFFFF RAW_UHALF=7FFFFFFFFFFFFFFF LITERAL_UHALF=7FFFFFFFFFFFFFFF"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "unsigned-literal-contrast-repeat-source.png",
+        "sha256": "12457fbc1ec524fd736839f74315ad31f4c69cf9a3c872af270ac1951f2bf19e"
+      },
+      "result_capture": {
+        "file": "unsigned-literal-contrast-repeat-result.png",
+        "sha256": "1d3ad1427d05b75123faeca30f38d33d2ce6c711790fe99d62c2567aaef140cb"
+      }
+    },
+    {
+      "id": "high-divisor-contrast",
+      "kind": "result",
+      "command": "\"HIGH_CONST=%016X HIGH_LITERAL=%016X HIGH_VARIABLE=%016X\\n\",-7/0x8000000000000000,OracleDivHigh(-7),OracleMixedDiv(-7,0x8000000000000000);",
+      "observed_output": [
+        "HIGH_CONST=0000000000000001 HIGH_LITERAL=FFFFFFFFFFFFFFFF HIGH_VARIABLE=0000000000000001"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "high-divisor-contrast-source.png",
+        "sha256": "931b1c5badc0a132a14682582c4de8670584d72c2ca2e6c58435ea0513403664"
+      },
+      "result_capture": {
+        "file": "high-divisor-contrast-result.png",
+        "sha256": "c3538d4d1b2e2124ea3109f6b9ffaae75df0e5f84c5e264f4e31180199a081dd"
+      }
+    },
+    {
+      "id": "high-divisor-contrast-repeat",
+      "kind": "result",
+      "command": "\"HIGH_CONST=%016X HIGH_LITERAL=%016X HIGH_VARIABLE=%016X\\n\",-7/0x8000000000000000,OracleDivHigh(-7),OracleMixedDiv(-7,0x8000000000000000);",
+      "observed_output": [
+        "HIGH_CONST=0000000000000001 HIGH_LITERAL=FFFFFFFFFFFFFFFF HIGH_VARIABLE=0000000000000001"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "high-divisor-contrast-repeat-source.png",
+        "sha256": "7ca95cd7df1ef7695171dd6b03714e610d89cf18c1e66ffb8342b69bbee150e0"
+      },
+      "result_capture": {
+        "file": "high-divisor-contrast-repeat-result.png",
+        "sha256": "8a25c47ae48dda0b18fdb068f0928dbe14ffe6abdc06ce360c7e1a4290c05d4b"
+      }
+    }
+  ],
+  "hosted_value_projections": [
+    {
+      "case_id": "division-rounding-1",
+      "field": "RAW_DIV",
+      "operation": "division",
+      "left_type": "I64",
+      "left_bits": "-7",
+      "right_type": "I64",
+      "right_bits": "2",
+      "result_type": "I64",
+      "format": "decimal"
+    },
+    {
+      "case_id": "division-rounding-1",
+      "field": "RAW_MOD",
+      "operation": "remainder",
+      "left_type": "I64",
+      "left_bits": "-7",
+      "right_type": "I64",
+      "right_bits": "2",
+      "result_type": "I64",
+      "format": "decimal"
+    },
+    {
+      "case_id": "unsigned-high-words",
+      "field": "UDIV",
+      "operation": "division",
+      "left_type": "U64",
+      "left_bits": "-1",
+      "right_type": "U64",
+      "right_bits": "3",
+      "result_type": "U64",
+      "format": "hexadecimal"
+    },
+    {
+      "case_id": "unsigned-overflow-pair",
+      "field": "UDIV_EDGE",
+      "operation": "division",
+      "left_type": "U64",
+      "left_bits": "0x8000000000000000",
+      "right_type": "U64",
+      "right_bits": "-1",
+      "result_type": "U64",
+      "format": "hexadecimal"
+    },
+    {
+      "case_id": "unsigned-high-words",
+      "field": "UMOD",
+      "operation": "remainder",
+      "left_type": "U64",
+      "left_bits": "-1",
+      "right_type": "U64",
+      "right_bits": "3",
+      "result_type": "U64",
+      "format": "hexadecimal"
+    },
+    {
+      "case_id": "unsigned-overflow-pair",
+      "field": "UMOD_EDGE",
+      "operation": "remainder",
+      "left_type": "U64",
+      "left_bits": "0x8000000000000000",
+      "right_type": "U64",
+      "right_bits": "-1",
+      "result_type": "U64",
+      "format": "hexadecimal"
+    },
+    {
+      "case_id": "unsigned-high-words",
+      "field": "MDIV",
+      "operation": "division",
+      "left_type": "I64",
+      "left_bits": "-1",
+      "right_type": "U64",
+      "right_bits": "3",
+      "result_type": "U64",
+      "format": "hexadecimal"
+    },
+    {
+      "case_id": "unsigned-overflow-pair",
+      "field": "MDIV_EDGE",
+      "operation": "division",
+      "left_type": "I64",
+      "left_bits": "0x8000000000000000",
+      "right_type": "U64",
+      "right_bits": "-1",
+      "result_type": "U64",
+      "format": "hexadecimal"
+    },
+    {
+      "case_id": "unsigned-high-words",
+      "field": "MMOD",
+      "operation": "remainder",
+      "left_type": "I64",
+      "left_bits": "-1",
+      "right_type": "U64",
+      "right_bits": "3",
+      "result_type": "U64",
+      "format": "hexadecimal"
+    },
+    {
+      "case_id": "unsigned-overflow-pair",
+      "field": "MMOD_EDGE",
+      "operation": "remainder",
+      "left_type": "I64",
+      "left_bits": "0x8000000000000000",
+      "right_type": "U64",
+      "right_bits": "-1",
+      "result_type": "U64",
+      "format": "hexadecimal"
+    },
+    {
+      "case_id": "left-unsigned",
+      "field": "LUDIV",
+      "operation": "division",
+      "left_type": "U64",
+      "left_bits": "-1",
+      "right_type": "I64",
+      "right_bits": "3",
+      "result_type": "U64",
+      "format": "hexadecimal"
+    },
+    {
+      "case_id": "left-unsigned",
+      "field": "LUMOD",
+      "operation": "remainder",
+      "left_type": "U64",
+      "left_bits": "0x8000000000000000",
+      "right_type": "I64",
+      "right_bits": "-1",
+      "result_type": "U64",
+      "format": "hexadecimal"
+    },
+    {
+      "case_id": "high-divisor-contrast",
+      "field": "HIGH_VARIABLE",
+      "operation": "division",
+      "left_type": "I64",
+      "left_bits": "-7",
+      "right_type": "U64",
+      "right_bits": "0x8000000000000000",
+      "result_type": "U64",
+      "format": "hexadecimal"
+    }
+  ],
+  "hosted_fault_projections": [
+    {
+      "case_id": "raw-division-zero",
+      "field": "FAULT",
+      "operation": "division",
+      "left_type": "I64",
+      "left_bits": "1",
+      "right_type": "I64",
+      "right_bits": "0",
+      "result_type": "I64",
+      "hosted_code": "HCIRVM0009"
+    },
+    {
+      "case_id": "raw-division-overflow",
+      "field": "FAULT",
+      "operation": "division",
+      "left_type": "I64",
+      "left_bits": "0x8000000000000000",
+      "right_type": "I64",
+      "right_bits": "-1",
+      "result_type": "I64",
+      "hosted_code": "HCIRVM0010"
+    },
+    {
+      "case_id": "raw-modulo-zero",
+      "field": "FAULT",
+      "operation": "remainder",
+      "left_type": "I64",
+      "left_bits": "1",
+      "right_type": "I64",
+      "right_bits": "0",
+      "result_type": "I64",
+      "hosted_code": "HCIRVM0009"
+    },
+    {
+      "case_id": "raw-modulo-overflow",
+      "field": "FAULT",
+      "operation": "remainder",
+      "left_type": "I64",
+      "left_bits": "0x8000000000000000",
+      "right_type": "I64",
+      "right_bits": "-1",
+      "result_type": "I64",
+      "hosted_code": "HCIRVM0010"
+    }
+  ],
+  "projection_boundary": "Project only the recorded raw two-operand function operations into verified internal I64/U64 IR. Result bits and target faults are compared; native exception delivery, function execution, optimizer rewrites, and compilation-phase faults are not implemented by that replay.",
+  "capture_retention": "SHA-256 hashes identify local PNG captures retained outside the repository alongside the verified ISO. No ISO or screenshots are repository artifacts.",
+  "discarded_attempts": "Four preliminary shell try/catch checks lacked a trailing statement delimiter, so their output arrived with later input. They were repeated with an explicit delimiter and a completion marker; only those replacement captures are used for the four checks.",
+  "repeatability": "Rounding differences, unsigned high words, target faults, unsigned literal division, and the high-bit divisor contrast were repeated in the same isolated VM. These are repeat checks within one boot, not independent-machine evidence.",
+  "remaining_work": [
+    "Implement and verify the supported source optimizer policy under issue #585.",
+    "Resolve the independent nested-count and unsigned-count shift questions in issue #574.",
+    "Expand differential coverage before claiming general arithmetic or whole-compiler compatibility."
+  ]
+}

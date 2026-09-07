@@ -2,6 +2,30 @@
 
 Every result on this page uses TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
+## Integer division and fault phases
+
+[`test/oracle/integer-division.json`](../test/oracle/integer-division.json)
+records 31 native result checks, eight disassemblies and their seven setup
+definitions. The 2026-09-07 run used the same verified final ISO documented
+below with QEMU 9.2.0, one CPU, 512 MiB, no network and no persistent disk.
+It captured source and output through loopback-only QMP after checking the
+keyboard mapping. Each capture has a SHA-256 hash; the VM was shut down after
+the run, and the ISO and captures remain outside the repository.
+
+The [division audit](integer-division.md) gives the observed values and phases.
+It distinguishes raw signed truncation from literal-divisor shift reductions,
+plain from compound remainder, and compilation faults from execution faults.
+The ordinary OCaml test suite replays 13 raw-value and four fault projections
+from the captured output. These checks cover that arithmetic subset, not the
+native optimizer, function execution, loader or bootstrap.
+
+To reproduce, decline installation and the tour, run the fixture's setup
+command, then enter `checks[].command` in order. Preserve the explicit
+delimiter and completion marker on top-level `try`/`catch` commands. Compare
+the labeled output and decoded instruction excerpts; ignore timing and
+function addresses. Repeated checks use one boot, so they establish replay
+stability within that environment only.
+
 ## Local declarations
 
 [`test/oracle/local-declarations.json`](../test/oracle/local-declarations.json) records automatic, static, variadic, nested, pointer, array, register-qualified, and comma-following locals compiled by the native TempleOS compiler. The first two calls to one static-local function returned 42 and 43, confirming retained storage. A local name was visible in its own initializer, and a name declared inside a nested block remained visible later in the function.
