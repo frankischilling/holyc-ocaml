@@ -114,8 +114,8 @@ let lower ~span statements =
             fail
               (span_of_result span expression)
               "HCRUN0003"
-              "chained comparisons require shared-operand lowering, which is \
-               not implemented"
+              "conditional comparison chains require shared values across \
+               branches, which are not implemented"
       | _ -> ());
       Option.iter validate_expression (Typed.result_operand expression);
       Option.iter
@@ -125,7 +125,6 @@ let lower ~span statements =
         (Typed.result_binary_operands expression)
     in
     let expression value =
-      validate_expression value;
       let instruction_id =
         Sequence.Instruction_id.of_int !instruction_count |> checked_id
       in
@@ -159,6 +158,7 @@ let lower ~span statements =
           Expression_lowering.result_value result
     in
     let rec condition value ~yes ~no =
+      validate_expression value;
       let at = span_of_result span value in
       let ordinary () =
         let operand = expression value in

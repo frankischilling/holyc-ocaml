@@ -2,6 +2,45 @@
 
 All source facts on this page refer to TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
+## Integer comparison-chain values
+
+The shared expression lowerer follows `PrsExp.HC:49-52,225-230` for all six
+comparison operators. In `a<b<c`, it emits each operand once, compares `a`
+with `b`, compares the same `b` with `c`, and combines the Boolean results
+with `IC_AND_AND`. Longer chains reuse the accumulated conjunction. Each
+comparison retains its operator span and the checked integer operand evidence.
+The final conjunction carries any requested result conversion.
+
+The comparison domain propagates through the chain. `OptLib.HC:119-122,171`
+and `OptPass012.HC:141-150,809-820` retain a promoted unsigned class through
+`IC_PUSH_CMP`. Thus `0xFFFFFFFFFFFFFFFF>0>-1` is false: the second comparison
+is unsigned. Lowering records the cumulative domain and, when needed, emits
+an internal `U64` `IC_HOLYC_TYPECAST` view of the shared word. This preserves
+its bits without rerunning or changing the operation that produced it. The
+VM accepts zero-flag internal `I64`/`U64` views with the existing zero/one
+parenthesis payload; public, narrow, floating and pointer casts remain outside
+that execution domain.
+
+Parentheses break the chain: `(3<2)<1` compares a Boolean with one. Tighter
+right operands stay intact, so `0==1<2` compares zero with the result of
+`1<2`. Equality participates too: `2==2==2` evaluates to one. Value contexts
+are eager, including reached arithmetic faults after an earlier false link.
+
+`holyc eval examples/integer-comparison-chain.hc` returns 42 in ten
+instructions. Ordinary integer program expressions use the same lowering.
+Conditional chains require values to survive branch transfers and remain
+unsupported, as do chains involving floating operands. Source fixtures and
+IR identity tests are in `test/test_ir_comparison_chains.ml`; no native
+comparison-chain capture is claimed. This completes the value-context
+regression in [issue #592](https://github.com/frankischilling/holyc-ocaml/issues/592).
+
+Mixed precedence can also leave multiple pending comparisons to reduce at
+once. An outer chain whose previous comparison has an unparenthesized
+comparison as its direct right operand is rejected. For example,
+`1==2<3==1` is unsupported, while `1==(2<3)==1` remains supported. The
+source stack and context-dependent diagnostics need the separate audit in
+[issue #593](https://github.com/frankischilling/holyc-ocaml/issues/593).
+
 ## Opcode registry
 
 For source execution, [integer programs](integer-programs.md) documents the
@@ -94,6 +133,7 @@ The accepted instructions have these exact shapes and word rules. Unless the tab
 | Opcode | Accepted form and behavior |
 | --- | --- |
 | `IC_IMM_I64` | No operands, one result, an integer payload, and a zero-depth internal `I64` or `U64` target. The payload bits become the result word. |
+| `IC_HOLYC_TYPECAST` | One internal word, one result, an integer payload of zero or one, and a zero-depth internal `I64` or `U64` target. It preserves all 64 bits and applies the target signedness. Public and narrow casts and numerical conversions remain unsupported. |
 | `IC_COM` | One internal word and one internal `I64` result. It applies `Int64.lognot`. |
 | `IC_NOT` | One internal word and one result of the same word type. Zero becomes one and every nonzero word becomes zero. |
 | `IC_UNARY_MINUS` | One internal word and one internal `I64` result. It applies wrapping `Int64.neg`. |
@@ -116,9 +156,9 @@ The operation and type rules come from the pinned opcode and metadata tables at 
 
 The raw shift rows stop before optimizer rewriting. They do not accept the one-operand, count-payload `IC_SHL_CONST` and `IC_SHR_CONST` forms. The immediate-count rewrite at `Compiler/OptPass012.HC:241-265` and the nested same-direction count merges at lines 205-208 and 223-226 remain a separate compatibility boundary: adding counts before the final x86 count mask is not equivalent to executing every ordinary 64-bit shift in sequence when the accumulated count reaches 64. Removing an unsigned count operand can also remove the evidence that selected the promoted unsigned result class. [Issue #574](https://github.com/frankischilling/holyc-ocaml/issues/574) requires source reachability and native-oracle evidence before constant-form execution is admitted.
 
-The raw comparison row stops before floating-domain and optimizer comparison machinery. It accepts no payload and no nonzero flag, including `ICF_USE_F64`, `ICF_USE_UNSIGNED`, `ICF_USE_INT`, `ICF_PUSH_CMP`, or `ICF_POP_CMP`. Floating or mixed-floating comparisons, public or narrow integers, pointers, aggregates, chained comparisons, comparison-consuming rewrites, the comparison-bearing `IC_BR_*` and `IC_BR_*2` forms, and constant folding remain outside this interpreter boundary. Source execution, optimization, and backend emission are not implied. No native oracle is required for the accepted raw instructions: the pinned parser, common-type logic, comparison optimizer, and backend fix their operand order, normalized result, and signed-versus-unsigned ordering.
+The raw comparison row stops before floating-domain and optimizer comparison machinery. It accepts no payload and no nonzero flag, including `ICF_USE_F64`, `ICF_USE_UNSIGNED`, `ICF_USE_INT`, `ICF_PUSH_CMP`, or `ICF_POP_CMP`. Floating or mixed-floating comparisons, public or narrow integers, pointers, aggregates, comparison-transfer instructions, comparison-consuming rewrites, the comparison-bearing `IC_BR_*` and `IC_BR_*2` forms, and constant folding remain outside this interpreter boundary. Source execution, optimization, and backend emission are not implied. No native oracle is required for the accepted raw instructions: the pinned parser, common-type logic, comparison optimizer, and backend fix their operand order, normalized result, and signed-versus-unsigned ordering.
 
-The logical row is likewise a zero-flag, payload-free direct-value boundary. `Compiler/OptPass012.HC:693-713` treats each already-available word as false only when it is zero, applies `&&`, `||`, or `^^`, and forces the result to internal `I64`; `Compiler/BackB.HC:30-49,51-73,75-100` emits the same normalized zero or one. The common integer domain found by `Compiler/OptLib.HC:96-179` therefore does not become the result type, and all four internal `I64`/`U64` pairings are accepted. This does not evaluate either operand expression or claim its side effects or order. `Compiler/PrsExp.HC:15-53,172-232` and `Compiler/OptLib.HC:230-352,357-479` keep parser scaffolding, chained-comparison synthesis, and `IC_BR_AND_AND_*` or `IC_BR_OR_OR_*` rewrites on separate control-flow paths. Those branch forms, `IC_PUSH_CMP`, nonzero flags including `ICF_PUSH_CMP` and `ICF_POP_CMP`, chained comparisons, source-level short-circuit behavior, floating or mixed-floating values, public and narrow integers, pointers, aggregates, conversions, memory, calls, folding, source or CLI execution, optimization, and backend emission remain outside the accepted execution boundary. The pinned direct-value optimizer and backend paths agree, so no native oracle is required.
+The logical row is likewise a zero-flag, payload-free direct-value boundary. `Compiler/OptPass012.HC:693-713` treats each already-available word as false only when it is zero, applies `&&`, `||`, or `^^`, and forces the result to internal `I64`; `Compiler/BackB.HC:30-49,51-73,75-100` emits the same normalized zero or one. The common integer domain found by `Compiler/OptLib.HC:96-179` therefore does not become the result type, and all four internal `I64`/`U64` pairings are accepted. This does not evaluate either operand expression or claim its side effects or order. `Compiler/PrsExp.HC:15-53,172-232` and `Compiler/OptLib.HC:230-352,357-479` keep parser scaffolding, chained-comparison synthesis, and `IC_BR_AND_AND_*` or `IC_BR_OR_OR_*` rewrites on separate control-flow paths. Those branch forms, `IC_PUSH_CMP`, nonzero flags including `ICF_PUSH_CMP` and `ICF_POP_CMP`, source-level short-circuit behavior, floating or mixed-floating values, public and narrow integers, pointers, aggregates, numerical conversions, memory, calls, folding, source or CLI execution, optimization, and backend emission remain outside the accepted execution boundary. The pinned direct-value optimizer and backend paths agree, so no native oracle is required.
 
 Failures are structured. `HCIRVM0001` is a configuration error for an invalid bound. Preflight reports `HCIRVM0002` for an unsupported opcode, `HCIRVM0003` for noncanonical flags, `HCIRVM0004` for malformed operand, result, target, payload, or block metadata, `HCIRVM0005` for an unsupported word type, and `HCIRVM0006` for an invalid operand/result type relationship. Execution reports `HCIRVM0007` when the step limit is exhausted, reserves `HCIRVM0008` for an impossible prepared state, reports `HCIRVM0009` for a zero divisor, and reports `HCIRVM0010` for signed division quotient overflow. The latter also applies to modulo. See the [division audit](integer-division.md) for fault timing and source evidence. Each error records its stage and executed-step count, plus block, instruction, and source span when that context exists. Preflight errors execute no instructions, and execution errors expose no partial result.
 
@@ -130,7 +170,7 @@ steps=<executed-instruction-count>
 termination=stream-end
 ```
 
-The termination line may instead be `returned:none` or `returned:<i64|u64>:0x<16-lowercase-hex-digits>`. The interpreter rejects every other opcode, including `IC_RETURN_VAL2`; public value producers; narrow integers; pointers; aggregates; `F64`; conversions; x87 suppression or comparison-transfer flags; memory and calls; and malformed flag or payload combinations. It does not lower source, schedule optimizer passes, read runtime storage, model an ABI, emit machine code, or provide a general interpreter or command-line execution mode.
+The termination line may instead be `returned:none` or `returned:<i64|u64>:0x<16-lowercase-hex-digits>`. The interpreter rejects every other opcode, including `IC_RETURN_VAL2`; public value producers; narrow integers; pointers; aggregates; `F64`; numerical conversions; x87 suppression or comparison-transfer flags; memory and calls; and malformed flag or payload combinations. It does not lower source, schedule optimizer passes, read runtime storage, model an ABI, emit machine code, or provide a general interpreter. The compiler driver supplies the source and CLI adapters.
 
 ## Named function bodies
 

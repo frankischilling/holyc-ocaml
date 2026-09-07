@@ -1,5 +1,18 @@
 # Reference source map
 
+Integer comparison-chain values under issue #592 use `PrsExp.HC:49-52,225-230`
+and the six `IST_CMP` entries in `CInit.HC`. `src/ir/expression_lowering.ml`
+shares the middle operand and combines adjacent comparisons with `IC_AND_AND`.
+`OptLib.HC:119-122,171` and `OptPass012.HC:141-150,809-820` carry the cumulative
+unsigned class. Internal word views preserve those bits in
+`src/ir/integer_interpreter.ml`. The multiple-reduction boundary in
+`PrsExp.HC:223-233,470-475` and `OptPass012.HC:1281-1283` is tracked by #593.
+`test/test_ir_comparison_chains.ml` checks grouping, precedence, result bits,
+shared identities, fault context, budgets and explicit floating/conditional
+boundaries. `examples/integer-comparison-chain.hc` runs through both CLI
+parsing modes. This is source-audit and hosted execution evidence; the
+conditional consumers in `OptLib.HC:229-484` remain a separate dependency.
+
 The integer program driver under issue #590 follows `PrsStmt.HC:459-565`
 for structured top-level control flow and `OptLib.HC:229-484` for conditional
 NOT, AND and OR branches. `PrsExp.HC:49-52,225-230,728-759` establishes

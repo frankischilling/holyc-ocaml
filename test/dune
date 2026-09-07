@@ -12,6 +12,7 @@
   test_main
   test_integer_expression
   test_integer_program
+  test_ir_comparison_chains
   test_ir_integer_division
   test_source
   test_lexer
@@ -4179,6 +4180,30 @@
     integer-expression.human.actual
     (run %{exe:../bin/holyc.exe} eval cli/integer-expression.hc))
    (diff cli/integer-expression.human integer-expression.human.actual))))
+
+(rule
+ (alias runtest)
+ (targets integer-chain.jit.actual integer-chain.aot.actual)
+ (deps ../examples/integer-comparison-chain.hc cli/integer-expression.human)
+ (action
+  (progn
+   (with-stdout-to
+    integer-chain.jit.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     eval
+     --step-limit=10
+     ../examples/integer-comparison-chain.hc))
+   (with-stdout-to
+    integer-chain.aot.actual
+    (run
+     %{exe:../bin/holyc.exe}
+     eval
+     --mode=aot
+     --step-limit=10
+     ../examples/integer-comparison-chain.hc))
+   (diff cli/integer-expression.human integer-chain.jit.actual)
+   (diff cli/integer-expression.human integer-chain.aot.actual))))
 
 (rule
  (alias runtest)

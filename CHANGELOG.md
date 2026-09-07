@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Fixed integer comparison-chain values in the shared expression lowerer. `2==2==2` now returns one, each middle operand executes once, and grouping and source precedence remain intact. `eval` and ordinary `run` expressions use this path; conditional and floating chains remain explicitly unsupported.
+
 - Added integer top-level execution through `holyc run --target=ir` and program graphs through `holyc dump-ir --program`. Blocks, if/else, while, do/while, for and break now use verified control flow with conditional AND/OR short-circuiting and a shared instruction budget. Runtime errors retain their stage and instruction context. General program state, calls, output, compile-time execution and native backends remain unfinished.
 
 - Recorded native TempleOS division results, disassembly and fault phases in a verified isolated VM. The fixture exposes signed literal-divisor shifts, compound-modulo masking and unsigned-divisor class loss, and distinguishes constant overflow during compilation from reached execution faults. A regression test replays 13 raw arithmetic values and four faults from the captured output; optimizer emulation remains pending.

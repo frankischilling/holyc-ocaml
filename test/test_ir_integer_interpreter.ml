@@ -1185,6 +1185,53 @@ let branch_truth_property =
       in
       word.type_ = VM.I64 && Int64.equal word.bits expected)
 
+let internal_word_views_preserve_bits () =
+  let graph ?(payload = Some (Sequence.Integer 0L)) ?(flags = 0L) source_type
+      target_type bits =
+    verified ~entry:0
+      [
+        block 0
+          [
+            imm ~id:0 ~value:0 ~type_:source_type bits;
+            description
+              ~operands:[ value_id 0 ]
+              ~result:(result 1) ~target_type ?payload ~flags 1
+              Opcode.Ic_holyc_typecast;
+            return_value ~id:2 ~operand:1 ~type_:target_type;
+            ret 3;
+          ];
+      ]
+  in
+  List.iter
+    (fun (source_type, target_type, expected_type) ->
+      List.iter
+        (fun bits ->
+          List.iter
+            (fun was_paren ->
+              let checked =
+                graph ~payload:(Some (Sequence.Integer was_paren)) source_type
+                  target_type bits
+              in
+              let execution = require_execution ~max_steps:4 checked in
+              execution |> require_returned
+              |> check_word "internal word view" expected_type bits;
+              Alcotest.(check int)
+                "one step for the view" 4
+                (VM.executed_steps execution);
+              require_errors ~max_steps:3 checked |> has_code "HCIRVM0007")
+            [ 0L; 1L ])
+        [ 0L; -1L; Int64.min_int; Int64.max_int ])
+    [
+      (i64, u64, VM.U64);
+      (u64, i64, VM.I64);
+      (i64, i64, VM.I64);
+      (u64, u64, VM.U64);
+    ];
+  graph ~payload:(Some (Sequence.Integer 2L)) i64 u64 1L
+  |> require_errors |> has_code "HCIRVM0004";
+  graph ~flags:0x200L i64 u64 1L |> require_errors |> has_code "HCIRVM0003";
+  graph i64 public_i64 1L |> require_errors |> has_code "HCIRVM0005"
+
 let tests =
   [
     Alcotest.test_case
@@ -1206,6 +1253,8 @@ let tests =
       whole_graph_preflight_includes_unreachable_blocks;
     Alcotest.test_case "bounded producer and return types" `Quick
       producer_domains_and_return_types_are_bounded;
+    Alcotest.test_case "internal word views retain bits and budgets" `Quick
+      internal_word_views_preserve_bits;
     Alcotest.test_case "deterministic execution dump" `Quick
       human_output_is_versioned_and_deterministic;
     QCheck_alcotest.to_alcotest binary_word_property;

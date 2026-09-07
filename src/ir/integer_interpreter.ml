@@ -65,6 +65,7 @@ type branch_condition = Zero | Not_zero
 type prepared_operation =
   | Immediate of Value_id.t * word
   | Unary of unary_operation * prepared_operand * Value_id.t * word_type
+  | Word_view of prepared_operand * Value_id.t * word_type
   | Binary of
       binary_operation
       * prepared_operand
@@ -95,6 +96,7 @@ type prepared = { blocks : prepared_block array; entry_index : int }
 type opcode_kind =
   | Immediate_kind
   | Unary_kind of unary_operation
+  | Word_view_kind
   | Binary_kind of binary_operation
   | Discard_kind
   | Return_value_kind
@@ -129,6 +131,7 @@ let opcode_kind = function
   | Opcode.Ic_com -> Some (Unary_kind Complement)
   | Opcode.Ic_not -> Some (Unary_kind Logical_not)
   | Opcode.Ic_unary_minus -> Some (Unary_kind Negate)
+  | Opcode.Ic_holyc_typecast -> Some Word_view_kind
   | Opcode.Ic_add -> Some (Binary_kind Add)
   | Opcode.Ic_sub -> Some (Binary_kind Subtract)
   | Opcode.Ic_mul -> Some (Binary_kind Multiply)
@@ -367,6 +370,26 @@ let prepare_instruction block_index types block_id
                           else Error (invalid_type_matrix block_id description))
                   )
               | _ -> Error (malformed block_id description))
+          | Word_view_kind -> (
+              match
+                ( description.operands,
+                  description.result,
+                  description.target_type,
+                  description.payload )
+              with
+              | ( [ operand_id ],
+                  Some result,
+                  Some result_type,
+                  Some (Sequence.Integer (0L | 1L)) ) -> (
+                  match producer_word_type result_type with
+                  | None -> Error (unsupported_type block_id description)
+                  | Some result_type -> (
+                      match operand_of_value types operand_id with
+                      | None -> Error (invalid_type_matrix block_id description)
+                      | Some operand ->
+                          Ok (Word_view (operand, result.value_id, result_type))
+                      ))
+              | _ -> Error (malformed block_id description))
           | Binary_kind binary -> (
               match
                 ( description.operands,
@@ -603,6 +626,14 @@ let execute_prepared ~max_steps program =
                   in
                   values :=
                     Value_map.add result { type_ = result_type; bits } !values)
+          | Word_view (operand, result, result_type) -> (
+              match require_operand block instruction operand with
+              | None -> ()
+              | Some operand ->
+                  values :=
+                    Value_map.add result
+                      { type_ = result_type; bits = operand.bits }
+                      !values)
           | Binary (operation, left, right, result, result_type) -> (
               match require_operand block instruction left with
               | None -> ()

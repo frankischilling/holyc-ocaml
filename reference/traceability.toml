@@ -11020,5 +11020,22 @@ statements = ["empty", "ordinary integer expression", "block", "statement sequen
 condition_policy = "left-to-right short-circuit AND/OR and recursive NOT; ordinary value expressions and XOR remain eager"
 preflight = "validate complete graph before execution, including unreachable code; runtime faults depend on reachability"
 arithmetic = "raw runtime integer IR; native optimizer policy remains issue #585 and constant shifts remain issue #574"
-excluded = ["declarations and variables", "memory", "calls and output", "comparison chains", "return and goto", "switch", "exceptions and locks", "#exe", "native emission"]
+excluded = ["declarations and variables", "memory", "calls and output", "conditional and floating comparison chains", "return and goto", "switch", "exceptions and locks", "#exe", "native emission"]
 native_oracle_status = "no new native capture; source audit and hosted integration tests; selected conditional fault behavior separately recorded in integer-division.json"
+
+[[feature]]
+id = "HC-INTEGER-COMPARISON-CHAIN-VALUES"
+description = "Integer comparison-chain values share source operands and eagerly combine adjacent comparisons."
+sources = ["Compiler/PrsExp.HC:49-52,223-233,470-475", "Compiler/CInit.HC:intermediate_code_table", "Compiler/OptLib.HC:119-122,171,229-484", "Compiler/OptPass012.HC:141-150,809-820,1281-1283"]
+implementation = ["src/ir/expression_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_ir_comparison_chains.ml", "test/test_ir_integer_interpreter.ml", "examples/integer-comparison-chain.hc", "test/dune"]
+documentation = ["docs/intermediate-representation.md", "docs/integer-programs.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md"]
+status = "implemented"
+issue = 592
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+commands = ["holyc eval examples/integer-comparison-chain.hc", "holyc run --target=ir examples/integer-comparison-chain.hc"]
+result = "eval returns 42 in ten attempted instructions in JIT and AOT mode; run evaluates and discards the expression"
+comparison_class = "cumulative unsigned promotion; internal word views preserve shared bits without reexecuting producers"
+excluded = ["conditional comparison chains", "floating comparison chains", "multiple pending comparison reductions (#593)", "calls and variable storage", "native optimizer strength reductions"]
+native_oracle_status = "source audit and hosted integration; no new native execution capture"
