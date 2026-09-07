@@ -195,6 +195,39 @@ let spans_and_flags_are_checked () =
   Alcotest.(check int64)
     "source-grounded flag mask" 0x1ffedffffL Ir.known_flag_mask
 
+let self_references_are_rejected () =
+  let source = Holyc_lib.Source_id.of_int 0 |> require_ok Fun.id in
+  let span = Holyc_lib.Span.unsafe_make ~source ~start:3 ~stop:8 in
+  let constant =
+    description ~result:(result 0) ~target_type:i64
+      ~payload:(Ir.Integer 7L) 0 Opcode.Ic_imm_i64
+  in
+  let check operands opcode =
+    let self =
+      description ~operands ~result:(result 1) ~target_type:i64 ~span 1 opcode
+    in
+    match Ir.create [ constant; self ] with
+    | Ok _ -> Alcotest.fail "a result was available to its own instruction"
+    | Error errors ->
+        Alcotest.(check (list string))
+          "use precedes definition" [ "HCIR0008" ]
+          (List.map (fun (error : Ir.error) -> error.code) errors);
+        List.iter
+          (fun (error : Ir.error) ->
+            Alcotest.(check (option int)) "instruction" (Some 1)
+              error.instruction_id;
+            Alcotest.(check bool) "source span" true (error.span = Some span))
+          errors
+  in
+  check [ value_id 1 ] Opcode.Ic_com;
+  check [ value_id 0; value_id 1 ] Opcode.Ic_add;
+  check [ value_id 1; value_id 0 ] Opcode.Ic_sub;
+  let repeated =
+    description ~operands:[ value_id 0; value_id 0 ] ~result:(result 1)
+      ~target_type:i64 1 Opcode.Ic_add
+  in
+  ignore (require_sequence [ constant; repeated ])
+
 let deterministic_human_dump () =
   let source = Holyc_lib.Source_id.of_int 7 |> require_ok Fun.id in
   let span = Holyc_lib.Span.unsafe_make ~source ~start:2 ~stop:9 in
@@ -298,6 +331,7 @@ let tests =
     Alcotest.test_case "result target types" `Quick value_results_require_a_type;
     Alcotest.test_case "duplicate IDs" `Quick duplicate_ids_are_rejected;
     Alcotest.test_case "value use order" `Quick invalid_value_uses_are_rejected;
+    Alcotest.test_case "self references" `Quick self_references_are_rejected;
     Alcotest.test_case "span and flag validation" `Quick
       spans_and_flags_are_checked;
     Alcotest.test_case "deterministic human dump" `Quick

@@ -46,6 +46,17 @@ let make_aggregate ~symbol ~pointer_depth =
 let base type_ = type_.base
 let pointer_depth type_ = type_.pointer_depth
 
+let equal left right =
+  left.pointer_depth = right.pointer_depth
+  &&
+  match (left.base, right.base) with
+  | ( Primitive (left_form, left_primitive),
+      Primitive (right_form, right_primitive) ) ->
+      left_form = right_form
+      && Primitive_type.equal left_primitive right_primitive
+  | Aggregate left_symbol, Aggregate right_symbol -> left_symbol == right_symbol
+  | Primitive _, Aggregate _ | Aggregate _, Primitive _ -> false
+
 let pointer_to type_ =
   let pointer_depth = type_.pointer_depth + 1 in
   Result.map
