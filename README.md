@@ -56,6 +56,11 @@ constant-folding equivalence or native shift oracle is claimed.
 
 ## Integer source execution
 
+`holyc run --target=ir examples/integer-updates.hc` returns 42 using `Total+=n`.
+Scalar I64/U64 compound assignments and prefix/postfix `++`/`--` now compose in
+functions, loops, arguments and initializers. See [scalar updates](docs/integer-updates.md)
+for side-effect order, result classes and the remaining optimizer boundary.
+
 `holyc run --target=ir examples/integer-globals.hc` shares one integer global
 between top-level code and repeated function calls, returning 42 in 50
 instructions in both modes. `--global-byte-limit` bounds that storage separately

@@ -15,6 +15,11 @@ global and frame locations. Program preflight validates the address/type/owner
 relationship, then allocates fresh global words under a separate byte limit.
 Those words survive block transfers and nested calls.
 
+[Scalar updates](integer-updates.md) reuse these exact addresses and retain
+compound assignment and prefix/postfix ICs. Preflight checks location/type
+identity; execution reads the word at the update after RHS effects. Original
+constant-folding barriers and initializer region ownership remain intact.
+
 [Scalar global initializer regions](integer-global-initializers.md) add exact
 declaration roots to that context. Constantness is classified on the value
 fragment before destination insertion. Prepared bits and step evidence remain

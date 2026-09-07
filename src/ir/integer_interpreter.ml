@@ -100,6 +100,13 @@ type prepared_operation =
   | Frame_address_tick
   | Load_slot of storage_location * Value_id.t
   | Store_slot of storage_location * prepared_operand * Value_id.t * word_type
+  | Update_slot of
+      storage_location
+      * binary_operation
+      * prepared_operand option
+      * bool
+      * Value_id.t
+      * word_type
   | Immediate of Value_id.t * word
   | Unary of unary_operation * prepared_operand * Value_id.t * word_type
   | Word_view of prepared_operand * Value_id.t * word_type
@@ -154,6 +161,8 @@ type opcode_kind =
   | Frame_address_kind
   | Load_slot_kind
   | Store_slot_kind
+  | Update_slot_kind of binary_operation
+  | Increment_slot_kind of binary_operation * bool
   | Immediate_kind
   | Unary_kind of unary_operation
   | Word_view_kind
@@ -242,6 +251,23 @@ let opcode_kind = function
   | Opcode.Ic_br_not_zero -> Some (Branch_kind Not_zero)
   | Opcode.Ic_ret -> Some Return_kind
   | Opcode.Ic_end -> Some End_kind
+  | _ -> None
+
+let update_kind = function
+  | Opcode.Ic_add_equ -> Some (Update_slot_kind Add)
+  | Opcode.Ic_sub_equ -> Some (Update_slot_kind Subtract)
+  | Opcode.Ic_mul_equ -> Some (Update_slot_kind Multiply)
+  | Opcode.Ic_div_equ -> Some (Update_slot_kind Divide)
+  | Opcode.Ic_mod_equ -> Some (Update_slot_kind Remainder)
+  | Opcode.Ic_and_equ -> Some (Update_slot_kind Bitwise_and)
+  | Opcode.Ic_or_equ -> Some (Update_slot_kind Bitwise_or)
+  | Opcode.Ic_xor_equ -> Some (Update_slot_kind Bitwise_xor)
+  | Opcode.Ic_shl_equ -> Some (Update_slot_kind Shift_left)
+  | Opcode.Ic_shr_equ -> Some (Update_slot_kind Shift_right)
+  | Opcode.Ic_pp_ -> Some (Increment_slot_kind (Add, false))
+  | Opcode.Ic_mm_ -> Some (Increment_slot_kind (Subtract, false))
+  | Opcode.Ic__pp -> Some (Increment_slot_kind (Add, true))
+  | Opcode.Ic__mm -> Some (Increment_slot_kind (Subtract, true))
   | _ -> None
 
 let scalar_word_type ~allow_public type_ =
@@ -441,9 +467,11 @@ let declared_types ?frame ?globals ?(allow_calls = false) block =
                          | None -> Unsupported
                        else
                          match (frame, description.opcode) with
-                         | _, (Opcode.Ic_deref | Opcode.Ic_assign)
-                           when Option.is_some frame || Option.is_some globals
-                           -> (
+                         | _, opcode
+                           when (Option.is_some frame || Option.is_some globals)
+                                && (opcode = Opcode.Ic_deref
+                                  || opcode = Opcode.Ic_assign
+                                   || Option.is_some (update_kind opcode)) -> (
                              match return_word_type type_ with
                              | Some word_type -> Supported (word_type, type_)
                              | None -> Unsupported)
@@ -554,8 +582,7 @@ let logical_bits operation left right =
   in
   if predicate then 1L else 0L
 
-let divide_bits ~remainder result_type left right =
-  let opcode = if remainder then "IC_MOD" else "IC_DIV" in
+let divide_bits ~opcode ~remainder result_type left right =
   if Int64.equal right.bits 0L then
     Error ("HCIRVM0009", opcode ^ " divisor is zero")
   else if
@@ -576,10 +603,16 @@ let divide_bits ~remainder result_type left right =
     in
     Ok (operation left.bits right.bits)
 
-let binary_bits operation left right result_type =
+let binary_bits ?(compound = false) operation left right result_type =
   match operation with
-  | Divide -> divide_bits ~remainder:false result_type left right
-  | Remainder -> divide_bits ~remainder:true result_type left right
+  | Divide ->
+      divide_bits
+        ~opcode:(if compound then "IC_DIV_EQU" else "IC_DIV")
+        ~remainder:false result_type left right
+  | Remainder ->
+      divide_bits
+        ~opcode:(if compound then "IC_MOD_EQU" else "IC_MOD")
+        ~remainder:true result_type left right
   | Add -> Ok (Int64.add left.bits right.bits)
   | Subtract -> Ok (Int64.sub left.bits right.bits)
   | Multiply -> Ok (Int64.mul left.bits right.bits)
@@ -631,6 +664,9 @@ let prepare_instruction ?frame ?globals ?(allow_public = false) block_index
         Some Load_slot_kind
     | _, Opcode.Ic_assign when Option.is_some frame || Option.is_some globals ->
         Some Store_slot_kind
+    | _, opcode
+      when (Option.is_some frame || Option.is_some globals)
+           && Option.is_some (update_kind opcode) -> update_kind opcode
     | _ -> opcode_kind description.opcode
   in
   match kind with
@@ -679,7 +715,10 @@ let prepare_instruction ?frame ?globals ?(allow_public = false) block_index
                       Ok Frame_address_tick
                   | _ -> Error (malformed block_id description))
               | None -> Error (malformed block_id description))
-          | Load_slot_kind | Store_slot_kind -> (
+          | Load_slot_kind
+          | Store_slot_kind
+          | Update_slot_kind _
+          | Increment_slot_kind _ -> (
               match
                 ( description.operands,
                   description.result,
@@ -720,6 +759,28 @@ let prepare_instruction ?frame ?globals ?(allow_public = false) block_index
                                      word_type ))
                           | None ->
                               Error (invalid_type_matrix block_id description))
+                      | Update_slot_kind operation, [ operand ] -> (
+                          match operand_of_value types operand with
+                          | Some operand ->
+                              Ok
+                                (Update_slot
+                                   ( location,
+                                     operation,
+                                     Some operand,
+                                     false,
+                                     result.value_id,
+                                     word_type ))
+                          | None ->
+                              Error (invalid_type_matrix block_id description))
+                      | Increment_slot_kind (operation, old_result), [] ->
+                          Ok
+                            (Update_slot
+                               ( location,
+                                 operation,
+                                 None,
+                                 old_result,
+                                 result.value_id,
+                                 word_type ))
                       | _ -> Error (malformed block_id description))
                   | _ -> Error (invalid_type_matrix block_id description))
               | _ -> Error (malformed block_id description))
@@ -1332,6 +1393,52 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                   in
                   storage.(index) <- Some word;
                   values := Value_map.add result word !values)
+          | Update_slot (location, operation, operand, old_result, result, type_)
+            -> (
+              let right =
+                match operand with
+                | None -> Some { type_; bits = 1L }
+                | Some operand -> require_operand block instruction operand
+              in
+              match right with
+              | None -> ()
+              | Some right -> (
+                  let storage, index, message =
+                    match location with
+                    | Frame_slot index ->
+                        ( !slots,
+                          index,
+                          "the reached frame slot has not been initialized" )
+                    | Global_slot index ->
+                        ( global_words,
+                          index,
+                          "hosted execution reached an uninitialized JIT global"
+                        )
+                  in
+                  match storage.(index) with
+                  | None ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0012"
+                             message)
+                  | Some old -> (
+                      (* BackA.HC/BackB.HC read at the update, after the RHS.
+                         Failed arithmetic must not publish a store or result. *)
+                      match
+                        binary_bits ~compound:true operation old right type_
+                      with
+                      | Error (code, message) ->
+                          failed :=
+                            Some
+                              (runtime_error ~instruction block !steps code
+                                 message)
+                      | Ok bits ->
+                          let word = { type_; bits } in
+                          storage.(index) <- Some word;
+                          values :=
+                            Value_map.add result
+                              (if old_result then old else word)
+                              !values)))
           | Immediate (result, word) ->
               values := Value_map.add result word !values
           | Unary (operation, operand, result, result_type) -> (

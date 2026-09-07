@@ -28,6 +28,11 @@ positive `--initializer-step-limit`. Top-level and function expressions
 share their storage across calls and loops. The [global accumulator](integer-globals.md)
 returns 42 in 50 instructions in both modes and introduces `--global-byte-limit`.
 
+[Scalar update expressions](integer-updates.md) include all compound assignments
+and prefix/postfix increment/decrement for those globals and checked frame
+slots. Updates retain the original IC and destination class, read storage
+after RHS effects, and return the old postfix or new prefix/compound word.
+
 ## Source behavior and graph construction
 
 `Compiler/PrsStmt.HC:459-565` establishes the condition tests, loop backedges,

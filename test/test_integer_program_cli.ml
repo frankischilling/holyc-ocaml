@@ -41,6 +41,14 @@ let invoke arguments =
 
 let require condition message = if not condition then failwith message
 
+let contains text fragment =
+  let size = String.length fragment in
+  let rec find index =
+    index + size <= String.length text
+    && (String.sub text index size = fragment || find (index + 1))
+  in
+  find 0
+
 let success arguments =
   let status, stdout, stderr = invoke arguments in
   require (status = Unix.WEXITED 0) ("command failed: " ^ stderr);
@@ -344,4 +352,45 @@ let () =
                stderr)
             "initializer limit configuration diagnostic")
         [ [ "run" ]; [ "dump-ir"; "--program" ] ]);
+  List.iter
+    (fun mode ->
+      let source = Sys.argv.(7) in
+      let result =
+        success
+          [
+            "run";
+            "--target=ir";
+            "--format=json";
+            "--mode=" ^ mode;
+            "--global-byte-limit=8";
+            "--frame-byte-limit=8";
+            "--call-depth-limit=1";
+            "--initializer-step-limit=3";
+            source;
+          ]
+        |> Yojson.Safe.from_string
+      in
+      require
+        (result |> member "final_value" |> member "value" |> to_string = "42")
+        "compound accumulator source returns 42";
+      require
+        (result |> member "compiled_initializer_steps" |> to_int = 3)
+        "compound execution preserves separate preparation count";
+      let dump = success [ "dump-ir"; "--program"; "--mode=" ^ mode; source ] in
+      require
+        (dump = success [ "dump-ir"; "--program"; "--mode=" ^ mode; source ])
+        "deterministic compound program dump";
+      require
+        (contains dump "IC_ADD_EQU")
+        "original compound update opcode retained";
+      with_file ".hc" "I64 G=41;G++;G;" (fun source ->
+          let result =
+            success [ "run"; "--format=json"; "--mode=" ^ mode; source ]
+            |> Yojson.Safe.from_string
+          in
+          require
+            (result |> member "final_value" |> member "value" |> to_string
+           = "42")
+            "postfix source executes from CLI"))
+    [ "jit"; "aot" ];
   print_endline "Integer program CLI checks passed."

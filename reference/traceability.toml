@@ -11184,3 +11184,25 @@ focused_tests = 12
 preserved = ["original explicitly assigned accumulator 42/50", "bounded eval", "ordinary source expression results", "exact semantic identity", "shared call/value lowering", "repeated-run image isolation", "whole-program preflight", "deterministic reports"]
 excluded = ["aliases", "data-heap/external/import storage", "static/narrow/floating/pointer/array/aggregate/callback objects", "general runtime output", "stateful #exe", "complete optimizer parity", "native/BIN/loader execution", "bootstrap"]
 native_oracle_status = "hosted source and malformed-context tests with pinned-source audit; no new native capture"
+
+[[feature]]
+id = "HC-SOURCE-INTEGER-SCALAR-UPDATES"
+description = "Scalar I64/U64 compound assignments and prefix/postfix increment/decrement execute through canonical frame/global update ICs."
+sources = ["Compiler/PrsExp.HC:98-118,201-208 opcode selection and compound destination load removal", "Compiler/BackB.HC:304-385 prefix/postfix result order", "Compiler/BackA.HC:372-431,442-595,603-658 read/modify/write and destination-owned signedness", "Compiler/CInit.HC:54-59,88-97 update constant barriers", "Compiler/OptPass012.HC:827-854 compound strength reductions"]
+implementation = ["src/sema/function_call_expression_result.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_initializers.ml"]
+tests = ["test/test_integer_updates.ml", "test/test_integer_program_cli.ml", "examples/integer-updates.hc", "test/dune"]
+documentation = ["docs/integer-updates.md", "docs/integer-programs.md", "docs/integer-global-initializers.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 605
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "declaration-initialized Total+=n accumulator and postfix local loop return 42 in both modes"
+ownership = "exact typed postfix child, source span, lvalue/result type, checked frame/global address and physical symbol identity"
+ir = "all ten compound assignment and four prefix/postfix update ICs retain their original constant barriers; no early destination word load"
+runtime = "RHS effects precede destination read; successful arithmetic stores once; prefix/compound returns new word, postfix returns old word; destination owns result/division/right-shift class"
+limits = "one step per update IC plus address/RHS instructions; shared instruction/global/frame/depth bounds, complete preflight and fresh per-run words"
+initializer_boundary = "update values remain scheduled; compound shifts and known-constant divisor division/remainder reject with HCRUN0006 in immediate values and transitive callees"
+arithmetic = "raw hosted 64-bit arithmetic with wrapping and runtime shift count rules; #574/#585 retain optimizer parity"
+focused_tests = 10
+excluded = ["pointer scaling", "narrow/floating/aggregate storage", "static/import/external storage", "locked/general memory updates", "stateful compilation", "complete optimizer parity", "native/BIN/loader execution", "bootstrap"]
+native_oracle_status = "hosted source and malformed-IR regressions with pinned-source audit; no new native capture"

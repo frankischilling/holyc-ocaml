@@ -1333,12 +1333,66 @@ let rec prepare_assignment_address ?frame ?globals result =
       | Ok operand -> prepare_assignment_address ?frame ?globals operand)
   | _ -> prepare_storage_address ?frame ?globals result
 
+let compound_assignment = function
+  | Opcode.Ic_add_equ
+  | Ic_sub_equ
+  | Ic_mul_equ
+  | Ic_div_equ
+  | Ic_mod_equ
+  | Ic_and_equ
+  | Ic_or_equ
+  | Ic_xor_equ
+  | Ic_shl_equ
+  | Ic_shr_equ -> true
+  | _ -> false
+
+let prepare_update_address ?frame ?globals result operand =
+  match (checked_frame_word result, checked_frame_word operand) with
+  | Error item, _ | _, Error item -> Error [ item ]
+  | Ok Unsupported_type, _ | _, Ok Unsupported_type -> Ok None
+  | Ok (Checked_type result_type), Ok (Checked_type operand_type) ->
+      if
+        Semantic_result.result_category operand <> Semantic_result.Lvalue
+        || Semantic_result.result_category result
+           <> Semantic_result.Object_value
+        || not (Type.equal result_type operand_type)
+      then
+        Error
+          [
+            metadata_error ?span:(result_span result)
+              "scalar update does not retain its lvalue and destination result \
+               type";
+          ]
+      else prepare_assignment_address ?frame ?globals operand
+
 let plan ?frame ?globals ~allow_calls root =
   let root_conversion = requested_conversion root in
   let pending = ref [] in
   let reversed = ref [] in
   let unsupported = ref false in
   let error = ref None in
+  let update result source_operand opcode origin conversion =
+    match
+      ( checked_operand result source_operand "scalar update",
+        operator_span result "scalar update" origin )
+    with
+    | Error item, _ | _, Error item -> error := Some item
+    | Ok operand, Ok span -> (
+        match prepare_update_address ?frame ?globals result operand with
+        | Error (item :: _) -> error := Some item
+        | Error [] ->
+            error :=
+              Some
+                (metadata_error ~span "scalar update address validation failed")
+        | Ok None -> unsupported := true
+        | Ok (Some address) ->
+            (* Preserve the original update IC, including its constant barrier.
+               The address is prepared without reading the old storage word. *)
+            reversed :=
+              Unary { result; opcode; span; operand; conversion }
+              :: Storage_address { result = operand; address }
+              :: !reversed)
+  in
   (match validate_conversion root root_conversion with
   | Error item -> error := Some item
   | Ok false -> unsupported := true
@@ -1454,6 +1508,14 @@ let plan ?frame ?globals ~allow_calls root =
             | Semantic_source.Prefix_expression prefix -> (
                 let source_operand = Semantic_source.prefix_operand prefix in
                 match Semantic_source.prefix_operator prefix with
+                | (Semantic_source.Pre_increment | Semantic_source.Pre_decrement)
+                  as operator ->
+                    update result source_operand
+                      (if operator = Semantic_source.Pre_increment then
+                         Opcode.Ic_pp_
+                       else Opcode.Ic_mm_)
+                      (Semantic_source.prefix_operator_origin prefix)
+                      conversion
                 | Semantic_source.Unary_plus -> (
                     match
                       checked_operand result source_operand
@@ -1603,7 +1665,8 @@ let plan ?frame ?globals ~allow_calls root =
                   not
                     (accepted_binary_opcode opcode
                     || (Option.is_some frame || Option.is_some globals)
-                       && Opcode.equal opcode Opcode.Ic_assign)
+                       && (Opcode.equal opcode Opcode.Ic_assign
+                          || compound_assignment opcode))
                 then unsupported := true
                 else
                   match
@@ -1612,7 +1675,10 @@ let plan ?frame ?globals ~allow_calls root =
                   with
                   | Error item, _ | _, Error item -> error := Some item
                   | Ok (left, right), Ok span -> (
-                      if Opcode.equal opcode Opcode.Ic_assign then
+                      if
+                        Opcode.equal opcode Opcode.Ic_assign
+                        || compound_assignment opcode
+                      then
                         match
                           validate_binary_with checked_frame_word result left
                             right
@@ -1620,7 +1686,11 @@ let plan ?frame ?globals ~allow_calls root =
                         | Error item -> error := Some item
                         | Ok true -> (
                             match
-                              prepare_assignment_address ?frame ?globals left
+                              if compound_assignment opcode then
+                                prepare_update_address ?frame ?globals result
+                                  left
+                              else
+                                prepare_assignment_address ?frame ?globals left
                             with
                             | Error (item :: _) -> error := Some item
                             | Error [] ->
@@ -1764,7 +1834,14 @@ let plan ?frame ?globals ~allow_calls root =
                 Semantic_source.Call_expression
               when allow_calls ->
                 reversed := Call { result; conversion } :: !reversed
-            | Semantic_source.Postfix_expression _
+            | Semantic_source.Postfix_expression postfix ->
+                update result
+                  (Semantic_source.postfix_operand postfix)
+                  (match Semantic_source.postfix_operator postfix with
+                  | Semantic_source.Post_increment -> Opcode.Ic__pp
+                  | Semantic_source.Post_decrement -> Opcode.Ic__mm)
+                  (Semantic_source.postfix_operator_origin postfix)
+                  conversion
             | Semantic_source.Index_expression _
             | Semantic_source.Aggregate_offset_base_expression _
             | Semantic_source.Unresolved_expression
