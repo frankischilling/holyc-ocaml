@@ -334,6 +334,147 @@ let one_argument_cleanup_and_dump () =
     "one-argument dumps replay exactly" (Lowering.human first)
     (Lowering.human second)
 
+let direct_function_address_argument_composes_with_call () =
+  let source =
+    "extern I64 Handler();\n\
+     F64 Take(F64 address){return address;}\n\
+     F64 Caller(){return Take(&Handler);}"
+  in
+  let prepared = prepared Preprocessor.Jit source in
+  let results, records = analyze prepared in
+  let call = direct_call results "Caller" in
+  let argument = provided_argument call in
+  Alcotest.(check string)
+    "the argument retains the JIT extern-slot path" "jit-extern-slot"
+    (match
+       Semantic_function_call_expression_result.result_function_address_path
+         argument
+     with
+    | Some path ->
+        Semantic_function_call_resolution.direct_function_address_path_name path
+    | None -> Alcotest.fail "expected a direct function address path");
+  Alcotest.(check bool)
+    "the F64 parameter keeps the address conversion" true
+    (Semantic_function_call_expression_result.result_intrinsic_conversion
+       argument
+    = Semantic_function_call_expression_result.Result_to_f64);
+  let handler_symbol =
+    match
+      Semantic_function_call_expression_result.result_function_declaration
+        argument
+    with
+    | Some declaration ->
+        Semantic_function_resolution.resolved_declaration_identity_symbol
+          declaration
+    | None -> Alcotest.fail "expected a direct function declaration"
+  in
+  let lower_once () =
+    lower ~instruction:10 ~value:20 records results "Caller" |> lowered
+  in
+  let first = lower_once () in
+  let items = descriptions first in
+  Alcotest.(check (list string))
+    "the address fragment is appended between call start and call"
+    [
+      "IC_CALL_START";
+      "IC_IMM_I64";
+      "IC_DEREF";
+      "IC_CALL";
+      "IC_ADD_RSP1";
+      "IC_CALL_END";
+    ]
+    (opcode_names items);
+  Alcotest.(check (list int))
+    "the call and address fragment use consecutive instruction IDs"
+    [ 10; 11; 12; 13; 14; 15 ]
+    (List.map
+       (fun item -> Sequence.Instruction_id.to_int item.Sequence.instruction_id)
+       items);
+  Alcotest.(check (list int64))
+    "the address root carries conversion and push-result intent"
+    [ 0L; 0L; 0x000002001L; 0L; 0L; 0L ]
+    (List.map (fun item -> item.Sequence.flags) items);
+  let immediate = List.nth items 1 in
+  let dereference = List.nth items 2 in
+  Alcotest.(check bool)
+    "the slot load uses the addressed function identity" true
+    (match immediate.Sequence.payload with
+    | Some (Sequence.Symbol symbol) -> symbol == handler_symbol
+    | Some
+        ( Sequence.Integer _
+        | Sequence.Float_bits _
+        | Sequence.Bytes _
+        | Sequence.Block _
+        | Sequence.Block_targets _ )
+    | None -> false);
+  Alcotest.(check (list int))
+    "the dereference consumes the slot address" [ 20 ]
+    (List.map Sequence.Value_id.to_int dereference.Sequence.operands);
+  Alcotest.(check int)
+    "the address root uses the second argument value" 21
+    (match dereference.Sequence.result with
+    | Some result -> Sequence.Value_id.to_int result.value_id
+    | None -> Alcotest.fail "expected the dereference result");
+  Alcotest.(check (list bool))
+    "both address instructions retain internal RT_PTR" [ true; true ]
+    ([ immediate; dereference ]
+    |> List.map (fun item ->
+        match item.Sequence.target_type with
+        | Some type_ -> (
+            match
+              (Semantic_type.base type_, Semantic_type.pointer_depth type_)
+            with
+            | ( Semantic_type.Primitive
+                  (Semantic_type.Internal_storage, Primitive_type.I64),
+                0 ) -> true
+            | _ -> false)
+        | None -> false));
+  let address_span =
+    match
+      argument |> Semantic_function_call_expression_result.result_source
+      |> Semantic_function_call_resolution.argument_expression_kind
+    with
+    | Semantic_function_call_resolution.Prefix_expression prefix -> (
+        match
+          Semantic_function_call_resolution.prefix_operator_origin prefix
+        with
+        | Semantic_symbol.Source_location location -> location.span
+        | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
+            Alcotest.fail "expected a source-backed address operator")
+    | _ -> Alcotest.fail "expected an address-of argument"
+  in
+  let call_span = return_root results "Caller" |> source_span in
+  Alcotest.(check bool)
+    "the address fragment keeps the address operator span" true
+    (immediate.Sequence.span = Some address_span
+    && dereference.Sequence.span = Some address_span);
+  Alcotest.(check bool)
+    "the surrounding records keep the complete call span" true
+    ([ 0; 3; 4; 5 ]
+    |> List.for_all (fun index ->
+        (List.nth items index).Sequence.span = Some call_span));
+  Alcotest.(check (option int64))
+    "one direct-address argument cleans eight bytes" (Some 8L)
+    (match (List.nth items 4).Sequence.payload with
+    | Some (Sequence.Integer bytes) -> Some bytes
+    | Some
+        ( Sequence.Float_bits _
+        | Sequence.Bytes _
+        | Sequence.Symbol _
+        | Sequence.Block _
+        | Sequence.Block_targets _ )
+    | None -> None);
+  Alcotest.(check int)
+    "the call result follows both address values" 22
+    (Lowering.result_value first |> Sequence.Value_id.to_int);
+  Alcotest.(check (pair int int))
+    "the composed fragment advances both cursors" (16, 23)
+    ( Lowering.next_instruction_id first |> Sequence.Instruction_id.to_int,
+      Lowering.next_value_id first |> Sequence.Value_id.to_int );
+  Alcotest.(check string)
+    "direct-address call composition is deterministic" (Lowering.human first)
+    (Lowering.human (lower_once ()))
+
 let multiple_arguments_preserve_order () =
   let source =
     "I64 Callee(I64 first,F64 second,I64 third){return first;}I64 \
@@ -977,6 +1118,8 @@ let tests =
       one_argument_sequences_preserve_expression_ir;
     Alcotest.test_case "one argument cleanup and dump" `Quick
       one_argument_cleanup_and_dump;
+    Alcotest.test_case "direct function address argument" `Quick
+      direct_function_address_argument_composes_with_call;
     Alcotest.test_case "multiple provided argument order" `Quick
       multiple_arguments_preserve_order;
     Alcotest.test_case "empty variadic hidden count" `Quick
