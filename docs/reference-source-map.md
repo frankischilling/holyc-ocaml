@@ -1,5 +1,13 @@
 # Reference source map
 
+Issue #611 follows `Compiler/PrsExp.HC:151-161,776-784,800-802,877-896`,
+`Compiler/OptPass789A.HC:461-464`, `Compiler/OptPass3.HC:519-543`,
+`Compiler/BackLib.HC:693-707` and `Compiler/BackC.HC:159-204` for address
+preservation and scalar loads/stores. `PrsExp.HC:201-208` and
+`BackA.HC:555-566` retain RHS-before-word-read updates; `PrsExp.HC:40-45`
+requires pointer scaling and `CInit.HC:49` retains the address constant barrier.
+See [scalar pointer aliases](integer-pointers.md) for hosted execution and limits.
+
 Issue #609 follows `Kernel/KTask.HC:338-351`,
 `Compiler/PrsVar.HC:53-112,215-244`, `Compiler/CMain.HC:82-90,513-531`,
 `Kernel/KLoad.HC:158-165` and `Compiler/PrsStmt.HC:160-184` for static declaration

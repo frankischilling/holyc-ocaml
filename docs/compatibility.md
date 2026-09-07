@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+[#611](https://github.com/frankischilling/holyc-ocaml/issues/611) connects
+[scalar pointer aliases](integer-pointers.md) to existing local, global and
+static objects through direct calls. Checked references preserve caller and
+recursive activation identity, with exact type and static materialization checks.
+Pointer returns, arithmetic, conversions and general memory remain unfinished.
+
 [#607](https://github.com/frankischilling/holyc-ocaml/issues/607) connects
 [scalar static locals](integer-statics.md) to persistent storage and bounded
 constant initial images. The counter returns 42 in both modes; unused and

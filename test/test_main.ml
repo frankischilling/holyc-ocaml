@@ -111,6 +111,7 @@ let () =
       ("source integer updates", Test_integer_updates.tests);
       ("source integer statics", Test_integer_statics.tests);
       ("source static initializers", Test_integer_static_initializers.tests);
+      ("source integer pointers", Test_integer_pointers.tests);
       ("comparison chains", Test_ir_comparison_chains.tests);
       ("integer frames", Test_ir_integer_frames.tests);
       ("IR bounded integer interpreter", Test_ir_integer_interpreter.tests);

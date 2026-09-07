@@ -1,5 +1,11 @@
 # Intermediate-code specification
 
+[Scalar pointer execution](integer-pointers.md) adds checked indirect lvalues and
+internal references to actual storage instances. Canonical address metadata keeps
+its existing instruction accounting; `IC_ADDR` materializes or forwards a checked
+reference. Pointer slots and fixed pushes retain exact types, while arithmetic
+and public results remain integer words.
+
 Static initialization extends the common declaration context with separate
 static descriptions and read-only owner/phase/bounds metadata. Entry lowering
 returns both global and static evidence. Preflight checks address producers and

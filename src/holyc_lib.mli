@@ -832,15 +832,17 @@ val run_integer_program :
   (Ir_integer_interpreter.t integer_program_result, Diagnostic.t list) result
 (** Execute integer source statements and checked I64/U64 function definitions
     with fixed parameters, automatic locals, direct call expressions and
-    ordinary non-aliased scalar I64/U64 code-heap globals with supported
-    declaration initializers. Constant preparation, runtime instructions, active
-    frame bytes, global bytes and call depth have separate positive bounds.
-    Global words are shared by all calls in one execution. Conditions
-    short-circuit AND and OR; ordinary values and XOR remain eager. Scheduled
-    arithmetic uses runtime IR semantics; initializers and their transitive
-    callees retain explicit shift and constant-divisor optimizer boundaries.
-    Supported pure constants supply initial-image bits. General memory, output,
-    indirect/external calls and native code remain unsupported. *)
+    ordinary scalar I64/U64 code-heap globals with supported declaration
+    initializers. One-level I64/U64 pointer locals and fixed parameters can
+    alias existing scalar local, global and static objects across direct calls.
+    Constant preparation, runtime instructions, active frame bytes, global bytes
+    and call depth have separate positive bounds. Global words are shared by all
+    calls in one execution. Conditions short-circuit AND and OR; ordinary values
+    and XOR remain eager. Scheduled arithmetic uses runtime IR semantics;
+    initializers and their transitive callees retain explicit shift and
+    constant-divisor optimizer boundaries. Supported pure constants supply
+    initial-image bits. General memory, output, indirect/external calls and
+    native code remain unsupported. *)
 
 val lower_integer_expression :
   Session.t ->

@@ -60,7 +60,15 @@ val execute_program :
     Static address producers and storage consumers also accept their owner's
     checked entry initializer region. Other entry instructions and functions
     fail preflight; region authority never enters a called function. JIT static
-    calls require transitively earlier definitions in the supplied bodies. *)
+    calls require transitively earlier definitions in the supplied bodies.
+    Checked one-level I64/U64 pointer locals and fixed parameters hold
+    references to existing scalar objects. [IC_ADDR] materializes a reference
+    without reading the object, with its own static-consumer ownership check.
+    Dereferences and updates retain the actual caller or recursive activation,
+    even when slots have identical offsets. Explicit references can pass to
+    callees without granting canonical static-address authority. Returned frames
+    are invalidated; pointer returns, arbitrary integer addresses and pointer
+    arithmetic remain unsupported. Public results remain words. *)
 
 val final_value : t -> word option
 (** Last reached top-level expression value from [execute_program], separate
@@ -92,7 +100,9 @@ val execute_function :
     contents survive block transfers. Every invocation owns independent storage.
     Public U64 negation retains U64, while internal U64 negation yields internal
     I64. Same-width integer returns preserve bits and adopt the declared type.
-    This entry point does not execute calls or arbitrary pointer operations. *)
+    Checked pointer locals can reference this invocation's scalar slots. The
+    [arguments] bit interface cannot supply pointer parameters. This entry point
+    does not execute calls or arbitrary pointer operations. *)
 
 val termination : t -> termination
 val executed_steps : t -> int

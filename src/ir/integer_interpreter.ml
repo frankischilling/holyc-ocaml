@@ -24,11 +24,26 @@ end)
 type word_type = I64 | U64
 type word = { type_ : word_type; bits : int64 }
 type function_definition = { frame : Frame.function_layout; body : Function.t }
+type stored_type = Stored_word of word_type | Stored_pointer of Type.t
+
+type runtime_value = Runtime_word of word | Runtime_pointer of runtime_address
+
+and runtime_address = {
+  pointer_storage : runtime_storage;
+  pointer_index : int;
+  pointer_pointee : Type.t;
+}
+
+and runtime_storage = {
+  cells : runtime_value option array;
+  mutable live : bool;
+  unknown_message : string;
+}
 
 type frame_slot = {
   slot_type : Type.t;
-  word_type : word_type;
-  initial : word option;
+  stored_type : stored_type;
+  initial : runtime_value option;
 }
 
 type frame_context = {
@@ -64,6 +79,12 @@ type t = {
 }
 
 type prepared_operand = { value_id : Value_id.t; expected_type : word_type }
+type prepared_pointer = { pointer_value : Value_id.t; pointer_type : Type.t }
+
+type prepared_value =
+  | Word_operand of prepared_operand
+  | Pointer_operand of prepared_pointer
+
 type unary_operation = Complement | Logical_not | Negate
 
 type comparison_operation =
@@ -91,7 +112,11 @@ type binary_operation =
   | Logical of logical_operation
 
 type branch_condition = Zero | Not_zero
-type storage_location = Frame_slot of int | Global_slot of int
+
+type storage_location =
+  | Frame_slot of int
+  | Global_slot of int
+  | Indirect_slot of prepared_pointer
 
 type prepared_operation =
   | Call_start
@@ -99,8 +124,9 @@ type prepared_operation =
   | Call_cleanup
   | Call_end of Value_id.t * word_type
   | Frame_address_tick
+  | Materialize_address of storage_location * Value_id.t * Type.t
   | Load_slot of storage_location * Value_id.t
-  | Store_slot of storage_location * prepared_operand * Value_id.t * word_type
+  | Store_slot of storage_location * prepared_value * Value_id.t * stored_type
   | Update_slot of
       storage_location
       * binary_operation
@@ -117,7 +143,7 @@ type prepared_operation =
       * prepared_operand
       * Value_id.t
       * word_type
-  | Discard of prepared_operand
+  | Discard of prepared_value
   | Return_value of prepared_operand * word_type
   | Jump of int
   | Branch of branch_condition * prepared_operand * int
@@ -128,7 +154,7 @@ type prepared_instruction = {
   instruction_id : Instruction_id.t;
   span : Common.Span.t option;
   operation : prepared_operation;
-  push_result : prepared_operand option;
+  push_result : prepared_value option;
 }
 
 type prepared_block = {
@@ -140,7 +166,7 @@ type prepared_block = {
 type prepared = {
   blocks : prepared_block array;
   entry_index : int;
-  initial_slots : word option array;
+  initial_slots : runtime_value option array;
   is_function : bool;
   owner : (int * string) option;
 }
@@ -149,7 +175,7 @@ type callee = {
   callee_index : int;
   callee_symbol : Sema.Symbol.t;
   callee_return_type : Type.t;
-  parameter_types : word_type array;
+  parameter_types : stored_type array;
   cleanup_opcode : Opcode.t;
   frame_bytes : int;
 }
@@ -158,6 +184,7 @@ type call_phase = Collecting of int | Needs_cleanup | Needs_end
 type checked_call = { callee : callee; phase : call_phase }
 
 type opcode_kind =
+  | Pointer_address_kind
   | Global_address_kind
   | Frame_address_kind
   | Load_slot_kind
@@ -176,6 +203,7 @@ type opcode_kind =
   | End_kind
 
 type declared_type =
+  | Pointer_value of Type.t
   | Supported of word_type * Type.t
   | Frame_base of Type.t
   | Frame_offset of Type.t * int64
@@ -288,7 +316,21 @@ let scalar_word_type ~allow_public type_ =
 let producer_word_type type_ = scalar_word_type ~allow_public:false type_
 let return_word_type type_ = scalar_word_type ~allow_public:true type_
 
-let frame_context ?globals ~max_frame_bytes ~frame ~arguments function_ =
+let scalar_pointer_type type_ =
+  Type.pointer_depth type_ = 1
+  &&
+  match Type.base type_ with
+  | Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
+  | _ -> false
+
+let stored_type type_ =
+  match return_word_type type_ with
+  | Some word -> Some (Stored_word word)
+  | None when scalar_pointer_type type_ -> Some (Stored_pointer type_)
+  | None -> None
+
+let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
+    ~arguments function_ =
   let invalid message =
     Error
       [
@@ -390,10 +432,10 @@ let frame_context ?globals ~max_frame_bytes ~frame ~arguments function_ =
     List.iteri
       (fun index location ->
         match
-          ( return_word_type (Frame.location_checked_type location),
+          ( stored_type (Frame.location_checked_type location),
             Frame.location_frame_slot location )
         with
-        | Some word_type, Some slot
+        | Some stored_type, Some slot
           when Frame.location_declarator_shape location = Frame.Object
                && Frame.location_value_shape location = Frame.Scalar
                && Frame.location_allocated_size location = 8L
@@ -404,16 +446,24 @@ let frame_context ?globals ~max_frame_bytes ~frame ~arguments function_ =
             else
               let initial =
                 match (Frame.location_kind location, !arguments) with
-                | Frame.Named_parameter, bits :: rest ->
+                | Frame.Named_parameter, bits :: rest -> (
                     arguments := rest;
-                    Some { type_ = word_type; bits }
+                    match stored_type with
+                    | Stored_word type_ -> Some (Runtime_word { type_; bits })
+                    | Stored_pointer _ ->
+                        if not pointer_arguments then
+                          error :=
+                            Some
+                              "integer argument bits cannot supply a pointer \
+                               parameter";
+                        None)
                 | _ -> None
               in
               offsets := Offset_map.add offset index !offsets;
               slots_rev :=
                 {
                   slot_type = Frame.location_checked_type location;
-                  word_type;
+                  stored_type;
                   initial;
                 }
                 :: !slots_rev
@@ -435,7 +485,7 @@ let frame_context ?globals ~max_frame_bytes ~frame ~arguments function_ =
           }
 
 let frame_pointer type_ =
-  Type.pointer_depth type_ = 1
+  (Type.pointer_depth type_ = 1 || Type.pointer_depth type_ = 2)
   &&
   match Type.base type_ with
   | Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
@@ -507,7 +557,15 @@ let declared_types ?frame ?globals ?initialization ?(allow_calls = false) block
                | None -> (
                    match description.target_type with
                    | Some type_ -> (
-                       if allow_calls && description.opcode = Opcode.Ic_call_end
+                       if
+                         (Option.is_some frame || Option.is_some globals)
+                         && scalar_pointer_type type_
+                         && (description.opcode = Opcode.Ic_addr
+                            || description.opcode = Opcode.Ic_deref
+                            || description.opcode = Opcode.Ic_assign)
+                       then Pointer_value type_
+                       else if
+                         allow_calls && description.opcode = Opcode.Ic_call_end
                        then
                          match return_word_type type_ with
                          | Some word_type -> Supported (word_type, type_)
@@ -555,12 +613,57 @@ let operand_of_value types value_id =
   match Value_map.find_opt value_id types with
   | Some (Supported (expected_type, _)) -> Some { value_id; expected_type }
   | Some
-      ( Unsupported
+      ( Pointer_value _
+      | Unsupported
       | Frame_base _
       | Frame_offset _
       | Frame_address _
       | Global_address _ )
   | None -> None
+
+let pointer_operand_of_value types pointer_value =
+  match Value_map.find_opt pointer_value types with
+  | Some (Pointer_value pointer_type) -> Some { pointer_value; pointer_type }
+  | _ -> None
+
+let memory_operand_of_value types id =
+  match operand_of_value types id with
+  | Some word -> Some (Word_operand word)
+  | None ->
+      Option.map
+        (fun p -> Pointer_operand p)
+        (pointer_operand_of_value types id)
+
+let value_matches stored operand =
+  match (stored, operand) with
+  | Stored_word _, Word_operand _ -> true
+  | Stored_pointer expected, Pointer_operand actual ->
+      Type.equal expected actual.pointer_type
+  | _ -> false
+
+let storage_operand frame initialization types instruction address =
+  match (frame, Value_map.find_opt address types) with
+  | Some context, Some (Frame_address index) ->
+      let slot = context.slots.(index) in
+      Some (Frame_slot index, slot.slot_type, slot.stored_type)
+  | _, Some (Global_address slot)
+    when storage_allowed frame initialization instruction slot ->
+      let type_ = Integer_globals.storage_type slot in
+      Option.map
+        (fun kind ->
+          (Global_slot (Integer_globals.storage_index slot), type_, kind))
+        (stored_type type_)
+  | _, Some (Pointer_value pointer_type) -> (
+      match Type.dereference pointer_type with
+      | Ok pointee ->
+          Option.map
+            (fun word ->
+              ( Indirect_slot { pointer_value = address; pointer_type },
+                pointee,
+                Stored_word word ))
+            (return_word_type pointee)
+      | Error _ -> None)
+  | _ -> None
 
 let valid_unary_type types operation operand_id result_type =
   match Value_map.find_opt operand_id types with
@@ -696,6 +799,8 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
     block_index types block_id (description : Sequence.description) =
   let kind =
     match (frame, description.opcode) with
+    | _, Opcode.Ic_addr when Option.is_some frame || Option.is_some globals ->
+        Some Pointer_address_kind
     | _, (Opcode.Ic_imm_i64 | Opcode.Ic_abs_addr)
       when Option.is_some globals
            &&
@@ -737,6 +842,28 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
       else
         let operation =
           match kind with
+          | Pointer_address_kind -> (
+              match
+                ( description.operands,
+                  description.result,
+                  description.target_type,
+                  description.payload )
+              with
+              | [ address ], Some result, Some target_type, None
+                when scalar_pointer_type target_type -> (
+                  match
+                    storage_operand frame initialization types
+                      description.instruction_id address
+                  with
+                  | Some (location, pointee, Stored_word _) -> (
+                      match Type.pointer_to pointee with
+                      | Ok expected when Type.equal expected target_type ->
+                          Ok
+                            (Materialize_address
+                               (location, result.value_id, pointee))
+                      | _ -> Error (invalid_type_matrix block_id description))
+                  | _ -> Error (invalid_type_matrix block_id description))
+              | _ -> Error (malformed block_id description))
           | Global_address_kind -> (
               match (description.operands, description.result) with
               | [], Some result -> (
@@ -774,41 +901,36 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
               with
               | address :: operands, Some result, Some target_type, None -> (
                   let slot =
-                    match (frame, Value_map.find_opt address types) with
-                    | Some context, Some (Frame_address index) ->
-                        let slot = context.slots.(index) in
-                        Some (Frame_slot index, slot.slot_type, slot.word_type)
-                    | _, Some (Global_address slot)
-                      when storage_allowed frame initialization
-                             description.instruction_id slot -> (
-                        let type_ = Integer_globals.storage_type slot in
-                        match return_word_type type_ with
-                        | Some word_type ->
-                            Some
-                              ( Global_slot (Integer_globals.storage_index slot),
-                                type_,
-                                word_type )
-                        | None -> None)
-                    | _ -> None
+                    storage_operand frame initialization types
+                      description.instruction_id address
                   in
                   match slot with
-                  | Some (location, slot_type, word_type)
+                  | Some (location, slot_type, stored_type)
                     when Type.equal slot_type target_type -> (
                       match (kind, operands) with
                       | Load_slot_kind, [] ->
                           Ok (Load_slot (location, result.value_id))
                       | Store_slot_kind, [ operand ] -> (
-                          match operand_of_value types operand with
-                          | Some operand ->
+                          match memory_operand_of_value types operand with
+                          | Some operand when value_matches stored_type operand
+                            ->
                               Ok
                                 (Store_slot
                                    ( location,
                                      operand,
                                      result.value_id,
-                                     word_type ))
-                          | None ->
+                                     stored_type ))
+                          | _ ->
                               Error (invalid_type_matrix block_id description))
-                      | Update_slot_kind operation, [ operand ] -> (
+                      | Update_slot_kind operation, [ operand ]
+                        when match stored_type with
+                             | Stored_word _ -> true
+                             | _ -> false -> (
+                          let word_type =
+                            match stored_type with
+                            | Stored_word t -> t
+                            | _ -> assert false
+                          in
                           match operand_of_value types operand with
                           | Some operand ->
                               Ok
@@ -821,7 +943,15 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
                                      word_type ))
                           | None ->
                               Error (invalid_type_matrix block_id description))
-                      | Increment_slot_kind (operation, old_result), [] ->
+                      | Increment_slot_kind (operation, old_result), []
+                        when match stored_type with
+                             | Stored_word _ -> true
+                             | _ -> false ->
+                          let word_type =
+                            match stored_type with
+                            | Stored_word t -> t
+                            | _ -> assert false
+                          in
                           Ok
                             (Update_slot
                                ( location,
@@ -941,9 +1071,11 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
                   description.payload )
               with
               | [ operand_id ], None, None, None -> (
-                  match operand_of_value types operand_id with
-                  | Some operand -> Ok (Discard operand)
-                  | None -> Error (invalid_type_matrix block_id description))
+                  match memory_operand_of_value types operand_id with
+                  | Some (Word_operand _ as operand) -> Ok (Discard operand)
+                  | Some (Pointer_operand _ as operand)
+                    when Option.is_some frame -> Ok (Discard operand)
+                  | _ -> Error (invalid_type_matrix block_id description))
               | _ -> Error (malformed block_id description))
           | Return_value_kind -> (
               match
@@ -1194,16 +1326,23 @@ let prepare ?frame ?globals ?initialization ?callees graph =
                     | ( Some result,
                         ({ callee; phase = Collecting count } as call) :: rest )
                       when count < Array.length callee.parameter_types -> (
-                        match operand_of_value types result.value_id with
-                        | Some operand ->
+                        match memory_operand_of_value types result.value_id with
+                        | Some operand
+                          when value_matches
+                                 callee.parameter_types.(Array.length
+                                                           callee
+                                                             .parameter_types
+                                                         - 1 - count)
+                                 operand ->
                             calls :=
                               { call with phase = Collecting (count + 1) }
                               :: rest;
                             Some operand
-                        | None ->
+                        | _ ->
                             errors_rev :=
                               call_error description
-                                "pushed argument is not a checked integer word"
+                                "pushed argument does not match its checked \
+                                 word or pointer parameter"
                               :: !errors_rev;
                             None)
                     | _ ->
@@ -1266,14 +1405,17 @@ let runtime_error ?instruction block executed_steps code message =
         ~instruction_id:instruction.instruction_id ?span:instruction.span code
         message
 
-type call_scope = { arguments_rev : word list; returned_word : word option }
+type call_scope = {
+  arguments_rev : runtime_value list;
+  returned_word : word option;
+}
 
 type caller = {
   saved_program : prepared;
   saved_block : int;
   saved_instruction : int;
-  saved_values : word Value_map.t;
-  saved_slots : word option array;
+  saved_values : runtime_value Value_map.t;
+  saved_slots : runtime_storage;
   saved_return : word option;
   saved_calls : call_scope list;
 }
@@ -1284,12 +1426,23 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
   let current_block = ref program.entry_index in
   let current_instruction = ref 0 in
   let values = ref Value_map.empty in
-  let slots = ref (Array.copy program.initial_slots) in
+  let make_storage cells unknown_message =
+    { cells = Array.copy cells; live = true; unknown_message }
+  in
+  let frame_storage cells =
+    make_storage cells "the reached frame slot has not been initialized"
+  in
+  let global_storage =
+    make_storage
+      (Array.map (Option.map (fun word -> Runtime_word word)) global_words)
+      "hosted execution reached an uninitialized JIT persistent object"
+  in
+  let slots = ref (frame_storage program.initial_slots) in
   let program = ref program in
   let callers = ref [] in
   let calls = ref [] in
   let depth = ref 0 in
-  let live_frame_bytes = ref (Array.length !slots * 8) in
+  let live_frame_bytes = ref (Array.length !slots.cells * 8) in
   let final_value = ref None in
   let pending_return = ref None in
   let steps = ref 0 in
@@ -1303,13 +1456,70 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
   in
   let require_operand block instruction operand =
     match Value_map.find_opt operand.value_id !values with
-    | Some word when word.type_ = operand.expected_type -> Some word
+    | Some (Runtime_word word) when word.type_ = operand.expected_type ->
+        Some word
     | Some _ | None ->
         failed :=
           Some
             (runtime_error ~instruction block !steps "HCIRVM0008"
                "a prepared operand is unavailable or has the wrong word type");
         None
+  in
+  let require_pointer block instruction operand =
+    match Value_map.find_opt operand.pointer_value !values with
+    | Some (Runtime_pointer address) -> (
+        match Type.dereference operand.pointer_type with
+        | Ok expected
+          when Type.equal expected address.pointer_pointee
+               && address.pointer_storage.live && address.pointer_index >= 0
+               && address.pointer_index
+                  < Array.length address.pointer_storage.cells -> Some address
+        | _ ->
+            failed :=
+              Some
+                (runtime_error ~instruction block !steps "HCIRVM0018"
+                   "pointer does not identify a live object of its checked \
+                    pointee type");
+            None)
+    | _ ->
+        failed :=
+          Some
+            (runtime_error ~instruction block !steps "HCIRVM0018"
+               "prepared pointer value is unavailable or invalid");
+        None
+  in
+  let require_value block instruction = function
+    | Word_operand operand ->
+        Option.map
+          (fun word -> Runtime_word word)
+          (require_operand block instruction operand)
+    | Pointer_operand operand ->
+        Option.map
+          (fun address -> Runtime_pointer address)
+          (require_pointer block instruction operand)
+  in
+  let coerce_value expected = function
+    | Runtime_word word -> (
+        match expected with
+        | Stored_word type_ -> Some (Runtime_word { type_; bits = word.bits })
+        | _ -> None)
+    | Runtime_pointer address -> (
+        match expected with
+        | Stored_pointer type_ -> (
+            match Type.pointer_to address.pointer_pointee with
+            | Ok actual
+              when Type.equal type_ actual && address.pointer_storage.live ->
+                Some (Runtime_pointer address)
+            | _ -> None)
+        | _ -> None)
+  in
+  let resolve_location block instruction = function
+    | Frame_slot index -> Some (!slots, index)
+    | Global_slot index -> Some (global_storage, index)
+    | Indirect_slot operand ->
+        Option.map
+          (fun address -> (address.pointer_storage, address.pointer_index))
+          (require_pointer block instruction operand)
   in
   while Option.is_none !completed && Option.is_none !failed do
     if !current_block < 0 || !current_block >= Array.length !program.blocks then
@@ -1379,15 +1589,21 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                       :: !callers;
                     incr depth;
                     live_frame_bytes := !live_frame_bytes + callee.frame_bytes;
-                    let initialized = Array.copy body.initial_slots in
+                    let initialized = frame_storage body.initial_slots in
                     scope.arguments_rev
-                    |> List.iteri (fun position word ->
-                        initialized.(position) <-
-                          Some
-                            {
-                              type_ = callee.parameter_types.(position);
-                              bits = word.bits;
-                            });
+                    |> List.iteri (fun position value ->
+                        match
+                          coerce_value callee.parameter_types.(position) value
+                        with
+                        | Some value ->
+                            initialized.cells.(position) <- Some value
+                        | None ->
+                            failed :=
+                              Some
+                                (runtime_error ~instruction block !steps
+                                   "HCIRVM0008"
+                                   "prepared argument disagrees with its \
+                                    checked parameter"));
                     program := body;
                     slots := initialized;
                     values := Value_map.empty;
@@ -1405,45 +1621,51 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
               | { returned_word = Some word; _ } :: rest when word.type_ = type_
                 ->
                   calls := rest;
-                  values := Value_map.add result word !values
+                  values := Value_map.add result (Runtime_word word) !values
               | _ ->
                   failed :=
                     Some
                       (runtime_error ~instruction block !steps "HCIRVM0008"
                          "direct call did not supply its declared return word"))
           | Frame_address_tick -> ()
+          | Materialize_address (location, result, pointer_pointee) -> (
+              match resolve_location block instruction location with
+              | Some (pointer_storage, pointer_index) ->
+                  values :=
+                    Value_map.add result
+                      (Runtime_pointer
+                         { pointer_storage; pointer_index; pointer_pointee })
+                      !values
+              | None -> ())
           | Load_slot (location, result) -> (
-              let storage, index, message =
-                match location with
-                | Frame_slot index ->
-                    ( !slots,
-                      index,
-                      "the reached frame slot has not been initialized" )
-                | Global_slot index ->
-                    ( global_words,
-                      index,
-                      "hosted execution reached an uninitialized JIT \
-                       persistent object" )
-              in
-              match storage.(index) with
-              | Some word -> values := Value_map.add result word !values
-              | None ->
-                  failed :=
-                    Some
-                      (runtime_error ~instruction block !steps "HCIRVM0012"
-                         message))
-          | Store_slot (location, operand, result, type_) -> (
-              match require_operand block instruction operand with
+              match resolve_location block instruction location with
               | None -> ()
-              | Some operand ->
-                  let word = { type_; bits = operand.bits } in
-                  let storage, index =
-                    match location with
-                    | Frame_slot index -> (!slots, index)
-                    | Global_slot index -> (global_words, index)
-                  in
-                  storage.(index) <- Some word;
-                  values := Value_map.add result word !values)
+              | Some (storage, index) -> (
+                  match storage.cells.(index) with
+                  | Some value -> values := Value_map.add result value !values
+                  | None ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0012"
+                             storage.unknown_message)))
+          | Store_slot (location, operand, result, type_) -> (
+              match require_value block instruction operand with
+              | None -> ()
+              | Some operand -> (
+                  match
+                    ( coerce_value type_ operand,
+                      resolve_location block instruction location )
+                  with
+                  | Some value, Some (storage, index) ->
+                      storage.cells.(index) <- Some value;
+                      values := Value_map.add result value !values
+                  | _, None -> ()
+                  | None, _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0008"
+                             "prepared store disagrees with its checked \
+                              storage type")))
           | Update_slot (location, operation, operand, old_result, result, type_)
             -> (
               let right =
@@ -1454,44 +1676,41 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
               match right with
               | None -> ()
               | Some right -> (
-                  let storage, index, message =
-                    match location with
-                    | Frame_slot index ->
-                        ( !slots,
-                          index,
-                          "the reached frame slot has not been initialized" )
-                    | Global_slot index ->
-                        ( global_words,
-                          index,
-                          "hosted execution reached an uninitialized JIT \
-                           persistent object" )
-                  in
-                  match storage.(index) with
-                  | None ->
-                      failed :=
-                        Some
-                          (runtime_error ~instruction block !steps "HCIRVM0012"
-                             message)
-                  | Some old -> (
-                      (* BackA.HC/BackB.HC read at the update, after the RHS.
-                         Failed arithmetic must not publish a store or result. *)
-                      match
-                        binary_bits ~compound:true operation old right type_
-                      with
-                      | Error (code, message) ->
+                  match resolve_location block instruction location with
+                  | None -> ()
+                  | Some (storage, index) -> (
+                      match storage.cells.(index) with
+                      | None ->
                           failed :=
                             Some
-                              (runtime_error ~instruction block !steps code
-                                 message)
-                      | Ok bits ->
-                          let word = { type_; bits } in
-                          storage.(index) <- Some word;
-                          values :=
-                            Value_map.add result
-                              (if old_result then old else word)
-                              !values)))
+                              (runtime_error ~instruction block !steps
+                                 "HCIRVM0012" storage.unknown_message)
+                      | Some (Runtime_pointer _) ->
+                          failed :=
+                            Some
+                              (runtime_error ~instruction block !steps
+                                 "HCIRVM0008"
+                                 "scalar update reached a pointer-valued slot")
+                      | Some (Runtime_word old) -> (
+                          (* Read the original object after RHS effects, including calls through aliases. *)
+                          match
+                            binary_bits ~compound:true operation old right type_
+                          with
+                          | Error (code, message) ->
+                              failed :=
+                                Some
+                                  (runtime_error ~instruction block !steps code
+                                     message)
+                          | Ok bits ->
+                              let word = { type_; bits } in
+                              storage.cells.(index) <- Some (Runtime_word word);
+                              values :=
+                                Value_map.add result
+                                  (Runtime_word
+                                     (if old_result then old else word))
+                                  !values))))
           | Immediate (result, word) ->
-              values := Value_map.add result word !values
+              values := Value_map.add result (Runtime_word word) !values
           | Unary (operation, operand, result, result_type) -> (
               match require_operand block instruction operand with
               | None -> ()
@@ -1504,14 +1723,16 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                     | Negate -> Int64.neg operand.bits
                   in
                   values :=
-                    Value_map.add result { type_ = result_type; bits } !values)
+                    Value_map.add result
+                      (Runtime_word { type_ = result_type; bits })
+                      !values)
           | Word_view (operand, result, result_type) -> (
               match require_operand block instruction operand with
               | None -> ()
               | Some operand ->
                   values :=
                     Value_map.add result
-                      { type_ = result_type; bits = operand.bits }
+                      (Runtime_word { type_ = result_type; bits = operand.bits })
                       !values)
           | Binary (operation, left, right, result, result_type) -> (
               match require_operand block instruction left with
@@ -1524,7 +1745,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                       | Ok bits ->
                           values :=
                             Value_map.add result
-                              { type_ = result_type; bits }
+                              (Runtime_word { type_ = result_type; bits })
                               !values
                       | Error (code, message) ->
                           failed :=
@@ -1532,7 +1753,11 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                               (runtime_error ~instruction block !steps code
                                  message))))
           | Discard operand ->
-              let value = require_operand block instruction operand in
+              let value =
+                Option.bind (require_value block instruction operand) (function
+                  | Runtime_word word -> Some word
+                  | Runtime_pointer _ -> None)
+              in
               if
                 capture_last && (not !program.is_function)
                 && Option.is_none !active_initializer
@@ -1570,6 +1795,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                   (runtime_error ~instruction block !steps "HCIRVM0013"
                      "the integer function returned without a value")
           | Return -> (
+              !slots.live <- false;
               match !callers with
               | [] -> completed := Some (Returned !pending_return)
               | caller :: rest -> (
@@ -1577,7 +1803,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                   callers := rest;
                   decr depth;
                   live_frame_bytes :=
-                    !live_frame_bytes - (Array.length !slots * 8);
+                    !live_frame_bytes - (Array.length !slots.cells * 8);
                   program := caller.saved_program;
                   current_block := caller.saved_block;
                   current_instruction := caller.saved_instruction;
@@ -1592,7 +1818,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
           if Option.is_none !failed then
             Option.iter
               (fun operand ->
-                match (require_operand block instruction operand, !calls) with
+                match (require_value block instruction operand, !calls) with
                 | Some word, scope :: rest ->
                     calls :=
                       { scope with arguments_rev = word :: scope.arguments_rev }
@@ -1604,6 +1830,9 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                            "prepared argument push has no active call"))
               instruction.push_result)
   done;
+  !slots.live <- false;
+  List.iter (fun caller -> caller.saved_slots.live <- false) !callers;
+  global_storage.live <- false;
   match (!failed, !completed) with
   | Some error, _ ->
       let error =
@@ -1753,7 +1982,8 @@ let execute_program ?globals ?initialization ?(max_global_bytes = 1_048_576)
               ]
           else
             let* context =
-              frame_context ?globals ~max_frame_bytes ~frame
+              frame_context ?globals ~pointer_arguments:true ~max_frame_bytes
+                ~frame
                 ~arguments:(List.init parameter_count (fun _ -> 0L))
                 body
               |> Result.map_error (List.map (identify body))
@@ -1765,7 +1995,7 @@ let execute_program ?globals ?initialization ?(max_global_bytes = 1_048_576)
                 callee_return_type = Function.return_type body;
                 parameter_types =
                   Array.init parameter_count (fun position ->
-                      context.slots.(position).word_type);
+                      context.slots.(position).stored_type);
                 cleanup_opcode =
                   (if
                      Sema.Function_flag.caller_expects_callee_pop

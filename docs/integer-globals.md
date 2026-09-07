@@ -1,5 +1,9 @@
 # Shared integer globals
 
+[Scalar pointer aliases](integer-pointers.md) can reference these global words
+from function locals and fixed parameters. Dereferences share the same cells as
+ordinary global reads and writes. Pointer-valued globals remain unsupported.
+
 Reference: `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
 The first V3 global-storage fixture uses the same parser, semantic passes,
@@ -32,7 +36,7 @@ in human output and `global_byte_limit` in JSON. Every resource limit must be
 positive.
 
 The accepted declarations are ordinary public I64/U64 scalar objects on the
-code heap, without aliases. [Scalar declaration initializers](integer-global-initializers.md)
+code heap. [Scalar declaration initializers](integer-global-initializers.md)
 now retain bounded constant preparation and source-ordered compile/load regions. Comma groups and
 source-visible distinct objects work. Loads and simple assignments compose in
 top-level expressions, loop bodies, call arguments, automatic-local initializer
@@ -79,8 +83,8 @@ and emits nonconstant AOT code-heap initialization as `IET_MAIN` routines.
 globals reject `=` at `PrsStmt.HC:336-338`. The source assignment in the first
 fixture establishes shared storage without erasing these phase rules.
 
-Static locals, external/import/data-heap storage, aliases, arrays,
-aggregates, pointers, callbacks and narrow/floating
+External/import/data-heap storage, arrays,
+aggregates, pointer-valued globals, callbacks and narrow/floating
 storage remain unsupported, even in unused declarations. Runtime output,
 stateful compilation and #exe, optimizer parity, native backends, actual-loader
 acceptance and bootstrap remain full-compiler requirements. These tests add
