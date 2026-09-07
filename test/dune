@@ -2,13 +2,17 @@
  (name test_integer_program_cli)
  (modules test_integer_program_cli)
  (libraries holyc_lib unix yojson)
- (deps cli/integer-program.hc ../examples/integer-function.hc)
+ (deps
+  cli/integer-program.hc
+  ../examples/integer-function.hc
+  ../examples/integer-nested-calls.hc)
  (action
   (run
    %{test}
    %{exe:../bin/holyc.exe}
    %{dep:cli/integer-program.hc}
-   %{dep:../examples/integer-function.hc})))
+   %{dep:../examples/integer-function.hc}
+   %{dep:../examples/integer-nested-calls.hc})))
 
 (test
  (name test_main)
@@ -17,6 +21,7 @@
   test_integer_expression
   test_integer_program
   test_integer_functions
+  test_integer_nested_calls
   test_ir_comparison_chains
   test_ir_integer_frames
   test_ir_integer_division

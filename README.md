@@ -79,6 +79,12 @@ for the source rules, accepted domain, fault semantics and test commands.
 
 ## Current status
 
+Checked integer calls now compose inside arithmetic, arguments, initializers,
+conditions and returns. The [nested-call example](examples/integer-nested-calls.hc)
+combines returned calls and a mutable loop and returns 42 through `run --target=ir`
+in both modes. See [nested integer calls](docs/integer-nested-calls.md) for the
+supported contexts, resource bounds and remaining domain.
+
 The low-level `Ir_integer_interpreter.execute_function` now executes checked
 `I64`/`U64` parameter and automatic-local slots in one verified named body.
 Expression and return lowering can use the same exact frame. Storage survives

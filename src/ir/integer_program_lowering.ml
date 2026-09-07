@@ -153,51 +153,47 @@ let lower ?frame ?(top_calls = []) ?(function_calls = []) ~span statements =
                   ())
               errors))
     in
-    let rec call_root value =
-      match
-        ( Source.argument_expression_kind (Typed.result_source value),
-          Typed.result_operand value )
-      with
-      | Source.Parenthesized_expression source, Some child
-        when Typed.result_source child == source
-             && Typed.result_intrinsic_conversion value
-                = Typed.No_intrinsic_conversion -> call_root child
-      | _ -> value
-    in
-    let direct_call ~instruction_id ~value_id value =
-      let value = call_root value in
-      match
-        List.find_opt
-          (fun target ->
-            let call =
-              Sema.Top_level_function_call_target_classification.source target
-            in
-            Typed.Id.equal
-              (Typed.top_level_direct_result_id call)
-              (Typed.result_id value))
-          top_calls
-      with
-      | Some target ->
-          Direct_call_lowering.lower_top_level ?frame ~instruction_id ~value_id
-            ~target value
-      | None -> (
-          match
-            List.find_opt
-              (fun target ->
-                match Typed.result_call_resolution value with
-                | Some (Source.Direct_call call) ->
-                    call
-                    == (target
-                      |> Sema.Function_call_target_classification.source
-                      |> Typed.direct_source
-                      |> Sema.Function_call_conversion_policy.direct_source)
-                | _ -> false)
-              function_calls
-          with
-          | Some target ->
-              Direct_call_lowering.lower ?frame ~instruction_id ~value_id
-                ~target value
-          | None -> Ok Direct_call_lowering.Unsupported_call)
+    let rec direct_call ~instruction_id ~value_id value =
+      let lowered =
+        match
+          List.find_opt
+            (fun target ->
+              let call =
+                Sema.Top_level_function_call_target_classification.source target
+              in
+              Typed.Id.equal
+                (Typed.top_level_direct_result_id call)
+                (Typed.result_id value))
+            top_calls
+        with
+        | Some target ->
+            Direct_call_lowering.lower_top_level ?frame ~lower_call:direct_call
+              ~instruction_id ~value_id ~target value
+        | None -> (
+            match
+              List.find_opt
+                (fun target ->
+                  match Typed.result_call_resolution value with
+                  | Some (Source.Direct_call call) ->
+                      call
+                      == (target
+                        |> Sema.Function_call_target_classification.source
+                        |> Typed.direct_source
+                        |> Sema.Function_call_conversion_policy.direct_source)
+                  | _ -> false)
+                function_calls
+            with
+            | Some target ->
+                Direct_call_lowering.lower ?frame ~lower_call:direct_call
+                  ~instruction_id ~value_id ~target value
+            | None -> Ok Direct_call_lowering.Unsupported_call)
+      in
+      Result.map
+        (function
+          | Direct_call_lowering.Unsupported_call -> None
+          | Direct_call_lowering.Lowered result ->
+              Some (Direct_call_lowering.sequence result))
+        lowered
     in
     let expression value =
       let instruction_id =
@@ -205,32 +201,14 @@ let lower ?frame ?(top_calls = []) ?(function_calls = []) ~span statements =
       in
       let value_id = Sequence.Value_id.of_int !value_count |> checked_id in
       match
-        Expression_lowering.lower_typed_result ?frame ~instruction_id ~value_id
-          value
+        Expression_lowering.lower_typed_result ?frame ~lower_call:direct_call
+          ~instruction_id ~value_id value
       with
-      | Error errors ->
-          raise
-            (Invalid
-               (List.map
-                  (fun (e : Sequence.error) ->
-                    Common.Diagnostic.make ~code:e.code
-                      ~severity:Common.Diagnostic.Error ~message:e.message
-                      ~primary:(Option.value e.span ~default:span)
-                      ())
-                  errors))
-      | Ok Expression_lowering.Unsupported_expression -> (
-          match direct_call ~instruction_id ~value_id value with
-          | Error errors -> lower_errors errors
-          | Ok Direct_call_lowering.Unsupported_call ->
-              fail
-                (span_of_result span value)
-                "HCRUN0003" "expression is outside integer program lowering"
-          | Ok (Direct_call_lowering.Lowered result) ->
-              append_fragment
-                (Direct_call_lowering.sequence result)
-                (Direct_call_lowering.next_instruction_id result)
-                (Direct_call_lowering.next_value_id result)
-                (Direct_call_lowering.result_value result))
+      | Error errors -> lower_errors errors
+      | Ok Expression_lowering.Unsupported_expression ->
+          fail
+            (span_of_result span value)
+            "HCRUN0003" "expression is outside integer program lowering"
       | Ok (Expression_lowering.Lowered result) -> append_expression result
     in
     let rec condition value ~yes ~no =
@@ -289,6 +267,7 @@ let lower ?frame ?(top_calls = []) ?(function_calls = []) ~span statements =
           | Some frame -> (
               match
                 Expression_lowering.lower_initializer ~frame
+                  ~lower_call:direct_call
                   ~instruction_id:
                     (Sequence.Instruction_id.of_int !instruction_count
                     |> checked_id)
@@ -309,6 +288,7 @@ let lower ?frame ?(top_calls = []) ?(function_calls = []) ~span statements =
           | Some leave -> (
               match
                 Return_lowering.lower_function_return ?frame
+                  ~lower_call:direct_call
                   ~instruction_id:
                     (Sequence.Instruction_id.of_int !instruction_count
                     |> checked_id)

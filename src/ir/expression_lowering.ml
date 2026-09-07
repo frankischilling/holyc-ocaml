@@ -18,6 +18,13 @@ type t = {
 }
 
 type lowering_result = Lowered of t | Unsupported_expression
+
+type call_lowerer =
+  instruction_id:Sequence.Instruction_id.t ->
+  value_id:Sequence.Value_id.t ->
+  Semantic_result.expression_result ->
+  (Sequence.t option, Sequence.error list) result
+
 type checked_type = Checked_type of Type.t | Unsupported_type
 type result_conversion = Keep_result | Result_to_f64 | Result_to_int
 
@@ -38,6 +45,10 @@ type cancellation =
   | Canceled_dereference of Semantic_result.expression_result
 
 type plan_node =
+  | Call of {
+      result : Semantic_result.expression_result;
+      conversion : result_conversion;
+    }
   | Frame_address of {
       result : Semantic_result.expression_result;
       address : Frame_address_lowering.prepared_address;
@@ -1304,7 +1315,7 @@ let rec prepare_assignment_address ~frame result =
       | Ok operand -> prepare_assignment_address ~frame operand)
   | _ -> Frame_address_lowering.prepare ~frame result
 
-let plan ?frame root =
+let plan ?frame ~allow_calls root =
   let root_conversion = requested_conversion root in
   let pending = ref [] in
   let reversed = ref [] in
@@ -1731,6 +1742,10 @@ let plan ?frame root =
                                  conversion;
                                }
                           :: !pending))
+            | Semantic_source.Unresolved_expression
+                Semantic_source.Call_expression
+              when allow_calls ->
+                reversed := Call { result; conversion } :: !reversed
             | Semantic_source.Postfix_expression _
             | Semantic_source.Index_expression _
             | Semantic_source.Aggregate_offset_base_expression _
@@ -1909,7 +1924,77 @@ let lower_direct_function_address allocator ~span ~result_type ~symbol ~path
         (metadata_error ~span
            "rejected direct function address path reached IR emission")
 
-let emit_plan ~instruction_id ~value_id nodes =
+let checked_call_fragment allocator result conversion sequence =
+  let span = result_span result in
+  let invalid message = metadata_error ?span message in
+  let descriptions =
+    Sequence.instructions sequence |> List.map Sequence.description
+  in
+  let instruction = ref allocator.instruction in
+  let value = ref allocator.value in
+  let error = ref None in
+  let advance counter =
+    if !counter = Int.max_int then
+      error :=
+        Some
+          (lowering_error ?span "HCIRL0005"
+             "call fragment exhausts expression identities")
+    else incr counter
+  in
+  List.iter
+    (fun (item : Sequence.description) ->
+      if Option.is_none !error then (
+        if Sequence.Instruction_id.to_int item.instruction_id <> !instruction
+        then
+          error :=
+            Some
+              (invalid
+                 "call fragment instruction identities are not consecutive")
+        else advance instruction;
+        match item.result with
+        | Some produced ->
+            if Sequence.Value_id.to_int produced.value_id <> !value then
+              error :=
+                Some
+                  (invalid "call fragment value identities are not consecutive")
+            else advance value
+        | None -> ()))
+    descriptions;
+  match !error with
+  | Some error -> Error error
+  | None -> (
+      match
+        (descriptions, List.rev descriptions, Semantic_result.result_type result)
+      with
+      | first :: _, last :: rest, Some expected -> (
+          match
+            (first.payload, last.payload, last.result, last.target_type)
+          with
+          | ( Some (Sequence.Symbol first_symbol),
+              Some (Sequence.Symbol last_symbol),
+              Some produced,
+              Some actual )
+            when first.opcode = Opcode.Ic_call_start
+                 && last.opcode = Opcode.Ic_call_end
+                 && first_symbol == last_symbol
+                 && Type.equal actual expected && last.span = span
+                 && last.flags = 0L ->
+              allocator.instruction <- !instruction;
+              allocator.value <- !value;
+              let last =
+                { last with Sequence.flags = conversion_flags conversion }
+              in
+              Ok
+                ( List.rev (last :: rest),
+                  { lowered_value = produced.value_id; lowered_type = actual }
+                )
+          | _ ->
+              Error
+                (invalid
+                   "call fragment does not end with its checked call result"))
+      | _ -> Error (invalid "call fragment has no checked call result"))
+
+let emit_plan ?lower_call ~instruction_id ~value_id nodes =
   let allocator =
     {
       instruction = Sequence.Instruction_id.to_int instruction_id;
@@ -1920,6 +2005,7 @@ let emit_plan ~instruction_id ~value_id nodes =
   let comparison_domains = ref Int_map.empty in
   let descriptions_rev = ref [] in
   let error = ref None in
+  let unsupported = ref false in
   let frame_address address =
     match
       ( Sequence.Instruction_id.of_int allocator.instruction,
@@ -1955,8 +2041,35 @@ let emit_plan ~instruction_id ~value_id nodes =
   in
   List.iter
     (fun node ->
-      if Option.is_none !error then
+      if Option.is_none !error && not !unsupported then
         match node with
+        | Call { result; conversion } -> (
+            match
+              ( lower_call,
+                Sequence.Instruction_id.of_int allocator.instruction,
+                Sequence.Value_id.of_int allocator.value )
+            with
+            | _, Error item, _ | _, _, Error item -> error := Some item
+            | None, _, _ -> unsupported := true
+            | Some lower_call, Ok instruction_id, Ok value_id -> (
+                match lower_call ~instruction_id ~value_id result with
+                | Error (item :: _) -> error := Some item
+                | Error [] ->
+                    error :=
+                      Some
+                        (metadata_error
+                           "call callback failed without a diagnostic")
+                | Ok None -> unsupported := true
+                | Ok (Some sequence) -> (
+                    match
+                      checked_call_fragment allocator result conversion sequence
+                    with
+                    | Error item -> error := Some item
+                    | Ok (descriptions, node) ->
+                        descriptions_rev :=
+                          List.rev_append descriptions !descriptions_rev;
+                        lowered := Int_map.add (result_key result) node !lowered
+                    )))
         | Frame_address { result; address } -> (
             match frame_address address with
             | Error item -> error := Some item
@@ -2313,6 +2426,7 @@ let emit_plan ~instruction_id ~value_id nodes =
     nodes;
   match !error with
   | Some item -> Error [ item ]
+  | None when !unsupported -> Ok None
   | None -> (
       match List.rev !descriptions_rev with
       | [] ->
@@ -2324,6 +2438,7 @@ let emit_plan ~instruction_id ~value_id nodes =
           | Ok sequence -> (
               let root =
                 match List.rev nodes with
+                | Call { result; _ } :: _
                 | Frame_address { result; _ } :: _
                 | Frame_load { result; _ } :: _
                 | Literal { result; _ } :: _
@@ -2346,26 +2461,29 @@ let emit_plan ~instruction_id ~value_id nodes =
                   with
                   | Ok next_instruction_id_, Ok next_value_id_ ->
                       Ok
-                        {
-                          sequence_ = sequence;
-                          result_value_ = lowered_root.lowered_value;
-                          result_type_ = lowered_root.lowered_type;
-                          next_instruction_id_;
-                          next_value_id_;
-                        }
+                        (Some
+                           {
+                             sequence_ = sequence;
+                             result_value_ = lowered_root.lowered_value;
+                             result_type_ = lowered_root.lowered_type;
+                             next_instruction_id_;
+                             next_value_id_;
+                           })
                   | Error item, _ | _, Error item -> Error [ item ]))))
 
-let lower_typed_result ?frame ~instruction_id ~value_id result =
-  match plan ?frame result with
+let lower_typed_result ?frame ?lower_call ~instruction_id ~value_id result =
+  match plan ?frame ~allow_calls:(Option.is_some lower_call) result with
   | Error items -> Error items
   | Ok Unsupported_plan -> Ok Unsupported_expression
   | Ok (Planned nodes) ->
-      emit_plan ~instruction_id ~value_id nodes
-      |> Result.map (fun t -> Lowered t)
+      emit_plan ?lower_call ~instruction_id ~value_id nodes
+      |> Result.map (function
+        | Some t -> Lowered t
+        | None -> Unsupported_expression)
 
 let sequence lowered = lowered.sequence_
 
-let lower_initializer ~frame ~instruction_id ~value_id initial =
+let lower_initializer ~frame ?lower_call ~instruction_id ~value_id initial =
   let ( let* ) = Result.bind in
   let value = Semantic_result.initializer_value initial in
   let target_type = Semantic_result.initializer_target_type initial in
@@ -2386,7 +2504,7 @@ let lower_initializer ~frame ~instruction_id ~value_id initial =
         Frame_address_lowering.lower_prepared ~instruction_id ~value_id address
       in
       let* lowered =
-        lower_typed_result ~frame
+        lower_typed_result ~frame ?lower_call
           ~instruction_id:(Frame_address_lowering.next_instruction_id address)
           ~value_id:(Frame_address_lowering.next_value_id address)
           value

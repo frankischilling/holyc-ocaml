@@ -416,8 +416,10 @@ let declared_types ?frame ?(allow_calls = false) block =
                          | _ -> Unsupported)
                      | Some context, Opcode.Ic_add when frame_pointer type_ ->
                          address_slot context types description
-                     | Some _, opcode
-                       when match opcode_kind opcode with
+                     | _, opcode
+                       when (Option.is_some frame || allow_calls)
+                            &&
+                            match opcode_kind opcode with
                             | Some (Unary_kind _ | Binary_kind _) -> true
                             | _ -> false -> (
                          match return_word_type type_ with
@@ -563,8 +565,8 @@ let invalid_type_matrix block_id description =
     (Printf.sprintf "%s has an invalid operand/result word-type relationship"
        (Opcode.to_source_name description.Sequence.opcode))
 
-let prepare_instruction ?frame block_index types block_id
-    (description : Sequence.description) =
+let prepare_instruction ?frame ?(allow_public = false) block_index types
+    block_id (description : Sequence.description) =
   let kind =
     match (frame, description.opcode) with
     | Some _, Opcode.Ic_rbp -> Some Frame_address_kind
@@ -674,7 +676,8 @@ let prepare_instruction ?frame block_index types block_id
               with
               | [ operand_id ], Some result, Some result_type, None -> (
                   match
-                    scalar_word_type ~allow_public:(Option.is_some frame)
+                    scalar_word_type
+                      ~allow_public:(Option.is_some frame || allow_public)
                       result_type
                   with
                   | None -> Error (unsupported_type block_id description)
@@ -723,7 +726,8 @@ let prepare_instruction ?frame block_index types block_id
               with
               | [ left_id; right_id ], Some result, Some result_type, None -> (
                   match
-                    scalar_word_type ~allow_public:(Option.is_some frame)
+                    scalar_word_type
+                      ~allow_public:(Option.is_some frame || allow_public)
                       result_type
                   with
                   | None -> Error (unsupported_type block_id description)
@@ -964,7 +968,8 @@ let prepare ?frame ?callees graph =
                 (call_error description
                    "direct call cleanup and call end must follow the call")
           | _ ->
-              prepare_instruction ?frame block_index types block_id description
+              prepare_instruction ?frame ~allow_public:true block_index types
+                block_id description
         in
         Graph.instructions block |> Sequence.instructions
         |> List.iter (fun instruction ->

@@ -15,7 +15,7 @@ opam exec -- dune exec bin/holyc.exe -- dump-ir --program examples/integer-contr
 The accepted statements are ordinary integer expressions, empty statements,
 blocks, comma statement sequences, `if`/`else`, `while`, `do`/`while`, `for`,
 and `break`, plus scalar function-local declarations and returns. Functions use
-checked I64/U64 parameter/local frames and direct root calls. See
+checked I64/U64 parameter/local frames and direct call expressions. See
 [integer source functions](integer-functions.md) for the original Add fixture,
 call shapes, argument order and storage limits. The report retains the last
 reached top-level expression value; it has no implemented Print operation.
@@ -89,7 +89,7 @@ comparison class. Multiple pending comparison reductions, such as
 `HCRUN0004` reports an inconsistent
 source/IR join, and `HCRUN0005` rejects an unavailable execution target.
 
-General memory, broader call expressions, compiler-state changes, `#exe`, native emission and
+General memory, indirect/external execution, compiler-state changes, `#exe`, native emission and
 general program execution remain unfinished under [M5 issue #396](https://github.com/frankischilling/holyc-ocaml/issues/396)
 and the backend milestones. The complete stateful compiler must execute source
 and compiler effects in stream order as those operations become available.

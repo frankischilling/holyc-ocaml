@@ -28,6 +28,6 @@ val lower :
 (** Lower integer statements with block-local values and conditional
     short-circuit branches. A checked frame enables initializer stores and
     returns through a shared leave block; top-level graphs end the stream.
-    Classified calls are accepted only as complete expression roots. The graph
-    passes graph and x87 verification; integer VM preflight belongs to
+    Classified direct calls compose through the shared expression planner. The
+    graph passes graph and x87 verification; integer VM preflight belongs to
     execution. *)

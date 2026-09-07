@@ -1,5 +1,13 @@
 # Reference source map
 
+Issue #599 composes the checked call result from `PrsExp.HC:438-586` into the
+expression planner, initializer stores and return fragments. It retains COC
+order from `PrsLib.HC:107-111`, initializer restoration from `PrsVar.HC:592-619`
+and declared return class from `PrsStmt.HC:1114-1117`. The source tests exercise
+nested calls, caller value lifetime, conditional versus value contexts and
+independent bounded frames. See [nested integer calls](integer-nested-calls.md).
+This adds hosted execution evidence without a new native capture.
+
 Source function execution under #597 retains the local initializer expression
 from `PrsVar.HC:592-619`, composes the body and shared return path from
 `PrsStmt.HC:151-169,1114-1117`, and executes the direct-call protocol from
