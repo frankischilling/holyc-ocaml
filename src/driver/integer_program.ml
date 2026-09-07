@@ -305,6 +305,7 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
                      Sema.Top_level_function_call_target_classification
                      .error_to_string)
           in
+          let all_function_calls = ref [] in
           let* definitions =
             ast.items
             |> List.mapi (fun index item -> (index, item))
@@ -380,6 +381,8 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
                               Sema.Function_call_target_classification
                               .error_to_string)
                    in
+                   all_function_calls :=
+                     List.rev_append function_calls !all_function_calls;
                    let roots =
                      root_map
                        (List.map Typed.expression_statement_value
@@ -451,7 +454,9 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
           in
           let* preparation_ =
             Integer_initializers.prepare ~max_steps:max_initializer_steps
+              ~function_calls:(List.rev !all_function_calls)
               ~span:ast.span ~globals:globals_ ~top_calls ~functions:definitions
+              ()
           in
           let globals_ = Integer_initializers.globals preparation_ in
           let roots =
@@ -478,6 +483,14 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
                     (fun root -> (slot, root))
                     (Ir.Integer_globals.slot_initializer slot))
           in
+          let pending_statics =
+            Ir.Integer_globals.statics globals_
+            |> List.filter (fun slot ->
+                Option.is_some (Ir.Integer_globals.static_initializer slot)
+                && Ir.Integer_globals.storage_preparation_steps
+                     (Ir.Integer_globals.static_storage slot)
+                   = 0)
+          in
           let statements =
             ast.items
             |> List.mapi (fun item_index item ->
@@ -491,7 +504,7 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
                         fail ast.span "HCRUN0004"
                           "module statement composition lost a source root")
                 | _ ->
-                    pending
+                    (pending
                     |> List.filter_map (fun (slot, root) ->
                         let global =
                           Ir.Integer_globals.slot_record slot
@@ -504,15 +517,24 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
                           = item_index
                         then Some (Lower.Initialize_global root)
                         else None))
+                    @ (pending_statics
+                      |> List.filter_map (fun slot ->
+                          if
+                            Frame.function_item_index
+                              (Ir.Integer_globals.static_frame slot)
+                            = item_index
+                          then Some (Lower.Initialize_static slot)
+                          else None)))
             |> List.concat
           in
-          let* entry_, regions =
-            Lower.lower_with_initializers ~globals:globals_ ~top_calls
+          let* entry_, regions, static_descriptions =
+            Lower.lower_with_storage_initializers ~globals:globals_ ~top_calls
+              ~function_calls:(List.rev !all_function_calls)
               ~span:ast.span statements
           in
           let* initialization_ =
-            Ir.Global_initialization.create ~span:ast.span ~globals:globals_
-              ~entry:entry_ regions
+            Ir.Global_initialization.create ~static_descriptions ~span:ast.span
+              ~globals:globals_ ~entry:entry_ regions
           in
           Ok
             {

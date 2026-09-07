@@ -112,10 +112,6 @@ let boundaries () =
         [
           "I64 F(I64 p){static I64 n=p;return n;}F(40);";
           "I64 F(){I64 p=40;static I64 n=p;return n;}F();";
-          "I64 G=1;I64 F(){static I64 n=G;return n;}42;";
-          "I64 G=0;I64 F(){static I64 n=(G=7);return n;}G;";
-          "I64 A(){return 42;}I64 F(){static I64 n=A();return n;}42;";
-          "I64 F(){static I64 n=F();return n;}42;";
           "I64 F(){static I64 n=1<<2;return n;}42;";
         ];
       List.iter
@@ -460,77 +456,81 @@ let internal_storage_join () =
     "cross-kind numeric identity cannot alias initial images" "HCIRL0004"
     (F.first_error result).code
 
-let nondefault_options () =
+let option_globals mode text =
   let module Source = Holyc_lib__Driver__Integer_source in
   let module Internal = Holyc_lib__Ir__Integer_globals in
   let module R = Semantic_function_resolution in
   let module Records = Semantic_function_record_classification in
+  let session, config, source = F.inputs ~mode text in
+  let parsed =
+    Parser.parse ~sources:(Session.sources session)
+      ~definitions:(Session.definitions session)
+      ~symbols:(Session.symbols session) ~config source
+  in
+  let ast = Option.get parsed.ast in
+  let prepared =
+    F.checked
+      (Source.prepare_unit ~include_global_initializers:true session ~config
+         ~span:ast.span ast)
+  in
+  let originals = Source.records prepared |> Records.declarations in
+  let options = Test_globals_on_data_heap.data_heap_mask in
+  let declarations =
+    List.map
+      (fun record ->
+        let site =
+          record |> Records.classified_declaration_source
+          |> R.resolved_declaration_site
+        in
+        R.make_declaration_with_options ~compiler_option_mask:options
+          ~function_:(R.declaration_site_function site)
+          ~kind:R.Definition
+        |> H.require_ok Fun.id)
+      originals
+  in
+  let resolution =
+    R.resolve
+      ~table:(Session.semantic_symbols session)
+      ~parent:
+        (Source.frames prepared |> Frame.functions |> List.hd
+       |> Frame.function_scope |> Semantic_symbol_table.parent |> Option.get)
+      ~compilation_mode:(if mode = Preprocessor.Jit then R.Jit else R.Aot)
+      declarations
+    |> H.require_ok Fun.id
+  in
+  let states =
+    List.map
+      (fun record ->
+        let state = Records.classified_declaration_state record in
+        Records.make_declaration_state
+          ~staging_mask:(Records.declaration_state_staging_mask state)
+          ~compiler_option_mask:options ())
+      originals
+  in
+  let records = Records.classify resolution states |> H.require_ok Fun.id in
+  let globals =
+    F.checked
+      (Internal.create
+         ~initializers:(Source.top_level prepared)
+         ~span:ast.span
+         (Source.global_records prepared))
+    |> Internal.with_statics ~span:ast.span ~frames:(Source.frames prepared)
+         ~functions:(Source.functions prepared)
+         ~records
+    |> F.checked
+  in
+  (ast.span, globals)
+
+let nondefault_options () =
   List.iter
     (fun mode ->
-      let session, config, source =
-        F.inputs ~mode "I64 F(){static I64 n=42;return n;}42;"
+      let span, globals =
+        option_globals mode "I64 F(){static I64 n=42;return n;}42;"
       in
-      let parsed =
-        Parser.parse ~sources:(Session.sources session)
-          ~definitions:(Session.definitions session)
-          ~symbols:(Session.symbols session) ~config source
-      in
-      let ast = Option.get parsed.ast in
-      let prepared =
-        F.checked
-          (Source.prepare_unit ~include_global_initializers:true session ~config
-             ~span:ast.span ast)
-      in
-      let originals = Source.records prepared |> Records.declarations in
       let options = Test_globals_on_data_heap.data_heap_mask in
-      let declarations =
-        List.map
-          (fun record ->
-            let site =
-              record |> Records.classified_declaration_source
-              |> R.resolved_declaration_site
-            in
-            R.make_declaration_with_options ~compiler_option_mask:options
-              ~function_:(R.declaration_site_function site)
-              ~kind:R.Definition
-            |> H.require_ok Fun.id)
-          originals
-      in
-      let resolution =
-        R.resolve
-          ~table:(Session.semantic_symbols session)
-          ~parent:
-            (Source.frames prepared |> Frame.functions |> List.hd
-           |> Frame.function_scope |> Semantic_symbol_table.parent |> Option.get
-            )
-          ~compilation_mode:(if mode = Preprocessor.Jit then R.Jit else R.Aot)
-          declarations
-        |> H.require_ok Fun.id
-      in
-      let states =
-        List.map
-          (fun record ->
-            let state = Records.classified_declaration_state record in
-            Records.make_declaration_state
-              ~staging_mask:(Records.declaration_state_staging_mask state)
-              ~compiler_option_mask:options ())
-          originals
-      in
-      let records = Records.classify resolution states |> H.require_ok Fun.id in
-      let globals =
-        F.checked
-          (Internal.create
-             ~initializers:(Source.top_level prepared)
-             ~span:ast.span
-             (Source.global_records prepared))
-        |> Internal.with_statics ~span:ast.span ~frames:(Source.frames prepared)
-             ~functions:(Source.functions prepared)
-             ~records
-        |> F.checked
-      in
       let preparation =
-        Holyc_lib__Driver__Integer_initializers.prepare ~max_steps:4
-          ~span:ast.span ~globals ~top_calls:[] ~functions:[]
+        Holyc_lib__Driver__Integer_initializers.prepare ~max_steps:4 ~span
+          ~globals ~top_calls:[] ~functions:[] ()
         |> F.checked
       in
       let slot = Prep.globals preparation |> Globals.statics |> List.hd in

@@ -442,4 +442,61 @@ let () =
           ("--initializer-step-limit=3", "HCIRVM0007");
         ])
     [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      let source = Sys.argv.(9) in
+      let command =
+        [
+          "run";
+          "--target=ir";
+          "--format=json";
+          "--mode=" ^ mode;
+          "--global-byte-limit=8";
+          "--frame-byte-limit=1";
+          "--call-depth-limit=1";
+          "--initializer-step-limit=1";
+          "--step-limit=32";
+          source;
+        ]
+      in
+      let result = success command |> Yojson.Safe.from_string in
+      require
+        (result |> member "final_value" |> member "value" |> to_string = "42")
+        "nonconstant static counter";
+      require
+        (result |> member "executed_steps" |> to_int = 32)
+        "static initialization runtime count";
+      require
+        (result |> member "compiled_initializer_steps" |> to_int = 0)
+        "scheduled static has no constant preparation";
+      let command = [ "dump-ir"; "--program"; "--mode=" ^ mode; source ] in
+      let dump = success command in
+      require
+        (dump = success command)
+        "static initialization deterministic dump";
+      require
+        (contains dump "holyc-static-initialization-v1"
+        && contains dump
+             ("phase="
+             ^
+             if mode = "jit" then "compile-initializer" else "load-initializer"
+             ))
+        "static declaration phase";
+      List.iter
+        (fun (limit, code) ->
+          let status, stdout, stderr =
+            invoke [ "run"; "--format=json"; "--mode=" ^ mode; limit; source ]
+          in
+          require
+            (status = Unix.WEXITED 1 && stdout = "")
+            "scheduled static bound";
+          require
+            (Yojson.Safe.from_string stderr
+            |> to_list |> List.hd |> member "code" |> to_string = code)
+            "scheduled static bound code")
+        [
+          ("--step-limit=31", "HCIRVM0007");
+          ("--global-byte-limit=7", "HCIRVM0016");
+        ])
+    [ "jit"; "aot" ];
   print_endline "Integer program CLI checks passed."

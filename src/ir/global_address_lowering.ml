@@ -219,6 +219,42 @@ let prepare_initializer ~globals root =
       error "HCIRL0004"
         "global initializer destination requires a declaration-owned root"
 
+let prepare_static_initializer ~globals slot root =
+  let ( let* ) = Stdlib.Result.bind in
+  let location = Integer_globals.static_location slot in
+  let symbol = Sema.Function_frame_layout.location_symbol location in
+  let invalid message = error "HCIRL0004" message in
+  match Integer_globals.find_static globals symbol with
+  | Some expected
+    when expected == slot
+         && Option.fold ~none:false
+              ~some:(fun expected -> expected == root)
+              (Integer_globals.static_initializer slot) -> (
+      let* _ =
+        Frame_address_lowering.prepare_initializer
+          ~frame:(Integer_globals.static_frame slot)
+          root
+      in
+      match
+        ( Result.initializer_source root |> Source.initializer_origin,
+          Type.pointer_to
+            (Sema.Function_frame_layout.location_checked_type location) )
+      with
+      | Sema.Symbol.Source_location location, Ok address_type ->
+          Ok
+            {
+              slot = Integer_globals.static_storage slot;
+              address_type;
+              span = location.span;
+            }
+      | _ ->
+          invalid
+            "static initializer has no checked pointer type or physical span")
+  | _ ->
+      invalid
+        "static initializer destination does not match its exact storage \
+         context"
+
 let lower_prepared ~instruction_id ~value_id address =
   let instruction = Sequence.Instruction_id.to_int instruction_id
   and value = Sequence.Value_id.to_int value_id in

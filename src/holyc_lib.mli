@@ -104,6 +104,7 @@ module Integer_initializer_preparation : sig
   val static_slot : static_item -> Ir.Integer_globals.static_slot
   val static_value_graph : static_item -> Ir.X87_stack.t
   val static_item_steps : static_item -> int
+  val static_classification : static_item -> classification
   val executed_steps : t -> int
   val root : item -> Sema.Function_call_expression_result.top_level_root_result
   val value_graph : item -> Ir.X87_stack.t

@@ -83,6 +83,14 @@ val lower_initializer :
 (** Store a checked scalar I64/U64 initializer into its exact automatic frame
     slot, preserving the source value and destination class. *)
 
+val lower_static_initializer :
+  globals:Integer_globals.t ->
+  ?lower_call:call_lowerer ->
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  Integer_globals.static_slot ->
+  (lowering_result, Instruction_sequence.error list) result
+
 val lower_global_initializer :
   globals:Integer_globals.t ->
   ?lower_call:call_lowerer ->

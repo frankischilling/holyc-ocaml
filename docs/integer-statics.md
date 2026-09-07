@@ -13,9 +13,9 @@ the existing scalar global executor.
 Constant initializers prepare while compiling the program, including
 declarations in unused functions, false branches and after a return. No store
 or initialization guard runs at the declaration on each invocation. A constant
-fault in an unused function therefore fails preparation. Actual reads of
-parameters, automatic locals or persistent words, assignments and calls remain
-outside static constant preparation and report the phase boundary HCRUN0006.
+fault in an unused function therefore fails preparation. [Nonconstant initializers](integer-static-initializers.md) schedule persistent
+reads, assignments and direct calls at their declaration phase. Actual reads of
+containing parameters or automatic locals report HCRUN0006.
 Pure metadata queries such as `sizeof(parameter)` are accepted.
 
 The existing initializer driver classifies original value opcodes, applies the
@@ -40,8 +40,9 @@ HCIRVM0012 unless a preceding write supplies a value.
 The immutable image retains exact static frame, location, symbol, scalar type,
 initializer and compiler-option evidence. Canonical static addresses use JIT
 `IC_IMM_I64` or AOT `IC_ABS_ADDR` with a symbol payload. Source lowering and VM
-preflight require the declaring frame: another function or the entry graph
-cannot use that static address, even if its exact symbol exists in the image.
+preflight require the declaring frame or its checked static initializer region.
+Another function cannot use that static address, even if its exact symbol exists
+in the image. Region authority never enters callees or escapes its bounds.
 `execute_function`, which has no persistent image argument, still rejects
 static frames. Static constant images require the exact checked initialization
 context on direct program replay, even with no globals or scheduled regions.
@@ -66,11 +67,10 @@ before publishing its compiled entry.
 
 ## Remaining connections
 
-Nonconstant statics need phase-aware JIT compile-time and AOT load-time
-initialization, source ordering and the existing globals-on-data-heap deferral
-option. Compile-time self-calls must respect function publication; parameter
-reads cannot capture a future invocation. These remain required by the full
-compiler goal and must not become first-call initialization.
+Nonconstant AOT statics with globals-on-data-heap still require their separate
+compile-time phase. The normal JIT/AOT declaration paths are documented in
+[static initializers](integer-static-initializers.md). Parameter reads cannot
+capture a future invocation.
 
 Pointers, arrays, narrow/floating/aggregate storage, general runtime output,
 stateful compilation, optimizer parity (#574/#585), native execution, BIN/loader

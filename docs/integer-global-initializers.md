@@ -109,9 +109,9 @@ The same guard covers compound shifts and constant-divisor `/=` and `%=`.
 assignment may become an AND mask. Scalar updates remain constant barriers,
 so `I64 H=G++;` is scheduled with H's region and phase. See [scalar updates](integer-updates.md).
 
-[Constant static images](integer-statics.md) use this preparation driver with
-separate declaration owners and the same aggregate budget. Nonconstant statics,
-aliases, data-heap/external/import storage, narrow or floating
+[Static initializers](integer-static-initializers.md) use this preparation driver
+with separate declaration owners, the same aggregate budget and checked
+nonconstant declaration regions. Aliases, data-heap/external/import storage, narrow or floating
 objects, pointers, arrays, aggregates and callbacks remain outside this path.
 General runtime output, stateful `#exe`, native backends, loader acceptance and
 bootstrap remain full-compiler requirements. These tests add hosted source

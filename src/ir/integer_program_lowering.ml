@@ -7,6 +7,7 @@ type statement =
   | Expression of Typed.expression_result
   | Initialize of Typed.initializer_result
   | Initialize_global of Typed.top_level_root_result
+  | Initialize_static of Integer_globals.static_slot
   | Return of Typed.return_result
   | Block of statement list
   | If of Typed.expression_result * statement * statement option
@@ -30,13 +31,14 @@ let span_of_result fallback result =
   | Sema.Symbol.Source_location location -> location.span
   | _ -> fallback
 
-let lower_with_initializers ?frame ?globals ?(top_calls = [])
+let lower_with_storage_initializers ?frame ?globals ?(top_calls = [])
     ?(function_calls = []) ~span statements =
   try
     let instruction_count = ref 0
     and value_count = ref 0
     and block_count = ref 0 in
     let initial_regions = ref [] in
+    let static_regions = ref [] in
     let checked_id = function
       | Ok value -> value
       | Error (e : Sequence.error) -> fail span e.code e.message
@@ -156,7 +158,7 @@ let lower_with_initializers ?frame ?globals ?(top_calls = [])
                   ())
               errors))
     in
-    let rec direct_call ~instruction_id ~value_id value =
+    let rec direct_call_in frame ~instruction_id ~value_id value =
       let lowered =
         match
           List.find_opt
@@ -167,11 +169,12 @@ let lower_with_initializers ?frame ?globals ?(top_calls = [])
               Typed.Id.equal
                 (Typed.top_level_direct_result_id call)
                 (Typed.result_id value))
-            top_calls
+            (if Option.is_some frame then [] else top_calls)
         with
         | Some target ->
             Direct_call_lowering.lower_top_level ?frame ?globals
-              ~lower_call:direct_call ~instruction_id ~value_id ~target value
+              ~lower_call:(direct_call_in frame) ~instruction_id ~value_id
+              ~target value
         | None -> (
             match
               List.find_opt
@@ -188,8 +191,8 @@ let lower_with_initializers ?frame ?globals ?(top_calls = [])
             with
             | Some target ->
                 Direct_call_lowering.lower ?frame ?globals
-                  ~lower_call:direct_call ~instruction_id ~value_id ~target
-                  value
+                  ~lower_call:(direct_call_in frame) ~instruction_id ~value_id
+                  ~target value
             | None -> Ok Direct_call_lowering.Unsupported_call)
       in
       Result.map
@@ -199,6 +202,7 @@ let lower_with_initializers ?frame ?globals ?(top_calls = [])
               Some (Direct_call_lowering.sequence result))
         lowered
     in
+    let direct_call = direct_call_in frame in
     let expression value =
       let instruction_id =
         Sequence.Instruction_id.of_int !instruction_count |> checked_id
@@ -294,6 +298,47 @@ let lower_with_initializers ?frame ?globals ?(top_calls = [])
               fail at "HCRUN0004"
                 "global initializer requires program storage and a module entry"
           )
+      | Initialize_static slot -> (
+          match (globals, frame, Integer_globals.static_initializer slot) with
+          | Some globals, None, Some static_root -> (
+              let at =
+                span_of_result span (Typed.initializer_value static_root)
+              in
+              let first =
+                Sequence.Instruction_id.of_int !instruction_count |> checked_id
+              in
+              match
+                Expression_lowering.lower_static_initializer ~globals
+                  ~lower_call:
+                    (direct_call_in (Some (Integer_globals.static_frame slot)))
+                  ~instruction_id:first
+                  ~value_id:(Sequence.Value_id.of_int !value_count |> checked_id)
+                  slot
+              with
+              | Error errors -> lower_errors errors
+              | Ok Expression_lowering.Unsupported_expression ->
+                  fail at "HCRUN0003"
+                    "static initializer is outside integer program lowering"
+              | Ok (Expression_lowering.Lowered result) ->
+                  let operand = append_expression result in
+                  let last =
+                    Sequence.Instruction_id.of_int !instruction_count
+                    |> checked_id
+                  in
+                  instruction ~at ~operands:[ operand ] ~flags:0x200L
+                    Opcode.Ic_end_exp;
+                  static_regions :=
+                    {
+                      Global_initialization.static_root;
+                      static_slot = slot;
+                      first;
+                      last;
+                    }
+                    :: !static_regions)
+          | _ ->
+              fail span "HCRUN0004"
+                "static initializer requires its exact storage root and module \
+                 entry")
       | Initialize initial -> (
           let value = Typed.initializer_value initial in
           let at = span_of_result span value in
@@ -425,7 +470,8 @@ let lower_with_initializers ?frame ?globals ?(top_calls = [])
                   errors))
     in
     X87_stack.verify graph
-    |> Result.map (fun graph -> (graph, List.rev !initial_regions))
+    |> Result.map (fun graph ->
+        (graph, List.rev !initial_regions, List.rev !static_regions))
     |> Result.map_error
          (List.map (fun (e : X87_stack.error) ->
               Common.Diagnostic.make ~code:e.code
@@ -433,6 +479,25 @@ let lower_with_initializers ?frame ?globals ?(top_calls = [])
                 ~primary:(Option.value e.span ~default:span)
                 ()))
   with Invalid diagnostics -> Error diagnostics
+
+let lower_with_initializers ?frame ?globals ?top_calls ?function_calls ~span
+    statements =
+  match
+    lower_with_storage_initializers ?frame ?globals ?top_calls ?function_calls
+      ~span statements
+  with
+  | Ok (graph, regions, []) -> Ok (graph, regions)
+  | Error _ as error -> error
+  | Ok (_, _, _ :: _) ->
+      Error
+        [
+          Common.Diagnostic.make ~code:"HCRUN0004"
+            ~severity:Common.Diagnostic.Error ~primary:span
+            ~message:
+              "static initializer regions require complete storage \
+               initialization lowering"
+            ();
+        ]
 
 let lower ?frame ?globals ?top_calls ?function_calls ~span statements =
   match

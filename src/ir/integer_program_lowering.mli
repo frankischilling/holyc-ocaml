@@ -4,6 +4,7 @@ type statement =
   | Initialize of Sema.Function_call_expression_result.initializer_result
   | Initialize_global of
       Sema.Function_call_expression_result.top_level_root_result
+  | Initialize_static of Integer_globals.static_slot
   | Return of Sema.Function_call_expression_result.return_result
   | Block of statement list
   | If of
@@ -19,6 +20,19 @@ type statement =
       * statement option
       * statement
   | Break of Common.Span.t
+
+val lower_with_storage_initializers :
+  ?frame:Sema.Function_frame_layout.function_layout ->
+  ?globals:Integer_globals.t ->
+  ?top_calls:Sema.Top_level_function_call_target_classification.t list ->
+  ?function_calls:Sema.Function_call_target_classification.t list ->
+  span:Common.Span.t ->
+  statement list ->
+  ( X87_stack.t
+    * Global_initialization.region_description list
+    * Global_initialization.static_region_description list,
+    Common.Diagnostic.t list )
+  result
 
 val lower_with_initializers :
   ?frame:Sema.Function_frame_layout.function_layout ->

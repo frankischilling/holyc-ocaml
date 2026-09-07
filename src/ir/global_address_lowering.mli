@@ -7,6 +7,12 @@ val prepare_initializer :
 
 type t
 
+val prepare_static_initializer :
+  globals:Integer_globals.t ->
+  Integer_globals.static_slot ->
+  Sema.Function_call_expression_result.initializer_result ->
+  (prepared_address, Instruction_sequence.error list) result
+
 val prepare :
   ?frame:Sema.Function_frame_layout.function_layout ->
   globals:Integer_globals.t ->

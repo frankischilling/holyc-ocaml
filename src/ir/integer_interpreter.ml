@@ -206,10 +206,10 @@ let identify_initializer region error =
   match region with
   | None -> error
   | Some region ->
-      let symbol = Global_initialization.symbol region in
+      let symbol = Global_initialization.storage_symbol region in
       {
         error with
-        initializer_phase = Some (Global_initialization.phase region);
+        initializer_phase = Some (Global_initialization.storage_phase region);
         initializer_symbol_id =
           Some (Sema.Symbol.id symbol |> Sema.Symbol.Id.to_int);
         initializer_name = Some (Sema.Symbol.name symbol);
@@ -460,26 +460,38 @@ let address_slot context types (description : Sequence.description) =
       | _ -> Unsupported)
   | _ -> Unsupported
 
-let global_address frame globals (description : Sequence.description) =
+let storage_allowed frame initialization instruction slot =
+  match Integer_globals.storage_frame slot with
+  | None -> true
+  | Some owner ->
+      Option.fold ~none:false ~some:(fun frame -> frame.layout == owner) frame
+      || Option.fold ~none:false
+           ~some:(fun context ->
+             match Global_initialization.find_storage context instruction with
+             | Some region ->
+                 Option.fold ~none:false
+                   ~some:(fun frame -> frame == owner)
+                   (Global_initialization.storage_frame region)
+             | None -> false)
+           initialization
+
+let global_address frame globals initialization
+    (description : Sequence.description) =
   match (globals, description.payload, description.target_type) with
   | Some globals, Some (Sequence.Symbol symbol), Some type_ -> (
       match Integer_globals.find_storage globals symbol with
       | Some slot
         when description.opcode = Integer_globals.storage_opcode slot
-             &&
-             match Integer_globals.storage_frame slot with
-             | None -> true
-             | Some owner ->
-                 Option.fold ~none:false
-                   ~some:(fun frame -> frame.layout == owner)
-                   frame -> (
+             && storage_allowed frame initialization description.instruction_id
+                  slot -> (
           match Type.pointer_to (Integer_globals.storage_type slot) with
           | Ok expected when Type.equal type_ expected -> Some slot
           | _ -> None)
       | _ -> None)
   | _ -> None
 
-let declared_types ?frame ?globals ?(allow_calls = false) block =
+let declared_types ?frame ?globals ?initialization ?(allow_calls = false) block
+    =
   Graph.instructions block |> Sequence.instructions
   |> List.fold_left
        (fun types instruction ->
@@ -488,7 +500,9 @@ let declared_types ?frame ?globals ?(allow_calls = false) block =
          | None -> types
          | Some result ->
              let declared =
-               match global_address frame globals description with
+               match
+                 global_address frame globals initialization description
+               with
                | Some slot -> Global_address slot
                | None -> (
                    match description.target_type with
@@ -678,8 +692,8 @@ let invalid_type_matrix block_id description =
     (Printf.sprintf "%s has an invalid operand/result word-type relationship"
        (Opcode.to_source_name description.Sequence.opcode))
 
-let prepare_instruction ?frame ?globals ?(allow_public = false) block_index
-    types block_id (description : Sequence.description) =
+let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
+    block_index types block_id (description : Sequence.description) =
   let kind =
     match (frame, description.opcode) with
     | _, (Opcode.Ic_imm_i64 | Opcode.Ic_abs_addr)
@@ -764,7 +778,9 @@ let prepare_instruction ?frame ?globals ?(allow_public = false) block_index
                     | Some context, Some (Frame_address index) ->
                         let slot = context.slots.(index) in
                         Some (Frame_slot index, slot.slot_type, slot.word_type)
-                    | _, Some (Global_address slot) -> (
+                    | _, Some (Global_address slot)
+                      when storage_allowed frame initialization
+                             description.instruction_id slot -> (
                         let type_ = Integer_globals.storage_type slot in
                         match return_word_type type_ with
                         | Some word_type ->
@@ -1010,7 +1026,7 @@ let prepare_instruction ?frame ?globals ?(allow_public = false) block_index
             })
           operation
 
-let prepare ?frame ?globals ?callees graph =
+let prepare ?frame ?globals ?initialization ?callees graph =
   let source_blocks = Graph.blocks graph in
   let block_count = List.length source_blocks in
   let block_index =
@@ -1026,8 +1042,8 @@ let prepare ?frame ?globals ?callees graph =
     |> List.mapi (fun index block ->
         let block_id = Graph.block_id block in
         let types =
-          declared_types ?frame ?globals ~allow_calls:(Option.is_some callees)
-            block
+          declared_types ?frame ?globals ?initialization
+            ~allow_calls:(Option.is_some callees) block
         in
         let instructions_rev = ref [] in
         let calls = ref [] in
@@ -1136,8 +1152,8 @@ let prepare ?frame ?globals ?callees graph =
                 (call_error description
                    "direct call cleanup and call end must follow the call")
           | _ ->
-              prepare_instruction ?frame ?globals ~allow_public:true block_index
-                types block_id description
+              prepare_instruction ?frame ?globals ?initialization
+                ~allow_public:true block_index types block_id description
         in
         Graph.instructions block |> Sequence.instructions
         |> List.iter (fun instruction ->
@@ -1157,8 +1173,8 @@ let prepare ?frame ?globals ?callees graph =
             match
               if Option.is_some callees then prepare_call checked_description
               else
-                prepare_instruction ?frame ?globals block_index types block_id
-                  description
+                prepare_instruction ?frame ?globals ?initialization block_index
+                  types block_id description
             with
             | Ok prepared ->
                 let control_transfer =
@@ -1317,7 +1333,8 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
           if not !program.is_function then
             active_initializer :=
               Option.bind initialization (fun context ->
-                  Global_initialization.find context instruction.instruction_id)
+                  Global_initialization.find_storage context
+                    instruction.instruction_id)
         in
         if !steps >= max_steps then
           failed :=
@@ -1680,8 +1697,7 @@ let execute_program ?globals ?initialization ?(max_global_bytes = 1_048_576)
   else if
     match (globals, initialization) with
     | Some globals, Some context ->
-        (not (Global_initialization.matches context ~globals ~entry:checked))
-        || Integer_globals.has_unprepared_statics globals
+        not (Global_initialization.matches context ~globals ~entry:checked)
     | None, Some _ -> true
     | Some globals, None -> Integer_globals.has_initializers globals
     | None, None -> false
@@ -1764,6 +1780,71 @@ let execute_program ?globals ?initialization ?(max_global_bytes = 1_048_576)
               rest
     in
     let* summaries = summaries 0 [] [] [] functions in
+    let calls ?caller graph =
+      Graph.blocks graph
+      |> List.concat_map (fun block ->
+          Graph.instructions block |> Sequence.instructions
+          |> List.filter_map (fun instruction ->
+              let description = Sequence.description instruction in
+              match (description.opcode, description.payload) with
+              | Opcode.Ic_call, Some (Sequence.Symbol symbol) ->
+                  Some (Graph.block_id block, description, symbol, caller)
+              | _ -> None))
+    in
+    let rec available region declaring_index visited = function
+      | [] -> Ok ()
+      | (_, _, symbol, _) :: rest
+        when List.exists (fun prior -> prior == symbol) visited ->
+          available region declaring_index visited rest
+      | (block_id, description, symbol, caller) :: rest -> (
+          match
+            List.find_opt
+              (fun (callee, _, _) -> callee.callee_symbol == symbol)
+              summaries
+          with
+          | Some (_, context, body)
+            when Frame.function_item_index context.layout < declaring_index ->
+              available region declaring_index (symbol :: visited)
+                (calls ~caller:body (Function.body body) @ rest)
+          | _ ->
+              let error =
+                preflight_error block_id description "HCIRVM0017"
+                  "JIT static initializer calls a function whose definition is \
+                   not yet published"
+              in
+              let error =
+                Option.fold ~none:error
+                  ~some:(fun body -> identify body error)
+                  caller
+              in
+              Error [ identify_initializer (Some region) error ])
+    in
+    let* () =
+      Option.fold ~none:[] ~some:Global_initialization.storage_regions
+        initialization
+      |> List.fold_left
+           (fun result region ->
+             let* () = result in
+             match
+               ( Global_initialization.storage_phase region,
+                 Global_initialization.storage_frame region )
+             with
+             | Global_initialization.Compile_initializer, Some frame ->
+                 let called =
+                   calls (X87.graph checked)
+                   |> List.filter (fun (_, description, _, _) ->
+                       Instruction_id.compare
+                         description.Sequence.instruction_id
+                         (Global_initialization.storage_first region)
+                       >= 0
+                       && Instruction_id.compare description.instruction_id
+                            (Global_initialization.storage_last region)
+                          <= 0)
+                 in
+                 available region (Frame.function_item_index frame) [] called
+             | _ -> Ok ())
+           (Ok ())
+    in
     let callees = List.map (fun (callee, _, _) -> callee) summaries in
     let rec bodies rev = function
       | [] -> Ok (Array.of_list (List.rev rev))
@@ -1778,14 +1859,15 @@ let execute_program ?globals ?initialization ?(max_global_bytes = 1_048_576)
     in
     let* programs = bodies [] summaries in
     let* entry =
-      prepare ?globals ~callees (X87.graph checked)
+      prepare ?globals ?initialization ~callees (X87.graph checked)
       |> Result.map_error
            (List.map (fun (error : error) ->
                 let region =
                   Option.bind initialization (fun context ->
                       Option.bind error.instruction_id (fun id ->
                           match Instruction_id.of_int id with
-                          | Ok id -> Global_initialization.find context id
+                          | Ok id ->
+                              Global_initialization.find_storage context id
                           | Error _ -> None))
                 in
                 identify_initializer region error))

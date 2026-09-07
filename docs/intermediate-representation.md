@@ -1,5 +1,12 @@
 # Intermediate-code specification
 
+Static initialization extends the common declaration context with separate
+static descriptions and read-only owner/phase/bounds metadata. Entry lowering
+returns both global and static evidence. Preflight checks address producers and
+consumers against the exact declaring frame or its region; callee preparation
+receives no region authority. Actual callee graphs determine transitive JIT
+publication validity. See [static initializer IR](integer-static-initializers.md).
+
 All source facts on this page refer to TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
 The [integer source-function path](integer-functions.md) composes actual scalar

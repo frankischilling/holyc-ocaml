@@ -54,8 +54,8 @@ instruction. Frame/depth exhaustion on a nested call is a reached execution
 failure. Invalid definitions or individual over-budget frames fail preflight.
 
 Ordinary scalar [global storage](integer-globals.md) is now shared with callers.
-Global declaration initializers and [constant static images](integer-statics.md)
-now use the shared persistent executor. Aliases, nonconstant static initializers,
+Global declaration initializers and [static initialization](integer-static-initializers.md)
+now use the shared persistent executor. Aliases,
 arrays, narrow/floating storage, callbacks, arbitrary
 pointers, defaults, variadic execution, external/import execution and joined
 prototype identities remain unsupported. Every definition and unreachable block
