@@ -49,6 +49,13 @@ constant-folding equivalence or TempleOS execution oracle is claimed.
 
 ## Current status
 
+`holyc version` records the implementation commit at build time and the pinned
+TempleOS reference. Incremental builds refresh that metadata, including after
+a commit or branch switch. Source archives can set
+`HOLYC_IMPLEMENTATION_COMMIT` to the exact lowercase 40-character revision;
+without an override or an available checkout the implementation is `unknown`.
+Running an already-built executable preserves its build identity.
+
 The repository has a byte-oriented source manager, structured diagnostics, a handwritten streaming lexer, an integrated preprocessing stream, a source-positioned AST, the implemented parser slices, and checked semantic passes for declarations, aggregate identities, closed aggregate layouts, member lookup, selected function and global facts, source-visible expression bindings, scalar expression results in functions and executable module statements, source-ordered global initializer and array-extent names, and ordinary names in top-level function defaults. Human and JSON reports are deterministic. `holyc dump-symbols` exposes the parser's source-order visibility state; it is inspection data, not a completed semantic symbol table. `holyc dump-layout` runs the checked aggregate pipeline and reports completed layouts without emitting partial results after a parse or semantic failure.
 
 Raw lexing handles the complete checked keyword and operator tables, numeric literals, strings, character constants up to eight bytes, nested comments, line continuations, and TempleOS files with a NUL-terminated text prefix. Complete single-dollar DolDoc commands inside strings retain their quoted fields as literal string bytes, while the doubled-dollar spelling keeps its existing escape behavior. Saved DolDoc sources expose `$IB,...,BI=n$` and `$IS,...,BI=n$` as typed binary and size literals instead of discarding them as markup. The pinned corpus result is 528 of 528 `.HC`, `.HH`, and `.PRJ` Git blobs tokenized without a lexer diagnostic or crash. That result applies only to raw lexing.

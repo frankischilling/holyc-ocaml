@@ -2,6 +2,7 @@
 
 (rule
  (targets build_metadata.ml)
+ (deps (universe))
  (action
   (chdir
    %{workspace_root}

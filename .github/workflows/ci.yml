@@ -50,6 +50,10 @@ jobs:
         shell: pwsh
         run: ./tools/verify-reference.ps1
 
+      - name: Verify incremental build provenance
+        shell: pwsh
+        run: opam exec -- pwsh -NoProfile -File ./tools/test-version-metadata.ps1
+
       - name: Build
         run: opam exec -- dune build @all
 
