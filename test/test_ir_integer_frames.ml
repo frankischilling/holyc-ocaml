@@ -434,12 +434,29 @@ let lowering_boundaries () =
       | _ -> Alcotest.fail "unsupported storage expression was accepted")
     [
       "I64 Add(){I32 c;c=1;return 0;}";
-      "I64 Add(){I64 c[1];c;return 0;}";
-      "I64 Add(){I64 c[2];c;return 0;}";
+      "I64 Add(){I32 c[1];c;return 0;}";
+      "I64 Add(){I64 *c[2];c;return 0;}";
       "I64 Add(){F64 c;c=1.0;return 0;}";
       "I64 Add(){I32 c;&c;return 0;}";
       "I64 global; I64 Add(){global=1;return 0;}";
-    ]
+    ];
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (text, bytes) ->
+          let frame, function_ = analyze ~mode text in
+          let function_ = composed_body frame function_ in
+          ignore
+            (execute ~max_frame_bytes:bytes frame [] function_
+            |> expect_word 42L);
+          ignore
+            (execute ~max_frame_bytes:(bytes - 1) frame [] function_
+            |> expect_error "HCIRVM0011"))
+        [
+          ("I64 Add(){I64 c[1];c;return 42;}", 8);
+          ("I64 Add(){I64 c[2];c;return 42;}", 16);
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let frame_boundaries () =
   let frame, _ = analyze source in
@@ -460,7 +477,8 @@ let frame_boundaries () =
     [
       "I64 Add(){I32 c;}";
       "I64 Add(){F64 c;}";
-      "I64 Add(){I64 c[2];}";
+      "I64 Add(){I64 *c[2];}";
+      "I64 Add(){I64 c[0];}";
       "I64 Add(){static I64 c;}";
       "I64 Add(){I32 *c;}";
     ];

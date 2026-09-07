@@ -11268,3 +11268,22 @@ limits = "43 runtime steps,16 frame bytes,depth2 exact CLI fixture bounds; fresh
 focused_tests = 19
 excluded = ["pointer returns and escapes", "pointer-valued global/static images", "integer/null addresses and casts", "pointer arithmetic and scaling", "deeper and other pointee shapes", "general memory/output", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader execution", "bootstrap"]
 native_oracle_status = "hosted source and malformed-IR tests with pinned-source audit; no new native capture"
+
+[[feature]]
+id = "HC-SOURCE-INTEGER-ARRAY-INDEXING"
+description = "Automatic I64/U64 arrays and indexed lvalues share the source execution and pointer storage pipeline."
+sources = ["Compiler/PrsVar.HC:247-281,532,590-615", "Compiler/PrsExp.HC:72,97-118,151-161,201-208,470-484,739-746,766-774,1055-1098", "Compiler/BackA.HC:555-566"]
+implementation = ["src/driver/function_call_resolution.ml", "src/sema/function_call_resolution.ml", "src/sema/function_call_expression_result.ml", "src/ir/expression_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_integer_arrays.ml", "test/test_function_call_expression_result.ml", "test/test_integer_program_cli.ml", "examples/integer-arrays.hc"]
+documentation = ["docs/integer-arrays.md", "docs/integer-pointers.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/integer-function-frames.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 613
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "eight original gates return42 in both modes; caller-element fixture 51 runtime steps, zero preparation,24 active frame bytes,depth2"
+semantics = "exact typed base/index children; explicit ordinary-declarator evidence; any-rank and partial-row pointer decay; grouping loses dimensions; ordinary dereference yields element; explicit address-of remaining-rank array adds another pointer layer"
+runtime = "full declared-object base/count and byte offset retain live storage identity; flat row strides; intermediate offsets may leave object; materialization allows one-past; memory access is within object"
+diagnostics = ["HCIRVM0012 unwritten element", "HCIRVM0018 invalid or expired reference", "HCIRVM0019 object bounds", "HCIRVM0020 hosted address overflow"]
+limits = "every element counted before expansion against active-frame bytes and Sys.max_array_length; exact CLI51/24/2 and one-below failures"
+excluded = ["pointer-valued and zero-sized arrays", "global/static array images", "array initialization and whole-array assignment", "floating index execution", "general pointer arithmetic and pointer returns", "broader memory/output", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "hosted source, semantic and malformed-IR tests with pinned-source audit; no new native capture"

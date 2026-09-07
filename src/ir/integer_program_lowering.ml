@@ -130,7 +130,12 @@ let lower_with_storage_initializers ?frame ?globals ?(top_calls = [])
         (fun (left, right) ->
           validate_expression left;
           validate_expression right)
-        (Typed.result_binary_operands expression)
+        (Typed.result_binary_operands expression);
+      Option.iter
+        (fun (base, index) ->
+          validate_expression base;
+          validate_expression index)
+        (Typed.result_index_operands expression)
     in
     let append_fragment sequence next_instruction next_value result_value =
       sequence |> Sequence.instructions

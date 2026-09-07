@@ -834,7 +834,9 @@ val run_integer_program :
     with fixed parameters, automatic locals, direct call expressions and
     ordinary scalar I64/U64 code-heap globals with supported declaration
     initializers. One-level I64/U64 pointer locals and fixed parameters can
-    alias existing scalar local, global and static objects across direct calls.
+    alias scalar local, global and static objects and automatic I64/U64 array
+    elements across direct calls. Checked indexing retains source strides,
+    grouping behavior and declared-object bounds through copies and recursion.
     Constant preparation, runtime instructions, active frame bytes, global bytes
     and call depth have separate positive bounds. Global words are shared by all
     calls in one execution. Conditions short-circuit AND and OR; ordinary values

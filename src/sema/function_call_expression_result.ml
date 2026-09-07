@@ -45,11 +45,13 @@ type expression_result = {
   origin : Symbol.origin;
   operand_result : expression_result option;
   binary_operands : (expression_result * expression_result) option;
+  index_operands : (expression_result * expression_result) option;
   source_type : Type.t option;
   category : value_category;
   result_class : result_class;
   execution_class : result_class option;
   array_rank : int;
+  array_address : bool;
   intrinsic_conversion : intrinsic_conversion;
   member_lookup : Aggregate_member_index.lookup option;
   aggregate_offset_path : aggregate_offset_path option;
@@ -684,11 +686,13 @@ let result_source (result : expression_result) = result.source
 let result_origin (result : expression_result) = result.origin
 let result_operand (result : expression_result) = result.operand_result
 let result_binary_operands (result : expression_result) = result.binary_operands
+let result_index_operands (result : expression_result) = result.index_operands
 let result_type (result : expression_result) = result.source_type
 let result_category (result : expression_result) = result.category
 let result_class (result : expression_result) = result.result_class
 let result_execution_class (result : expression_result) = result.execution_class
 let result_array_rank (result : expression_result) = result.array_rank
+let result_is_array_address (result : expression_result) = result.array_address
 
 let result_intrinsic_conversion (result : expression_result) =
   result.intrinsic_conversion
@@ -839,10 +843,10 @@ let allocate state =
 let record state result =
   (result, { state with results_rev = result :: state.results_rev })
 
-let make_result ?operand_result ?binary_operands ?(array_rank = 0)
-    ?execution_class ?member_lookup ?aggregate_offset_path ?outer_occurrence
-    ?top_level_outer_occurrence ?outer_binding ?call_resolution
-    ?function_declaration ?function_address_path
+let make_result ?operand_result ?binary_operands ?index_operands
+    ?(array_rank = 0) ?(array_address = false) ?execution_class ?member_lookup
+    ?aggregate_offset_path ?outer_occurrence ?top_level_outer_occurrence
+    ?outer_binding ?call_resolution ?function_declaration ?function_address_path
     ?(intrinsic_conversion = No_intrinsic_conversion) state ~id ~source
     ~source_type ~category ~result_class =
   record state
@@ -852,11 +856,13 @@ let make_result ?operand_result ?binary_operands ?(array_rank = 0)
       origin = Function_call_resolution.argument_expression_origin source;
       operand_result;
       binary_operands;
+      index_operands;
       source_type;
       category;
       result_class;
       execution_class;
       array_rank;
+      array_address;
       intrinsic_conversion;
       member_lookup;
       aggregate_offset_path;
@@ -1519,12 +1525,12 @@ let rec type_expression table members policies ~before_item_index ~context
   | Error _ as error -> error
   | Ok (id, state) -> (
       let finish ?operand_result ?(source_type = None) ?(array_rank = 0)
-          ?member_lookup ?aggregate_offset_path ?outer_occurrence
+          ?array_address ?member_lookup ?aggregate_offset_path ?outer_occurrence
           ?top_level_outer_occurrence ?outer_binding ?call_resolution
           ?function_declaration ?function_address_path category result_class
           state =
         Ok
-          (make_result ?operand_result ~array_rank ?member_lookup
+          (make_result ?operand_result ~array_rank ?array_address ?member_lookup
              ?aggregate_offset_path ?outer_occurrence
              ?top_level_outer_occurrence ?outer_binding ?call_resolution
              ?function_declaration ?function_address_path ~intrinsic_conversion
@@ -1548,6 +1554,21 @@ let rec type_expression table members policies ~before_item_index ~context
               ~allow_aggregate_offset_base state grouped
           with
           | Error _ as error -> error
+          | Ok (grouped_result, state) when grouped_result.array_address -> (
+              match Option.map Type.pointer_to grouped_result.source_type with
+              | Some (Ok pointer) ->
+                  finish ~operand_result:grouped_result
+                    ~source_type:(Some pointer) Object_value Integer_result
+                    ?member_lookup:grouped_result.member_lookup
+                    ?aggregate_offset_path:grouped_result.aggregate_offset_path
+                    ?outer_occurrence:grouped_result.outer_occurrence
+                    ?top_level_outer_occurrence:
+                      grouped_result.top_level_outer_occurrence
+                    ?outer_binding:grouped_result.outer_binding state
+              | _ ->
+                  Error
+                    (invalid_input ~origin:grouped_result.origin
+                       "ordinary array grouping has no element pointer type"))
           | Ok (grouped_result, state) ->
               finish ~operand_result:grouped_result
                 ~source_type:grouped_result.source_type
@@ -1730,6 +1751,9 @@ let rec type_expression table members policies ~before_item_index ~context
                 Function_call_resolution.bound_identifier_array_rank identifier
               in
               finish ~source_type:(Some source_type) ~array_rank
+                ~array_address:
+                  (Function_call_resolution.bound_identifier_is_ordinary_array
+                     identifier)
                 ?function_declaration:
                   (Function_call_resolution
                    .bound_identifier_function_declaration identifier)
@@ -1806,6 +1830,11 @@ let rec type_expression table members policies ~before_item_index ~context
                                           ~before_item_index source_type )
                               in
                               finish ~source_type:(Some source_type) ~array_rank
+                                ~array_address:
+                                  (array_rank > 0
+                                  && Outer_environment.global_declarator_kind
+                                       metadata
+                                     = Outer_environment.Object_global)
                                 ~top_level_outer_occurrence:occurrence
                                 ~outer_binding:binding category result_class
                                 state))
@@ -1873,6 +1902,9 @@ let rec type_expression table members policies ~before_item_index ~context
                                     source_type )
                           in
                           finish ~source_type:(Some source_type)
+                            ~array_address:
+                              (Function_call_resolution
+                               .identifier_value_is_ordinary_array value)
                             ~array_rank:
                               (Function_call_resolution
                                .identifier_value_array_rank value)
@@ -1933,6 +1965,11 @@ let rec type_expression table members policies ~before_item_index ~context
                                       source_type )
                           in
                           finish ~source_type:(Some source_type) ~array_rank
+                            ~array_address:
+                              (array_rank > 0
+                              && Outer_environment.global_declarator_kind
+                                   metadata
+                                 = Outer_environment.Object_global)
                             ~outer_occurrence ~outer_binding category
                             result_class state)))
           | Function_call_resolution.Postfix_cast_expression ->
@@ -2109,7 +2146,13 @@ and type_prefix table members policies ~before_item_index ~context
               )
           | _, None, _ -> finish Address_value Integer_result
           | _, Some source_type, false -> (
-              match Type.pointer_to source_type with
+              let address_type = Type.pointer_to source_type in
+              let address_type =
+                if operand.array_address then
+                  Result.bind address_type Type.pointer_to
+                else address_type
+              in
+              match address_type with
               | Ok source_type ->
                   finish ~source_type:(Some source_type) Address_value
                     Integer_result
@@ -2143,6 +2186,9 @@ and type_prefix table members policies ~before_item_index ~context
                      (Function_call_resolution.prefix_operator_origin prefix)
                    "aggregate offset value cannot be dereferenced")
           | None, _ -> finish Unavailable Unresolved_actual_class
+          | Some source_type, Array_value when operand.array_address ->
+              finish ~source_type:(Some source_type) value_category
+                (forwarded_class policies ~before_item_index source_type)
           | Some source_type, Array_value ->
               let array_rank = max 0 (operand.array_rank - 1) in
               let category =
@@ -2189,10 +2235,12 @@ and type_index table members policies ~before_item_index ~context
             (Function_call_resolution.index_value index)
         with
         | Error _ as error -> error
-        | Ok (_, state) ->
+        | Ok (index_value, state) ->
             Ok
-              (make_result ~array_rank ?member_lookup ~intrinsic_conversion
-                 state ~id ~source ~source_type ~category ~result_class)
+              (make_result ~index_operands:(base, index_value)
+                 ~array_address:(base.array_address && array_rank > 0)
+                 ~array_rank ?member_lookup ~intrinsic_conversion state ~id
+                 ~source ~source_type ~category ~result_class)
       in
       match (base.source_type, base.category) with
       | None, _ ->
@@ -2251,12 +2299,12 @@ and type_member table members policies ~before_item_index ~context
   with
   | Error _ as error -> error
   | Ok (base, state) -> (
-      let finish ?(source_type = None) ?(array_rank = 0) ?member_lookup
-          ?aggregate_offset_path category result_class =
+      let finish ?(source_type = None) ?(array_rank = 0) ?array_address
+          ?member_lookup ?aggregate_offset_path category result_class =
         Ok
-          (make_result ~array_rank ~intrinsic_conversion ?member_lookup
-             ?aggregate_offset_path state ~id ~source ~source_type ~category
-             ~result_class)
+          (make_result ~array_rank ?array_address ~intrinsic_conversion
+             ?member_lookup ?aggregate_offset_path state ~id ~source
+             ~source_type ~category ~result_class)
       in
       let operator_origin =
         Function_call_resolution.member_operator_origin member
@@ -2373,6 +2421,11 @@ and type_member table members policies ~before_item_index ~context
                               member_type )
                       in
                       finish ~source_type:(Some member_type) ~array_rank
+                        ~array_address:
+                          (array_rank > 0
+                          && not
+                               (Aggregate_member_index
+                                .member_is_function_pointer indexed_member))
                         ~member_lookup:lookup category result_class))))
 
 and type_postfix table members policies ~before_item_index ~intrinsic_conversion

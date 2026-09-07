@@ -1,5 +1,10 @@
 # Integer programs in the IR interpreter
 
+[Automatic I64/U64 arrays](integer-arrays.md) execute indexed loads, assignments,
+updates and element aliases through this pipeline. The caller-element fixture
+returns 42 in 51 runtime steps, zero preparation, 24 active frame bytes and depth
+two in both modes. Grouping and whole-object bounds follow the documented rules.
+
 [Scalar pointer aliases](integer-pointers.md) connect one-level I64/U64 pointer
 locals and fixed parameters to existing scalar local, global and static storage.
 The caller-writeback fixture returns 42 in 43 steps under exact frame/depth limits.

@@ -549,4 +549,54 @@ let () =
           ("--call-depth-limit=1", "HCIRVM0015");
         ])
     [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      let source = Sys.argv.(11) in
+      let result =
+        success
+          [
+            "run";
+            "--format=json";
+            "--mode=" ^ mode;
+            "--frame-byte-limit=24";
+            "--call-depth-limit=2";
+            "--step-limit=51";
+            source;
+          ]
+        |> Yojson.Safe.from_string
+      in
+      require
+        (result |> member "final_value" |> member "value" |> to_string = "42")
+        "caller element writeback";
+      require
+        (result |> member "executed_steps" |> to_int = 51)
+        "array instruction count";
+      require
+        (result |> member "compiled_initializer_steps" |> to_int = 0)
+        "array preparation count";
+      let command = [ "dump-ir"; "--program"; "--mode=" ^ mode; source ] in
+      let dump = success command in
+      require (dump = success command) "deterministic array dump";
+      require
+        (contains dump "IC_MUL" && contains dump "IC_ADDR"
+       && contains dump "IC_ADD_EQU")
+        "indexed address and indirect update";
+      List.iter
+        (fun (limit, code) ->
+          let status, stdout, stderr =
+            invoke [ "run"; "--format=json"; "--mode=" ^ mode; limit; source ]
+          in
+          require
+            (status = Unix.WEXITED 1 && stdout = "")
+            "array limit has no result";
+          require
+            (Yojson.Safe.from_string stderr
+            |> to_list |> List.hd |> member "code" |> to_string = code)
+            "array limit diagnostic")
+        [
+          ("--step-limit=50", "HCIRVM0007");
+          ("--frame-byte-limit=23", "HCIRVM0011");
+          ("--call-depth-limit=1", "HCIRVM0015");
+        ])
+    [ "jit"; "aot" ];
   print_endline "Integer program CLI checks passed."

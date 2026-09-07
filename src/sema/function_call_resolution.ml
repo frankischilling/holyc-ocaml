@@ -44,6 +44,7 @@ type identifier_value = {
   identifier_value_type_ : Type.t;
   identifier_value_shape_ : identifier_value_shape;
   identifier_value_array_rank_ : int;
+  identifier_value_ordinary_array_ : bool;
   identifier_value_function_declaration_ :
     Function_resolution.resolved_declaration option;
   identifier_value_function_address_path_ : direct_function_address_path option;
@@ -192,6 +193,7 @@ and bound_identifier = {
   bound_identifier_type_ : Type.t;
   bound_identifier_shape_ : identifier_value_shape;
   bound_identifier_array_rank_ : int;
+  bound_identifier_ordinary_array_ : bool;
   bound_identifier_function_declaration_ :
     Function_resolution.resolved_declaration option;
   bound_identifier_function_address_path_ : direct_function_address_path option;
@@ -582,6 +584,9 @@ let bound_identifier_shape identifier = identifier.bound_identifier_shape_
 let bound_identifier_array_rank identifier =
   identifier.bound_identifier_array_rank_
 
+let bound_identifier_is_ordinary_array identifier =
+  identifier.bound_identifier_ordinary_array_
+
 let bound_identifier_function_declaration identifier =
   identifier.bound_identifier_function_declaration_
 
@@ -594,6 +599,9 @@ let top_level_bound_identifier_occurrence identifier =
 let identifier_value_type value = value.identifier_value_type_
 let identifier_value_shape value = value.identifier_value_shape_
 let identifier_value_array_rank value = value.identifier_value_array_rank_
+
+let identifier_value_is_ordinary_array value =
+  value.identifier_value_ordinary_array_
 
 let identifier_value_function_declaration value =
   value.identifier_value_function_declaration_
@@ -1383,12 +1391,14 @@ let function_declaration_matches_publication declaration publication =
       |> Symbol.id)
 
 let make_identifier_value ~resolved_type ~shape ~array_rank
-    ?function_declaration ?function_address_path () =
+    ?(ordinary_array = false) ?function_declaration ?function_address_path () =
   if array_rank < 0 then Error "identifier value array rank cannot be negative"
   else if shape = Array_value && array_rank = 0 then
     Error "array identifier value has no array dimensions"
   else if shape <> Array_value && array_rank <> 0 then
     Error "nonarray identifier value has array dimensions"
+  else if ordinary_array && shape <> Array_value then
+    Error "ordinary array evidence requires an array identifier"
   else if
     shape = Direct_function_value
     && (Option.is_none function_declaration
@@ -1405,6 +1415,7 @@ let make_identifier_value ~resolved_type ~shape ~array_rank
         identifier_value_type_ = resolved_type;
         identifier_value_shape_ = shape;
         identifier_value_array_rank_ = array_rank;
+        identifier_value_ordinary_array_ = ordinary_array;
         identifier_value_function_declaration_ = function_declaration;
         identifier_value_function_address_path_ = function_address_path;
       }
@@ -1423,6 +1434,10 @@ let global_identifier_value global =
       | Global_type_resolution.Object -> Object_value
   in
   make_identifier_value ~resolved_type ~shape
+    ~ordinary_array:
+      (dimensions <> []
+      && Global_type_resolution.global_declarator_kind global
+         = Global_type_resolution.Object)
     ~array_rank:(List.length dimensions) ()
 
 let direct_function_identifier_value ~declaration ~address_path =
@@ -1437,7 +1452,8 @@ let direct_function_identifier_value ~declaration ~address_path =
         ~function_address_path:address_path ()
 
 let make_bound_identifier_argument_expression ~occurrence ~resolved_type ~shape
-    ~array_rank ?function_declaration ?function_address_path () =
+    ~array_rank ?ordinary_array ?function_declaration ?function_address_path ()
+    =
   let name = Module_expression_binding.occurrence_name occurrence in
   if String.equal name "" then
     Error "bound call argument identifier cannot have an empty name"
@@ -1467,7 +1483,7 @@ let make_bound_identifier_argument_expression ~occurrence ~resolved_type ~shape
   then Error "bound direct function declaration does not match its publication"
   else
     match
-      make_identifier_value ~resolved_type ~shape ~array_rank
+      make_identifier_value ~resolved_type ~shape ~array_rank ?ordinary_array
         ?function_declaration ?function_address_path ()
     with
     | Error _ as error -> error
@@ -1479,6 +1495,8 @@ let make_bound_identifier_argument_expression ~occurrence ~resolved_type ~shape
                bound_identifier_type_ = value.identifier_value_type_;
                bound_identifier_shape_ = value.identifier_value_shape_;
                bound_identifier_array_rank_ = value.identifier_value_array_rank_;
+               bound_identifier_ordinary_array_ =
+                 value.identifier_value_ordinary_array_;
                bound_identifier_function_declaration_ =
                  value.identifier_value_function_declaration_;
                bound_identifier_function_address_path_ =

@@ -1,5 +1,10 @@
 # Integer function-frame execution
 
+[Automatic integer arrays](integer-arrays.md) extend this entry point with
+checked indexed addresses and one cell per I64/U64 element. The byte and host
+array limits cover all elements before any cell expansion. Parameters remain
+scalar words or checked pointer values supplied through program calls.
+
 `Ir_integer_interpreter.execute_function` executes one verified named body with
 its exact checked frame layout, argument bits, `max_steps` and
 `max_frame_bytes`. The supported storage consists of scalar `I64`/`U64` named
@@ -63,7 +68,7 @@ opam exec -- dune exec test/test_main.exe -- test "integer frames"
 
 This low-level entry point does not compose complete source function bodies or
 execute calls. `IC_ENTER`, `IC_LEAVE`, native calling conventions, static/global
-storage, arrays, callbacks, aggregates, floating values and numerical casts
+storage, callbacks, aggregates, floating values and numerical casts
 remain unsupported by this entry point. The graph-only `execute` and `eval`
 contracts are unchanged. [Integer source functions](integer-functions.md) adds
 initializer retention, body composition, direct calls and caller continuation

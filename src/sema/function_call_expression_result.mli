@@ -471,11 +471,22 @@ val result_binary_operands :
 (** Return the exact checked left and right children of a binary result in
     source order. Other expression forms return [None]. *)
 
+val result_index_operands :
+  expression_result -> (expression_result * expression_result) option
+(** Exact checked base and index value for an index expression. The index keeps
+    its original type and integer-result conversion intent. Other nodes return
+    [None]; this evidence does not change array rank or value category. *)
+
 val result_type : expression_result -> Type.t option
 val result_category : expression_result -> value_category
 val result_class : expression_result -> result_class
 val result_execution_class : expression_result -> result_class option
 val result_array_rank : expression_result -> int
+
+val result_is_array_address : expression_result -> bool
+(** An ordinary array address retaining dimensions, established by checked
+    declarator evidence and preserved only by an unfinished index path. Lowering
+    must still validate its exact storage owner and layout. *)
 
 val result_intrinsic_conversion : expression_result -> intrinsic_conversion
 (** Return conversion intent attached to this producer by its checked consumer.

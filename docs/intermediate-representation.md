@@ -1,5 +1,10 @@
 # Intermediate-code specification
 
+[Automatic array indexing](integer-arrays.md) retains exact semantic base/index
+children and emits checked stride/index/multiply/add operations. Preflight
+tracks remaining dimensions separately from materialized element pointers;
+offset metadata cannot become a public word or pointer value.
+
 [Scalar pointer execution](integer-pointers.md) adds checked indirect lvalues and
 internal references to actual storage instances. Canonical address metadata keeps
 its existing instruction accounting; `IC_ADDR` materializes or forwards a checked
