@@ -1,5 +1,11 @@
 # Reference source map
 
+Issue #605 connects scalar updates from `PrsExp.HC:98-118,201-208` to the
+read/modify/write operations in `BackA.HC:372-431,442-595,603-658` and old/new
+result rules in `BackB.HC:304-385`. Original constant barriers come from
+`CInit.HC:54-59,88-97`; compound strength reductions at `OptPass012.HC:827-854`
+extend the initializer arithmetic guard. See [scalar updates](integer-updates.md).
+
 Issue #603 joins scalar declaration roots to `PrsVar.HC:51-112` initialization
 phases and `KLoad.HC:153-181` entry order. Constantness uses the original-opcode
 metadata from `CInit.HC:27-108` and `OptPass012.HC:66-68`, before adding the

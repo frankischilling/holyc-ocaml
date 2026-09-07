@@ -93,8 +93,10 @@ let prepare ~max_steps ~span ~globals ~top_calls ~functions =
                       in
                       let rejected =
                         match (item.opcode, item.operands) with
-                        | (Ir.Opcode.Ic_shl | Ic_shr), _ -> true
-                        | (Ir.Opcode.Ic_div | Ic_mod), [ _; right ]
+                        | ( (Ir.Opcode.Ic_shl | Ic_shr | Ic_shl_equ | Ic_shr_equ),
+                            _ ) -> true
+                        | ( (Ir.Opcode.Ic_div | Ic_mod | Ic_div_equ | Ic_mod_equ),
+                            [ _; right ] )
                           when not constant -> known right
                         | _ -> false
                       in

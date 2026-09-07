@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+[#605](https://github.com/frankischilling/holyc-ocaml/issues/605) connects
+[scalar compound assignments and increment/decrement](integer-updates.md) to
+the shared I64/U64 frame/global executor, with destination-owned signedness,
+old/new results, RHS effect order and initializer guards. This is raw hosted
+IR execution; optimizer/native equivalence remains unfinished.
+
 [#603](https://github.com/frankischilling/holyc-ocaml/issues/603) connects
 [scalar global declaration initializers](integer-global-initializers.md):
 supported pure constant images, source-ordered nonconstant compile/load regions,

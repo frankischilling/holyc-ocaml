@@ -61,13 +61,16 @@ val lower_typed_result :
     and simple assignments store through the checked destination address without
     reading its old contents. [globals] enables the same scalar loads/stores for
     exact module-bound globals in function or top-level expressions, preserving
-    their JIT/AOT symbol-backed address intent. With [frame], other pointer
-    operations remain unsupported. Without [frame], pointer-tree lowering keeps
-    its existing domain; pointer execution remains outside the bounded program
-    VM. [lower_call] composes calls as expression nodes and applies retained
-    result conversion only to the final call-end producer. Expressions outside
-    the implemented tree shapes return [Unsupported_expression] without
-    returning a partial sequence. *)
+    their JIT/AOT symbol-backed address intent. Scalar compound assignments and
+    prefix/postfix increment/decrement use those addresses and retain their
+    original update ICs. Compound RHS evaluation precedes the destination word
+    read; prefix/compound results use the new word and postfix uses the old
+    word. With [frame], other pointer operations remain unsupported. Without
+    [frame], pointer-tree lowering keeps its existing domain; pointer execution
+    remains outside the bounded program VM. [lower_call] composes calls as
+    expression nodes and applies retained result conversion only to the final
+    call-end producer. Expressions outside the implemented tree shapes return
+    [Unsupported_expression] without returning a partial sequence. *)
 
 val lower_initializer :
   frame:Sema.Function_frame_layout.function_layout ->

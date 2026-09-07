@@ -2397,8 +2397,8 @@ and type_postfix table members policies ~before_item_index ~intrinsic_conversion
       | Error _ as error -> error
       | Ok () ->
           Ok
-            (make_result ~intrinsic_conversion state ~id ~source
-               ~source_type:operand.source_type ~category:Object_value
+            (make_result ~operand_result:operand ~intrinsic_conversion state ~id
+               ~source ~source_type:operand.source_type ~category:Object_value
                ~result_class:operand.result_class))
 
 and type_assignment table members policies ~before_item_index

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added scalar I64/U64 compound assignments and prefix/postfix increment/decrement to source execution. Canonical update ICs read the destination after RHS effects, preserve old/new results and destination signedness, and share existing frame/global limits. Initializer classification and transitive optimizer guards cover the new operations. Pointer and other storage domains, optimizer parity and native execution remain unfinished.
+
 - Added scalar integer global declaration initializers through the existing module expression engine. Supported constant values populate immutable initial images under a separate positive preparation budget; nonconstant initializers execute in source order with JIT compile or AOT load phase and declaration ownership retained through calls and faults. The initialized accumulator returns 42 in 46 runtime instructions plus 3 preparation steps. Exact context validation and initializer arithmetic guards cover transitive callees; general storage, stateful compilation and optimizer parity remain unfinished.
 
 - Added shared scalar I64/U64 global storage to source execution, with canonical JIT/AOT address intent, global loads and assignments across calls, and a separate positive global-byte limit. The accumulator fixture returns 42 in 50 instructions in both modes. AOT code-heap storage starts at zero; reached unknown JIT reads report a labeled hosted diagnostic. Declaration initializers, aliases and broader storage remain explicit boundaries.

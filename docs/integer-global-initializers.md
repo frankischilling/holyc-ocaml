@@ -104,6 +104,11 @@ divide-to-shift rewrite at `OptPass012.HC:419-430`, which differs from raw VM
 division. Pure successful constant division such as `(-3)/2` is accepted and
 produces -1. Issues #574 and #585 retain the broader optimizer work.
 
+The same guard covers compound shifts and constant-divisor `/=` and `%=`.
+`OptPass012.HC:827-854` also rewrites compound arithmetic; a signed remainder
+assignment may become an AND mask. Scalar updates remain constant barriers,
+so `I64 H=G++;` is scheduled with H's region and phase. See [scalar updates](integer-updates.md).
+
 Aliases, static locals, data-heap/external/import storage, narrow or floating
 objects, pointers, arrays, aggregates and callbacks remain outside this path.
 General runtime output, stateful `#exe`, native backends, loader acceptance and

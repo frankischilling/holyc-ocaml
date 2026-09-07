@@ -50,7 +50,11 @@ val execute_program :
     a labeled hosted diagnostic. Initializer-bearing storage requires the exact
     [initialization] context. Its regions preserve declaration owner and
     compile/load phase through calls and faults, and do not replace the last
-    ordinary top-level expression value. *)
+    ordinary top-level expression value. Canonical scalar compound assignments
+    and prefix/postfix updates read storage at their own instruction, after RHS
+    effects. They store only successful arithmetic results and retain the
+    destination class (including division and right-shift signedness).
+    Prefix/compound results are new words; postfix results are old words. *)
 
 val final_value : t -> word option
 (** Last reached top-level expression value from [execute_program], separate
@@ -78,11 +82,11 @@ val execute_function :
     Argument bits initialize the named parameter slots in source order.
     Automatic locals begin uninitialized. The allocation bound includes
     parameter slots and the checked local frame size. Canonical frame addresses,
-    loads and assignments are preflighted before execution; slot contents
-    survive block transfers. Every invocation owns independent storage. Public
-    U64 negation retains U64, while internal U64 negation yields internal I64.
-    Same-width integer returns preserve bits and adopt the declared type. This
-    entry point does not execute calls or arbitrary pointer operations. *)
+    loads, assignments and scalar updates are preflighted before execution; slot
+    contents survive block transfers. Every invocation owns independent storage.
+    Public U64 negation retains U64, while internal U64 negation yields internal
+    I64. Same-width integer returns preserve bits and adopt the declared type.
+    This entry point does not execute calls or arbitrary pointer operations. *)
 
 val termination : t -> termination
 val executed_steps : t -> int
