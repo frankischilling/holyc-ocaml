@@ -35,7 +35,15 @@ type error = {
 type t = { termination_ : termination; executed_steps_ : int }
 type prepared_operand = { value_id : Value_id.t; expected_type : word_type }
 type unary_operation = Complement | Logical_not | Negate
-type binary_operation = Add | Subtract | Multiply
+
+type binary_operation =
+  | Add
+  | Subtract
+  | Multiply
+  | Bitwise_and
+  | Bitwise_or
+  | Bitwise_xor
+
 type branch_condition = Zero | Not_zero
 
 type prepared_operation =
@@ -108,6 +116,9 @@ let opcode_kind = function
   | Opcode.Ic_add -> Some (Binary_kind Add)
   | Opcode.Ic_sub -> Some (Binary_kind Subtract)
   | Opcode.Ic_mul -> Some (Binary_kind Multiply)
+  | Opcode.Ic_and -> Some (Binary_kind Bitwise_and)
+  | Opcode.Ic_or -> Some (Binary_kind Bitwise_or)
+  | Opcode.Ic_xor -> Some (Binary_kind Bitwise_xor)
   | Opcode.Ic_end_exp -> Some Discard_kind
   | Opcode.Ic_return_val -> Some Return_value_kind
   | Opcode.Ic_jmp -> Some Jump_kind
@@ -488,6 +499,9 @@ let execute_prepared ~max_steps program =
                         | Add -> Int64.add left.bits right.bits
                         | Subtract -> Int64.sub left.bits right.bits
                         | Multiply -> Int64.mul left.bits right.bits
+                        | Bitwise_and -> Int64.logand left.bits right.bits
+                        | Bitwise_or -> Int64.logor left.bits right.bits
+                        | Bitwise_xor -> Int64.logxor left.bits right.bits
                       in
                       values :=
                         Value_map.add result
