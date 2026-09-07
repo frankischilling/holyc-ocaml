@@ -44,6 +44,8 @@ type comparison_operation =
   | Greater
   | Less_equal
 
+type logical_operation = Logical_and | Logical_or | Logical_xor
+
 type binary_operation =
   | Add
   | Subtract
@@ -54,6 +56,7 @@ type binary_operation =
   | Shift_left
   | Shift_right
   | Compare of comparison_operation
+  | Logical of logical_operation
 
 type branch_condition = Zero | Not_zero
 
@@ -138,6 +141,9 @@ let opcode_kind = function
   | Opcode.Ic_greater_equ -> Some (Binary_kind (Compare Greater_equal))
   | Opcode.Ic_greater -> Some (Binary_kind (Compare Greater))
   | Opcode.Ic_less_equ -> Some (Binary_kind (Compare Less_equal))
+  | Opcode.Ic_and_and -> Some (Binary_kind (Logical Logical_and))
+  | Opcode.Ic_or_or -> Some (Binary_kind (Logical Logical_or))
+  | Opcode.Ic_xor_xor -> Some (Binary_kind (Logical Logical_xor))
   | Opcode.Ic_end_exp -> Some Discard_kind
   | Opcode.Ic_return_val -> Some Return_value_kind
   | Opcode.Ic_jmp -> Some Jump_kind
@@ -195,7 +201,7 @@ let promoted_word_type left right =
 
 let expected_binary_result_type operation left right =
   match operation with
-  | Compare _ -> I64
+  | Compare _ | Logical _ -> I64
   | Add
   | Subtract
   | Multiply
@@ -221,6 +227,17 @@ let comparison_bits operation left right =
     | Greater_equal -> comparison_order left right >= 0
     | Greater -> comparison_order left right > 0
     | Less_equal -> comparison_order left right <= 0
+  in
+  if predicate then 1L else 0L
+
+let logical_bits operation left right =
+  let left = not (Int64.equal left.bits 0L) in
+  let right = not (Int64.equal right.bits 0L) in
+  let predicate =
+    match operation with
+    | Logical_and -> left && right
+    | Logical_or -> left || right
+    | Logical_xor -> left <> right
   in
   if predicate then 1L else 0L
 
@@ -564,6 +581,7 @@ let execute_prepared ~max_steps program =
                                   (shift_count right.bits))
                         | Compare comparison ->
                             comparison_bits comparison left right
+                        | Logical logical -> logical_bits logical left right
                       in
                       values :=
                         Value_map.add result
