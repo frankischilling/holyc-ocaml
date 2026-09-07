@@ -32,11 +32,11 @@ replace it. Failures return status 1, diagnostics on stderr and no result report
 
 Functions accept named, fixed I64/U64 parameters and automatic scalar I64/U64
 locals. Scalar initializers, simple assignments, returns and the existing
-structured statements compose into checked bodies. Calls must be complete
-expression roots, optionally parenthesized; their arguments use the supported
-expression lowerer. Function statement calls, repeated calls and recursion have
-independent frames and explicit caller continuations. Calls nested inside
-arithmetic, argument, initializer or return expressions remain unsupported.
+structured statements compose into checked bodies. Calls compose through the
+supported expression lowerer, including arithmetic, arguments, initializers,
+conditions and returns. Function statement calls, repeated calls and recursion
+have independent frames and explicit caller continuations. See
+[nested integer calls](integer-nested-calls.md) for source examples and tests.
 
 Arguments execute from right to left, then bind to their original formal
 positions. For example, `Take(n=1,n=2)` leaves n equal to 1, while

@@ -11098,7 +11098,7 @@ commands = ["holyc run --target=ir examples/integer-function.hc", "holyc dump-ir
 v1_evidence = "original Add source returns 42 through the public library and CLI in 29 attempted instructions in both JIT and AOT modes"
 initializer_ownership = "exact checked local symbol, source declaration positions, retained type reference and initializer root; canonical store without a manufactured identifier or prior local read"
 body_composition = "existing expression, condition, return and direct-call fragments in one shared graph builder; complete source-root consumption; shared return block"
-call_domain = "fixed scalar I64/U64 direct executable calls as complete expression roots; function statement calls and recursion"
+call_domain = "initial fixed scalar I64/U64 expression-root calls, function statement calls and recursion; HC-SOURCE-NESTED-INTEGER-CALLS extends their expression contexts"
 argument_order = "retain semantic fixed and variadic lists in source order; emit variadic trees in reverse order, hidden argc, then fixed trees in reverse order; bind supplied fixed values to original formal parameter positions"
 order_regressions = "Take(n=1,n=2) leaves n equal to 1; Sub(20,22) returns minus two; both modes; variadic IR order and push flags checked independently"
 runtime = "preflight all definitions and entry; explicit caller stack with independent slots and block-local values; canonical symbol/count/type/push/cleanup matching"
@@ -11108,5 +11108,29 @@ diagnostics = ["HCRUN0001 unsupported source shape", "HCRUN0003 unsupported expr
 fault_provenance = "failure stage, total attempted steps, block, instruction, source span and owning function when active"
 preserved = ["bounded eval contract", "graph-only lower_integer_program and execute APIs", "raw runtime arithmetic policy", "exact checked semantic identities"]
 focused_tests = 9
-excluded = ["calls nested inside arithmetic, argument, initializer or return expressions", "defaults", "variadic execution", "external and indirect execution", "joined prototype identities", "globals and static locals", "arrays, callbacks, narrow or floating storage", "general memory", "IC_ENTER and IC_LEAVE execution", "native ABI and emission", "stateful #exe", "bootstrap"]
+excluded = ["defaults", "variadic execution", "external and indirect execution", "joined prototype identities", "globals and static locals", "arrays, callbacks, narrow or floating storage", "general memory", "IC_ENTER and IC_LEAVE execution", "native ABI and emission", "stateful #exe", "bootstrap"]
 native_oracle_status = "pinned-source audit and hosted execution tests; no new native capture or ABI compatibility claim"
+
+[[feature]]
+id = "HC-SOURCE-NESTED-INTEGER-CALLS"
+description = "Checked returned integer words compose in source arithmetic, arguments, initializer stores, conditions and returns."
+sources = ["Compiler/PrsExp.HC:438-586 independent argument trees, conversions, selected calls, cleanup and caller results", "Compiler/PrsLib.HC:107-111 COC stack insertion", "Compiler/PrsVar.HC:592-619 initializer restoration", "Compiler/PrsStmt.HC:1114-1117 declared return class"]
+implementation = ["src/ir/expression_lowering.ml", "src/ir/direct_call_lowering.ml", "src/ir/return_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_integer_nested_calls.ml", "test/test_integer_program_cli.ml", "examples/integer-nested-calls.hc", "test/dune"]
+documentation = ["docs/integer-nested-calls.md", "docs/integer-functions.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 599
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "nested-call fixture observes 42 through run in JIT and AOT modes, using a returned call, mutable loop assignment and top-level arithmetic"
+composition = "optional call_lowerer in the existing expression worklist; existing exact classified direct-call composer supplies sequences at caller-seeded identities; no second evaluator or repeated binding"
+fragment_checks = ["contiguous instruction and value identities", "call-start/end symbol identity", "final call-end producer", "checked result type", "source span", "retained conversion only on final producer", "unsupported calls expose no partial sequence"]
+value_lifetime = "caller temporaries, pending argument scopes and slots survive nested calls; each active function owns independent slots"
+argument_order = "reverse runtime argument trees with original formal positions; nested Sub(Id(n=1),Id(n=2)) returns minus one and leaves n equal to one"
+contexts = ["arithmetic and unary values", "assignments", "nested arguments", "initializer values", "conditional branches", "returns", "returned recursion", "shared comparison operands"]
+program_word_types = "public I64/U64 unary/binary results may follow calls in the entry graph without a frame; exact type matrices remain checked; graph-only execute keeps its previous domain"
+limits = "shared instruction, active frame-byte and call-depth bounds; factorial succeeds at exact depth/frame limits and fails one below; nested faults retain active owner and operator span"
+focused_tests = 9
+preserved = ["bounded eval", "raw runtime arithmetic policy", "conditional short-circuiting and eager logical values", "comparison sharing", "whole-program preflight", "source identities and deterministic dumps"]
+excluded = ["defaults", "variadic/indirect/external execution", "joined prototype identities", "non-scalar storage", "floating execution", "conditional or multiple-pending-reduction comparison chains", "general runtime output", "stateful #exe", "native backends", "bootstrap"]
+native_oracle_status = "hosted source and IR tests with pinned-source evidence; no new native capture"

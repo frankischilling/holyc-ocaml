@@ -228,7 +228,6 @@ let unsupported () =
       "I64 F(I64 a=1){return a;}(F());";
       "I64 F(I64 a,...){return a;}(F(1));";
       "extern I64 F();(F());";
-      source ^ "(Add(20,22)+1);";
     ]
 
 let compile text =

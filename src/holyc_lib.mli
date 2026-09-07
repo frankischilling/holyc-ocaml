@@ -730,11 +730,11 @@ val run_integer_program :
   max_steps:int ->
   (Ir_integer_interpreter.t integer_program_result, Diagnostic.t list) result
 (** Execute integer source statements and checked I64/U64 function definitions
-    with fixed parameters, automatic locals and direct expression-root calls.
+    with fixed parameters, automatic locals and direct call expressions.
     Instructions, active frame bytes and call depth have shared positive bounds.
     Conditions short-circuit AND and OR; ordinary values and XOR remain eager.
-    Arithmetic uses raw runtime IR semantics. General memory, output, broader
-    call expressions and native code remain unsupported. *)
+    Arithmetic uses raw runtime IR semantics. General memory, output,
+    indirect/external calls and native code remain unsupported. *)
 
 val lower_integer_expression :
   Session.t ->

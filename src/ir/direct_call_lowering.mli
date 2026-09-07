@@ -5,6 +5,7 @@ val reference_commit : string
 
 val lower :
   ?frame:Sema.Function_frame_layout.function_layout ->
+  ?lower_call:Expression_lowering.call_lowerer ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   target:Sema.Function_call_target_classification.t ->
@@ -12,10 +13,12 @@ val lower :
   (lowering_result, Instruction_sequence.error list) result
 (** Lower one checked direct executable, extern-slot, import, or extern call
     whose provided fixed and variadic arguments are supported by
-    [Expression_lowering]. *)
+    [Expression_lowering]. [lower_call] also composes nested call arguments
+    through that planner while preserving right-to-left argument execution. *)
 
 val lower_top_level :
   ?frame:Sema.Function_frame_layout.function_layout ->
+  ?lower_call:Expression_lowering.call_lowerer ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   target:Sema.Top_level_function_call_target_classification.t ->

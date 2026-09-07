@@ -163,4 +163,21 @@ let () =
         (result |> member "termination" |> to_string = "stream-end")
         "caller resumes and completes the source stream")
     [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      let result =
+        success
+          [
+            "run";
+            "--target=ir";
+            "--format=json";
+            "--mode=" ^ mode;
+            Sys.argv.(4);
+          ]
+        |> Yojson.Safe.from_string
+      in
+      require
+        (result |> member "final_value" |> member "value" |> to_string = "42")
+        "nested source call expressions must return 42")
+    [ "jit"; "aot" ];
   print_endline "Integer program CLI checks passed."

@@ -5,6 +5,7 @@ val reference_commit : string
 
 val lower_function_return :
   ?frame:Sema.Function_frame_layout.function_layout ->
+  ?lower_call:Expression_lowering.call_lowerer ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   leave:Instruction_sequence.Block_id.t ->
@@ -13,7 +14,8 @@ val lower_function_return :
 (** Lower an accepted checked function return. A present value is followed by
     [IC_RETURN_VAL], and every return ends with [IC_JMP] to the caller-owned
     leave block. Epilogue placement and graph construction remain outside this
-    fragment. *)
+    fragment. [lower_call] enables calls within the returned expression through
+    the shared expression planner. *)
 
 val sequence : t -> Instruction_sequence.t
 val return_value : t -> Instruction_sequence.Value_id.t option

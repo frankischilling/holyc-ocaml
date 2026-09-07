@@ -34,7 +34,9 @@ val execute_program :
   (t, error list) result
 (** Preflight the entry and every checked definition, then execute direct calls
     with explicit continuations and independent slots. Limits cover the total
-    instruction count, simultaneously active frame bytes and active calls. *)
+    instruction count, simultaneously active frame bytes and active calls.
+    Checked public I64/U64 call results may participate in top-level unary and
+    binary operations without requiring a local frame. *)
 
 val final_value : t -> word option
 (** Last reached top-level expression value from [execute_program], separate

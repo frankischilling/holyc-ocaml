@@ -1,10 +1,21 @@
 type t
 type lowering_result = Lowered of t | Unsupported_expression
 
+type call_lowerer =
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  Sema.Function_call_expression_result.expression_result ->
+  (Instruction_sequence.t option, Instruction_sequence.error list) result
+(** A provider for exact typed calls. It must validate target ownership and
+    return a complete canonical call sequence at the supplied identities, or
+    [None] for unsupported calls. The expression emitter checks consecutive
+    identities and the final call-end type, symbol and source span. *)
+
 val reference_commit : string
 
 val lower_typed_result :
   ?frame:Sema.Function_frame_layout.function_layout ->
+  ?lower_call:call_lowerer ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   Sema.Function_call_expression_result.expression_result ->
@@ -48,11 +59,14 @@ val lower_typed_result :
     [frame], scalar I64/U64 bound identifiers load their exact checked slots,
     and simple assignments store through the checked destination address without
     reading its old contents. Other pointer operations in that context remain
-    unsupported. Expressions outside the implemented tree shapes return
-    [Unsupported_expression] without returning a partial sequence. *)
+    unsupported. [lower_call] composes calls as expression nodes and applies
+    retained result conversion only to the final call-end producer. Expressions
+    outside the implemented tree shapes return [Unsupported_expression] without
+    returning a partial sequence. *)
 
 val lower_initializer :
   frame:Sema.Function_frame_layout.function_layout ->
+  ?lower_call:call_lowerer ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   Sema.Function_call_expression_result.initializer_result ->
