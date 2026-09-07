@@ -1,5 +1,13 @@
 # Reference source map
 
+Issue #601 connects global address forms from `Compiler/PrsExp.HC:867-902` and
+allocation/publication from `Compiler/PrsStmt.HC:334-410` to shared scalar
+storage. `Kernel/KStart32.HC:17-29` supplies the configurable JIT fill context.
+The hosted executor preserves AOT code-heap initial zero and diagnoses reached
+unknown JIT reads. Declaration initializer phases in `Compiler/PrsVar.HC:51-112`
+and `Kernel/KLoad.HC:153-181` remain a required follow-up; the source fixture
+initializes through an explicit assignment. See [shared globals](integer-globals.md).
+
 Issue #599 composes the checked call result from `PrsExp.HC:438-586` into the
 expression planner, initializer stores and return fragments. It retains COC
 order from `PrsLib.HC:107-111`, initializer restoration from `PrsVar.HC:592-619`

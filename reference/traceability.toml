@@ -11134,3 +11134,27 @@ focused_tests = 9
 preserved = ["bounded eval", "raw runtime arithmetic policy", "conditional short-circuiting and eager logical values", "comparison sharing", "whole-program preflight", "source identities and deterministic dumps"]
 excluded = ["defaults", "variadic/indirect/external execution", "joined prototype identities", "non-scalar storage", "floating execution", "conditional or multiple-pending-reduction comparison chains", "general runtime output", "stateful #exe", "native backends", "bootstrap"]
 native_oracle_status = "hosted source and IR tests with pinned-source evidence; no new native capture"
+
+[[feature]]
+id = "HC-SOURCE-INTEGER-GLOBAL-STORAGE"
+description = "Ordinary scalar I64/U64 code-heap globals share persistent storage across top-level code and direct function calls."
+sources = ["Compiler/PrsExp.HC:867-902 global address forms and scalar class", "Compiler/PrsStmt.HC:334-410 allocation, initial bytes and publication", "Kernel/KStart32.HC:17-29 configurable JIT variable fill", "Compiler/PrsVar.HC:51-112 initializer phase boundary", "Kernel/KLoad.HC:153-181 main entry order"]
+implementation = ["src/ir/integer_globals.ml", "src/ir/global_address_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/direct_call_lowering.ml", "src/ir/return_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_source.ml", "src/driver/integer_program.ml", "bin/holyc.ml"]
+tests = ["test/test_integer_globals.ml", "test/test_integer_program_cli.ml", "examples/integer-globals.hc", "test/dune"]
+documentation = ["docs/integer-globals.md", "docs/integer-functions.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 601
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "explicit source assignment initializes Total; two AddTo calls share it; final source expression observes 42 in 50 instructions in JIT and AOT modes"
+ownership = "exact classified source record, physical symbol object, type, publication item/declarator positions, rank, category, origin and mode-specific address opcode"
+ir = "symbol-backed JIT IC_IMM_I64 or AOT IC_ABS_ADDR, then existing IC_DEREF or IC_ASSIGN; same expression planner serves frame and global storage"
+runtime = "preflight every definition and entry; allocate fresh program-owned global words once per execution; calls and block transfers preserve globals independently of local slots and temporary values"
+initial_state = "AOT code-heap words begin zero; JIT words begin unknown and reached reads produce a labeled hosted HCIRVM0012 diagnostic; no TempleOS zero-initialization claim for JIT"
+limits = "positive max_global_bytes defaults to 1048576; eight bytes per object; exact budget checked before mutable storage allocation; independent of shared instruction/frame/depth limits"
+diagnostics = ["HCRUN0001 unsupported declaration or graph-only API boundary", "HCIRL0004 inconsistent checked storage evidence", "HCIRL0005 size or identity overflow", "HCIRVM0012 reached hosted uninitialized read", "HCIRVM0016 global byte limit"]
+focused_tests = 8
+preserved = ["bounded eval", "graph-only APIs", "public word signedness", "argument order", "independent frames", "whole-program preflight", "fault provenance", "deterministic dumps", "raw runtime arithmetic policy"]
+excluded = ["declaration initializer execution", "aliases", "data-heap and external/import storage", "static locals", "narrow/floating/pointer/array/aggregate/callback objects", "general runtime output", "stateful #exe", "native backends", "loader acceptance", "bootstrap"]
+next_connection = "retain global initializer roots and their source publication and compile/load execution phases; do not replace all declaration initializers with runtime assignments"
+native_oracle_status = "hosted source and malformed-IR regressions plus pinned-source evidence; no new native TempleOS capture"

@@ -180,4 +180,60 @@ let () =
         (result |> member "final_value" |> member "value" |> to_string = "42")
         "nested source call expressions must return 42")
     [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      let result =
+        success
+          [
+            "run";
+            "--format=json";
+            "--mode=" ^ mode;
+            "--global-byte-limit=8";
+            Sys.argv.(5);
+          ]
+        |> Yojson.Safe.from_string
+      in
+      require
+        (result |> member "final_value" |> member "value" |> to_string = "42")
+        "global accumulator source returns 42";
+      require
+        (result |> member "global_byte_limit" |> to_int = 8)
+        "reported global limit";
+      let human =
+        success
+          [ "run"; "--mode=" ^ mode; "--global-byte-limit=8"; Sys.argv.(5) ]
+      in
+      require
+        (String.split_on_char '\n' human
+        |> List.map String.trim
+        |> List.mem "global-byte-limit=8")
+        "human global limit";
+      let status, stdout, stderr =
+        invoke
+          [
+            "run";
+            "--format=json";
+            "--mode=" ^ mode;
+            "--global-byte-limit=7";
+            Sys.argv.(5);
+          ]
+      in
+      require
+        (status = Unix.WEXITED 1 && stdout = "")
+        "global byte limit rejects before effects";
+      require
+        (Yojson.Safe.from_string stderr
+        |> to_list |> List.hd |> member "code" |> to_string = "HCIRVM0016")
+        "global limit diagnostic")
+    [ "jit"; "aot" ];
+  with_file ".hc" "@invalid" (fun source ->
+      let status, stdout, stderr =
+        invoke [ "run"; "--global-byte-limit=0"; source ]
+      in
+      require
+        (status = Unix.WEXITED 1 && stdout = "")
+        "nonpositive global limit rejects before source parsing";
+      require
+        (String.starts_with ~prefix:"holyc: run: HCIRVM0001" stderr)
+        "global limit configuration diagnostic");
   print_endline "Integer program CLI checks passed."

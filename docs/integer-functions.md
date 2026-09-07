@@ -53,7 +53,8 @@ An instruction that faults consumes its step; exhaustion stops before the next
 instruction. Frame/depth exhaustion on a nested call is a reached execution
 failure. Invalid definitions or individual over-budget frames fail preflight.
 
-Globals, static locals, arrays, narrow/floating storage, callbacks, arbitrary
+Ordinary scalar [global storage](integer-globals.md) is now shared with callers.
+Global declaration initializers and aliases, static locals, arrays, narrow/floating storage, callbacks, arbitrary
 pointers, defaults, variadic execution, external/import execution and joined
 prototype identities remain unsupported. Every definition and unreachable block
 is checked before any instruction runs. A reached uninitialized local read is
@@ -85,7 +86,7 @@ The public library offers `compile_integer_program`, `integer_program_entry`,
 `integer_program_functions`, `integer_program_human` and `run_integer_program`.
 Successful phase results retain `value` and nonfatal `diagnostics`.
 `Ir_integer_interpreter.final_value` reads the program result. The run API
-accepts optional `max_frame_bytes` and `max_call_depth` and a required
+accepts optional `max_frame_bytes`, `max_call_depth` and `max_global_bytes` and a required
 `max_steps`. `lower_integer_program` remains the graph-only top-level API.
 The bounded `eval` format and execution contract are preserved.
 

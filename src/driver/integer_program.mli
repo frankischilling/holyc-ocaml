@@ -8,6 +8,7 @@ val compile :
   (compiled checked, Common.Diagnostic.t list) result
 
 val entry : compiled -> Ir.X87_stack.t
+val globals : compiled -> Ir.Integer_globals.t
 val functions : compiled -> Ir.Integer_interpreter.function_definition list
 val human : compiled -> string
 
@@ -18,6 +19,7 @@ val lower :
   (Ir.X87_stack.t checked, Common.Diagnostic.t list) result
 
 val run :
+  ?max_global_bytes:int ->
   ?max_frame_bytes:int ->
   ?max_call_depth:int ->
   Session.t ->

@@ -21,6 +21,11 @@ call shapes, argument order and storage limits. The report retains the last
 reached top-level expression value; it has no implemented Print operation.
 `holyc eval` continues to return the value of exactly one expression statement.
 
+Ordinary scalar I64/U64 code-heap globals without declaration initializers or
+aliases also execute through this path. Top-level and function expressions
+share their storage across calls and loops. The [global accumulator](integer-globals.md)
+returns 42 in 50 instructions in both modes and introduces `--global-byte-limit`.
+
 ## Source behavior and graph construction
 
 `Compiler/PrsStmt.HC:459-565` establishes the condition tests, loop backedges,

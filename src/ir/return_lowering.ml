@@ -93,11 +93,11 @@ let allocate_return_tail ~span return_id =
       | Error item -> Error item
       | Ok next_instruction_id_ -> Ok (jump_id_, next_instruction_id_))
 
-let lower_with_value ?frame ?lower_call ~span ~instruction_id ~value_id ~leave
-    return_type_ value =
+let lower_with_value ?frame ?globals ?lower_call ~span ~instruction_id ~value_id
+    ~leave return_type_ value =
   match
-    Expression.lower_typed_result ?frame ?lower_call ~instruction_id ~value_id
-      value
+    Expression.lower_typed_result ?frame ?globals ?lower_call ~instruction_id
+      ~value_id value
   with
   | Error errors -> Error errors
   | Ok Expression.Unsupported_expression -> Ok Unsupported_expression
@@ -130,16 +130,16 @@ let lower_with_value ?frame ?lower_call ~span ~instruction_id ~value_id ~leave
             ~next_value_id_:(Expression.next_value_id expression)
             items)
 
-let lower_return_value ?frame ?lower_call ~span ~instruction_id ~value_id ~leave
-    return_type = function
+let lower_return_value ?frame ?globals ?lower_call ~span ~instruction_id
+    ~value_id ~leave return_type = function
   | None ->
       lower_without_value ~span ~instruction_id ~value_id ~leave return_type
   | Some value ->
-      lower_with_value ?frame ?lower_call ~span ~instruction_id ~value_id ~leave
-        return_type value
+      lower_with_value ?frame ?globals ?lower_call ~span ~instruction_id
+        ~value_id ~leave return_type value
 
-let lower_function_return ?frame ?lower_call ~instruction_id ~value_id ~leave
-    return_ =
+let lower_function_return ?frame ?globals ?lower_call ~instruction_id ~value_id
+    ~leave return_ =
   let source = Semantic_result.return_source return_ in
   match span_of_origin (Semantic_source.return_origin source) with
   | Error item -> Error [ item ]
@@ -147,8 +147,8 @@ let lower_function_return ?frame ?lower_call ~instruction_id ~value_id ~leave
       let return_type = Semantic_result.return_declared_type return_ in
       let value = Semantic_result.return_value return_ in
       let lower =
-        lower_return_value ?frame ?lower_call ~span ~instruction_id ~value_id
-          ~leave
+        lower_return_value ?frame ?globals ?lower_call ~span ~instruction_id
+          ~value_id ~leave
       in
       lower return_type value
 

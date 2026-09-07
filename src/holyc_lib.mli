@@ -21,6 +21,8 @@ module Ir_control_flow = Ir.Control_flow
 module Ir_block_graph = Ir.Block_graph
 module Ir_effects = Ir.Effects
 module Ir_x87_stack = Ir.X87_stack
+module Ir_integer_globals = Ir.Integer_globals
+module Ir_global_address_lowering = Ir.Global_address_lowering
 module Ir_integer_interpreter = Ir.Integer_interpreter
 module Ir_integer_program_lowering = Ir.Integer_program_lowering
 module Ir_integer_unary_folding = Ir.Integer_unary_folding
@@ -715,6 +717,7 @@ val compile_integer_program :
   (integer_program integer_program_result, Diagnostic.t list) result
 
 val integer_program_entry : integer_program -> Ir_x87_stack.t
+val integer_program_globals : integer_program -> Ir_integer_globals.t
 
 val integer_program_functions :
   integer_program -> Ir_integer_interpreter.function_definition list
@@ -722,6 +725,7 @@ val integer_program_functions :
 val integer_program_human : integer_program -> string
 
 val run_integer_program :
+  ?max_global_bytes:int ->
   ?max_frame_bytes:int ->
   ?max_call_depth:int ->
   Session.t ->
@@ -730,8 +734,10 @@ val run_integer_program :
   max_steps:int ->
   (Ir_integer_interpreter.t integer_program_result, Diagnostic.t list) result
 (** Execute integer source statements and checked I64/U64 function definitions
-    with fixed parameters, automatic locals and direct call expressions.
-    Instructions, active frame bytes and call depth have shared positive bounds.
+    with fixed parameters, automatic locals, direct call expressions and
+    ordinary scalar I64/U64 code-heap globals without declaration initializers
+    or aliases. Instructions, active frame bytes, global bytes and call depth
+    have positive bounds. Global words are shared by all calls in one execution.
     Conditions short-circuit AND and OR; ordinary values and XOR remain eager.
     Arithmetic uses raw runtime IR semantics. General memory, output,
     indirect/external calls and native code remain unsupported. *)

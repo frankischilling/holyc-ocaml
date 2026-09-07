@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added shared scalar I64/U64 global storage to source execution, with canonical JIT/AOT address intent, global loads and assignments across calls, and a separate positive global-byte limit. The accumulator fixture returns 42 in 50 instructions in both modes. AOT code-heap storage starts at zero; reached unknown JIT reads report a labeled hosted diagnostic. Declaration initializers, aliases and broader storage remain explicit boundaries.
+
 - Added nested integer call expressions through the source execution path. Returned words now compose in arithmetic, arguments, initializers, conditions and returns, including returned recursion and mutable loops. Caller values and argument scopes survive nested calls under existing shared limits. Program execution accepts checked public I64/U64 call results in top-level arithmetic; graph-only execution keeps its existing type boundary.
 
 - Added complete source execution for the original integer Add fixture through `run --target=ir`, including checked initializer stores, named bodies, direct calls and caller continuation. JIT and AOT modes report the final 42 in 29 instructions. Independent frames and an explicit call stack share instruction, frame-byte and depth bounds. Fixed direct-call argument execution to follow TempleOS's right-to-left COC order while preserving formal parameter positions; variadic IR emits reversed supplied trees, argc, then reversed fixed trees.

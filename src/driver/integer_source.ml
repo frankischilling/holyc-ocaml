@@ -6,12 +6,14 @@ type prepared = {
   functions_ : Typed.t;
   frames_ : Sema.Function_frame_layout.t;
   records_ : Sema.Function_record_classification.t;
+  global_records_ : Sema.Global_record_classification.t;
 }
 
 let top_level prepared = prepared.top_level_
 let functions prepared = prepared.functions_
 let frames prepared = prepared.frames_
 let records prepared = prepared.records_
+let global_records prepared = prepared.global_records_
 let ( let* ) = Result.bind
 
 let diagnostic ~span code message =
@@ -188,8 +190,12 @@ let prepare_unit session ~config ~span ast =
   let* records =
     Function_record_classification.classify ~resolution:functions ast |> checked
   in
+  let* global_records =
+    Global_record_classification.classify ~resolution:globals ast |> checked
+  in
   Ok
     {
+      global_records_ = global_records;
       top_level_ = typed;
       functions_ = function_results;
       frames_ = frames;

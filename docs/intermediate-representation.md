@@ -8,6 +8,13 @@ them under shared step/frame/depth limits. The original Add source returns 42
 through `run`; graph-only evaluation and native execution retain their separate
 boundaries.
 
+The [shared scalar global path](integer-globals.md) retains exact classified
+objects and lowers JIT `IC_IMM_I64` or AOT `IC_ABS_ADDR` logical-symbol addresses.
+The same expression planner emits checked dereferences and assignments for
+global and frame locations. Program preflight validates the address/type/owner
+relationship, then allocates fresh global words under a separate byte limit.
+Those words survive block transfers and nested calls.
+
 ## Integer comparison-chain values
 
 The shared expression lowerer follows `PrsExp.HC:49-52,225-230` for all six

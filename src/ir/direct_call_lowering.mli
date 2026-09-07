@@ -5,6 +5,7 @@ val reference_commit : string
 
 val lower :
   ?frame:Sema.Function_frame_layout.function_layout ->
+  ?globals:Integer_globals.t ->
   ?lower_call:Expression_lowering.call_lowerer ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
@@ -18,6 +19,7 @@ val lower :
 
 val lower_top_level :
   ?frame:Sema.Function_frame_layout.function_layout ->
+  ?globals:Integer_globals.t ->
   ?lower_call:Expression_lowering.call_lowerer ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
