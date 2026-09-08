@@ -72,7 +72,22 @@ module Environment : sig
     entry
 
   val find_preprocessor : t -> string -> lookup
+
+  val complete_function_header :
+    t ->
+    entry:entry ->
+    function_call_shape:function_call_shape ->
+    (entry, string) result
+  (** Replace this exact provisional entry in its original publication position.
+      Prior entry snapshots and copied environments remain unchanged;
+      intervening shadow declarations remain newer. Completion is allowed only
+      once. *)
+
   val all : t -> entry list
+
+  val find_function : t -> string -> entry option
+  (** Function-kind-filtered table lookup used at function publication. *)
+
   val begin_local_context : t -> local_context
 
   val without_locals : t -> (unit -> 'a) -> 'a

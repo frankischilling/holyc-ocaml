@@ -22,14 +22,70 @@ val selected_environment :
   reference_selection -> Symbol_visibility.Environment.t
 
 val selected_lookup : reference_selection -> Symbol_visibility.lookup
-(** Selection frozen when the identifier token was produced, before later
-    lookahead can execute a directive. The receipt belongs to this exact AST
-    occurrence and environment. Selected absence and local shadowing also remain
-    fixed. Retain entry objects, not environment-local numeric IDs. *)
+(** Selection captured when the identifier token was produced, before later
+    lookahead can execute a directive. Header completion promotes an unconsumed
+    buffered token selecting that exact provisional function. Once delivered,
+    the receipt remains fixed and belongs to this exact AST occurrence and
+    environment. Selected absence and local shadowing also remain fixed. Retain
+    entry objects, not environment-local numeric IDs. *)
+
+type declaration_header = private {
+  modifiers : Ast.declaration_modifier list;
+  binding : Ast.declaration_binding option;
+  type_specifier : Ast.type_specifier;
+}
+
+type global_publication = private {
+  global_header : declaration_header;
+  global_environment : Symbol_visibility.Environment.t;
+  global_entry : Symbol_visibility.entry;
+  global_previous : Symbol_visibility.lookup;
+  global_name : Ast.identifier;
+  global_pointer_layers : Ast.pointer_layer list;
+  global_function_pointer : Ast.function_pointer_declarator option;
+  global_dimensions : Ast.array_dimension list;
+}
+
+type function_publication = private {
+  function_header : declaration_header;
+  function_environment : Symbol_visibility.Environment.t;
+  function_entry : Symbol_visibility.entry;
+  function_previous : Symbol_visibility.lookup;
+  function_name : Ast.identifier;
+  function_pointer_layers : Ast.pointer_layer list;
+  function_opening_parenthesis : Ast.location;
+}
+
+type completed_function_header = private {
+  function_publication : function_publication;
+  completed_entry : Symbol_visibility.entry;
+  parameters : Ast.function_parameter list;
+  empty_parameter_entries : Ast.empty_parameter_entry list;
+  variadic : Ast.variadic_marker option;
+  closing_parenthesis : Ast.location;
+}
+
+type declaration_event = private
+  | Global_declared of global_publication
+  | Global_completed of global_publication * Ast.global_declarator
+  | Function_declared of function_publication
+  | Function_header_completed of completed_function_header
+  | Function_body_completed of
+      completed_function_header * Ast.function_definition
+      (** Parser-owned source witnesses. A global is declared after its
+          dimensions, before its initializer; completion precedes lookahead past
+          its delimiter. A function is provisional before parameter parsing.
+          Header completion follows the first lookahead past ')'; body
+          completion follows body parsing and its terminating lookahead,
+          including a native empty body at EOF. Completion records reuse exact
+          source nodes and their declaration witness. Runtime validation,
+          installation and replay admission remain the consumer's work. *)
 
 type command_sink = {
   reference :
     (reference_selection -> (unit, Common.Diagnostic.t list) result) option;
+  declaration :
+    (declaration_event -> (unit, Common.Diagnostic.t list) result) option;
   command : Ast.item -> (unit, Common.Diagnostic.t list) result;
   resume : unit -> (unit, Common.Diagnostic.t list) result;
 }

@@ -1,9 +1,9 @@
 type t
 type command
 
-(** Incremental JIT execution with retained outer globals. Earlier functions are
-    not yet callable from later commands; parser publication and #exe
-    integration remain separate work. *)
+(** Incremental JIT execution with retained globals and functions. Calls
+    preserve each body's original storage, literals and callees; parser
+    publication and #exe integration remain separate work. *)
 
 val create :
   ?max_steps:int ->

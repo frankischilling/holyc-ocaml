@@ -65,7 +65,12 @@ let parse ?(mode = Preprocessor.Jit) ?max_generated_bytes ?max_definition_depth
                Parser.definitions = Session.definitions task;
                symbols = Session.symbols task;
                commands =
-                 { reference = None; command; resume = (fun () -> Ok ()) };
+                 {
+                   reference = None;
+                   declaration = None;
+                   command;
+                   resume = (fun () -> Ok ());
+                 };
                finish =
                  (fun () ->
                    incr finished;
@@ -248,6 +253,7 @@ let selected_occurrence () =
           (fun receipt ->
             selected := receipt :: !selected;
             Ok ());
+      declaration = None;
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
     }
@@ -419,6 +425,7 @@ let pending_command_order () =
   let commands : Parser.command_sink =
     {
       reference = None;
+      declaration = None;
       command =
         (function
         | Ast.Top_level_statement
@@ -462,8 +469,495 @@ let shared_generation_quota () =
   parse ~max_generated_bytes:8 source |> expect_integers [ 42L ];
   parse ~max_generated_bytes:7 source |> error "HCPP0013"
 
+let declaration_sink consume =
+  Parser.
+    {
+      reference = None;
+      declaration = Some consume;
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+
+let global_publication_timing () =
+  let events = ref [] in
+  let at_directive = ref [] in
+  let commands =
+    declaration_sink (fun event ->
+        events := event :: !events;
+        Ok ())
+  in
+  let _, _, output, _, _, _ =
+    parse ~same_task:true ~commands
+      ~on_enter:(fun () -> at_directive := List.rev !events)
+      {|I64 A=40,B=#exe {"2";};|}
+  in
+  let ast = P.expect_ast output in
+  (match !at_directive with
+  | [
+   Parser.Global_declared first;
+   Parser.Global_completed (same, node);
+   Parser.Global_declared second;
+  ] ->
+      Alcotest.(check bool)
+        "first completion owns declaration" true (first == same);
+      Alcotest.(check string)
+        "first initialized before second directive" "A" node.name.spelling;
+      Alcotest.(check string)
+        "second already provisionally visible" "B" second.global_name.spelling
+  | _ -> Alcotest.fail "wrong declaration events before second initializer");
+  match (ast.items, List.rev !events) with
+  | ( [ Ast.Global_declaration declaration ],
+      [
+        Parser.Global_declared first;
+        Parser.Global_completed (_, a);
+        Parser.Global_declared second;
+        Parser.Global_completed (_, b);
+      ] ) ->
+      Alcotest.(check bool)
+        "completed nodes are final AST declarators" true
+        (match declaration.declarators with
+        | [ left; right ] -> left == a && right == b
+        | _ -> false);
+      Alcotest.(check bool)
+        "base type is the original source object" true
+        (first.global_header.type_specifier == declaration.type_specifier
+        && second.global_header.type_specifier == declaration.type_specifier);
+      Alcotest.(check bool)
+        "name and dimensions remain exact" true
+        (first.global_name == a.name
+        && second.global_dimensions == b.array_dimensions)
+  | _ -> Alcotest.fail "expected two complete declaration witnesses"
+
+let function_publication_timing () =
+  let phase = ref "absent" in
+  let seen = ref [] in
+  let events = ref [] in
+  let commands =
+    declaration_sink (fun event ->
+        events := event :: !events;
+        (match event with
+        | Parser.Function_declared _ -> phase := "provisional"
+        | Parser.Function_header_completed _ -> phase := "header"
+        | Parser.Function_body_completed _ -> phase := "body"
+        | _ -> ());
+        Ok ())
+  in
+  let _, _, output, _, _, _ =
+    parse ~same_task:true ~commands
+      ~on_enter:(fun () -> seen := !phase :: !seen)
+      {|I64 F(I64 n=#exe {"1";})#exe {}{return n;}#exe {};#exe {}|}
+  in
+  let ast = P.expect_ast output in
+  Alcotest.(check (list string))
+    "native publication phases at directives"
+    [ "provisional"; "provisional"; "header"; "body" ]
+    (List.rev !seen);
+  match (ast.items, List.rev !events) with
+  | ( Ast.Function_definition definition :: _,
+      [
+        Parser.Function_declared provisional;
+        Parser.Function_header_completed header;
+        Parser.Function_body_completed (same_header, same_definition);
+      ] ) ->
+      Alcotest.(check bool)
+        "header retains exact provisional publication" true
+        (header.function_publication == provisional);
+      Alcotest.(check bool)
+        "body completion retains exact header and definition" true
+        (same_header == header && same_definition == definition);
+      Alcotest.(check bool)
+        "parenthesis and parameter source nodes are shared" true
+        (provisional.function_opening_parenthesis
+         == definition.opening_parenthesis
+        && header.parameters == definition.parameters
+        && header.closing_parenthesis == definition.closing_parenthesis);
+      Alcotest.(check int)
+        "header completion preserves entry identity"
+        (Symbol_visibility.id provisional.function_entry)
+        (Symbol_visibility.id header.completed_entry);
+      Alcotest.(check bool)
+        "provisional entry remains an immutable snapshot" true
+        (Option.is_none
+           (Symbol_visibility.function_call_shape provisional.function_entry))
+  | _ -> Alcotest.fail "expected linked function declaration phases"
+
+let function_completion_preserves_shadow () =
+  let events = ref [] in
+  let commands =
+    declaration_sink (fun event ->
+        events := event :: !events;
+        Ok ())
+  in
+  let session, _, output, _, _, _ =
+    parse ~same_task:true ~commands
+      {|I64 F(I64 n=#exe {I64 F(I64 a,I64 b){return a+b;}"1";}){return n;}|}
+  in
+  ignore (P.expect_ast output);
+  match List.rev !events with
+  | Parser.Function_declared provisional
+    :: Parser.Function_header_completed header
+    :: _ ->
+      let entries =
+        Symbol_visibility.Environment.all (Session.symbols session)
+        |> List.filter (fun entry -> Symbol_visibility.name entry = "F")
+      in
+      Alcotest.(check int)
+        "one registration per function" 2 (List.length entries);
+      let selected =
+        Symbol_visibility.Environment.find_function (Session.symbols session)
+          "F"
+        |> Option.get
+      in
+      Alcotest.(check bool)
+        "nested shadow remains newest" false
+        (selected == header.completed_entry);
+      Alcotest.(check int)
+        "nested header still has two parameters" 2
+        (List.length
+           (Option.get (Symbol_visibility.function_call_shape selected))
+             .parameters);
+      Alcotest.(check bool)
+        "old provisional receipt is unchanged" true
+        (Option.is_none
+           (Symbol_visibility.function_call_shape provisional.function_entry))
+  | _ -> Alcotest.fail "expected outer function events"
+
+let global_alias_selection_precedes_dimensions () =
+  let events = ref [] in
+  let commands =
+    declaration_sink (fun event ->
+        events := event :: !events;
+        Ok ())
+  in
+  let _, _, output, _, _, _ =
+    parse ~same_task:true ~commands {|I64 A=40;I64 A[#exe {I64 A=100;"2";}];|}
+  in
+  ignore (P.expect_ast output);
+  let declarations =
+    List.rev !events
+    |> List.filter_map (function
+      | Parser.Global_declared publication -> Some publication
+      | _ -> None)
+  in
+  match declarations with
+  | [ first; second ] -> (
+      match second.global_previous with
+      | Symbol_visibility.Present selected ->
+          Alcotest.(check bool)
+            "alias candidate is frozen at name token" true
+            (selected == first.global_entry)
+      | _ -> Alcotest.fail "lost selected earlier global")
+  | _ -> Alcotest.fail "expected two outer globals"
+
+let publication_failure_stops_lexing () =
+  let events = ref 0 in
+  let entered = ref 0 in
+  let commands =
+    declaration_sink (fun event ->
+        incr events;
+        match event with
+        | Parser.Function_declared publication ->
+            Error
+              [
+                Diagnostic.make ~code:"TESTPUB" ~severity:Diagnostic.Error
+                  ~message:"rejected provisional function"
+                  ~primary:publication.function_name.location.span ();
+              ]
+        | _ -> Alcotest.fail "no completion should follow rejected declaration")
+  in
+  let result =
+    parse ~same_task:true ~commands
+      ~on_enter:(fun () -> incr entered)
+      {|I64 F(I64 n=#exe {"42";}){return n;}#exe {}|}
+  in
+  error "TESTPUB" result;
+  Alcotest.(check int) "only provisional event delivered" 1 !events;
+  Alcotest.(check int)
+    "failure prevents default and following directives" 0 !entered
+
+let eof_body_completion () =
+  let completed = ref 0 in
+  let commands =
+    declaration_sink (fun event ->
+        (match event with
+        | Parser.Function_body_completed _ -> incr completed
+        | _ -> ());
+        Ok ())
+  in
+  let _, _, output, _, _, _ = parse ~same_task:true ~commands "I64 F()" in
+  ignore (P.expect_ast output);
+  Alcotest.(check int) "native EOF completes an empty body" 1 !completed
+
+let buffered_function_header_selection () =
+  List.iter
+    (fun source ->
+      let completed = ref None in
+      let references = ref [] in
+      let consume = function
+        | Parser.Function_header_completed header ->
+            completed := Some header;
+            Ok ()
+        | _ -> Ok ()
+      in
+      let commands =
+        {
+          (declaration_sink consume) with
+          reference =
+            Some
+              (fun selection ->
+                references := selection :: !references;
+                Ok ());
+        }
+      in
+      let _, _, output, _, _, _ = parse ~same_task:true ~commands source in
+      ignore (P.expect_ast output);
+      match (!completed, !references) with
+      | Some header, [ selection ] -> (
+          Alcotest.(check string)
+            "buffered recursive callee" "F"
+            (Parser.selected_identifier selection).spelling;
+          match Parser.selected_lookup selection with
+          | Symbol_visibility.Present entry ->
+              Alcotest.(check bool)
+                "buffered selection uses completed exact header" true
+                (entry == header.completed_entry)
+          | _ -> Alcotest.fail "lost buffered function selection")
+      | _ ->
+          Alcotest.fail "expected a completed header and its buffered reference")
+    [ "I64 F(I64 n) F 42;"; "extern I64 F(I64 n) F 42;" ]
+
+let consumed_provisional_selection () =
+  let provisional = ref None in
+  let completed = ref None in
+  let references = ref [] in
+  let reference selection =
+    references := selection :: !references;
+    Ok ()
+  in
+  let commands =
+    declaration_sink (function
+      | Parser.Function_declared publication ->
+          provisional := Some publication;
+          Ok ()
+      | Parser.Function_header_completed header ->
+          completed := Some header;
+          Ok ()
+      | _ -> Ok ())
+  in
+  let configure _ (execution : Parser.stream_execution) =
+    {
+      execution with
+      commands = { execution.commands with reference = Some reference };
+    }
+  in
+  let _, _, output, _, _, _ =
+    parse ~same_task:true ~commands ~configure
+      {|I64 F(I64 n=#exe {F();"1";}) F;|}
+  in
+  ignore (P.expect_ast output);
+  match (!provisional, !completed, !references) with
+  | Some publication, Some header, [ selection ] -> (
+      match Parser.selected_lookup selection with
+      | Symbol_visibility.Present entry ->
+          Alcotest.(check bool)
+            "consumed nested reference retains provisional snapshot" true
+            (entry == publication.function_entry
+            && entry != header.completed_entry);
+          Alcotest.(check bool)
+            "consumed snapshot still has no call shape" true
+            (Option.is_none (Symbol_visibility.function_call_shape entry))
+      | _ -> Alcotest.fail "lost nested provisional selection")
+  | _ -> Alcotest.fail "expected one consumed nested reference"
+
+let buffered_selection_preserves_newer_function () =
+  let completed = ref None in
+  let references = ref [] in
+  let commands =
+    {
+      (declaration_sink (function
+        | Parser.Function_header_completed header ->
+            completed := Some header;
+            Ok ()
+        | _ -> Ok ()))
+      with
+      reference =
+        Some
+          (fun selection ->
+            references := selection :: !references;
+            Ok ());
+    }
+  in
+  let _, _, output, _, _, _ =
+    parse ~same_task:true ~commands
+      {|I64 F(I64 n=#exe {I64 F(I64 a,I64 b){return a+b;}"1";}) F 20 22;|}
+  in
+  ignore (P.expect_ast output);
+  match (!completed, !references) with
+  | Some header, [ selection ] -> (
+      match Parser.selected_lookup selection with
+      | Symbol_visibility.Present entry ->
+          Alcotest.(check bool)
+            "older header completion does not replace selected shadow" true
+            (entry != header.completed_entry);
+          Alcotest.(check int)
+            "selected shadow still takes two arguments" 2
+            (List.length
+               (Option.get (Symbol_visibility.function_call_shape entry))
+                 .parameters)
+      | _ -> Alcotest.fail "lost newer function selection")
+  | _ -> Alcotest.fail "expected buffered shadow selection"
+
+let prototype_source_identity () =
+  let completed = ref None in
+  let commands =
+    declaration_sink (function
+      | Parser.Function_header_completed header ->
+          completed := Some header;
+          Ok ()
+      | _ -> Ok ())
+  in
+  let _, _, output, _, _, _ =
+    parse ~same_task:true ~commands "extern I64 F(I64 n=42);"
+  in
+  match ((P.expect_ast output).items, !completed) with
+  | [ Ast.Function_prototype prototype ], Some header ->
+      Alcotest.(check bool)
+        "prototype shares original parentheses and parameter nodes" true
+        (prototype.opening_parenthesis
+         == header.function_publication.function_opening_parenthesis
+        && prototype.closing_parenthesis == header.closing_parenthesis
+        && prototype.parameters == header.parameters)
+  | _ -> Alcotest.fail "expected completed prototype header"
+
+let body_sequence_publication () =
+  let phase = ref "absent" in
+  let seen = ref [] in
+  let commands =
+    declaration_sink (fun event ->
+        (match event with
+        | Parser.Function_header_completed _ -> phase := "header"
+        | Parser.Function_body_completed _ -> phase := "body"
+        | _ -> ());
+        Ok ())
+  in
+  let _, _, output, _, _, _ =
+    parse ~same_task:true ~commands
+      ~on_enter:(fun () -> seen := !phase :: !seen)
+      "I64 F() 1,2;#exe {};#exe {}"
+  in
+  ignore (P.expect_ast output);
+  Alcotest.(check (list string))
+    "body completion follows entire statement sequence" [ "header"; "body" ]
+    (List.rev !seen)
+
+let declaration_environment_ownership () =
+  let declarations = ref [] in
+  let consume event =
+    (match event with
+    | Parser.Global_declared publication ->
+        declarations := publication :: !declarations
+    | _ -> ());
+    Ok ()
+  in
+  let commands = declaration_sink consume in
+  let configure _ (execution : Parser.stream_execution) =
+    {
+      execution with
+      commands = { execution.commands with declaration = Some consume };
+    }
+  in
+  let session, _, output, _, _, _ =
+    parse ~mode:Preprocessor.Aot ~commands ~configure
+      "I64 Outer;#exe {I64 Inner;}"
+  in
+  let ast = P.expect_ast output in
+  match (List.rev !declarations, ast.items) with
+  | [ outer; inner ], [ Ast.Global_variable variable ] ->
+      Alcotest.(check bool)
+        "outer publication retains outer environment" true
+        (outer.global_environment == Session.symbols session);
+      Alcotest.(check bool)
+        "task publication owns separate task environment" false
+        (inner.global_environment == outer.global_environment);
+      Alcotest.(check bool)
+        "singleton AST retains declaration children" true
+        (outer.global_name == variable.name
+        && outer.global_header.type_specifier == variable.type_specifier
+        && outer.global_dimensions == variable.array_dimensions)
+  | _ -> Alcotest.fail "expected outer and task publications"
+
 let tests =
   [
+    Alcotest.test_case "EOF completes native empty function syntax" `Quick
+      eof_body_completion;
+    Alcotest.test_case "buffered function reference sees completed header"
+      `Quick buffered_function_header_selection;
+    Alcotest.test_case "consumed nested reference retains provisional header"
+      `Quick consumed_provisional_selection;
+    Alcotest.test_case "buffered function reference retains newer shadow" `Quick
+      buffered_selection_preserves_newer_function;
+    Alcotest.test_case "prototype completion shares exact source nodes" `Quick
+      prototype_source_identity;
+    Alcotest.test_case "nonblock sequence finishes before body publication"
+      `Quick body_sequence_publication;
+    Alcotest.test_case "publication witnesses own outer or task environment"
+      `Quick declaration_environment_ownership;
+    Alcotest.test_case "global events precede later initializer lookahead"
+      `Quick global_publication_timing;
+    Alcotest.test_case "function events preserve native header and body timing"
+      `Quick function_publication_timing;
+    Alcotest.test_case "header completion preserves intervening shadow" `Quick
+      function_completion_preserves_shadow;
+    Alcotest.test_case "global alias selection precedes dimension directives"
+      `Quick global_alias_selection_precedes_dimensions;
+    Alcotest.test_case "publication rejection stops all later token pulls"
+      `Quick publication_failure_stops_lexing;
+    Alcotest.test_case "function identity precedes parameter defaults" `Quick
+      (fun () ->
+        let visible = ref false in
+        let configure _ (execution : Parser.stream_execution) =
+          (visible :=
+             match
+               Symbol_visibility.Environment.find_preprocessor execution.symbols
+                 "F"
+             with
+             | Symbol_visibility.Present entry ->
+                 Symbol_visibility.kind entry = Symbol_visibility.Function
+             | _ -> false);
+          execution
+        in
+        let _, _, output, _, _, _ =
+          parse ~same_task:true ~configure
+            {|I64 F(I64 n=#exe {"42";}){return n;}|}
+        in
+        ignore (P.expect_ast output);
+        Alcotest.(check bool)
+          "provisional function is visible in its default" true !visible);
+    Alcotest.test_case "prototype header precedes following directive" `Quick
+      (fun () ->
+        let _, _, output, _, _, _ =
+          parse ~same_task:true
+            "extern I64 F(I64 n)#exe {\n\
+             #ifdef F\n\
+             \";42;\";\n\
+             #else\n\
+             \";0;\";\n\
+             #endif\n\
+             }"
+        in
+        match (P.expect_ast output).items with
+        | Ast.Function_prototype _
+          :: [
+               Ast.Top_level_statement
+                 (Ast.Expression_statement
+                    {
+                      expression_statement_expression =
+                        Ast.Integer_literal
+                          { literal_value = Ast.Integer_value value; _ };
+                      _;
+                    });
+             ] -> Alcotest.(check int64) "completed header is visible" 42L value
+        | _ -> Alcotest.fail "expected prototype and generated integer");
     Alcotest.test_case "directive precedes pending command resume" `Quick
       pending_command_order;
     Alcotest.test_case "included task commands resume the block" `Quick

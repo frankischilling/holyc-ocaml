@@ -183,3 +183,39 @@ Next implement provisional parser publication, cross-command extern joins,
 query-selection/pending receipts and checked StreamPrint generation. All seven
 full #635 acceptance criteria remain open. See the retained-functions plan for
 this completed portion; this checkpoint does not claim #exe execution.
+
+## Parser declaration checkpoint
+
+Private declaration events now expose provisional globals/functions, completed
+global declarators, completed function headers and completed function bodies.
+Global alias selection is saved at the name token before dimensions. Function
+identity precedes parameter defaults; header completion follows the first
+lookahead after the closing parenthesis. Body completion follows the complete
+statement sequence, including native EOF completion. Final ASTs reuse the exact
+publication source nodes, including both parenthesis locations.
+
+Header completion replaces an entry in its original table position without
+changing prior snapshots, copied environments or newer shadows. Only this
+cursor's unconsumed tokens selecting that exact provisional entry are promoted.
+Independent review reproduced a parenthesis-free recursive call whose first
+body token had been buffered before completion, then verified the fix and its
+consumed-reference/newer-shadow controls. It also identified and resolved public
+completion pairing and reconstructed opening-location defects. An initial EOF
+test expectation was corrected after checking native `PrsStmt` and `PrsFun`.
+
+All 39 stream-parser and eight symbol-visibility groups pass. The full suite
+passed 2,135 of 2,149 tests in 55.450 seconds; only the fourteen pending #exe
+groups fail. CLI, formatting, generated-source, build and install checks pass.
+All 82 reference checksums and eleven provenance scenarios pass. Complete lexer
+JSON and parser JSON/normalized text match the existing baselines: 528/528
+tokenizes, 25 standalone parses and 126 with the prelude.
+These callbacks remain frontend source evidence. The task compiler must still
+consume them with shared semantic scope, retained assigned symbols, checked
+cross-command joins and once-only publication/initializer/executable admission.
+Query and pending/predecessor receipts plus StreamPrint remain required before
+the complete #635 execution gates can pass.
+
+The previous retained-function source CI is now final: OCaml 5.1/5.3 in run
+34247494871 passed their other 2,120 tests and failed only the fourteen #exe
+groups. Corpus 34247494815 and dependency review 34247494698 passed. Keep draft
+PR #636 in draft while actual #exe execution remains incomplete.

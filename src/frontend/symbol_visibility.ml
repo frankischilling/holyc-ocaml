@@ -161,6 +161,28 @@ module Environment = struct
       (fun (_, names) -> String_set.mem name names)
       environment.local_contexts
 
+  let complete_function_header environment ~entry ~function_call_shape =
+    if entry.kind <> Function || Option.is_some entry.function_call_shape then
+      Error "function header completion requires a provisional function entry"
+    else if
+      not
+        (List.exists
+           (fun candidate -> candidate == entry)
+           environment.entries_rev)
+    then Error "provisional function entry does not belong to this environment"
+    else
+      let completed =
+        { entry with function_call_shape = Some function_call_shape }
+      in
+      let replace candidate =
+        if candidate == entry then completed else candidate
+      in
+      environment.entries_rev <- List.map replace environment.entries_rev;
+      let entries = Hashtbl.find environment.entries_by_name entry.name in
+      Hashtbl.replace environment.entries_by_name entry.name
+        (List.map replace entries);
+      Ok completed
+
   let preprocessor_mask = 0x1ffff land lnot (kind_bit Import_system_symbol)
 
   let find_preprocessor environment name =
@@ -178,6 +200,11 @@ module Environment = struct
           | None -> Absent)
 
   let all environment = List.rev environment.entries_rev
+
+  let find_function environment name =
+    Option.bind
+      (Hashtbl.find_opt environment.entries_by_name name)
+      (List.find_opt (fun entry -> entry.kind = Function))
 
   let begin_local_context environment =
     if environment.next_local_context_id = max_int then

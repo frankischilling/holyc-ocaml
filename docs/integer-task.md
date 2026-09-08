@@ -77,10 +77,25 @@ controls include a configured limit above 100,000.
 ## Remaining #635 work
 
 StreamPrint is not yet connected to parser generation. Cross-command extern
-joins, provisional declaration publication before parameter/default parsing,
+joins, semantic consumption of parser declaration events,
 selected query receipts, parser pending-command authority and the fourteen
 maintained #exe execution groups remain part of issue #635. The existing integer
 function domain remains unchanged, including its pointer-return boundary.
+
+The streaming parser now exposes private declaration events for provisional
+globals and functions, completed global declarators, function headers and bodies.
+A global is visible after its dimensions and before its initializer; its
+completion precedes lookahead into the next declarator. A function is visible
+before parameter defaults, but its header completes only after lookahead past
+the closing parenthesis. Body completion follows the full statement sequence
+and terminating lookahead. Consumers still need checked semantic publication,
+initializer execution and executable installation at these points.
+
+Header completion preserves newer shadows and already consumed reference
+snapshots. It updates only unconsumed tokens selecting the exact provisional
+function. Global alias candidates retain the selection made at the name token,
+before directives in dimensions. These frontend controls do not demonstrate
+stateful #exe execution.
 
 The reference remains `c26482bb6ad3f80106d28504ec5db3c6a360732c`. The hosted task
 tests do not constitute a new native TempleOS capture.

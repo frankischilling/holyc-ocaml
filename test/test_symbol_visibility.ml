@@ -291,8 +291,57 @@ let deterministic_json () =
     "source-only entry" "Callable"
     (source_symbols |> List.hd |> member "name" |> to_string)
 
+let provisional_function_completion () =
+  let module E = Symbol_visibility.Environment in
+  let environment = E.create () in
+  let entry = E.add environment ~name:"F" ~kind:Symbol_visibility.Function () in
+  let copied = E.copy environment in
+  let foreign = E.create () in
+  let shape = Symbol_visibility.{ parameters = []; variadic = false } in
+  let reject target candidate =
+    match
+      E.complete_function_header target ~entry:candidate
+        ~function_call_shape:shape
+    with
+    | Error _ -> ()
+    | Ok _ -> Alcotest.fail "invalid function completion accepted"
+  in
+  reject foreign entry;
+  let newer =
+    E.add environment ~name:"F" ~kind:Symbol_visibility.Global_variable ()
+  in
+  let completed =
+    E.complete_function_header environment ~entry ~function_call_shape:shape
+    |> checked
+  in
+  reject environment entry;
+  reject environment completed;
+  reject environment newer;
+  Alcotest.(check bool)
+    "copied environment retains provisional snapshot" true
+    (E.find_function copied "F" = Some entry
+    && Option.is_none (Symbol_visibility.function_call_shape entry));
+  Alcotest.(check bool)
+    "kind-filtered lookup selects completed function" true
+    (Option.get (E.find_function environment "F") == completed);
+  Alcotest.(check bool)
+    "newer global remains ordinary lookup winner" true
+    (match E.find_preprocessor environment "F" with
+    | Symbol_visibility.Present selected -> selected == newer
+    | _ -> false);
+  Alcotest.(check int)
+    "completion does not duplicate publication" 2
+    (List.length (E.all environment));
+  Alcotest.(check int)
+    "identity retained"
+    (Symbol_visibility.id entry)
+    (Symbol_visibility.id completed)
+
 let tests =
   [
+    Alcotest.test_case
+      "provisional completion retains owner order and snapshots" `Quick
+      provisional_function_completion;
     Alcotest.test_case "source hash bits" `Quick source_kind_bits;
     Alcotest.test_case "session built-ins" `Quick session_builtins;
     Alcotest.test_case "import filtering" `Quick import_filtering;

@@ -13,9 +13,55 @@ let selected_identifier selection = selection.identifier
 let selected_environment selection = selection.environment
 let selected_lookup selection = selection.lookup
 
+type declaration_header = {
+  modifiers : Ast.declaration_modifier list;
+  binding : Ast.declaration_binding option;
+  type_specifier : Ast.type_specifier;
+}
+
+type global_publication = {
+  global_header : declaration_header;
+  global_environment : Symbol_visibility.Environment.t;
+  global_entry : Symbol_visibility.entry;
+  global_previous : Symbol_visibility.lookup;
+  global_name : Ast.identifier;
+  global_pointer_layers : Ast.pointer_layer list;
+  global_function_pointer : Ast.function_pointer_declarator option;
+  global_dimensions : Ast.array_dimension list;
+}
+
+type function_publication = {
+  function_header : declaration_header;
+  function_environment : Symbol_visibility.Environment.t;
+  function_entry : Symbol_visibility.entry;
+  function_previous : Symbol_visibility.lookup;
+  function_name : Ast.identifier;
+  function_pointer_layers : Ast.pointer_layer list;
+  function_opening_parenthesis : Ast.location;
+}
+
+type completed_function_header = {
+  function_publication : function_publication;
+  completed_entry : Symbol_visibility.entry;
+  parameters : Ast.function_parameter list;
+  empty_parameter_entries : Ast.empty_parameter_entry list;
+  variadic : Ast.variadic_marker option;
+  closing_parenthesis : Ast.location;
+}
+
+type declaration_event =
+  | Global_declared of global_publication
+  | Global_completed of global_publication * Ast.global_declarator
+  | Function_declared of function_publication
+  | Function_header_completed of completed_function_header
+  | Function_body_completed of
+      completed_function_header * Ast.function_definition
+
 type command_sink = {
   reference :
     (reference_selection -> (unit, Common.Diagnostic.t list) result) option;
+  declaration :
+    (declaration_event -> (unit, Common.Diagnostic.t list) result) option;
   command : Ast.item -> (unit, Common.Diagnostic.t list) result;
   resume : unit -> (unit, Common.Diagnostic.t list) result;
 }
@@ -51,6 +97,8 @@ type cursor = {
   reference :
     (reference_selection -> (unit, Common.Diagnostic.t list) result) option;
   references : reference_selection Identifier_table.t;
+  declaration :
+    (declaration_event -> (unit, Common.Diagnostic.t list) result) option;
   mutable lookahead : located_token list;
   mutable diagnostics_rev : Common.Diagnostic.t list;
   mutable local_context : Symbol_visibility.Environment.local_context option;
@@ -71,6 +119,8 @@ type parsed_declarator_prefix = {
   function_pointer : Ast.function_pointer_declarator option;
   tokens : Token.t list;
   definition_trace : Common.Diagnostic.related list;
+  name_selection :
+    (Symbol_visibility.Environment.t * Symbol_visibility.lookup) option;
 }
 
 type parsed_parameter = { node : Ast.function_parameter; tokens : Token.t list }
@@ -198,6 +248,8 @@ type parsed_parameter_default = {
 type parsed_function_pointer = {
   node : Ast.function_pointer_declarator;
   name : Ast.identifier option;
+  name_selection :
+    (Symbol_visibility.Environment.t * Symbol_visibility.lookup) option;
   tokens : Token.t list;
 }
 
@@ -537,6 +589,20 @@ let report ?(secondary = []) cursor item ~code ~message =
   cursor.diagnostics_rev <- diagnostic :: cursor.diagnostics_rev;
   if cursor.stop_on_error then raise Stop_command
 
+let publish_declaration cursor at event =
+  Option.iter
+    (fun consume ->
+      match consume event with
+      | Ok () -> ()
+      | Error diagnostics ->
+          cursor.diagnostics_rev <-
+            List.rev_append diagnostics cursor.diagnostics_rev;
+          if not (has_error diagnostics) then
+            report cursor at ~code:"HCPARSE0161"
+              ~message:"declaration consumer failed without an error diagnostic";
+          raise Stop_command)
+    cursor.declaration
+
 let expression_identifier cursor item =
   let identifier =
     Ast.make_identifier ~spelling:item.token.raw
@@ -849,11 +915,10 @@ let symbol_source_origin (location : Ast.location) =
     }
 
 let publish_global cursor (name : Ast.identifier) =
-  ignore
-    (Symbol_visibility.Environment.add cursor.symbols ~name:name.spelling
-       ~kind:Symbol_visibility.Global_variable
-       ~origin:(symbol_source_origin name.location)
-       ())
+  Symbol_visibility.Environment.add cursor.symbols ~name:name.spelling
+    ~kind:Symbol_visibility.Global_variable
+    ~origin:(symbol_source_origin name.location)
+    ()
 
 let publish_class cursor (name : Ast.identifier) =
   ignore
@@ -862,7 +927,7 @@ let publish_class cursor (name : Ast.identifier) =
        ~origin:(symbol_source_origin name.location)
        ())
 
-let publish_function cursor (name : Ast.identifier) parameters variadic =
+let function_call_shape parameters variadic =
   let function_call_shape : Symbol_visibility.function_call_shape =
     {
       parameters =
@@ -879,11 +944,90 @@ let publish_function cursor (name : Ast.identifier) parameters variadic =
       variadic = Option.is_some variadic;
     }
   in
+  function_call_shape
+
+let publish_function cursor (name : Ast.identifier) parameters variadic =
+  let function_call_shape = function_call_shape parameters variadic in
   ignore
     (Symbol_visibility.Environment.add cursor.symbols ~name:name.spelling
        ~kind:Symbol_visibility.Function ~function_call_shape
        ~origin:(symbol_source_origin name.location)
        ())
+
+let declare_function cursor header (prefix : parsed_declarator_prefix) opening =
+  if not cursor.stop_on_error then None
+  else
+    let function_previous =
+      match
+        Symbol_visibility.Environment.find_function cursor.symbols
+          prefix.name.spelling
+      with
+      | Some entry -> Symbol_visibility.Present entry
+      | None -> Symbol_visibility.Absent
+    in
+    let function_entry =
+      Symbol_visibility.Environment.add cursor.symbols
+        ~name:prefix.name.spelling ~kind:Symbol_visibility.Function
+        ~origin:(symbol_source_origin prefix.name.location)
+        ()
+    in
+    let publication =
+      {
+        function_header = header;
+        function_environment = cursor.symbols;
+        function_entry;
+        function_previous;
+        function_name = prefix.name;
+        function_pointer_layers = prefix.pointer_layers;
+        function_opening_parenthesis = token_location opening.token;
+      }
+    in
+    publish_declaration cursor opening (Function_declared publication);
+    Some publication
+
+let complete_function_header cursor at publication
+    (parsed : parsed_parameter_list) =
+  Option.map
+    (fun function_publication ->
+      let completed_entry =
+        Symbol_visibility.Environment.complete_function_header cursor.symbols
+          ~entry:function_publication.function_entry
+          ~function_call_shape:
+            (function_call_shape parsed.parameters parsed.variadic)
+        |> function
+        | Ok entry -> entry
+        | Error message -> invalid_arg message
+      in
+      (* Native Lex retains the hash object across the lookahead after ')'.
+       Finish only this cursor's unconsumed selections of that exact object;
+       already delivered references and nested cursors retain their snapshots. *)
+      cursor.lookahead <-
+        List.map
+          (fun item ->
+            match item.selection with
+            | Some (environment, Symbol_visibility.Present entry)
+              when environment == cursor.symbols
+                   && entry == function_publication.function_entry ->
+                {
+                  item with
+                  selection =
+                    Some (environment, Symbol_visibility.Present completed_entry);
+                }
+            | _ -> item)
+          cursor.lookahead;
+      let completed =
+        {
+          function_publication;
+          completed_entry;
+          parameters = parsed.parameters;
+          empty_parameter_entries = parsed.empty_parameter_entries;
+          variadic = parsed.variadic;
+          closing_parenthesis = parsed.closing_parenthesis;
+        }
+      in
+      publish_declaration cursor at (Function_header_completed completed);
+      completed)
+    publication
 
 let publish_local cursor (name : Ast.identifier) =
   match cursor.local_context with
@@ -1019,6 +1163,7 @@ let parse_declarator_prefix cursor base_spelling ~parse_function_pointer =
               function_pointer = Some parsed.node;
               tokens = pointer_tokens @ parsed.tokens;
               definition_trace = pointer_trace;
+              name_selection = parsed.name_selection;
             })
           (parse_function_pointer ())
       else if not (token_is_name_position_identifier name_item.token) then (
@@ -1042,6 +1187,7 @@ let parse_declarator_prefix cursor base_spelling ~parse_function_pointer =
             function_pointer = None;
             tokens = pointer_tokens @ [ name_item.token ];
             definition_trace = pointer_trace;
+            name_selection = name_item.selection;
           }
 
 let declaration_failure ?(secondary = []) cursor item ~code ~message =
@@ -2807,12 +2953,40 @@ let parse_global_initializer cursor ~array_dimensions =
         in
         Some (Some initial_value, tokens)
 
-let parse_variable_declarator_suffix cursor (prefix : parsed_declarator_prefix)
-    =
+let parse_variable_declarator_suffix ?header cursor
+    (prefix : parsed_declarator_prefix) =
   match parse_array_dimensions cursor 0 [] [] with
   | None -> None
   | Some (array_dimensions, array_tokens) ->
-      if cursor.stop_on_error then publish_global cursor prefix.name;
+      let publication =
+        if not cursor.stop_on_error then None
+        else
+          let global_entry = publish_global cursor prefix.name in
+          Option.map
+            (fun global_header ->
+              let global_previous =
+                match prefix.name_selection with
+                | Some (environment, selected)
+                  when environment == cursor.symbols -> selected
+                | _ -> Symbol_visibility.Absent
+              in
+              let publication =
+                {
+                  global_header;
+                  global_environment = cursor.symbols;
+                  global_entry;
+                  global_previous;
+                  global_name = prefix.name;
+                  global_pointer_layers = prefix.pointer_layers;
+                  global_function_pointer = prefix.function_pointer;
+                  global_dimensions = array_dimensions;
+                }
+              in
+              publish_declaration cursor (peek cursor)
+                (Global_declared publication);
+              publication)
+            header
+      in
       Option.bind (parse_global_initializer cursor ~array_dimensions)
         (fun (initial_value, initializer_tokens) ->
           let delimiter_item = peek cursor in
@@ -2845,17 +3019,23 @@ let parse_variable_declarator_suffix cursor (prefix : parsed_declarator_prefix)
                   ~array_dimensions ~initial_value ~delimiter
                   ~location:(location_from_tokens tokens)
               in
-              if not cursor.stop_on_error then publish_global cursor prefix.name;
+              if not cursor.stop_on_error then
+                ignore (publish_global cursor prefix.name);
+              Option.iter
+                (fun publication ->
+                  publish_declaration cursor delimiter_item
+                    (Global_completed (publication, node)))
+                publication;
               Some ({ node; tokens } : parsed_declarator))
 
-let parse_declarator cursor base_spelling ~parse_function_pointer =
+let parse_declarator ?header cursor base_spelling ~parse_function_pointer =
   match
     parse_declarator_prefix cursor base_spelling ~parse_function_pointer
   with
   | None -> None
-  | Some prefix -> parse_variable_declarator_suffix cursor prefix
+  | Some prefix -> parse_variable_declarator_suffix ?header cursor prefix
 
-let rec parse_declarators cursor base_spelling ~parse_function_pointer
+let rec parse_declarators ?header cursor base_spelling ~parse_function_pointer
     declarators_rev =
   let item = peek cursor in
   if item.token.kind = Token_kind.Punctuation ';' then
@@ -2865,7 +3045,9 @@ let rec parse_declarators cursor base_spelling ~parse_function_pointer
         trailing_semicolon = Some (take cursor);
       }
   else
-    match parse_declarator cursor base_spelling ~parse_function_pointer with
+    match
+      parse_declarator ?header cursor base_spelling ~parse_function_pointer
+    with
     | None -> None
     | Some declarator -> (
         let declarators_rev = declarator :: declarators_rev in
@@ -2877,8 +3059,8 @@ let rec parse_declarators cursor base_spelling ~parse_function_pointer
                 trailing_semicolon = None;
               }
         | Ast.Comma ->
-            parse_declarators cursor base_spelling ~parse_function_pointer
-              declarators_rev)
+            parse_declarators ?header cursor base_spelling
+              ~parse_function_pointer declarators_rev)
 
 let aggregate_member_failure cursor item ~recovery_depth ~code ~message =
   report cursor item ~code ~message;
@@ -3296,8 +3478,14 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
                 | Token_kind.Identifier | Token_kind.Punctuation ('*' | '(')
                   -> (
                     match
-                      parse_declarators cursor name.spelling
-                        ~parse_function_pointer []
+                      parse_declarators
+                        ~header:
+                          {
+                            modifiers;
+                            binding = None;
+                            type_specifier = Ast.Named_type_specifier name;
+                          }
+                        cursor name.spelling ~parse_function_pointer []
                     with
                     | None -> None
                     | Some parsed_declarators ->
@@ -3673,7 +3861,15 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
                           parsed_parameters.closing_parenthesis
                         ~function_pointer_location:(location_from_tokens tokens)
                     in
-                    Some { node; name; tokens })
+                    Some
+                      {
+                        node;
+                        name;
+                        tokens;
+                        name_selection =
+                          (if name_is_identifier then name_item.selection
+                           else None);
+                      })
 
 and parse_function_parameters cursor parameters_rev empty_entries_rev tokens_rev
     ~after_comma ~function_pointer_depth : parsed_parameter_list option =
@@ -3763,7 +3959,17 @@ and parse_function_parameters cursor parameters_rev empty_entries_rev tokens_rev
 
 let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
     ~binding ~type_item ~return_type (prefix : parsed_declarator_prefix) =
+  let provisional =
+    declare_function cursor
+      { modifiers; binding = Some binding; type_specifier = return_type }
+      prefix (peek cursor)
+  in
   let opening = take cursor in
+  let opening_parenthesis =
+    match provisional with
+    | Some publication -> publication.function_opening_parenthesis
+    | None -> token_location opening.token
+  in
   match
     parse_function_parameters cursor [] [] [] ~after_comma:false
       ~function_pointer_depth:0
@@ -3771,6 +3977,9 @@ let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
   | None -> None
   | Some parsed_parameters ->
       let semicolon_item = peek cursor in
+      ignore
+        (complete_function_header cursor semicolon_item provisional
+           parsed_parameters);
       let semicolon, semicolon_tokens =
         if semicolon_item.token.kind = Token_kind.Punctuation ';' then
           let semicolon_item = take cursor in
@@ -3786,15 +3995,15 @@ let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
       let prototype =
         Ast.make_function_prototype ~modifiers ~binding ~return_type
           ~return_pointer_layers:prefix.pointer_layers ~name:prefix.name
-          ~opening_parenthesis:(token_location opening.token)
-          ~parameters:parsed_parameters.parameters
+          ~opening_parenthesis ~parameters:parsed_parameters.parameters
           ~empty_parameter_entries:parsed_parameters.empty_parameter_entries
           ~variadic:parsed_parameters.variadic
           ~closing_parenthesis:parsed_parameters.closing_parenthesis ~semicolon
           ~location:(location_from_tokens declaration_tokens)
       in
-      publish_function cursor prefix.name parsed_parameters.parameters
-        parsed_parameters.variadic;
+      if not cursor.stop_on_error then
+        publish_function cursor prefix.name parsed_parameters.parameters
+          parsed_parameters.variadic;
       Some (Ast.Function_prototype prototype)
 
 let parse_global cursor ~parse_function_definition =
@@ -3981,8 +4190,9 @@ let parse_global cursor ~parse_function_definition =
                                 ~return_type:type_specifier first_prefix
                           | _ -> (
                               match
-                                parse_variable_declarator_suffix cursor
-                                  first_prefix
+                                parse_variable_declarator_suffix
+                                  ~header:{ modifiers; binding; type_specifier }
+                                  cursor first_prefix
                               with
                               | None -> None
                               | Some first_declarator -> (
@@ -3997,7 +4207,14 @@ let parse_global cursor ~parse_function_definition =
                                             trailing_semicolon = None;
                                           }
                                     | Ast.Comma ->
-                                        parse_declarators cursor spelling
+                                        parse_declarators
+                                          ~header:
+                                            {
+                                              modifiers;
+                                              binding;
+                                              type_specifier;
+                                            }
+                                          cursor spelling
                                           ~parse_function_pointer:
                                             parse_global_function_pointer
                                           [ first_declarator ]
@@ -6767,7 +6984,17 @@ and parse_statement_sequence cursor ~boundary ~block_depth ~conditional_depth
 
 let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
     ~return_type (prefix : parsed_declarator_prefix) =
+  let provisional =
+    declare_function cursor
+      { modifiers; binding = None; type_specifier = return_type }
+      prefix (peek cursor)
+  in
   let opening = take cursor in
+  let opening_parenthesis =
+    match provisional with
+    | Some publication -> publication.function_opening_parenthesis
+    | None -> token_location opening.token
+  in
   match
     parse_function_parameters cursor [] [] [] ~after_comma:false
       ~function_pointer_depth:0
@@ -6779,12 +7006,17 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
         @ (type_item.token :: prefix.tokens)
         @ (opening.token :: parsed_parameters.tokens)
       in
-      publish_function cursor prefix.name parsed_parameters.parameters
-        parsed_parameters.variadic;
+      if not cursor.stop_on_error then
+        publish_function cursor prefix.name parsed_parameters.parameters
+          parsed_parameters.variadic;
+      let completed_header = ref None in
       let parsed_body =
         with_function_local_context cursor parsed_parameters.parameters
           parsed_parameters.variadic (fun () ->
             let body_item = peek cursor in
+            completed_header :=
+              complete_function_header cursor body_item provisional
+                parsed_parameters;
             match body_item.token.kind with
             | Token_kind.Eof -> Some (None, [])
             | _ ->
@@ -6800,13 +7032,17 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
           let definition =
             Ast.make_function_definition ~modifiers ~return_type
               ~return_pointer_layers:prefix.pointer_layers ~name:prefix.name
-              ~opening_parenthesis:(token_location opening.token)
-              ~parameters:parsed_parameters.parameters
+              ~opening_parenthesis ~parameters:parsed_parameters.parameters
               ~empty_parameter_entries:parsed_parameters.empty_parameter_entries
               ~variadic:parsed_parameters.variadic
               ~closing_parenthesis:parsed_parameters.closing_parenthesis ~body
               ~location:(location_from_expression_tokens definition_tokens)
           in
+          Option.iter
+            (fun header ->
+              publish_declaration cursor opening
+                (Function_body_completed (header, definition)))
+            !completed_header;
           Ast.Function_definition definition)
         parsed_body
 
@@ -6881,8 +7117,8 @@ let read_commands ?commands ?stream_opener cursor =
   done;
   List.rev !items_rev
 
-let make_cursor ?reference ~stream ~sources ~symbols ~compilation_mode
-    ~stop_on_error () =
+let make_cursor ?reference ?declaration ~stream ~sources ~symbols
+    ~compilation_mode ~stop_on_error () =
   {
     stream;
     sources;
@@ -6891,6 +7127,7 @@ let make_cursor ?reference ~stream ~sources ~symbols ~compilation_mode
     stop_on_error;
     reference;
     references = Identifier_table.create 32;
+    declaration;
     lookahead = [];
     diagnostics_rev = [];
     local_context = None;
@@ -6932,6 +7169,7 @@ let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
                             make_cursor ~stream ~sources
                               ~symbols:execution.symbols
                               ?reference:execution.commands.reference
+                              ?declaration:execution.commands.declaration
                               ~compilation_mode:Preprocessor.Jit
                               ~stop_on_error:true ()
                           in
@@ -6962,6 +7200,9 @@ let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
       ?reference:
         (Option.bind commands (fun (commands : command_sink) ->
              commands.reference))
+      ?declaration:
+        (Option.bind commands (fun (commands : command_sink) ->
+             commands.declaration))
       ~stop_on_error:(Option.is_some commands || Option.is_some execute_stream)
       ~compilation_mode:(Preprocessor.Config.compilation_mode config)
       ()

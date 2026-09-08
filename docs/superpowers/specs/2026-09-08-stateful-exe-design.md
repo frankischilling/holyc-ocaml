@@ -144,6 +144,33 @@ before parsing parameter defaults, then complete the retained header afterward.
 Publishing only a complete header before the body would still be too late for a
 directive inside a parameter default. Extern joins need their existing identity.
 
+Header completion follows the first lookahead after `)`: `PrsVar.HC:443-445`
+calls Lex before `PrsStmt.HC:114-123` finishes argument counts and offsets. A
+directive in that lookahead sees the provisional function. Native Lex keeps the
+same hash object, so an unconsumed first body token selecting that function sees
+its completed header when parsing resumes. Promote only that exact buffered
+selection; already consumed nested references and selections of newer shadows
+keep their snapshots. Do not repeat name lookup to complete an older header.
+
+Global alias selection occurs earlier, at the name token. `PrsVar.HC:337-341`
+saves `cc->hash_entry` before dimensions, whose directives can publish a newer
+shadow. Carry that selected entry through ordinary and function-pointer
+declarators. Function joins instead perform a fresh function-kind-filtered
+lookup in `PrsStmt.HC:69-78` when reaching the opening parenthesis.
+
+Body completion follows the entire native statement sequence, including an
+unbraced or comma-linked body. `PrsStmt.HC:1204-1220` also completes at EOF;
+`PrsFun` then emits its epilogue and installs code at lines 160-191. The parser
+therefore reports a completed empty body at EOF. The bounded integer compiler
+can still reject that body as outside its execution domain.
+
+Parser declaration events are private source witnesses. Their completed nodes
+share original name, type, dimension, parameter and parenthesis objects with
+the final AST. A singleton uninitialized global retains those children in the
+existing `Global_variable` form. Semantic consumers must associate that final
+item with its earlier publication, retain assigned identities and reject replay;
+they must not recollect the source or treat a callback as runtime admission.
+
 Extend selection evidence to query operands before supporting directives inside
 sizeof/offset/defined queries. `PrsExp.HC:317-329` computes sizeof from its
 selected record before subsequent lexing; `942-947` similarly evaluates defined.

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added streaming parser declaration events at native global and function
+  publication boundaries. Function headers complete after closing-parenthesis
+  lookahead while preserving selected references and newer shadows. Global
+  alias candidates retain their name-token selection across dimension directives.
+  Private completion events share original AST nodes; semantic publication and
+  StreamPrint integration remain pending.
+
 - Added incremental JIT task execution for retained global scalars and arrays
   in #635. Separate commands share exact storage, preserve reached writes after
   faults, reject command replay and share preparation/runtime/output limits.
