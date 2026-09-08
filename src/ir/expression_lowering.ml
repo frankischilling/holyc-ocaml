@@ -1697,7 +1697,7 @@ let compound_assignment = function
   | _ -> false
 
 let prepare_update_address ?frame ?globals result operand =
-  match (checked_frame_word result, checked_frame_word operand) with
+  match (checked_frame_integer result, checked_frame_integer operand) with
   | Error item, _ | _, Error item -> Error [ item ]
   | Ok Unsupported_type, _ | _, Ok Unsupported_type -> Ok None
   | Ok (Checked_type result_type), Ok (Checked_type operand_type) ->
@@ -2169,8 +2169,8 @@ let plan ?frame ?globals ~allow_calls root =
                           if opcode = Opcode.Ic_assign then
                             validate_frame_assignment result left right
                           else
-                            validate_binary_with checked_frame_word result left
-                              right
+                            validate_binary_with checked_frame_integer result
+                              left right
                         with
                         | Error item -> error := Some item
                         | Ok true -> (

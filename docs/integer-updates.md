@@ -67,7 +67,9 @@ transitive callees, as it already does for ordinary arithmetic. Dynamic scalar
 divisors remain in the accepted runtime domain. Multiplication's power-of-two
 rewrite preserves the same 64-bit result within this scalar scope.
 
-Pointer scaling, narrow/floating/aggregate objects, imported storage,
+[U8 updates](integer-byte-updates.md) extend this word contract with distinct
+byte storage and full compound results, plus native initializer proof.
+Pointer scaling, other narrow/floating/aggregate objects, imported storage,
 locked operations and general memory remain explicit boundaries.
 Stateful compilation, optimizer parity, native backends, loader acceptance and
 bootstrap remain unfinished. These are hosted regressions and a pinned-source

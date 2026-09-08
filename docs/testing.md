@@ -1,5 +1,16 @@
 # Testing holyc-ocaml
 
+The 43 `source byte updates` groups cover #629's eight gates, all fourteen
+opcodes across storage owners, full versus stored results, neighbors, aliases,
+evaluation order, recursive/fresh state, faults and canonical validation.
+Initializer regressions distinguish native memory/register values, exact sinks,
+implicit pushed arguments and bit results discarded after identity folding.
+The CLI fixture captures `3432` and returns I64 42 with exact limits of 79
+runtime instructions, 10 preparation units, 12 persistent bytes, 40 active
+frame bytes, depth two, three literal bytes, two output bytes and eight work
+units. All limits pass together; each one-below limit has a diagnostic and
+capture assertion. See [byte updates](integer-byte-updates.md).
+
 The 18 `source persistent arrays` groups and five `array safety` groups cover
 #627's eight JIT/AOT gates, ranks and aliases, exact quotas, initialization phases,
 owned copies, fresh images and deterministic dumps. Complete initializer-leaf,
@@ -184,7 +195,7 @@ not compatibility results or commits in the implementation repository.
 
 Unit tests cover source positions, spans, token construction, literal decoding, comments, diagnostic rendering, include and generated-value frames, predefined values, primitive, internal, and named declaration types, declaration modifiers and bindings, comma-separated groups, pointer layers, strict extraction of the complete opcode database, operator tables, primitive type metadata, compiler options, function flags, member-list flags, global record flags, the complete intermediate-code table, and the TempleOS BIN specification. The generated-table tests reject malformed statements, duplicate records, missing or reordered entries, changed aliases, unknown opcode arguments, excess instruction bytes or forms, unknown operator tokens or ICs, precedence drift, unavailable-type drift, option default drift, function-flag expression or transition drift, member-list flag or consumer drift, global-record flag or consumer drift, BIN record or loader-formula drift, API contract drift, and source checksum mismatches. The option, function-flag, member-list flag, global-record flag, and BIN scanners also prove that comments and literals do not create false consumers; the option tests separately confirm that `_BEQU` retains its previous-state result.
 
-The current test binary runs 1,925 cases, including registered property tests. `test/dune` also defines 238 golden rules. A passing count describes only the implemented slices listed below; it is not a whole-compiler compatibility percentage. The reference verifier checks 82 individually audited Git blobs, and both corpus phases account for all 528 relevant blobs from the pinned Git tree.
+The current test binary runs 1,968 cases, including registered property tests. `test/dune` also defines 238 golden rules. A passing count describes only the implemented slices listed below; it is not a whole-compiler compatibility percentage. The reference verifier checks 82 individually audited Git blobs, and both corpus phases account for all 528 relevant blobs from the pinned Git tree.
 
 Sixty-six literal-lowering cases cover the pinned integer signedness split, the shared character path, exact F64 bits, decoded string bytes, stable instruction and value IDs, internal result types, source-span retention, checked-sequence failure propagation, and deterministic `holyc-ir-literal-v1` output. Parser-backed cases pass all four literal nodes through interleaved grouping, unary plus, unary minus, logical not, bitwise complement, dereference, and address-of. Emitting-prefix cases check instruction order, mixed opcodes, operand and result links, type transitions, operator spans, `&*` cancellation, and `HCIRL0001` identity-count failures. `HCIRL0002` covers address-of beyond the checked pointer-depth limit. Thirty-eight typed-result cases lower direct, grouped, unary-plus, unary-minus, logical-not, bitwise-complement, dereference-wrapped, and address-wrapped integer, character, F64, and string leaves from function bodies and executable top-level statements in both modes. They check exact leaf and intermediate types, the internal `I64` complement result, literal and operator spans, caller-owned identities, inner-to-outer prefix order, deterministic replay, generated locations, and `Not_literal` for supported wrappers around nonliteral roots. Direct and mixed `&*` cases prove that the address instruction remains while the dereference consumes no identity or span. The `~*"a"` case fixes the typed sequence at `U8*`, `U8`, then internal `I64`. Supported parser wrappers around nonliterals also return `Not_literal`. Three 100,000-level synthetic cases lock iterative, constant-host-stack parser unwrapping, including a mixed chain with 1,000 unary instructions. The tests do not read memory, lower update prefixes, allocate string storage, optimize constants, or lower a complete expression tree. Run only this group with:
 

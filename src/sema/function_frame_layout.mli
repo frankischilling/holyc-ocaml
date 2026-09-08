@@ -95,6 +95,11 @@ val find_binding_location :
 val location_binding : location -> Function_binding_index.binding
 val location_symbol : location -> Symbol.t
 val location_kind : location -> location_kind
+
+val location_register_selection : location -> Register_request.selection
+(** The exact joined source register request. Static locations retain the pinned
+    forced-disabled selection. This does not run register allocation. *)
+
 val location_type_reference : location -> Type_reference.t option
 val location_checked_type : location -> Type.t
 val location_declarator_shape : location -> declarator_shape

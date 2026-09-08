@@ -166,7 +166,7 @@ and 8; `A[0][3]` aliases `A[1][0]`. References passed to helpers retain the same
 object across calls and recursion. One-past pointers may be formed, but a read
 or store must remain within the declared object. Neighbors and static padding
 are inaccessible. I64/U64 elements retain supported word updates; U8 supports
-plain assignment while narrow compound and prefix/postfix updates remain open.
+plain assignment and [compound/prefix/postfix updates](integer-byte-updates.md).
 
 The persistent-byte quota charges global declared bytes and rounds each whole
 static allocation to eight bytes. `U8 A[9]` therefore charges nine bytes as a

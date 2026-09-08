@@ -285,7 +285,6 @@ let unsupported () =
         (fun text -> ignore (F.first_error (G.run ~mode text)))
         [
           "I64 *G;G++;";
-          "U8 G;G++;";
           "F64 G;G++;";
           "I64 G[2];G++;";
           "I64 G=1;G+=1.0;";

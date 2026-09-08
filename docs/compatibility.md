@@ -1,5 +1,12 @@
 # holyc-ocaml compatibility status
 
+[U8 updates](integer-byte-updates.md) in #629 use checked reference addresses,
+full compound register results and narrowed prefix/postfix values. Declaration
+initializers additionally require native-invariant results and byte reads across
+transitive callees; unknown register behavior and widened bit effects retain
+HCRUN0006 boundaries. This connects raw execution without claiming native
+optimizer parity.
+
 [Persistent integer arrays](integer-persistent-arrays.md) in
 [#627](https://github.com/frankischilling/holyc-ocaml/issues/627) connect fixed
 I64/U64/U8 global and static shapes, exact source initializer leaves, recursive
@@ -16,7 +23,7 @@ native-loader completion.
 globals/statics, constant and scheduled initializers, aliases and fresh images.
 The hosted quota distinguishes declared global widths, padded static requests
 and exact accessible object extents. Arrays are connected by #627 above;
-narrow updates and broader memory remain unfinished. Neither connection claims
+byte updates follow in #629 above, while broader memory remains unfinished. Neither connection claims
 a new native capture.
 
 [Joined source definitions](integer-joined-definitions.md) in
@@ -57,7 +64,7 @@ loads, plain stores, exact aliases and independently retained assignment
 results. The Sum fixture returns I64 42 in both modes, using 69 runtime
 instructions, zero preparation, 16 frame bytes and depth two. This slice
 preserves I64/U64 numeric function
-boundaries and leaves persistent bytes and narrow updates unsupported. Captured
+boundaries; persistent bytes and byte updates follow in #625/#629 above. Captured
 output follows in #621 above.
 
 Automatic I64/U64 array indexing is connected through hosted source execution.

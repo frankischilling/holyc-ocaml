@@ -6,6 +6,7 @@ module Symbol = Sema.Symbol
 module Values = Map.Make (Seq.Value_id)
 module Arrays = Ir.Integer_array_initializers
 module Layout = Ir.Integer_initializer_layout
+module Updates = Integer_update_initializers
 
 type classification = Prepared_constant of int64 | Scheduled
 
@@ -304,6 +305,42 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
                 check Values.empty code
               in
               let* () = guard ~constant value_code in
+              let guard_updates ~frame ~compiler_options ~terminal graph =
+                Updates.check_graph ~globals ~frame ~compiler_options ~terminal
+                  graph
+                |> Result.map_error (fun (failure : Updates.failure) ->
+                    [
+                      Common.Diagnostic.make ~code:"HCRUN0006"
+                        ~severity:Common.Diagnostic.Error
+                        ~message:failure.reason
+                        ~primary:
+                          (Option.value failure.instruction.span ~default:at)
+                        ~notes ();
+                    ])
+              in
+              let destination_type, compiler_options =
+                match root_ with
+                | Global (slot, _) -> (Globals.slot_type slot, 0L)
+                | Static (slot, _) ->
+                    ( Globals.static_storage slot |> Globals.storage_type,
+                      Globals.static_compiler_options slot )
+              in
+              let* terminal =
+                instructions (Ir.X87_stack.graph value_graph_)
+                |> List.filter_map (fun (item : Seq.description) ->
+                    match (item.opcode, item.operands) with
+                    | Ir.Opcode.Ic_end_exp, [ value ] -> Some value
+                    | _ -> None)
+                |> function
+                | [ value ] -> Ok (Some Updates.{ value; destination_type })
+                | _ ->
+                    invalid ~at ~notes "HCRUN0006"
+                      "initializer has no unique checked declaration value sink"
+              in
+              let* () =
+                guard_updates ~frame ~compiler_options ~terminal
+                  (Ir.X87_stack.graph value_graph_)
+              in
               let called code =
                 List.filter_map
                   (fun (item : Seq.description) ->
@@ -333,6 +370,13 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
                           instructions (Ir.Function_body.body function_.body)
                         in
                         let* () = guard ~constant:false code in
+                        let* () =
+                          guard_updates ~frame:(Some function_.frame)
+                            ~compiler_options:
+                              (Ir.Function_body.compiler_options function_.body)
+                            ~terminal:None
+                            (Ir.Function_body.body function_.body)
+                        in
                         guard_callees (symbol :: visited) (called code @ rest))
               in
               let* () = guard_callees [] (called value_code) in

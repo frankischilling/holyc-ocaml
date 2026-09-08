@@ -2,7 +2,8 @@
 
 [Persistent scalar bytes](integer-persistent-bytes.md) in #625 extend this
 automatic-byte connection to globals and static locals. The automatic-only
-scope below records #615; persistent arrays and narrow updates remain pending.
+scope below records #615; [persistent arrays](integer-persistent-arrays.md) and
+[byte updates](integer-byte-updates.md) supply the later connections.
 
 Issue [#615](https://github.com/frankischilling/holyc-ocaml/issues/615) extends
 [automatic arrays](integer-arrays.md) and [pointer aliases](integer-pointers.md)
@@ -133,9 +134,8 @@ context for program-entry byte computations.
 
 ## Remaining work
 
-Persistent U8 storage and array images, other narrow integer types, U8 numeric
-parameters and returns, narrow compound/prefix/postfix updates, whole-array
-initialization or assignment, general pointer arithmetic, casts involving U8,
+Other narrow integer types, U8 numeric parameters and returns, automatic
+whole-array initialization or assignment, general pointer arithmetic, casts involving U8,
 pointer returns and deeper pointers remain outside this slice. Unary minus
 on U8 remains explicitly unsupported: `Compiler/OptPass012.HC:180-192` changes
 its internal unsigned class to I8, whose computation rules are outside this

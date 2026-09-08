@@ -169,14 +169,10 @@ let unsupported_domains () =
           "I64 F(){U8 a[2]={40,2};return a[0]+a[1];}F();";
           "U16 n=42;n;";
           "I64 F(){static U16 n=42;return n;}F();";
-          "I64 F(){U8 n=40;n+=2;return n;}F();";
-          "I64 F(){U8 n=41;return ++n;}F();";
           "I64 F(){U8 n=42;return -n;}F();";
           "I64 F(){U8 n=42;return n(I64);}F();";
           "I64 F(){U8 n=42;return n(U64);}F();";
           "I64 F(){U8 a[2],n=1;a[1]=42;return a[n];}F();";
-          "I64 F(){U8 a[1];a[0]=42;return a[0]++;}F();";
-          "I64 F(){U8 n=40;U8 *p=&n;*p+=2;return n;}F();";
           "I64 F(U8 n){return n;}F(42);";
           "U8 F(){return 42;}F();";
           "I64 F(){I8 n=42;return n;}F();";

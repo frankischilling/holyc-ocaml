@@ -185,7 +185,7 @@ type prepared_operation =
       * prepared_operand option
       * bool
       * Value_id.t
-      * word_type
+      * stored_type
   | Immediate of Value_id.t * word
   | Unary of unary_operation * prepared_operand * Value_id.t * word_type
   | Word_view of prepared_operand * Value_id.t * word_type
@@ -1362,13 +1362,8 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                               Error (invalid_type_matrix block_id description))
                       | Update_slot_kind operation, [ operand ]
                         when match stored_type with
-                             | Stored_word _ -> true
+                             | Stored_word _ | Stored_byte -> true
                              | _ -> false -> (
-                          let word_type =
-                            match stored_type with
-                            | Stored_word t -> t
-                            | _ -> assert false
-                          in
                           match operand_of_value types operand with
                           | Some operand ->
                               Ok
@@ -1378,18 +1373,13 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                                      Some operand,
                                      false,
                                      result.value_id,
-                                     word_type ))
+                                     stored_type ))
                           | None ->
                               Error (invalid_type_matrix block_id description))
                       | Increment_slot_kind (operation, old_result), []
                         when match stored_type with
-                             | Stored_word _ -> true
+                             | Stored_word _ | Stored_byte -> true
                              | _ -> false ->
-                          let word_type =
-                            match stored_type with
-                            | Stored_word t -> t
-                            | _ -> assert false
-                          in
                           Ok
                             (Update_slot
                                ( location,
@@ -1397,7 +1387,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                                  None,
                                  old_result,
                                  result.value_id,
-                                 word_type ))
+                                 stored_type ))
                       | _ -> Error (malformed block_id description))
                   | _ -> Error (invalid_type_matrix block_id description))
               | _ -> Error (malformed block_id description))
@@ -2651,8 +2641,14 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                           (runtime_error ~instruction block !steps "HCIRVM0008"
                              "prepared store disagrees with its checked \
                               storage type")))
-          | Update_slot (location, operation, operand, old_result, result, type_)
-            -> (
+          | Update_slot
+              (location, operation, operand, old_result, result, stored) -> (
+              let type_ =
+                match stored with
+                | Stored_word type_ -> type_
+                | Stored_byte -> U64
+                | Stored_pointer _ -> assert false
+              in
               let right =
                 match operand with
                 | None -> Some { type_; bits = 1L }
@@ -2689,12 +2685,22 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                                   (runtime_error ~instruction block !steps code
                                      message)
                           | Ok bits ->
-                              let word = { type_; bits } in
+                              let computed = { type_; bits } in
+                              let word =
+                                match stored with
+                                | Stored_byte ->
+                                    { type_; bits = Int64.logand bits 255L }
+                                | Stored_word _ -> computed
+                                | Stored_pointer _ -> assert false
+                              in
                               storage.cells.(index) <- Some (Runtime_word word);
                               values :=
                                 Value_map.add result
                                   (Runtime_word
-                                     (if old_result then old else word))
+                                     (if old_result then old
+                                      else if Option.is_some operand then
+                                        computed
+                                      else word))
                                   !values))))
           | Immediate (result, word) ->
               values := Value_map.add result (Runtime_word word) !values

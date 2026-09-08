@@ -21,6 +21,7 @@ type location = {
   value_shape : value_shape;
   dimensions : dimension list;
   source_dimensions_checked : bool;
+  register_selection : Register_request.selection;
   element_size : int64;
   allocated_size : int64;
   alignment : int;
@@ -101,6 +102,10 @@ let function_frame_size (function_ : function_layout) = function_.frame_size
 let location_binding (location : location) = location.binding
 let location_symbol (location : location) = location.symbol
 let location_kind (location : location) = location.kind
+
+let location_register_selection (location : location) =
+  location.register_selection
+
 let location_type_reference (location : location) = location.type_reference
 let location_checked_type (location : location) = location.checked_type
 let location_declarator_shape (location : location) = location.declarator_shape
@@ -574,6 +579,9 @@ let parameter_location table aggregate_layouts typed_function binding evidence =
                       value_shape = Scalar;
                       dimensions = [];
                       source_dimensions_checked = true;
+                      register_selection =
+                        Function_type_resolution.parameter_register_selection
+                          parameter;
                       element_size;
                       allocated_size = 8L;
                       alignment = 8;
@@ -667,6 +675,9 @@ let parameter_location table aggregate_layouts typed_function binding evidence =
                     value_shape;
                     dimensions;
                     source_dimensions_checked = dimensions = [];
+                    register_selection =
+                      Function_type_resolution
+                      .synthetic_binding_register_selection typed_binding;
                     element_size;
                     allocated_size = 8L;
                     alignment = 8;
@@ -770,6 +781,7 @@ let local_location table aggregate_layouts ~function_item cursor binding input =
                             value_shape;
                             dimensions;
                             source_dimensions_checked;
+                            register_selection = Register_request.Disabled;
                             element_size;
                             allocated_size;
                             alignment = 8;
@@ -793,6 +805,10 @@ let local_location table aggregate_layouts ~function_item cursor binding input =
                             value_shape;
                             dimensions;
                             source_dimensions_checked;
+                            register_selection =
+                              Register_request.effective
+                                (Local_type_resolution.local_register_requests
+                                   local);
                             element_size;
                             allocated_size;
                             alignment;

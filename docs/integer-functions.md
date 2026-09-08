@@ -77,9 +77,11 @@ failure. Invalid definitions or individual over-budget frames fail preflight.
 
 Ordinary scalar [global storage](integer-globals.md) is now shared with callers.
 Global declaration initializers and [static initialization](integer-static-initializers.md)
-now use the shared persistent executor. Arrays, narrow/floating storage, callbacks, arbitrary
-pointers, defaults, variadic execution, external/import execution and joined
-prototype identities remain unsupported. Every definition and unreachable block
+now use the shared persistent executor. Later connections cover arrays, U8
+storage and [byte updates](integer-byte-updates.md), joined definitions and
+bounded runtime output. Other narrow/floating storage, callbacks, arbitrary
+pointers, user-defined variadic execution and general external/import execution
+remain unsupported. Every definition and unreachable block
 is checked before any instruction runs. A reached uninitialized local read is
 an explicit hosted diagnostic. Fault notes retain stage, total steps, block,
 instruction and the owning function when one is active.

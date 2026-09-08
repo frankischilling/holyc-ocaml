@@ -1,5 +1,13 @@
 # Intermediate-code specification
 
+[Byte updates](integer-byte-updates.md) retain original ICs, zero flags, exact
+U8 destination types and materialized results. The prepared VM operation keeps
+storage width separately from arithmetic class and result selection. Compound
+results preserve computed bits; prefix/postfix use new/old stored bytes.
+Initializer analysis consumes original graphs, frame register requests, exact
+declaration sinks and transitive definition contexts without granting runtime
+authority or adding a new opcode/dump schema.
+
 [Persistent arrays](integer-persistent-arrays.md) retain checked shapes and
 source-owned destinations. Scheduled leaf stores use a canonical address prefix
 for every rank. Prepared JIT leaves use graph-bound publication receipts with no

@@ -1397,4 +1397,121 @@ let () =
         && contains first "holyc-array-publications-v1" = (mode = "jit"))
         "deterministic array shapes images and publication markers")
     [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      let run ?(options = []) source =
+        let status, output, errors =
+          invoke_raw
+            ([ "run"; "--format=json"; "--mode=" ^ mode ] @ options @ [ source ])
+        in
+        require (errors = "") "byte updates use one metadata stream";
+        (status, Yojson.Safe.from_string output)
+      in
+      let check report type_ capture =
+        require
+          (report |> member "schema" |> to_string = "holyc-integer-program-v2"
+          && report |> member "outcome" |> to_string = "success"
+          && report |> member "final_value" |> member "value" |> to_string
+             = "42"
+          && report |> member "final_value" |> member "type" |> to_string
+             = type_
+          && report |> member "output_hex" |> to_string = capture)
+          "byte update value class and capture"
+      in
+      let source = Sys.argv.(20) in
+      let bounds =
+        [
+          ("step", 79, "HCIRVM0007", "3432");
+          ("initializer-step", 10, "HCIRVM0007", "");
+          ("global-byte", 12, "HCIRVM0016", "");
+          ("frame-byte", 40, "HCIRVM0011", "");
+          ("call-depth", 2, "HCIRVM0015", "");
+          ("literal-byte", 3, "HCIRVM0021", "");
+          ("output-byte", 2, "HCIRVM0022", "");
+          ("output-work", 8, "HCIRVM0023", "");
+        ]
+      in
+      let option name value = Printf.sprintf "--%s-limit=%d" name value in
+      let status, report =
+        run
+          ~options:
+            (List.map (fun (name, value, _, _) -> option name value) bounds)
+          source
+      in
+      require (status = Unix.WEXITED 0)
+        "maintained byte updates at all exact limits";
+      check report "i64" "3432";
+      require
+        (report |> member "executed_steps" |> to_int = 79
+        && report |> member "compiled_initializer_steps" |> to_int = 10
+        && report |> member "output_work" |> to_int = 8)
+        "maintained byte update work counts";
+      List.iter
+        (fun (name, value, code, capture) ->
+          let status, report =
+            run ~options:[ option name (value - 1) ] source
+          in
+          require
+            (status = Unix.WEXITED 1
+            && report |> member "final_value" = `Null
+            && report |> member "diagnostics" |> to_list |> List.hd
+               |> member "code" |> to_string = code
+            && report |> member "output_hex" |> to_string = capture)
+            ("byte update one-below " ^ name))
+        bounds;
+      List.iter
+        (fun (text, type_) ->
+          with_file ".hc" text (fun path ->
+              let status, report = run path in
+              require (status = Unix.WEXITED 0) "byte update source gate";
+              check report type_ ""))
+        [
+          ("U8 G=40;G+=2;G;", "u64");
+          ("U8 G=41;++G;", "u64");
+          ("I64 F(){U8 n=41;return n++;}F()+1;", "i64");
+          ("I64 F(){static U8 n=40;n++;return n;}F();F();", "i64");
+          ("U8 A[2]={40,0};A[0]+=2;A[0];", "u64");
+          ("I64 F(){static U8 A[2]={41,0};return ++A[0];}F();", "i64");
+          ("U8 G=41;U0 Bump(U8 *p){(*p)++;}Bump(&G);G;", "u64");
+          ("U8 G=255;I64 N=++G;N+42;", "i64");
+        ];
+      List.iter
+        (fun text ->
+          with_file ".hc" text (fun path ->
+              let status, report = run path in
+              require
+                (status = Unix.WEXITED 1
+                && report |> member "final_value" = `Null
+                && report |> member "output_hex" |> to_string = ""
+                && report |> member "output_work" |> to_int = 0
+                && report |> member "diagnostics" |> to_list |> List.hd
+                   |> member "code" |> to_string = "HCRUN0006")
+                "native byte update initializer proof boundary"))
+        [
+          "U8 G=250;I64 N=(G+=10);N;";
+          "U8 G=84;I64 F(){U8 d=554;return G/=d;}I64 N=F();N;";
+          "U8 A[8]={42,1,0,0,0,0,0,0};I64 F(){(A[0]&=~256)-0;return A[1];}I64 \
+           N=F();N;";
+        ];
+      let legacy =
+        success [ "run"; "--format=json"; "--mode=" ^ mode; source ]
+        |> Yojson.Safe.from_string
+      in
+      require
+        (legacy |> member "schema" |> to_string = "holyc-integer-program-v1"
+        && legacy |> member "final_value" |> member "value" |> to_string = "42"
+        )
+        "byte updates preserve v1 reporting";
+      let dump () =
+        success [ "dump-ir"; "--program"; "--mode=" ^ mode; source ]
+      in
+      let first = dump () in
+      require
+        (first = dump ()
+        && contains first "public:U8 = IC_ADD_EQU"
+        && contains first "public:U8 = IC_PP_"
+        && contains first "public:U8 = IC__PP"
+        && contains first "holyc-initializer-preparation-v1 steps=10")
+        "deterministic byte update original opcodes and preparation")
+    [ "jit"; "aot" ];
   print_endline "Integer program CLI checks passed."

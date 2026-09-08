@@ -1,5 +1,10 @@
 # holyc-ocaml
 
+`holyc run --format=json examples/integer-byte-updates.hc` updates U8 locals,
+globals, statics and passed array elements, captures `42`, and returns I64 42
+in both modes. [Byte updates](docs/integer-byte-updates.md) explains full
+compound results, wrapped storage and the separate native initializer proof.
+
 `holyc run --format=json examples/integer-persistent-arrays.hc` initializes
 global and static arrays, mutates a passed row, captures `42`, and returns I64
 42 in both modes. [Persistent arrays](docs/integer-persistent-arrays.md) covers
