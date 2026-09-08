@@ -15,7 +15,9 @@
   ../examples/integer-arrays.hc
   ../examples/integer-bytes.hc
   ../examples/integer-strings.hc
-  ../examples/integer-u0.hc)
+  ../examples/integer-u0.hc
+  ../examples/integer-output.hc
+  ../examples/integer-putchars.hc)
  (action
   (run
    %{test}
@@ -32,7 +34,9 @@
    %{dep:../examples/integer-arrays.hc}
    %{dep:../examples/integer-bytes.hc}
    %{dep:../examples/integer-strings.hc}
-   %{dep:../examples/integer-u0.hc})))
+   %{dep:../examples/integer-u0.hc}
+   %{dep:../examples/integer-output.hc}
+   %{dep:../examples/integer-putchars.hc})))
 
 (test
  (name test_main)
@@ -51,6 +55,7 @@
   test_integer_bytes
   test_integer_strings
   test_integer_u0
+  test_integer_output
   test_integer_global_initializers
   test_ir_comparison_chains
   test_ir_integer_frames

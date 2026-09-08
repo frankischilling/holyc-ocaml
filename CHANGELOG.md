@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Connected checked Print and PutChars calls to captured output in #621,
+  including implicit statements, declaration snapshots, right-to-left arguments
+  and the initial %%/%d/%s/%c grammar. Separate byte/work bounds retain earlier
+  output on failure. New report APIs and default CLI v2 expose lossless captures;
+  `--report-version=1` preserves the previous outcome contract.
+
 - Added U0 function execution in #619 with early bare returns, fallthrough,
   independent call completion and checked no-value discard. Calls preserve
   storage effects and caller continuation; a final U0 expression reports no

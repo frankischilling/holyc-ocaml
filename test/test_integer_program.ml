@@ -73,14 +73,13 @@ let unsupported () =
   List.iter
     (fun text ->
       Alcotest.(check string) text "HCRUN0001" (diagnostic text).code)
-    [
-      "U8 x=0;";
-      "\"hello\";";
-      "if(0) {\"hidden\";}";
-      "return;";
-      "lock {1;}";
-      "switch(1){case 1:break;}";
-    ];
+    [ "U8 x=0;"; "return;"; "lock {1;}"; "switch(1){case 1:break;}" ];
+  List.iter
+    (fun text ->
+      Alcotest.(check string)
+        "output requires a checked visible target" "HCSEMA0059"
+        (diagnostic text).code)
+    [ "\"hello\";"; "if(0) {\"hidden\";}" ];
   Alcotest.(check string) "unbound break" "HCRUN0002" (diagnostic "break;").code;
   Alcotest.(check string)
     "break cannot escape for initializer" "HCRUN0002"

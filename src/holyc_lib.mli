@@ -82,6 +82,7 @@ end
 
 module Ir_global_address_lowering = Ir.Global_address_lowering
 module Ir_integer_interpreter = Ir.Integer_interpreter
+module Ir_runtime_call_context = Ir.Runtime_call_context
 module Ir_integer_program_lowering = Ir.Integer_program_lowering
 module Ir_global_initialization = Ir.Global_initialization
 
@@ -819,6 +820,7 @@ val integer_program_functions :
   integer_program -> Ir_integer_interpreter.function_definition list
 
 val integer_program_human : integer_program -> string
+val integer_program_runtime_calls : integer_program -> Ir_runtime_call_context.t
 
 val run_integer_program :
   ?max_initializer_steps:int ->
@@ -826,6 +828,8 @@ val run_integer_program :
   ?max_literal_bytes:int ->
   ?max_frame_bytes:int ->
   ?max_call_depth:int ->
+  ?max_output_bytes:int ->
+  ?max_output_work:int ->
   Session.t ->
   config:Preprocessor.Config.t ->
   source:Source_file.t ->
@@ -834,29 +838,60 @@ val run_integer_program :
 (** Execute integer source statements and checked I64/U64/U0 function
     definitions with fixed parameters, automatic locals, direct call expressions
     and ordinary scalar I64/U64 code-heap globals with supported declaration
-    initializers. U0 calls complete without a word; their checked discard clears
-    any preceding top-level final value. Bare return and fallthrough preserve
-    the caller continuation. Numeric returns remain I64/U64; missing required
-    word returns retain a hosted diagnostic. Automatic U8 scalars and arrays
-    support zero-extending reads and narrowing plain assignments; assignment
-    results retain the RHS payload. One-level U8/I64/U64 pointer locals and
-    fixed parameters can alias scalar local objects and automatic U8/I64/U64
-    array elements across direct calls. String literals own mutable bytes and a
-    final initialized zero for one execution image; each source site persists
-    across calls and initializers. Compatible public/internal U8 pointer forms
-    preserve the same object. [max_literal_bytes] defaults to 1,048,576 and
-    bounds all literal sites, including uncalled definitions, separately from
-    frame and global bytes. Checked indexing retains source strides, grouping
-    behavior and declared-object bounds through copies and recursion. Constant
-    preparation, runtime instructions, active frame bytes, global bytes and call
-    depth have separate positive bounds. I64/U64 pointers can also alias
-    global/static words. Global words are shared by all calls in one execution.
-    Conditions short-circuit AND and OR; ordinary values and XOR remain eager.
-    Scheduled arithmetic uses runtime IR semantics; initializers and their
-    transitive callees retain explicit shift and constant-divisor optimizer
-    boundaries. Supported pure constants supply initial-image bits. General
-    memory, output, indirect/external calls and native code remain unsupported.
+    initializers. U0 calls complete without a word; an ordinary U0 call
+    expression's checked discard clears any preceding top-level final value.
+    Bare return and fallthrough preserve the caller continuation. Numeric
+    returns remain I64/U64; missing required word returns retain a hosted
+    diagnostic. Automatic U8 scalars and arrays support zero-extending reads and
+    narrowing plain assignments; assignment results retain the RHS payload.
+    One-level U8/I64/U64 pointer locals and fixed parameters can alias scalar
+    local objects and automatic U8/I64/U64 array elements across direct calls.
+    String literals own mutable bytes and a final initialized zero for one
+    execution image; each source site persists across calls and initializers.
+    Compatible public/internal U8 pointer forms preserve the same object.
+    [max_literal_bytes] defaults to 1,048,576 and bounds all literal sites,
+    including uncalled definitions, separately from frame and global bytes.
+    Checked indexing retains source strides, grouping behavior and
+    declared-object bounds through copies and recursion. Constant preparation,
+    runtime instructions, active frame bytes, global bytes and call depth have
+    separate positive bounds. I64/U64 pointers can also alias global/static
+    words. Global words are shared by all calls in one execution. Conditions
+    short-circuit AND and OR; ordinary values and XOR remain eager. Scheduled
+    arithmetic uses runtime IR semantics; initializers and their transitive
+    callees retain explicit shift and constant-divisor optimizer boundaries.
+    Supported pure constants supply initial-image bits. General memory,
+    arbitrary indirect/external calls and native code remain unsupported.
+    Checked Print/PutChars calls execute under separate positive output/work
+    limits (both default 1,048,576). This convenience entrypoint projects the
+    outcome; use [run_integer_program_report] to retain captured bytes on both
+    success and failure. Implicit output preserves the last ordinary expression.
 *)
+
+type integer_program_report
+
+val run_integer_program_report :
+  ?max_initializer_steps:int ->
+  ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
+  ?max_frame_bytes:int ->
+  ?max_call_depth:int ->
+  ?max_output_bytes:int ->
+  ?max_output_work:int ->
+  Session.t ->
+  config:Preprocessor.Config.t ->
+  source:Source_file.t ->
+  max_steps:int ->
+  integer_program_report
+(** Execute with fresh captured bytes and formatting work, including on failure.
+    Configuration and preflight failures have empty capture. Output/work limits
+    are positive and default independently to 1,048,576. *)
+
+val integer_program_report_outcome :
+  integer_program_report ->
+  (Ir_integer_interpreter.t integer_program_result, Diagnostic.t list) result
+
+val integer_program_report_output_bytes : integer_program_report -> string
+val integer_program_report_output_work : integer_program_report -> int
 
 val lower_integer_expression :
   Session.t ->

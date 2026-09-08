@@ -11353,3 +11353,26 @@ source_gate = "examples/integer-u0.hc returns I64 42 in both modes; 19 runtime i
 verification_status = "local verification, final-source CI and merge evidence tracked in issue619"
 excluded = ["U0 arithmetic and numeric consumers", "U0 value-return warning compatibility", "missing word-return warning compatibility", "runtime declarations/output", "variadic execution", "graph-only call execution", "broader memory", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader acceptance", "bootstrap"]
 native_oracle_status = "pinned-source audit and hosted execution; native return warnings are distinct from hosted restrictions; no new native capture"
+
+[[feature]]
+id = "HC-CAPTURED-RUNTIME-OUTPUT"
+description = "Checked Print/PutChars calls and implicit statements capture bytes through selected declaration snapshots and canonical call instructions."
+sources = ["Kernel/KExts.HC:83-84", "Compiler/PrsExp.HC:530-588", "Kernel/StrPrint.HC:364-365,390-411,433-434,869-895", "Kernel/KeyDev.HC:1-25"]
+implementation = ["src/driver/integer_source.ml", "src/driver/integer_program.ml", "src/driver/integer_program_report.ml", "src/driver/integer_execution_diagnostics.ml", "src/ir/direct_call_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/ir/integer_output.ml", "src/ir/integer_statics.ml", "src/holyc_lib.ml", "bin/holyc.ml", "bin/run_report.ml"]
+tests = ["test/test_integer_output.ml", "test/test_integer_program.ml", "test/test_integer_program_cli.ml", "examples/integer-output.hc", "examples/integer-putchars.hc"]
+documentation = ["docs/integer-output.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 621
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+baseline = "Four original output groups reject prototype admission with HCRUN0001 at U0 merge 6dd1a1fa53098d316b768b1bd463613cbc2bbb99, before a provider executes."
+source_gate = "All four Print/PutChars forms capture 34320a and retain final I64 42 in JIT and AOT; maintained Print fixture uses 10 IR instructions, 0 preparation, 3 output bytes, 7 work units, 16 frame bytes and depth 1; PutChars uses 9, 0, 3, 6, 8 and 1 respectively."
+ownership = "exact completed entry/function bodies and per-call semantic source, symbol/header/declaration record snapshot, argument producer/type/count, selected opcode/cleanup and implicit discard origin; scheduled calls belong to the exact retained initializer expression subtree, with distinct global/static owners and no implicit output statement ownership"
+semantics = "ordinary bytes, %%, %d, %s, %c; signed 64-bit decimal; percent-c stops at packed zero, PutChars skips interior zeros; unused trailing arguments are evaluated and accepted"
+publication = "Print publishes a bounded complete draft only on success; PutChars retains emitted prefix on later fault; prior successful bytes and charged work survive later execution failure"
+reporting = "immutable VM/driver reports retain outcome/bytes/work; existing APIs project outcome; CLI v2 lossless output_hex/length and diagnostic document on either outcome; explicit report-version=1 preserves legacy contract"
+limits = "positive output and cumulative work limits default to 1048576 independently; charge byte fetches including terminators/faults, packed inspections and candidate appends; provider depth 1 and 8 bytes per ABI slot; original IR/storage/preparation bounds retained"
+diagnostics = ["HCIRVM0022 output capacity", "HCIRVM0023 output work", "HCIRVM0024 format", "HCIRVM0025 consumed argument", "existing exact call and owned-reference faults"]
+verification_status = "1856 local tests in 54.260 seconds, 18 output groups, CLI checks, formatting/generated/build/install, 82 checksums and 11 provenance scenarios passed; independent review resolved initializer subtree and unused scalar-pointer findings; final-source CI and merge evidence tracked in issue 621"
+excluded = ["full HolyC formatting", "arbitrary runtime linking/device behavior", "user-defined variadic frames", "joined extern/body frames", "general memory and aggregates", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted execution; no new native capture"

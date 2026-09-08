@@ -16,6 +16,8 @@ type compiled = {
   initialization_ : Ir.Global_initialization.t;
   preparation_ : Integer_initializers.t;
   functions_ : Ir.Integer_interpreter.function_definition list;
+  runtime_calls_ : Ir.Runtime_call_context.t;
+  entry_has_calls_ : bool;
 }
 
 let entry compiled = compiled.entry_
@@ -23,6 +25,7 @@ let globals compiled = compiled.globals_
 let initialization compiled = compiled.initialization_
 let initializer_preparation compiled = compiled.preparation_
 let functions compiled = compiled.functions_
+let runtime_calls compiled = compiled.runtime_calls_
 
 let human compiled =
   let entry =
@@ -62,6 +65,7 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
           let rec validate ~in_function = function
             | Ast.Empty_statement _
             | Ast.Expression_statement _
+            | Ast.Implicit_output_statement _
             | Ast.Break_statement _ -> ()
             | Ast.Block_statement block ->
                 List.iter (validate ~in_function) block.block_statements
@@ -93,7 +97,9 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
                 | Ast.Top_level_statement statement ->
                     validate ~in_function:false statement;
                     Some statement
-                | Ast.Global_variable _ | Ast.Global_declaration _ -> None
+                | Ast.Global_variable _
+                | Ast.Global_declaration _
+                | Ast.Function_prototype _ -> None
                 | Ast.Function_definition definition ->
                     (match definition.body with
                     | Some body -> validate ~in_function:true body
@@ -151,7 +157,7 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
                 Span_map.add span value map)
               Span_map.empty values
           in
-          let lower_statements roots initializers returns statements =
+          let lower_statements roots initializers returns outputs statements =
             let initializers =
               ref
                 (source_map
@@ -167,6 +173,16 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
                    (fun returned ->
                      returned |> Typed.return_source |> Source.return_origin)
                    returns)
+            in
+            let outputs =
+              ref
+                (List.fold_left
+                   (fun map (marker, statement, values) ->
+                     if Span_map.mem marker map then
+                       fail marker "HCRUN0004"
+                         "duplicate implicit output marker identity";
+                     Span_map.add marker (statement, values) map)
+                   Span_map.empty outputs)
             in
             let consume map span detail =
               match Span_map.find_opt span !map with
@@ -195,6 +211,32 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
               | Ast.Expression_statement item ->
                   Lower.Expression
                     (expression item.expression_statement_expression)
+              | Ast.Implicit_output_statement item ->
+                  let lowered, expected =
+                    consume outputs item.marker.literal_location.span
+                      "implicit output has no exact checked binding"
+                  in
+                  let fixed =
+                    match item.fixed_argument with
+                    | Ast.Marker_fixed_argument value
+                    | Ast.Expression_fixed_argument value -> value
+                  in
+                  let actual =
+                    List.map expression
+                      (fixed
+                      :: List.map
+                           (fun (argument : Ast.implicit_output_argument) ->
+                             argument.value)
+                           item.arguments)
+                  in
+                  if
+                    List.length actual <> List.length expected
+                    || not (List.for_all2 ( == ) actual expected)
+                  then
+                    fail item.location.span "HCRUN0004"
+                      "implicit output does not own its checked fixed and \
+                       trailing roots";
+                  lowered
               | Ast.Local_declaration_statement declaration ->
                   Lower.Block
                     (List.filter_map
@@ -274,11 +316,13 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
               fail ast.span "HCRUN0004"
                 "integer program did not consume every typed source root";
             if
-              not (Span_map.is_empty !initializers && Span_map.is_empty !returns)
+              not
+                (Span_map.is_empty !initializers
+                && Span_map.is_empty !returns && Span_map.is_empty !outputs)
             then
               fail ast.span "HCRUN0004"
-                "function body did not consume every initializer and return \
-                 root";
+                "function body did not consume every initializer, return and \
+                 output root";
             statements
           in
           let checked_result show =
@@ -306,6 +350,7 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
                      .error_to_string)
           in
           let all_function_calls = ref [] in
+          let function_contexts = ref [] in
           let* definitions =
             ast.items
             |> List.mapi (fun index item -> (index, item))
@@ -383,23 +428,64 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
                    in
                    all_function_calls :=
                      List.rev_append function_calls !all_function_calls;
+                   let outputs =
+                     let module Bound = Sema.Implicit_output_argument_binding in
+                     let module Target = Sema.Implicit_output_target_resolution
+                     in
+                     let bound_function =
+                       Bound.find_function
+                         (Integer_source.function_outputs prepared)
+                         (Typed.function_symbol function_)
+                     in
+                     match bound_function with
+                     | None ->
+                         fail definition.location.span "HCRUN0004"
+                           "source function has no checked output batch"
+                     | Some bound_function ->
+                         Bound.function_outputs bound_function
+                         |> List.map (fun result ->
+                             let target = Bound.output_source result in
+                             let typed = Target.output_source target in
+                             let marker =
+                               typed |> Typed.implicit_output_source
+                               |> Source.implicit_output_marker_origin
+                               |> source_span
+                             in
+                             match result with
+                             | Bound.Deferred_outer_output _ ->
+                                 fail marker "HCRUN0003"
+                                   "implicit output target requires an exact \
+                                    checked runtime header"
+                             | Bound.Bound_output output ->
+                                 let values =
+                                   Typed.implicit_output_fixed_value typed
+                                   :: List.map
+                                        Typed.implicit_output_argument_value
+                                        (Typed.implicit_output_arguments typed)
+                                 in
+                                 (marker, Lower.Function_output output, values))
+                   in
                    let roots =
                      root_map
                        (List.map Typed.expression_statement_value
                           (Typed.function_expression_statements function_)
                        @ List.map Typed.condition_value
-                           (Typed.function_conditions function_))
+                           (Typed.function_conditions function_)
+                       @ List.concat_map (fun (_, _, values) -> values) outputs
+                       )
                    in
                    let statements =
                      lower_statements roots
                        (Typed.function_initializers function_)
                        (Typed.function_returns function_)
+                       outputs
                        (Option.to_list definition.body)
                    in
-                   let* graph =
-                     Lower.lower ~frame ~globals:globals_ ~function_calls
-                       ~span:definition.location.span statements
+                   let* lowered =
+                     Lower.lower_complete ~frame ~globals:globals_ ~records
+                       ~function_calls ~span:definition.location.span statements
                    in
+                   let graph = Lower.graph lowered in
                    let members kind =
                      Frame.function_locations frame
                      |> List.filter (fun location ->
@@ -450,6 +536,8 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
                                       ~default:definition.location.span)
                                  error.code error.message))
                    in
+                   function_contexts :=
+                     (body, Lower.runtime_calls lowered) :: !function_contexts;
                    Ok Ir.Integer_interpreter.{ frame; body })
           in
           let* preparation_ =
@@ -472,7 +560,34 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
             |> List.map Typed.top_level_root_value
             |> root_map
           in
-          let ordinary = ref (lower_statements roots [] [] statements) in
+          let outputs =
+            let module Bound = Sema.Top_level_implicit_output_argument_binding
+            in
+            let module Target = Sema.Top_level_implicit_output_target_resolution
+            in
+            Integer_source.top_level_outputs prepared
+            |> Bound.outputs
+            |> List.map (fun result ->
+                let target = Bound.output_source result in
+                let marker =
+                  Target.output_marker_origin target |> source_span
+                in
+                match result with
+                | Bound.Deferred_outer_output _ ->
+                    fail marker "HCRUN0003"
+                      "implicit output target requires an exact checked \
+                       runtime header"
+                | Bound.Bound_output output ->
+                    let values =
+                      Target.output_fixed_value target
+                      :: Target.output_arguments target
+                      |> List.map Typed.top_level_root_value
+                    in
+                    (marker, Lower.Top_level_output output, values))
+          in
+          let ordinary =
+            ref (lower_statements roots [] [] outputs statements)
+          in
           let pending =
             Ir.Integer_globals.slots globals_
             |> List.filter_map (fun slot ->
@@ -527,14 +642,27 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
                           else None)))
             |> List.concat
           in
-          let* entry_, regions, static_descriptions =
-            Lower.lower_with_storage_initializers ~globals:globals_ ~top_calls
+          let* lowered_entry =
+            Lower.lower_complete ~globals:globals_ ~records ~top_calls
               ~function_calls:(List.rev !all_function_calls)
               ~span:ast.span statements
+          in
+          let entry_ = Lower.graph lowered_entry in
+          let regions = Lower.initializer_regions lowered_entry in
+          let static_descriptions =
+            Lower.static_initializer_regions lowered_entry
           in
           let* initialization_ =
             Ir.Global_initialization.create ~static_descriptions ~span:ast.span
               ~globals:globals_ ~entry:entry_ regions
+          in
+          let entry_calls = Lower.runtime_calls lowered_entry in
+          let* runtime_calls_ =
+            Ir.Runtime_call_context.create ~records
+              ~function_sources:(Integer_source.functions prepared)
+              ~top_level:typed ~initialization:initialization_ ~entry:entry_
+              ~entry_calls
+              ~functions:(List.rev !function_contexts)
           in
           Ok
             {
@@ -543,6 +671,8 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
               initialization_;
               preparation_;
               functions_ = definitions;
+              runtime_calls_;
+              entry_has_calls_ = entry_calls <> [];
             }
         with Invalid diagnostic -> Error [ diagnostic ]
       in
@@ -563,7 +693,9 @@ let compile ?(max_initializer_steps = 100_000) session ~config ~source =
 let lower session ~config ~source =
   let* compiled = compile session ~config ~source in
   match compiled.value.functions_ with
-  | [] when Ir.Integer_globals.byte_size compiled.value.globals_ = 0 ->
+  | []
+    when Ir.Integer_globals.byte_size compiled.value.globals_ = 0
+         && not compiled.value.entry_has_calls_ ->
       Ok { value = compiled.value.entry_; diagnostics = compiled.diagnostics }
   | _ ->
       Error
@@ -572,70 +704,27 @@ let lower session ~config ~source =
             Integer_source.diagnostic
               ~span:(Integer_source.source_span source)
               "HCRUN0001"
-              "named functions and global storage require the compiled-program \
-               API";
+              "named functions, calls and global storage require the \
+               compiled-program API";
           ])
 
 let run ?(max_initializer_steps = 100_000) ?(max_global_bytes = 1_048_576)
     ?(max_literal_bytes = 1_048_576) ?(max_frame_bytes = 1_048_576)
-    ?(max_call_depth = 128) session ~config ~source ~max_steps =
+    ?(max_call_depth = 128) ?(max_output_bytes = 1_048_576)
+    ?(max_output_work = 1_048_576) session ~config ~source ~max_steps =
   let span = Integer_source.source_span source in
-  if
-    max_steps <= 0 || max_frame_bytes <= 0 || max_call_depth <= 0
-    || max_global_bytes <= 0 || max_initializer_steps <= 0
-    || max_literal_bytes <= 0
-  then
-    Error
-      [
-        Integer_source.diagnostic ~span "HCIRVM0001"
-          "max_steps, max_frame_bytes, max_call_depth, max_global_bytes, \
-           max_literal_bytes and max_initializer_steps must be greater than \
-           zero";
-      ]
-  else
-    let* graph = compile ~max_initializer_steps session ~config ~source in
-    Ir.Integer_interpreter.execute_program ~globals:graph.value.globals_
-      ~initialization:graph.value.initialization_ ~max_global_bytes
-      ~max_literal_bytes ~max_steps ~max_frame_bytes ~max_call_depth
-      ~functions:graph.value.functions_ graph.value.entry_
-    |> Result.map (fun value -> { value; diagnostics = graph.diagnostics })
-    |> Result.map_error
-         (List.map (fun (error : Ir.Integer_interpreter.error) ->
-              let stage =
-                match error.stage with
-                | Ir.Integer_interpreter.Configuration -> "configuration"
-                | Preflight -> "preflight"
-                | Execution -> "execution"
-              in
-              let identity name = function
-                | None -> []
-                | Some id -> [ Printf.sprintf "%s=%d" name id ]
-              in
-              Common.Diagnostic.make ~code:error.code
-                ~severity:Common.Diagnostic.Error ~message:error.message
-                ~primary:(Option.value error.span ~default:span)
-                ~notes:
-                  ([
-                     "stage=" ^ stage;
-                     Printf.sprintf "executed_steps=%d" error.executed_steps;
-                   ]
-                  @ identity "block_id" error.block_id
-                  @ identity "instruction_id" error.instruction_id
-                  @ identity "function_id" error.function_id
-                  @ identity "initializer_symbol_id" error.initializer_symbol_id
-                  @ Option.to_list
-                      (Option.map
-                         (fun name -> "initializer=" ^ name)
-                         error.initializer_name)
-                  @ Option.to_list
-                      (Option.map
-                         (fun phase ->
-                           "initializer_phase="
-                           ^ Ir.Global_initialization.phase_name phase)
-                         error.initializer_phase)
-                  @ Option.to_list
-                      (Option.map
-                         (fun name -> "function=" ^ name)
-                         error.function_name))
-                ()))
-    |> Result.map_error (fun diagnostics -> graph.diagnostics @ diagnostics)
+  let* () =
+    Integer_execution_diagnostics.validate_limits ~span ~max_steps
+      ~max_initializer_steps ~max_global_bytes ~max_literal_bytes
+      ~max_frame_bytes ~max_call_depth ~max_output_bytes ~max_output_work
+  in
+  let* graph = compile ~max_initializer_steps session ~config ~source in
+  Ir.Integer_interpreter.execute_program ~globals:graph.value.globals_
+    ~runtime_calls:graph.value.runtime_calls_
+    ~initialization:graph.value.initialization_ ~max_global_bytes
+    ~max_literal_bytes ~max_steps ~max_frame_bytes ~max_call_depth
+    ~max_output_bytes ~max_output_work ~functions:graph.value.functions_
+    graph.value.entry_
+  |> Result.map (fun value -> { value; diagnostics = graph.diagnostics })
+  |> Result.map_error (fun errors ->
+      graph.diagnostics @ Integer_execution_diagnostics.of_errors ~span errors)

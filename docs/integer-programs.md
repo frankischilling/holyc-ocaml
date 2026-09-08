@@ -1,5 +1,10 @@
 # Integer programs in the IR interpreter
 
+[Captured runtime output](integer-output.md) connects checked Print and PutChars
+calls and implicit statements, with separate byte/work limits. Default v2
+reports retain capture on failure; `--report-version=1` preserves the prior
+success-only report and stderr diagnostics.
+
 [U0 function calls](integer-u0.md) execute ordinary procedures, early bare
 returns and fallthrough through the same checked call protocol. A discarded U0
 call reports no final word; it preserves preceding storage effects and resumes
@@ -44,7 +49,8 @@ checked I64/U64 parameters, the automatic storage described above and direct
 call expressions. See
 [integer source functions](integer-functions.md) for the original Add fixture,
 call shapes, argument order and storage limits. The report retains the last
-reached top-level expression value; it has no implemented Print operation.
+reached ordinary top-level expression value. Implicit output preserves that
+value, while an explicit ordinary U0 call clears it.
 `holyc eval` continues to return the value of exactly one expression statement.
 
 [Scalar static locals](integer-statics.md) retain persistent function-owned
@@ -103,10 +109,12 @@ instruction consumes a step, including branches, jumps, discarded values and
 the stream-end marker. `6*7;` completes in five steps and fails with a budget
 of four. Infinite loops stop at the configured budget. Runtime diagnostics
 retain the failure stage, executed steps, block, instruction and source span.
-Failure returns status 1 with diagnostics on stderr and no successful stdout
-report. The JSON success schema is `holyc-integer-program-v1`; it records the
-implementation commit, reference commit, mode, target, arithmetic policy,
-budget, frame/depth limits, executed steps, termination and final expression value.
+Failure returns status 1. Default JSON `holyc-integer-program-v2` reports output
+bytes, charged work and diagnostics in one stdout document on either outcome.
+Failure has no successful final value. The report also records implementation
+and reference commits, mode, target, arithmetic policy, limits and available
+execution counts. `--report-version=1` keeps the former success schema and
+stderr diagnostics with empty stdout on failure.
 
 The library entrypoints include `compile_integer_program` and `run_integer_program`;
 `lower_integer_program` retains its graph-only top-level boundary.
@@ -114,11 +122,13 @@ Successful results contain `value` and nonfatal `diagnostics`; the value is a
 compiled program, VM execution result or graph, according to the entrypoint.
 A failure returns all
 earlier warnings and the error in one diagnostic list. Both `run` and program
-IR dumping print retained warnings. JSON failures emit one diagnostics array.
+IR dumping retain warnings. The report API also preserves captured bytes and
+output work after errors. Default run JSON includes the complete diagnostic
+array in its report; legacy run and IR dumping use stderr.
 Lowering can produce a graph containing a VM-unsupported type or opcode;
 execution performs the VM-domain preflight before running any instruction.
 
-`HCRUN0001` rejects unsupported declarations, output, top-level returns, labels,
+`HCRUN0001` rejects unsupported declarations, top-level returns, labels,
 `goto`, switches, exceptions and locks, even inside unreachable source.
 `HCRUN0002` reports a break without an enclosing loop target. `HCRUN0003`
 rejects unsupported expressions, including chains inside conditions.
@@ -135,7 +145,7 @@ source/IR join, and `HCRUN0005` rejects an unavailable execution target.
 `HCRUN0006` retains the initializer optimizer boundary, including transitive
 callees; `HCIRVM0017` rejects missing or inconsistent initialization contexts.
 
-General memory, indirect/external execution, compiler-state changes, `#exe`, native emission and
+General memory, arbitrary indirect/external execution, compiler-state changes, `#exe`, native emission and
 general program execution remain unfinished under [M5 issue #396](https://github.com/frankischilling/holyc-ocaml/issues/396)
 and the backend milestones. The complete stateful compiler must execute source
 and compiler effects in stream order as those operations become available.
@@ -146,8 +156,8 @@ and compiler effects in stream order as those operations become available.
 passes, graph verifier and VM. It covers taken and skipped branches, nested
 logical forms, reached faults, preflight failures, loop budgets, break targets,
 for ordering, JIT/AOT inputs and deterministic replay. The CLI test runs the
-compiled executable and checks reports, exact budgets, failure status, empty
-stdout on errors and deterministic program dumps.
+compiled executable and checks v2 capture and legacy reports, exact budgets,
+failure status and deterministic program dumps.
 
 ```text
 opam exec -- dune exec test/test_main.exe -- test "source integer"

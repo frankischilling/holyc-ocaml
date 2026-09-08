@@ -30,6 +30,35 @@ val lower_top_level :
     composer used for function-scope calls. *)
 
 val sequence : t -> Instruction_sequence.t
+
+val lower_implicit_output :
+  ?frame:Sema.Function_frame_layout.function_layout ->
+  ?globals:Integer_globals.t ->
+  ?lower_call:Expression_lowering.call_lowerer ->
+  records:Sema.Function_record_classification.t ->
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  Sema.Implicit_output_argument_binding.bound_output ->
+  (lowering_result, Instruction_sequence.error list) result
+
+val lower_top_level_implicit_output :
+  ?frame:Sema.Function_frame_layout.function_layout ->
+  ?globals:Integer_globals.t ->
+  ?lower_call:Expression_lowering.call_lowerer ->
+  records:Sema.Function_record_classification.t ->
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  Sema.Top_level_implicit_output_argument_binding.bound_output ->
+  (lowering_result, Instruction_sequence.error list) result
+(** Compose checked provided output arguments through the same canonical call
+    builder. Selected declaration records remain exact; deferred outer targets,
+    defaults and unsupported conversions expose no partial call. *)
+
+val runtime_call : t -> Runtime_call_context.description
+(** Unsealed source and instruction identities, checked against the complete
+    graph by [Runtime_call_context.create]. Statement lowering supplies the
+    implicit discard identity after appending its expression boundary. *)
+
 val result_value : t -> Instruction_sequence.Value_id.t
 val result_type : t -> Sema.Type.t
 val next_instruction_id : t -> Instruction_sequence.Instruction_id.t

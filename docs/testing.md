@@ -1,5 +1,15 @@
 # Testing holyc-ocaml
 
+Runtime output regressions in `test/test_integer_output.ml` connect all four
+Print/PutChars source forms in both modes. They cover byte capture, formatting,
+declaration and call ownership, statement-origin reporting, prior effects on
+failure and separate exact output/work bounds. The 18 groups include a rejected
+initializer call borrowed from another retained expression, with valid nested
+global and static initializer calls as positive controls. The CLI tests preserve v1
+expectations through its explicit compatibility option and exercise default v2
+success/failure captures, binary bytes and human hexadecimal rendering.
+See [captured output](integer-output.md).
+
 The [U0 call contract](integer-u0.md) uses `test/test_integer_u0.ml`,
 `examples/integer-u0.hc` and program CLI regressions in both modes. Tests cover
 side effects, continuation, bare return/fallthrough, no-value reporting,

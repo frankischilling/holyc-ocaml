@@ -1,11 +1,19 @@
 # holyc-ocaml compatibility status
 
+[Captured runtime output](integer-output.md) in [#621](https://github.com/frankischilling/holyc-ocaml/issues/621)
+connects the existing Print/PutChars target and argument passes to checked call
+execution. The initial grammar supports ordinary bytes, %%, %d, %s and %c, with
+separate byte/work bounds and v2 capture on success and failure. Full formatting,
+arbitrary runtime services and device behavior remain unfinished. Older semantic
+rows below retain the boundaries of their own completed passes; #621 supplies
+this downstream execution connection.
+
 [U0 calls](integer-u0.md) in [#619](https://github.com/frankischilling/holyc-ocaml/issues/619)
 execute ordinary source procedures with explicit no-value completion, checked
 discard, early return and fallthrough. They preserve caller effects and existing
 frame/depth/instruction limits. U0 value-return and missing word-return forms
 retain explicit hosted restrictions; native HolyC warns about those forms.
-Runtime declarations, output and full return compatibility remain unfinished.
+Full return warning compatibility remains unfinished.
 
 [Owned string storage](integer-strings.md) in
 [#617](https://github.com/frankischilling/holyc-ocaml/issues/617) connects #490's
@@ -13,7 +21,8 @@ canonical literal IR to mutable per-site byte objects, terminating zeros and
 bounded U8 pointer access. Each execution has fresh contents; calls and
 initializer phases share its image. Source-class conversions are limited to
 checked U8 pointer forms. The earlier lowering slice's exclusions describe
-that layer; program execution now supplies storage. Output remains unfinished.
+that layer; program execution now supplies storage. Captured output is connected
+by #621 above.
 
 [Issue #615](https://github.com/frankischilling/holyc-ocaml/issues/615) extends
 the automatic storage path to [U8 bytes](integer-bytes.md), including indexed
@@ -21,7 +30,8 @@ loads, plain stores, exact aliases and independently retained assignment
 results. The Sum fixture returns I64 42 in both modes, using 69 runtime
 instructions, zero preparation, 16 frame bytes and depth two. This slice
 preserves I64/U64 numeric function
-boundaries and leaves persistent bytes, narrow updates and output unsupported.
+boundaries and leaves persistent bytes and narrow updates unsupported. Captured
+output follows in #621 above.
 
 Automatic I64/U64 array indexing is connected through hosted source execution.
 See [integer arrays](integer-arrays.md) for grouping, any-rank pointer decay,

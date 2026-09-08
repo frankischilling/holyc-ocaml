@@ -101,8 +101,8 @@ Windows newline normalization. Independent review approved the implementation
 and expanded resource coverage. Final revision/CI/integration evidence is
 recorded separately in #619 and its PR.
 
-Runtime prototypes/output bindings, variadic execution, HolyC formatting and
-captured byte output remain unfinished. Reuse the existing output typing,
-target and argument-binding passes when connecting them. Broader memory,
+[Captured output](integer-output.md) in #621 connects checked runtime prototypes,
+output bindings and the first formatting grammar through this U0 completion
+state. Full formatting and user-defined variadic execution remain unfinished. Broader memory,
 stateful compilation/#exe, optimizer parity, native backends, TempleOS BIN and
 actual-loader acceptance, whole-tree compatibility and bootstrap remain required.

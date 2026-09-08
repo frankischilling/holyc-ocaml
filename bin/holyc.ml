@@ -466,32 +466,62 @@ let print_integer_program_result format mode max_steps max_frame_bytes
 
 let integer_expression_file ?(max_initializer_steps = 100_000)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
-    ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128) program target dump
-    max_steps format include_roots templeos_root max_include_depth
-    max_source_bytes max_definition_depth max_generated_bytes
-    max_conditional_depth max_expression_nodes compilation_mode predefined_date
-    predefined_time command_line_source path =
+    ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
+    ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576)
+    ?(report_version = 2) program target dump max_steps format include_roots
+    templeos_root max_include_depth max_source_bytes max_definition_depth
+    max_generated_bytes max_conditional_depth max_expression_nodes
+    compilation_mode predefined_date predefined_time command_line_source path =
   let command = if dump then "dump-ir" else if program then "run" else "eval" in
+  let session = Holyc_lib.Session.create () in
+  let captured_report = program && (not dump) && report_version = 2 in
+  let render =
+    Run_report.render ~human:(format = Human) ~session
+      ~limits:
+        {
+          Run_report.mode =
+            (match compilation_mode with
+            | Holyc_lib.Preprocessor.Jit -> "jit"
+            | Aot -> "aot");
+          target;
+          steps = max_steps;
+          frame_bytes = max_frame_bytes;
+          call_depth = max_call_depth;
+          global_bytes = max_global_bytes;
+          literal_bytes = max_literal_bytes;
+          initializer_steps = max_initializer_steps;
+          output_bytes = max_output_bytes;
+          output_work = max_output_work;
+        }
+  in
   let fail message =
-    print_command_error format ~command message;
-    1
+    if captured_report then
+      render ~command_error:(message, compiler_error_code message) ()
+    else (
+      print_command_error format ~command message;
+      1)
   in
   if target <> "ir" then
     fail "HCRUN0005: only the ir execution target is implemented"
   else if dump && format = Json then
     fail "JSON graph output is not supported; use --format=human"
+  else if captured_report && max_output_bytes > Sys.max_string_length / 4 then
+    fail
+      "HCIRVM0001: output_byte_limit exceeds the hexadecimal report allocation \
+       bound"
   else if (not dump) && max_steps <= 0 then
     fail "HCIRVM0001: max_steps must be greater than zero"
   else if
     program
     && (max_frame_bytes <= 0 || max_call_depth <= 0 || max_global_bytes <= 0
-      || max_initializer_steps <= 0 || max_literal_bytes <= 0)
+      || max_initializer_steps <= 0 || max_literal_bytes <= 0
+      || max_output_bytes <= 0 || max_output_work <= 0)
   then
     fail
       "HCIRVM0001: max_frame_bytes, max_call_depth, max_global_bytes, \
-       max_literal_bytes and max_initializer_steps must be greater than zero"
+       max_literal_bytes, max_initializer_steps, max_output_bytes and \
+       max_output_work must be greater than zero"
   else
-    let session = Holyc_lib.Session.create () in
     match Holyc_lib.Session.load_source session ~path with
     | Error message ->
         fail (Printf.sprintf "could not read %s: %s" path message)
@@ -525,10 +555,21 @@ let integer_expression_file ?(max_initializer_steps = 100_000)
                 |> Result.map (fun text ->
                     output_string stdout text;
                     0)
+              else if captured_report then
+                Ok
+                  (render
+                     ~report:
+                       (Holyc_lib.run_integer_program_report
+                          ~max_initializer_steps ~max_global_bytes
+                          ~max_literal_bytes ~max_frame_bytes ~max_call_depth
+                          ~max_output_bytes ~max_output_work session ~config
+                          ~source ~max_steps)
+                     ())
               else if program then
                 Holyc_lib.run_integer_program ~max_initializer_steps
                   ~max_global_bytes ~max_literal_bytes ~max_frame_bytes
-                  ~max_call_depth session ~config ~source ~max_steps
+                  ~max_call_depth ~max_output_bytes ~max_output_work session
+                  ~config ~source ~max_steps
                 |> Result.map program_value
                 |> Result.map
                      (print_integer_program_result format compilation_mode
@@ -585,6 +626,29 @@ let run_target_argument =
         ~doc:"Execution target. Only ir is currently implemented.")
 
 let run_command =
+  let report_version =
+    Arg.(
+      value
+      & opt (enum [ ("1", 1); ("2", 2) ]) 2
+      & info [ "report-version" ] ~docv:"VERSION"
+          ~doc:
+            "Report version: 2 includes captured bytes on success and failure; \
+             1 preserves the legacy outcome contract.")
+  in
+  let output_limit =
+    Arg.(
+      value & opt int 1_048_576
+      & info [ "output-byte-limit" ] ~docv:"BYTES"
+          ~doc:"Maximum captured output bytes. Must be positive.")
+  in
+  let output_work =
+    Arg.(
+      value & opt int 1_048_576
+      & info [ "output-work-limit" ] ~docv:"COUNT"
+          ~doc:
+            "Maximum cumulative output scanning and formatting work. Must be \
+             positive.")
+  in
   let literal_limit =
     Arg.(
       value & opt int 1_048_576
@@ -622,13 +686,27 @@ let run_command =
           flow in the bounded IR interpreter.")
     (source_parser_options
        Term.(
-         const (fun target steps bytes depth globals literals initial_steps ->
+         const
+           (fun
+             target
+             steps
+             bytes
+             depth
+             globals
+             literals
+             initial_steps
+             output_bytes
+             output_work
+             report_version
+           ->
              integer_expression_file ~max_initializer_steps:initial_steps
                ~max_global_bytes:globals ~max_literal_bytes:literals
-               ~max_frame_bytes:bytes ~max_call_depth:depth true target false
-               steps)
+               ~max_frame_bytes:bytes ~max_call_depth:depth
+               ~max_output_bytes:output_bytes ~max_output_work:output_work
+               ~report_version true target false steps)
          $ run_target_argument $ step_limit_argument $ frame_limit $ call_depth
-         $ global_limit $ literal_limit $ initializer_step_limit_argument))
+         $ global_limit $ literal_limit $ initializer_step_limit_argument
+         $ output_limit $ output_work $ report_version))
 
 let program_ir_argument =
   Arg.(

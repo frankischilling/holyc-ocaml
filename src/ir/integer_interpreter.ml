@@ -7,6 +7,8 @@ module Value_id = Sequence.Value_id
 module Frame = Sema.Function_frame_layout
 module Function = Function_body
 module Type = Sema.Type
+module Runtime = Runtime_call_context
+module Output = Integer_output
 module Offset_map = Map.Make (Int64)
 
 module Value_map = Map.Make (struct
@@ -100,6 +102,16 @@ type t = {
   compiled_initializer_steps_ : int;
 }
 
+type report = {
+  outcome_ : (t, error list) result;
+  output_bytes_ : string;
+  output_work_ : int;
+}
+
+let report_outcome report = report.outcome_
+let report_output_bytes report = report.output_bytes_
+let report_output_work report = report.output_work_
+
 type literal_region = { literal_base : int; literal_count : int }
 
 type literal_context = {
@@ -157,6 +169,7 @@ type storage_location =
 type prepared_operation =
   | Call_start
   | Call of int
+  | Runtime_call of Runtime.call * stored_type array
   | Call_cleanup
   | Call_end of Value_id.t * word_type
   | Call_end_void of Value_id.t
@@ -195,6 +208,7 @@ type prepared_instruction = {
   span : Common.Span.t option;
   operation : prepared_operation;
   push_result : prepared_value option;
+  capture_discard : bool;
 }
 
 type prepared_block = {
@@ -223,7 +237,13 @@ type callee = {
 }
 
 type call_phase = Collecting of int | Needs_cleanup | Needs_end
-type checked_call = { callee : callee; phase : call_phase }
+
+type checked_call = {
+  callee : callee;
+  site : Runtime.call option;
+  remaining_arguments : Runtime.argument list option;
+  phase : call_phase;
+}
 
 type opcode_kind =
   | Literal_address_kind
@@ -1568,10 +1588,12 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
               span = description.span;
               operation;
               push_result = None;
+              capture_discard = true;
             })
           operation
 
-let prepare ?frame ?globals ?literals ?initialization ?callees graph =
+let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
+    ?(runtime_owner = Runtime.Entry) graph =
   let ( let* ) = Result.bind in
   let* () =
     match literals with
@@ -1613,6 +1635,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees graph =
               span = description.span;
               operation;
               push_result = None;
+              capture_discard = true;
             }
         in
         let prepare_call (description : Sequence.description) =
@@ -1624,22 +1647,78 @@ let prepare ?frame ?globals ?literals ?initialization ?callees graph =
               ~some:(Type.equal callee.callee_return_type)
               description.target_type
           in
+          let site_id site select =
+            Option.fold ~none:true
+              ~some:(fun site ->
+                Instruction_id.equal (select site) description.instruction_id)
+              site
+          in
+          let runtime_callee site =
+            let argument_type argument =
+              let type_ = Runtime.argument_target_type argument in
+              match
+                scalar_value_type ~allow_byte:true ~allow_public:true type_
+              with
+              | Some word -> Some (Stored_word word)
+              | None when scalar_pointer_type type_ ->
+                  Some (Stored_pointer type_)
+              | None -> None
+            in
+            let arguments = List.rev (Runtime.arguments site) in
+            let types = List.filter_map argument_type arguments in
+            if
+              List.length types <> List.length arguments
+              || List.length types > Sys.max_array_length
+            then None
+            else
+              Some
+                {
+                  callee_index = -1;
+                  callee_symbol = Runtime.symbol site;
+                  callee_return_type = Runtime.return_type site;
+                  parameter_types = Array.of_list types;
+                  cleanup_opcode = Runtime.cleanup_opcode site;
+                  frame_bytes = 0;
+                }
+          in
           match (description.opcode, !calls) with
           | Opcode.Ic_call_start, stack
             when no_operands && description.result = None
                  && description.target_type = None -> (
               match description.payload with
               | Some (Sequence.Symbol symbol) -> (
-                  match
-                    Option.value callees ~default:[]
-                    |> List.find_opt (fun callee ->
-                        callee.callee_symbol == symbol)
-                  with
+                  let site =
+                    Option.bind runtime_calls (fun context ->
+                        Runtime.find_start context ~owner:runtime_owner
+                          description.instruction_id)
+                  in
+                  let selected =
+                    match site with
+                    | Some site when Option.is_some (Runtime.provider site) ->
+                        runtime_callee site
+                    | Some site when Runtime.call_opcode site <> Opcode.Ic_call
+                      -> None
+                    | _ ->
+                        Option.value callees ~default:[]
+                        |> List.find_opt (fun callee ->
+                            callee.callee_symbol == symbol)
+                  in
+                  match selected with
                   | Some callee
-                    when match stack with
+                    when callee.callee_symbol == symbol
+                         &&
+                         match stack with
                          | [] | { phase = Collecting _; _ } :: _ -> true
                          | _ -> false ->
-                      calls := { callee; phase = Collecting 0 } :: stack;
+                      calls :=
+                        {
+                          callee;
+                          site;
+                          remaining_arguments =
+                            Option.map Runtime.arguments site;
+                          phase = Collecting 0;
+                        }
+                        :: stack;
                       call_instruction description Call_start
                   | _ ->
                       Error
@@ -1647,38 +1726,59 @@ let prepare ?frame ?globals ?literals ?initialization ?callees graph =
                            "direct call has no matching executable definition \
                             or valid enclosing call"))
               | _ -> Error (malformed block_id description))
-          | Opcode.Ic_call, { callee; phase = Collecting count } :: rest
+          | ( (Opcode.Ic_call | Opcode.Ic_call_indirect2 | Opcode.Ic_call_extern),
+              ({ callee; site; phase = Collecting count; _ } as call) :: rest )
             when no_operands && description.result = None
-                 && target_matches callee -> (
+                 && target_matches callee
+                 && description.opcode
+                    = Option.fold ~none:Opcode.Ic_call ~some:Runtime.call_opcode
+                        site
+                 && site_id site Runtime.call_instruction -> (
               match description.payload with
               | Some (Sequence.Symbol symbol)
                 when symbol == callee.callee_symbol
                      && count = Array.length callee.parameter_types ->
-                  calls := { callee; phase = Needs_cleanup } :: rest;
-                  call_instruction description (Call callee.callee_index)
+                  calls := { call with phase = Needs_cleanup } :: rest;
+                  let operation =
+                    match site with
+                    | Some site when Option.is_some (Runtime.provider site) ->
+                        Runtime_call (site, callee.parameter_types)
+                    | _ -> Call callee.callee_index
+                  in
+                  call_instruction description operation
               | _ ->
                   Error
                     (call_error description
                        "call target or pushed argument count disagrees with \
                         its definition"))
           | ( (Opcode.Ic_add_rsp | Opcode.Ic_add_rsp1),
-              { callee; phase = Needs_cleanup } :: rest )
+              ({ callee; site; phase = Needs_cleanup; _ } as call) :: rest )
             when no_operands && description.result = None
                  && target_matches callee
-                 && description.opcode = callee.cleanup_opcode -> (
+                 && description.opcode = callee.cleanup_opcode
+                 && site_id site Runtime.cleanup_instruction -> (
               match description.payload with
               | Some (Sequence.Integer bytes)
                 when bytes
                      = Int64.mul 8L
                          (Int64.of_int (Array.length callee.parameter_types)) ->
-                  calls := { callee; phase = Needs_end } :: rest;
+                  calls := { call with phase = Needs_end } :: rest;
                   call_instruction description Call_cleanup
               | _ ->
                   Error
                     (call_error description
                        "call cleanup does not match its fixed argument slots"))
-          | Opcode.Ic_call_end, { callee; phase = Needs_end } :: rest
-            when no_operands && target_matches callee -> (
+          | Opcode.Ic_call_end, { callee; site; phase = Needs_end; _ } :: rest
+            when no_operands && target_matches callee
+                 && site_id site Runtime.last
+                 && Option.fold ~none:true
+                      ~some:(fun site ->
+                        Option.fold ~none:false
+                          ~some:(fun result ->
+                            Value_id.equal result.Sequence.value_id
+                              (Runtime.result_value site))
+                          description.result)
+                      site -> (
               match
                 ( description.payload,
                   description.result,
@@ -1701,6 +1801,9 @@ let prepare ?frame ?globals ?literals ?initialization ?callees graph =
                        "call end does not match its checked target and result"))
           | ( ( Opcode.Ic_call_start
               | Opcode.Ic_call
+              | Opcode.Ic_call_indirect2
+              | Opcode.Ic_call_extern
+              | Opcode.Ic_call_import
               | Opcode.Ic_call_end
               | Opcode.Ic_add_rsp
               | Opcode.Ic_add_rsp1 ),
@@ -1754,7 +1857,13 @@ let prepare ?frame ?globals ?literals ?initialization ?callees graph =
                   else
                     match (description.result, !calls) with
                     | ( Some result,
-                        ({ callee; phase = Collecting count } as call) :: rest )
+                        ({
+                           callee;
+                           remaining_arguments;
+                           phase = Collecting count;
+                           _;
+                         } as call)
+                        :: rest )
                       when count < Array.length callee.parameter_types -> (
                         match memory_operand_of_value types result.value_id with
                         | Some operand
@@ -1763,9 +1872,36 @@ let prepare ?frame ?globals ?literals ?initialization ?callees graph =
                                                            callee
                                                              .parameter_types
                                                          - 1 - count)
-                                 operand ->
+                                 operand
+                               && Option.fold ~none:true
+                                    ~some:(function
+                                      | [] -> false
+                                      | argument :: _ ->
+                                          Instruction_id.equal
+                                            (Runtime.argument_producer argument)
+                                            description.instruction_id
+                                          && Value_id.equal
+                                               (Runtime.argument_value argument)
+                                               result.value_id
+                                          && Option.fold ~none:false
+                                               ~some:
+                                                 (Type.equal
+                                                    (Runtime
+                                                     .argument_source_type
+                                                       argument))
+                                               description.target_type)
+                                    remaining_arguments ->
                             calls :=
-                              { call with phase = Collecting (count + 1) }
+                              {
+                                call with
+                                phase = Collecting (count + 1);
+                                remaining_arguments =
+                                  Option.map
+                                    (function
+                                      | [] -> []
+                                      | _ :: rest -> rest)
+                                    remaining_arguments;
+                              }
                               :: rest;
                             Some operand
                         | _ ->
@@ -1782,8 +1918,32 @@ let prepare ?frame ?globals ?literals ?initialization ?callees graph =
                           :: !errors_rev;
                         None
                 in
+                let implicit_discard =
+                  Option.fold ~none:false
+                    ~some:(fun context ->
+                      Runtime.is_implicit_discard context ~owner:runtime_owner
+                        description.instruction_id)
+                    runtime_calls
+                in
+                if
+                  implicit_discard
+                  &&
+                  match prepared.operation with
+                  | Discard _ | Discard_void _ -> false
+                  | _ -> true
+                then
+                  errors_rev :=
+                    call_error description
+                      "implicit output metadata does not identify a checked \
+                       discard"
+                    :: !errors_rev;
                 instructions_rev :=
-                  { prepared with push_result } :: !instructions_rev
+                  {
+                    prepared with
+                    push_result;
+                    capture_discard = not implicit_discard;
+                  }
+                  :: !instructions_rev
             | Error error -> errors_rev := error :: !errors_rev);
         if !calls <> [] then
           errors_rev :=
@@ -1861,7 +2021,7 @@ type caller = {
 
 let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
     ?(max_call_depth = Int.max_int) ?(capture_last = false) ?initialization
-    ?(global_words = [||]) ?literal_image ~max_steps program =
+    ?(global_words = [||]) ?literal_image ?output ~max_steps program =
   let current_block = ref program.entry_index in
   let current_instruction = ref 0 in
   let values = ref Value_map.empty in
@@ -2065,6 +2225,125 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                          (Int64.of_int address.pointer_element_bytes)) )
             else None)
   in
+  let read_output_byte block instruction address relative =
+    let error code message =
+      Error (runtime_error ~instruction block !steps code message)
+    in
+    let storage = address.pointer_storage in
+    if
+      (not storage.live)
+      || address.pointer_element_bytes <> 1
+      || scalar_element_bytes address.pointer_pointee <> Some 1
+      || address.pointer_base < 0 || address.pointer_count <= 0
+      || address.pointer_count > Array.length storage.cells
+      || address.pointer_base
+         > Array.length storage.cells - address.pointer_count
+      || address.pointer_extent_bytes <> Int64.of_int address.pointer_count
+    then
+      error "HCIRVM0018"
+        "output pointer does not identify a live owned U8 object"
+    else if address.pointer_offset < 0L || relative < 0L then
+      error "HCIRVM0019" "output scan is outside its declared object extent"
+    else if relative > Int64.sub Int64.max_int address.pointer_offset then
+      error "HCIRVM0020" "output scan offset exceeds the integer address range"
+    else
+      let offset = Int64.add address.pointer_offset relative in
+      if offset >= address.pointer_extent_bytes then
+        error "HCIRVM0019" "output scan is outside its declared object extent"
+      else
+        match storage.cells.(address.pointer_base + Int64.to_int offset) with
+        | Some (Runtime_word { type_ = U64; bits })
+          when bits >= 0L && bits <= 255L -> Ok (Char.chr (Int64.to_int bits))
+        | None -> error "HCIRVM0012" storage.unknown_message
+        | Some _ ->
+            error "HCIRVM0008" "output scan reached an invalid byte cell"
+  in
+  let invoke_output block instruction site parameter_types scope =
+    let provider_name =
+      match Runtime.provider site with
+      | Some Runtime.Print -> "Print"
+      | Some Runtime.Put_chars -> "PutChars"
+      | None -> "runtime output"
+    in
+    let provider_message message =
+      if
+        String.starts_with ~prefix:(provider_name ^ " ") message
+        || String.starts_with ~prefix:(provider_name ^ ":") message
+      then message
+      else provider_name ^ ": " ^ message
+    in
+    let make_provider_error code message =
+      runtime_error ~instruction block !steps code (provider_message message)
+    in
+    let error code message = Error (make_provider_error code message) in
+    if !depth >= max_call_depth then
+      error "HCIRVM0015" "the runtime call depth limit was exhausted"
+    else if
+      Array.length parameter_types > (max_frame_bytes - !live_frame_bytes) / 8
+    then
+      error "HCIRVM0011"
+        "runtime argument slots exceed the active frame byte limit"
+    else if List.length scope.arguments_rev <> Array.length parameter_types then
+      error "HCIRVM0008" "prepared runtime argument count is inconsistent"
+    else
+      let rec arguments index rev = function
+        | [] -> Ok (List.rev rev)
+        | value :: rest -> (
+            match coerce_value parameter_types.(index) value with
+            | Some value -> arguments (index + 1) (value :: rev) rest
+            | None ->
+                error "HCIRVM0008"
+                  "runtime argument disagrees with its checked slot")
+      in
+      let ( let* ) = Result.bind in
+      let* arguments = arguments 0 [] scope.arguments_rev in
+      match output with
+      | None -> error "HCIRVM0008" "prepared runtime call has no output state"
+      | Some output -> (
+          let provider_error = function
+            | Output.Memory error ->
+                { error with message = provider_message error.message }
+            | Output.Output_limit ->
+                make_provider_error "HCIRVM0022"
+                  "runtime output exceeds the output byte limit"
+            | Output.Work_limit ->
+                make_provider_error "HCIRVM0023"
+                  "runtime output work limit was exhausted"
+            | Output.Offset_overflow ->
+                make_provider_error "HCIRVM0020"
+                  "output scan offset exceeds the integer address range"
+            | Output.Invalid_format message ->
+                make_provider_error "HCIRVM0024" message
+            | Output.Invalid_argument message ->
+                make_provider_error "HCIRVM0025" message
+          in
+          match (Runtime.provider site, arguments) with
+          | Some Runtime.Put_chars, [ Runtime_word word ] ->
+              Output.put_chars output word.bits
+              |> Result.map_error provider_error
+          | ( Some Runtime.Print,
+              Runtime_pointer format :: Runtime_word count :: tail )
+            when count.type_ = I64
+                 && count.bits = Int64.of_int (List.length tail) ->
+              let rec variadic rev = function
+                | [] -> Ok (Array.of_list (List.rev rev))
+                | Runtime_word word :: rest ->
+                    variadic (Output.Word word.bits :: rev) rest
+                | Runtime_pointer address :: rest ->
+                    variadic (Output.Pointer address :: rev) rest
+                | (Runtime_offset _ | Runtime_void) :: _ ->
+                    error "HCIRVM0008"
+                      "prepared variadic output argument is invalid"
+              in
+              let* arguments = variadic [] tail in
+              Output.print output
+                ~read_byte:(read_output_byte block instruction)
+                ~format arguments
+              |> Result.map_error provider_error
+          | _ ->
+              error "HCIRVM0008"
+                "prepared runtime provider arguments are inconsistent")
+  in
   while Option.is_none !completed && Option.is_none !failed do
     if !current_block < 0 || !current_block >= Array.length !program.blocks then
       failed :=
@@ -2102,6 +2381,21 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
           | Call_start ->
               calls := { arguments_rev = []; completion = Pending } :: !calls
           | Call_cleanup -> ()
+          | Runtime_call (site, parameter_types) -> (
+              match !calls with
+              | ({ completion = Pending; _ } as scope) :: rest -> (
+                  match
+                    invoke_output block instruction site parameter_types scope
+                  with
+                  | Ok () ->
+                      calls :=
+                        { scope with completion = Completed_void } :: rest
+                  | Error error -> failed := Some error)
+              | _ ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0008"
+                         "prepared runtime call has no pending caller scope"))
           | Call index -> (
               match !calls with
               | ({ completion = Pending; _ } as scope) :: _
@@ -2374,14 +2668,16 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                   | Runtime_pointer _ | Runtime_offset _ | Runtime_void -> None)
               in
               if
-                capture_last && (not !program.is_function)
+                capture_last && instruction.capture_discard
+                && (not !program.is_function)
                 && Option.is_none !active_initializer
               then final_value := value
           | Discard_void value_id -> (
               match Value_map.find_opt value_id !values with
               | Some Runtime_void ->
                   if
-                    capture_last && (not !program.is_function)
+                    capture_last && instruction.capture_discard
+                    && (not !program.is_function)
                     && Option.is_none !active_initializer
                   then final_value := None
               | _ ->
@@ -2559,9 +2855,9 @@ let execute_function ?(max_literal_bytes = 1_048_576) ~max_steps
             execute_prepared ~literal_image ~max_steps
               { program with owner = Some (function_id, function_name) })
 
-let execute_program ?globals ?initialization ?(max_global_bytes = 1_048_576)
-    ?(max_literal_bytes = 1_048_576) ~max_steps ~max_frame_bytes ~max_call_depth
-    ~functions checked =
+let execute_program_with_output ?runtime_calls ~output ?globals ?initialization
+    ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576) ~max_steps
+    ~max_frame_bytes ~max_call_depth ~functions checked =
   let ( let* ) = Result.bind in
   if
     max_steps <= 0 || max_frame_bytes <= 0 || max_call_depth <= 0
@@ -2572,6 +2868,22 @@ let execute_program ?globals ?initialization ?(max_global_bytes = 1_048_576)
         make_error ~stage:Configuration ~executed_steps:0 "HCIRVM0001"
           "max_steps, max_frame_bytes, max_call_depth, max_global_bytes and \
            max_literal_bytes must be greater than zero";
+      ]
+  else if
+    Option.fold ~none:false
+      ~some:(fun context ->
+        not
+          (Runtime.matches context ~entry:checked ~initialization
+             ~functions:
+               (List.map
+                  (fun (definition : function_definition) -> definition.body)
+                  functions)))
+      runtime_calls
+  then
+    Error
+      [
+        make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0014"
+          "runtime call metadata requires its exact entry and function bodies";
       ]
   else if
     Option.fold ~none:false
@@ -2747,7 +3059,8 @@ let execute_program ?globals ?initialization ?(max_global_bytes = 1_048_576)
             |> Result.map_error (List.map (identify body))
           in
           let* program =
-            prepare ~frame ?globals ~literals ~callees (Function.body body)
+            prepare ~frame ?globals ~literals ~callees ?runtime_calls
+              ~runtime_owner:(Runtime.Function body) (Function.body body)
             |> Result.map_error (List.map (identify body))
           in
           bodies
@@ -2770,7 +3083,8 @@ let execute_program ?globals ?initialization ?(max_global_bytes = 1_048_576)
       |> Result.map_error (List.map identify_entry)
     in
     let* entry =
-      prepare ?globals ~literals ?initialization ~callees (X87.graph checked)
+      prepare ?globals ~literals ?initialization ~callees ?runtime_calls
+        (X87.graph checked)
       |> Result.map_error (List.map identify_entry)
     in
     let global_words =
@@ -2788,8 +3102,48 @@ let execute_program ?globals ?initialization ?(max_global_bytes = 1_048_576)
       |> Array.of_list
     in
     execute_prepared ~callees:programs ~max_frame_bytes ~max_call_depth
-      ?initialization ~global_words ~literal_image ~capture_last:true ~max_steps
-      entry
+      ?initialization ~global_words ~literal_image ~output ~capture_last:true
+      ~max_steps entry
+
+let execute_program_report ?runtime_calls ?globals ?initialization
+    ?max_global_bytes ?max_literal_bytes ?(max_output_bytes = 1_048_576)
+    ?(max_output_work = 1_048_576) ~max_steps ~max_frame_bytes ~max_call_depth
+    ~functions checked =
+  if
+    max_output_bytes <= 0 || max_output_work <= 0
+    || max_output_bytes > Sys.max_string_length
+  then
+    {
+      outcome_ =
+        Error
+          [
+            make_error ~stage:Configuration ~executed_steps:0 "HCIRVM0001"
+              "output limits must be positive and max_output_bytes must fit a \
+               host string";
+          ];
+      output_bytes_ = "";
+      output_work_ = 0;
+    }
+  else
+    let output = Output.create ~max_output_bytes ~max_output_work in
+    let outcome_ =
+      execute_program_with_output ?runtime_calls ~output ?globals
+        ?initialization ?max_global_bytes ?max_literal_bytes ~max_steps
+        ~max_frame_bytes ~max_call_depth ~functions checked
+    in
+    {
+      outcome_;
+      output_bytes_ = Output.contents output;
+      output_work_ = Output.work output;
+    }
+
+let execute_program ?runtime_calls ?globals ?initialization ?max_global_bytes
+    ?max_literal_bytes ?max_output_bytes ?max_output_work ~max_steps
+    ~max_frame_bytes ~max_call_depth ~functions checked =
+  execute_program_report ?runtime_calls ?globals ?initialization
+    ?max_global_bytes ?max_literal_bytes ?max_output_bytes ?max_output_work
+    ~max_steps ~max_frame_bytes ~max_call_depth ~functions checked
+  |> report_outcome
 
 let termination execution = execution.termination_
 let executed_steps execution = execution.executed_steps_

@@ -25,14 +25,18 @@ type error = private {
 }
 
 type t
+type report
 
 val reference_commit : string
 
 val execute_program :
+  ?runtime_calls:Runtime_call_context.t ->
   ?globals:Integer_globals.t ->
   ?initialization:Global_initialization.t ->
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->
+  ?max_output_bytes:int ->
+  ?max_output_work:int ->
   max_steps:int ->
   max_frame_bytes:int ->
   max_call_depth:int ->
@@ -105,6 +109,43 @@ val execute_program :
     object identity, extent and byte offset while adopting the destination
     pointee type. Canonical producer and memory-operation types remain exact.
     Public results remain words. *)
+
+val execute_program_report :
+  ?runtime_calls:Runtime_call_context.t ->
+  ?globals:Integer_globals.t ->
+  ?initialization:Global_initialization.t ->
+  ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
+  ?max_output_bytes:int ->
+  ?max_output_work:int ->
+  max_steps:int ->
+  max_frame_bytes:int ->
+  max_call_depth:int ->
+  functions:function_definition list ->
+  X87_stack.t ->
+  report
+(** Execute with immutable captured bytes and charged formatting work retained
+    on failure as well as success. Exact graph-owned [runtime_calls] authorize
+    checked Print/PutChars sites and identify implicit-output discards, which
+    preserve the last ordinary expression value. Explicit U0 calls still clear
+    it. Configuration and preflight failures capture no bytes and charge no
+    output work. [execute_program] projects this report's established outcome.
+
+    Positive output-byte and work limits independently default to 1,048,576; the
+    byte limit must fit a host string. Each fetched format/string byte,
+    including terminators and failed reads, inspected packed-byte position and
+    candidate output byte costs one work unit. An exhausted charge leaves the
+    count at the limit; append work precedes capacity checking. Print publishes
+    only its complete successful draft. PutChars retains bytes published before
+    a later fault. Providers consume one active call-depth level and eight
+    active frame bytes per ABI argument slot, including hidden counts, without
+    allocating source locals or a return slot. Output/work/format/argument
+    faults use HCIRVM0022 through HCIRVM0025; pointer faults retain their
+    existing object/lifetime/initialization diagnostics. *)
+
+val report_outcome : report -> (t, error list) result
+val report_output_bytes : report -> string
+val report_output_work : report -> int
 
 val final_value : t -> word option
 (** Last reached top-level expression value from [execute_program], separate

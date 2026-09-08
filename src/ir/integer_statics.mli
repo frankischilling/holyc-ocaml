@@ -8,10 +8,12 @@ val create :
   functions:Sema.Function_call_expression_result.t ->
   records:Sema.Function_record_classification.t ->
   (slot list, Common.Diagnostic.t list) result
-(** Check retained static roots against exact frame/local evidence. Completeness
-    of the initializer set is checked when the source driver consumes every AST
-    declaration and requires its exact retained root; absence here alone is not
-    proof that a source declaration has no initializer. *)
+(** Check retained static roots against exact frame/local evidence. Exact
+    declaration snapshots distinguish prototypes, which own no frame or static
+    initializer, from definitions, whose checked frame remains mandatory.
+    Completeness of the initializer set is checked when the source driver
+    consumes every AST declaration and requires its exact retained root; absence
+    here alone is not proof that a source declaration has no initializer. *)
 
 val index : slot -> int
 val frame : slot -> Sema.Function_frame_layout.function_layout

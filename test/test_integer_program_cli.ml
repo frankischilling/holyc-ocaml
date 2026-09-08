@@ -17,7 +17,7 @@ let with_file suffix contents action =
 
 let compiler = Sys.argv.(1)
 
-let invoke arguments =
+let invoke_raw arguments =
   with_file ".stdout" "" (fun stdout ->
       with_file ".stderr" "" (fun stderr ->
           let out_fd =
@@ -38,6 +38,10 @@ let invoke arguments =
           in
           let _, status = Unix.waitpid [] pid in
           (status, read stdout, read stderr)))
+
+let invoke = function
+  | "run" :: arguments -> invoke_raw ("run" :: "--report-version=1" :: arguments)
+  | arguments -> invoke_raw arguments
 
 let require condition message = if not condition then failwith message
 
@@ -937,5 +941,173 @@ let () =
           ("I64 W(){return 42;}I64 F(){W();return;}F();", [], "HCIRVM0013", "F");
           ("I64 G;U0 F(){G=42;1/0;}F();G;", [], "HCIRVM0009", "F");
         ])
+    [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      let run ?(options = []) path =
+        let status, stdout, stderr =
+          invoke_raw
+            ([ "run"; "--format=json"; "--mode=" ^ mode ] @ options @ [ path ])
+        in
+        require (stderr = "") ("v2 diagnostics belong in the report: " ^ stderr);
+        (status, Yojson.Safe.from_string stdout)
+      in
+      let check_capture report bytes length work =
+        require
+          (report |> member "schema" |> to_string = "holyc-integer-program-v2")
+          "default run report version";
+        require
+          (report |> member "output_hex" |> to_string = bytes
+          && report |> member "output_byte_length" |> to_int = length
+          && report |> member "output_work" |> to_int = work)
+          "lossless captured bytes and exact work"
+      in
+      List.iter
+        (fun text ->
+          with_file ".hc" text (fun source ->
+              let status, report = run source in
+              require (status = Unix.WEXITED 0) "output form succeeds";
+              let work = if contains text "PutChars" then 6 else 7 in
+              check_capture report "34320a" 3 work;
+              require
+                (report |> member "outcome" |> to_string = "success"
+                && report |> member "final_value" |> member "value" |> to_string
+                   = "42")
+                "capture is separate from final expression"))
+        [
+          "extern U0 Print(U8 *fmt,...);\"42\\n\";42;";
+          "extern U0 Print(U8 *fmt,...);Print(\"42\\n\");42;";
+          "extern U0 PutChars(U64 ch);'42\\n';42;";
+          "extern U0 PutChars(U64 ch);PutChars('42\\n');42;";
+        ];
+      let status, report =
+        run
+          ~options:
+            [
+              "--output-byte-limit=3";
+              "--output-work-limit=7";
+              "--step-limit=10";
+              "--frame-byte-limit=16";
+              "--call-depth-limit=1";
+              "--literal-byte-limit=4";
+            ]
+          Sys.argv.(15)
+      in
+      require (status = Unix.WEXITED 0) "maintained output fixture exact limits";
+      check_capture report "34320a" 3 7;
+      let status, packed_report =
+        run
+          ~options:
+            [
+              "--output-byte-limit=3";
+              "--output-work-limit=6";
+              "--step-limit=9";
+              "--frame-byte-limit=8";
+              "--call-depth-limit=1";
+            ]
+          Sys.argv.(16)
+      in
+      require (status = Unix.WEXITED 0)
+        "maintained PutChars fixture exact limits";
+      check_capture packed_report "34320a" 3 6;
+      List.iter
+        (fun (fixture, steps, work) ->
+          let status, failed =
+            run ~options:[ "--step-limit=" ^ string_of_int steps ] fixture
+          in
+          require (status = Unix.WEXITED 1) "one-below IR step limit fails";
+          check_capture failed "34320a" 3 work;
+          require
+            (failed |> member "executed_steps" |> to_int = steps
+            && failed |> member "final_value" = `Null
+            && failed |> member "diagnostics" |> to_list |> List.hd
+               |> member "code" |> to_string = "HCIRVM0007")
+            "later step fault retains output but no successful result")
+        [ (Sys.argv.(15), 9, 7); (Sys.argv.(16), 8, 6) ];
+      let human_status, human, human_errors =
+        invoke_raw [ "run"; "--mode=" ^ mode; Sys.argv.(15) ]
+      in
+      require
+        (human_status = Unix.WEXITED 0
+        && human_errors = ""
+        && String.starts_with ~prefix:"holyc-integer-program-v2" human
+        && contains human "output-hex=34320a"
+        && contains human "output-byte-length=3")
+        "human output renders bytes explicitly";
+      List.iter
+        (fun (suffix, options, code, bytes, length, work) ->
+          with_file ".hc" ("extern U0 Print(U8 *fmt,...);\"A\";" ^ suffix)
+            (fun source ->
+              let status, report = run ~options source in
+              require (status = Unix.WEXITED 1) "output fault exits one";
+              check_capture report bytes length work;
+              require
+                (report |> member "outcome" |> to_string = "error"
+                && report |> member "final_value" = `Null
+                && report |> member "termination" = `Null)
+                "failure cannot fabricate a final result";
+              let diagnostic =
+                report |> member "diagnostics" |> to_list |> List.hd
+              in
+              require
+                (diagnostic |> member "code" |> to_string = code)
+                "v2 retains the actual runtime diagnostic"))
+        [
+          ("1/0;", [], "HCIRVM0009", "41", 1, 3);
+          ("\"B%q\";42;", [], "HCIRVM0024", "41", 1, 7);
+          ("\"BC\";42;", [ "--output-byte-limit=2" ], "HCIRVM0022", "41", 1, 7);
+          ("\"B\";42;", [ "--output-work-limit=5" ], "HCIRVM0023", "41", 1, 5);
+        ];
+      with_file ".hc" "extern U0 Print(U8 *fmt,...);\"\\x80\\xff\";42;"
+        (fun source ->
+          let status, report = run source in
+          require (status = Unix.WEXITED 0) "binary output succeeds";
+          check_capture report "80ff" 2 5);
+      with_file ".hc" "#assert 0\n42;" (fun source ->
+          let status, report = run source in
+          require (status = Unix.WEXITED 0) "v2 warnings preserve success";
+          require
+            (report |> member "diagnostics" |> to_list |> List.hd
+           |> member "code" |> to_string = "HCPP0024")
+            "v2 report includes warnings");
+      List.iter
+        (fun option ->
+          let status, report = run ~options:[ option ] Sys.argv.(15) in
+          require (status = Unix.WEXITED 1) "nonpositive output limit fails";
+          check_capture report "" 0 0;
+          require
+            (report |> member "command_error" |> member "code" |> to_string
+           = "HCIRVM0001")
+            "v2 command failure carries its code")
+        [
+          "--output-byte-limit=0";
+          "--output-work-limit=0";
+          "--output-byte-limit=" ^ string_of_int max_int;
+        ];
+      with_file ".hc"
+        "extern U0 Print(U8 *fmt,...);extern U0 Other();\"A\";Other();42;"
+        (fun source ->
+          let status, report = run source in
+          require (status = Unix.WEXITED 1)
+            "unsupported provider fails preflight";
+          check_capture report "" 0 0;
+          let diagnostic =
+            report |> member "diagnostics" |> to_list |> List.hd
+          in
+          require
+            (diagnostic |> member "code" |> to_string = "HCIRVM0014"
+            && diagnostic |> member "notes" |> to_list
+               |> List.mem (`String "stage=preflight"))
+            "preflight failure captures no earlier output");
+      let legacy =
+        success [ "run"; "--format=json"; "--mode=" ^ mode; Sys.argv.(15) ]
+        |> Yojson.Safe.from_string
+      in
+      require
+        (legacy |> member "schema" |> to_string = "holyc-integer-program-v1"
+        && legacy |> member "output_hex" = `Null
+        && legacy |> member "final_value" |> member "value" |> to_string = "42"
+        )
+        "explicit v1 retains the established outcome projection")
     [ "jit"; "aot" ];
   print_endline "Integer program CLI checks passed."
