@@ -1,5 +1,15 @@
 # Testing holyc-ocaml
 
+The 15 `source persistent bytes` groups in
+`test/test_integer_persistent_bytes.ml` cover #625's six gates, stored-byte versus
+register values, byte initializer sources, mixed images, aliases, recursion,
+fresh replay, initializer phases and prior output on faults. Bounds checks keep
+adjacent objects and static padding inaccessible. Malformed tests pair unchanged
+rebuilds with exact load-type and static-option rejection, plus a foreign
+initializer-slot test with a valid control. CLI checks lock 42 in 77 runtime and
+seven preparation instructions, nine persistent bytes, 16 active frame bytes and
+depth two in both modes. See [persistent bytes](integer-persistent-bytes.md).
+
 The 14 `source joined definitions` groups in
 `test/test_integer_joined_definitions.ml` cover #623's four source gates, typed
 parameters and locals, recursion, statics, initializer effects/faults,

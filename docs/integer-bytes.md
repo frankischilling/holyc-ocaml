@@ -1,5 +1,9 @@
 # U8 storage and indexed byte access
 
+[Persistent scalar bytes](integer-persistent-bytes.md) in #625 extend this
+automatic-byte connection to globals and static locals. The automatic-only
+scope below records #615; persistent arrays and narrow updates remain pending.
+
 Issue [#615](https://github.com/frankischilling/holyc-ocaml/issues/615) extends
 [automatic arrays](integer-arrays.md) and [pointer aliases](integer-pointers.md)
 to one-byte automatic objects. The source fixture is

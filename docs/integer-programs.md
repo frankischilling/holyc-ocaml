@@ -1,5 +1,9 @@
 # Integer programs in the IR interpreter
 
+[Persistent scalar U8 globals and statics](integer-persistent-bytes.md) now
+share the checked byte storage path. Initial images and reached stores narrow
+independently from expression results, with exact source owners and bounds.
+
 [Joined extern definitions](integer-joined-definitions.md) execute through
 checked callable bindings. Prototypes add no instructions or frame charges;
 each call keeps its selected declaration, and each body keeps its own frame.

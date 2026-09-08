@@ -1,5 +1,10 @@
 # holyc-ocaml
 
+`holyc run --format=json examples/integer-persistent-bytes.hc` now uses a
+U8 global, a persistent static byte and a pointer call to return 42 in both
+modes. [Persistent bytes](docs/integer-persistent-bytes.md) explains narrowing,
+initializer timing, exact object bounds and the nine-byte storage charge.
+
 `holyc run --format=json examples/integer-joined-definitions.hc` executes
 an Add definition preceded by an extern prototype, including renamed parameters
 and its own local frame. It returns 42 in 29 instructions in both modes.

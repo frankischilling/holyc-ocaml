@@ -1190,4 +1190,103 @@ let () =
         (first = dump () && contains first "holyc-ir-function-binding-v1")
         "deterministic joined callable/definition mapping")
     [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      let run ?(options = []) source =
+        let status, output, errors =
+          invoke_raw
+            ([ "run"; "--format=json"; "--mode=" ^ mode ] @ options @ [ source ])
+        in
+        require (errors = "") "persistent-byte JSON stays on one stream";
+        (status, Yojson.Safe.from_string output)
+      in
+      let check report type_ capture =
+        require
+          (report |> member "outcome" |> to_string = "success"
+          && report |> member "final_value" |> member "value" |> to_string
+             = "42"
+          && report |> member "final_value" |> member "type" |> to_string
+             = type_
+          && report |> member "output_hex" |> to_string = capture)
+          "persistent byte class, value and capture"
+      in
+      let source = Sys.argv.(18) in
+      let status, report =
+        run
+          ~options:
+            [
+              "--step-limit=77";
+              "--initializer-step-limit=7";
+              "--global-byte-limit=9";
+              "--frame-byte-limit=16";
+              "--call-depth-limit=2";
+            ]
+          source
+      in
+      require (status = Unix.WEXITED 0)
+        "maintained persistent bytes at exact limits";
+      check report "i64" "";
+      require
+        (report |> member "executed_steps" |> to_int = 77
+        && report |> member "compiled_initializer_steps" |> to_int = 7
+        && report |> member "output_work" |> to_int = 0)
+        "maintained persistent byte work counts";
+      List.iter
+        (fun (text, type_, capture) ->
+          with_file ".hc" text (fun path ->
+              let status, report = run path in
+              require (status = Unix.WEXITED 0) "persistent byte source gate";
+              check report type_ capture))
+        [
+          ("U8 G=298;G;", "u64", "");
+          ("U8 G;U0 Set(U8 *p){*p=298;}Set(&G);G;", "u64", "");
+          ("I64 Next(){static U8 n=40;n=n+1;return n;}Next();Next();", "i64", "");
+          ( "extern U0 PutChars(U64 ch);I64 Seed(I64 n){PutChars(65);return \
+             n;}U8 G=Seed(298);G;",
+            "u64",
+            "41" );
+          ( "extern U0 PutChars(U64 ch);I64 Seed(I64 n){PutChars(65);return \
+             n;}I64 Read(){static U8 n=Seed(298);return n;}Read();",
+            "i64",
+            "41" );
+          ( "U0 Set(U8 *p){*p=298;}I64 Read(){static U8 n=0;Set(&n);return \
+             n;}Read();",
+            "i64",
+            "" );
+        ];
+      List.iter
+        (fun (option, code) ->
+          let status, report = run ~options:[ option ] source in
+          require
+            (status = Unix.WEXITED 1
+            && report |> member "final_value" = `Null
+            && report |> member "diagnostics" |> to_list |> List.hd
+               |> member "code" |> to_string = code)
+            "persistent byte one-below limit")
+        [
+          ("--step-limit=76", "HCIRVM0007");
+          ("--initializer-step-limit=6", "HCIRVM0007");
+          ("--global-byte-limit=8", "HCIRVM0016");
+          ("--frame-byte-limit=15", "HCIRVM0011");
+          ("--call-depth-limit=1", "HCIRVM0015");
+        ];
+      let legacy =
+        success [ "run"; "--format=json"; "--mode=" ^ mode; source ]
+        |> Yojson.Safe.from_string
+      in
+      require
+        (legacy |> member "schema" |> to_string = "holyc-integer-program-v1"
+        && legacy |> member "final_value" |> member "value" |> to_string = "42"
+        )
+        "persistent bytes preserve v1 reporting";
+      let dump () =
+        success [ "dump-ir"; "--program"; "--mode=" ^ mode; source ]
+      in
+      let first = dump () in
+      require
+        (first = dump ()
+        && contains first "holyc-integer-globals-v1 bytes=1"
+        && contains first "holyc-integer-statics-v1 bytes=8")
+        "deterministic declared and padded persistent bytes")
+    [ "jit"; "aot" ];
   print_endline "Integer program CLI checks passed."

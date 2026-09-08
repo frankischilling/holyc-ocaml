@@ -1,5 +1,12 @@
 # holyc-ocaml compatibility status
 
+[Persistent scalar U8 storage](integer-persistent-bytes.md) in
+[#625](https://github.com/frankischilling/holyc-ocaml/issues/625) connects byte
+globals/statics, constant and scheduled initializers, aliases and fresh images.
+The hosted quota distinguishes declared global widths, padded static requests
+and exact accessible object extents. Persistent arrays, narrow updates and
+broader memory remain unfinished; this connection claims no new native capture.
+
 [Joined source definitions](integer-joined-definitions.md) in
 [#623](https://github.com/frankischilling/holyc-ocaml/issues/623) execute after
 extern prototypes while retaining definition-owned frames and per-call

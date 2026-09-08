@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added persistent scalar U8 globals and static locals in #625, including exact
+  aliases, constant/scheduled initialization and fresh execution images. Stored
+  values narrow to one byte while assignment register results remain intact.
+  Global declared widths and padded static allocations have separate accounting;
+  scalar bounds exclude neighboring objects and allocation padding.
+
 - Connected source definitions joined to extern prototypes in #623. Canonical
   call identities now select checked definition bodies while locals, frames,
   statics and initializer publication retain the exact definition owner.

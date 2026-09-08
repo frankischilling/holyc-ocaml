@@ -1,5 +1,9 @@
 # Scalar static locals
 
+[Scalar U8 statics](integer-persistent-bytes.md) now use the same declaration
+initialization and persistent lifetime as word statics. Each scalar allocation
+charges eight padded bytes while a U8 reference has one accessible byte.
+
 [Scalar pointer aliases](integer-pointers.md) can refer to existing static words
 and be explicitly passed to callees. Materializing the reference requires the
 declaring frame or its exact initializer region. Pointer-valued statics remain

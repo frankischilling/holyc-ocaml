@@ -62,7 +62,13 @@ module Ir_integer_globals : sig
     (t, Common.Diagnostic.t list) result
 
   val slots : t -> slot list
+
   val byte_size : t -> int
+  (** Global declared widths plus eight-byte-padded static allocations,
+      including unused declarations. Padding is not accessible object extent.
+      The hosted quota excludes inter-object AOT alignment gaps and host
+      bookkeeping. *)
+
   val find : t -> Sema.Symbol.t -> slot option
   val slot_index : slot -> int
   val slot_symbol : slot -> Sema.Symbol.t
