@@ -7,7 +7,8 @@ publication timing and retained provider snapshots. Negative tests independently
 exercise replayed declaration chains and reconstructed frame headers, preserving
 valid metadata up to each guard. CLI checks run the maintained Add fixture in
 both modes at 29 instructions, 24 frame bytes and depth one, with v1/v2 reports,
-one-below failures and exact deterministic callable/definition dumps.
+one-below failures and deterministic callable/definition dump markers. The API
+group additionally checks exact symbol IDs and definition item positions.
 See [joined definitions](integer-joined-definitions.md).
 
 Runtime output regressions in `test/test_integer_output.ml` connect all four
