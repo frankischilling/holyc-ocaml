@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Connected U8 numeric parameters and returns in #631 through existing exact
+  call and frame joins. Parameters narrow at entry while charging eight-byte
+  ABI slots; U8 returns preserve full register bits. Initializer proof admits
+  bounded ordinary parameter entry and retains later wide-write exclusions.
+  Added source, standalone, alias, malformed-IR and measured CLI/quota tests.
+
 - Connected U8 compound and prefix/postfix updates in #629 through existing
   checked references. Compounds retain full register results while storage
   narrows; prefix/postfix return the new/old byte. Original frame register

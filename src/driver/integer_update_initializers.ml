@@ -449,11 +449,27 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
   (* Every write to an ordinary candidate must stay byte-bounded, and any direct
      update disqualifies it. This is a whole-graph range invariant, not a guess
      from its first initializer. Explicit hardware registers never qualify.
-     Seed from constants/memory, then admit dependent locals to a fixed point;
+     Seed from constants/memory and the native U8 parameter entry load, then
+     admit dependent locals to a fixed point;
      unproved cycles remain outside the native initializer domain. *)
+  let entry_bytes =
+    Option.fold ~none:Locations.empty
+      ~some:(fun frame ->
+        Frame.function_locations frame
+        |> List.fold_left
+             (fun entries location ->
+               match (Frame.location_kind location, frame_memory location) with
+               | Frame.Named_parameter, Register_candidate _ ->
+                   Locations.add
+                     (Frame.location_symbol location |> Sema.Symbol.id)
+                     true entries
+               | _ -> entries)
+             Locations.empty)
+      frame
+  in
   let rec prove proven =
     match
-      check ~verify:false ~proven Locations.empty Values.empty Values.empty code
+      check ~verify:false ~proven entry_bytes Values.empty Values.empty code
     with
     | Error _ -> assert false
     | Ok writes ->

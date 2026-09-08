@@ -385,15 +385,6 @@ let scalar_word_type ~allow_public type_ =
 let producer_word_type type_ = scalar_word_type ~allow_public:false type_
 let return_word_type type_ = scalar_word_type ~allow_public:true type_
 
-let checked_return_kind type_ =
-  match return_word_type type_ with
-  | Some word -> Some (Word_return word)
-  | None when Type.pointer_depth type_ = 0 -> (
-      match Type.base type_ with
-      | Type.Primitive (_, Sema.Primitive_type.U0) -> Some Void_return
-      | _ -> None)
-  | None -> None
-
 (* A byte expression retains its checked raw class and full register bits.
    Only storage narrows it; the public execution result remains I64/U64. *)
 let scalar_value_type ~allow_byte ~allow_public type_ =
@@ -403,6 +394,18 @@ let scalar_value_type ~allow_byte ~allow_public type_ =
       match Type.base type_ with
       | Type.Primitive (form, Sema.Primitive_type.U8)
         when allow_public || form = Type.Internal_storage -> Some U64
+      | _ -> None)
+  | None -> None
+
+let function_return_word_type type_ =
+  scalar_value_type ~allow_byte:true ~allow_public:true type_
+
+let checked_return_kind type_ =
+  match function_return_word_type type_ with
+  | Some word -> Some (Word_return word)
+  | None when Type.pointer_depth type_ = 0 -> (
+      match Type.base type_ with
+      | Type.Primitive (_, Sema.Primitive_type.U0) -> Some Void_return
       | _ -> None)
   | None -> None
 
@@ -521,7 +524,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
       "execution requires ordinary parameters, automatic scalar locals and \
        exact function-owned persistent statics"
   else if Option.is_none (checked_return_kind (Function.return_type function_))
-  then invalid "the function return type is outside I64/U64/U0 execution"
+  then invalid "the function return type is outside I64/U64/U8/U0 execution"
   else if List.length arguments <> parameter_count then
     invalid "the argument word count does not match the checked parameters"
   else if
@@ -547,6 +550,10 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
       (fun location ->
         let dimensions = Frame.location_dimensions location in
         let storage_kind = stored_type (Frame.location_checked_type location) in
+        let allocation_bytes object_bytes =
+          if Frame.location_kind location = Frame.Named_parameter then 8L
+          else object_bytes
+        in
         let rec array_strides = function
           | [] ->
               Option.map
@@ -570,10 +577,9 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
           when Frame.location_declarator_shape location = Frame.Object
                && Frame.location_element_size location
                   = Int64.of_int (stored_bytes stored_type)
-               && (Frame.location_kind location <> Frame.Named_parameter
-                  || stored_type <> Stored_byte)
-               && Frame.location_allocated_size location = bytes
-               && Frame.frame_slot_size slot = bytes
+               && Frame.location_allocated_size location
+                  = allocation_bytes bytes
+               && Frame.frame_slot_size slot = allocation_bytes bytes
                && (dimensions = []
                    && Frame.location_value_shape location = Frame.Scalar
                   || dimensions <> []
@@ -589,7 +595,8 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
             in
             if
               count > Int64.sub max_cells !total_cells
-              || bytes > Int64.sub (Int64.of_int allocated_bytes) !total_bytes
+              || allocation_bytes bytes
+                 > Int64.sub (Int64.of_int allocated_bytes) !total_bytes
             then
               error := Some "the flattened frame exceeds the cell or byte limit"
             else
@@ -599,7 +606,10 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
                     arguments := rest;
                     match stored_type with
                     | Stored_word type_ -> Some (Runtime_word { type_; bits })
-                    | Stored_byte -> assert false
+                    | Stored_byte ->
+                        Some
+                          (Runtime_word
+                             { type_ = U64; bits = Int64.logand bits 255L })
                     | Stored_pointer _ ->
                         if not pointer_arguments then
                           error :=
@@ -621,7 +631,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
               prepared_rev :=
                 (Int64.to_int !total_cells, offset, entry) :: !prepared_rev;
               total_cells := Int64.add !total_cells count;
-              total_bytes := Int64.add !total_bytes bytes
+              total_bytes := Int64.add !total_bytes (allocation_bytes bytes)
         | _ ->
             error :=
               Some
@@ -1524,7 +1534,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                        ~some:(fun context ->
                          Type.equal context.return_type target_type)
                        frame -> (
-                  match return_word_type target_type with
+                  match function_return_word_type target_type with
                   | None -> Error (unsupported_type block_id description)
                   | Some target_type -> (
                       match operand_of_value types operand_id with

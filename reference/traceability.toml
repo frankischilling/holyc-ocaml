@@ -11462,3 +11462,25 @@ reporting = "v1/v2 reports and existing dump schemas unchanged; original byte up
 verification_status = "1968 local tests in 40.986 seconds plus CLI, 43 byte-update groups, independent source/integration review, formatting/generated/build/install, 82 checksums, 11 provenance scenarios and exact corpora passed; protected CI/merge evidence tracked in issue 629."
 excluded = ["U8 numeric parameters/returns", "other narrow and aggregate storage", "general pointer operations", "full formatting/runtime linking", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader acceptance", "bootstrap"]
 native_oracle_status = "pinned-source audit and hosted execution; no new native TempleOS capture"
+
+[[feature]]
+id = "HC-U8-SIGNATURE-EXECUTION"
+description = "Checked U8 numeric parameters narrow at entry within eight-byte ABI slots; U8 function returns preserve full register bits."
+sources = ["Compiler/PrsExp.HC:468-483", "Compiler/BackLib.HC:312-347,528-530", "Compiler/OptPass789A.HC:710-717,779-782,1026-1030", "Compiler/OptPass3.HC:29-35,249-258,524-610"]
+implementation = ["src/ir/integer_interpreter.ml", "src/driver/integer_update_initializers.ml"]
+tests = ["test/test_integer_byte_signatures.ml", "test/test_integer_program_cli.ml", "examples/integer-byte-signatures.hc"]
+documentation = ["docs/integer-byte-signatures.md", "docs/integer-functions.md", "docs/integer-bytes.md", "docs/integer-byte-updates.md", "docs/testing.md", "docs/compatibility.md", "docs/intermediate-representation.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 631
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+baseline = "Eight gates fail in both modes on source 132418a97038ed66377874de4e6be5ff0e0df460 and merge 461c5ecab0d6977cf8d862025af786b8e26ac911: seven HCIRVM0011 admission failures and one HCRUN0006 initializer parameter-read failure."
+source_gate = "All eight gates return 42 with exact I64/U64 classes and empty capture; maintained fixture returns I64 42 and captures 3432 in both modes."
+semantics = "one initialized byte per U8 parameter, low-byte normalization in standalone and nested execution, full returned register bits reported as U64, separate function-return admission preserves existing word-only storage/expression matrices"
+ownership = "original declared U8 call and return types, exact source header/body/frame joins, eight-byte cleanup per parameter, object extent excludes ABI padding, aliases retain invocation identity and lifetime"
+initializer_proof = "ordinary U8 named parameter entry seeds every bounded-write scan; all direct assignments must be byte-bounded and direct updates disqualify; transitive reads, unknown cycles, explicit-register escapes and unproved U8 call-result ranges retain existing exclusions"
+limits = "110 runtime instructions, 7 preparation units, 12 persistent bytes, 32 active frame bytes, depth 2, 3 literal bytes, 2 output bytes, 8 output-work units; exact and one-below API/CLI assertions plus independent recursive ABI limits"
+reporting = "v1/v2 and dump schemas unchanged; exact public U8 signature instructions retained"
+verification_status = "1994 tests passed in 38.878 seconds plus CLI; 26 focused groups in 0.130 seconds. Independent native/source and integration review, packaging, 82 checksums, 11 provenance scenarios and exact corpora passed; protected integration evidence tracked in issue 631."
+excluded = ["other primitive and aggregate storage", "pointer returns and general pointer operations", "full formatting/runtime linking", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted execution; no new native TempleOS capture"

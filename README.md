@@ -1,5 +1,10 @@
 # holyc-ocaml
 
+`holyc run --format=json examples/integer-byte-signatures.hc` passes U8
+parameters, preserves full U8 return bits, captures `42` and returns I64 42
+in both modes. [Byte signatures](docs/integer-byte-signatures.md) explains
+entry narrowing, eight-byte ABI slots and native initializer boundaries.
+
 `holyc run --format=json examples/integer-byte-updates.hc` updates U8 locals,
 globals, statics and passed array elements, captures `42`, and returns I64 42
 in both modes. [Byte updates](docs/integer-byte-updates.md) explains full
