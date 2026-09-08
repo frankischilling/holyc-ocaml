@@ -78,6 +78,32 @@ receives storage through normal preflight and keeps its unknown-cell state until
 a reached assignment. Parsing must use the exact registered Source_file object.
 The existing `compile_ast` API keeps its callback-free collection path.
 
+Legacy AST commands publish new frontend entries when the VM admits them. This
+lets syntax parsed in `Session.fork_frontend` feed `compile_ast`, `execute` and
+later `run` calls: admitted globals become visible to conditionals, and functions
+retain their bare-call, default-argument and variadic parser shapes. Runtime
+omitted-default lowering remains outside the current integer execution domain.
+Compilation alone and failed preflight publish no entries. A reached runtime
+fault keeps admitted declarations and earlier effects; replay cannot publish
+again or replace a newer source declaration.
+
+An opaque VM admission receipt retains the exact task, compiled entry/storage
+pair and source-ordered global/function publications. The ledger accepts only
+its runtime's current receipt, once. It links fresh frontend entries to those
+retained publications and their original function declarations, without matching
+discarded parser entries by name or location. Parser-aware `run` keeps its early
+declaration publication path. These receipts record actual legacy admission;
+parser-selected reference consumption and VM predecessor checks remain separate.
+
+The low-level `compile_integer_task_ast` API takes the owning VM task, validates
+its semantic table and JIT mode before collection, and snapshots retained state
+internally. Preparation uses that task's remaining cumulative budget, including
+reached work on compilation failure. It returns an opaque checked program;
+execution and frontend admission delivery remain explicit.
+This unit compiler does not provide `Integer_task`'s AST cache or overlap checks.
+VM replay rejection belongs to each compiled entry; parser/source command
+admission requires the higher-level orchestration.
+
 ## StreamPrint generation service
 
 The task service exposes opaque `begin_stream`, `finish_stream` and `abort_stream`

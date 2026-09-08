@@ -818,6 +818,22 @@ val lower_integer_program :
 
 type integer_program
 
+val compile_integer_task_ast :
+  task:Ir_integer_interpreter.task_state ->
+  ?declaration_command:Task_declarations.command ->
+  Session.t ->
+  config:Preprocessor.Config.t ->
+  Ast.module_ ->
+  (integer_program integer_program_result, Diagnostic.t list) result
+(** Compile one checked unit against its owning JIT task snapshot, charging the
+    task's cumulative preparation budget even on reached failure. Foreign
+    semantic tables and AOT mode are rejected before collection. The resulting
+    program still requires its owning task runtime for execution; compiling it
+    does not admit storage, publish frontend entries or run source effects.
+    Unlike [Integer_task.compile_ast], this low-level unit compiler does not
+    cache or reject overlapping ASTs. VM replay checks own each compiled entry;
+    parser command and source replay admission remain the caller's concern. *)
+
 val compile_integer_ast :
   ?max_initializer_steps:int ->
   Session.t ->

@@ -831,10 +831,32 @@ let compile_ast_internal ?task_view ?initializer_progress ?declaration_command
 let compile_ast ?max_initializer_steps session ~config ast =
   compile_ast_internal ?max_initializer_steps session ~config ast
 
-let compile_task_ast ~task_view ?initializer_progress ?max_initializer_steps
-    ?declaration_command ?retained_function_source session ~config ast =
-  compile_ast_internal ~task_view ?initializer_progress ?max_initializer_steps
-    ?declaration_command ?retained_function_source session ~config ast
+let compile_task_ast ~task ?declaration_command session ~config
+    (ast : Ast.module_) =
+  let module VM = Ir.Integer_interpreter in
+  if
+    (not (VM.task_owns_table task (Session.semantic_symbols session)))
+    || Frontend.Preprocessor.Config.compilation_mode config
+       <> Frontend.Preprocessor.Jit
+  then
+    Error
+      [
+        Integer_source.diagnostic ~span:ast.span "HCRUN0004"
+          "task compilation requires its owning semantic table and JIT mode";
+      ]
+  else
+    let* task_view =
+      VM.task_snapshot task
+      |> Result.map_error (fun message ->
+          [ Integer_source.diagnostic ~span:ast.span "HCRUN0004" message ])
+    in
+    let before = VM.task_initializer_steps task in
+    let max_initializer_steps = VM.task_initializer_limit task - before in
+    compile_ast_internal ~task_view ~max_initializer_steps ?declaration_command
+      ~retained_function_source:(VM.task_function_source task)
+      ~initializer_progress:(fun steps ->
+        VM.record_task_preparation task ~before ~steps)
+      session ~config ast
 
 let compile ?(max_initializer_steps = 100_000) session ~config ~source =
   if max_initializer_steps <= 0 then

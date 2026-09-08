@@ -269,6 +269,17 @@ type retained_executable = {
 
 type task_stream = { stream_output : Output.t }
 
+type admitted_publication =
+  | Admitted_global of Retained_global.t * Integer_globals.slot
+  | Admitted_function of Retained_function.t
+
+type task_admission = {
+  admission_catalog : Integer_globals.task_catalog;
+  admission_globals : Integer_globals.t;
+  admission_entry : X87.t;
+  admission_publications : admitted_publication list;
+}
+
 type task_state = {
   catalog : Integer_globals.task_catalog;
   mutable arenas : (Integer_globals.t * runtime_storage) list;
@@ -289,6 +300,7 @@ type task_state = {
   generated : Output.t;
   max_stream_depth : int;
   mutable streams : task_stream list;
+  mutable admissions : task_admission list;
 }
 
 let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
@@ -342,6 +354,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
           Output.share_work output ~max_output_bytes:max_generated_bytes;
         max_stream_depth;
         streams = [];
+        admissions = [];
       }
 
 let begin_task_stream task =
@@ -368,6 +381,22 @@ let abort_task_stream task stream =
   | _ -> Error "HCIRVM0027: generation buffer is not active in this task"
 
 let task_snapshot task = Integer_globals.snapshot_task task.catalog
+
+let task_owns_table task table =
+  Integer_globals.task_catalog_owns_table task.catalog table
+
+let task_admission task ~globals ~entry =
+  List.find_opt
+    (fun receipt ->
+      receipt.admission_globals == globals && receipt.admission_entry == entry)
+    task.admissions
+
+let owns_task_admission task receipt =
+  receipt.admission_catalog == task.catalog
+  && List.exists (fun saved -> saved == receipt) task.admissions
+
+let admission_publications receipt = receipt.admission_publications
+let latest_task_admission task = List.nth_opt task.admissions 0
 
 let task_function_source task link =
   List.find_opt
@@ -3630,7 +3659,26 @@ let execute_program_with_output ?task ?runtime_calls ~output ?globals
             task.global_bytes + Integer_globals.byte_size globals;
           task.literal_bytes <-
             task.literal_bytes + literal_image.literal_byte_count;
-          Integer_globals.publish_task task.catalog globals)
+          let publications =
+            Integer_globals.publish_task task.catalog globals
+          in
+          let admission_publications =
+            List.map
+              (function
+                | Integer_globals.Global_publication (reference, slot) ->
+                    Admitted_global (reference, slot)
+                | Integer_globals.Function_publication reference ->
+                    Admitted_function reference)
+              publications
+          in
+          task.admissions <-
+            {
+              admission_catalog = task.catalog;
+              admission_globals = globals;
+              admission_entry = checked;
+              admission_publications;
+            }
+            :: task.admissions)
         task
     in
     let outcome =

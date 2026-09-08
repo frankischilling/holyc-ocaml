@@ -514,6 +514,7 @@ let create_with_layout ~layout ?initializers ~span records =
   create_impl ~layout ?initializers ~span records
 
 let create_task_catalog ~table = { table; published = [] }
+let task_catalog_owns_table catalog table = catalog.table == table
 
 let publication_symbol = function
   | Global_publication (_, slot) -> slot.symbol
@@ -754,7 +755,8 @@ let publish_task catalog globals =
         globals.function_publications_
     |> List.stable_sort (fun left right -> compare (order left) (order right))
   in
-  catalog.published <- catalog.published @ publications
+  catalog.published <- catalog.published @ publications;
+  publications
 
 let with_initial_values ~span globals values =
   let invalid message =

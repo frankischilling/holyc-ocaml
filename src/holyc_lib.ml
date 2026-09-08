@@ -477,6 +477,7 @@ type integer_program = Driver.Integer_program.compiled
 
 let compile_integer_program = Driver.Integer_program.compile
 let compile_integer_ast = Driver.Integer_program.compile_ast
+let compile_integer_task_ast = Driver.Integer_program.compile_task_ast
 let integer_program_entry = Driver.Integer_program.entry
 let integer_program_globals = Driver.Integer_program.globals
 let integer_program_initialization = Driver.Integer_program.initialization

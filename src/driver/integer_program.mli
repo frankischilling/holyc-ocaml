@@ -2,17 +2,15 @@ type 'a checked = { value : 'a; diagnostics : Common.Diagnostic.t list }
 type compiled
 
 val compile_task_ast :
-  task_view:Ir.Integer_globals.task_view ->
-  ?initializer_progress:(int -> unit) ->
-  ?max_initializer_steps:int ->
+  task:Ir.Integer_interpreter.task_state ->
   ?declaration_command:Task_declarations.command ->
-  ?retained_function_source:
-    (Ir.Retained_function.t ->
-    Ir.Integer_interpreter.task_function_source option) ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->
   Frontend.Ast.module_ ->
   (compiled checked, Common.Diagnostic.t list) result
+(** Compile against an owning JIT task snapshot and charge its cumulative
+    preparation budget, including reached work on failure. Foreign semantic
+    tables and AOT mode are rejected before semantic collection. *)
 
 val compile_ast :
   ?max_initializer_steps:int ->

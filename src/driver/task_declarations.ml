@@ -2,6 +2,7 @@ module Ast = Frontend.Ast
 module Parser = Frontend.Parser
 module Visibility = Frontend.Symbol_visibility
 module Collection = Sema.Declaration_collection
+module VM = Ir.Integer_interpreter
 
 module Names = Hashtbl.Make (struct
   type t = Ast.identifier
@@ -72,6 +73,9 @@ type t = {
   mutable active : command_sequence list;
   mutable views : (Ast.module_ * parsed_command list) list;
   mutable sequence_views : (Ast.module_ * Parser.completed_sequence) list;
+  runtime : VM.task_state option;
+  runtime_entries : VM.admitted_publication Entries.t;
+  mutable admissions : VM.task_admission list;
 }
 
 exception Invalid of Common.Diagnostic.t
@@ -99,29 +103,136 @@ let origin (name : Ast.identifier) =
       defined_at = location.defined_at;
     }
 
-let create session =
+let create ?runtime session =
   let table = Session.semantic_symbols session in
-  Collection.create_namespace ~table ()
-  |> Result.map (fun namespace ->
-      {
-        table;
-        namespace;
-        sources = Session.sources session;
-        symbols = Session.symbols session;
-        names = Names.create 32;
-        entries = Entries.create 32;
-        commands = [];
-        next_ordinal = 0;
-        sequences = [];
-        active = [];
-        views = [];
-        sequence_views = [];
-      })
+  if
+    Option.fold ~none:false
+      ~some:(fun task -> not (VM.task_owns_table task table))
+      runtime
+  then Error "task declaration runtime belongs to another semantic table"
+  else
+    Collection.create_namespace ~table ()
+    |> Result.map (fun namespace ->
+        {
+          table;
+          namespace;
+          sources = Session.sources session;
+          symbols = Session.symbols session;
+          names = Names.create 32;
+          entries = Entries.create 32;
+          commands = [];
+          next_ordinal = 0;
+          sequences = [];
+          active = [];
+          views = [];
+          sequence_views = [];
+          runtime;
+          runtime_entries = Entries.create 32;
+          admissions = [];
+        })
+
+let runtime_symbol = function
+  | VM.Admitted_global (reference, _) -> Ir.Retained_global.symbol reference
+  | VM.Admitted_function reference ->
+      Ir.Retained_function.metadata reference
+      |> Sema.Outer_environment.function_declaration
+      |> Sema.Function_resolution.resolved_declaration_site
+      |> Sema.Function_resolution.declaration_site_function
+      |> Sema.Function_type_resolution.function_symbol
+
+let retained_for ledger entry = Entries.find_opt ledger.runtime_entries entry
 
 let symbol_for ledger entry =
-  Entries.find_opt ledger.entries entry
-  |> Option.map (fun assigned ->
-      Collection.publication_symbol assigned.publication)
+  match Entries.find_opt ledger.entries entry with
+  | Some assigned -> Some (Collection.publication_symbol assigned.publication)
+  | None -> retained_for ledger entry |> Option.map runtime_symbol
+
+let frontend_origin symbol =
+  match Sema.Symbol.origin symbol with
+  | Sema.Symbol.Pinned_source { path; line } ->
+      Visibility.Pinned_source { path; line }
+  | Sema.Symbol.Synthesized _ -> Visibility.Session_registration
+  | Sema.Symbol.Source_location location ->
+      Visibility.Source_location
+        {
+          span = location.span;
+          source_segments = location.source_segments;
+          generated_from = location.generated_from;
+          defined_at = location.defined_at;
+        }
+
+let observe_admission ledger receipt =
+  let publications = VM.admission_publications receipt in
+  if
+    not
+      (Option.fold ~none:false
+         ~some:(fun runtime -> VM.owns_task_admission runtime receipt)
+         ledger.runtime)
+  then Error "runtime admission belongs to another task"
+  else if List.exists (fun saved -> saved == receipt) ledger.admissions then
+    Error "runtime admission was already published to the frontend"
+  else if
+    not
+      (Option.fold ~none:false
+         ~some:(fun runtime ->
+           Option.fold ~none:false
+             ~some:(fun current -> current == receipt)
+             (VM.latest_task_admission runtime))
+         ledger.runtime)
+  then Error "runtime admission is no longer the current publication boundary"
+  else if
+    List.exists
+      (fun publication ->
+        not
+          (Sema.Symbol_table.owns_symbol ledger.table
+             (runtime_symbol publication)))
+      publications
+  then Error "runtime publication belongs to another semantic table"
+  else (
+    List.iter
+      (fun publication ->
+        let symbol = runtime_symbol publication in
+        let kind, function_call_shape =
+          match publication with
+          | VM.Admitted_global _ -> (Visibility.Global_variable, None)
+          | VM.Admitted_function reference ->
+              let module Function = Sema.Function_type_resolution in
+              let signature =
+                Ir.Retained_function.metadata reference
+                |> Sema.Outer_environment.function_declaration
+                |> Sema.Function_resolution.resolved_declaration_site
+                |> Sema.Function_resolution.declaration_site_function
+                |> Function.function_signature
+              in
+              let shape : Visibility.function_call_shape =
+                {
+                  parameters =
+                    List.map
+                      (fun parameter ->
+                        Visibility.
+                          {
+                            parameter_name = Function.parameter_name parameter;
+                            has_default =
+                              Option.is_some
+                                (Function.parameter_default parameter);
+                          })
+                      (Function.signature_parameters signature);
+                  variadic =
+                    Option.is_some
+                      (Function.signature_variadic_origin signature);
+                }
+              in
+              (Visibility.Function, Some shape)
+        in
+        let entry =
+          Visibility.Environment.add ledger.symbols
+            ~name:(Sema.Symbol.name symbol) ~kind
+            ~origin:(frontend_origin symbol) ?function_call_shape ()
+        in
+        Entries.add ledger.runtime_entries entry publication)
+      publications;
+    ledger.admissions <- receipt :: ledger.admissions;
+    Ok ())
 
 let context_span context =
   let source = Parser.context_source context in

@@ -82,10 +82,104 @@ let parse session text =
 let compile session task text =
   Task.compile_ast task (parse session text) |> Test_integer_program.checked
 
+let legacy_admission_frontend_visibility () =
+  let session = Session.create () in
+  let task = create session in
+  let frontend = Session.fork_frontend session in
+  let command = compile frontend task "I64 N=42;" in
+  value 0L (run session task "#ifdef N\n1;\n#else\n0;\n#endif");
+  ignore (Task.execute task command |> Test_integer_program.checked);
+  value 42L (run session task "#ifdef N\nN;\n#else\n0;\n#endif")
+
+let legacy_admission_function_shape () =
+  let session = Session.create () in
+  let task = create session in
+  let frontend = Session.fork_frontend session in
+  let command =
+    compile frontend task
+      "I64 Answer(){return 42;}I64 Defaulted(I64 n=42){return n;}"
+  in
+  ignore (Task.execute task command |> Test_integer_program.checked);
+  value 42L (run session task "Answer;");
+  let ast = parse session "Defaulted;" in
+  match ast.items with
+  | [
+   Ast.Top_level_statement
+     (Ast.Expression_statement
+        { expression_statement_expression = Ast.Call_expression call; _ });
+  ] ->
+      Alcotest.(check bool)
+        "defaulted header supplies an omitted parser argument" true
+        (match call.call_arguments with
+        | [ { call_argument_value = Ast.Omitted_call_argument; _ } ] -> true
+        | _ -> false)
+  | _ -> Alcotest.fail "expected a defaulted parenthesis-free call"
+
 let fault code = function
   | Error (diagnostic :: _) ->
       Alcotest.(check string) diagnostic.Diagnostic.message code diagnostic.code
   | _ -> Alcotest.fail "expected task diagnostic"
+
+let legacy_fault_publication () =
+  let session = Session.create () in
+  let task = create session in
+  let frontend = Session.fork_frontend session in
+  let command =
+    compile frontend task "I64 N=40;I64 F(I64 n){return n;}N=42;1/0;"
+  in
+  fault "HCIRVM0009" (Task.execute task command);
+  value 42L (run session task "#ifdef N\nF(N);\n#else\n0;\n#endif");
+  fault "HCIRVM0026" (Task.execute task command);
+  value 42L (run session task "F(N);")
+
+let legacy_preflight_and_shadow () =
+  let session = Session.create () in
+  let task =
+    Task.create ~max_global_bytes:1 session |> function
+    | Ok task -> task
+    | Error message -> Alcotest.fail message
+  in
+  let command =
+    compile (Session.fork_frontend session) task "I64 Rejected=42;"
+  in
+  fault "HCIRVM0016" (Task.execute task command);
+  value 0L (run session task "#ifdef Rejected\n1;\n#else\n0;\n#endif");
+  let session = Session.create () in
+  let task = create session in
+  ignore (run session task "I64 N=1;" |> Test_integer_program.checked);
+  let entries () =
+    Symbol_visibility.Environment.all (Session.symbols session)
+    |> List.filter (fun entry -> Symbol_visibility.name entry = "N")
+  in
+  Alcotest.(check int)
+    "source admission creates no duplicate frontend entry" 1
+    (List.length (entries ()));
+  let command = compile (Session.fork_frontend session) task "I64 N=40;" in
+  ignore (Task.execute task command |> Test_integer_program.checked);
+  Alcotest.(check int)
+    "legacy admission publishes once" 2
+    (List.length (entries ()));
+  value 40L (run session task "N;");
+  ignore (run session task "I64 N=42;" |> Test_integer_program.checked);
+  Alcotest.(check int)
+    "later source publication remains distinct" 3
+    (List.length (entries ()));
+  let newest =
+    Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+      "N"
+  in
+  fault "HCIRVM0026" (Task.execute task command);
+  Alcotest.(check bool)
+    "legacy replay cannot replace newer source entry" true
+    (match
+       ( newest,
+         Symbol_visibility.Environment.find_preprocessor
+           (Session.symbols session) "N" )
+     with
+    | Symbol_visibility.Present left, Symbol_visibility.Present right ->
+        left == right
+    | _ -> false);
+  value 42L (run session task "N;")
 
 let selected_before_shadow () =
   let session = Session.create () in
@@ -695,6 +789,15 @@ let uninitialized_seed_keeps_storage_identity () =
 
 let tests =
   [
+    Alcotest.test_case "legacy reached faults retain frontend publications"
+      `Quick legacy_fault_publication;
+    Alcotest.test_case
+      "legacy preflight and replay preserve frontend publication order" `Quick
+      legacy_preflight_and_shadow;
+    Alcotest.test_case "legacy AST admission publishes frontend globals" `Quick
+      legacy_admission_frontend_visibility;
+    Alcotest.test_case "legacy AST admission publishes exact function shape"
+      `Quick legacy_admission_function_shape;
     Alcotest.test_case "StreamPrint requires an active task buffer" `Quick
       stream_provider_requires_active_buffer;
     Alcotest.test_case

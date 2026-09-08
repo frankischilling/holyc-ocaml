@@ -5,7 +5,12 @@ type storage_slot
 type task_catalog
 type task_view
 
+type task_publication = private
+  | Global_publication of Retained_global.t * slot
+  | Function_publication of Retained_function.t
+
 val create_task_catalog : table:Sema.Symbol_table.t -> task_catalog
+val task_catalog_owns_table : task_catalog -> Sema.Symbol_table.t -> bool
 val snapshot_task : task_catalog -> (task_view, string) result
 val task_environment : task_view -> Sema.Outer_environment.t
 val with_task_view : task_view -> t -> t
@@ -29,7 +34,7 @@ val retained_slot : t -> Retained_global.t -> storage_slot option
 val is_task_command : t -> bool
 val check_task_command : task_catalog -> t -> (unit, string) result
 
-val publish_task : task_catalog -> t -> unit
+val publish_task : task_catalog -> t -> task_publication list
 (** Internal task admission API; absent from the public storage signature. *)
 
 val same_storage : storage_slot -> storage_slot -> bool

@@ -35,6 +35,11 @@ type t
 type report
 type task_state
 type task_stream
+type task_admission
+
+type admitted_publication = private
+  | Admitted_global of Retained_global.t * Integer_globals.slot
+  | Admitted_function of Retained_function.t
 
 val create_task_state :
   ?max_steps:int ->
@@ -62,6 +67,23 @@ val abort_task_stream : task_state -> task_stream -> (unit, string) result
 *)
 
 val task_snapshot : task_state -> (Integer_globals.task_view, string) result
+val task_owns_table : task_state -> Sema.Symbol_table.t -> bool
+
+val task_admission :
+  task_state ->
+  globals:Integer_globals.t ->
+  entry:X87_stack.t ->
+  task_admission option
+
+val owns_task_admission : task_state -> task_admission -> bool
+val admission_publications : task_admission -> admitted_publication list
+
+val latest_task_admission : task_state -> task_admission option
+(** Exact successful preflight/admission evidence for this task and compiled
+    storage/entry pair. Compilation and failed preflight issue no receipt.
+    Reached faults retain the original receipt and ordered global/function
+    publication links. Reading a receipt grants no execution or storage access.
+*)
 
 val task_function_source :
   task_state -> Retained_function.t -> task_function_source option

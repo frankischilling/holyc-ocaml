@@ -15,6 +15,7 @@ and command = {
   owner : unit ref;
   program : Integer_program.compiled;
   span : Common.Span.t;
+  mutable frontend_pending : bool;
 }
 
 let create ?max_steps ?max_initializer_steps ?max_global_bytes
@@ -32,7 +33,7 @@ let create ?max_steps ?max_initializer_steps ?max_global_bytes
     ()
   |> fun result ->
   Result.bind result (fun state ->
-      Task_declarations.create session
+      Task_declarations.create ~runtime:state session
       |> Result.map (fun declarations ->
           {
             session;
@@ -92,21 +93,8 @@ let compile_ast_internal ?declaration_command task (ast : Frontend.Ast.module_)
         ]
   | None ->
       let ( let* ) = Result.bind in
-      let* task_view =
-        VM.task_snapshot task.state
-        |> Result.map_error (fun message ->
-            [ Integer_source.diagnostic ~span:ast.span "HCRUN0004" message ])
-      in
-      let before = VM.task_initializer_steps task.state in
-      let max_initializer_steps =
-        VM.task_initializer_limit task.state - before
-      in
       let* checked =
-        Integer_program.compile_task_ast ~task_view ~max_initializer_steps
-          ?declaration_command
-          ~retained_function_source:(VM.task_function_source task.state)
-          ~initializer_progress:(fun steps ->
-            VM.record_task_preparation task.state ~before ~steps)
+        Integer_program.compile_task_ast ~task:task.state ?declaration_command
           task.session ~config:task.config ast
       in
       let command =
@@ -114,6 +102,7 @@ let compile_ast_internal ?declaration_command task (ast : Frontend.Ast.module_)
           owner = task.identity;
           program = checked.Integer_program.value;
           span = ast.span;
+          frontend_pending = Option.is_none declaration_command;
         }
       in
       task.commands <- (ast, command) :: task.commands;
@@ -130,14 +119,39 @@ let execute task command =
           "compiled command belongs to another task";
       ]
   else
-    VM.execute_task_program task.state
-      ~runtime_calls:(Integer_program.runtime_calls program)
-      ~globals:(Integer_program.globals program)
-      ~initialization:(Integer_program.initialization program)
-      ~functions:(Integer_program.functions program)
-      (Integer_program.entry program)
-    |> Result.map_error
-         (Integer_execution_diagnostics.of_errors ~span:command.span)
+    let outcome =
+      VM.execute_task_program task.state
+        ~runtime_calls:(Integer_program.runtime_calls program)
+        ~globals:(Integer_program.globals program)
+        ~initialization:(Integer_program.initialization program)
+        ~functions:(Integer_program.functions program)
+        (Integer_program.entry program)
+      |> Result.map_error
+           (Integer_execution_diagnostics.of_errors ~span:command.span)
+    in
+    let publication =
+      if not command.frontend_pending then Ok ()
+      else
+        match
+          VM.task_admission task.state
+            ~globals:(Integer_program.globals program)
+            ~entry:(Integer_program.entry program)
+        with
+        | None -> Ok ()
+        | Some receipt ->
+            Task_declarations.observe_admission task.declarations receipt
+            |> Result.map_error (fun message ->
+                [
+                  Integer_source.diagnostic ~span:command.span "HCRUN0004"
+                    message;
+                ])
+            |> Result.map (fun () -> command.frontend_pending <- false)
+    in
+    match (outcome, publication) with
+    | Ok value, Ok () -> Ok value
+    | Error errors, Ok () | Ok _, Error errors -> Error errors
+    | Error errors, Error publication_errors ->
+        Error (errors @ publication_errors)
 
 let run task ~source =
   let ( let* ) = Result.bind in

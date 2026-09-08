@@ -301,3 +301,26 @@ pass. See the parser-command-receipts plan for reproduced failures and controls.
 These receipts prove syntax membership and parser order. VM predecessor admission,
 selected-reference semantic consumption, partial declaration/runtime publication,
 extern joins and actual source execution remain required for #635.
+
+## Legacy AST admission checkpoint
+
+Callback-free ASTs from a forked frontend now publish fresh frontend entries
+after actual VM admission, so later source conditionals and bare calls see their
+globals and function shapes. Exact retained publication links preserve original
+function declarations. Compilation and failed preflight publish nothing;
+reached faults preserve admitted declarations, and replay cannot shadow newer
+source entries. Parser-aware declarations retain their early publication path.
+
+Opaque receipts own the exact task, storage and entry. Read-only review found
+that deferred delivery could reverse header order; a regression reproduced it,
+and the ledger now accepts only the runtime's current receipt, once. A second
+regression caught uncharged preparation through the new low-level compiler.
+Checked task compilation now owns its snapshot and cumulative preparation
+accounting, rejecting foreign tables and AOT mode before semantic mutation.
+
+The 131 task/parser/ledger/service groups pass. Full verification passes 2,185 of
+2,199 tests in 70.102 seconds, with only the fourteen original #exe groups failing.
+Final review found no remaining bridge blocker. Selected-reference semantics,
+runtime defaults, partial publication, extern joins, VM predecessor admission
+and source orchestration remain required; see the selected-reference-binding
+plan for the next implementation steps.

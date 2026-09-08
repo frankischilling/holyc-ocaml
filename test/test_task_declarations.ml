@@ -670,8 +670,278 @@ let nested_receipt_views () =
       ignore (D.seal ledger (Test_parser.expect_ast output) |> expect))
     cases
 
+module VM = Ir_integer_interpreter
+
+module Program = struct
+  let compile_task_ast = compile_integer_task_ast
+  let runtime_calls = integer_program_runtime_calls
+  let globals = integer_program_globals
+  let initialization = integer_program_initialization
+  let functions = integer_program_functions
+  let entry = integer_program_entry
+end
+
+let runtime_setup ?max_global_bytes ?max_initializer_steps () =
+  let session = Session.create () in
+  let runtime =
+    VM.create_task_state ?max_global_bytes ?max_initializer_steps
+      ~table:(Session.semantic_symbols session)
+      ()
+    |> checked
+  in
+  let ledger = D.create ~runtime session |> checked in
+  (session, runtime, ledger)
+
+let compile_runtime session runtime source =
+  let ast = Test_integer_task.parse (Session.fork_frontend session) source in
+  (Program.compile_task_ast ~task:runtime session ~config:(config ()) ast
+  |> expect)
+    .value
+
+let execute_runtime runtime program =
+  VM.execute_task_program runtime
+    ~runtime_calls:(Program.runtime_calls program)
+    ~globals:(Program.globals program)
+    ~initialization:(Program.initialization program)
+    ~functions:(Program.functions program)
+    (Program.entry program)
+
+let execute_runtime_ok runtime program =
+  match execute_runtime runtime program with
+  | Ok _ -> ()
+  | Error errors ->
+      Alcotest.fail
+        (String.concat "; "
+           (List.map (fun (error : VM.error) -> error.message) errors))
+
+let runtime_compilation_budget () =
+  let session, runtime, _ = runtime_setup ~max_initializer_steps:6 () in
+  let first = compile_runtime session runtime "I64 N=40;" in
+  Alcotest.(check int)
+    "pending compilation charges task preparation" 3
+    (VM.task_initializer_steps runtime);
+  let second = compile_runtime session runtime "I64 M=2;" in
+  Alcotest.(check int)
+    "pending units share the task preparation limit" 6
+    (VM.task_initializer_steps runtime);
+  let ast =
+    Test_integer_task.parse (Session.fork_frontend session) "I64 Excess=1;"
+  in
+  Test_integer_task.fault "HCIRVM0007"
+    (Program.compile_task_ast ~task:runtime session ~config:(config ()) ast);
+  execute_runtime_ok runtime first;
+  execute_runtime_ok runtime second;
+  execute_runtime_ok runtime (compile_runtime session runtime "42;");
+  let session, runtime, _ = runtime_setup ~max_initializer_steps:6 () in
+  let ast =
+    Test_integer_task.parse (Session.fork_frontend session) "I64 Failed=1/0;"
+  in
+  Test_integer_task.fault "HCIRVM0009"
+    (Program.compile_task_ast ~task:runtime session ~config:(config ()) ast);
+  Alcotest.(check int)
+    "failed preparation retains reached work" 3
+    (VM.task_initializer_steps runtime);
+  ignore (compile_runtime session runtime "I64 N=42;");
+  Alcotest.(check int)
+    "later preparation uses remaining budget" 6
+    (VM.task_initializer_steps runtime)
+
+let runtime_compilation_owner () =
+  let session, runtime, _ = runtime_setup () in
+  let foreign = Session.create () in
+  let check target config =
+    let ast =
+      Test_integer_task.parse (Session.fork_frontend target) "I64 N=42;"
+    in
+    let table = Session.semantic_symbols target in
+    let symbols = Semantic_symbol_table.all_symbols table in
+    let scopes = Semantic_symbol_table.all_scopes table in
+    Test_integer_task.fault "HCRUN0004"
+      (Program.compile_task_ast ~task:runtime target ~config ast);
+    Alcotest.(check bool)
+      "rejection allocates no symbols" true
+      (Semantic_symbol_table.all_symbols table = symbols);
+    Alcotest.(check bool)
+      "rejection allocates no scopes" true
+      (Semantic_symbol_table.all_scopes table = scopes);
+    Alcotest.(check int)
+      "rejection charges no preparation" 0
+      (VM.task_initializer_steps runtime)
+  in
+  check foreign (config ());
+  check session (Preprocessor.Config.create ~compilation_mode:Aot () |> checked)
+
+let admission runtime program =
+  VM.task_admission runtime ~globals:(Program.globals program)
+    ~entry:(Program.entry program)
+
+let visible session name =
+  match
+    Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+      name
+  with
+  | Symbol_visibility.Present entry -> entry
+  | _ -> Alcotest.fail "expected published frontend entry"
+
+let runtime_admission_order () =
+  let session, runtime, ledger = runtime_setup () in
+  let first = compile_runtime session runtime "I64 F(){return 40;}" in
+  execute_runtime_ok runtime first;
+  let first_receipt = admission runtime first |> Option.get in
+  let second = compile_runtime session runtime "I64 F(I64 n){return n;}" in
+  execute_runtime_ok runtime second;
+  let second_receipt = admission runtime second |> Option.get in
+  reject "older receipt is stale before newer delivery"
+    (D.observe_admission ledger first_receipt);
+  ignore (D.observe_admission ledger second_receipt |> checked);
+  let newest = visible session "F" in
+  reject "older admission cannot replace the current frontend header"
+    (D.observe_admission ledger first_receipt);
+  Alcotest.(check bool)
+    "rejection preserves newest entry" true
+    (visible session "F" == newest)
+
+let runtime_admission_ownership () =
+  let session, runtime, ledger = runtime_setup () in
+  let other =
+    VM.create_task_state ~table:(Session.semantic_symbols session) () |> checked
+  in
+  let other_ledger = D.create ~runtime:other session |> checked in
+  let unbound = D.create session |> checked in
+  let foreign = Session.create () in
+  let foreign_runtime =
+    VM.create_task_state ~table:(Session.semantic_symbols foreign) () |> checked
+  in
+  reject "runtime must own ledger semantic table"
+    (D.create ~runtime:foreign_runtime session);
+  let program =
+    compile_runtime session runtime
+      "I64 A=40;I64 F(I64 n=42){return n;}I64 B=2;extern U0 Print(U8 *fmt,...);"
+  in
+  let separate = compile_runtime session runtime "1;" in
+  Alcotest.(check bool)
+    "compilation creates no admission" true
+    (Option.is_none (admission runtime program));
+  execute_runtime_ok runtime program;
+  let receipt = admission runtime program |> Option.get in
+  Alcotest.(check bool)
+    "receipt retains exact owning task" true
+    (VM.owns_task_admission runtime receipt);
+  Alcotest.(check bool)
+    "same-table foreign task has no authority" false
+    (VM.owns_task_admission other receipt);
+  Alcotest.(check bool)
+    "foreign task cannot retrieve receipt" true
+    (Option.is_none (admission other program));
+  Alcotest.(check bool)
+    "substituted entry cannot retrieve receipt" true
+    (Option.is_none
+       (VM.task_admission runtime ~globals:(Program.globals program)
+          ~entry:(Program.entry separate)));
+  Alcotest.(check bool)
+    "substituted storage cannot retrieve receipt" true
+    (Option.is_none
+       (VM.task_admission runtime ~globals:(Program.globals separate)
+          ~entry:(Program.entry program)));
+  reject "foreign ledger cannot publish receipt"
+    (D.observe_admission other_ledger receipt);
+  reject "unbound ledger cannot publish receipt"
+    (D.observe_admission unbound receipt);
+  ignore (D.observe_admission ledger receipt |> checked);
+  (match VM.admission_publications receipt with
+  | [
+   (VM.Admitted_global (_, first) as first_link);
+   VM.Admitted_function _;
+   VM.Admitted_global (_, second);
+   VM.Admitted_function _;
+  ] ->
+      Alcotest.(check string)
+        "first global retains source order" "A"
+        (Semantic_symbol.name (Ir_integer_globals.slot_symbol first));
+      Alcotest.(check string)
+        "second global retains source order" "B"
+        (Semantic_symbol.name (Ir_integer_globals.slot_symbol second));
+      let entry = visible session "A" in
+      Alcotest.(check bool)
+        "frontend entry keeps exact retained publication" true
+        (D.retained_for ledger entry |> Option.get == first_link);
+      Alcotest.(check bool)
+        "frontend entry reuses admitted semantic symbol" true
+        (D.symbol_for ledger entry |> Option.get
+        == Ir_integer_globals.slot_symbol first)
+  | _ -> Alcotest.fail "expected original global/function publication order");
+  let shape name =
+    Symbol_visibility.function_call_shape (visible session name) |> Option.get
+  in
+  Alcotest.(check bool)
+    "function default shape retained" true
+    (match (shape "F").parameters with
+    | [ { has_default = true; parameter_name = Some "n" } ] -> true
+    | _ -> false);
+  Alcotest.(check bool)
+    "provider variadic shape retained" true (shape "Print").variadic;
+  let saved = visible session "F" in
+  reject "receipt cannot publish twice" (D.observe_admission ledger receipt);
+  reject "executed program cannot issue another receipt"
+    (execute_runtime runtime program);
+  Alcotest.(check bool)
+    "replay retains original receipt" true
+    (admission runtime program |> Option.get == receipt);
+  Alcotest.(check bool)
+    "replay preserves frontend entry" true
+    (visible session "F" == saved);
+  execute_runtime_ok runtime separate;
+  let next = compile_runtime session runtime "I64 G(){return 42;}" in
+  execute_runtime_ok runtime next;
+  ignore
+    (D.observe_admission ledger (admission runtime next |> Option.get)
+    |> checked);
+  ignore (visible session "G")
+
+let runtime_admission_boundaries () =
+  let session, runtime, _ = runtime_setup ~max_global_bytes:1 () in
+  let program = compile_runtime session runtime "I64 Excess=42;" in
+  reject "late storage preflight fails" (execute_runtime runtime program);
+  Alcotest.(check bool)
+    "failed preflight has no admission" true
+    (Option.is_none (admission runtime program));
+  Alcotest.(check bool)
+    "failed preflight has no latest admission" true
+    (Option.is_none (VM.latest_task_admission runtime));
+  let session, runtime, ledger = runtime_setup () in
+  let program =
+    compile_runtime session runtime "I64 N=40;I64 F(I64 n){return n;}N=42;1/0;"
+  in
+  (match execute_runtime runtime program with
+  | Error (error :: _) ->
+      Alcotest.(check string) "fault follows admission" "HCIRVM0009" error.code
+  | _ -> Alcotest.fail "expected reached division fault");
+  ignore
+    (D.observe_admission ledger (admission runtime program |> Option.get)
+    |> checked);
+  let next = compile_runtime session runtime "F(N);" in
+  match execute_runtime runtime next with
+  | Ok result ->
+      Alcotest.(check int64)
+        "admitted function and reached global survive" 42L
+        (VM.final_value result |> Option.get).bits
+  | Error _ -> Alcotest.fail "retained call failed"
+
 let tests =
   [
+    Alcotest.test_case "checked runtime compilation owns preparation charges"
+      `Quick runtime_compilation_budget;
+    Alcotest.test_case
+      "checked runtime compilation rejects foreign owner and mode" `Quick
+      runtime_compilation_owner;
+    Alcotest.test_case
+      "runtime admission receipts own exact publications and task" `Quick
+      runtime_admission_ownership;
+    Alcotest.test_case
+      "runtime admission separates preflight from reached faults" `Quick
+      runtime_admission_boundaries;
+    Alcotest.test_case "runtime receipt delivery cannot reverse admission order"
+      `Quick runtime_admission_order;
     Alcotest.test_case "nested receipts validate parent ownership and cleanup"
       `Quick nested_receipt_views;
     Alcotest.test_case "late completion rejection cannot seal a failed sequence"

@@ -21,7 +21,7 @@ parser lifecycle evidence; VM admission and execution remain separate.
   paths, callback rejection, source/environment ownership and cross-view replay.
 - [x] Run focused controls, independent review, full tests, build/format/generated
   checks, pinned checksums, provenance, exact corpora and existing CLI gates.
-- [ ] Commit/push and inspect exact-source hosted checks. Update the external
+- [x] Commit/push and inspect exact-source hosted checks. Update the external
   prompt and #635/#636 with evidence; keep unfinished acceptance criteria open.
 
 Selected-reference semantic consumption, partial initializer/storage/function
@@ -41,3 +41,8 @@ Formatting, generated files, build/install, 82 pinned checksums and eleven
 provenance scenarios pass. Exact lexer JSON and parser JSON/normalized text match
 the existing 528/528, 25 standalone and 126 prelude baselines. Source rebuilding,
 CLI identity reports and hosted checks are recorded at the external checkpoint.
+
+Source 43a0c6c075d3b6b2d99c7992a83f82338b81485b is pushed in draft PR #636.
+CI 34266316059 failed only the fourteen pending #exe groups on OCaml 5.1/5.3;
+Corpus 34266315810 and dependency review 34266316076 passed. The external prompt,
+#635 and #636 retain this evidence and all seven unfinished acceptance criteria.

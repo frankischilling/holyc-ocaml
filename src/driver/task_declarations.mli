@@ -1,7 +1,22 @@
 type t
 type command
 
-val create : Session.t -> (t, string) result
+val create :
+  ?runtime:Ir.Integer_interpreter.task_state -> Session.t -> (t, string) result
+
+val observe_admission :
+  t -> Ir.Integer_interpreter.task_admission -> (unit, string) result
+(** Publish new frontend entries linked to exact legacy runtime publications.
+    Requires the current admission receipt from the runtime supplied at
+    creation. Failed preflight, foreign tasks and replay cannot publish entries.
+    Source origin is descriptive; association uses retained publication
+    identity, never matching names or locations against discarded parser state.
+*)
+
+val retained_for :
+  t ->
+  Frontend.Symbol_visibility.entry ->
+  Ir.Integer_interpreter.admitted_publication option
 
 val observe_command :
   t -> Frontend.Parser.command_event -> (unit, Common.Diagnostic.t list) result
