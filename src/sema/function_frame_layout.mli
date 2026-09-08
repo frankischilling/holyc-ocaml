@@ -73,6 +73,11 @@ val layout :
 val functions : t -> function_layout list
 val find_function : t -> Symbol.t -> function_layout option
 val function_symbol : function_layout -> Symbol.t
+
+val function_header :
+  function_layout -> Function_type_resolution.resolved_function
+(** The exact checked header consumed when laying out this definition frame. *)
+
 val function_scope : function_layout -> Symbol_table.scope
 val function_item_index : function_layout -> int
 val function_locations : function_layout -> location list

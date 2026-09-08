@@ -235,7 +235,7 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
                 match
                   List.find_opt
                     (fun (function_ : VM.function_definition) ->
-                      Ir.Function_body.symbol function_.body == symbol)
+                      Ir.Function_body.callable_symbol function_.body == symbol)
                     functions
                 with
                 | None ->

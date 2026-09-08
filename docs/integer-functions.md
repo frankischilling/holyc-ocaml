@@ -1,5 +1,12 @@
 # Integer source functions
 
+[Definitions joined to extern prototypes](integer-joined-definitions.md) now
+execute in both modes, with renamed parameters, locals, recursion and exact
+frame ownership. Earlier selected extern sites retain their existing boundary.
+The reporting description below records the original v1 contract; current
+default v2 reports also retain captured output and failure diagnostics, as
+described in [runtime output](integer-output.md).
+
 [U0 procedures](integer-u0.md) now share the checked call path, with bare
 returns, fallthrough and explicit completion without a word. The original
 word-returning Add contract below remains a regression.

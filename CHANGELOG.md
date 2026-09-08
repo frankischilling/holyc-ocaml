@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Connected source definitions joined to extern prototypes in #623. Canonical
+  call identities now select checked definition bodies while locals, frames,
+  statics and initializer publication retain the exact definition owner.
+  Earlier hosted provider calls keep their selected declaration snapshot.
+  Replayed declaration chains and reconstructed frame headers are rejected;
+  program dumps expose distinct callable and definition IDs.
+
 - Connected checked Print and PutChars calls to captured output in #621,
   including implicit statements, declaration snapshots, right-to-left arguments
   and the initial %%/%d/%s/%c grammar. Separate byte/work bounds retain earlier

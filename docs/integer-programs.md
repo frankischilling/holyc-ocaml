@@ -1,5 +1,9 @@
 # Integer programs in the IR interpreter
 
+[Joined extern definitions](integer-joined-definitions.md) execute through
+checked callable bindings. Prototypes add no instructions or frame charges;
+each call keeps its selected declaration, and each body keeps its own frame.
+
 [Captured runtime output](integer-output.md) connects checked Print and PutChars
 calls and implicit statements, with separate byte/work limits. Default v2
 reports retain capture on failure; `--report-version=1` preserves the prior

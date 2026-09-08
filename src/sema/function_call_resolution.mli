@@ -518,6 +518,11 @@ val expressions : t -> Module_expression_binding.t
 val find_function : t -> Symbol.t -> resolved_function option
 val compilation_mode : t -> Function_resolution.compilation_mode
 val owns_table : t -> Symbol_table.t -> bool
+
+val owns_declaration : t -> Function_resolution.resolved_declaration -> bool
+(** Test membership in the exact validated declaration resolution. Replaying the
+    same headers creates distinct declarations and does not match. *)
+
 val function_symbol : resolved_function -> Symbol.t
 val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int

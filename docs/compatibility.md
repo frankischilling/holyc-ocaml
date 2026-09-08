@@ -1,5 +1,13 @@
 # holyc-ocaml compatibility status
 
+[Joined source definitions](integer-joined-definitions.md) in
+[#623](https://github.com/frankischilling/holyc-ocaml/issues/623) execute after
+extern prototypes while retaining definition-owned frames and per-call
+declaration snapshots. This connects the existing resolution semantics to the
+VM. Earlier selected ordinary extern sites, ambiguous AOT bodies and general
+runtime linking retain explicit boundaries. Optional native header warnings
+remain distinct from this hosted execution connection.
+
 [Captured runtime output](integer-output.md) in [#621](https://github.com/frankischilling/holyc-ocaml/issues/621)
 connects the existing Print/PutChars target and argument passes to checked call
 execution. The initial grammar supports ordinary bytes, %%, %d, %s and %c, with

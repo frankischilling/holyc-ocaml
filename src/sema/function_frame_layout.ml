@@ -31,6 +31,7 @@ module Int_set = Set.Make (Int)
 
 type function_layout = {
   symbol : Symbol.t;
+  header : Function_type_resolution.resolved_function;
   scope : Symbol_table.scope;
   item_index : int;
   locations : location list;
@@ -91,6 +92,7 @@ type error = { code : string; kind : error_kind; origin : Symbol.origin option }
 
 let functions (result : t) = result.functions
 let function_symbol (function_ : function_layout) = function_.symbol
+let function_header (function_ : function_layout) = function_.header
 let function_scope (function_ : function_layout) = function_.scope
 let function_item_index (function_ : function_layout) = function_.item_index
 let function_locations (function_ : function_layout) = function_.locations
@@ -949,6 +951,7 @@ let build_function table aggregate_layouts input =
             (fun frame_size ->
               {
                 symbol = function_symbol;
+                header = input.typed_function;
                 scope = function_scope;
                 item_index = Function_binding_index.function_item_index indexed;
                 locations = List.rev locations_rev;

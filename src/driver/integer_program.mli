@@ -14,7 +14,11 @@ val initialization : compiled -> Ir.Global_initialization.t
 val initializer_preparation : compiled -> Integer_initializers.t
 val functions : compiled -> Ir.Integer_interpreter.function_definition list
 val runtime_calls : compiled -> Ir.Runtime_call_context.t
+
 val human : compiled -> string
+(** Render the entry, storage, initialization and named bodies. A distinct
+    callable/definition pair adds a versioned function-binding component with
+    both symbol IDs and the actual definition item index. *)
 
 val lower :
   Session.t ->
