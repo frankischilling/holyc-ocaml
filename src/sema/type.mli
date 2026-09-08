@@ -26,6 +26,12 @@ val equal : t -> t -> bool
 val pointer_to : t -> (t, string) result
 (** Add one pointer layer without changing the source-visible base identity. *)
 
+val compatible_u8_pointer : t -> t -> bool
+(** Accept exact identity or the public/internal spelling forms of one-level U8
+    pointers at a checked pointer conversion boundary. The pinned U8 class is an
+    internal type, unlike the public I64/U64 unions. This does not replace
+    [equal] for producer, pointee or ownership validation. *)
+
 val dereference : t -> (t, string) result
 (** Remove one pointer layer. A nonpointer type is rejected. *)
 

@@ -57,6 +57,16 @@ let equal left right =
   | Aggregate left_symbol, Aggregate right_symbol -> left_symbol == right_symbol
   | Primitive _, Aggregate _ | Aggregate _, Primitive _ -> false
 
+let compatible_u8_pointer left right =
+  equal left right
+  || left.pointer_depth = 1 && right.pointer_depth = 1
+     &&
+     match (left.base, right.base) with
+     | Primitive (_, Primitive_type.U8), Primitive (_, Primitive_type.U8) ->
+         (Primitive_type.info Primitive_type.U8).declaration_form
+         = Internal_type
+     | _ -> false
+
 let pointer_to type_ =
   let pointer_depth = type_.pointer_depth + 1 in
   Result.map

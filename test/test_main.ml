@@ -114,6 +114,7 @@ let () =
       ("source integer pointers", Test_integer_pointers.tests);
       ("source integer arrays", Test_integer_arrays.tests);
       ("source integer bytes", Test_integer_bytes.tests);
+      ("source integer strings", Test_integer_strings.tests);
       ("comparison chains", Test_ir_comparison_chains.tests);
       ("integer frames", Test_ir_integer_frames.tests);
       ("IR bounded integer interpreter", Test_ir_integer_interpreter.tests);

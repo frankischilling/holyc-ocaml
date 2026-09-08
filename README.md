@@ -2,11 +2,20 @@
 
 `holyc-ocaml` is an OCaml implementation of the HolyC compiler. The command is `holyc`, and the public OCaml library is `holyc_lib`. Compatibility work follows the TempleOS source tree at commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
+## String-literal storage
+
+The string-storage continuation in [issue #617](https://github.com/frankischilling/holyc-ocaml/issues/617)
+uses `holyc run --target=ir examples/integer-strings.hc` in both modes.
+The fixture returns 42 in 45 runtime instructions with two literal bytes.
+[Owned string storage](docs/integer-strings.md) describes persistent mutable
+literal objects, exact byte termination, U8 pointer compatibility and the
+separate `--literal-byte-limit` resource bound. Runtime output remains unfinished.
+
 ## Byte storage and indexing
 
 The U8 continuation in [issue #615](https://github.com/frankischilling/holyc-ocaml/issues/615)
 uses `examples/integer-bytes.hc` through `holyc run --target=ir` in both modes.
-Its source-derived expected result is 42. [Byte storage](docs/integer-bytes.md)
+It returns 42 in 69 runtime instructions. [Byte storage](docs/integer-bytes.md)
 describes narrowing stores, zero-extending loads, exact aliases, frame limits
 and the remaining execution boundaries.
 

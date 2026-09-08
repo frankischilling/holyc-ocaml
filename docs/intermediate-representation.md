@@ -1,5 +1,11 @@
 # Intermediate-code specification
 
+[Owned string storage](integer-strings.md) gives the program/function VM a
+private literal image while preserving the IC_STR_CONST producer and payload.
+All sites are checked before allocation; normalized call-push flags retain the
+existing protocol. Owner-specific regions preserve object extent and lifetime.
+Graph-only integer evaluation retains its original admission boundary.
+
 [U8 storage](integer-bytes.md#values-types-and-storage) retains exact checked
 types for raw-class rank while keeping the existing I64/U64 runtime word tags.
 Private byte storage narrows writes; assignment results retain the original

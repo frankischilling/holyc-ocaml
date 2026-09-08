@@ -1664,7 +1664,8 @@ let validate_frame_assignment result left right =
       (Type.pointer_depth r = 0
        && Type.pointer_depth l = 0
        && Type.pointer_depth v = 0
-      || (scalar_pointer_type r && Type.equal r l && Type.equal l v))
+      || scalar_pointer_type r && Type.equal r l
+         && Type.compatible_u8_pointer l v)
 
 let compound_assignment = function
   | Opcode.Ic_add_equ
@@ -3195,7 +3196,7 @@ let lower_store_initializer ?frame ?globals ?lower_call ~lower_address
     when (target_is_word && Type.pointer_depth value_type = 0)
          || Option.is_some frame
             && scalar_pointer_type target_type
-            && Type.equal target_type value_type -> (
+            && Type.compatible_u8_pointer target_type value_type -> (
       let* address_sequence, address_value, next_instruction, next_value =
         lower_address ~instruction_id ~value_id
       in

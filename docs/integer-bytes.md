@@ -123,7 +123,9 @@ fresh images and exact limits with one-below failures. Verification also
 preserves the earlier I64/U64 execution results and instruction counts.
 The PR records full-suite, corpus, review and CI results against the tested
 revision. Graph-only execution retains its I64/U64 type and diagnostic contract;
-byte computations require a checked function frame.
+the original byte slice requires a checked function frame. The later
+[owned-string connection](integer-strings.md) also supplies a checked literal
+context for program-entry byte computations.
 
 ## Remaining work
 
@@ -137,9 +139,10 @@ execution domain. Logical not and bitwise complement retain their checked
 classes. Runtime lifetime checks remain present; accepted source cannot produce
 an expired pointer because frame escapes are rejected.
 
-Owned strings and runtime output are the next connection. Reuse string IR
-from #490 and implicit Print/PutChars typing and target resolution from
-#302/#304; those completed slices did not supply string-pool storage,
-termination, formatting, variadic runtime calls or output. Stateful compilation
+Owned strings are connected in [#617](integer-strings.md), consuming #490's
+canonical literal IR. Runtime output is the next connection. Reuse implicit
+Print/PutChars typing, target resolution and argument binding from
+#302/#304/#306/#346/#348; those completed slices did not supply runtime
+formatting, variadic calls or output. Stateful compilation
 and #exe, optimizer parity, native backends, TempleOS BIN/loader acceptance and
 bootstrap remain requirements of the full compiler.
