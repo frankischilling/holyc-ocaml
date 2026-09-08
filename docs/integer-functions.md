@@ -1,5 +1,9 @@
 # Integer source functions
 
+[U0 procedures](integer-u0.md) now share the checked call path, with bare
+returns, fallthrough and explicit completion without a word. The original
+word-returning Add contract below remains a regression.
+
 [Automatic integer arrays](integer-arrays.md) add element loads, stores, updates
 and pointer arguments at any rank. References retain the caller's full object
 extent through copies and recursion; the caller-element fixture returns 42.
@@ -7,7 +11,8 @@ extent through copies and recursion; the caller-element fixture returns 42.
 [Scalar pointers](integer-pointers.md) extend fixed parameters and automatic
 locals with one-level I64/U64 references. Explicit arguments retain the original
 caller's object across calls and recursion; pointer reassignment changes only
-the receiving pointer slot. Returns remain integer words.
+the receiving pointer slot. Numeric returns remain integer words; U0 returns
+carry no value.
 
 Reference: `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
@@ -32,7 +37,8 @@ Both execution modes produce 42 in 29 instructions. The human report contains
 `final-value=42 type=i64 bits=0x000000000000002a`. JSON keeps the
 `holyc-integer-program-v1` schema and adds `final_value`, an object containing
 `type`, decimal `value` and hexadecimal `bits`, or null when no top-level
-expression ran. Termination remains `stream-end`; successful process status is
+expression ran or the last reached expression has no word, such as a U0 call.
+Termination remains `stream-end`; successful process status is
 0. The value is the last reached top-level expression, including one inside a
 top-level block or branch. Function-internal expression statements do not
 replace it. Failures return status 1, diagnostics on stderr and no result report.

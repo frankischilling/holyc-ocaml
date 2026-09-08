@@ -1,5 +1,11 @@
 # Intermediate-code specification
 
+[U0 calls](integer-u0.md) retain their canonical call-end result identity.
+The VM separately represents pending calls, completed void calls and returned
+words. Only checked U0 call-end producers create private no-value markers, and
+only their checked discard consumes them; memory and numeric operands retain
+their prior classes. Return requirements belong to the active checked function.
+
 [Owned string storage](integer-strings.md) gives the program/function VM a
 private literal image while preserving the IC_STR_CONST producer and payload.
 All sites are checked before allocation; normalized call-push flags retain the

@@ -831,28 +831,32 @@ val run_integer_program :
   source:Source_file.t ->
   max_steps:int ->
   (Ir_integer_interpreter.t integer_program_result, Diagnostic.t list) result
-(** Execute integer source statements and checked I64/U64 function definitions
-    with fixed parameters, automatic locals, direct call expressions and
-    ordinary scalar I64/U64 code-heap globals with supported declaration
-    initializers. Automatic U8 scalars and arrays support zero-extending reads
-    and narrowing plain assignments; assignment results retain the RHS payload.
-    One-level U8/I64/U64 pointer locals and fixed parameters can alias scalar
-    local objects and automatic U8/I64/U64 array elements across direct calls.
-    String literals own mutable bytes and a final initialized zero for one
-    execution image; each source site persists across calls and initializers.
-    Compatible public/internal U8 pointer forms preserve the same object.
-    [max_literal_bytes] defaults to 1,048,576 and bounds all literal sites,
-    including uncalled definitions, separately from frame and global bytes.
-    Checked indexing retains source strides, grouping behavior and
-    declared-object bounds through copies and recursion. Constant preparation,
-    runtime instructions, active frame bytes, global bytes and call depth have
-    separate positive bounds. I64/U64 pointers can also alias global/static
-    words. Global words are shared by all calls in one execution. Conditions
-    short-circuit AND and OR; ordinary values and XOR remain eager. Scheduled
-    arithmetic uses runtime IR semantics; initializers and their transitive
-    callees retain explicit shift and constant-divisor optimizer boundaries.
-    Supported pure constants supply initial-image bits. General memory, output,
-    indirect/external calls and native code remain unsupported. *)
+(** Execute integer source statements and checked I64/U64/U0 function
+    definitions with fixed parameters, automatic locals, direct call expressions
+    and ordinary scalar I64/U64 code-heap globals with supported declaration
+    initializers. U0 calls complete without a word; their checked discard clears
+    any preceding top-level final value. Bare return and fallthrough preserve
+    the caller continuation. Numeric returns remain I64/U64; missing required
+    word returns retain a hosted diagnostic. Automatic U8 scalars and arrays
+    support zero-extending reads and narrowing plain assignments; assignment
+    results retain the RHS payload. One-level U8/I64/U64 pointer locals and
+    fixed parameters can alias scalar local objects and automatic U8/I64/U64
+    array elements across direct calls. String literals own mutable bytes and a
+    final initialized zero for one execution image; each source site persists
+    across calls and initializers. Compatible public/internal U8 pointer forms
+    preserve the same object. [max_literal_bytes] defaults to 1,048,576 and
+    bounds all literal sites, including uncalled definitions, separately from
+    frame and global bytes. Checked indexing retains source strides, grouping
+    behavior and declared-object bounds through copies and recursion. Constant
+    preparation, runtime instructions, active frame bytes, global bytes and call
+    depth have separate positive bounds. I64/U64 pointers can also alias
+    global/static words. Global words are shared by all calls in one execution.
+    Conditions short-circuit AND and OR; ordinary values and XOR remain eager.
+    Scheduled arithmetic uses runtime IR semantics; initializers and their
+    transitive callees retain explicit shift and constant-divisor optimizer
+    boundaries. Supported pure constants supply initial-image bits. General
+    memory, output, indirect/external calls and native code remain unsupported.
+*)
 
 val lower_integer_expression :
   Session.t ->

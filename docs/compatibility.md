@@ -1,5 +1,12 @@
 # holyc-ocaml compatibility status
 
+[U0 calls](integer-u0.md) in [#619](https://github.com/frankischilling/holyc-ocaml/issues/619)
+execute ordinary source procedures with explicit no-value completion, checked
+discard, early return and fallthrough. They preserve caller effects and existing
+frame/depth/instruction limits. U0 value-return and missing word-return forms
+retain explicit hosted restrictions; native HolyC warns about those forms.
+Runtime declarations, output and full return compatibility remain unfinished.
+
 [Owned string storage](integer-strings.md) in
 [#617](https://github.com/frankischilling/holyc-ocaml/issues/617) connects #490's
 canonical literal IR to mutable per-site byte objects, terminating zeros and

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added U0 function execution in #619 with early bare returns, fallthrough,
+  independent call completion and checked no-value discard. Calls preserve
+  storage effects and caller continuation; a final U0 expression reports no
+  word. Required I64/U64 returns and existing resource limits remain checked.
+
 - Added owned string-literal byte storage in #617, with separate mutable sites,
   initialized terminators, lifetime across calls and initializer phases, and
   fresh images for each execution. Checked U8 pointer conversions retain object

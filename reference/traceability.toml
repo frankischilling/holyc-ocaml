@@ -11332,3 +11332,24 @@ source_gate = "examples/integer-strings.hc returns I64 42 in both modes;45 runti
 local_verification = "14 string groups and all1825 tests including CLI pass; formatting/generated/build/install,82 checksums,11 provenance scenarios,528/528 lexer and exact normalized parser baseline pass; independent review approved"
 excluded = ["graph-only eval string execution", "pointer returns and arbitrary address conversions", "general pointer arithmetic", "runtime formatting/output and U0 external calls", "broader memory and aggregates", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader acceptance", "bootstrap"]
 native_oracle_status = "pinned-source audit and hosted execution; mutability is source-derived inference; no new native capture"
+
+[[feature]]
+id = "HC-SOURCE-U0-CALL-EXECUTION"
+description = "Checked U0 source calls preserve effects and caller continuation with explicit no-value completion."
+sources = ["Compiler/PrsExp.HC:530-588", "Compiler/PrsStmt.HC:150-169,1110-1119", "Kernel/KExts.HC:83-84"]
+implementation = ["src/ir/integer_interpreter.ml", "src/ir/direct_call_lowering.ml", "src/ir/return_lowering.ml", "src/driver/integer_program.ml"]
+tests = ["test/test_integer_u0.ml", "test/test_integer_program_cli.ml", "examples/integer-u0.hc"]
+documentation = ["docs/integer-u0.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 619
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+baseline = "All four maintained initial source groups fail HCIRVM0011 at the function return-type boundary on 5b6d3f1c4005cfac99c66801d3070ea5ccf05c6f."
+semantics = "ordinary scalar U0 return, bare return and fallthrough; independent pending/void/word call completion; exact call-end result identity and checked discard; no fabricated word"
+types = "only checked scalar primitive U0 call-end producers create private no-value markers; numeric/store/argument consumers remain word or pointer specific; missing required word returns retain HCIRVM0013"
+reporting = "execute_function yields Returned None; program yields Stream_end; final U0 expression clears the final word and reports human none or JSON null"
+limits = "existing step/frame/depth/global/literal/preparation accounting is preserved; U0 return allocates no slot"
+source_gate = "examples/integer-u0.hc returns I64 42 in both modes; 19 runtime instructions, 0 preparation, 8 active frame bytes, 8 global bytes, depth 1"
+verification_status = "local verification, final-source CI and merge evidence tracked in issue619"
+excluded = ["U0 arithmetic and numeric consumers", "U0 value-return warning compatibility", "missing word-return warning compatibility", "runtime declarations/output", "variadic execution", "graph-only call execution", "broader memory", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted execution; native return warnings are distinct from hosted restrictions; no new native capture"

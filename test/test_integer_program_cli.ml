@@ -811,4 +811,131 @@ let () =
             && contains stderr "HCIRVM0001")
             "nonpositive literal budget rejects before source compilation"))
     [ "0"; "-1" ];
+  List.iter
+    (fun mode ->
+      let source = Sys.argv.(14) in
+      let result =
+        success
+          [
+            "run";
+            "--target=ir";
+            "--format=json";
+            "--mode=" ^ mode;
+            "--step-limit=19";
+            "--frame-byte-limit=8";
+            "--global-byte-limit=8";
+            "--call-depth-limit=1";
+            source;
+          ]
+        |> Yojson.Safe.from_string
+      in
+      require
+        (result |> member "final_value" |> member "value" |> to_string = "42")
+        "U0 call writes the global before caller continuation";
+      require
+        (result |> member "executed_steps" |> to_int = 19
+        && result |> member "compiled_initializer_steps" |> to_int = 0)
+        "U0 fixture uses its canonical runtime instructions without preparation";
+      require
+        (result |> member "termination" |> to_string = "stream-end")
+        "U0 callee return does not terminate the caller stream";
+      let human = success [ "run"; "--mode=" ^ mode; source ] in
+      require
+        (contains human "final-value=42 type=i64")
+        "human U0 fixture report retains the final word";
+      let dump_command = [ "dump-ir"; "--program"; "--mode=" ^ mode; source ] in
+      let dump = success dump_command in
+      require
+        (dump = success dump_command
+        && contains dump "public:U0 = IC_CALL_END"
+        && contains dump "IC_END_EXP" && contains dump "IC_RET")
+        "U0 source retains canonical call-end, discard and return instructions";
+      List.iter
+        (fun (limit, code) ->
+          let status, stdout, stderr =
+            invoke [ "run"; "--format=json"; "--mode=" ^ mode; limit; source ]
+          in
+          require
+            (status = Unix.WEXITED 1 && stdout = "")
+            "U0 resource failure publishes no result";
+          let diagnostic =
+            let json = Yojson.Safe.from_string stderr in
+            if code = "HCIRVM0001" then (
+              require
+                (json |> member "schema" |> to_string = "holyc-command-error-v1")
+                "nonpositive call depth uses the command configuration report";
+              json)
+            else json |> to_list |> List.hd
+          in
+          require
+            (diagnostic |> member "code" |> to_string = code)
+            "U0 fixture resource diagnostic")
+        [
+          ("--step-limit=18", "HCIRVM0007");
+          ("--frame-byte-limit=7", "HCIRVM0011");
+          ("--global-byte-limit=7", "HCIRVM0016");
+          ("--call-depth-limit=0", "HCIRVM0001");
+        ];
+      List.iter
+        (fun (text, expected) ->
+          with_file ".hc" text (fun source ->
+              let result =
+                success [ "run"; "--format=json"; "--mode=" ^ mode; source ]
+                |> Yojson.Safe.from_string
+              in
+              require
+                (result |> member "final_value" = expected)
+                "U0 discard clears a preceding final word";
+              if expected = `Null then
+                require
+                  (contains
+                     (success [ "run"; "--mode=" ^ mode; source ])
+                     "final-value=none")
+                  "human no-value report is explicit"))
+        [
+          ("U0 F(){}F();", `Null);
+          ("U0 F(){}42;F();", `Null);
+          ("I64 W(){return 42;}U0 F(){}W();F();", `Null);
+        ];
+      with_file ".hc" "U0 F(){}F();42;" (fun source ->
+          let result =
+            success [ "run"; "--format=json"; "--mode=" ^ mode; source ]
+            |> Yojson.Safe.from_string
+          in
+          require
+            (result |> member "final_value" |> member "value" |> to_string
+           = "42")
+            "a later word expression replaces the no-value result");
+      List.iter
+        (fun (text, options, code, owner) ->
+          with_file ".hc" text (fun source ->
+              let status, stdout, stderr =
+                invoke
+                  ([ "run"; "--format=json"; "--mode=" ^ mode ]
+                  @ options @ [ source ])
+              in
+              require
+                (status = Unix.WEXITED 1 && stdout = "")
+                "failed U0 or word callee supplies no successful report";
+              let diagnostic =
+                Yojson.Safe.from_string stderr |> to_list |> List.hd
+              in
+              let notes =
+                diagnostic |> member "notes" |> to_list |> List.map to_string
+              in
+              require
+                (diagnostic |> member "code" |> to_string = code
+                && List.mem "stage=execution" notes
+                && List.mem ("function=" ^ owner) notes
+                && diagnostic |> member "primary" <> `Null)
+                "call failure retains its phase, owner and source"))
+        [
+          ( "U0 R(I64 n){if(n)R(n-1);}R(1);",
+            [ "--call-depth-limit=1" ],
+            "HCIRVM0015",
+            "R" );
+          ("I64 W(){return 42;}I64 F(){W();return;}F();", [], "HCIRVM0013", "F");
+          ("I64 G;U0 F(){G=42;1/0;}F();G;", [], "HCIRVM0009", "F");
+        ])
+    [ "jit"; "aot" ];
   print_endline "Integer program CLI checks passed."
