@@ -57,7 +57,7 @@ val create :
   span:Common.Span.t ->
   Sema.Global_record_classification.t ->
   (t, Common.Diagnostic.t list) result
-(** Check every declaration for ordinary, non-aliased public I64/U64/U8
+(** Check every declaration for ordinary, non-aliased public nonzero integer
     code-heap storage. Initialized declarations require their exact checked
     scalar roots. Unsupported declarations fail even when unused. The context
     contains immutable metadata, not mutable execution storage. *)

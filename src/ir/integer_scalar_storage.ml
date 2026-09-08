@@ -1,13 +1,49 @@
 module Type = Sema.Type
+module Primitive = Sema.Primitive_type
 
-let public_byte_size type_ =
+type t = Primitive.info
+
+let of_type type_ =
   if Type.pointer_depth type_ <> 0 then None
   else
     match Type.base type_ with
-    | Type.Primitive (Type.Public_spelling, Sema.Primitive_type.U8) -> Some 1
-    | Type.Primitive (Type.Public_spelling, (Sema.Primitive_type.I64 | U64)) ->
-        Some 8
-    | _ -> None
+    | Type.Primitive (_, primitive) ->
+        let info = Primitive.info primitive in
+        if info.category = Primitive.Integer && info.byte_size > 0 then
+          Some info
+        else None
+    | Type.Aggregate _ -> None
+
+let byte_size scalar = scalar.Primitive.byte_size
+let is_unsigned scalar = scalar.Primitive.signedness = Primitive.Unsigned
+
+let normalize scalar bits =
+  let shift = 64 - (8 * byte_size scalar) in
+  if shift = 0 then bits
+  else
+    let shifted = Int64.shift_left bits shift in
+    if is_unsigned scalar then Int64.shift_right_logical shifted shift
+    else Int64.shift_right shifted shift
+
+let bounds scalar =
+  let bits = 8 * byte_size scalar in
+  if is_unsigned scalar then
+    if bits = 64 then None
+    else Some (0L, Int64.sub (Int64.shift_left 1L bits) 1L)
+  else if bits = 64 then Some (Int64.min_int, Int64.max_int)
+  else
+    let sign = Int64.shift_left 1L (bits - 1) in
+    Some (Int64.neg sign, Int64.pred sign)
+
+let fits scalar bits = normalize scalar bits = bits
+
+let public_byte_size type_ =
+  match Type.base type_ with
+  | Type.Primitive (Type.Public_spelling, _) ->
+      Option.map byte_size (of_type type_)
+  | _ -> None
 
 let narrow_bits type_ bits =
-  if public_byte_size type_ = Some 1 then Int64.logand bits 255L else bits
+  Option.fold ~none:bits
+    ~some:(fun scalar -> normalize scalar bits)
+    (of_type type_)

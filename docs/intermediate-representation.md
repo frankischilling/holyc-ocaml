@@ -1,5 +1,12 @@
 # Intermediate-code specification
 
+[Narrow integer execution](integer-narrow.md) uses a shared generated scalar
+descriptor for storage while retaining exact declaration targets. The VM
+derives a separate native computation class from each instruction producer.
+COM retains I64 result transport and its operand's forwarded node class;
+ordinary binary selection and comparisons consume the latter. A plain immediate
+cannot encode that pair, so unary folding preserves unsigned COM instructions.
+
 [U8 signatures](integer-byte-signatures.md) preserve the original public U8
 call/return targets. A separate function-return classifier maps them to runtime
 U64 without changing byte storage or unrelated word-only matrices. Parameter

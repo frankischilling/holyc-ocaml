@@ -691,6 +691,34 @@ let result_operand (result : expression_result) = result.operand_result
 let result_binary_operands (result : expression_result) = result.binary_operands
 let result_index_operands (result : expression_result) = result.index_operands
 let result_type (result : expression_result) = result.source_type
+
+let rec result_computation_type (result : expression_result) =
+  let module C = Integer_computation_class in
+  let declared () = Option.map C.declared result.source_type in
+  let forwarded () = Option.map C.forward result.source_type in
+  match result.call_resolution with
+  | Some _ -> declared ()
+  | None -> (
+      match Function_call_resolution.argument_expression_kind result.source with
+      | Function_call_resolution.Parenthesized_expression _ -> (
+          match result.operand_result with
+          | Some operand when not operand.array_address ->
+              result_computation_type operand
+          | _ -> forwarded ())
+      | Function_call_resolution.Prefix_expression prefix
+        when Function_call_resolution.prefix_operator prefix
+             = Function_call_resolution.Unary_plus ->
+          Option.bind result.operand_result result_computation_type
+      | Function_call_resolution.Prefix_expression prefix
+        when Function_call_resolution.prefix_operator prefix
+             = Function_call_resolution.Bitwise_not ->
+          Option.map C.forward
+            (Option.bind result.operand_result result_computation_type)
+      | Function_call_resolution.Postfix_cast_expression _
+      | Function_call_resolution.Unresolved_expression
+          Function_call_resolution.Call_expression -> declared ()
+      | _ -> forwarded ())
+
 let result_category (result : expression_result) = result.category
 let result_class (result : expression_result) = result.result_class
 let result_execution_class (result : expression_result) = result.execution_class
@@ -817,14 +845,6 @@ let float_type = primitive_type Primitive_type.F64 0
 let string_type = primitive_type Primitive_type.U8 1
 let rip_address_type = primitive_type Primitive_type.I64 0
 
-let internal_scalar primitive type_ =
-  Type.pointer_depth type_ = 0
-  &&
-  match Type.base type_ with
-  | Type.Primitive (Type.Internal_storage, actual) ->
-      Primitive_type.equal actual primitive
-  | Type.Primitive (Type.Public_spelling, _) | Type.Aggregate _ -> false
-
 let type_is_owned table type_ =
   match Type.base type_ with
   | Type.Primitive _ -> true
@@ -908,16 +928,28 @@ let select_known_binary_type left right result_class =
   | F64_result -> float_type
   | Unresolved_actual_class -> None
   | Integer_result -> (
-      match (left.source_type, right.source_type) with
+      match (result_computation_type left, result_computation_type right) with
       | Some left_type, Some right_type -> (
           match (Type.base left_type, Type.base right_type) with
           | ( Type.Primitive (_, left_primitive),
               Type.Primitive (_, right_primitive) )
             when Type.pointer_depth left_type = 0
-                 && Type.pointer_depth right_type = 0 ->
+                 && Type.pointer_depth right_type = 0 -> (
               let left_id = (Primitive_type.info left_primitive).raw_id in
               let right_id = (Primitive_type.info right_primitive).raw_id in
-              if left_id >= right_id then Some left_type else Some right_type
+              let chosen, computation =
+                if left_id >= right_id then (left, left_type)
+                else (right, right_type)
+              in
+              (* Keep retained spelling when it describes the winning class.
+                 COM's I64 stack/result type can differ from its node class. *)
+              match (chosen.source_type, Type.base computation) with
+              | Some original, Type.Primitive (_, primitive) -> (
+                  match Type.base original with
+                  | Type.Primitive (_, actual)
+                    when Primitive_type.equal actual primitive -> Some original
+                  | _ -> Some computation)
+              | _ -> Some computation)
           | _ -> None)
       | None, _ | _, None -> None)
 
@@ -2079,14 +2111,17 @@ and type_prefix table members policies ~before_item_index ~context
       match operator with
       | Function_call_resolution.Unary_minus ->
           let source_type =
-            match operand.source_type with
-            | Some type_ when internal_scalar Primitive_type.U64 type_ ->
-                integer_type
-            | Some _ | None -> operand.source_type
+            Option.map Integer_computation_class.negate
+              (result_computation_type operand)
           in
           finish ~source_type Object_value operand.result_class
-      | Function_call_resolution.Unary_plus
       | Function_call_resolution.Logical_not ->
+          finish
+            ~source_type:
+              (Option.map Integer_computation_class.forward
+                 (result_computation_type operand))
+            Object_value operand.result_class
+      | Function_call_resolution.Unary_plus ->
           finish ~source_type:operand.source_type Object_value
             operand.result_class
       | Function_call_resolution.Bitwise_not ->

@@ -1634,4 +1634,128 @@ let () =
         && contains first "holyc-initializer-preparation-v1 steps=7")
         "deterministic original U8 call and return types")
     [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      let run ?(options = []) source =
+        let status, output, errors =
+          invoke_raw
+            ([ "run"; "--format=json"; "--mode=" ^ mode ] @ options @ [ source ])
+        in
+        require (errors = "") "narrow integers use one metadata stream";
+        let report = Yojson.Safe.from_string output in
+        require
+          (report
+           |> member "implementation_commit"
+           |> to_string = Holyc_lib.Version.implementation_commit
+          && report |> member "reference_commit" |> to_string
+             = Holyc_lib.Version.reference_commit)
+          "narrow reports identify the exact build and reference";
+        (status, report)
+      in
+      let check report capture =
+        require
+          (report |> member "schema" |> to_string = "holyc-integer-program-v2"
+          && report |> member "outcome" |> to_string = "success"
+          && report |> member "final_value" |> member "value" |> to_string
+             = "42"
+          && report |> member "final_value" |> member "type" |> to_string
+             = "i64"
+          && report |> member "output_hex" |> to_string = capture)
+          "narrow value class and capture"
+      in
+      let source = Sys.argv.(22) in
+      let bounds =
+        [
+          ("step", 139, "HCIRVM0007", "3432");
+          ("initializer-step", 9, "HCIRVM0007", "");
+          ("global-byte", 16, "HCIRVM0016", "");
+          ("frame-byte", 40, "HCIRVM0011", "");
+          ("call-depth", 2, "HCIRVM0015", "");
+          ("literal-byte", 3, "HCIRVM0021", "");
+          ("output-byte", 2, "HCIRVM0022", "");
+          ("output-work", 5, "HCIRVM0023", "");
+        ]
+      in
+      let option name value = Printf.sprintf "--%s-limit=%d" name value in
+      let status, report =
+        run
+          ~options:
+            (List.map (fun (name, value, _, _) -> option name value) bounds)
+          source
+      in
+      require (status = Unix.WEXITED 0) "narrow fixture at all exact limits";
+      check report "3432";
+      require
+        (report |> member "executed_steps" |> to_int = 139
+        && report |> member "compiled_initializer_steps" |> to_int = 9
+        && report |> member "output_work" |> to_int = 5)
+        "narrow fixture work counts";
+      List.iter
+        (fun (name, value, code, capture) ->
+          let status, report =
+            run ~options:[ option name (value - 1) ] source
+          in
+          require
+            (status = Unix.WEXITED 1
+            && report |> member "final_value" = `Null
+            && report |> member "diagnostics" |> to_list |> List.hd
+               |> member "code" |> to_string = code
+            && report |> member "output_hex" |> to_string = capture)
+            ("narrow fixture one-below " ^ name))
+        bounds;
+      List.iter
+        (fun text ->
+          with_file ".hc" text (fun path ->
+              let status, report = run path in
+              require (status = Unix.WEXITED 0) "original narrow source gate";
+              check report ""))
+        [
+          "I64 F(){I8 n=42;return n;}F();";
+          "I64 F(){I16 n=42;return n;}F();";
+          "I64 F(){U16 n=42;return n;}F();";
+          "I64 F(){I32 n=42;return n;}F();";
+          "I64 F(){U32 n=42;return n;}F();";
+          "I16 A[2]={40,2};I64 F(){return A[0]+A[1];}F();";
+          "I64 F(I32 n){return n;}F(42);";
+          "I8 F(){return 42;}F();";
+        ];
+      List.iter
+        (fun text ->
+          with_file ".hc" text (fun path ->
+              let status, report = run path in
+              require
+                (status = Unix.WEXITED 1
+                && report |> member "final_value" = `Null
+                && report |> member "output_hex" |> to_string = ""
+                && report |> member "output_work" |> to_int = 0
+                && report |> member "diagnostics" |> to_list |> List.hd
+                   |> member "code" |> to_string = "HCRUN0006")
+                "signed native initializer proof boundary"))
+        [
+          "I64 F(){I8 n=255;return n;}I64 N=F();N;";
+          "I8 A=-1;I64 N=(A&=255);N;";
+          "I8 A=-128;I64 D=-1;I64 F(){I8 n=(A/=D);return n;}I64 N=F();N;";
+          "I8 A=-1;U16 N=(A&=255);N;";
+        ];
+      let legacy =
+        success [ "run"; "--format=json"; "--mode=" ^ mode; source ]
+        |> Yojson.Safe.from_string
+      in
+      require
+        (legacy |> member "schema" |> to_string = "holyc-integer-program-v1"
+        && legacy |> member "final_value" |> member "value" |> to_string = "42"
+        )
+        "narrow integers preserve v1 reporting";
+      let dump () =
+        success [ "dump-ir"; "--program"; "--mode=" ^ mode; source ]
+      in
+      let first = dump () in
+      require
+        (first = dump ()
+        && contains first "public:U32 = IC_CALL_END"
+        && contains first "prepared-bytes:ff00"
+        && contains first "dimensions=[2] strides=[2] cells=2 bytes=4"
+        && contains first "holyc-initializer-preparation-v1 steps=9")
+        "deterministic narrow shapes publications and signature types")
+    [ "jit"; "aot" ];
   print_endline "Integer program CLI checks passed."

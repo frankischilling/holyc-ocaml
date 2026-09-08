@@ -8,7 +8,11 @@ type 'root entry = {
   prepared : (payload * int) option;
 }
 
-type 'root t = { entries : 'root entry list; width : int; steps : int }
+type 'root t = {
+  entries : 'root entry list;
+  scalar : Integer_scalar_storage.t;
+  steps : int;
+}
 
 let entries initializers = initializers.entries
 let root entry = entry.root
@@ -42,14 +46,7 @@ let create ~shape ~source ~roots ~source_leaf =
     | _ -> invalid "roots do not cover its complete source initializer"
   in
   let* entries = join [] roots (Layout.entries layout) in
-  Ok
-    {
-      entries;
-      width =
-        Integer_storage_shape.byte_size shape
-        / Integer_storage_shape.element_count shape;
-      steps = 0;
-    }
+  Ok { entries; scalar = Integer_storage_shape.scalar shape; steps = 0 }
 
 let publish initializers updates =
   let rec validate total seen = function
@@ -83,8 +80,9 @@ let publish initializers updates =
         | Some (_, payload, steps) ->
             let payload =
               match payload with
-              | Word bits when initializers.width = 1 ->
-                  Word (Int64.logand bits 255L)
+              | Word bits ->
+                  Word
+                    (Integer_scalar_storage.normalize initializers.scalar bits)
               | _ -> payload
             in
             { entry with prepared = Some (payload, steps) })

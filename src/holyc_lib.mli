@@ -851,37 +851,40 @@ val run_integer_program :
   source:Source_file.t ->
   max_steps:int ->
   (Ir_integer_interpreter.t integer_program_result, Diagnostic.t list) result
-(** Execute integer source statements and checked I64/U64/U0 function
+(** Execute integer source statements and checked nonzero integer/U0 function
     definitions with fixed parameters, automatic locals, direct call expressions
-    and ordinary scalar I64/U64 code-heap globals with supported declaration
-    initializers. U0 calls complete without a word; an ordinary U0 call
-    expression's checked discard clears any preceding top-level final value.
-    Bare return and fallthrough preserve the caller continuation. Numeric
-    returns remain I64/U64; missing required word returns retain a hosted
-    diagnostic. Automatic U8 scalars and arrays support zero-extending reads and
-    narrowing plain assignments; assignment results retain the RHS payload.
-    One-level U8/I64/U64 pointer locals and fixed parameters can alias scalar
-    local objects and automatic U8/I64/U64 array elements across direct calls.
-    String literals own mutable bytes and a final initialized zero for one
-    execution image; each source site persists across calls and initializers.
-    Compatible public/internal U8 pointer forms preserve the same object.
-    [max_literal_bytes] defaults to 1,048,576 and bounds all literal sites,
-    including uncalled definitions, separately from frame and global bytes.
-    Checked indexing retains source strides, grouping behavior and
+    and ordinary public integer globals and fixed arrays with supported
+    declaration initializers. U0 calls complete without a word; an ordinary U0
+    call expression's checked discard clears any preceding top-level final
+    value. Bare return and fallthrough preserve the caller continuation. Numeric
+    returns preserve full register bits as runtime I64/U64; missing required
+    word returns retain a hosted diagnostic. Narrow storage and parameter entry
+    normalize to declared width and signedness, with eight-byte ABI parameter
+    slots. Plain assignment and compound results retain full register payloads;
+    prefix/postfix return normalized stored values. One-level integer pointer
+    locals and fixed parameters can alias scalar objects and fixed-array
+    elements across direct calls. Exact declared types and native computation
+    classes remain distinct, including unsigned calls, storage negation and
+    complement. String literals own mutable bytes and a final initialized zero
+    for one execution image; each source site persists across calls and
+    initializers. Compatible public/internal U8 pointer forms preserve the same
+    object. [max_literal_bytes] defaults to 1,048,576 and bounds all literal
+    sites, including uncalled definitions, separately from frame and global
+    bytes. Checked indexing retains source strides, grouping behavior and
     declared-object bounds through copies and recursion. Constant preparation,
     runtime instructions, active frame bytes, global bytes and call depth have
-    separate positive bounds. I64/U64 pointers can also alias global/static
-    words. Global words are shared by all calls in one execution. Conditions
-    short-circuit AND and OR; ordinary values and XOR remain eager. Scheduled
-    arithmetic uses runtime IR semantics; initializers and their transitive
-    callees retain explicit shift and constant-divisor optimizer boundaries.
-    Supported pure constants supply initial-image bits. General memory,
-    arbitrary indirect/external calls and native code remain unsupported.
-    Checked Print/PutChars calls execute under separate positive output/work
-    limits (both default 1,048,576). This convenience entrypoint projects the
-    outcome; use [run_integer_program_report] to retain captured bytes on both
-    success and failure. Implicit output preserves the last ordinary expression.
-*)
+    separate positive bounds. Typed pointers can also alias global/static
+    integer objects. Persistent cells are shared by calls in one execution.
+    Conditions short-circuit AND and OR; ordinary values and XOR remain eager.
+    Scheduled arithmetic uses runtime IR semantics; initializers and their
+    transitive callees retain explicit shift/divisor and narrow read/range
+    optimizer boundaries. Supported pure constants supply initial-image bits.
+    General memory, arbitrary indirect/external calls and native code remain
+    unsupported. Checked Print/PutChars calls execute under separate positive
+    output/work limits (both default 1,048,576). This convenience entrypoint
+    projects the outcome; use [run_integer_program_report] to retain captured
+    bytes on both success and failure. Implicit output preserves the last
+    ordinary expression. *)
 
 type integer_program_report
 

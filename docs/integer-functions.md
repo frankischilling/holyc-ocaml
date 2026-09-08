@@ -1,5 +1,9 @@
 # Integer source functions
 
+[Narrow integer signatures](integer-narrow.md) extend the same entry and return
+rules to I8/I16/U16/I32/U32: declared-width normalization inside eight-byte ABI
+slots, full register returns and exact source call/return identity.
+
 [U8 numeric parameters and returns](integer-byte-signatures.md) now share the
 checked call path. Parameters narrow at entry inside eight-byte ABI slots;
 returns preserve full register bits as runtime U64. Exact source U8 types,

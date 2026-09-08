@@ -166,7 +166,7 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                     | Error _ ->
                         invalid ~at ~code:"HCRUN0001"
                           "static execution requires positive fixed public \
-                           I64/U64/U8 storage"
+                           nonzero integer storage"
                   in
                   if
                     Option.is_none scalar_bytes
@@ -185,7 +185,7 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                     || Option.is_some (Frame.location_frame_slot location)
                   then
                     invalid ~at ~code:"HCRUN0001"
-                      "static execution requires scalar public I64/U64/U8 \
+                      "static execution requires public nonzero integer \
                        objects without frame slots"
                   else if
                     Shape.element_count shape > Sys.max_array_length - index

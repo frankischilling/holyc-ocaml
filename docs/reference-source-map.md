@@ -1,5 +1,12 @@
 # Reference source map
 
+[Narrow integers](integer-narrow.md) in #633 follow `BackLib.HC:281-309,509-534,
+550-572` for memory width/extension and register transport, and
+`OptPass789A.HC:710-717,779-782,1026-1030` for parameter entry and returns.
+`PrsVar.HC:132-134` permits I8/U8 copied strings. `PrsExp.HC:116,149-161,586`,
+`OptLib.HC:9-14,101-122,196-202` and `OptPass012.HC:151-191` distinguish native
+node classes from result/stack classes, notably for direct calls and COM.
+
 [U8 signatures](integer-byte-signatures.md) in #631 follow
 `Compiler/PrsExp.HC:468-483` and `BackLib.HC:312-347` for argument transport,
 `OptPass789A.HC:710-717` and `BackLib.HC:528-530` for byte parameter entry,

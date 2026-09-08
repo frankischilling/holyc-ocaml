@@ -267,12 +267,10 @@ let checked_integer_type result =
 
 let checked_frame_integer result =
   match checked_integer_type result with
-  | Ok (Checked_type type_) when Semantic_result.result_array_rank result = 0
-    -> (
-      match Type.base type_ with
-      | Type.Primitive (_, (Sema.Primitive_type.U8 | I64 | U64)) ->
-          Ok (Checked_type type_)
-      | _ -> Ok Unsupported_type)
+  | Ok (Checked_type type_) when Semantic_result.result_array_rank result = 0 ->
+      if Option.is_some (Integer_scalar_storage.of_type type_) then
+        Ok (Checked_type type_)
+      else Ok Unsupported_type
   | Ok (Checked_type _) -> Ok Unsupported_type
   | other -> other
 
@@ -286,17 +284,14 @@ let checked_frame_word result =
   | other -> other
 
 let scalar_pointer_type type_ =
-  Type.pointer_depth type_ = 1
-  &&
-  match Type.base type_ with
-  | Type.Primitive (_, (Sema.Primitive_type.U8 | I64 | U64)) -> true
-  | _ -> false
+  match Type.dereference type_ with
+  | Ok pointee -> Option.is_some (Integer_scalar_storage.of_type pointee)
+  | Error _ -> false
 
 let storage_element_size type_ =
-  match (Type.pointer_depth type_, Type.base type_) with
-  | 0, Type.Primitive (_, Sema.Primitive_type.U8) -> Some 1L
-  | 0, Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> Some 8L
-  | _ -> None
+  Option.map
+    (fun scalar -> Int64.of_int (Integer_scalar_storage.byte_size scalar))
+    (Integer_scalar_storage.of_type type_)
 
 let pointer_element_size type_ =
   match Type.dereference type_ with
@@ -871,7 +866,6 @@ let internal_scalar primitive type_ =
   | Type.Primitive (Type.Public_spelling, _) | Type.Aggregate _ -> false
 
 let internal_i64 = internal_scalar Sema.Primitive_type.I64
-let internal_u64 = internal_scalar Sema.Primitive_type.U64
 
 let same_symbol left right =
   Sema.Symbol.Id.equal (Sema.Symbol.id left) (Sema.Symbol.id right)
@@ -1117,13 +1111,19 @@ let checked_numeric_unary_types result opcode operand =
         (metadata_error ?span:(result_span result)
            "typed semantic unary expression does not have complete checked \
             types")
-  | Some result_type, Some operand_type ->
+  | Some result_type, Some _ ->
       let valid =
         match opcode with
-        | Opcode.Ic_unary_minus when internal_u64 operand_type ->
-            internal_i64 result_type
         | Opcode.Ic_unary_minus | Opcode.Ic_not ->
-            Type.equal result_type operand_type
+            Option.fold ~none:false
+              ~some:(fun operand_type ->
+                let expected =
+                  if opcode = Opcode.Ic_unary_minus then
+                    Sema.Integer_computation_class.negate operand_type
+                  else Sema.Integer_computation_class.forward operand_type
+                in
+                Type.equal result_type expected)
+              (Semantic_result.result_computation_type operand)
         | Opcode.Ic_com -> internal_i64 result_type
         | _ -> false
       in
@@ -3199,11 +3199,7 @@ let lower_store_initializer ?frame ?globals ?lower_call ~lower_address
     ~target_type ~span ~instruction_id ~value_id value =
   let ( let* ) = Result.bind in
   let target_is_word =
-    Type.pointer_depth target_type = 0
-    &&
-    match Type.base target_type with
-    | Type.Primitive (_, (Sema.Primitive_type.U8 | I64 | U64)) -> true
-    | _ -> false
+    Option.is_some (Integer_scalar_storage.of_type target_type)
   in
   let* value_type =
     checked_frame_value value |> Result.map_error (fun error -> [ error ])

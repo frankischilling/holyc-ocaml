@@ -157,7 +157,7 @@ let complement_rewrites_the_operator () =
       [
         block 4
           [
-            imm_i64 ~span:producer_span ~id:10 ~value:100 ~type_:u64 1L;
+            imm_i64 ~span:producer_span ~id:10 ~value:100 ~type_:i64 1L;
             unary ~span:operator_span ~id:11 ~operand:100 ~value:101 ~type_:i64
               Opcode.Ic_com;
             terminal 12;
@@ -253,11 +253,18 @@ let unsigned_type_rules_are_exact () =
             ];
         ]
     in
-    let constant = only_folded_constant (fold checked) 0 in
-    Alcotest.(check bool)
-      (Opcode.to_source_name opcode ^ " result type")
-      true
-      (constant.target_type = Some expected_type)
+    let folded = fold checked in
+    if opcode = Opcode.Ic_com then
+      Alcotest.(check string)
+        "unsigned COM retains both classes"
+        (Graph.human (X87.graph checked))
+        (Graph.human (folded_graph folded))
+    else
+      let constant = only_folded_constant folded 0 in
+      Alcotest.(check bool)
+        (Opcode.to_source_name opcode ^ " result type")
+        true
+        (constant.target_type = Some expected_type)
   in
   check Opcode.Ic_com i64;
   check Opcode.Ic_not u64;
@@ -269,7 +276,7 @@ let nested_chains_reach_a_fixed_point () =
       [
         block 7
           [
-            imm_i64 ~id:0 ~value:10 ~type_:u64 1L;
+            imm_i64 ~id:0 ~value:10 ~type_:i64 1L;
             unary ~id:1 ~operand:10 ~value:11 ~type_:i64 Opcode.Ic_com;
             unary ~id:2 ~operand:11 ~value:12 ~type_:i64 Opcode.Ic_unary_minus;
             unary ~id:3 ~operand:12 ~value:13 ~type_:i64 Opcode.Ic_not;
@@ -476,7 +483,7 @@ let rewrite_dump_is_deterministic () =
       [
         block 4
           [
-            imm_i64 ~id:10 ~value:100 ~type_:u64 1L;
+            imm_i64 ~id:10 ~value:100 ~type_:i64 1L;
             unary ~id:11 ~operand:100 ~value:101 ~type_:i64 Opcode.Ic_com;
             terminal 12;
           ];

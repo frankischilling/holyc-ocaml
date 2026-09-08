@@ -496,7 +496,7 @@ let tests =
                   "unproven native initializer update" "HCRUN0006" error.code;
                 Alcotest.(check bool)
                   "update-specific proof diagnostic" true
-                  (String.starts_with ~prefix:"initializer byte update"
+                  (String.starts_with ~prefix:"initializer narrow update"
                      error.message);
                 Alcotest.(check bool)
                   "initializer owner retained" true

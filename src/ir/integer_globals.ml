@@ -318,7 +318,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
           || Global.global_declarator_kind global <> Global.Object
         then
           fail "HCRUN0001"
-            "global execution requires scalar public I64/U64/U8 objects"
+            "global execution requires public nonzero integer objects"
         else
           let* dimensions =
             match Global.global_array_dimensions global with
@@ -427,16 +427,14 @@ let create_impl ?layout ?initializers ~span:unit_span records =
                           | _ -> false))
                     || not
                          (match Typed.result_type value with
-                         | Some type_ when Type.pointer_depth type_ = 0 -> (
-                             match Type.base type_ with
-                             | Type.Primitive
-                                 (_, (Sema.Primitive_type.I64 | U64 | U8)) ->
-                                 true
-                             | _ -> false)
+                         | Some type_ ->
+                             Option.is_some
+                               (Integer_scalar_storage.of_type type_)
                          | _ -> false)
                   then
                     fail "HCRUN0001"
-                      "global initializer requires a scalar I64/U64/U8 value"
+                      "global initializer requires a nonzero scalar integer \
+                       value"
                   else Ok (Some root)
               | _ ->
                   fail "HCIRL0004"

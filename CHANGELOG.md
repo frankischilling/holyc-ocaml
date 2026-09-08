@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Connected I8/I16/U16/I32/U32 storage, fixed arrays, references, updates and
+  numeric signatures in #633 through shared generated width/signedness metadata.
+  Generalized native initializer range proof and signed copied-byte handling.
+  Preserved effective unary/complement computation classes separately from
+  exact storage/call types, including bare execution and safe unary folding.
+  Added all-width, malformed-IR, API/CLI and measured resource-limit coverage.
+
 - Connected U8 numeric parameters and returns in #631 through existing exact
   call and frame joins. Parameters narrow at entry while charging eight-byte
   ABI slots; U8 returns preserve full register bits. Initializer proof admits

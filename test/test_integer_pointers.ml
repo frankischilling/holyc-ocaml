@@ -164,7 +164,7 @@ let boundaries () =
           "I64 n=42;I64 *p=&n;42;";
           "I64 F(){static I64 n=42;static I64 *p=&n;return n;}F();";
           "I64 F(){I64 n=42;I64 *p=&n;I64 **q=&p;return **q;}F();";
-          "I64 F(){I32 n=42;I32 *p=&n;return *p;}F();";
+          "I64 F(){I0 n=42;I0 *p=&n;return *p;}F();";
           "I64 F(){I64 n=42;U64 *p=&n;return *p;}F();";
         ])
     G.modes
