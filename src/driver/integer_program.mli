@@ -13,6 +13,7 @@ val globals : compiled -> Ir.Integer_globals.t
 val initialization : compiled -> Ir.Global_initialization.t
 val initializer_preparation : compiled -> Integer_initializers.t
 val functions : compiled -> Ir.Integer_interpreter.function_definition list
+val runtime_calls : compiled -> Ir.Runtime_call_context.t
 val human : compiled -> string
 
 val lower :
@@ -27,6 +28,8 @@ val run :
   ?max_literal_bytes:int ->
   ?max_frame_bytes:int ->
   ?max_call_depth:int ->
+  ?max_output_bytes:int ->
+  ?max_output_work:int ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->
   source:Common.Source_file.t ->

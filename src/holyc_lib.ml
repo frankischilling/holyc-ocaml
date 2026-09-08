@@ -24,6 +24,7 @@ module Ir_x87_stack = Ir.X87_stack
 module Ir_integer_globals = Ir.Integer_globals
 module Ir_global_address_lowering = Ir.Global_address_lowering
 module Ir_integer_interpreter = Ir.Integer_interpreter
+module Ir_runtime_call_context = Ir.Runtime_call_context
 module Ir_integer_program_lowering = Ir.Integer_program_lowering
 module Ir_global_initialization = Ir.Global_initialization
 module Integer_initializer_preparation = Driver.Integer_initializers
@@ -474,5 +475,17 @@ let integer_program_initializer_preparation =
   Driver.Integer_program.initializer_preparation
 
 let integer_program_functions = Driver.Integer_program.functions
+let integer_program_runtime_calls = Driver.Integer_program.runtime_calls
 let integer_program_human = Driver.Integer_program.human
 let run_integer_program = Driver.Integer_program.run
+
+type integer_program_report = Driver.Integer_program_report.t
+
+let run_integer_program_report = Driver.Integer_program_report.run
+let integer_program_report_outcome = Driver.Integer_program_report.outcome
+
+let integer_program_report_output_bytes =
+  Driver.Integer_program_report.output_bytes
+
+let integer_program_report_output_work =
+  Driver.Integer_program_report.output_work

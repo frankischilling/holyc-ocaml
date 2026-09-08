@@ -13,6 +13,7 @@ type t = {
   result_type_ : Sema.Type.t;
   next_instruction_id_ : Sequence.Instruction_id.t;
   next_value_id_ : Sequence.Value_id.t;
+  runtime_call_ : Runtime_call_context.description;
 }
 
 type lowering_result = Lowered of t | Unsupported_call
@@ -300,7 +301,7 @@ let lower_variadic_count ~span ~instruction_id ~value_id ~count = function
               next_value_id ))
 
 let lower_supported ?frame ?globals ?lower_call ~span ~instruction_id ~value_id
-    ~symbol ~record ~arguments ~variadic_count_type ~variadic_count
+    ~source ~symbol ~record ~arguments ~variadic_count_type ~variadic_count
     ~variadic_arguments ~call_opcode result_type =
   let start_id = instruction_id in
   match next_instruction_id ~span instruction_id with
@@ -393,6 +394,14 @@ let lower_supported ?frame ?globals ?lower_call ~span ~instruction_id ~value_id
                                  result_type_ = result_type;
                                  next_instruction_id_;
                                  next_value_id_;
+                                 runtime_call_ =
+                                   Runtime_call_context.
+                                     {
+                                       source;
+                                       first = start_id;
+                                       last = end_id;
+                                       discard = None;
+                                     };
                                }))))))
 
 let lower ?frame ?globals ?lower_call ~instruction_id ~value_id ~target result =
@@ -431,6 +440,7 @@ let lower ?frame ?globals ?lower_call ~instruction_id ~value_id ~target result =
                     let direct = target_resolution target in
                     lower_supported ?frame ?globals ?lower_call ~span
                       ~instruction_id ~value_id
+                      ~source:(Runtime_call_context.Function_call target)
                       ~symbol:(Resolution.direct_target_symbol direct)
                       ~record:(Target.record target) ~arguments
                       ~variadic_count_type ~variadic_count ~variadic_arguments
@@ -474,16 +484,178 @@ let lower_top_level ?frame ?globals ?lower_call ~instruction_id ~value_id
                     let typed = Top_target.source target in
                     lower_supported ?frame ?globals ?lower_call ~span
                       ~instruction_id ~value_id
+                      ~source:(Runtime_call_context.Top_level_call target)
                       ~symbol:(Result.top_level_direct_target_symbol typed)
                       ~record:(Top_target.record target) ~arguments
                       ~variadic_count_type ~variadic_count ~variadic_arguments
                       ~call_opcode result_type)))
+
+let lower_output ?frame ?globals ?lower_call ~records ~instruction_id ~value_id
+    ~source ~origin ~header ~declaration ~symbol ~arguments ~variadic_arguments
+    () =
+  match span_of_origin origin with
+  | Error error -> Error [ error ]
+  | Ok span -> (
+      let classified =
+        Records.declarations records
+        |> List.find_opt (fun candidate ->
+            Records.classified_declaration_source candidate == declaration)
+      in
+      match classified with
+      | None ->
+          Error
+            [
+              metadata_error ~span
+                "implicit output declaration does not belong to the call \
+                 record classification";
+            ]
+      | Some classified -> (
+          let selected_header =
+            declaration |> Sema.Function_resolution.resolved_declaration_site
+            |> Sema.Function_resolution.declaration_site_function
+          in
+          if
+            selected_header != header
+            || Sema.Function_resolution.resolved_declaration_identity_symbol
+                 declaration
+               != symbol
+          then
+            Error
+              [
+                metadata_error ~span
+                  "implicit output header and symbol do not match their \
+                   selected declaration";
+              ]
+          else
+            let record = Records.classified_declaration_record classified in
+            match (call_opcode (Records.call_access record), arguments) with
+            | None, _ | _, None -> Ok Unsupported_call
+            | Some call_opcode, Some arguments ->
+                let parameters =
+                  header |> Sema.Function_type_resolution.function_signature
+                  |> Sema.Function_type_resolution.signature_parameters
+                in
+                if
+                  List.length parameters <> List.length arguments
+                  || not
+                       (List.for_all2
+                          (fun parameter (actual, _) -> parameter == actual)
+                          parameters arguments)
+                then
+                  Error
+                    [
+                      metadata_error ~span
+                        "implicit output fixed slots changed their parameter \
+                         identities";
+                    ]
+                else
+                  let variadic_count_type =
+                    header
+                    |> Sema.Function_type_resolution.function_variadic_bindings
+                    |> Option.map (fun bindings ->
+                        bindings |> Sema.Function_type_resolution.variadic_argc
+                        |> Sema.Function_type_resolution.synthetic_binding_type)
+                  in
+                  if
+                    Option.is_none variadic_count_type
+                    && variadic_arguments <> []
+                  then
+                    Error
+                      [
+                        metadata_error ~span
+                          "nonvariadic implicit output retains a variadic tail";
+                      ]
+                  else
+                    let result_type =
+                      header
+                      |> Sema.Function_type_resolution.function_return_type
+                      |> Sema.Type_reference.resolved_type
+                    in
+                    lower_supported ?frame ?globals ?lower_call ~span
+                      ~instruction_id ~value_id ~source ~symbol ~record
+                      ~arguments:(List.map snd arguments) ~variadic_count_type
+                      ~variadic_count:
+                        (Int64.of_int (List.length variadic_arguments))
+                      ~variadic_arguments ~call_opcode result_type))
+
+let lower_implicit_output ?frame ?globals ?lower_call ~records ~instruction_id
+    ~value_id output =
+  let module Bound = Sema.Implicit_output_argument_binding in
+  let module Target = Sema.Implicit_output_target_resolution in
+  let target = Bound.bound_source output in
+  match Target.output_binding target with
+  | Target.Outer_function _ -> Ok Unsupported_call
+  | Target.Module_function target ->
+      let rec fixed rev = function
+        | [] -> Some (List.rev rev)
+        | slot :: rest -> (
+            match Bound.fixed_path slot with
+            | Bound.Provided_path provided
+              when Bound.provided_conversion provided = Bound.No_conversion ->
+                fixed
+                  ((Bound.fixed_parameter slot, Bound.provided_result provided)
+                  :: rev)
+                  rest
+            | _ -> None)
+      in
+      let typed = Bound.bound_source output |> Target.output_source in
+      if Result.implicit_output_result_use typed <> Result.Result_not_used then
+        Error
+          [
+            metadata_error
+              "implicit output has no checked discarded-result intent";
+          ]
+      else
+        lower_output ?frame ?globals ?lower_call ~records ~instruction_id
+          ~value_id ~source:(Runtime_call_context.Function_output output)
+          ~origin:
+            (typed |> Result.implicit_output_source
+           |> Resolution.implicit_output_origin)
+          ~header:(Bound.bound_header output)
+          ~declaration:(Target.module_declaration target)
+          ~symbol:(Target.module_target_symbol target)
+          ~arguments:(fixed [] (Bound.bound_fixed_slots output))
+          ~variadic_arguments:(Bound.bound_variadic_values output)
+          ()
+
+let lower_top_level_implicit_output ?frame ?globals ?lower_call ~records
+    ~instruction_id ~value_id output =
+  let module Bound = Sema.Top_level_implicit_output_argument_binding in
+  let module Target = Sema.Top_level_implicit_output_target_resolution in
+  let source = Bound.bound_source output in
+  match Target.output_binding source with
+  | Target.Outer_function _ -> Ok Unsupported_call
+  | Target.Module_function target ->
+      let rec fixed rev = function
+        | [] -> Some (List.rev rev)
+        | slot :: rest -> (
+            match Bound.fixed_path slot with
+            | Bound.Provided_path provided
+              when Bound.provided_conversion provided = Bound.No_conversion ->
+                fixed
+                  ((Bound.fixed_parameter slot, Bound.provided_result provided)
+                  :: rev)
+                  rest
+            | _ -> None)
+      in
+      lower_output ?frame ?globals ?lower_call ~records ~instruction_id
+        ~value_id ~source:(Runtime_call_context.Top_level_output output)
+        ~origin:(Target.output_marker_origin source)
+        ~header:(Bound.bound_header output)
+        ~declaration:(Target.module_declaration target)
+        ~symbol:(Target.module_target_symbol target)
+        ~arguments:(fixed [] (Bound.bound_fixed_slots output))
+        ~variadic_arguments:
+          (List.map Result.top_level_root_value
+             (Bound.bound_variadic_roots output))
+        ()
 
 let sequence lowered = lowered.sequence_
 let result_value lowered = lowered.result_value_
 let result_type lowered = lowered.result_type_
 let next_instruction_id lowered = lowered.next_instruction_id_
 let next_value_id lowered = lowered.next_value_id_
+let runtime_call lowered = lowered.runtime_call_
 
 let human lowered =
   Printf.sprintf

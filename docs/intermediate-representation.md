@@ -1,5 +1,12 @@
 # Intermediate-code specification
 
+[Captured output](integer-output.md) adds a checked runtime-call context for the
+exact finished entry and function bodies. Selected declaration/header snapshots,
+argument producers, hidden counts, opcode, cleanup and implicit discard origins
+remain attached to canonical call instructions. Hosted providers complete U0
+calls through the existing no-value state; they do not fabricate source bodies.
+Report entrypoints retain bytes and output work after later execution faults.
+
 [U0 calls](integer-u0.md) retain their canonical call-end result identity.
 The VM separately represents pending calls, completed void calls and returned
 words. Only checked U0 call-end producers create private no-value markers, and

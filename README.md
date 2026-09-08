@@ -2,14 +2,21 @@
 
 `holyc-ocaml` is an OCaml implementation of the HolyC compiler. The command is `holyc`, and the public OCaml library is `holyc_lib`. Compatibility work follows the TempleOS source tree at commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
+## Captured runtime output
+
+`holyc run --format=json examples/integer-output.hc` captures `42` followed by
+newline and reports final I64 42 separately. [Runtime output](docs/integer-output.md)
+describes the checked Print/PutChars providers, initial formatting grammar,
+byte/work limits and v2 reports that retain output on failure.
+`--report-version=1` preserves the earlier reporting contract.
+
 ## U0 calls
 
 `holyc run --target=ir examples/integer-u0.hc` calls a U0 procedure that
 writes a global, then reports 42 in both modes. It uses 19 runtime instructions,
 eight frame bytes, eight global bytes and call depth one.
 [U0 function calls](docs/integer-u0.md) describes early returns, fallthrough,
-checked no-value completion and human/JSON reporting. Runtime output remains
-unfinished.
+checked no-value completion and human/JSON reporting.
 
 ## String-literal storage
 
@@ -18,7 +25,8 @@ uses `holyc run --target=ir examples/integer-strings.hc` in both modes.
 The fixture returns 42 in 45 runtime instructions with two literal bytes.
 [Owned string storage](docs/integer-strings.md) describes persistent mutable
 literal objects, exact byte termination, U8 pointer compatibility and the
-separate `--literal-byte-limit` resource bound. Runtime output remains unfinished.
+separate `--literal-byte-limit` resource bound. The captured-output path reuses
+these owned bytes for formats and string arguments.
 
 ## Byte storage and indexing
 
@@ -137,7 +145,7 @@ verified graph, and `run --format=json` records build and execution metadata.
 The example completes in 23 instructions. A limit of 22 fails before the final
 stream-end instruction.
 
-Printing, general memory, exceptions, `#exe` and native backends remain
+Full runtime formatting, general memory, exceptions, `#exe` and native backends remain
 unfinished. Unsupported source produces a
 diagnostic, including in unreachable branches. See [integer programs](docs/integer-programs.md)
 for the source rules, accepted domain, fault semantics and test commands.
@@ -208,9 +216,9 @@ Typed function-pointer values now continue beyond the earlier deferred-call boun
 
 Ordinary expression statements inside checked function definitions use the same immutable expression result as call arguments. Each statement keeps its recursive source order, source origin, checked type, result class, nested call identity, and explicit `ICF_RES_NOT_USED` intent. Accepted numeric function and top-level statements emit `IC_END_EXP`; a target-aware top-level path also terminates standalone checked direct calls after their complete call fragment. The integer program path executes discarded values, supported nested calls and scalar side effects. Implicit `Print` and `PutChars` execution remains unavailable.
 
-Implicit output statements inside checked functions now have their own semantic records. Each record keeps the synthetic `Print` or `PutChars` target, the literal marker, whether that marker or a following expression fills the fixed slot, every ordered `Print` argument, nested call identities, and `ICF_RES_NOT_USED` intent. A following pass resolves the target through source-visible module function headers and then through a supplied JIT or AOT outer-table snapshot. Its typed lookup skips same-name nonfunction records, matching the `HTT_FUN` mask used by TempleOS. The argument binder consumes that exact checked header, keeps provided and defaulted fixed paths distinct, records integer and `F64` conversion intent, and places only the remaining values in the variadic tail. An outer record is explicitly deferred until the caller supplies a checked header for the same symbol. Format validation, vararg promotion, evaluated default payloads, call lowering, and output are not implemented.
+Implicit output statements inside checked functions now have their own semantic records. Each record keeps the synthetic `Print` or `PutChars` target, the literal marker, whether that marker or a following expression fills the fixed slot, every ordered `Print` argument, nested call identities, and `ICF_RES_NOT_USED` intent. A following pass resolves the target through source-visible module function headers and then through a supplied JIT or AOT outer-table snapshot. Its typed lookup skips same-name nonfunction records, matching the `HTT_FUN` mask used by TempleOS. The argument binder consumes that exact checked header, keeps provided and defaulted fixed paths distinct, records integer and `F64` conversion intent, and places only the remaining values in the variadic tail. An outer record is explicitly deferred until the caller supplies a checked header for the same symbol. The bounded output connection in #621 reuses these checked records for canonical call lowering and the initial hosted formatting grammar. General vararg promotion, evaluated default payloads and full formatting remain unfinished.
 
-Executable top-level output statements use parallel target and argument passes without inventing a function scope. Target resolution groups the already typed fixed and trailing roots, preserves empty-marker and definition-generated origins, and selects the newest module function published before the containing statement. A same-name object is skipped, as it is under TempleOS's `HTT_FUN` lookup mask. If no module header is visible, lookup follows the exact JIT task-parent or AOT enclosing-compilation chain retained by the expression batch, ending at the assembler table. The argument pass then binds provided or defaulted fixed slots, records integer and `F64` conversion intent, keeps JIT and AOT default materialization distinct, and places only values beyond the fixed parameter count in `Print`'s variadic tail. An outer target stays deferred until the caller supplies a checked header for that exact symbol. Format parsing, evaluated default payloads, vararg promotion, lowering, and output remain unavailable.
+Executable top-level output statements use parallel target and argument passes without inventing a function scope. Target resolution groups the already typed fixed and trailing roots, preserves empty-marker and definition-generated origins, and selects the newest module function published before the containing statement. A same-name object is skipped, as it is under TempleOS's `HTT_FUN` lookup mask. If no module header is visible, lookup follows the exact JIT task-parent or AOT enclosing-compilation chain retained by the expression batch, ending at the assembler table. The argument pass then binds provided or defaulted fixed slots, records integer and `F64` conversion intent, keeps JIT and AOT default materialization distinct, and places only values beyond the fixed parameter count in `Print`'s variadic tail. An outer target stays deferred until the caller supplies a checked header for that exact symbol. The bounded output connection in #621 consumes these records for canonical lowering and captured output. Evaluated default payloads, general vararg promotion and full formatting remain unfinished.
 
 Executable top-level conditions now have a checked contextual view over those typed roots. Each `if`, `while`, `do while`, or `for` record retains its top-level statement, contiguous condition identity, keyword origin, exact expression result, and source branch sense. `if`, `while`, and `for` branch on zero; `do while` branches back on nonzero. Integer and `F64` classes remain intact, and nested direct or callback calls keep their result identities. This is still semantic analysis: no Boolean conversion, control-flow edge, branch instruction, or top-level execution is created.
 
@@ -270,7 +278,7 @@ The parser remains a syntax layer. Its function-wide lookup context routes ident
 
 Semantic analysis still lacks general duplicate-declaration legality, complete type-use resolution, the remaining `sizeof` targets, live task/compiler table chains, complete task-level linkage and import or assembly binding. Primitive, intrinsic and source-visible aggregate casts retain only their documented conversion rules. Defaults nested inside callback declarators retain syntax and origins, but their ordinary names and values remain unresolved. Default evaluation and substitution, explicit register requests and general aggregate storage remain unfinished.
 
-The bounded integer program path does type, lower and execute supported expressions, global/static initializers, local storage, direct calls, returns, loop breaks and conditions. Pointer aliases and automatic array elements retain checked object identity and invocation lifetimes. Broader execution still needs `Print` formatting and variadic promotion, assembly operand resolution and output-address validation, unused-label warnings, lock propagation, complete switch labels/tables and sub-switch rules, exception unwinding, `SysTry`/`SysUntry`, and unsupported expression and storage forms. Source publication boundaries and explicit diagnostics remain part of each implemented slice.
+The bounded integer program path does type, lower and execute supported expressions, global/static initializers, local storage, direct calls, returns, loop breaks and conditions. Pointer aliases and automatic array elements retain checked object identity and invocation lifetimes. Broader execution still needs full `Print` formatting and variadic promotion, assembly operand resolution and output-address validation, unused-label warnings, lock propagation, complete switch labels/tables and sub-switch rules, exception unwinding, `SysTry`/`SysUntry`, and unsupported expression and storage forms. Source publication boundaries and explicit diagnostics remain part of each implemented slice.
 
 Definition backings and bases resolve to semantic header types or aggregate identities. Fixed-call target policy follows a backing chain for the narrow `PrsFunCall` raw-type comparison, but general backing collapse, whole-value conversion, and subinteger access are not implemented. A closed base contributes its size at offset zero, and the member index follows the resolved base chain; cycle handling outside closed layout and call-target policy remains incomplete. Member metadata expressions are not evaluated, indexed, or exposed through `MemberMetaData` and `MemberMetaFind`. A top-level aggregate definition may declare pointer, array, function-pointer, or comma-separated globals after its closing brace, and globals retain scalar or recursive braced initializer syntax. Callback globals and members have resolved recursive signatures. Parameter, local, global, and checked aggregate-member callback values participate in semantic indirect calls. Callback members also carry `MLF_FUN`, have pointer-sized layout, and retain their exact header in lookup entries. Member-call selection, slot binding, and return typing are implemented; default evaluation, storage reads, lowering, and execution remain unavailable. No aggregate declaration has runtime allocation, lowering, or execution. Aggregate and callback initializer trees remain unevaluated; supported scalar declaration initializers execute through the integer program path. Closed aggregate-offset directives do affect layout, while symbol-dependent offset expressions remain explicit semantic failures. Nested named definitions, direct local callback initializers, automatic local braced initializers, and many other corpus declaration forms remain unavailable and fail with explicit diagnostics. Exception semantics, lock-aware IR and code emission, direct-assembly label collection, directive evaluation and state changes, operand validation, and complete corpus parsing also remain unavailable.
 

@@ -1,5 +1,12 @@
 # Reference source map
 
+[Captured output](integer-output.md) in #621 uses `Kernel/KExts.HC:83-84` for
+provider signatures, `Compiler/PrsExp.HC:530-588` for the call protocol,
+`Kernel/StrPrint.HC:364-365,390-411,433-434,869-895` for consumed arguments,
+packed characters, ignored trailing arguments and Print publication, and
+`Kernel/KeyDev.HC:1-25` for PutChars byte order. Owned bounds and resource
+diagnostics are hosted restrictions; no new native capture is claimed.
+
 The [U0 execution connection](integer-u0.md#source-evidence-and-tests) in #619
 uses `Compiler/PrsExp.HC:530-588` for call order and cleanup,
 `Compiler/PrsStmt.HC:150-169,1110-1119` for leave/return and warning semantics,

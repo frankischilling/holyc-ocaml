@@ -8,6 +8,8 @@ type prepared = {
   records_ : Sema.Function_record_classification.t;
   global_records_ : Sema.Global_record_classification.t;
   initializers_ : Sema.Global_initializer_binding.t option;
+  function_outputs_ : Sema.Implicit_output_argument_binding.t;
+  top_level_outputs_ : Sema.Top_level_implicit_output_argument_binding.t;
 }
 
 let top_level prepared = prepared.top_level_
@@ -16,6 +18,8 @@ let frames prepared = prepared.frames_
 let records prepared = prepared.records_
 let global_records prepared = prepared.global_records_
 let initializers prepared = prepared.initializers_
+let function_outputs prepared = prepared.function_outputs_
+let top_level_outputs prepared = prepared.top_level_outputs_
 let ( let* ) = Result.bind
 
 let diagnostic ~span code message =
@@ -193,6 +197,33 @@ let prepare_unit ?(include_global_initializers = false) session ~config ~span
     |> Result.map_error Typed.error_to_string
     |> checked
   in
+  let* function_output_targets =
+    Sema.Implicit_output_target_resolution.resolve ~table ~environment
+      ~module_expressions ~function_types ~functions
+      ~expressions:function_results
+    |> Result.map_error Sema.Implicit_output_target_resolution.error_to_string
+    |> checked
+  in
+  let* function_outputs_ =
+    Sema.Implicit_output_argument_binding.bind ~table ~policies
+      function_output_targets
+    |> Result.map_error Sema.Implicit_output_argument_binding.error_to_string
+    |> checked
+  in
+  let* top_level_output_targets =
+    Sema.Top_level_implicit_output_target_resolution.resolve ~table
+      ~function_types ~functions typed
+    |> Result.map_error
+         Sema.Top_level_implicit_output_target_resolution.error_to_string
+    |> checked
+  in
+  let* top_level_outputs_ =
+    Sema.Top_level_implicit_output_argument_binding.bind ~table ~policies
+      top_level_output_targets
+    |> Result.map_error
+         Sema.Top_level_implicit_output_argument_binding.error_to_string
+    |> checked
+  in
   let* frames =
     Function_frame_layout.layout ~table ~declarations ~bindings ~function_types
       ~local_types ~aggregate_layouts:layouts ast
@@ -212,6 +243,8 @@ let prepare_unit ?(include_global_initializers = false) session ~config ~span
       functions_ = function_results;
       frames_ = frames;
       records_ = records;
+      function_outputs_;
+      top_level_outputs_;
     }
 
 let prepare session ~config ~span ast =

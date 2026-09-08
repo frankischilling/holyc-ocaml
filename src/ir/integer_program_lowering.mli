@@ -1,6 +1,9 @@
 type statement =
   | Empty of Common.Span.t
   | Expression of Sema.Function_call_expression_result.expression_result
+  | Function_output of Sema.Implicit_output_argument_binding.bound_output
+  | Top_level_output of
+      Sema.Top_level_implicit_output_argument_binding.bound_output
   | Initialize of Sema.Function_call_expression_result.initializer_result
   | Initialize_global of
       Sema.Function_call_expression_result.top_level_root_result
@@ -20,6 +23,29 @@ type statement =
       * statement option
       * statement
   | Break of Common.Span.t
+
+type t
+
+val lower_complete :
+  ?frame:Sema.Function_frame_layout.function_layout ->
+  ?globals:Integer_globals.t ->
+  ?records:Sema.Function_record_classification.t ->
+  ?top_calls:Sema.Top_level_function_call_target_classification.t list ->
+  ?function_calls:Sema.Function_call_target_classification.t list ->
+  span:Common.Span.t ->
+  statement list ->
+  (t, Common.Diagnostic.t list) result
+
+val graph : t -> X87_stack.t
+val initializer_regions : t -> Global_initialization.region_description list
+
+val static_initializer_regions :
+  t -> Global_initialization.static_region_description list
+
+val runtime_calls : t -> Runtime_call_context.description list
+(** Complete lowering retains checked call origins and implicit-output discard
+    identities for graph-owned runtime validation. The graph-only wrappers do
+    not provide implicit-output execution authority. *)
 
 val lower_with_storage_initializers :
   ?frame:Sema.Function_frame_layout.function_layout ->

@@ -5,6 +5,9 @@ module Source = Sema.Function_call_resolution
 type statement =
   | Empty of Common.Span.t
   | Expression of Typed.expression_result
+  | Function_output of Sema.Implicit_output_argument_binding.bound_output
+  | Top_level_output of
+      Sema.Top_level_implicit_output_argument_binding.bound_output
   | Initialize of Typed.initializer_result
   | Initialize_global of Typed.top_level_root_result
   | Initialize_static of Integer_globals.static_slot
@@ -15,6 +18,19 @@ type statement =
   | Do_while of statement * Typed.expression_result
   | For of statement * Typed.expression_result * statement option * statement
   | Break of Common.Span.t
+
+type t = {
+  graph_ : X87_stack.t;
+  initializer_regions_ : Global_initialization.region_description list;
+  static_initializer_regions_ :
+    Global_initialization.static_region_description list;
+  runtime_calls_ : Runtime_call_context.description list;
+}
+
+let graph result = result.graph_
+let initializer_regions result = result.initializer_regions_
+let static_initializer_regions result = result.static_initializer_regions_
+let runtime_calls result = result.runtime_calls_
 
 exception Invalid of Common.Diagnostic.t list
 
@@ -31,7 +47,7 @@ let span_of_result fallback result =
   | Sema.Symbol.Source_location location -> location.span
   | _ -> fallback
 
-let lower_with_storage_initializers ?frame ?globals ?(top_calls = [])
+let lower_complete ?frame ?globals ?records ?(top_calls = [])
     ?(function_calls = []) ~span statements =
   try
     let instruction_count = ref 0
@@ -39,6 +55,7 @@ let lower_with_storage_initializers ?frame ?globals ?(top_calls = [])
     and block_count = ref 0 in
     let initial_regions = ref [] in
     let static_regions = ref [] in
+    let runtime_calls = ref [] in
     let checked_id = function
       | Ok value -> value
       | Error (e : Sequence.error) -> fail span e.code e.message
@@ -204,10 +221,45 @@ let lower_with_storage_initializers ?frame ?globals ?(top_calls = [])
         (function
           | Direct_call_lowering.Unsupported_call -> None
           | Direct_call_lowering.Lowered result ->
+              runtime_calls :=
+                Direct_call_lowering.runtime_call result :: !runtime_calls;
               Some (Direct_call_lowering.sequence result))
         lowered
     in
     let direct_call = direct_call_in frame in
+    let output_statement ~at lower =
+      let records =
+        match records with
+        | Some records -> records
+        | None ->
+            fail at "HCRUN0004"
+              "implicit output requires checked declaration records"
+      in
+      let instruction_id =
+        Sequence.Instruction_id.of_int !instruction_count |> checked_id
+      in
+      let value_id = Sequence.Value_id.of_int !value_count |> checked_id in
+      match lower ~records ~instruction_id ~value_id with
+      | Error errors -> lower_errors errors
+      | Ok Direct_call_lowering.Unsupported_call ->
+          fail at "HCRUN0003" "implicit output is outside checked call lowering"
+      | Ok (Direct_call_lowering.Lowered result) ->
+          let operand =
+            append_fragment
+              (Direct_call_lowering.sequence result)
+              (Direct_call_lowering.next_instruction_id result)
+              (Direct_call_lowering.next_value_id result)
+              (Direct_call_lowering.result_value result)
+          in
+          let discard =
+            Sequence.Instruction_id.of_int !instruction_count |> checked_id
+          in
+          instruction ~at ~operands:[ operand ] ~flags:0x200L Opcode.Ic_end_exp;
+          let call = Direct_call_lowering.runtime_call result in
+          runtime_calls :=
+            { call with Runtime_call_context.discard = Some discard }
+            :: !runtime_calls
+    in
     let expression value =
       let instruction_id =
         Sequence.Instruction_id.of_int !instruction_count |> checked_id
@@ -271,6 +323,37 @@ let lower_with_storage_initializers ?frame ?globals ?(top_calls = [])
     in
     let rec statement break_target = function
       | Empty _ -> ()
+      | Function_output output ->
+          let origin =
+            output |> Sema.Implicit_output_argument_binding.bound_source
+            |> Sema.Implicit_output_target_resolution.output_source
+            |> Typed.implicit_output_source |> Source.implicit_output_origin
+          in
+          let at =
+            match origin with
+            | Sema.Symbol.Source_location location -> location.span
+            | _ -> span
+          in
+          output_statement ~at (fun ~records ~instruction_id ~value_id ->
+              Direct_call_lowering.lower_implicit_output ?frame ?globals
+                ~lower_call:direct_call ~records ~instruction_id ~value_id
+                output)
+      | Top_level_output output ->
+          let origin =
+            output
+            |> Sema.Top_level_implicit_output_argument_binding.bound_source
+            |> Sema.Top_level_implicit_output_target_resolution
+               .output_marker_origin
+          in
+          let at =
+            match origin with
+            | Sema.Symbol.Source_location location -> location.span
+            | _ -> span
+          in
+          output_statement ~at (fun ~records ~instruction_id ~value_id ->
+              Direct_call_lowering.lower_top_level_implicit_output ?frame
+                ?globals ~lower_call:direct_call ~records ~instruction_id
+                ~value_id output)
       | Initialize_global root -> (
           let at = span_of_result span (Typed.top_level_root_value root) in
           match (globals, frame) with
@@ -476,7 +559,12 @@ let lower_with_storage_initializers ?frame ?globals ?(top_calls = [])
     in
     X87_stack.verify graph
     |> Result.map (fun graph ->
-        (graph, List.rev !initial_regions, List.rev !static_regions))
+        {
+          graph_ = graph;
+          initializer_regions_ = List.rev !initial_regions;
+          static_initializer_regions_ = List.rev !static_regions;
+          runtime_calls_ = List.rev !runtime_calls;
+        })
     |> Result.map_error
          (List.map (fun (e : X87_stack.error) ->
               Common.Diagnostic.make ~code:e.code
@@ -484,6 +572,34 @@ let lower_with_storage_initializers ?frame ?globals ?(top_calls = [])
                 ~primary:(Option.value e.span ~default:span)
                 ()))
   with Invalid diagnostics -> Error diagnostics
+
+let lower_with_storage_initializers ?frame ?globals ?top_calls ?function_calls
+    ~span statements =
+  match
+    lower_complete ?frame ?globals ?top_calls ?function_calls ~span statements
+  with
+  | Error _ as error -> error
+  | Ok result ->
+      if
+        List.exists
+          (fun (call : Runtime_call_context.description) ->
+            Option.is_some call.discard)
+          result.runtime_calls_
+      then
+        Error
+          [
+            Common.Diagnostic.make ~code:"HCRUN0004"
+              ~severity:Common.Diagnostic.Error ~primary:span
+              ~message:
+                "implicit output requires complete lowering and its checked \
+                 call context"
+              ();
+          ]
+      else
+        Ok
+          ( result.graph_,
+            result.initializer_regions_,
+            result.static_initializer_regions_ )
 
 let lower_with_initializers ?frame ?globals ?top_calls ?function_calls ~span
     statements =
