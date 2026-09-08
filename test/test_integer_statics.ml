@@ -119,7 +119,7 @@ let boundaries () =
         [
           "I64 F(){static I64 *n;return 0;}42;";
           "I64 F(){static F64 n;return 0;}42;";
-          "I64 F(){static I32 n;return 0;}42;";
+          "I64 F(){static I0 n;return 0;}42;";
           "I64 F(){static I64 n={42};return 0;}42;";
         ])
     G.modes;

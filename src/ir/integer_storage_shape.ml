@@ -1,4 +1,5 @@
 type t = {
+  scalar : Integer_scalar_storage.t;
   dimensions : int64 list;
   strides : int64 list;
   element_count : int;
@@ -11,15 +12,18 @@ let dimensions shape = shape.dimensions
 let strides shape = shape.strides
 let element_count shape = shape.element_count
 let byte_size shape = shape.byte_size
+let scalar shape = shape.scalar
 
 let padded_byte_size shape =
   if shape.byte_size > Int.max_int - 7 then None
   else Some ((shape.byte_size + 7) land lnot 7)
 
 let create ~type_ ~dimensions =
-  match Integer_scalar_storage.public_byte_size type_ with
-  | None -> Error Unsupported_type
-  | Some width ->
+  match
+    ( Integer_scalar_storage.public_byte_size type_,
+      Integer_scalar_storage.of_type type_ )
+  with
+  | Some width, Some scalar ->
       let ( let* ) = Result.bind in
       let limit = Int64.of_int Int.max_int in
       let rec collect = function
@@ -40,8 +44,10 @@ let create ~type_ ~dimensions =
       else
         Ok
           {
+            scalar;
             dimensions;
             strides;
             element_count = Int64.to_int elements;
             byte_size = Int64.to_int bytes;
           }
+  | _ -> Error Unsupported_type

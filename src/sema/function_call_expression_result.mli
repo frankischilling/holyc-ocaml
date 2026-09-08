@@ -483,6 +483,11 @@ val result_index_operands :
     [None]; this evidence does not change array rank or value category. *)
 
 val result_type : expression_result -> Type.t option
+
+val result_computation_type : expression_result -> Type.t option
+(** Effective native integer producer class, derived from retained expression
+    provenance while preserving [result_type] for exact declaration joins. *)
+
 val result_category : expression_result -> value_category
 val result_class : expression_result -> result_class
 val result_execution_class : expression_result -> result_class option

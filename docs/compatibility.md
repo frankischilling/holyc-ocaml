@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+[Narrow integer execution](integer-narrow.md) in #633 adds I8/I16/U16/I32/U32
+storage, fixed arrays, references, canonical updates and numeric signatures.
+Signed normalization, full register transport, producer-specific computation
+classes and transitive initializer range proof have separate checked roles.
+This includes repairing U64 storage negation and complement class propagation.
+
 [U8 numeric signatures](integer-byte-signatures.md) in #631 now execute with
 entry narrowing and full returned register bits. Parameter object size remains
 one byte within an eight-byte ABI allocation. Native initializer proof admits

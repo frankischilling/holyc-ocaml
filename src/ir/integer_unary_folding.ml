@@ -95,7 +95,10 @@ let immediate_of_description (description : Sequence.description) =
 
 let unary_result_type opcode operand result =
   match opcode with
-  | Opcode.Ic_com -> result = I64
+  | Opcode.Ic_com ->
+      (* A plain immediate cannot retain COM's distinct unsigned node class
+         alongside its I64 stack/result type. Keep that operator intact. *)
+      operand = I64 && result = I64
   | Opcode.Ic_not -> result = operand
   | Opcode.Ic_unary_minus -> result = I64
   | _ -> false

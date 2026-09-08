@@ -54,9 +54,10 @@ val execute_program :
     value, regardless of results from other calls. These are hosted execution
     boundaries; the pinned compiler warns for missing word return values and
     value-returning U0 functions rather than rejecting those source forms.
-    Checked public I64/U64/U8 call results may participate in supported
-    top-level operations without requiring a local frame. U8 returns preserve
-    full register bits as runtime U64; U8 parameters narrow at each entry.
+    Checked nonzero integer call results may participate in supported top-level
+    operations without requiring a local frame. Narrow returns preserve full
+    register bits as runtime I64/U64 according to declared signedness; narrow
+    parameters normalize to declared width and signedness at each entry.
     [globals] supplies exact shared scalar objects and fixed arrays, bounded
     separately by positive [max_global_bytes] (default 1,048,576). Every
     execution owns fresh words; calls and block transfers preserve them.
@@ -80,44 +81,45 @@ val execute_program :
     accept their owner's checked entry initializer region. Other entry
     instructions and functions fail preflight; region authority never enters a
     called function. JIT static calls require transitively earlier definitions
-    in the supplied bodies. Checked one-level I64/U64/U8 pointer locals and
-    fixed parameters hold references to scalar objects and automatic I64/U64/U8
-    array elements. U8 memory stores retain the low eight bits and reads
+    in the supplied bodies. Checked one-level integer pointer locals and fixed
+    parameters hold references to nonzero scalar integer objects and automatic
+    array elements. Memory stores retain low declared bits and reads sign- or
     zero-extend them. Plain assignment expressions retain the full RHS bits
-    independently of narrowed storage. Arithmetic retains checked raw classes:
-    U8 with I64 selects I64, while two U8 operands retain U8 computation class
-    without truncating the register result. U8 updates compute unsigned words,
-    store the low byte, and zero-extend stored prefix/postfix results. This
-    canonical reference path retains zero flags and a materialized result; it
-    does not select native BY_VAL or discarded-result optimizations. U8 unary
-    minus has the unsupported pinned I8 result class. Checked indexing retains
-    declared-object extents and remaining array strides;
-    grouping/materialization consumes dimensions. Final pointer values may be
-    one-past; memory access must be within the original object. Scale/add
-    overflow and object bounds report HCIRVM0020 and HCIRVM0019 respectively.
-    Offsets, strides and object extents use actual element byte widths. Active
-    allocation charges the checked padded local frame plus eight-byte parameter
-    slots. Cell counts and allocation bytes are bounded before expansion.
-    [IC_ADDR] materializes a reference without reading the object, with its own
-    static-consumer ownership check. Dereferences and updates retain the actual
-    caller or recursive activation, even when slots have identical offsets.
-    Explicit references can pass to callees without granting canonical
-    static-address authority. Returned frames are invalidated; pointer returns,
-    arbitrary integer addresses and pointer arithmetic remain unsupported.
-    Canonical [IC_STR_CONST] instructions own mutable byte regions containing
-    the exact payload followed by one zero byte. Every literal site in every
-    definition and the entry is checked before execution, including unreachable
-    sites. The positive [max_literal_bytes] limit (default 1,048,576) includes
-    their terminators and is separate from frame and global bytes. Capacity is
-    checked before byte-cell allocation; excess reports HCIRVM0021. Each site
-    has independent identity, even for identical payloads or shared graph
-    objects in distinct definitions. Its region persists across calls and
-    returns within one execution; each execution starts with a fresh image.
-    Internal/public U8 pointer forms may convert at checked stores and fixed
-    arguments because U8 denotes a native internal class. Conversion preserves
-    object identity, extent and byte offset while adopting the destination
-    pointee type. Canonical producer and memory-operation types remain exact.
-    Public results remain words. *)
+    independently of narrowed storage. Arithmetic retains checked raw classes
+    and separately derived native computation classes. Ordinary binary selection
+    takes the greater raw ID; comparisons retain their unsigned-operand rule.
+    Direct public unsigned calls, forwarded storage and COM node/result classes
+    remain distinct. Updates store low declared bits and normalize
+    prefix/postfix results. This canonical reference path retains zero flags and
+    a materialized result; it does not select native BY_VAL or discarded-result
+    optimizations. Unsigned internal negation selects the signed partner while
+    retaining full register bits. Checked indexing retains declared-object
+    extents and remaining array strides; grouping/materialization consumes
+    dimensions. Final pointer values may be one-past; memory access must be
+    within the original object. Scale/add overflow and object bounds report
+    HCIRVM0020 and HCIRVM0019 respectively. Offsets, strides and object extents
+    use actual element byte widths. Active allocation charges the checked padded
+    local frame plus eight-byte parameter slots. Cell counts and allocation
+    bytes are bounded before expansion. [IC_ADDR] materializes a reference
+    without reading the object, with its own static-consumer ownership check.
+    Dereferences and updates retain the actual caller or recursive activation,
+    even when slots have identical offsets. Explicit references can pass to
+    callees without granting canonical static-address authority. Returned frames
+    are invalidated; pointer returns, arbitrary integer addresses and pointer
+    arithmetic remain unsupported. Canonical [IC_STR_CONST] instructions own
+    mutable byte regions containing the exact payload followed by one zero byte.
+    Every literal site in every definition and the entry is checked before
+    execution, including unreachable sites. The positive [max_literal_bytes]
+    limit (default 1,048,576) includes their terminators and is separate from
+    frame and global bytes. Capacity is checked before byte-cell allocation;
+    excess reports HCIRVM0021. Each site has independent identity, even for
+    identical payloads or shared graph objects in distinct definitions. Its
+    region persists across calls and returns within one execution; each
+    execution starts with a fresh image. Internal/public U8 pointer forms may
+    convert at checked stores and fixed arguments because U8 denotes a native
+    internal class. Conversion preserves object identity, extent and byte offset
+    while adopting the destination pointee type. Canonical producer and
+    memory-operation types remain exact. Public results remain words. *)
 
 val execute_program_report :
   ?runtime_calls:Runtime_call_context.t ->

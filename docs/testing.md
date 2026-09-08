@@ -1,5 +1,14 @@
 # Testing holyc-ocaml
 
+The `source narrow integers` groups cover #633's eight gates, all five width/
+signedness families, fourteen update opcodes, signed string copies, ABI slots,
+native read/range/bit proofs and forged checked IR. Bare expression and folding
+tests retain complement producer classes. The API/CLI fixture returns I64 42
+and captures 3432 at 139 runtime instructions, nine preparation units, sixteen
+persistent bytes, forty active frame bytes, depth two, three literal bytes,
+two output bytes and five work units. All eight exact/one-below limits and fresh
+execution images are checked. See [narrow integers](integer-narrow.md).
+
 The 26 `source byte signatures` groups cover #631's eight original gates,
 byte entry versus full returned bits, mixed signatures, standalone ABI slots,
 aliases, recursion, initializer range proof and exact typed preflight. The

@@ -1,5 +1,9 @@
 # Integer source functions
 
+[Narrow integer signatures](integer-narrow.md) extend the same entry and return
+rules to I8/I16/U16/I32/U32: declared-width normalization inside eight-byte ABI
+slots, full register returns and exact source call/return identity.
+
 [U8 numeric parameters and returns](integer-byte-signatures.md) now share the
 checked call path. Parameters narrow at entry inside eight-byte ABI slots;
 returns preserve full register bits as runtime U64. Exact source U8 types,
@@ -82,9 +86,10 @@ failure. Invalid definitions or individual over-budget frames fail preflight.
 
 Ordinary scalar [global storage](integer-globals.md) is now shared with callers.
 Global declaration initializers and [static initialization](integer-static-initializers.md)
-now use the shared persistent executor. Later connections cover arrays, U8
-storage and [byte updates](integer-byte-updates.md), joined definitions and
-bounded runtime output. Other narrow/floating storage, callbacks, arbitrary
+now use the shared persistent executor. Later connections cover arrays,
+[narrow integer storage and signatures](integer-narrow.md),
+[byte updates](integer-byte-updates.md), joined definitions and bounded runtime
+output. Floating storage, callbacks, arbitrary
 pointers, user-defined variadic execution and general external/import execution
 remain unsupported. Every definition and unreachable block
 is checked before any instruction runs. A reached uninitialized local read is

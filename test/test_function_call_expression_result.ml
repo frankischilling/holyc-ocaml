@@ -806,11 +806,11 @@ let internal_u64_unary_minus_uses_signed_result () =
           has_primitive_type ~form:Semantic_type.Internal_storage
             ~primitive:Primitive_type.I64 ~pointer_depth:0
             (List.nth first_values 4);
-          has_primitive_type ~form:Semantic_type.Public_spelling
-            ~primitive:Primitive_type.U64 ~pointer_depth:0
+          has_primitive_type ~form:Semantic_type.Internal_storage
+            ~primitive:Primitive_type.I64 ~pointer_depth:0
             (List.nth first_values 5);
           has_primitive_type ~form:Semantic_type.Internal_storage
-            ~primitive:Primitive_type.U8 ~pointer_depth:0
+            ~primitive:Primitive_type.I8 ~pointer_depth:0
             (List.nth first_values 6);
           has_primitive_type ~form:Semantic_type.Internal_storage
             ~primitive:Primitive_type.U64 ~pointer_depth:1

@@ -11484,3 +11484,25 @@ reporting = "v1/v2 and dump schemas unchanged; exact public U8 signature instruc
 verification_status = "1994 tests passed in 38.878 seconds plus CLI; 26 focused groups in 0.130 seconds. Independent native/source and integration review, packaging, 82 checksums, 11 provenance scenarios and exact corpora passed; protected integration evidence tracked in issue 631."
 excluded = ["other primitive and aggregate storage", "pointer returns and general pointer operations", "full formatting/runtime linking", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader acceptance", "bootstrap"]
 native_oracle_status = "pinned-source audit and hosted execution; no new native TempleOS capture"
+
+[[feature]]
+id = "HC-NARROW-INTEGER-EXECUTION"
+description = "I8/I16/U16/I32/U32 share generated storage descriptors, full register signatures, canonical updates and native computation/range evidence."
+sources = ["Kernel/KernelA.HH:1566-1571", "Compiler/BackLib.HC:281-309,509-534,550-572", "Compiler/OptPass789A.HC:710-717,779-782,1026-1030", "Compiler/PrsVar.HC:132-134,314", "Compiler/PrsExp.HC:116,149-161,586", "Compiler/OptLib.HC:9-14,101-122,196-202", "Compiler/OptPass012.HC:151-191", "Compiler/BackA.HC:373-423,447-453,604-658", "Compiler/BackB.HC:304-380", "Compiler/BackC.HC:539-600", "Compiler/OptPass3.HC:29-35,524-610", "Compiler/OptPass4.HC:389-397"]
+implementation = ["src/ir/integer_scalar_storage.ml", "src/ir/integer_storage_shape.ml", "src/ir/integer_array_initializers.ml", "src/ir/integer_globals.ml", "src/ir/integer_statics.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/ir/integer_unary_folding.ml", "src/driver/integer_update_initializers.ml", "src/sema/integer_computation_class.ml", "src/sema/function_call_expression_result.ml"]
+tests = ["test/test_integer_narrow.ml", "test/test_integer_expression.ml", "test/test_ir_integer_unary_folding.ml", "test/test_integer_program_cli.ml", "examples/integer-narrow.hc"]
+documentation = ["docs/integer-narrow.md", "docs/integer-functions.md", "docs/testing.md", "docs/compatibility.md", "docs/intermediate-representation.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 633
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+baseline = "Eight gates fail in both modes at source acc4ee4ca78aaef098fc87e9a002606b680b37a6 and merge c21623420ef06f58eabbf1221f253cf27b1f50bd: six HCRUN0003, one HCRUN0001 and one HCIRVM0011. Maintained first run reproduced 18 failing groups."
+source_gate = "All eight gates return I64 42 without output; maintained combined fixture returns I64 42 and captures 3432 in both modes."
+semantics = "low-width sign/zero extension at every storage entry, parameter normalization within eight-byte ABI slots, full returns and compound results, normalized prefix/postfix, I8 copied strings and exact owned references"
+computation_classes = "declared source identity remains separate from native node class and I64/U64 result transport; public unsigned loads/arithmetic forward, direct calls retain native declared class, COM retains forwarded operand node class alongside I64 result; unary/binary/comparison consumers and bare execution retain this evidence; unsigned COM is not folded into an immediate that loses it"
+initializer_proof = "constants and signed intervals separate from physical bit width; all narrow reads and transitive writes checked, parameter entry seeds bounded proof, signed AND/DIV invariance, same-or-narrower exact terminal sinks, no bounds manufactured by sink exemptions, discarded bit hazards and folded observers retained"
+limits = "139 runtime instructions, 9 preparation units, 16 persistent bytes, 40 active frame bytes, depth 2, 3 literal bytes, 2 output bytes, 5 output-work units; all exact and one-below API/CLI controls and fresh images"
+reporting = "v1/v2 and dump schemas unchanged; original storage/call/return types retained and malformed IR rejected before effects"
+verification_status = "2049 tests passed in 40.856 seconds plus CLI; 53 focused narrow groups pass. Independent native/source and integration reviews, formatting/generated/build/install, 82 checksums, 11 provenance scenarios and exact lexer/parser corpora passed. COM, bare-execution and folding regressions were reproduced before fixes. Committed-source and protected integration evidence tracked in issue 633."
+excluded = ["Bool, zero-sized and floating storage", "aggregates", "automatic array brace/string initialization", "pointer returns and general pointer conversions", "narrow word-cast/index producers", "full formatting/runtime linking", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted execution; no new native TempleOS capture"

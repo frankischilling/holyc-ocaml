@@ -6,4 +6,5 @@ val dimensions : t -> int64 list
 val strides : t -> int64 list
 val element_count : t -> int
 val byte_size : t -> int
+val scalar : t -> Integer_scalar_storage.t
 val padded_byte_size : t -> int option

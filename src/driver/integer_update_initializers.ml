@@ -3,6 +3,7 @@ module O = Ir.Opcode
 module T = Sema.Type
 module Frame = Sema.Function_frame_layout
 module Globals = Ir.Integer_globals
+module Scalar = Ir.Integer_scalar_storage
 module Values = Map.Make (Seq.Value_id)
 module Locations = Map.Make (Sema.Symbol.Id)
 
@@ -21,27 +22,56 @@ type address =
   | Scaled of T.t * int64
   | Reference of T.t * int64 list * memory
 
-type number = { constant : int64 option; byte : bool }
+type number = { constant : int64 option; range : (int64 * int64) option }
 
-let unknown = { constant = None; byte = false }
-let byte = { constant = None; byte = true }
-let byte_bits bits = bits >= 0L && bits <= 255L
-let known bits = { constant = Some bits; byte = byte_bits bits }
+let unknown = { constant = None; range = None }
+let bounded range = { constant = None; range = Some range }
+let known bits = { constant = Some bits; range = Some (bits, bits) }
 let option_exists predicate = Option.fold ~none:false ~some:predicate
 
-let byte_type type_ =
-  T.pointer_depth type_ = 0
-  &&
-  match T.base type_ with
-  | T.Primitive (_, Sema.Primitive_type.U8) -> true
-  | _ -> false
+let narrow_type type_ =
+  option_exists
+    (fun scalar -> Scalar.byte_size scalar < 8)
+    (Scalar.of_type type_)
+
+let fits scalar value =
+  match (Scalar.bounds scalar, value.range) with
+  | None, _ -> true
+  | Some (low, high), Some (minimum, maximum) ->
+      low <= minimum && maximum <= high
+  | Some _, None -> false
+
+let fits_type type_ value =
+  option_exists (fun scalar -> fits scalar value) (Scalar.of_type type_)
+
+let storage_number type_ =
+  { constant = None; range = Option.bind (Scalar.of_type type_) Scalar.bounds }
+
+let excludes bits value =
+  option_exists (fun (low, high) -> bits < low || bits > high) value.range
+
+let narrow_scalars =
+  Sema.Primitive_type.all
+  |> List.filter_map (fun primitive ->
+      Option.bind
+        (T.make_primitive ~form:T.Internal_storage ~primitive ~pointer_depth:0
+        |> Result.to_option)
+        Scalar.of_type)
+  |> List.filter (fun scalar -> Scalar.byte_size scalar < 8)
+  |> List.sort (fun left right ->
+      Int.compare (Scalar.byte_size left) (Scalar.byte_size right))
+
+let bitwise_range left right =
+  List.find_opt
+    (fun scalar -> fits scalar left && fits scalar right)
+    narrow_scalars
+  |> Option.fold ~none:unknown ~some:(fun scalar ->
+      { constant = None; range = Scalar.bounds scalar })
 
 let pointer type_ =
-  T.pointer_depth type_ = 1
-  &&
-  match T.base type_ with
-  | T.Primitive (_, (Sema.Primitive_type.U8 | I64 | U64)) -> true
-  | _ -> false
+  match T.dereference type_ with
+  | Ok pointee -> Option.is_some (Scalar.of_type pointee)
+  | Error _ -> false
 
 let update = function
   | O.Ic_add_equ
@@ -64,32 +94,41 @@ let increment = function
   | O.Ic_pp_ | Ic_mm_ | Ic__pp | Ic__mm -> true
   | _ -> false
 
-let safe_compound opcode right =
+let safe_compound scalar opcode right =
   match opcode with
-  | O.Ic_and_equ | Ic_div_equ | Ic_mod_equ -> true
-  | Ic_or_equ | Ic_xor_equ -> right.byte
+  | O.Ic_and_equ -> Scalar.is_unsigned scalar || fits scalar right
+  | Ic_div_equ -> Scalar.is_unsigned scalar || excludes (-1L) right
+  | Ic_mod_equ -> true
+  | Ic_or_equ | Ic_xor_equ -> fits scalar right
   | Ic_add_equ | Ic_sub_equ -> right.constant = Some 0L
   | Ic_mul_equ -> right.constant = Some 0L || right.constant = Some 1L
   | _ -> false
 
-let one_bit bits = bits <> 0L && Int64.logand bits (Int64.sub bits 1L) = 0L
-
-let discarded_bit_hazard opcode right =
-  match (opcode, right.constant) with
-  | O.Ic_and_equ, Some bits ->
-      let bit = Int64.lognot bits in
-      one_bit bit && not (byte_bits bit)
-  | Ic_xor_equ, Some bit -> one_bit bit && not (byte_bits bit)
-  | Ic_or_equ, Some bit -> one_bit bit && bit > 255L
-  | (Ic_and_equ | Ic_or_equ | Ic_xor_equ), None -> not right.byte
+let discarded_bit_hazard scalar opcode right =
+  match opcode with
+  | O.Ic_and_equ | Ic_or_equ | Ic_xor_equ ->
+      let rec check position =
+        if position = 64 then false
+        else
+          let bit = Int64.shift_left 1L position in
+          let candidate =
+            if opcode = O.Ic_and_equ then Int64.lognot bit else bit
+          in
+          (not (opcode = O.Ic_or_equ && position = 63))
+          && not (excludes candidate right)
+          || check (position + 1)
+      in
+      check (8 * Scalar.byte_size scalar)
   | _ -> false
 
-let scalar_number opcode operands =
+let scalar_number target_type opcode operands =
   match (opcode, operands) with
   | O.Ic_holyc_typecast, [ value ] -> value
   | Ic_assign, [ _; value ] ->
       (* Do not turn an unbounded assignment into optimizer constant evidence. *)
-      if value.byte then value else unknown
+      if option_exists (fun type_ -> fits_type type_ value) target_type then
+        value
+      else unknown
   | Ic_com, [ { constant = Some bits; _ } ] -> known (Int64.lognot bits)
   | Ic_unary_minus, [ { constant = Some bits; _ } ] -> known (Int64.neg bits)
   | Ic_not, [ { constant = Some bits; _ } ] ->
@@ -107,8 +146,17 @@ let scalar_number opcode operands =
         | _ -> assert false
       in
       known (operation left right)
-  | Ic_and, [ left; right ] when left.byte || right.byte -> byte
-  | (Ic_or | Ic_xor), [ left; right ] when left.byte && right.byte -> byte
+  | Ic_and, [ left; right ] -> (
+      let nonnegative value =
+        match value.range with
+        | Some (low, high) when low >= 0L -> Some high
+        | _ -> None
+      in
+      match (nonnegative left, nonnegative right) with
+      | Some left, Some right -> bounded (0L, min left right)
+      | Some high, None | None, Some high -> bounded (0L, high)
+      | None, None -> bitwise_range left right)
+  | (Ic_or | Ic_xor), [ left; right ] -> bitwise_range left right
   | ( ( Ic_not
       | Ic_equ_equ
       | Ic_not_equ
@@ -119,7 +167,7 @@ let scalar_number opcode operands =
       | Ic_and_and
       | Ic_or_or
       | Ic_xor_xor ),
-      _ ) -> byte
+      _ ) -> bounded (0L, 1L)
   | _ -> unknown
 
 let check_graph ~globals ~frame ~compiler_options ~terminal graph =
@@ -186,7 +234,7 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
       Values.empty (List.rev code)
   in
   let frame_memory location =
-    if not (byte_type (Frame.location_checked_type location)) then Memory
+    if not (narrow_type (Frame.location_checked_type location)) then Memory
     else
       match Frame.location_register_selection location with
       | Sema.Register_request.Explicit _ -> Explicit_register
@@ -244,7 +292,7 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
               | Error _ -> false)
           | _ -> false
         in
-        let invariant_byte_read id type_ =
+        let invariant_narrow_read id type_ =
           match address id with
           | Reference (pointer, [], memory) -> (
               let bounded =
@@ -314,14 +362,14 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                   Reference (type_, [], Memory)
               | Ic_deref, [ _ ], None when pointer type_ ->
                   (* An actual pointer-slot load retains an indirect memory access.
-                     Explicit byte-object escapes are rejected at IC_ADDR below. *)
+                     Explicit narrow-object escapes are rejected at IC_ADDR below. *)
                   Reference (type_, [], Memory)
               | Ic_assign, [ _; source ], None when pointer type_ ->
                   address source
               | _ -> Unknown_address)
           | None, _ -> Unknown_address
         in
-        let source_discard, byte_sink =
+        let source_discard, narrow_sink =
           match item.result with
           | None -> (false, false)
           | Some result ->
@@ -340,11 +388,18 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                 && option_exists
                      (fun sink ->
                        Seq.Value_id.equal sink.value result.value_id
-                       && byte_type sink.destination_type)
+                       &&
+                       match
+                         ( Scalar.of_type sink.destination_type,
+                           Option.bind item.target_type Scalar.of_type )
+                       with
+                       | Some sink, Some updated ->
+                           Scalar.byte_size sink <= Scalar.byte_size updated
+                       | _ -> false)
                      terminal )
         in
-        let is_byte_update =
-          update item.opcode && option_exists byte_type item.target_type
+        let is_narrow_update =
+          update item.opcode && option_exists narrow_type item.target_type
         in
         let right =
           match item.operands with
@@ -357,7 +412,10 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
             -> (
               match address target with
               | Reference (_, [], Register_candidate location) ->
-                  let bounded = item.opcode = O.Ic_assign && right.byte in
+                  let bounded =
+                    item.opcode = O.Ic_assign
+                    && fits_type (Frame.location_checked_type location) right
+                  in
                   Locations.update
                     (Frame.location_symbol location |> Sema.Symbol.id)
                     (fun previous ->
@@ -375,23 +433,24 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
             | _ -> false
           then
             Some
-              "initializer byte update proof cannot use an escaping \
-               explicit-register byte object"
+              "initializer narrow update proof cannot use an escaping \
+               explicit-register narrow object"
           else if
             match (item.opcode, item.operands, item.target_type) with
-            | O.Ic_deref, [ target ], Some type_ when byte_type type_ ->
-                not (invariant_byte_read target type_)
+            | O.Ic_deref, [ target ], Some type_ when narrow_type type_ ->
+                not (invariant_narrow_read target type_)
             | _ -> false
           then
             Some
-              "initializer byte update proof requires invariant byte reads \
+              "initializer narrow update proof requires invariant narrow reads \
                throughout its callees"
-          else if not is_byte_update then None
+          else if not is_narrow_update then None
           else
             match (item.operands, item.target_type) with
             | target :: _, Some type_ when exact_memory target type_ ->
+                let scalar = Option.get (Scalar.of_type type_) in
                 if
-                  discarded_bit_hazard item.opcode right
+                  discarded_bit_hazard scalar item.opcode right
                   && not
                        (option_exists
                           (fun (result : Seq.value_definition) ->
@@ -401,20 +460,20 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                           item.result)
                 then
                   Some
-                    "initializer byte update may select a native bit operation \
-                     outside its byte object"
+                    "initializer narrow update may select a native bit \
+                     operation outside its narrow object"
                 else if
                   increment item.opcode
-                  || safe_compound item.opcode right
-                  || source_discard || byte_sink
+                  || safe_compound scalar item.opcode right
+                  || source_discard || narrow_sink
                 then None
                 else
                   Some
-                    "initializer byte update exposes an unproved native \
+                    "initializer narrow update exposes an unproved native \
                      full-versus-narrow result"
             | _ ->
                 Some
-                  "initializer byte update requires proven native memory \
+                  "initializer narrow update requires proven native memory \
                    rather than a possible wide register"
         in
         match if verify then failure else None with
@@ -427,15 +486,20 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
               | O.Ic_imm_i64, [], Some type_, Some (Seq.Integer bits)
                 when T.pointer_depth type_ = 0 -> known bits
               | Ic_deref, [ target ], Some type_, None
-                when byte_type type_ && invariant_byte_read target type_ -> byte
-              | _, _, _, _
-                when is_byte_update
+                when narrow_type type_ && invariant_narrow_read target type_ ->
+                  storage_number type_
+              | _, _, Some type_, _
+                when is_narrow_update
                      && (match (item.operands, item.target_type) with
                        | target :: _, Some type_ -> exact_memory target type_
                        | _ -> false)
                      && (increment item.opcode
-                        || safe_compound item.opcode right) -> byte
-              | _ -> scalar_number item.opcode (List.map number item.operands)
+                        || safe_compound
+                             (Option.get (Scalar.of_type type_))
+                             item.opcode right) -> storage_number type_
+              | _ ->
+                  scalar_number item.target_type item.opcode
+                    (List.map number item.operands)
             in
             let addresses, numbers =
               match item.result with
@@ -446,13 +510,13 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
             in
             check ~verify ~proven writes addresses numbers rest)
   in
-  (* Every write to an ordinary candidate must stay byte-bounded, and any direct
+  (* Every write to an ordinary candidate must fit its declared range, and any direct
      update disqualifies it. This is a whole-graph range invariant, not a guess
      from its first initializer. Explicit hardware registers never qualify.
-     Seed from constants/memory and the native U8 parameter entry load, then
+     Seed from constants/memory and native declared-width parameter entry, then
      admit dependent locals to a fixed point;
      unproved cycles remain outside the native initializer domain. *)
-  let entry_bytes =
+  let entry_bounds =
     Option.fold ~none:Locations.empty
       ~some:(fun frame ->
         Frame.function_locations frame
@@ -469,7 +533,7 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
   in
   let rec prove proven =
     match
-      check ~verify:false ~proven entry_bytes Values.empty Values.empty code
+      check ~verify:false ~proven entry_bounds Values.empty Values.empty code
     with
     | Error _ -> assert false
     | Ok writes ->

@@ -9,6 +9,8 @@ module Function = Function_body
 module Type = Sema.Type
 module Runtime = Runtime_call_context
 module Output = Integer_output
+module Scalar = Integer_scalar_storage
+module Computation = Sema.Integer_computation_class
 module Offset_map = Map.Make (Int64)
 
 module Value_map = Map.Make (struct
@@ -36,7 +38,7 @@ type function_definition = { frame : Frame.function_layout; body : Function.t }
 
 type stored_type =
   | Stored_word of word_type
-  | Stored_byte
+  | Stored_narrow of Scalar.t
   | Stored_pointer of Type.t
 
 type runtime_value =
@@ -124,7 +126,12 @@ type literal_image = {
   mutable literal_chunks_rev : (int * string) list;
 }
 
-type prepared_operand = { value_id : Value_id.t; expected_type : word_type }
+type prepared_operand = {
+  value_id : Value_id.t;
+  expected_type : word_type;
+  computation_type : word_type;
+}
+
 type prepared_pointer = { pointer_value : Value_id.t; pointer_type : Type.t }
 
 type prepared_value =
@@ -270,7 +277,7 @@ type opcode_kind =
 
 type declared_type =
   | Pointer_value of Type.t
-  | Supported of word_type * Type.t
+  | Supported of word_type * Type.t * Type.t
   | Void_value
   | Frame_base of Type.t
   | Frame_offset of Type.t * int64
@@ -384,16 +391,18 @@ let scalar_word_type ~allow_public type_ =
 
 let producer_word_type type_ = scalar_word_type ~allow_public:false type_
 let return_word_type type_ = scalar_word_type ~allow_public:true type_
+let scalar_runtime_type scalar = if Scalar.is_unsigned scalar then U64 else I64
 
-(* A byte expression retains its checked raw class and full register bits.
+(* A narrow expression retains its checked raw class and full register bits.
    Only storage narrows it; the public execution result remains I64/U64. *)
 let scalar_value_type ~allow_byte ~allow_public type_ =
   match scalar_word_type ~allow_public type_ with
   | Some _ as word -> word
   | None when allow_byte && Type.pointer_depth type_ = 0 -> (
-      match Type.base type_ with
-      | Type.Primitive (form, Sema.Primitive_type.U8)
-        when allow_public || form = Type.Internal_storage -> Some U64
+      match (Type.base type_, Scalar.of_type type_) with
+      | Type.Primitive (form, _), Some scalar
+        when allow_public || form = Type.Internal_storage ->
+          Some (scalar_runtime_type scalar)
       | _ -> None)
   | None -> None
 
@@ -410,19 +419,12 @@ let checked_return_kind type_ =
   | None -> None
 
 let scalar_element_bytes type_ =
-  if Type.pointer_depth type_ <> 0 then None
-  else
-    match Type.base type_ with
-    | Type.Primitive (_, Sema.Primitive_type.U8) -> Some 1
-    | Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> Some 8
-    | _ -> None
+  Option.map Scalar.byte_size (Scalar.of_type type_)
 
 let scalar_pointer_type type_ =
-  Type.pointer_depth type_ = 1
-  &&
-  match Type.base type_ with
-  | Type.Primitive (_, (Sema.Primitive_type.I64 | U64 | U8)) -> true
-  | _ -> false
+  match Type.dereference type_ with
+  | Ok pointee -> Option.is_some (Scalar.of_type pointee)
+  | Error _ -> false
 
 let literal_pointer_type type_ =
   Type.pointer_depth type_ = 1
@@ -434,12 +436,12 @@ let literal_pointer_type type_ =
 let stored_type type_ =
   match return_word_type type_ with
   | Some word -> Some (Stored_word word)
-  | None when scalar_element_bytes type_ = Some 1 -> Some Stored_byte
   | None when scalar_pointer_type type_ -> Some (Stored_pointer type_)
-  | None -> None
+  | None ->
+      Option.map (fun scalar -> Stored_narrow scalar) (Scalar.of_type type_)
 
 let stored_bytes = function
-  | Stored_byte -> 1
+  | Stored_narrow scalar -> Scalar.byte_size scalar
   | Stored_word _ | Stored_pointer _ -> 8
 
 let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
@@ -524,7 +526,8 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
       "execution requires ordinary parameters, automatic scalar locals and \
        exact function-owned persistent statics"
   else if Option.is_none (checked_return_kind (Function.return_type function_))
-  then invalid "the function return type is outside I64/U64/U8/U0 execution"
+  then
+    invalid "the function return type is outside nonzero integer/U0 execution"
   else if List.length arguments <> parameter_count then
     invalid "the argument word count does not match the checked parameters"
   else if
@@ -587,7 +590,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
                      && Frame.location_kind location = Frame.Automatic_local
                      &&
                      match stored_type with
-                     | Stored_word _ | Stored_byte -> true
+                     | Stored_word _ | Stored_narrow _ -> true
                      | _ -> false) ->
             let offset = Frame.frame_slot_displacement slot in
             let count =
@@ -606,10 +609,13 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
                     arguments := rest;
                     match stored_type with
                     | Stored_word type_ -> Some (Runtime_word { type_; bits })
-                    | Stored_byte ->
+                    | Stored_narrow scalar ->
                         Some
                           (Runtime_word
-                             { type_ = U64; bits = Int64.logand bits 255L })
+                             {
+                               type_ = scalar_runtime_type scalar;
+                               bits = Scalar.normalize scalar bits;
+                             })
                     | Stored_pointer _ ->
                         if not pointer_arguments then
                           error :=
@@ -673,11 +679,11 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
               })
 
 let frame_pointer type_ =
-  (Type.pointer_depth type_ = 1 || Type.pointer_depth type_ = 2)
-  &&
-  match Type.base type_ with
-  | Type.Primitive (_, (Sema.Primitive_type.I64 | U64 | U8)) -> true
-  | _ -> false
+  scalar_pointer_type type_
+  ||
+  match Type.dereference type_ with
+  | Ok pointee -> scalar_pointer_type pointee
+  | Error _ -> false
 
 let address_slot context types (description : Sequence.description) =
   match (description.opcode, description.operands, description.target_type) with
@@ -735,11 +741,19 @@ let index_offset types (description : Sequence.description) =
         (Value_map.find_opt stride_id types, Value_map.find_opt value_id types)
       with
       | ( Some (Frame_offset (stride_type, stride)),
-          Some (Supported (expected_type, index_type)) )
+          Some (Supported (expected_type, index_type, computation_type)) )
         when Type.equal pointer stride_type
              && stride > 0L
              && Option.is_some (return_word_type index_type) ->
-          Index_offset (pointer, stride, { value_id; expected_type })
+          Index_offset
+            ( pointer,
+              stride,
+              {
+                value_id;
+                expected_type;
+                computation_type =
+                  Option.get (function_return_word_type computation_type);
+              } )
       | _ -> Unsupported)
   | _ -> Unsupported
 
@@ -788,6 +802,20 @@ let declared_types ?frame ?globals ?literals ?initialization
   |> List.fold_left
        (fun types instruction ->
          let description = Sequence.description instruction in
+         let supported word_type type_ =
+           let computation_type =
+             match (description.opcode, description.operands) with
+             | (Opcode.Ic_call_end | Opcode.Ic_holyc_typecast), _ ->
+                 Computation.declared type_
+             | Opcode.Ic_com, [ operand ] -> (
+                 match Value_map.find_opt operand types with
+                 | Some (Supported (_, _, operand_type)) ->
+                     Computation.forward operand_type
+                 | _ -> Computation.forward type_)
+             | _ -> Computation.forward type_
+           in
+           Supported (word_type, type_, computation_type)
+         in
          match description.result with
          | None -> types
          | Some result ->
@@ -815,7 +843,7 @@ let declared_types ?frame ?globals ?literals ?initialization
                        then
                          match checked_return_kind type_ with
                          | Some (Word_return word_type) ->
-                             Supported (word_type, type_)
+                             supported word_type type_
                          | Some Void_return -> Void_value
                          | None -> Unsupported
                        else
@@ -829,7 +857,7 @@ let declared_types ?frame ?globals ?literals ?initialization
                                scalar_value_type ~allow_byte ~allow_public:true
                                  type_
                              with
-                             | Some word_type -> Supported (word_type, type_)
+                             | Some word_type -> supported word_type type_
                              | None -> Unsupported)
                          | Some _, Opcode.Ic_rbp when frame_pointer type_ ->
                              Frame_base type_
@@ -860,11 +888,11 @@ let declared_types ?frame ?globals ?literals ?initialization
                                scalar_value_type ~allow_byte ~allow_public:true
                                  type_
                              with
-                             | Some word_type -> Supported (word_type, type_)
+                             | Some word_type -> supported word_type type_
                              | None -> Unsupported)
                          | _ -> (
                              match producer_word_type type_ with
-                             | Some word_type -> Supported (word_type, type_)
+                             | Some word_type -> supported word_type type_
                              | None -> Unsupported))
                    | None -> Unsupported)
              in
@@ -873,7 +901,10 @@ let declared_types ?frame ?globals ?literals ?initialization
 
 let operand_of_value types value_id =
   match Value_map.find_opt value_id types with
-  | Some (Supported (expected_type, _)) -> Some { value_id; expected_type }
+  | Some (Supported (expected_type, _, computation_type)) ->
+      Option.map
+        (fun computation_type -> { value_id; expected_type; computation_type })
+        (function_return_word_type computation_type)
   | Some
       ( Pointer_value _
       | Void_value
@@ -901,7 +932,7 @@ let memory_operand_of_value types id =
 
 let value_matches stored operand =
   match (stored, operand) with
-  | (Stored_word _ | Stored_byte), Word_operand _ -> true
+  | (Stored_word _ | Stored_narrow _), Word_operand _ -> true
   | Stored_pointer expected, Pointer_operand actual ->
       Type.compatible_u8_pointer expected actual.pointer_type
   | _ -> false
@@ -954,7 +985,7 @@ let storage_operand ?(allow_array = false) frame initialization types
 
 let valid_unary_type types operation operand_id result_type =
   match Value_map.find_opt operand_id types with
-  | Some (Supported (_, operand_type)) -> (
+  | Some (Supported (_, _, operand_type)) -> (
       let internal_i64 type_ =
         Type.pointer_depth type_ = 0
         &&
@@ -963,15 +994,11 @@ let valid_unary_type types operation operand_id result_type =
             true
         | _ -> false
       in
-      match (operation, Type.base operand_type) with
-      | Negate, Type.Primitive (_, Sema.Primitive_type.U8) ->
-          (* OptPass012.HC:180-192 changes U8 negation to I8, outside this
-             storage slice. Preserve the boundary even for forged IR. *)
-          false
-      | Complement, _
-      | Negate, Type.Primitive (Type.Internal_storage, Sema.Primitive_type.U64)
-        -> internal_i64 result_type
-      | (Negate | Logical_not), _ -> Type.equal operand_type result_type)
+      match operation with
+      | Complement -> internal_i64 result_type
+      | Negate -> Type.equal (Computation.negate operand_type) result_type
+      | Logical_not -> Type.equal (Computation.forward operand_type) result_type
+      )
   | _ -> false
 
 let promoted_word_type left right =
@@ -999,7 +1026,7 @@ let valid_binary_result_type types operation left right result_type =
         | _ -> None
       in
       match (Value_map.find_opt left types, Value_map.find_opt right types) with
-      | Some (Supported (_, left)), Some (Supported (_, right)) -> (
+      | Some (Supported (_, _, left)), Some (Supported (_, _, right)) -> (
           match (raw_id left, raw_id right, raw_id result_type) with
           | Some left, Some right, Some actual -> actual = max left right
           | _ -> false)
@@ -1282,7 +1309,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                         types description.instruction_id base,
                       Type.dereference pointer )
                   with
-                  | ( Some (location, actual, (Stored_word _ | Stored_byte)),
+                  | ( Some (location, actual, (Stored_word _ | Stored_narrow _)),
                       Ok pointee )
                     when Type.equal actual pointee ->
                       Ok
@@ -1303,7 +1330,8 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                     storage_operand ~allow_array:true frame initialization types
                       description.instruction_id address
                   with
-                  | Some (location, pointee, (Stored_word _ | Stored_byte)) -> (
+                  | Some (location, pointee, (Stored_word _ | Stored_narrow _))
+                    -> (
                       match Type.pointer_to pointee with
                       | Ok expected when Type.equal expected target_type ->
                           Ok
@@ -1372,7 +1400,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                               Error (invalid_type_matrix block_id description))
                       | Update_slot_kind operation, [ operand ]
                         when match stored_type with
-                             | Stored_word _ | Stored_byte -> true
+                             | Stored_word _ | Stored_narrow _ -> true
                              | _ -> false -> (
                           match operand_of_value types operand with
                           | Some operand ->
@@ -1388,7 +1416,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                               Error (invalid_type_matrix block_id description))
                       | Increment_slot_kind (operation, old_result), []
                         when match stored_type with
-                             | Stored_word _ | Stored_byte -> true
+                             | Stored_word _ | Stored_narrow _ -> true
                              | _ -> false ->
                           Ok
                             (Update_slot
@@ -1462,7 +1490,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                       | None -> Error (invalid_type_matrix block_id description)
                       | Some operand
                         when match Value_map.find_opt operand_id types with
-                             | Some (Supported (_, type_)) ->
+                             | Some (Supported (_, type_, _)) ->
                                  Option.is_some (return_word_type type_)
                              | _ -> false ->
                           Ok (Word_view (operand, result.value_id, result_type))
@@ -2046,7 +2074,7 @@ let storage_word slot bits =
     | Some type_ -> type_
     | None -> assert false
   in
-  { type_; bits }
+  { type_; bits = Scalar.narrow_bits (Integer_globals.storage_type slot) bits }
 
 let publish_array_payload ~slot ~cell_offset payload write =
   let base = Integer_globals.storage_index slot + cell_offset in
@@ -2056,7 +2084,7 @@ let publish_array_payload ~slot ~cell_offset payload write =
       String.iteri
         (fun offset byte ->
           write (base + offset)
-            { type_ = U64; bits = Int64.of_int (Char.code byte) })
+            (storage_word slot (Int64.of_int (Char.code byte))))
         bytes
 
 let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
@@ -2157,10 +2185,12 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
     current_instruction := 0;
     values := Value_map.empty
   in
-  let require_operand block instruction operand =
+  let require_operand ?(computation = false) block instruction operand =
     match Value_map.find_opt operand.value_id !values with
     | Some (Runtime_word word) when word.type_ = operand.expected_type ->
-        Some word
+        Some
+          (if computation then { word with type_ = operand.computation_type }
+           else word)
     | Some _ | None ->
         failed :=
           Some
@@ -2242,9 +2272,13 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
     | Runtime_word word -> (
         match expected with
         | Stored_word type_ -> Some (Runtime_word { type_; bits = word.bits })
-        | Stored_byte ->
+        | Stored_narrow scalar ->
             Some
-              (Runtime_word { type_ = U64; bits = Int64.logand word.bits 255L })
+              (Runtime_word
+                 {
+                   type_ = scalar_runtime_type scalar;
+                   bits = Scalar.normalize scalar word.bits;
+                 })
         | _ -> None)
     | Runtime_pointer address -> (
         match expected with
@@ -2639,8 +2673,12 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                       storage.cells.(index) <- Some value;
                       let expression_value =
                         match (type_, operand) with
-                        | Stored_byte, Runtime_word word ->
-                            Runtime_word { type_ = U64; bits = word.bits }
+                        | Stored_narrow scalar, Runtime_word word ->
+                            Runtime_word
+                              {
+                                type_ = scalar_runtime_type scalar;
+                                bits = word.bits;
+                              }
                         | _ -> value
                       in
                       values := Value_map.add result expression_value !values
@@ -2656,7 +2694,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
               let type_ =
                 match stored with
                 | Stored_word type_ -> type_
-                | Stored_byte -> U64
+                | Stored_narrow scalar -> scalar_runtime_type scalar
                 | Stored_pointer _ -> assert false
               in
               let right =
@@ -2698,8 +2736,11 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                               let computed = { type_; bits } in
                               let word =
                                 match stored with
-                                | Stored_byte ->
-                                    { type_; bits = Int64.logand bits 255L }
+                                | Stored_narrow scalar ->
+                                    {
+                                      type_;
+                                      bits = Scalar.normalize scalar bits;
+                                    }
                                 | Stored_word _ -> computed
                                 | Stored_pointer _ -> assert false
                               in
@@ -2738,10 +2779,14 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                       (Runtime_word { type_ = result_type; bits = operand.bits })
                       !values)
           | Binary (operation, left, right, result, result_type) -> (
-              match require_operand block instruction left with
+              match
+                require_operand ~computation:true block instruction left
+              with
               | None -> ()
               | Some left -> (
-                  match require_operand block instruction right with
+                  match
+                    require_operand ~computation:true block instruction right
+                  with
                   | None -> ()
                   | Some right -> (
                       match binary_bits operation left right result_type with

@@ -70,7 +70,7 @@ let signedness () =
     (fun mode ->
       ignore (run ~mode "U64 G;G=-1;G;" |> F.expect ~type_:VM.U64 (-1L));
       ignore (run ~mode "I64 G;G=0xFFFFFFFFFFFFFFFF;G;" |> F.expect (-1L));
-      ignore (run ~mode "U64 G;G=7;(-G);" |> F.expect ~type_:VM.U64 (-7L));
+      ignore (run ~mode "U64 G;G=7;(-G);" |> F.expect (-7L));
       ignore (run ~mode "U64 G;I64 F(){return G;}G=-1;(F());" |> F.expect (-1L));
       ignore
         (run ~mode "I64 G;U64 F(){return (G=0xFFFFFFFFFFFFFFFF);} (F());"
@@ -149,13 +149,13 @@ let unsupported () =
           "I64 G={0};42;";
           "I64 G=Missing();42;";
           "I64 G=1/0;42;";
-          "U16 G;42;";
+          "I0 G;42;";
           "F64 G;42;";
           "I64 *G;42;";
           "extern I64 G;42;";
           "import I64 G;42;";
           "extern I64 G;I64 G;42;";
-          "I64 G;I64 F(){static I32 n;return 1;}42;";
+          "I64 G;I64 F(){static I0 n;return 1;}42;";
           "I64 F(){return G;}I64 G;G=42;(F());";
           "G=42;I64 G;G;";
         ];

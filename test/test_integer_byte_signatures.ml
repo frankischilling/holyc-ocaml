@@ -228,10 +228,8 @@ let unsupported_signatures () =
       List.iter
         (fun source -> ignore (F.first_error (G.run ~mode source)))
         [
-          "I16 F(){return 42;}F();";
-          "I64 F(I8 n){return n;}F(42);";
-          "I64 F(U16 n){return n;}F(42);";
-          "I64 F(U8 n){return -n;}F(42);";
+          "I0 F(){return 42;}F();";
+          "I64 F(I0 n){return n;}F(42);";
           "U8 Wide(){return 1;}I64 F(){U8 a[2];a[1]=42;return a[Wide()];}F();";
           "U8 *F(){return 0;}F();";
         ])

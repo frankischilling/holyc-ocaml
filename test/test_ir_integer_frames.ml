@@ -433,11 +433,11 @@ let lowering_boundaries () =
       | Ok Expr.Unsupported_expression -> ()
       | _ -> Alcotest.fail "unsupported storage expression was accepted")
     [
-      "I64 Add(){I32 c;c=1;return 0;}";
-      "I64 Add(){I32 c[1];c;return 0;}";
+      "I64 Add(){I0 c;c=1;return 0;}";
+      "I64 Add(){I0 c[1];c;return 0;}";
       "I64 Add(){I64 *c[2];c;return 0;}";
       "I64 Add(){F64 c;c=1.0;return 0;}";
-      "I64 Add(){I32 c;&c;return 0;}";
+      "I64 Add(){I0 c;&c;return 0;}";
       "I64 global; I64 Add(){global=1;return 0;}";
     ];
   List.iter
@@ -475,12 +475,12 @@ let frame_boundaries () =
         (execute ~max_frame_bytes:64 unsupported [] function_
         |> expect_error "HCIRVM0011"))
     [
-      "I64 Add(){I32 c;}";
+      "I64 Add(){I0 c;}";
       "I64 Add(){F64 c;}";
       "I64 Add(){I64 *c[2];}";
       "I64 Add(){I64 c[0];}";
       "I64 Add(){static I64 c;}";
-      "I64 Add(){I32 *c;}";
+      "I64 Add(){I0 *c;}";
     ];
   let malformed =
     body frame H.public_i64

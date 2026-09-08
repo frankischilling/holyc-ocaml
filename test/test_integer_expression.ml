@@ -112,10 +112,34 @@ let replay_and_folding () =
     "folding reduced execution work" true
     (VM.executed_steps folded < VM.executed_steps original)
 
+let complement_folding_class () =
+  let session, config, source = inputs "(~0x8000000000000000)/2;" in
+  let original = lower_integer_expression session ~config ~source |> checked in
+  let folded =
+    match Ir_integer_unary_folding.fold original with
+    | Ok result -> Ir_integer_unary_folding.x87 result
+    | Error _ -> Alcotest.fail "complement folding failed"
+  in
+  List.iter
+    (fun graph ->
+      match VM.execute ~max_steps:100 graph with
+      | Error errors -> Alcotest.fail (List.hd errors).VM.message
+      | Ok result ->
+          let actual = word result in
+          Alcotest.(check int64)
+            "complement quotient" 4611686018427387903L actual.bits;
+          Alcotest.(check bool)
+            "unsigned producer class" true (actual.type_ = VM.U64))
+    [ original; folded ]
+
 let tests =
   let cases =
     [
       ("multiply", "(6*7);", VM.I64, 42L);
+      ( "complement node class",
+        "(~0x8000000000000000)/2;",
+        VM.U64,
+        4611686018427387903L );
       ("nested arithmetic", "(2+3)*(11-4);", VM.I64, 35L);
       ("division and remainder", "(85/2)+(85%2);", VM.I64, 43L);
       ("signed truncation", "-7/3;", VM.I64, -2L);
@@ -160,4 +184,6 @@ let tests =
       Alcotest.test_case "division faults and eager logical values" `Quick
         arithmetic_faults;
       Alcotest.test_case "replay and unary folding" `Quick replay_and_folding;
+      Alcotest.test_case "complement class survives folding" `Quick
+        complement_folding_class;
     ]

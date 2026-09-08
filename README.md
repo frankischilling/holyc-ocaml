@@ -1,5 +1,10 @@
 # holyc-ocaml
 
+`holyc run --format=json examples/integer-narrow.hc` executes I8/I16/U16/I32/U32
+storage and signatures, captures `42`, and returns I64 42 in both modes.
+[Narrow integers](docs/integer-narrow.md) covers signed storage, full register
+results, native computation classes and initializer compatibility.
+
 `holyc run --format=json examples/integer-byte-signatures.hc` passes U8
 parameters, preserves full U8 return bits, captures `42` and returns I64 42
 in both modes. [Byte signatures](docs/integer-byte-signatures.md) explains

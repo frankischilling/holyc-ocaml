@@ -2,7 +2,7 @@
 holyc-ir-graph-v1 reference=c26482bb6ad3f80106d28504ec5db3c6a360732c
 entry=^b7
 block ^b7
-!i0 %v10:internal:U64 = IC_IMM_I64 i64:1 flags=0x000000000
+!i0 %v10:internal:I64 = IC_IMM_I64 i64:1 flags=0x000000000
 !i1 %v11:internal:I64 = IC_COM %v10 flags=0x000000000
 !i2 %v12:internal:I64 = IC_UNARY_MINUS %v11 flags=0x000000000
 !i3 %v13:internal:I64 = IC_NOT %v12 flags=0x000000000

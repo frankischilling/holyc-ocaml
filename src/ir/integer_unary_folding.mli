@@ -30,7 +30,9 @@ val reference_commit : string
 
 val fold : X87_stack.t -> (t, error list) result
 (** Fold the source-audited, zero-flag integer unary subset and publish a new
-    result only after rebuilding the graph and rerunning x87 verification. *)
+    result only after rebuilding the graph and rerunning x87 verification.
+    Unsigned COM remains intact: a plain I64 immediate cannot retain its
+    distinct unsigned computation class alongside its I64 result type. *)
 
 val x87 : t -> X87_stack.t
 val rewrites : t -> rewrite list

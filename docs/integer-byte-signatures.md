@@ -1,5 +1,8 @@
 # U8 numeric parameters and returns
 
+[Narrow integers](integer-narrow.md) in #633 extend these rules to
+I8/I16/U16/I32/U32 and repair unary/complement producer-class handling.
+
 `holyc run --format=json examples/integer-byte-signatures.hc` returns I64 42
 and captures `42` without a newline in JIT and AOT. U8 parameters and return
 values now use the existing checked function, frame and direct-call pipeline.
