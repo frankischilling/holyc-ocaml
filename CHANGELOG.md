@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Connected U8 compound and prefix/postfix updates in #629 through existing
+  checked references. Compounds retain full register results while storage
+  narrows; prefix/postfix return the new/old byte. Original frame register
+  requests and transitive initializer analysis guard native result modes,
+  discarded bit widening and potentially wide automatic reads. Added a measured
+  CLI fixture, all-opcode storage tests and review counterexamples.
+
 - Connected fixed I64/U64/U8 global and static arrays in #627, including checked
   multidimensional aliases, ordered numeric declaration leaves and direct owned
   byte-string copies. AOT prepared images and JIT declaration publications retain

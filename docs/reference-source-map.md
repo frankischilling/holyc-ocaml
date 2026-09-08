@@ -1,5 +1,15 @@
 # Reference source map
 
+[Byte updates](integer-byte-updates.md) in #629 follow
+`Compiler/PrsExp.HC:98-118,201-208,235-241`, `BackA.HC:285-423,442-658`,
+`BackB.HC:304-380` and `BackLib.HC:285-296,509-535` for reference evaluation,
+full compound results and narrowed prefix/postfix values. Initializer proof
+also audits `OptPass3.HC:29-35,187-198,238-243,524-610` for register/escape
+behavior, `OptPass4.HC:243-275,348-434,541-545` for mode and observer choices,
+`BackC.HC:539-600` for widened bit effects, and `OptPass012.HC:630-637` for
+identity folding that can discard an apparently used result. The guide maps
+these native distinctions to maintained acceptance and rejection tests.
+
 [Persistent integer arrays](integer-persistent-arrays.md) in #627 follow
 `Compiler/PrsVar.HC:123-204,247-281,530-588` for recursive fixed counts,
 dimension evaluation, direct byte copies and whole-static padding;

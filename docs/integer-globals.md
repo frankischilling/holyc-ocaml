@@ -91,9 +91,11 @@ and emits nonconstant AOT code-heap initialization as `IET_MAIN` routines.
 globals reject `=` at `PrsStmt.HC:336-338`. The source assignment in the first
 fixture establishes shared storage without erasing these phase rules.
 
-External/import/data-heap storage, arrays,
-aggregates, pointer-valued globals, callbacks and narrow/floating
-storage remain unsupported, even in unused declarations. Runtime output,
+[Persistent arrays](integer-persistent-arrays.md), U8 storage and
+[byte updates](integer-byte-updates.md) extend this scalar connection.
+External/import/data-heap storage, aggregates, pointer-valued globals,
+callbacks and other narrow/floating storage remain unsupported, even in unused
+declarations. Full runtime output,
 stateful compilation and #exe, optimizer parity, native backends, actual-loader
 acceptance and bootstrap remain full-compiler requirements. These tests add
 hosted source evidence; they do not add native TempleOS execution captures.

@@ -426,12 +426,7 @@ let boundaries_and_dumps () =
     (fun mode ->
       List.iter
         (fun source -> ignore (F.first_error (G.run ~mode source)))
-        [
-          "U8 *G;42;";
-          "I64 F(){static U8 *p;return 42;}F();";
-          "U8 G=41;G++;G;";
-          "I64 F(){static U8 n=41;n+=1;return n;}F();";
-        ];
+        [ "U8 *G;42;"; "I64 F(){static U8 *p;return 42;}F();" ];
       let text = "U8 G=298;I64 F(){static U8 n=298;return n;}F();" in
       let dump () = G.compile ~mode text |> integer_program_human in
       let first = dump () in

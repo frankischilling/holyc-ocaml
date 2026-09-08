@@ -71,34 +71,37 @@ val execute_program :
     Canonical scalar compound assignments and prefix/postfix updates read
     storage at their own instruction, after RHS effects. They store only
     successful arithmetic results and retain the destination class (including
-    division and right-shift signedness). Prefix/compound results are new words;
-    postfix results are old words. Static locals share persistent words and the
-    global byte bound, occupy no invocation slots, and require their exact
-    declaring frame and options. Static address producers and storage consumers
-    also accept their owner's checked entry initializer region. Other entry
-    instructions and functions fail preflight; region authority never enters a
-    called function. JIT static calls require transitively earlier definitions
-    in the supplied bodies. Checked one-level I64/U64/U8 pointer locals and
-    fixed parameters hold references to scalar objects and automatic I64/U64/U8
-    array elements. U8 memory stores retain the low eight bits and reads
-    zero-extend them. Plain assignment expressions retain the full RHS bits
-    independently of narrowed storage. Arithmetic retains checked raw classes:
-    U8 with I64 selects I64, while two U8 operands retain U8 computation class
-    without truncating the register result. U8 compound and prefix/postfix
-    updates remain unsupported, as does U8 unary minus, whose pinned result
-    class is the unsupported I8. Checked indexing retains declared-object
-    extents and remaining array strides; grouping/materialization consumes
-    dimensions. Final pointer values may be one-past; memory access must be
-    within the original object. Scale/add overflow and object bounds report
-    HCIRVM0020 and HCIRVM0019 respectively. Offsets, strides and object extents
-    use actual element byte widths. Active allocation charges the checked padded
-    local frame plus eight-byte parameter slots. Cell counts and allocation
-    bytes are bounded before expansion. [IC_ADDR] materializes a reference
-    without reading the object, with its own static-consumer ownership check.
-    Dereferences and updates retain the actual caller or recursive activation,
-    even when slots have identical offsets. Explicit references can pass to
-    callees without granting canonical static-address authority. Returned frames
-    are invalidated; pointer returns, arbitrary integer addresses and pointer
+    division and right-shift signedness). Compound results retain the full
+    computed word; prefix/postfix results are the new/old stored values. Static
+    locals share persistent words and the global byte bound, occupy no
+    invocation slots, and require their exact declaring frame and options.
+    Static address producers and storage consumers also accept their owner's
+    checked entry initializer region. Other entry instructions and functions
+    fail preflight; region authority never enters a called function. JIT static
+    calls require transitively earlier definitions in the supplied bodies.
+    Checked one-level I64/U64/U8 pointer locals and fixed parameters hold
+    references to scalar objects and automatic I64/U64/U8 array elements. U8
+    memory stores retain the low eight bits and reads zero-extend them. Plain
+    assignment expressions retain the full RHS bits independently of narrowed
+    storage. Arithmetic retains checked raw classes: U8 with I64 selects I64,
+    while two U8 operands retain U8 computation class without truncating the
+    register result. U8 updates compute unsigned words, store the low byte, and
+    zero-extend stored prefix/postfix results. This canonical reference path
+    retains zero flags and a materialized result; it does not select native
+    BY_VAL or discarded-result optimizations. U8 unary minus has the unsupported
+    pinned I8 result class. Checked indexing retains declared-object extents and
+    remaining array strides; grouping/materialization consumes dimensions. Final
+    pointer values may be one-past; memory access must be within the original
+    object. Scale/add overflow and object bounds report HCIRVM0020 and
+    HCIRVM0019 respectively. Offsets, strides and object extents use actual
+    element byte widths. Active allocation charges the checked padded local
+    frame plus eight-byte parameter slots. Cell counts and allocation bytes are
+    bounded before expansion. [IC_ADDR] materializes a reference without reading
+    the object, with its own static-consumer ownership check. Dereferences and
+    updates retain the actual caller or recursive activation, even when slots
+    have identical offsets. Explicit references can pass to callees without
+    granting canonical static-address authority. Returned frames are
+    invalidated; pointer returns, arbitrary integer addresses and pointer
     arithmetic remain unsupported. Canonical [IC_STR_CONST] instructions own
     mutable byte regions containing the exact payload followed by one zero byte.
     Every literal site in every definition and the entry is checked before

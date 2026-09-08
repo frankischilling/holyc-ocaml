@@ -11440,3 +11440,25 @@ reporting = "CLI v1/v2 unchanged; additive holyc-persistent-arrays-v1 shapes and
 verification_status = "Focused, full-suite, CLI, independent-review, build, provenance, exact-corpus and final-source CI/merge evidence tracked in issue 627."
 excluded = ["unresolved first-empty/inferred dimensions and native two-pass effects", "oversized direct string copies and non-final-rank root strings", "automatic array declaration initialization", "pointer-valued and other primitive/aggregate storage", "narrow updates", "full formatting/runtime linking", "general memory", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader acceptance", "bootstrap"]
 native_oracle_status = "pinned-source audit and hosted execution; no new native TempleOS capture"
+
+[[feature]]
+id = "HC-U8-UPDATE-EXECUTION"
+description = "Checked U8 compound and prefix/postfix execution separates full register results from byte stores and verifies native initializer invariance."
+sources = ["Compiler/PrsExp.HC:98-118,201-208,235-241", "Compiler/BackA.HC:285-423,442-658", "Compiler/BackB.HC:304-380", "Compiler/BackLib.HC:285-296,509-535", "Compiler/BackC.HC:539-600", "Compiler/OptPass012.HC:630-637,828-853", "Compiler/OptPass3.HC:29-35,187-198,238-243,524-610", "Compiler/OptPass4.HC:243-275,348-434,541-545", "Compiler/PrsVar.HC:492-494", "Compiler/CInit.HC:54-59,88-97"]
+implementation = ["src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_initializers.ml", "src/driver/integer_update_initializers.ml", "src/sema/function_frame_layout.ml"]
+tests = ["test/test_integer_byte_updates.ml", "test/test_integer_updates.ml", "test/test_integer_program_cli.ml", "examples/integer-byte-updates.hc"]
+documentation = ["docs/integer-byte-updates.md", "docs/integer-updates.md", "docs/integer-bytes.md", "docs/integer-persistent-bytes.md", "docs/integer-persistent-arrays.md", "docs/intermediate-representation.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 629
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+baseline = "Eight gates fail HCRUN0003 in both modes at source 7cc6762f285689053fc8ee05418a41207e5c52a8 and merge f5b0e8f55e042fcb04f519b8c077fe36fa59e48a, with no result or output."
+source_gate = "All eight gates return 42 with exact U64/I64 classes in both modes; the maintained fixture captures 3432 and returns I64 42 in 79 runtime instructions and 10 preparation units."
+semantics = "all ten compound and four increment/decrement opcodes; capture address once, evaluate RHS, read current byte, compute unsigned bits, store low byte only on success; compound returns full bits, prefix/postfix new/old stored byte"
+ownership = "canonical zero-flag materialized update results, exact destination/address type, original frame/global/static/array/literal identity; no native optimizer-mode authority inferred from raw runtime IR"
+initializer_proof = "exact declaration leaf sink and transitive definition-owned graphs; native memory/register classification, retained reg/noreg selection, fixed-point bounded-write proof for ordinary byte register reads, explicit-register escape rejection, implicit PUSH_RES observers and identity-folded discarded-bit hazards; old shift/divisor guards retained"
+limits = "79 runtime, 10 preparation, 12 persistent bytes, 40 active frame bytes including Print hidden argument count, depth 2, 3 literal bytes, 2 output bytes, 8 output-work units; all exact limits combined and each one-below diagnosis checked"
+reporting = "v1/v2 reports and existing dump schemas unchanged; original byte update opcodes and destination types retained"
+verification_status = "1968 local tests in 40.986 seconds plus CLI, 43 byte-update groups, independent source/integration review, formatting/generated/build/install, 82 checksums, 11 provenance scenarios and exact corpora passed; protected CI/merge evidence tracked in issue 629."
+excluded = ["U8 numeric parameters/returns", "other narrow and aggregate storage", "general pointer operations", "full formatting/runtime linking", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted execution; no new native TempleOS capture"

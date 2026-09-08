@@ -121,7 +121,9 @@ errors. Parser JSON and normalized text match the committed AOT baseline:
 25/528 standalone and 126/528 with the prelude. Final source CI and merge
 evidence are recorded in #625.
 
-Persistent arrays, pointer-valued globals/statics, narrow updates and other
-primitive storage remain explicit boundaries. Full formatting/linking, broader
+[Persistent arrays](integer-persistent-arrays.md) and
+[byte updates](integer-byte-updates.md) extend this scalar connection.
+Pointer-valued globals/statics and other primitive storage remain explicit
+boundaries. Full formatting/linking, broader
 memory, stateful compilation/#exe, optimizer parity, native backends,
 TempleOS BIN/loader acceptance and bootstrap remain required work.
