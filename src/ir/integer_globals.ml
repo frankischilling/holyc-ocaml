@@ -27,9 +27,13 @@ type slot = {
 type static_slot = Integer_statics.slot
 type storage_slot = Global of slot | Static of static_slot
 
+type task_publication =
+  | Global_publication of Retained_global.t * slot
+  | Function_publication of Retained_function.t
+
 type task_catalog = {
   table : Sema.Symbol_table.t;
-  mutable published : (Retained_global.t * slot) list;
+  mutable published : task_publication list;
 }
 
 type task_view = {
@@ -37,6 +41,7 @@ type task_view = {
   environment : Sema.Outer_environment.t;
   task_table : Sema.Outer_environment.table;
   entries : (Sema.Outer_environment.entry * Retained_global.t * slot) list;
+  function_entries : (Sema.Outer_environment.entry * Retained_function.t) list;
 }
 
 type t = {
@@ -48,6 +53,7 @@ type t = {
   global_cell_count_ : int;
   byte_size_ : int;
   task_view : task_view option;
+  function_publications_ : Retained_function.t list;
 }
 
 let slots globals = globals.slots_
@@ -287,6 +293,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
               global_cell_count_ = index;
               byte_size_ = byte_size;
               task_view = None;
+              function_publications_ = [];
             }
         else invalid "global initializer roots include an absent declaration"
     | record :: rest -> (
@@ -508,13 +515,69 @@ let create_with_layout ~layout ?initializers ~span records =
 
 let create_task_catalog ~table = { table; published = [] }
 
+let publication_symbol = function
+  | Global_publication (_, slot) -> slot.symbol
+  | Function_publication reference -> Retained_function.symbol reference
+
+let newest_publications publications =
+  List.fold_right
+    (fun publication selected ->
+      if
+        List.exists
+          (fun prior ->
+            publication_symbol prior == publication_symbol publication)
+          selected
+      then selected
+      else publication :: selected)
+    publications []
+
+let function_publications globals = globals.function_publications_
+
+let with_function_publications ~records globals =
+  let module Outer = Sema.Outer_environment in
+  let ( let* ) = Result.bind in
+  let* publications =
+    List.fold_left
+      (fun result classified ->
+        let* publications = result in
+        let declaration =
+          Sema.Function_record_classification.classified_declaration_source
+            classified
+        in
+        let* metadata =
+          Outer.make_function_metadata ~records ~declaration
+          |> Result.map_error Outer.error_to_string
+        in
+        Ok
+          (Function_publication (Retained_function.create metadata)
+          :: publications))
+      (Ok [])
+      (Sema.Function_record_classification.declarations records)
+  in
+  let function_publications_ =
+    newest_publications (List.rev publications)
+    |> List.filter_map (function
+      | Function_publication reference -> Some reference
+      | Global_publication _ -> None)
+  in
+  Ok { globals with function_publications_ }
+
 let snapshot_task catalog =
   let module Outer = Sema.Outer_environment in
   let ( let* ) = Result.bind in
   let checked result = Result.map_error Outer.error_to_string result in
-  let rec collect index rev = function
-    | [] -> Ok (List.rev rev)
-    | (reference, slot) :: rest ->
+  let rec collect index rev globals functions = function
+    | [] -> Ok (List.rev rev, List.rev globals, List.rev functions)
+    | Function_publication reference :: rest ->
+        let* entry =
+          Outer.make_function_entry ~entry_index:index
+            ~function_metadata:(Retained_function.metadata reference)
+          |> checked
+        in
+        collect (index + 1) (entry :: rev) globals
+          ((entry, reference) :: functions)
+          rest
+    | Global_publication (reference, slot) :: rest ->
         let source =
           Records.classified_record_source slot.record
           |> Resolution.global_record_global
@@ -537,12 +600,15 @@ let snapshot_task catalog =
             ~global_metadata
           |> checked
         in
-        collect (index + 1) ((entry, reference, slot) :: rev) rest
+        collect (index + 1) (entry :: rev)
+          ((entry, reference, slot) :: globals)
+          functions rest
   in
-  let* entries = collect 0 [] catalog.published in
+  let* all_entries, entries, function_entries =
+    collect 0 [] [] [] (newest_publications catalog.published)
+  in
   let* task_table =
-    Outer.make_table ~table_kind:(Outer.Jit_task 0) ~table_index:0
-      (List.map (fun (entry, _, _) -> entry) entries)
+    Outer.make_table ~table_kind:(Outer.Jit_task 0) ~table_index:0 all_entries
     |> checked
   in
   let* assembler =
@@ -553,7 +619,7 @@ let snapshot_task catalog =
       [ task_table; assembler ]
     |> checked
   in
-  Ok { catalog; environment; task_table; entries }
+  Ok { catalog; environment; task_table; entries; function_entries }
 
 let task_environment view = view.environment
 let with_task_view view globals = { globals with task_view = Some view }
@@ -577,6 +643,25 @@ let retained_slot globals reference =
           else None)
         view.entries)
 
+let retained_function_binding globals binding =
+  let module Outer = Sema.Outer_environment in
+  Option.bind globals.task_view (fun view ->
+      if Outer.binding_table binding != view.task_table then None
+      else
+        List.find_map
+          (fun (entry, reference) ->
+            if Outer.binding_entry binding == entry then Some reference
+            else None)
+          view.function_entries)
+
+let retained_function_symbol globals symbol =
+  Option.bind globals.task_view (fun view ->
+      List.find_map
+        (fun (_, reference) ->
+          if Retained_function.symbol reference == symbol then Some reference
+          else None)
+        view.function_entries)
+
 let is_task_command globals = Option.is_some globals.task_view
 
 let check_task_command catalog globals =
@@ -598,7 +683,7 @@ let check_task_command catalog globals =
         List.exists
           (fun slot ->
             List.exists
-              (fun (_, prior) -> prior.symbol == slot.symbol)
+              (fun prior -> publication_symbol prior == slot.symbol)
               catalog.published)
           globals.slots_
       then Error "task storage declaration has already been admitted"
@@ -607,19 +692,69 @@ let check_task_command catalog globals =
           (List.for_all
              (fun (_, reference, slot) ->
                List.exists
-                 (fun (prior, expected) ->
-                   Retained_global.same prior reference && expected == slot)
+                 (function
+                   | Global_publication (prior, expected) ->
+                       Retained_global.same prior reference && expected == slot
+                   | Function_publication _ -> false)
                  catalog.published)
              view.entries)
       then Error "retained global reference is absent from this task"
+      else if
+        not
+          (List.for_all
+             (fun (_, reference) ->
+               List.exists
+                 (function
+                   | Function_publication prior ->
+                       Retained_function.same prior reference
+                   | Global_publication _ -> false)
+                 catalog.published)
+             view.function_entries)
+      then Error "retained function reference is absent from this task"
+      else if
+        List.exists
+          (fun reference ->
+            (not
+               (Sema.Symbol_table.owns_symbol catalog.table
+                  (Retained_function.symbol reference)))
+            || List.exists
+                 (fun prior ->
+                   publication_symbol prior
+                   == Retained_function.symbol reference)
+                 catalog.published)
+          globals.function_publications_
+      then Error "task function declaration is foreign or already admitted"
       else Ok ()
 
 let publish_task catalog globals =
-  catalog.published <-
-    catalog.published
+  let order = function
+    | Global_publication (_, slot) ->
+        let source =
+          Records.classified_record_source slot.record
+          |> Resolution.global_record_global
+        in
+        ( Global.global_item_index source,
+          Option.value (Global.global_declarator_index source) ~default:0 )
+    | Function_publication reference ->
+        let header =
+          Retained_function.metadata reference
+          |> Sema.Outer_environment.function_declaration
+          |> Sema.Function_resolution.resolved_declaration_site
+          |> Sema.Function_resolution.declaration_site_function
+        in
+        (Sema.Function_type_resolution.function_item_index header, 0)
+  in
+  let publications =
+    List.map
+      (fun slot ->
+        Global_publication (Retained_global.create slot.symbol, slot))
+      globals.slots_
     @ List.map
-        (fun slot -> (Retained_global.create slot.symbol, slot))
-        globals.slots_
+        (fun reference -> Function_publication reference)
+        globals.function_publications_
+    |> List.stable_sort (fun left right -> compare (order left) (order right))
+  in
+  catalog.published <- catalog.published @ publications
 
 let with_initial_values ~span globals values =
   let invalid message =

@@ -163,3 +163,23 @@ passed. Complete lexer JSON and parser JSON/normalized text match the earlier
 baselines. Independent review reproduced body-outer lowering, array argument,
 preparation-budget and statement-wrapper receipt defects before their fixes.
 The API and remaining boundaries are documented in `docs/integer-task.md`.
+
+## Retained function execution checkpoint
+
+Separate commands now call earlier functions through exact outer declaration
+snapshots and task executable links. Each admitted body retains its original
+callees, globals, statics and mutable literal arena. Later initializers inspect
+retained callees with their original frame, options and storage before executing
+through the same sealed runtime calls. Pending calls retain their old header;
+an earlier extern selection cannot acquire a later executable by name.
+
+The focused run passes 43 task groups plus 11 function-classification groups.
+Full verification passed 2,120 of 2,134 tests in 44.835 seconds, with the fourteen
+pending #exe groups still failing; CLI checks passed. Independent review led to
+exact-only definition association and added admission/fault, initializer-guard
+and depth controls. No supported domain was widened to pointer returns.
+
+Next implement provisional parser publication, cross-command extern joins,
+query-selection/pending receipts and checked StreamPrint generation. All seven
+full #635 acceptance criteria remain open. See the retained-functions plan for
+this completed portion; this checkpoint does not claim #exe execution.

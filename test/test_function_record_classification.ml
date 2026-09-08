@@ -413,6 +413,166 @@ let deterministic_classification () =
   Alcotest.(check (list string))
     "call access" (call_names first) (call_names second)
 
+let checked_outer result =
+  result
+  |> Result.map_error Semantic_outer_environment.error_to_string
+  |> checked
+
+let retained_environment ~table ~compilation_mode metadata =
+  let entry =
+    Semantic_outer_environment.make_function_entry ~entry_index:0
+      ~function_metadata:metadata
+    |> checked_outer
+  in
+  let table_kind =
+    match compilation_mode with
+    | Semantic_outer_environment.Jit -> Semantic_outer_environment.Jit_task 0
+    | Semantic_outer_environment.Aot -> Semantic_outer_environment.Aot_parent 0
+  in
+  let functions =
+    Semantic_outer_environment.make_table ~table_kind ~table_index:0 [ entry ]
+    |> checked_outer
+  in
+  let assembler =
+    Semantic_outer_environment.make_table
+      ~table_kind:Semantic_outer_environment.Assembler ~table_index:1 []
+    |> checked_outer
+  in
+  Semantic_outer_environment.create ~table ~compilation_mode
+    [ functions; assembler ]
+
+let retained_metadata_requires_exact_declaration () =
+  let prepared =
+    prepare ~path:"retained-exact-declaration.HC" "I64 Retained(){return 7;}"
+  in
+  let first = resolve prepared Preprocessor.Jit in
+  let second = resolve prepared Preprocessor.Jit in
+  let records = classify prepared second in
+  let declaration =
+    Semantic_function_resolution.declarations first |> List.hd
+  in
+  let selected = Semantic_function_resolution.declarations second |> List.hd in
+  Alcotest.(check bool)
+    "independent resolutions retain the same canonical symbol" true
+    (Semantic_function_resolution.resolved_declaration_identity_symbol
+       declaration
+    == Semantic_function_resolution.resolved_declaration_identity_symbol
+         selected);
+  Alcotest.(check bool)
+    "matching canonical identity cannot substitute a foreign declaration" true
+    (Semantic_outer_environment.make_function_metadata ~records ~declaration
+    |> Result.is_error);
+  let metadata =
+    Semantic_outer_environment.make_function_metadata ~records
+      ~declaration:selected
+    |> checked_outer
+  in
+  Alcotest.(check bool)
+    "selected declaration is retained exactly" true
+    (Semantic_outer_environment.function_declaration metadata == selected)
+
+let retained_metadata_environment_controls () =
+  let prepared =
+    prepare ~path:"retained-environment-controls.HC" "I64 Retained(){return 7;}"
+  in
+  let resolution = resolve prepared Preprocessor.Jit in
+  let records = classify prepared resolution in
+  let declaration =
+    Semantic_function_resolution.declarations resolution |> List.hd
+  in
+  let metadata =
+    Semantic_outer_environment.make_function_metadata ~records ~declaration
+    |> checked_outer
+  in
+  let table = Session.semantic_symbols prepared.session in
+  ignore
+    (retained_environment ~table
+       ~compilation_mode:Semantic_outer_environment.Jit metadata
+    |> checked_outer);
+  let expect_error message = function
+    | Ok _ -> Alcotest.fail "expected retained environment rejection"
+    | Error error ->
+        Alcotest.(check string)
+          "specific rejection" message
+          (Semantic_outer_environment.error_message error)
+  in
+  retained_environment
+    ~table:(Session.semantic_symbols (Session.create ()))
+    ~compilation_mode:Semantic_outer_environment.Jit metadata
+  |> expect_error "outer environment entry belongs to another symbol table";
+  retained_environment ~table ~compilation_mode:Semantic_outer_environment.Aot
+    metadata
+  |> expect_error "outer function metadata uses another compilation mode"
+
+let retained_joined_header_preserves_snapshot () =
+  let prepared =
+    prepare ~path:"retained-joined-header.HC"
+      "extern I64 Retained(I64 value); I64 Retained(I64 value){return value;}"
+  in
+  let resolution = resolve prepared Preprocessor.Jit in
+  let records = classify prepared resolution in
+  match declarations records with
+  | [ external_; definition ] ->
+      let metadata classified =
+        Semantic_outer_environment.make_function_metadata ~records
+          ~declaration:
+            (Semantic_function_record_classification
+             .classified_declaration_source classified)
+        |> checked_outer
+      in
+      let external_metadata = metadata external_ in
+      let definition_metadata = metadata definition in
+      let declaration =
+        Semantic_outer_environment.function_declaration definition_metadata
+      in
+      let canonical =
+        Semantic_function_resolution.resolved_declaration_identity_symbol
+          declaration
+      in
+      let header_symbol =
+        declaration |> Semantic_function_resolution.resolved_declaration_site
+        |> Semantic_function_resolution.declaration_site_function
+        |> Semantic_function_type_resolution.function_symbol
+      in
+      Alcotest.(check bool)
+        "definition header differs from joined canonical identity" false
+        (Semantic_symbol.Id.equal
+           (Semantic_symbol.id canonical)
+           (Semantic_symbol.id header_symbol));
+      let environment =
+        retained_environment
+          ~table:(Session.semantic_symbols prepared.session)
+          ~compilation_mode:Semantic_outer_environment.Jit definition_metadata
+        |> checked_outer
+      in
+      let binding =
+        match Semantic_outer_environment.find environment "Retained" with
+        | Some binding -> binding
+        | None -> Alcotest.fail "joined function was not published"
+      in
+      Alcotest.(check bool)
+        "entry publishes canonical identity" true
+        (binding |> Semantic_outer_environment.binding_entry
+       |> Semantic_outer_environment.entry_symbol |> ( == ) canonical);
+      Alcotest.(check bool)
+        "definition classification retained exactly" true
+        (Semantic_outer_environment.function_classified_declaration
+           definition_metadata
+        == definition);
+      let access metadata =
+        metadata |> Semantic_outer_environment.function_classified_declaration
+        |> Semantic_function_record_classification.classified_declaration_record
+        |> Semantic_function_record_classification.call_access
+        |> Semantic_function_record_classification.call_access_name
+      in
+      Alcotest.(check string)
+        "earlier extern snapshot stays external" "jit-extern-address-slot-call"
+        (access external_metadata);
+      Alcotest.(check string)
+        "definition snapshot is executable" "direct-executable-call"
+        (access definition_metadata)
+  | _ -> Alcotest.fail "expected extern and joined definition"
+
 let tests =
   [
     Alcotest.test_case "AOT binding matrix" `Quick aot_binding_matrix;
@@ -429,4 +589,10 @@ let tests =
       invalid_inputs_are_pure;
     Alcotest.test_case "deterministic classification" `Quick
       deterministic_classification;
+    Alcotest.test_case "retained metadata requires exact declaration" `Quick
+      retained_metadata_requires_exact_declaration;
+    Alcotest.test_case "retained metadata environment controls" `Quick
+      retained_metadata_environment_controls;
+    Alcotest.test_case "retained joined header preserves snapshot" `Quick
+      retained_joined_header_preserves_snapshot;
   ]

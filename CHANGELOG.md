@@ -5,8 +5,10 @@
 - Added incremental JIT task execution for retained global scalars and arrays
   in #635. Separate commands share exact storage, preserve reached writes after
   faults, reject command replay and share preparation/runtime/output limits.
-  New functions can access earlier globals within their own command. Retained
-  function calls, parser publication and StreamPrint integration remain pending.
+  Later commands and initializers can call earlier functions while preserving
+  original callees, globals, statics, mutable literal sites and exact selected
+  declaration snapshots. Initializer guards inspect retained callees with their
+  original context. Parser publication and StreamPrint integration remain pending.
 
 - Connected I8/I16/U16/I32/U32 storage, fixed arrays, references, updates and
   numeric signatures in #633 through shared generated width/signedness metadata.

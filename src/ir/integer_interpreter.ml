@@ -36,6 +36,13 @@ type word = { type_ : word_type; bits : int64 }
 type return_kind = Word_return of word_type | Void_return
 type function_definition = { frame : Frame.function_layout; body : Function.t }
 
+type task_function_source = {
+  source_globals : Integer_globals.t;
+  source_runtime_calls : Runtime_call_context.t;
+  source_functions : function_definition list;
+  source_definition : function_definition;
+}
+
 type stored_type =
   | Stored_word of word_type
   | Stored_narrow of Scalar.t
@@ -62,83 +69,6 @@ and runtime_storage = {
   mutable live : bool;
   unknown_message : string;
 }
-
-type task_state = {
-  catalog : Integer_globals.task_catalog;
-  mutable arenas : (Integer_globals.t * runtime_storage) list;
-  mutable literal_arenas : runtime_storage list;
-  mutable started : X87.t list;
-  mutable global_bytes : int;
-  mutable literal_bytes : int;
-  mutable steps : int;
-  mutable initializer_steps : int;
-  max_steps : int;
-  max_initializer_steps : int;
-  max_global_bytes : int;
-  max_literal_bytes : int;
-  max_frame_bytes : int;
-  max_call_depth : int;
-  output : Output.t;
-}
-
-let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
-    ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
-    ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
-    ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576) ~table () =
-  if
-    List.exists
-      (fun limit -> limit <= 0)
-      [
-        max_steps;
-        max_initializer_steps;
-        max_global_bytes;
-        max_literal_bytes;
-        max_frame_bytes;
-        max_call_depth;
-        max_output_bytes;
-        max_output_work;
-      ]
-    || max_output_bytes > Sys.max_string_length
-  then
-    Error
-      "task limits must be positive and output capacity must fit a host string"
-  else
-    Ok
-      {
-        catalog = Integer_globals.create_task_catalog ~table;
-        arenas = [];
-        literal_arenas = [];
-        started = [];
-        global_bytes = 0;
-        literal_bytes = 0;
-        steps = 0;
-        initializer_steps = 0;
-        max_steps;
-        max_initializer_steps;
-        max_global_bytes;
-        max_literal_bytes;
-        max_frame_bytes;
-        max_call_depth;
-        output = Output.create ~max_output_bytes ~max_output_work;
-      }
-
-let task_snapshot task = Integer_globals.snapshot_task task.catalog
-let task_output_bytes task = Output.contents task.output
-let task_output_work task = Output.work task.output
-let task_executed_steps task = task.steps
-let task_initializer_steps task = task.initializer_steps
-let task_initializer_limit task = task.max_initializer_steps
-
-let record_task_preparation task ~before ~steps =
-  if
-    before < 0 || steps < 0
-    || before > task.initializer_steps
-    || steps > task.max_initializer_steps - before
-    || before + steps < task.initializer_steps
-  then
-    invalid_arg
-      "task preparation progress is inconsistent with its cumulative budget";
-  task.initializer_steps <- before + steps
 
 type frame_slot = {
   slot_type : Type.t;
@@ -253,6 +183,7 @@ type storage_location =
 type prepared_operation =
   | Call_start
   | Call of int
+  | Retained_call of Retained_function.t
   | Runtime_call of Runtime.call * stored_type array
   | Call_cleanup
   | Call_end of Value_id.t * word_type
@@ -320,6 +251,107 @@ type callee = {
   cleanup_opcode : Opcode.t;
   frame_bytes : int;
 }
+
+(* A prepared index and a literal offset are meaningful only in the command
+   that admitted them. Keep that owner when a body outlives its entry. *)
+type executable_owner = {
+  owner_callees : (callee * prepared) array;
+  owner_literals : runtime_storage;
+}
+
+type retained_executable = {
+  function_link : Retained_function.t;
+  function_callee : callee;
+  function_program : prepared;
+  function_owner : executable_owner;
+  function_source : task_function_source;
+}
+
+type task_state = {
+  catalog : Integer_globals.task_catalog;
+  mutable arenas : (Integer_globals.t * runtime_storage) list;
+  mutable literal_arenas : runtime_storage list;
+  mutable started : X87.t list;
+  mutable functions : retained_executable list;
+  mutable global_bytes : int;
+  mutable literal_bytes : int;
+  mutable steps : int;
+  mutable initializer_steps : int;
+  max_steps : int;
+  max_initializer_steps : int;
+  max_global_bytes : int;
+  max_literal_bytes : int;
+  max_frame_bytes : int;
+  max_call_depth : int;
+  output : Output.t;
+}
+
+let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
+    ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
+    ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
+    ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576) ~table () =
+  if
+    List.exists
+      (fun limit -> limit <= 0)
+      [
+        max_steps;
+        max_initializer_steps;
+        max_global_bytes;
+        max_literal_bytes;
+        max_frame_bytes;
+        max_call_depth;
+        max_output_bytes;
+        max_output_work;
+      ]
+    || max_output_bytes > Sys.max_string_length
+  then
+    Error
+      "task limits must be positive and output capacity must fit a host string"
+  else
+    Ok
+      {
+        catalog = Integer_globals.create_task_catalog ~table;
+        arenas = [];
+        literal_arenas = [];
+        started = [];
+        functions = [];
+        global_bytes = 0;
+        literal_bytes = 0;
+        steps = 0;
+        initializer_steps = 0;
+        max_steps;
+        max_initializer_steps;
+        max_global_bytes;
+        max_literal_bytes;
+        max_frame_bytes;
+        max_call_depth;
+        output = Output.create ~max_output_bytes ~max_output_work;
+      }
+
+let task_snapshot task = Integer_globals.snapshot_task task.catalog
+
+let task_function_source task link =
+  List.find_opt
+    (fun executable -> Retained_function.same executable.function_link link)
+    task.functions
+  |> Option.map (fun executable -> executable.function_source)
+
+let task_output_bytes task = Output.contents task.output
+let task_output_work task = Output.work task.output
+let task_executed_steps task = task.steps
+let task_initializer_steps task = task.initializer_steps
+let task_initializer_limit task = task.max_initializer_steps
+
+let record_task_preparation task ~before ~steps =
+  if
+    before < 0 || steps < 0
+    || before > task.initializer_steps
+    || steps > task.max_initializer_steps - before
+    || before + steps < task.initializer_steps
+  then
+    invalid_arg
+      "task preparation progress is inconsistent with its cumulative budget";
+  task.initializer_steps <- before + steps
 
 type call_phase = Collecting of int | Needs_cleanup | Needs_end
 
@@ -1713,7 +1745,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
           operation
 
 let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
-    ?(runtime_owner = Runtime.Entry) graph =
+    ?(retained_functions = []) ?(runtime_owner = Runtime.Entry) graph =
   let ( let* ) = Result.bind in
   let* () =
     match literals with
@@ -1819,6 +1851,17 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                         runtime_callee site
                     | Some site when Runtime.call_opcode site <> Opcode.Ic_call
                       -> None
+                    | Some site
+                      when Option.is_some (Runtime.retained_function site) ->
+                        let link =
+                          Option.get (Runtime.retained_function site)
+                        in
+                        List.find_opt
+                          (fun executable ->
+                            Retained_function.same executable.function_link link)
+                          retained_functions
+                        |> Option.map (fun executable ->
+                            executable.function_callee)
                     | _ ->
                         Option.value callees ~default:[]
                         |> List.find_opt (fun callee ->
@@ -1869,7 +1912,11 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                     match site with
                     | Some site when Option.is_some (Runtime.provider site) ->
                         Runtime_call (site, callee.parameter_types)
-                    | _ -> Call callee.callee_index
+                    | Some site -> (
+                        match Runtime.retained_function site with
+                        | Some link -> Retained_call link
+                        | None -> Call callee.callee_index)
+                    | None -> Call callee.callee_index
                   in
                   call_instruction description operation
               | _ ->
@@ -2137,6 +2184,7 @@ type call_scope = {
 
 type caller = {
   saved_program : prepared;
+  saved_owner : executable_owner;
   saved_block : int;
   saved_instruction : int;
   saved_values : runtime_value Value_map.t;
@@ -2170,7 +2218,7 @@ let publish_array_payload ~slot ~cell_offset payload write =
 let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
     ?(max_call_depth = Int.max_int) ?(capture_last = false) ?initialization
     ?(global_words = [||]) ?literal_image ?output ?admit
-    ?(retained_regions = []) ~max_steps program =
+    ?(retained_regions = []) ?(retained_functions = []) ~max_steps program =
   let entry_program = program in
   let current_block = ref program.entry_index in
   let current_instruction = ref 0 in
@@ -2269,7 +2317,10 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
         "owned string literal byte is unexpectedly uninitialized";
     }
   in
-  Option.iter (fun admit -> admit global_storage literal_storage) admit;
+  let owner =
+    ref { owner_callees = callees; owner_literals = literal_storage }
+  in
+  Option.iter (fun admit -> admit global_storage !owner) admit;
   let slots = ref (frame_storage program.initial_slots) in
   let program = ref program in
   let callers = ref [] in
@@ -2418,7 +2469,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
     | Global_slot slot ->
         let storage, base = global_region slot in
         root storage base (Integer_globals.storage_element_count slot)
-    | Literal_slot (base, count) -> root literal_storage base count
+    | Literal_slot (base, count) -> root !owner.owner_literals base count
     | Indirect_slot operand -> require_pointer block instruction operand
     | Indexed_slot operand ->
         require_pointer ~bounded:false block instruction operand
@@ -2426,7 +2477,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
   let resolve_location block instruction = function
     | Frame_slot (index, _) -> Some (!slots, index)
     | Global_slot slot -> Some (global_region slot)
-    | Literal_slot (index, _) -> Some (literal_storage, index)
+    | Literal_slot (index, _) -> Some (!owner.owner_literals, index)
     | Indirect_slot operand | Indexed_slot operand ->
         Option.bind (require_pointer ~bounded:false block instruction operand)
           (fun address ->
@@ -2612,11 +2663,28 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                     Some
                       (runtime_error ~instruction block !steps "HCIRVM0008"
                          "prepared runtime call has no pending caller scope"))
-          | Call index -> (
-              match !calls with
-              | ({ completion = Pending; _ } as scope) :: _
-                when index >= 0 && index < Array.length callees ->
-                  let callee, body = callees.(index) in
+          | (Call _ | Retained_call _) as operation -> (
+              let target =
+                match operation with
+                | Call index
+                  when index >= 0 && index < Array.length !owner.owner_callees
+                  ->
+                    let callee, body = !owner.owner_callees.(index) in
+                    Some (callee, body, !owner)
+                | Retained_call link ->
+                    List.find_opt
+                      (fun executable ->
+                        Retained_function.same executable.function_link link)
+                      retained_functions
+                    |> Option.map (fun executable ->
+                        ( executable.function_callee,
+                          executable.function_program,
+                          executable.function_owner ))
+                | _ -> None
+              in
+              match (!calls, target) with
+              | ( ({ completion = Pending; _ } as scope) :: _,
+                  Some (callee, body, callee_owner) ) ->
                   if !depth >= max_call_depth then
                     failed :=
                       Some
@@ -2634,6 +2702,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                     callers :=
                       {
                         saved_program = !program;
+                        saved_owner = !owner;
                         saved_block = !current_block;
                         saved_instruction = !current_instruction;
                         saved_values = !values;
@@ -2660,6 +2729,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                                    "prepared argument disagrees with its \
                                     checked parameter"));
                     program := body;
+                    owner := callee_owner;
                     slots := initialized;
                     values := Value_map.empty;
                     pending_return := None;
@@ -2988,6 +3058,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                       live_frame_bytes :=
                         !live_frame_bytes - !program.initial_frame_bytes;
                       program := caller.saved_program;
+                      owner := caller.saved_owner;
                       current_block := caller.saved_block;
                       current_instruction := caller.saved_instruction;
                       values := caller.saved_values;
@@ -3254,7 +3325,31 @@ let execute_program_with_output ?task ?runtime_calls ~output ?globals
               rest
     in
     let* summaries = summaries 0 [] [] [] functions in
+    let retained_functions =
+      Option.fold ~none:[] ~some:(fun task -> task.functions) task
+    in
     let calls ?caller graph =
+      let runtime_owner =
+        Option.fold ~none:Runtime.Entry
+          ~some:(fun body -> Runtime.Function body)
+          caller
+      in
+      let retained_calls =
+        Graph.blocks graph
+        |> List.concat_map (fun block ->
+            Graph.instructions block |> Sequence.instructions
+            |> List.filter_map (fun instruction ->
+                let description = Sequence.description instruction in
+                if description.opcode <> Opcode.Ic_call_start then None
+                else
+                  Option.bind runtime_calls (fun context ->
+                      Option.bind
+                        (Runtime.find_start context ~owner:runtime_owner
+                           description.instruction_id) (fun site ->
+                          Option.map
+                            (fun link -> (Runtime.call_instruction site, link))
+                            (Runtime.retained_function site)))))
+      in
       Graph.blocks graph
       |> List.concat_map (fun block ->
           Graph.instructions block |> Sequence.instructions
@@ -3262,15 +3357,32 @@ let execute_program_with_output ?task ?runtime_calls ~output ?globals
               let description = Sequence.description instruction in
               match (description.opcode, description.payload) with
               | Opcode.Ic_call, Some (Sequence.Symbol symbol) ->
-                  Some (Graph.block_id block, description, symbol, caller)
+                  let retained =
+                    List.find_map
+                      (fun (instruction_id, link) ->
+                        if
+                          Instruction_id.equal instruction_id
+                            description.instruction_id
+                        then Some link
+                        else None)
+                      retained_calls
+                  in
+                  Some
+                    (Graph.block_id block, description, symbol, caller, retained)
               | _ -> None))
     in
     let rec available region declaring_index visited = function
       | [] -> Ok ()
-      | (_, _, symbol, _) :: rest
+      | (_, _, _, _, Some link) :: rest
+        when List.exists
+               (fun executable ->
+                 Retained_function.same executable.function_link link)
+               retained_functions ->
+          available region declaring_index visited rest
+      | (_, _, symbol, _, _) :: rest
         when List.exists (fun prior -> prior == symbol) visited ->
           available region declaring_index visited rest
-      | (block_id, description, symbol, caller) :: rest -> (
+      | (block_id, description, symbol, caller, _) :: rest -> (
           match
             List.find_opt
               (fun (callee, _, _) -> callee.callee_symbol == symbol)
@@ -3306,7 +3418,7 @@ let execute_program_with_output ?task ?runtime_calls ~output ?globals
              | Global_initialization.Compile_initializer, Some frame ->
                  let called =
                    calls (X87.graph checked)
-                   |> List.filter (fun (_, description, _, _) ->
+                   |> List.filter (fun (_, description, _, _, _) ->
                        Instruction_id.compare
                          description.Sequence.instruction_id
                          (Global_initialization.storage_first region)
@@ -3335,7 +3447,8 @@ let execute_program_with_output ?task ?runtime_calls ~output ?globals
           in
           let* program =
             prepare ~frame ?globals ~literals ~callees ?runtime_calls
-              ~runtime_owner:(Runtime.Function body) (Function.body body)
+              ~retained_functions ~runtime_owner:(Runtime.Function body)
+              (Function.body body)
             |> Result.map_error (List.map (identify body))
           in
           bodies
@@ -3359,7 +3472,7 @@ let execute_program_with_output ?task ?runtime_calls ~output ?globals
     in
     let* entry =
       prepare ?globals ~literals ?initialization ~callees ?runtime_calls
-        (X87.graph checked)
+        ~retained_functions (X87.graph checked)
       |> Result.map_error (List.map identify_entry)
     in
     let global_words =
@@ -3390,11 +3503,48 @@ let execute_program_with_output ?task ?runtime_calls ~output ?globals
     in
     let admit =
       Option.map
-        (fun task storage literals ->
+        (fun task storage owner ->
           let globals = Option.get globals in
           task.started <- checked :: task.started;
           task.arenas <- (globals, storage) :: task.arenas;
-          task.literal_arenas <- literals :: task.literal_arenas;
+          task.literal_arenas <- owner.owner_literals :: task.literal_arenas;
+          let executable_publications =
+            Integer_globals.function_publications globals
+            |> List.filter_map (fun function_link ->
+                let declaration =
+                  Retained_function.metadata function_link
+                  |> Sema.Outer_environment.function_declaration
+                in
+                let site =
+                  Sema.Function_resolution.resolved_declaration_site declaration
+                in
+                if
+                  Sema.Function_resolution.declaration_site_kind site
+                  <> Sema.Function_resolution.Definition
+                then None
+                else
+                  Array.to_list owner.owner_callees
+                  |> List.find_opt (fun (callee, _) ->
+                      match callee.callee_definition with
+                      | Some definition -> definition == declaration
+                      | None -> false)
+                  |> Option.map (fun (function_callee, function_program) ->
+                      {
+                        function_link;
+                        function_callee;
+                        function_program;
+                        function_owner = owner;
+                        function_source =
+                          {
+                            source_globals = globals;
+                            source_runtime_calls = Option.get runtime_calls;
+                            source_functions = functions;
+                            source_definition =
+                              List.nth functions function_callee.callee_index;
+                          };
+                      }))
+          in
+          task.functions <- executable_publications @ task.functions;
           task.global_bytes <-
             task.global_bytes + Integer_globals.byte_size globals;
           task.literal_bytes <-
@@ -3405,7 +3555,7 @@ let execute_program_with_output ?task ?runtime_calls ~output ?globals
     let outcome =
       execute_prepared ~callees:programs ~max_frame_bytes ~max_call_depth
         ?initialization ~global_words ~literal_image ~output ~capture_last:true
-        ?admit ~retained_regions ~max_steps entry
+        ?admit ~retained_regions ~retained_functions ~max_steps entry
     in
     Option.iter
       (fun task ->

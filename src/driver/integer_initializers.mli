@@ -6,6 +6,9 @@ type t
 val prepare :
   ?function_calls:Sema.Function_call_target_classification.t list ->
   ?allow_zero_budget:bool ->
+  ?retained_function_source:
+    (Ir.Retained_function.t ->
+    Ir.Integer_interpreter.task_function_source option) ->
   ?on_progress:(int -> unit) ->
   max_steps:int ->
   span:Common.Span.t ->

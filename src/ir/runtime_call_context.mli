@@ -74,3 +74,4 @@ val argument_target_type : argument -> Sema.Type.t
 val variadic_count : call -> int64 option
 val declaration : call -> Sema.Function_resolution.resolved_declaration
 val header : call -> Sema.Function_type_resolution.resolved_function
+val retained_function : call -> Retained_function.t option

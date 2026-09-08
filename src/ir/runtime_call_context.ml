@@ -48,6 +48,7 @@ type call = {
   variadic_count_ : int64 option;
   declaration_ : Functions.resolved_declaration;
   header_ : Headers.resolved_function;
+  retained_function_ : Retained_function.t option;
 }
 
 type graph_context = {
@@ -83,6 +84,7 @@ let argument_target_type argument = argument.target_type
 let variadic_count call = call.variadic_count_
 let declaration call = call.declaration_
 let header call = call.header_
+let retained_function call = call.retained_function_
 
 let same_owner left right =
   match (left, right) with
@@ -142,6 +144,7 @@ type shape = {
   variadic : Typed.expression_result list;
   count_type : Type.t option;
   origin : Sema.Symbol.origin;
+  retained_function : Retained_function.t option;
 }
 
 let parameter_type parameter =
@@ -153,7 +156,7 @@ let provided ?span = function
   | Typed.Declared_default_result _ ->
       fail ?span "runtime call context cannot materialize an omitted default"
 
-let shape records description =
+let shape ~globals records description =
   let declaration, header, symbol, fixed, variadic, count, origin, implicit =
     match description.source with
     | Function_call target ->
@@ -315,10 +318,48 @@ let shape records description =
   require ?span
     (Option.is_some description.discard = implicit)
     "call context discard identity does not match its checked statement source";
+  let outer_binding =
+    match description.source with
+    | Function_call target ->
+        Sema.Function_call_target_classification.source target
+        |> Typed.direct_outer_binding
+    | Top_level_call target ->
+        Sema.Top_level_function_call_target_classification.source target
+        |> Typed.top_level_direct_outer_binding
+    | Function_output _ | Top_level_output _ -> None
+  in
+  let retained_function =
+    Option.map
+      (fun binding ->
+        match Integer_globals.retained_function_binding globals binding with
+        | Some reference ->
+            let metadata = Retained_function.metadata reference in
+            require ?span
+              (Sema.Outer_environment.function_declaration metadata
+               == declaration
+              &&
+              match
+                Sema.Outer_environment.binding_entry binding
+                |> Sema.Outer_environment.entry_function_metadata
+              with
+              | Some expected -> expected == metadata
+              | None -> false)
+              "retained call does not own its selected task declaration";
+            reference
+        | None ->
+            fail ?span "retained call has no exact selected task function link")
+      outer_binding
+  in
   let classified =
-    Records.declarations records
-    |> List.find_opt (fun candidate ->
-        Records.classified_declaration_source candidate == declaration)
+    match retained_function with
+    | Some reference ->
+        Some
+          (Retained_function.metadata reference
+          |> Sema.Outer_environment.function_classified_declaration)
+    | None ->
+        Records.declarations records
+        |> List.find_opt (fun candidate ->
+            Records.classified_declaration_source candidate == declaration)
   in
   let selected_record =
     match classified with
@@ -391,6 +432,7 @@ let shape records description =
     variadic;
     count_type;
     origin;
+    retained_function;
   }
 
 let selected_opcode ?span record =
@@ -621,7 +663,7 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
   let pending_shapes =
     List.fold_left
       (fun map description ->
-        let shape = shape records description in
+        let shape = shape ~globals records description in
         let span = origin_span shape.origin in
         validate_source owner description span;
         require ?span
@@ -782,6 +824,7 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                       pending.shape.count_type;
                   declaration_ = pending.shape.selected_declaration;
                   header_ = pending.shape.selected_header;
+                  retained_function_ = pending.shape.retained_function;
                 }
               in
               calls := Instructions.add call.description.first call !calls;

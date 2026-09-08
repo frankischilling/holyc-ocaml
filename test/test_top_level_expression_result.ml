@@ -680,6 +680,7 @@ let top_level_outer_globals_retain_checked_shapes () =
                   "the result and classifier share one binding" true
                   (selected == binding)
             | Semantic_top_level_identifier_resolution.Module_value _
+            | Semantic_top_level_identifier_resolution.Outer_function_value _
             | Semantic_top_level_identifier_resolution.Outer_type_required _ ->
                 Alcotest.fail "expected a typed outer classification");
             name)

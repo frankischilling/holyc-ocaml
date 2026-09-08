@@ -85,6 +85,7 @@ let compile_ast task (ast : Frontend.Ast.module_) =
       in
       let* checked =
         Integer_program.compile_task_ast ~task_view ~max_initializer_steps
+          ~retained_function_source:(VM.task_function_source task.state)
           ~initializer_progress:(fun steps ->
             VM.record_task_preparation task.state ~before ~steps)
           task.session ~config:task.config ast

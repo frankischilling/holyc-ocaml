@@ -17,11 +17,18 @@ type global_metadata = {
   array_rank : int;
 }
 
+type function_metadata = {
+  declaration : Function_resolution.resolved_declaration;
+  records : Function_record_classification.t;
+  classified_declaration : Function_record_classification.classified_declaration;
+}
+
 type entry = {
   symbol : Symbol.t;
   record_kind : record_kind;
   entry_index : int;
   global_metadata : global_metadata option;
+  function_metadata : function_metadata option;
 }
 
 module Int_set = Set.Make (Int)
@@ -99,7 +106,15 @@ let make_entry_with_metadata ~symbol ~record_kind ~entry_index global_metadata =
     Error
       (invalid_input ~origin:(Symbol.origin symbol)
          "only an outer global-variable record can carry global metadata")
-  else Ok { symbol; record_kind; entry_index; global_metadata }
+  else
+    Ok
+      {
+        symbol;
+        record_kind;
+        entry_index;
+        global_metadata;
+        function_metadata = None;
+      }
 
 let make_entry ~symbol ~record_kind ~entry_index =
   make_entry_with_metadata ~symbol ~record_kind ~entry_index None
@@ -107,6 +122,29 @@ let make_entry ~symbol ~record_kind ~entry_index =
 let make_global_entry ~symbol ~entry_index ~global_metadata =
   make_entry_with_metadata ~symbol ~record_kind:Global_variable ~entry_index
     (Some global_metadata)
+
+let make_function_metadata ~records ~declaration =
+  match
+    records |> Function_record_classification.declarations
+    |> List.find_opt (fun classified ->
+        Function_record_classification.classified_declaration_source classified
+        == declaration)
+  with
+  | None ->
+      Error
+        (invalid_input
+           "outer function declaration does not belong to its classification")
+  | Some classified_declaration ->
+      Ok { declaration; records; classified_declaration }
+
+let make_function_entry ~entry_index ~function_metadata =
+  let symbol =
+    Function_resolution.resolved_declaration_identity_symbol
+      function_metadata.declaration
+  in
+  match make_entry ~symbol ~record_kind:Function ~entry_index with
+  | Error _ as error -> error
+  | Ok entry -> Ok { entry with function_metadata = Some function_metadata }
 
 let valid_table_kind = function
   | Jit_task depth | Aot_parent depth -> depth >= 0
@@ -222,7 +260,42 @@ let global_metadata_is_owned symbol_table metadata =
   | Object_global -> true
   | Function_pointer_global pointer -> pointer_is_owned symbol_table pointer
 
-let validate_symbols symbol_table table_chain =
+let function_metadata_is_owned symbol_table metadata =
+  let declaration = metadata.declaration in
+  let header =
+    declaration |> Function_resolution.resolved_declaration_site
+    |> Function_resolution.declaration_site_function
+  in
+  Symbol_table.owns_symbol symbol_table
+    (Function_resolution.resolved_declaration_identity_symbol declaration)
+  && Symbol_table.owns_symbol symbol_table
+       (Function_type_resolution.function_symbol header)
+  && Symbol_table.owns_scope symbol_table
+       (Function_type_resolution.function_scope header)
+  && reference_is_owned symbol_table
+       (Function_type_resolution.function_return_type header)
+  && signature_is_owned symbol_table
+       (Function_type_resolution.function_signature header)
+  && List.for_all
+       (fun binding ->
+         Symbol_table.owns_symbol symbol_table
+           (Function_type_resolution.parameter_binding_symbol binding))
+       (Function_type_resolution.function_parameter_bindings header)
+  && Option.fold ~none:true
+       ~some:(fun bindings ->
+         List.for_all
+           (fun binding ->
+             Symbol_table.owns_symbol symbol_table
+               (Function_type_resolution.synthetic_binding_symbol binding)
+             && type_is_owned symbol_table
+                  (Function_type_resolution.synthetic_binding_type binding))
+           [
+             Function_type_resolution.variadic_argc bindings;
+             Function_type_resolution.variadic_argv bindings;
+           ])
+       (Function_type_resolution.function_variadic_bindings header)
+
+let validate_symbols symbol_table compilation_mode table_chain =
   let rec entries seen = function
     | [] -> Ok seen
     | entry :: rest ->
@@ -242,6 +315,27 @@ let validate_symbols symbol_table table_chain =
             (invalid_input
                ~origin:(Symbol.origin entry.symbol)
                "outer global metadata belongs to another symbol table")
+        else if
+          match entry.function_metadata with
+          | None -> false
+          | Some metadata ->
+              not (function_metadata_is_owned symbol_table metadata)
+        then
+          Error
+            (invalid_input
+               ~origin:(Symbol.origin entry.symbol)
+               "outer function metadata belongs to another symbol table")
+        else if
+          match entry.function_metadata with
+          | None -> false
+          | Some metadata ->
+              Function_record_classification.compilation_mode metadata.records
+              <> compilation_mode
+        then
+          Error
+            (invalid_input
+               ~origin:(Symbol.origin entry.symbol)
+               "outer function metadata uses another compilation mode")
         else if Int_set.mem number seen then
           Error
             (invalid_input
@@ -265,7 +359,7 @@ let create ~table:symbol_table ~compilation_mode tables =
       match validate_roles compilation_mode tables with
       | Error _ as error -> error
       | Ok () -> (
-          match validate_symbols symbol_table tables with
+          match validate_symbols symbol_table compilation_mode tables with
           | Error _ as error -> error
           | Ok () -> Ok { symbol_table; compilation_mode; tables }))
 
@@ -279,6 +373,9 @@ let entry_symbol entry = entry.symbol
 let entry_record_kind entry = entry.record_kind
 let entry_index entry = entry.entry_index
 let entry_global_metadata entry = entry.global_metadata
+let entry_function_metadata entry = entry.function_metadata
+let function_declaration metadata = metadata.declaration
+let function_classified_declaration metadata = metadata.classified_declaration
 let global_type_reference metadata = metadata.type_reference
 let global_declarator_kind metadata = metadata.declarator_kind
 let global_array_rank metadata = metadata.array_rank

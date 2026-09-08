@@ -10,6 +10,18 @@ val snapshot_task : task_catalog -> (task_view, string) result
 val task_environment : task_view -> Sema.Outer_environment.t
 val with_task_view : task_view -> t -> t
 
+val with_function_publications :
+  records:Sema.Function_record_classification.t -> t -> (t, string) result
+
+val function_publications : t -> Retained_function.t list
+
+val retained_function_binding :
+  t -> Sema.Outer_environment.binding -> Retained_function.t option
+
+val retained_function_symbol : t -> Sema.Symbol.t -> Retained_function.t option
+(** Source inspection for initializer guards; runtime authority still requires
+    the exact selected binding and sealed call site. *)
+
 val retained_binding :
   t -> Sema.Outer_environment.binding -> (Retained_global.t * slot) option
 

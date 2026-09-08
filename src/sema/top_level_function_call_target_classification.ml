@@ -26,10 +26,25 @@ let classify ~records source =
     Function_call_expression_result.top_level_direct_declaration source
   in
   let classified =
-    records |> Function_record_classification.declarations
-    |> List.find_opt (fun classified ->
-        Function_record_classification.classified_declaration_source classified
-        == declaration)
+    match
+      Function_call_expression_result.top_level_direct_outer_binding source
+    with
+    | None ->
+        records |> Function_record_classification.declarations
+        |> List.find_opt (fun classified ->
+            Function_record_classification.classified_declaration_source
+              classified
+            == declaration)
+    | Some binding ->
+        let metadata =
+          binding |> Outer_environment.binding_entry
+          |> Outer_environment.entry_function_metadata
+        in
+        Option.bind metadata (fun metadata ->
+            if Outer_environment.function_declaration metadata == declaration
+            then
+              Some (Outer_environment.function_classified_declaration metadata)
+            else None)
   in
   match classified with
   | None ->

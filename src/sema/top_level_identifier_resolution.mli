@@ -12,6 +12,10 @@ type module_value =
 type resolution =
   | Module_value of module_value
   | Outer_value of Outer_environment.binding
+  | Outer_function_value of {
+      binding : Outer_environment.binding;
+      metadata : Outer_environment.function_metadata;
+    }
   | Outer_type_required of Outer_environment.binding
 
 type leaf

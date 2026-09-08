@@ -6,6 +6,13 @@ type function_definition = {
   body : Function_body.t;
 }
 
+type task_function_source = {
+  source_globals : Integer_globals.t;
+  source_runtime_calls : Runtime_call_context.t;
+  source_functions : function_definition list;
+  source_definition : function_definition;
+}
+
 type termination = Stream_end | Returned of word option
 type error_stage = Configuration | Preflight | Execution
 
@@ -42,6 +49,13 @@ val create_task_state :
   (task_state, string) result
 
 val task_snapshot : task_state -> (Integer_globals.task_view, string) result
+
+val task_function_source :
+  task_state -> Retained_function.t -> task_function_source option
+(** Read the original checked source owner for an exact admitted executable
+    link. Unadmitted definitions and foreign links have no source publication.
+*)
+
 val task_output_bytes : task_state -> string
 val task_output_work : task_state -> int
 val task_executed_steps : task_state -> int
@@ -57,6 +71,13 @@ val execute_task_program :
   functions:function_definition list ->
   X87_stack.t ->
   (t, error list) result
+(** Admit the fully preflighted command into its task before execution. Checked
+    function publications retain exact executable links, their original direct
+    callees and mutable literal images. Later calls preserve that owner across
+    nested calls and returns; original globals and statics retain their storage
+    identities. Failed preflight publishes nothing, while reached faults retain
+    admitted functions and storage effects. Instruction, storage and output
+    budgets remain cumulative across commands. *)
 
 val reference_commit : string
 

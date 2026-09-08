@@ -116,6 +116,7 @@ type outer_callback_call = {
 type top_level_direct_call = {
   top_level_direct_source : Top_level_expression_tree.call;
   top_level_direct_declaration : Function_resolution.resolved_declaration;
+  top_level_direct_outer_binding : Outer_environment.binding option;
   top_level_direct_header : Function_type_resolution.resolved_function;
   top_level_direct_target_symbol : Symbol.t;
   top_level_direct_fixed_results : top_level_fixed_result list;
@@ -454,6 +455,10 @@ let direct_declaration (call : direct_call) =
   call.source |> Function_call_conversion_policy.direct_source
   |> Function_call_resolution.direct_declaration
 
+let direct_outer_binding (call : direct_call) =
+  call.source |> Function_call_conversion_policy.direct_source
+  |> Function_call_resolution.direct_outer_binding
+
 let direct_fixed_results (call : direct_call) = call.fixed_results
 let direct_variadic_results (call : direct_call) = call.variadic_results
 let indirect_source (call : indirect_call) = call.source
@@ -529,6 +534,9 @@ let top_level_direct_source (call : top_level_direct_call) =
 
 let top_level_direct_declaration (call : top_level_direct_call) =
   call.top_level_direct_declaration
+
+let top_level_direct_outer_binding (call : top_level_direct_call) =
+  call.top_level_direct_outer_binding
 
 let top_level_direct_header (call : top_level_direct_call) =
   call.top_level_direct_header
@@ -1820,7 +1828,8 @@ let rec type_expression table members policies ~before_item_index ~context
                   match
                     Top_level_identifier_resolution.leaf_resolution leaf
                   with
-                  | Top_level_id.Outer_type_required binding ->
+                  | Top_level_id.Outer_type_required binding
+                  | Top_level_id.Outer_function_value { binding; _ } ->
                       finish ~top_level_outer_occurrence:occurrence
                         ~outer_binding:binding Unavailable
                         Unresolved_actual_class state
@@ -2822,7 +2831,13 @@ and type_top_level_call table members policies ~before_item_index
                  { declaration; _ }) ->
               type_top_level_direct_call table members policies
                 ~before_item_index ~intrinsic_conversion state id source call
-                declaration
+                None declaration
+          | Top_level_identifier_resolution.Outer_function_value
+              { binding; metadata } ->
+              type_top_level_direct_call table members policies
+                ~before_item_index ~intrinsic_conversion state id source call
+                (Some binding)
+                (Outer_environment.function_declaration metadata)
           | Top_level_identifier_resolution.Module_value
               (Top_level_identifier_resolution.Global_value { global; value })
             when Function_call_resolution.identifier_value_shape value
@@ -2907,7 +2922,7 @@ and type_top_level_call table members policies ~before_item_index
                            ~result_class:Unresolved_actual_class)))))
 
 and type_top_level_direct_call table members policies ~before_item_index
-    ~intrinsic_conversion state id source call declaration =
+    ~intrinsic_conversion state id source call outer_binding declaration =
   let source_call = Top_level_expression_tree.call_source call in
   let origin = Function_call_resolution.call_origin source_call in
   let invalid message = Error (invalid_top_level_input ~origin message) in
@@ -2948,6 +2963,7 @@ and type_top_level_direct_call table members policies ~before_item_index
                   {
                     top_level_direct_source = call;
                     top_level_direct_declaration = declaration;
+                    top_level_direct_outer_binding = outer_binding;
                     top_level_direct_header = header;
                     top_level_direct_target_symbol =
                       Function_resolution.resolved_declaration_identity_symbol

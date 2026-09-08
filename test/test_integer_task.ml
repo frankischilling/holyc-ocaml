@@ -378,6 +378,236 @@ let cumulative_output_work () =
     "work exhaustion retains capture" "42" (Task.output_bytes task);
   Alcotest.(check int) "work never exceeds bound" 4 (Task.output_work task)
 
+let retained_function () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task "I64 Add(I64 a,I64 b){return a+b;}"
+    |> Test_integer_program.checked);
+  value 42L (run session task "Add(20,22);");
+  ignore
+    (run session task "I64 Answer(){return Add(19,23);}"
+    |> Test_integer_program.checked);
+  value 42L (run session task "Answer();")
+
+let retained_function_global_owner () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task "I64 N=40;I64 Next(){return ++N;}"
+    |> Test_integer_program.checked);
+  value 41L (run session task "Next();");
+  ignore
+    (run session task "I64 N=100;I64 Extra[8]={1,2,3,4,5,6,7,8};"
+    |> Test_integer_program.checked);
+  value 42L (run session task "Next();");
+  value 100L (run session task "N;")
+
+let retained_function_static_owner () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task "I64 Next(){static I64 N=40;return ++N;}"
+    |> Test_integer_program.checked);
+  value 41L (run session task "Next();");
+  ignore
+    (run session task "I64 Extra[8]={1,2,3,4,5,6,7,8};I64 F(){return 0;}"
+    |> Test_integer_program.checked);
+  value 42L (run session task "Next();")
+
+let retained_function_literal_owner () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task "I64 Next(){U8 *s=\"(\";return ++s[0];}"
+    |> Test_integer_program.checked);
+  value 41L (run session task "Next();");
+  value 42L (run session task "(\"*\")[0];");
+  value 42L (run session task "Next();")
+
+let retained_function_pending_selection () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task "I64 F(I64 n){return n+1;}"
+    |> Test_integer_program.checked);
+  let pending = compile session task "F(41);" in
+  ignore
+    (run session task "I64 F(I64 a,I64 b){return a+b;}"
+    |> Test_integer_program.checked);
+  value 42L (Task.execute task pending);
+  value 42L (run session task "F(20,22);")
+
+let retained_function_dependencies () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task "I64 Base(){return 33;}" |> Test_integer_program.checked);
+  ignore
+    (run session task "I64 Wrap(){return Base()+9;}"
+    |> Test_integer_program.checked);
+  ignore
+    (run session task "I64 Base(){return 100;}" |> Test_integer_program.checked);
+  value 42L (run session task "Wrap();");
+  value 100L (run session task "Base();")
+
+let retained_function_restores_literal_owner () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task "I64 Old(){return (\" \" )[0];}"
+    |> Test_integer_program.checked);
+  ignore
+    (run session task "I64 Wrap(){return Old()+(\"*\")[0];}"
+    |> Test_integer_program.checked);
+  value 74L (run session task "Wrap();");
+  value 74L (run session task "Old()+(\"*\")[0];")
+
+let retained_function_recursion () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task "I64 Recur(I64 n){if(n)return 1+Recur(n-1);return 40;}"
+    |> Test_integer_program.checked);
+  ignore
+    (run session task "I64 Other(){return 0;}" |> Test_integer_program.checked);
+  value 42L (run session task "Recur(2);")
+
+let retained_function_initializers () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task "I64 Seed(){return 40;}" |> Test_integer_program.checked);
+  ignore
+    (run session task "I64 N=Seed();I64 Next(){static I64 S=Seed();return ++S;}"
+    |> Test_integer_program.checked);
+  value 40L (run session task "N;");
+  value 41L (run session task "Next();");
+  value 42L (run session task "Next();")
+
+let retained_function_pointer_owner () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task
+       "I64 A[2]={40,2};I64 Sum(){I64 *p=&A[0];return p[0]+p[1];}"
+    |> Test_integer_program.checked);
+  ignore (run session task "I64 A[2]={100,200};" |> Test_integer_program.checked);
+  value 42L (run session task "Sum();");
+  value 300L (run session task "A[0]+A[1];")
+
+let retained_function_providers () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task "extern U0 Print(U8 *fmt,...);extern U0 PutChars(U64 ch);"
+    |> Test_integer_program.checked);
+  ignore
+    (run session task "Print(\"%d\",4);PutChars('2');"
+    |> Test_integer_program.checked);
+  Alcotest.(check string)
+    "retained provider declarations keep checked signatures" "42"
+    (Task.output_bytes task)
+
+let retained_function_rejections () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task "I64 N=40;I64 F(I64 n){return N+n;}"
+    |> Test_integer_program.checked);
+  List.iter
+    (fun source ->
+      let before = Task.executed_steps task in
+      (match run session task source with
+      | Error (_ :: _) -> ()
+      | _ -> Alcotest.fail "invalid retained argument list executed");
+      Alcotest.(check int)
+        "rejected call consumes no runtime work" before
+        (Task.executed_steps task);
+      value 40L (run session task "N;"))
+    [ "N=100;F();"; "N=100;F(1,2);"; "N=100;F(\"bad\");" ];
+  value 42L (run session task "F(2);")
+
+let retained_function_literal_capacity () =
+  let session = Session.create () in
+  let task =
+    match Task.create ~max_literal_bytes:2 session with
+    | Ok task -> task
+    | Error message -> Alcotest.fail message
+  in
+  ignore
+    (run session task "I64 Next(){U8 *s=\"(\";return ++s[0];}"
+    |> Test_integer_program.checked);
+  value 41L (run session task "Next();");
+  value 42L (run session task "Next();");
+  fault "HCIRVM0021" (run session task "(\"!\")[0];");
+  value 43L (run session task "Next();")
+
+let retained_function_fault_and_join () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task "extern I64 Next();I64 N=40;I64 Next(){return ++N;}"
+    |> Test_integer_program.checked);
+  fault "HCIRVM0009" (run session task "Next();1/0;");
+  value 42L (run session task "Next();")
+
+let retained_function_publication_boundary () =
+  let session = Session.create () in
+  let task = create session in
+  fault "HCIRVM0014"
+    (run session task
+       "I64 Rejected(){return 100;}extern I64 Missing();Missing();");
+  fault "HCSEMA0054" (run session task "Rejected();");
+  fault "HCIRVM0009" (run session task "I64 Admitted(){return 42;}1/0;");
+  value 42L (run session task "Admitted();")
+
+let retained_initializer_guard () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task "I64 Shift(I64 n){return n<<1;}"
+    |> Test_integer_program.checked);
+  ignore
+    (run session task "I64 Wrap(){return Shift(21);}"
+    |> Test_integer_program.checked);
+  value 42L (run session task "Wrap();");
+  List.iter
+    (fun text ->
+      let before = Task.executed_steps task in
+      fault "HCRUN0006" (run session task text);
+      Alcotest.(check int)
+        "initializer guard runs before execution" before
+        (Task.executed_steps task))
+    [
+      "I64 N=Shift(21);";
+      "I64 N=Wrap();";
+      "I64 F(){static I64 N=Wrap();return N;}";
+    ]
+
+let retained_function_depth_limit () =
+  let session = Session.create () in
+  let task =
+    match Task.create ~max_call_depth:2 session with
+    | Ok task -> task
+    | Error message -> Alcotest.fail message
+  in
+  ignore
+    (run session task "I64 Recur(I64 n){if(n)return 1+Recur(n-1);return 40;}"
+    |> Test_integer_program.checked);
+  value 41L (run session task "Recur(1);");
+  fault "HCIRVM0015" (run session task "Recur(2);");
+  value 40L (run session task "Recur(0);")
+
+let retained_unfinished_selection () =
+  let session = Session.create () in
+  let task = create session in
+  ignore (run session task "extern I64 F();" |> Test_integer_program.checked);
+  let pending = compile session task "F();" in
+  ignore (run session task "I64 F(){return 42;}" |> Test_integer_program.checked);
+  fault "HCIRVM0014" (Task.execute task pending);
+  value 42L (run session task "F();")
+
 let tests =
   [
     Alcotest.test_case "separate commands retain scalar writes" `Quick
@@ -429,4 +659,43 @@ let tests =
     Alcotest.test_case "cumulative literal capacity" `Quick
       cumulative_literal_limit;
     Alcotest.test_case "cumulative formatter work" `Quick cumulative_output_work;
+    Alcotest.test_case "earlier function used by later commands and functions"
+      `Quick retained_function;
+    Alcotest.test_case "old function retains global owner across shadowing"
+      `Quick retained_function_global_owner;
+    Alcotest.test_case "old function retains static owner after allocations"
+      `Quick retained_function_static_owner;
+    Alcotest.test_case "old function retains mutated literal site" `Quick
+      retained_function_literal_owner;
+    Alcotest.test_case "pending call retains prior header after shadow" `Quick
+      retained_function_pending_selection;
+    Alcotest.test_case "old dependencies survive function shadowing" `Quick
+      retained_function_dependencies;
+    Alcotest.test_case "returns restore caller literal owner" `Quick
+      retained_function_restores_literal_owner;
+    Alcotest.test_case "retained recursive calls use original table" `Quick
+      retained_function_recursion;
+    Alcotest.test_case "retained calls initialize later globals and statics"
+      `Quick retained_function_initializers;
+    Alcotest.test_case "retained pointer local preserves object owner" `Quick
+      retained_function_pointer_owner;
+    Alcotest.test_case "retained providers keep checked signatures" `Quick
+      retained_function_providers;
+    Alcotest.test_case "invalid retained calls have no effects" `Quick
+      retained_function_rejections;
+    Alcotest.test_case "old literal image is charged only once" `Quick
+      retained_function_literal_capacity;
+    Alcotest.test_case
+      "joined retained function preserves reached fault effects" `Quick
+      retained_function_fault_and_join;
+    Alcotest.test_case
+      "functions publish on admission and survive reached faults" `Quick
+      retained_function_publication_boundary;
+    Alcotest.test_case "retained initializer callees preserve optimizer guards"
+      `Quick retained_initializer_guard;
+    Alcotest.test_case "retained recursive calls obey active depth bound" `Quick
+      retained_function_depth_limit;
+    Alcotest.test_case
+      "earlier extern selection cannot acquire later executable" `Quick
+      retained_unfinished_selection;
   ]

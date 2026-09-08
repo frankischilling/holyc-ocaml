@@ -67,7 +67,8 @@ let fail span code message =
   raise (Invalid (Integer_source.diagnostic ~span code message))
 
 let compile_parsed_with_limit ?task_view ?initializer_progress
-    ~max_initializer_steps session ~config (parsed : Frontend.Parser.output) =
+    ?retained_function_source ~max_initializer_steps session ~config
+    (parsed : Frontend.Parser.output) =
   match parsed.ast with
   | None -> Error parsed.diagnostics
   | Some ast -> (
@@ -149,6 +150,17 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               ~some:(fun view ->
                 Ir.Integer_globals.with_task_view view globals_)
               task_view
+          in
+          let* globals_ =
+            if Option.is_none task_view then Ok globals_
+            else
+              Ir.Integer_globals.with_function_publications
+                ~records:(Integer_source.records prepared)
+                globals_
+              |> Result.map_error (fun message ->
+                  [
+                    Integer_source.diagnostic ~span:ast.span "HCRUN0004" message;
+                  ])
           in
           let root_map values =
             List.fold_left
@@ -630,6 +642,7 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
           in
           let* preparation_ =
             Integer_initializers.prepare ~max_steps:max_initializer_steps
+              ?retained_function_source
               ~allow_zero_budget:(Option.is_some task_view)
               ?on_progress:initializer_progress
               ~function_calls:(List.rev !all_function_calls)
@@ -798,7 +811,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
       | Error diagnostics -> Error (parsed.diagnostics @ diagnostics))
 
 let compile_ast_internal ?task_view ?initializer_progress
-    ?(max_initializer_steps = 100_000) session ~config ast =
+    ?retained_function_source ?(max_initializer_steps = 100_000) session ~config
+    ast =
   if
     max_initializer_steps < 0
     || (max_initializer_steps = 0 && Option.is_none task_view)
@@ -810,16 +824,16 @@ let compile_ast_internal ?task_view ?initializer_progress
       ]
   else
     compile_parsed_with_limit ?task_view ?initializer_progress
-      ~max_initializer_steps session ~config
+      ?retained_function_source ~max_initializer_steps session ~config
       { Frontend.Parser.ast = Some ast; diagnostics = [] }
 
 let compile_ast ?max_initializer_steps session ~config ast =
   compile_ast_internal ?max_initializer_steps session ~config ast
 
 let compile_task_ast ~task_view ?initializer_progress ?max_initializer_steps
-    session ~config ast =
+    ?retained_function_source session ~config ast =
   compile_ast_internal ~task_view ?initializer_progress ?max_initializer_steps
-    session ~config ast
+    ?retained_function_source session ~config ast
 
 let compile ?(max_initializer_steps = 100_000) session ~config ~source =
   if max_initializer_steps <= 0 then

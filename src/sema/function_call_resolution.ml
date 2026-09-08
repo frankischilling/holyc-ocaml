@@ -351,6 +351,7 @@ type direct_call = {
   source : call;
   occurrence : Module_expression_binding.occurrence;
   declaration : Function_resolution.resolved_declaration;
+  outer_binding : Outer_environment.binding option;
   active_header : Function_type_resolution.resolved_function;
   target_symbol : Symbol.t;
   fixed_arguments : fixed_argument list;
@@ -625,6 +626,7 @@ let fixed_value (fixed : fixed_argument) = fixed.value
 let direct_source (direct : direct_call) = direct.source
 let direct_occurrence (direct : direct_call) = direct.occurrence
 let direct_declaration (direct : direct_call) = direct.declaration
+let direct_outer_binding (direct : direct_call) = direct.outer_binding
 let direct_active_header (direct : direct_call) = direct.active_header
 let direct_target_symbol (direct : direct_call) = direct.target_symbol
 let direct_fixed_arguments (direct : direct_call) = direct.fixed_arguments
@@ -3732,8 +3734,8 @@ let bind_indexed_identifier_call occurrence (call : call) computed base
                            variadic_count;
                          }))))
 
-let resolve_call ?members ~before_item_index types declarations occurrence
-    (call : call) =
+let resolve_call ?members ?outer ~before_item_index types declarations
+    occurrence (call : call) =
   let indirect_or_deferred reason =
     match call.callable with
     | None -> Ok (Deferred_call { call; occurrence; reason })
@@ -3796,8 +3798,59 @@ let resolve_call ?members ~before_item_index types declarations occurrence
     match Module_expression_binding.occurrence_resolution occurrence with
     | Module_expression_binding.Local_binding binding ->
         indirect_or_deferred (Local_callee binding)
-    | Module_expression_binding.Outer_candidate ->
-        Ok (Deferred_call { call; occurrence; reason = Outer_callee })
+    | Module_expression_binding.Outer_candidate -> (
+        let selected =
+          Option.bind outer (fun outer ->
+              outer |> Outer_expression_binding.functions
+              |> List.find_map (fun function_ ->
+                  function_ |> Outer_expression_binding.function_occurrences
+                  |> List.find_opt (fun candidate ->
+                      Outer_expression_binding.occurrence_source candidate
+                      == occurrence)))
+        in
+        let metadata =
+          Option.bind selected (fun selected ->
+              match Outer_expression_binding.occurrence_resolution selected with
+              | Outer_expression_binding.Outer_binding binding ->
+                  binding |> Outer_environment.binding_entry
+                  |> Outer_environment.entry_function_metadata
+                  |> Option.map (fun metadata -> (binding, metadata))
+              | Outer_expression_binding.Local_binding _
+              | Outer_expression_binding.Module_binding _ -> None)
+        in
+        match metadata with
+        | None -> Ok (Deferred_call { call; occurrence; reason = Outer_callee })
+        | Some _ when call.callee_form <> Identifier_callee ->
+            Ok (Deferred_call { call; occurrence; reason = Outer_callee })
+        | Some _ when Option.is_some call.callable ->
+            Error
+              (invalid_input
+                 "outer direct function call unexpectedly carries a callback \
+                  header")
+        | Some (binding, metadata) -> (
+            let declaration = Outer_environment.function_declaration metadata in
+            let active_header =
+              declaration |> Function_resolution.resolved_declaration_site
+              |> Function_resolution.declaration_site_function
+            in
+            match bind_direct_arguments call active_header with
+            | Error _ as error -> error
+            | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
+                Ok
+                  (Direct_call
+                     {
+                       source = call;
+                       occurrence;
+                       declaration;
+                       active_header;
+                       outer_binding = Some binding;
+                       target_symbol =
+                         Function_resolution
+                         .resolved_declaration_identity_symbol declaration;
+                       fixed_arguments;
+                       variadic_arguments;
+                       variadic_count;
+                     })))
     | Module_expression_binding.Module_binding publication -> (
         match Module_expression_binding.publication_kind publication with
         | Module_expression_binding.Global_variable ->
@@ -3835,6 +3888,7 @@ let resolve_call ?members ~before_item_index types declarations occurrence
                              source = call;
                              occurrence;
                              declaration;
+                             outer_binding = None;
                              active_header;
                              target_symbol =
                                Module_expression_binding
@@ -3853,7 +3907,7 @@ let resolve_call ?members ~before_item_index types declarations occurrence
                     (invalid_input
                        "function call publication has no active typed header")))
 
-let resolve_function ?members types declarations expected
+let resolve_function ?members ?outer types declarations expected
     (input : function_input) =
   let occurrences = Module_expression_binding.function_occurrences expected in
   let occurrence_by_index =
@@ -3899,20 +3953,22 @@ let resolve_function ?members types declarations expected
                  "function call lost its validated callee occurrence")
         | Some occurrence -> (
             match
-              resolve_call ?members ~before_item_index:input.item_index types
-                declarations occurrence call
+              resolve_call ?members ?outer ~before_item_index:input.item_index
+                types declarations occurrence call
             with
             | Error _ as error -> error
             | Ok call -> calls (call :: rev) rest))
   in
   calls [] input.calls
 
-let resolve_validated ?members types declarations expressions inputs =
+let resolve_validated ?members ?outer types declarations expressions inputs =
   let rec pair functions_rev by_symbol expected inputs =
     match (expected, inputs) with
     | [], [] -> Ok (List.rev functions_rev, by_symbol)
     | expected :: expected_rest, input :: input_rest -> (
-        match resolve_function ?members types declarations expected input with
+        match
+          resolve_function ?members ?outer types declarations expected input
+        with
         | Error _ as error -> error
         | Ok function_ ->
             pair
@@ -3973,8 +4029,8 @@ let resolve ~table ~parent ?members ~function_types ~functions ~expressions
             | Error _ as error -> error
             | Ok () -> (
                 match
-                  resolve_validated ?members types declarations expressions
-                    inputs
+                  resolve_validated ?members ?outer types declarations
+                    expressions inputs
                 with
                 | Error _ as error -> error
                 | Ok (functions_result, by_symbol) ->

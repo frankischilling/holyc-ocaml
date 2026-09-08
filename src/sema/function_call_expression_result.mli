@@ -262,6 +262,7 @@ val return_conversion : return_result -> intrinsic_conversion
 val return_presence : return_result -> return_presence
 val direct_source : direct_call -> Function_call_conversion_policy.direct_call
 val direct_declaration : direct_call -> Function_resolution.resolved_declaration
+val direct_outer_binding : direct_call -> Outer_environment.binding option
 val direct_fixed_results : direct_call -> fixed_result list
 val direct_variadic_results : direct_call -> expression_result list
 
@@ -322,6 +323,9 @@ val top_level_direct_source :
 
 val top_level_direct_declaration :
   top_level_direct_call -> Function_resolution.resolved_declaration
+
+val top_level_direct_outer_binding :
+  top_level_direct_call -> Outer_environment.binding option
 
 val top_level_direct_header :
   top_level_direct_call -> Function_type_resolution.resolved_function

@@ -63,8 +63,8 @@ let value_instructions graph =
       | _ -> true)
 
 let prepare ?(function_calls = []) ?(allow_zero_budget = false)
-    ?(on_progress = fun _ -> ()) ~max_steps ~span ~globals ~top_calls ~functions
-    () =
+    ?(retained_function_source = fun _ -> None) ?(on_progress = fun _ -> ())
+    ~max_steps ~span ~globals ~top_calls ~functions () =
   let invalid ?(notes = []) ?(at = span) code message =
     Error
       [
@@ -308,7 +308,8 @@ let prepare ?(function_calls = []) ?(allow_zero_budget = false)
                 check Values.empty code
               in
               let* () = guard ~constant value_code in
-              let guard_updates ~frame ~compiler_options ~terminal graph =
+              let guard_updates ~globals ~frame ~compiler_options ~terminal
+                  graph =
                 Updates.check_graph ~globals ~frame ~compiler_options ~terminal
                   graph
                 |> Result.map_error (fun (failure : Updates.failure) ->
@@ -341,48 +342,70 @@ let prepare ?(function_calls = []) ?(allow_zero_budget = false)
                       "initializer has no unique checked declaration value sink"
               in
               let* () =
-                guard_updates ~frame ~compiler_options ~terminal
+                guard_updates ~globals ~frame ~compiler_options ~terminal
                   (Ir.X87_stack.graph value_graph_)
               in
-              let called code =
+              let called globals functions code =
                 List.filter_map
                   (fun (item : Seq.description) ->
                     match (item.opcode, item.payload) with
-                    | Ir.Opcode.Ic_call, Some (Seq.Symbol symbol) -> Some symbol
+                    | Ir.Opcode.Ic_call, Some (Seq.Symbol symbol) ->
+                        Some (globals, functions, symbol)
                     | _ -> None)
                   code
               in
               let rec guard_callees visited = function
                 | [] -> Ok ()
-                | symbol :: rest
+                | (_, _, symbol) :: rest
                   when List.exists (fun other -> other == symbol) visited ->
                     guard_callees visited rest
-                | symbol :: rest -> (
-                    match
+                | (owner_globals, owner_functions, symbol) :: rest -> (
+                    let source =
                       List.find_opt
                         (fun (function_ : VM.function_definition) ->
                           Ir.Function_body.callable_symbol function_.body
                           == symbol)
-                        functions
-                    with
+                        owner_functions
+                      |> Option.map (fun function_ ->
+                          (owner_globals, owner_functions, function_))
+                    in
+                    let source =
+                      match source with
+                      | Some _ -> source
+                      | None ->
+                          Option.bind
+                            (Globals.retained_function_symbol owner_globals
+                               symbol) (fun reference ->
+                              Option.map
+                                (fun (source : VM.task_function_source) ->
+                                  ( source.source_globals,
+                                    source.source_functions,
+                                    source.source_definition ))
+                                (retained_function_source reference))
+                    in
+                    match source with
                     | None ->
                         invalid ~at ~notes "HCRUN0006"
                           "initializer call has no checked source definition"
-                    | Some function_ ->
+                    | Some (owner_globals, owner_functions, function_) ->
                         let code =
                           instructions (Ir.Function_body.body function_.body)
                         in
                         let* () = guard ~constant:false code in
                         let* () =
-                          guard_updates ~frame:(Some function_.frame)
+                          guard_updates ~globals:owner_globals
+                            ~frame:(Some function_.frame)
                             ~compiler_options:
                               (Ir.Function_body.compiler_options function_.body)
                             ~terminal:None
                             (Ir.Function_body.body function_.body)
                         in
-                        guard_callees (symbol :: visited) (called code @ rest))
+                        guard_callees (symbol :: visited)
+                          (called owner_globals owner_functions code @ rest))
               in
-              let* () = guard_callees [] (called value_code) in
+              let* () =
+                guard_callees [] (called globals functions value_code)
+              in
               if
                 Option.is_some frame
                 && List.exists

@@ -12,6 +12,7 @@ type global_declarator_kind =
   | Function_pointer_global of Function_type_resolution.function_pointer
 
 type global_metadata
+type function_metadata
 type entry
 type table
 type binding
@@ -45,6 +46,18 @@ val make_global_entry :
 (** Build one global-variable record with its checked source type, callback, and
     array-rank metadata. *)
 
+val make_function_metadata :
+  records:Function_record_classification.t ->
+  declaration:Function_resolution.resolved_declaration ->
+  (function_metadata, error) result
+(** Retain the exact declaration and its owning classification snapshot. *)
+
+val make_function_entry :
+  entry_index:int ->
+  function_metadata:function_metadata ->
+  (entry, error) result
+(** Publish under the declaration's canonical identity symbol. *)
+
 val make_table :
   table_kind:table_kind ->
   table_index:int ->
@@ -77,6 +90,14 @@ val entry_symbol : entry -> Symbol.t
 val entry_record_kind : entry -> record_kind
 val entry_index : entry -> int
 val entry_global_metadata : entry -> global_metadata option
+val entry_function_metadata : entry -> function_metadata option
+
+val function_declaration :
+  function_metadata -> Function_resolution.resolved_declaration
+
+val function_classified_declaration :
+  function_metadata -> Function_record_classification.classified_declaration
+
 val global_type_reference : global_metadata -> Type_reference.t
 val global_declarator_kind : global_metadata -> global_declarator_kind
 val global_array_rank : global_metadata -> int
