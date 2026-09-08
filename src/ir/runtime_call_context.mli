@@ -12,7 +12,7 @@ type description = {
   discard : Instruction_sequence.Instruction_id.t option;
 }
 
-type provider = Print | Put_chars
+type provider = Print | Put_chars | Stream_print
 type owner = Entry | Function of Function_body.t
 type argument_role = Fixed of int | Variadic_count | Variadic of int
 type argument

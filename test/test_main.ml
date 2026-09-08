@@ -114,6 +114,7 @@ let () =
       ("source narrow integers", Test_integer_narrow.tests);
       ("stateful exe", Test_stateful_exe.tests);
       ("integer task", Test_integer_task.tests);
+      ("task stream output", Test_task_stream.tests);
       ("task declarations", Test_task_declarations.tests);
       ("stream parser", Test_stream_parser.tests);
       ("source integer statics", Test_integer_statics.tests);

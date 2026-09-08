@@ -248,3 +248,33 @@ Partial type/storage/header admission, native initializer execution,
 cross-command extern joins, query selections, whole-command and predecessor
 receipts, and StreamPrint generation remain required. All seven full #635
 acceptance criteria and the larger compiler goal stay active.
+
+## StreamPrint service checkpoint
+
+Checked StreamPrint extern calls now use opaque nested task buffers and the
+existing formatter. Ordinary and generated output share work accounting;
+generated fragments have a separate cumulative byte budget. Exact active-token
+checks protect finish/abort. Retained functions keep their original provider,
+storage and mutable literals while selecting the currently active buffer.
+Source-defined replacements retain ordinary function execution.
+
+Native CMisc.HC formats before checking the active block. Three source controls
+reproduced missing work charges before correcting that order. Successful
+inactive drafts are discarded, then report the hosted HCIRVM0027 boundary;
+earlier format, memory or work failures retain priority. Active failed drafts
+commit no bytes, and PutChars retains its reached ordinary prefix.
+
+All 84 task/service/output controls pass. Full verification passed 2,167 of
+2,181 tests in 52.719 seconds, with the fourteen original #exe groups still RED.
+CLI, formatting, generated files, build/install, all 82 checksums and eleven
+provenance scenarios pass. Complete lexer JSON and parser JSON/normalized text
+match existing baselines. Independent service review and the scoped native-order
+re-review found no remaining blocker in this service.
+
+The parser still needs exact whole-command/predecessor receipts, selected
+reference consumption and partial declaration/header/initializer admission.
+Source orchestration must receive limits before parsing, preserve reached output
+on compile failures and keep ordinary no-#exe unit counts unchanged. The design
+records the compilation-core split, AOT environment and cumulative result/artifact
+requirements. This service is required by that connection; it does not complete
+the fourteen runtime gates or any full #635 acceptance criterion.

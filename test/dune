@@ -65,6 +65,7 @@
   test_integer_narrow
   test_stateful_exe
   test_integer_task
+  test_task_stream
   test_task_declarations
   test_stream_parser
   test_integer_statics

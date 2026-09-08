@@ -1,5 +1,7 @@
 module VM = Ir.Integer_interpreter
 
+type stream = VM.task_stream
+
 type t = {
   session : Session.t;
   config : Frontend.Preprocessor.Config.t;
@@ -17,7 +19,7 @@ and command = {
 
 let create ?max_steps ?max_initializer_steps ?max_global_bytes
     ?max_literal_bytes ?max_frame_bytes ?max_call_depth ?max_output_bytes
-    ?max_output_work session =
+    ?max_output_work ?max_generated_bytes ?max_stream_depth session =
   let config =
     match Frontend.Preprocessor.Config.create ~compilation_mode:Jit () with
     | Ok config -> config
@@ -25,7 +27,7 @@ let create ?max_steps ?max_initializer_steps ?max_global_bytes
   in
   VM.create_task_state ?max_steps ?max_initializer_steps ?max_global_bytes
     ?max_literal_bytes ?max_frame_bytes ?max_call_depth ?max_output_bytes
-    ?max_output_work
+    ?max_output_work ?max_generated_bytes ?max_stream_depth
     ~table:(Session.semantic_symbols session)
     ()
   |> fun result ->
@@ -43,8 +45,12 @@ let create ?max_steps ?max_initializer_steps ?max_global_bytes
 
 let output_bytes task = VM.task_output_bytes task.state
 let output_work task = VM.task_output_work task.state
+let generated_bytes task = VM.task_generated_bytes task.state
 let executed_steps task = VM.task_executed_steps task.state
 let initializer_steps task = VM.task_initializer_steps task.state
+let begin_stream task = VM.begin_task_stream task.state
+let finish_stream task stream = VM.finish_task_stream task.state stream
+let abort_stream task stream = VM.abort_task_stream task.state stream
 
 let same_item left right =
   let open Frontend.Ast in

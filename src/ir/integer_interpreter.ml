@@ -267,6 +267,8 @@ type retained_executable = {
   function_source : task_function_source;
 }
 
+type task_stream = { stream_output : Output.t }
+
 type task_state = {
   catalog : Integer_globals.task_catalog;
   mutable arenas : (Integer_globals.t * runtime_storage) list;
@@ -284,12 +286,17 @@ type task_state = {
   max_frame_bytes : int;
   max_call_depth : int;
   output : Output.t;
+  generated : Output.t;
+  max_stream_depth : int;
+  mutable streams : task_stream list;
 }
 
 let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
-    ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576) ~table () =
+    ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576)
+    ?(max_generated_bytes = 16 * 1024 * 1024) ?(max_stream_depth = 64) ~table ()
+    =
   if
     List.exists
       (fun limit -> limit <= 0)
@@ -302,12 +309,17 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         max_call_depth;
         max_output_bytes;
         max_output_work;
+        max_stream_depth;
       ]
     || max_output_bytes > Sys.max_string_length
+    || max_generated_bytes < 0
+    || max_generated_bytes > Sys.max_string_length
   then
     Error
-      "task limits must be positive and output capacity must fit a host string"
+      "task limits must be positive, generated capacity must be nonnegative, \
+       and output capacities must fit host strings"
   else
+    let output = Output.create ~max_output_bytes ~max_output_work in
     Ok
       {
         catalog = Integer_globals.create_task_catalog ~table;
@@ -325,8 +337,35 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         max_literal_bytes;
         max_frame_bytes;
         max_call_depth;
-        output = Output.create ~max_output_bytes ~max_output_work;
+        output;
+        generated =
+          Output.share_work output ~max_output_bytes:max_generated_bytes;
+        max_stream_depth;
+        streams = [];
       }
+
+let begin_task_stream task =
+  if List.length task.streams >= task.max_stream_depth then
+    Error "HCIRVM0029: the task generation nesting limit was exhausted"
+  else
+    let stream = { stream_output = Output.fork task.generated } in
+    task.streams <- stream :: task.streams;
+    Ok stream
+
+let finish_task_stream task stream =
+  match task.streams with
+  | active :: rest when active == stream ->
+      let contents = Output.contents stream.stream_output in
+      task.streams <- rest;
+      Ok contents
+  | _ -> Error "HCIRVM0027: generation buffer is not active in this task"
+
+let abort_task_stream task stream =
+  match task.streams with
+  | active :: rest when active == stream ->
+      task.streams <- rest;
+      Ok ()
+  | _ -> Error "HCIRVM0027: generation buffer is not active in this task"
 
 let task_snapshot task = Integer_globals.snapshot_task task.catalog
 
@@ -338,6 +377,7 @@ let task_function_source task link =
 
 let task_output_bytes task = Output.contents task.output
 let task_output_work task = Output.work task.output
+let task_generated_bytes task = Output.committed_bytes task.generated
 let task_executed_steps task = task.steps
 let task_initializer_steps task = task.initializer_steps
 let task_initializer_limit task = task.max_initializer_steps
@@ -2217,8 +2257,9 @@ let publish_array_payload ~slot ~cell_offset payload write =
 
 let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
     ?(max_call_depth = Int.max_int) ?(capture_last = false) ?initialization
-    ?(global_words = [||]) ?literal_image ?output ?admit
-    ?(retained_regions = []) ?(retained_functions = []) ~max_steps program =
+    ?(global_words = [||]) ?literal_image ?output ?stream_output
+    ?generation_output ?admit ?(retained_regions = [])
+    ?(retained_functions = []) ~max_steps program =
   let entry_program = program in
   let current_block = ref program.entry_index in
   let current_instruction = ref 0 in
@@ -2528,9 +2569,17 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
       match Runtime.provider site with
       | Some Runtime.Print -> "Print"
       | Some Runtime.Put_chars -> "PutChars"
+      | Some Runtime.Stream_print -> "StreamPrint"
       | None -> "runtime output"
     in
     let provider_message message =
+      let message =
+        if
+          provider_name = "StreamPrint"
+          && String.starts_with ~prefix:"Print " message
+        then "StreamPrint" ^ String.sub message 5 (String.length message - 5)
+        else message
+      in
       if
         String.starts_with ~prefix:(provider_name ^ " ") message
         || String.starts_with ~prefix:(provider_name ^ ":") message
@@ -2562,15 +2611,35 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
       in
       let ( let* ) = Result.bind in
       let* arguments = arguments 0 [] scope.arguments_rev in
-      match output with
+      let selected_output =
+        match Runtime.provider site with
+        | Some Runtime.Stream_print -> (
+            match stream_output with
+            | Some _ -> stream_output
+            | None -> (
+                match generation_output with
+                | Some _ -> generation_output
+                | None ->
+                    Option.map
+                      (fun output ->
+                        Output.share_work output
+                          ~max_output_bytes:(16 * 1024 * 1024))
+                      output))
+        | _ -> output
+      in
+      match selected_output with
       | None -> error "HCIRVM0008" "prepared runtime call has no output state"
       | Some output -> (
           let provider_error = function
             | Output.Memory error ->
                 { error with message = provider_message error.message }
             | Output.Output_limit ->
-                make_provider_error "HCIRVM0022"
-                  "runtime output exceeds the output byte limit"
+                if Runtime.provider site = Some Runtime.Stream_print then
+                  make_provider_error "HCIRVM0028"
+                    "generated output exceeds the task generated byte limit"
+                else
+                  make_provider_error "HCIRVM0022"
+                    "runtime output exceeds the output byte limit"
             | Output.Work_limit ->
                 make_provider_error "HCIRVM0023"
                   "runtime output work limit was exhausted"
@@ -2586,7 +2655,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
           | Some Runtime.Put_chars, [ Runtime_word word ] ->
               Output.put_chars output word.bits
               |> Result.map_error provider_error
-          | ( Some Runtime.Print,
+          | ( Some (Runtime.Print | Runtime.Stream_print),
               Runtime_pointer format :: Runtime_word count :: tail )
             when count.type_ = I64
                  && count.bits = Int64.of_int (List.length tail) ->
@@ -2601,10 +2670,22 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                       "prepared variadic output argument is invalid"
               in
               let* arguments = variadic [] tail in
-              Output.print output
-                ~read_byte:(read_output_byte block instruction)
-                ~format arguments
-              |> Result.map_error provider_error
+              let inactive =
+                Runtime.provider site = Some Runtime.Stream_print
+                && Option.is_none stream_output
+              in
+              let format_call =
+                if inactive then Output.discard_print else Output.print
+              in
+              let* () =
+                format_call output
+                  ~read_byte:(read_output_byte block instruction)
+                  ~format arguments
+                |> Result.map_error provider_error
+              in
+              if inactive then
+                error "HCIRVM0027" "requires an active task generation buffer"
+              else Ok ()
           | _ ->
               error "HCIRVM0008"
                 "prepared runtime provider arguments are inconsistent")
@@ -3553,9 +3634,17 @@ let execute_program_with_output ?task ?runtime_calls ~output ?globals
         task
     in
     let outcome =
+      let stream_output =
+        Option.bind task (fun task ->
+            match task.streams with
+            | active :: _ -> Some active.stream_output
+            | [] -> None)
+      in
+      let generation_output = Option.map (fun task -> task.generated) task in
       execute_prepared ~callees:programs ~max_frame_bytes ~max_call_depth
-        ?initialization ~global_words ~literal_image ~output ~capture_last:true
-        ?admit ~retained_regions ~retained_functions ~max_steps entry
+        ?initialization ~global_words ~literal_image ~output ?stream_output
+        ?generation_output ~capture_last:true ?admit ~retained_regions
+        ~retained_functions ~max_steps entry
     in
     Option.iter
       (fun task ->

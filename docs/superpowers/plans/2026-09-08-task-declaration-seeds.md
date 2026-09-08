@@ -96,10 +96,10 @@ Files: `src/driver/integer_source.ml/.mli`, `integer_program.ml/.mli`,
 - [x] Format, run the full suite serially, then build formatting/generated/all/
   install targets. Only the existing fourteen real #exe groups may remain RED.
 - [x] Verify 82 checksums, eleven provenance scenarios and exact full corpora.
-- [ ] Update support docs, the main plan and external prompt without changing
+- [x] Update support docs, the main plan and external prompt without changing
   its 102 fenced examples. Commit/push, rebuild the committed revision and verify
   retained task controls plus the original CLI/resource report identities.
-- [ ] Inspect hosted checks and keep PR #636 draft, issue #635 In Progress and
+- [x] Inspect hosted checks and keep PR #636 draft, issue #635 In Progress and
   all full-compiler requirements active until the complete goal is achieved.
 
 ## Local verification
@@ -120,6 +120,10 @@ eleven incremental provenance scenarios pass. Complete lexer JSON and parser
 JSON/normalized text match the existing baselines: 528/528 tokenizes,
 25 standalone parses and 126 with the prelude.
 
-The external prompt, committed-source reports and hosted checks will record the
-commit hash after creation. Keep the final two checkpoint items open until those
-actions have been verified; the complete #635 acceptance list remains open.
+Pushed source `4a2955c14c1c2f6d8dfeb261ce4917e772c4ea1d` was rebuilt and passed
+120 focused groups. Sixteen pending #exe and 34 prior integer/resource reports
+retain exact source/reference identities. CI 34256649351 failed only the
+fourteen #exe groups on OCaml 5.1/5.3; Corpus 34256649331 and dependency review
+34256649338 passed. The external prompt preserves all 102 fenced examples.
+Issue #635 stays In Progress with seven pending criteria, and PR #636 is draft.
+The complete #635 acceptance list remains open.

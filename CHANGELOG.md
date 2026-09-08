@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added checked StreamPrint execution into opaque nested task buffers. Ordinary
+  and generated output share formatting work, with separate generated-byte
+  limits and exact buffer ownership. Retained functions keep their provider and
+  literal owners while using the active buffer. Parser orchestration and native
+  partial declaration/initializer admission remain pending for #635.
+
 - Task parsing now retains assigned global and function symbols in one semantic
   module scope. Completed ASTs reuse checked declaration views through the
   existing type and IR pipeline. Source owners, declaration order and completion

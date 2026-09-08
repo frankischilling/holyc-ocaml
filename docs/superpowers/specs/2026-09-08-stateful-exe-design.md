@@ -205,3 +205,38 @@ corpus comparisons. Any corpus change must be explained by real source behavior;
 do not replace a baseline merely to obtain a passing check. Independent review
 and all five final-source checks precede normal protected merge. Verify the
 merged executable, post-merge CI and synchronized Git afterward.
+
+## Source-execution facade requirements
+
+The existing integer task depends on the complete-program compiler. Extract the
+checked compilation-unit core before placing source/parser orchestration above
+both; do not introduce a driver dependency cycle. Preserve ordinary no-#exe
+single-unit compilation and its measured instruction, preparation, literal and
+allocation counts. Per-statement lowering adds terminals and contexts, so it
+cannot silently replace that path. Recorded source witnesses can defer work
+until execution becomes observable, but each source declaration and initializer
+must still be compiled/admitted once.
+
+Create the separate AOT task environment before reading outer declarations.
+Forking at the first #exe would copy already-published AOT names into task lookup.
+JIT outer commands and blocks share their task. Pass the caller's execution and
+output limits into orchestration before Parser.parse, so directives cannot spend
+default limits before the run API applies the requested bounds.
+
+Reports must retain ordinary output and work when a later parse/compile failure
+follows reached directive effects. A compile error therefore cannot always imply
+an empty report. A VM-owned invocation snapshot must retain cumulative counters
+and the outer final-value latch; the last command's result is not the whole
+invocation result. Stateful collections need explicit artifact inspection and
+checked projection. Preserve isolated-unit getters; never present the last unit
+or a fabricated merged graph as the whole stateful artifact.
+
+Stream buffers use exact LIFO task tokens. All formatting shares work accounting;
+generated fragments have a separate cumulative produced-byte budget. Successful
+fragments remain charged after abort as a hosted resource policy, even though
+aborted text is not injected. The parser's injected-byte accounting remains
+separate. A failed formatting draft retains reached work but commits no bytes.
+`CMisc.HC:68-80` formats before checking for an active stream block. Preserve
+that order, including format/memory/work failures before an inactive-context
+diagnostic. Native code logs the missing-block error and returns; the hosted
+service reports HCIRVM0027 after successful formatting without committing it.

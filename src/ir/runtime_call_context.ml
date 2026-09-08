@@ -21,7 +21,7 @@ type description = {
   discard : Seq.Instruction_id.t option;
 }
 
-type provider = Print | Put_chars
+type provider = Print | Put_chars | Stream_print
 type owner = Entry | Function of Function_body.t
 type argument_role = Fixed of int | Variadic_count | Variadic of int
 
@@ -475,12 +475,13 @@ let approved_provider shape =
     && primitive shape.result_type 0 Sema.Primitive_type.U0
   in
   match (ordinary, Sema.Symbol.name shape.selected_symbol, parameter) with
-  | true, "Print", Some parameter
+  | true, (("Print" | "StreamPrint") as name), Some parameter
     when Headers.parameter_default parameter = None
          && Headers.parameter_register_requests parameter = []
          && primitive (parameter_type parameter) 1 Sema.Primitive_type.U8
          && Option.is_some shape.count_type
-         && Int64.equal flags (Flags.to_mask Flags.Variadic) -> Some Print
+         && Int64.equal flags (Flags.to_mask Flags.Variadic) ->
+      Some (if name = "Print" then Print else Stream_print)
   | true, "PutChars", Some parameter
     when Headers.parameter_default parameter = None
          && Headers.parameter_register_requests parameter = []

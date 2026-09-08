@@ -21,6 +21,22 @@ let value expected result =
   | Some word -> Alcotest.(check int64) "reached task word" expected word.bits
   | None -> Alcotest.fail "task command produced no word"
 
+let stream_provider_requires_active_buffer () =
+  let session = Session.create () in
+  let task = create session in
+  match
+    run session task {|extern U0 StreamPrint(U8 *fmt,...);StreamPrint("42;");|}
+  with
+  | Error (diagnostic :: _) ->
+      Alcotest.(check string)
+        diagnostic.Diagnostic.message "HCIRVM0027" diagnostic.code;
+      Alcotest.(check int)
+        "formatting precedes inactive buffer diagnostic" 7
+        (Task.output_work task);
+      Alcotest.(check string)
+        "inactive service has no ordinary capture" "" (Task.output_bytes task)
+  | _ -> Alcotest.fail "StreamPrint needs an active generation buffer"
+
 let persistent_scalar () =
   let session = Session.create () in
   let task = create session in
@@ -679,6 +695,8 @@ let uninitialized_seed_keeps_storage_identity () =
 
 let tests =
   [
+    Alcotest.test_case "StreamPrint requires an active task buffer" `Quick
+      stream_provider_requires_active_buffer;
     Alcotest.test_case
       "uninitialized seed retains unknown storage and exact symbol" `Quick
       uninitialized_seed_keeps_storage_identity;
