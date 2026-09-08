@@ -1514,4 +1514,124 @@ let () =
         && contains first "holyc-initializer-preparation-v1 steps=10")
         "deterministic byte update original opcodes and preparation")
     [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      let run ?(options = []) source =
+        let status, stdout, stderr =
+          invoke_raw
+            ([ "run"; "--format=json"; "--mode=" ^ mode ] @ options @ [ source ])
+        in
+        require (stderr = "") "byte signature JSON has no stderr";
+        (status, Yojson.Safe.from_string stdout)
+      in
+      let open Yojson.Safe.Util in
+      let check report type_ capture =
+        require
+          (report |> member "schema" |> to_string = "holyc-integer-program-v2"
+          && report |> member "outcome" |> to_string = "success"
+          && report |> member "final_value" |> member "value" |> to_string
+             = "42"
+          && report |> member "final_value" |> member "type" |> to_string
+             = type_
+          && report |> member "output_hex" |> to_string = capture)
+          "byte signature value class and capture"
+      in
+      let source = Sys.argv.(21) in
+      let bounds =
+        [
+          ("step", 110, "HCIRVM0007", "3432");
+          ("initializer-step", 7, "HCIRVM0007", "");
+          ("global-byte", 12, "HCIRVM0016", "");
+          ("frame-byte", 32, "HCIRVM0011", "");
+          ("call-depth", 2, "HCIRVM0015", "");
+          ("literal-byte", 3, "HCIRVM0021", "");
+          ("output-byte", 2, "HCIRVM0022", "");
+          ("output-work", 8, "HCIRVM0023", "");
+        ]
+      in
+      let option name value = Printf.sprintf "--%s-limit=%d" name value in
+      let status, report =
+        run
+          ~options:
+            (List.map (fun (name, value, _, _) -> option name value) bounds)
+          source
+      in
+      require (status = Unix.WEXITED 0) "byte signatures at all exact limits";
+      check report "i64" "3432";
+      require
+        (report |> member "executed_steps" |> to_int = 110
+        && report |> member "compiled_initializer_steps" |> to_int = 7
+        && report |> member "output_work" |> to_int = 8)
+        "byte signature fixture counts";
+      List.iter
+        (fun (name, value, code, capture) ->
+          let status, report =
+            run ~options:[ option name (value - 1) ] source
+          in
+          require
+            (status = Unix.WEXITED 1
+            && report |> member "final_value" = `Null
+            && report |> member "diagnostics" |> to_list |> List.hd
+               |> member "code" |> to_string = code
+            && report |> member "output_hex" |> to_string = capture)
+            ("byte signature one-below " ^ name))
+        bounds;
+      List.iter
+        (fun (text, type_) ->
+          with_file ".hc" text (fun path ->
+              let status, report = run path in
+              require (status = Unix.WEXITED 0)
+                "original byte signature source gate";
+              check report type_ ""))
+        [
+          ("I64 Echo(U8 n){return n;}Echo(42);", "i64");
+          ("I64 Add(U8 a,U8 b){return a+b;}Add(20,22);", "i64");
+          ("U8 Answer(){return 42;}Answer();", "u64");
+          ("U8 Add(U8 a,U8 b){return a+b;}Add(20,22);", "u64");
+          ("I64 Bump(U8 n){return ++n;}Bump(41);", "i64");
+          ( "U8 Inner(){return 40;}I64 Outer(U8 n){return n+Inner();}Outer(2);",
+            "i64" );
+          ("U0 Set(U8 *p){*p=42;}I64 F(U8 n){Set(&n);return n;}F(0);", "i64");
+          ("I64 Id(U8 n){return n;}U8 G=Id(42);G;", "u64");
+        ];
+      List.iter
+        (fun text ->
+          with_file ".hc" text (fun path ->
+              let status, report = run path in
+              require
+                (status = Unix.WEXITED 1
+                && report |> member "final_value" = `Null
+                && report |> member "diagnostics" |> to_list |> List.hd
+                   |> member "code" |> to_string = "HCRUN0006"
+                && report |> member "output_hex" |> to_string = ""
+                && report |> member "output_work" |> to_int = 0)
+                "native parameter and return proof boundary"))
+        [
+          "I64 F(U8 n){n=554;return n;}I64 N=F(0);N;";
+          "I64 F(U8 n){return ++n;}I64 N=F(255);N;";
+          "U8 G=84;U8 Wide(){return 554;}I64 F(){U8 n=Wide();return G/=n;}I64 \
+           N=F();N;";
+        ];
+      let legacy =
+        success [ "run"; "--format=json"; "--mode=" ^ mode; source ]
+        |> Yojson.Safe.from_string
+      in
+      require
+        (legacy |> member "schema" |> to_string = "holyc-integer-program-v1"
+        && legacy |> member "final_value" |> member "value" |> to_string = "42"
+        )
+        "byte signatures preserve v1 reporting";
+      let dump () =
+        success [ "dump-ir"; "--program"; "--mode=" ^ mode; source ]
+      in
+      let first = dump () in
+      require
+        (first = dump ()
+        && contains first "public:U8 = IC_CALL_END"
+        && String.split_on_char '\n' first
+           |> List.exists (fun line ->
+               contains line "IC_RETURN_VAL" && contains line "type=public:U8")
+        && contains first "holyc-initializer-preparation-v1 steps=7")
+        "deterministic original U8 call and return types")
+    [ "jit"; "aot" ];
   print_endline "Integer program CLI checks passed."

@@ -1,5 +1,12 @@
 # Reference source map
 
+[U8 signatures](integer-byte-signatures.md) in #631 follow
+`Compiler/PrsExp.HC:468-483` and `BackLib.HC:312-347` for argument transport,
+`OptPass789A.HC:710-717` and `BackLib.HC:528-530` for byte parameter entry,
+and `OptPass3.HC:249-258` plus `OptPass789A.HC:779-782,1026-1030` for full
+register returns. Ordinary entry facts extend the bounded-write initializer
+proof without changing explicit-register and transitive-read restrictions.
+
 [Byte updates](integer-byte-updates.md) in #629 follow
 `Compiler/PrsExp.HC:98-118,201-208,235-241`, `BackA.HC:285-423,442-658`,
 `BackB.HC:304-380` and `BackLib.HC:285-296,509-535` for reference evaluation,

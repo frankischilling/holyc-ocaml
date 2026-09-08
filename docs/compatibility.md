@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+[U8 numeric signatures](integer-byte-signatures.md) in #631 now execute with
+entry narrowing and full returned register bits. Parameter object size remains
+one byte within an eight-byte ABI allocation. Native initializer proof admits
+bounded ordinary parameter entry while retaining later wide-write, explicit
+register and unproved call-result range exclusions.
+
 [U8 updates](integer-byte-updates.md) in #629 use checked reference addresses,
 full compound register results and narrowed prefix/postfix values. Declaration
 initializers additionally require native-invariant results and byte reads across

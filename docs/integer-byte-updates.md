@@ -158,7 +158,8 @@ Reference: `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
   `CInit.HC:54-59,88-97` retains update preparation barriers.
 
 This is pinned-source and hosted execution evidence, without a new native
-TempleOS capture. U8 numeric parameters/returns, other narrow and aggregate
+TempleOS capture. [U8 numeric signatures](integer-byte-signatures.md) now add
+parameter entry and full-bit returns. Other narrow and aggregate
 storage, general pointer operations, full formatting/runtime linking, stateful
 compilation/#exe, optimizer parity, native backends, BIN/loader acceptance and
 bootstrap remain part of the full compiler mission.

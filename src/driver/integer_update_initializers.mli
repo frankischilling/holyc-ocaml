@@ -18,4 +18,6 @@ val check_graph :
 (** Restrict original initializer and callee graphs to byte updates whose raw
     reference behavior is invariant under the audited native choices. This
     analysis grants no execution authority and tracks no mutable cell values.
+    Ordinary U8 parameter entry seeds the bounded-write proof; subsequent
+    unbounded assignments or direct updates still disqualify that location.
     [terminal] is the exact declaration leaf sink, never a callee return. *)

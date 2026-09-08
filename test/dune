@@ -21,7 +21,8 @@
   ../examples/integer-joined-definitions.hc
   ../examples/integer-persistent-bytes.hc
   ../examples/integer-persistent-arrays.hc
-  ../examples/integer-byte-updates.hc)
+  ../examples/integer-byte-updates.hc
+  ../examples/integer-byte-signatures.hc)
  (action
   (run
    %{test}
@@ -44,7 +45,8 @@
    %{dep:../examples/integer-joined-definitions.hc}
    %{dep:../examples/integer-persistent-bytes.hc}
    %{dep:../examples/integer-persistent-arrays.hc}
-   %{dep:../examples/integer-byte-updates.hc})))
+   %{dep:../examples/integer-byte-updates.hc}
+   %{dep:../examples/integer-byte-signatures.hc})))
 
 (test
  (name test_main)
@@ -57,6 +59,7 @@
   test_integer_globals
   test_integer_updates
   test_integer_byte_updates
+  test_integer_byte_signatures
   test_integer_statics
   test_integer_static_initializers
   test_integer_pointers

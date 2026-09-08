@@ -134,7 +134,8 @@ context for program-entry byte computations.
 
 ## Remaining work
 
-Other narrow integer types, U8 numeric parameters and returns, automatic
+[U8 numeric parameters and returns](integer-byte-signatures.md) now execute.
+Other narrow integer types, automatic
 whole-array initialization or assignment, general pointer arithmetic, casts involving U8,
 pointer returns and deeper pointers remain outside this slice. Unary minus
 on U8 remains explicitly unsupported: `Compiler/OptPass012.HC:180-192` changes
@@ -144,9 +145,8 @@ classes. Runtime lifetime checks remain present; accepted source cannot produce
 an expired pointer because frame escapes are rejected.
 
 Owned strings are connected in [#617](integer-strings.md), consuming #490's
-canonical literal IR. Runtime output is the next connection. Reuse implicit
-Print/PutChars typing, target resolution and argument binding from
-#302/#304/#306/#346/#348; those completed slices did not supply runtime
-formatting, variadic calls or output. Stateful compilation
+canonical literal IR. [Captured runtime output](integer-output.md) now connects
+checked Print/PutChars calls, including the supported formatting subset and
+bounded variadic arguments. Full formatting/runtime linking, stateful compilation
 and #exe, optimizer parity, native backends, TempleOS BIN/loader acceptance and
 bootstrap remain requirements of the full compiler.

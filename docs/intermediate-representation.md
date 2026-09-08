@@ -1,5 +1,11 @@
 # Intermediate-code specification
 
+[U8 signatures](integer-byte-signatures.md) preserve the original public U8
+call/return targets. A separate function-return classifier maps them to runtime
+U64 without changing byte storage or unrelated word-only matrices. Parameter
+objects retain one cell and eight ABI bytes; call cleanup and frame ownership
+still use exact checked evidence.
+
 [Byte updates](integer-byte-updates.md) retain original ICs, zero flags, exact
 U8 destination types and materialized results. The prepared VM operation keeps
 storage width separately from arithmetic class and result selection. Compound

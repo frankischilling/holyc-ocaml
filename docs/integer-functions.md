@@ -1,5 +1,10 @@
 # Integer source functions
 
+[U8 numeric parameters and returns](integer-byte-signatures.md) now share the
+checked call path. Parameters narrow at entry inside eight-byte ABI slots;
+returns preserve full register bits as runtime U64. Exact source U8 types,
+frame ownership and initializer compatibility checks remain distinct.
+
 [Definitions joined to extern prototypes](integer-joined-definitions.md) now
 execute in both modes, with renamed parameters, locals, recursion and exact
 frame ownership. Earlier selected extern sites retain their existing boundary.
@@ -52,7 +57,7 @@ replace it. Failures return status 1, diagnostics on stderr and no result report
 
 ## Accepted source and limits
 
-Functions accept named, fixed I64/U64 parameters and automatic scalar I64/U64
+Functions accept named, fixed I64/U64/U8 parameters and automatic scalar I64/U64/U8
 locals. Scalar initializers, simple assignments, returns and the existing
 structured statements compose into checked bodies. Calls compose through the
 supported expression lowerer, including arithmetic, arguments, initializers,
