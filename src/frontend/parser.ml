@@ -3,19 +3,72 @@ type output = {
   diagnostics : Common.Diagnostic.t list;
 }
 
+type command_context = {
+  context_sources : Common.Source_manager.t;
+  context_source : Common.Source_file.t;
+  context_environment : Symbol_visibility.Environment.t;
+  context_mode : Preprocessor.compilation_mode;
+  context_parent : command_position option;
+  mutable context_accepted_ast : Ast.module_ option;
+}
+
+and command_start = {
+  command_context : command_context;
+  command_ordinal : int;
+  command_predecessor : completed_command option;
+}
+
+and completed_command = {
+  command_start : command_start;
+  command_ast : Ast.module_;
+}
+
+and command_position =
+  | Before_first_command of command_context
+  | Reading_command of command_start
+  | Awaiting_resume of completed_command
+
+type completed_sequence = {
+  sequence_context : command_context;
+  sequence_commands : completed_command list;
+  sequence_ast : Ast.module_;
+}
+
+type command_event =
+  | Sequence_started of command_context
+  | Command_started of command_start
+  | Command_completed of completed_command
+  | Command_resumed of completed_command
+  | Sequence_completed of completed_sequence
+  | Sequence_aborted of command_context
+
+let context_sources context = context.context_sources
+let context_source context = context.context_source
+let context_environment context = context.context_environment
+let context_mode context = context.context_mode
+let context_parent context = context.context_parent
+
+let sequence_accepted sequence =
+  match sequence.sequence_context.context_accepted_ast with
+  | Some ast -> ast == sequence.sequence_ast
+  | None -> false
+
 type reference_selection = {
   identifier : Ast.identifier;
   environment : Symbol_visibility.Environment.t;
   lookup : Symbol_visibility.lookup;
+  selected_command : command_start;
 }
 
 let selected_identifier selection = selection.identifier
 let selected_environment selection = selection.environment
 let selected_lookup selection = selection.lookup
+let selected_command selection = selection.selected_command
 
 type declaration_header = {
   declaration_sources : Common.Source_manager.t;
   declaration_source : Common.Source_file.t;
+  declaration_command : command_start;
   modifiers : Ast.declaration_modifier list;
   binding : Ast.declaration_binding option;
   type_specifier : Ast.type_specifier;
@@ -60,6 +113,8 @@ type declaration_event =
       completed_function_header * Ast.function_definition
 
 type command_sink = {
+  checkpoint :
+    (command_event -> (unit, Common.Diagnostic.t list) result) option;
   reference :
     (reference_selection -> (unit, Common.Diagnostic.t list) result) option;
   declaration :
@@ -91,6 +146,8 @@ module Identifier_table = Hashtbl.Make (struct
 end)
 
 type cursor = {
+  command_stack : command_position ref list ref;
+  mutable current_command : command_start option;
   stream : Preprocessor.t;
   sources : Common.Source_manager.t;
   source : Common.Source_file.t;
@@ -613,7 +670,14 @@ let expression_identifier cursor item =
   in
   Option.iter
     (fun (environment, lookup) ->
-      let selection = { identifier; environment; lookup } in
+      let selection =
+        {
+          identifier;
+          environment;
+          lookup;
+          selected_command = Option.get cursor.current_command;
+        }
+      in
       Identifier_table.add cursor.references identifier selection;
       Option.iter
         (fun reference ->
@@ -961,6 +1025,7 @@ let declaration_header cursor ~modifiers ~binding ~type_specifier =
   {
     declaration_sources = cursor.sources;
     declaration_source = cursor.source;
+    declaration_command = Option.get cursor.current_command;
     modifiers;
     binding;
     type_specifier;
@@ -7075,62 +7140,152 @@ let read_command cursor =
   | _ -> statement ()
 
 let read_commands ?commands ?stream_opener cursor =
-  let accept at result =
+  let span =
+    Common.Span.unsafe_make
+      ~source:(Common.Source_file.id cursor.source)
+      ~start:0
+      ~stop:(Common.Source_file.length cursor.source)
+  in
+  let make_module items =
+    Ast.make_module ~source:(Common.Source_file.id cursor.source) ~span ~items
+  in
+  let accept result =
     match result with
     | Ok () -> true
     | Error diagnostics ->
         cursor.diagnostics_rev <-
           List.rev_append diagnostics cursor.diagnostics_rev;
         if not (has_error diagnostics) then
-          report cursor at ~code:"HCPARSE0161"
-            ~message:"command executor failed without an error diagnostic";
+          cursor.diagnostics_rev <-
+            Common.Diagnostic.make ~code:"HCPARSE0161"
+              ~severity:Common.Diagnostic.Error ~primary:span
+              ~message:"command executor failed without an error diagnostic" ()
+            :: cursor.diagnostics_rev;
         false
   in
-  let items_rev = ref [] in
-  let finished = ref false in
-  while not !finished do
-    let item = peek cursor in
-    let proceed =
-      match commands with
-      | None -> true
-      | Some commands ->
-          (not (has_error cursor.diagnostics_rev))
-          && accept item (commands.resume ())
-    in
-    if not proceed then finished := true
-    else
-      match (item.token.Token.kind, stream_opener) with
-      | Token_kind.Eof, opener ->
-          Option.iter
-            (fun span ->
-              report cursor item ~code:"HCPARSE0162"
-                ~secondary:
-                  [ { Common.Diagnostic.span; message = "#exe starts here" } ]
-                ~message:"expected '}' to close the #exe block")
-            opener;
-          ignore (take cursor);
-          finished := true
-      | Token_kind.Punctuation '}', Some _ ->
-          ignore (take cursor);
-          finished := true
-      | _ -> (
-          match read_command cursor with
-          | Some parsed ->
-              items_rev := parsed :: !items_rev;
+  let checkpoint event =
+    match Option.bind commands (fun sink -> sink.checkpoint) with
+    | None -> true
+    | Some consume -> accept (consume event)
+  in
+  let notify event = if not (checkpoint event) then raise Stop_command in
+  let saved_stack = !(cursor.command_stack) in
+  let context =
+    {
+      context_sources = cursor.sources;
+      context_source = cursor.source;
+      context_environment = cursor.symbols;
+      context_mode = cursor.compilation_mode;
+      context_parent =
+        (match saved_stack with
+        | [] -> None
+        | parent :: _ -> Some !parent);
+      context_accepted_ast = None;
+    }
+  in
+  let position = ref (Before_first_command context) in
+  cursor.command_stack := position :: saved_stack;
+  let succeeded = ref false in
+  Fun.protect
+    ~finally:(fun () ->
+      cursor.current_command <- None;
+      cursor.command_stack := saved_stack;
+      if not !succeeded then ignore (checkpoint (Sequence_aborted context)))
+    (fun () ->
+      notify (Sequence_started context);
+      let items_rev = ref [] in
+      let completed_rev = ref [] in
+      let previous = ref None in
+      let pending = ref None in
+      let ordinal = ref 0 in
+      let finished = ref false in
+      while not !finished do
+        let item = peek cursor in
+        let proceed =
+          match commands with
+          | None -> true
+          | Some commands ->
+              (not (has_error cursor.diagnostics_rev))
+              &&
+              (Option.iter
+                 (fun command -> notify (Command_resumed command))
+                 !pending;
+               pending := None;
+               accept (commands.resume ()))
+        in
+        if not proceed then finished := true
+        else
+          match (item.token.Token.kind, stream_opener) with
+          | Token_kind.Eof, opener ->
               Option.iter
-                (fun commands ->
-                  if
-                    has_error cursor.diagnostics_rev
-                    || not (accept item (commands.command parsed))
-                  then finished := true)
-                commands
-          | None -> if Option.is_some commands then finished := true)
-  done;
-  List.rev !items_rev
+                (fun span ->
+                  report cursor item ~code:"HCPARSE0162"
+                    ~secondary:
+                      [
+                        { Common.Diagnostic.span; message = "#exe starts here" };
+                      ]
+                    ~message:"expected '}' to close the #exe block")
+                opener;
+              ignore (take cursor);
+              finished := true
+          | Token_kind.Punctuation '}', Some _ ->
+              ignore (take cursor);
+              finished := true
+          | _ -> (
+              let start =
+                {
+                  command_context = context;
+                  command_ordinal = !ordinal;
+                  command_predecessor = !previous;
+                }
+              in
+              incr ordinal;
+              cursor.current_command <- Some start;
+              position := Reading_command start;
+              notify (Command_started start);
+              match read_command cursor with
+              | Some parsed ->
+                  items_rev := parsed :: !items_rev;
+                  let completed =
+                    {
+                      command_start = start;
+                      command_ast = make_module [ parsed ];
+                    }
+                  in
+                  completed_rev := completed :: !completed_rev;
+                  previous := Some completed;
+                  pending := Some completed;
+                  cursor.current_command <- None;
+                  position := Awaiting_resume completed;
+                  Option.iter
+                    (fun commands ->
+                      if
+                        has_error cursor.diagnostics_rev
+                        ||
+                        (notify (Command_completed completed);
+                         not (accept (commands.command parsed)))
+                      then finished := true)
+                    commands
+              | None -> if Option.is_some commands then finished := true)
+      done;
+      let ast = make_module (List.rev !items_rev) in
+      if not (has_error cursor.diagnostics_rev) then (
+        notify
+          (Sequence_completed
+             {
+               sequence_context = context;
+               sequence_commands = List.rev !completed_rev;
+               sequence_ast = ast;
+             });
+        context.context_accepted_ast <- Some ast;
+        succeeded := true);
+      ast)
 
-let make_cursor ?reference ?declaration ~stream ~sources ~source ~symbols
-    ~compilation_mode ~stop_on_error () =
+let make_cursor ?reference ?declaration ~command_stack ~stream ~sources ~source
+    ~symbols ~compilation_mode ~stop_on_error () =
   {
+    command_stack;
+    current_command = None;
     stream;
     sources;
     source;
@@ -7147,11 +7302,13 @@ let make_cursor ?reference ?declaration ~stream ~sources ~source ~symbols
 
 let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
     source =
+  let command_stack = ref [] in
   let execute_stream =
     Option.map
       (fun enter stream opener ->
         let opening_cursor =
-          make_cursor ~stream ~sources ~source ~symbols ~stop_on_error:true
+          make_cursor ~command_stack ~stream ~sources ~source ~symbols
+            ~stop_on_error:true
             ~compilation_mode:(Preprocessor.Config.compilation_mode config)
             ()
         in
@@ -7178,7 +7335,7 @@ let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
                       Symbol_visibility.Environment.without_locals
                         execution.symbols (fun () ->
                           let cursor =
-                            make_cursor ~stream ~sources ~source
+                            make_cursor ~command_stack ~stream ~sources ~source
                               ~symbols:execution.symbols
                               ?reference:execution.commands.reference
                               ?declaration:execution.commands.declaration
@@ -7208,7 +7365,7 @@ let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
       source
   in
   let cursor =
-    make_cursor ~stream ~sources ~source ~symbols
+    make_cursor ~command_stack ~stream ~sources ~source ~symbols
       ?reference:
         (Option.bind commands (fun (commands : command_sink) ->
              commands.reference))
@@ -7219,17 +7376,9 @@ let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
       ~compilation_mode:(Preprocessor.Config.compilation_mode config)
       ()
   in
-  let items = try read_commands ?commands cursor with Stop_command -> [] in
-  let diagnostics = List.rev cursor.diagnostics_rev in
   let ast =
-    if has_error diagnostics then None
-    else
-      let span =
-        Common.Span.unsafe_make
-          ~source:(Common.Source_file.id source)
-          ~start:0
-          ~stop:(Common.Source_file.length source)
-      in
-      Some (Ast.make_module ~source:(Common.Source_file.id source) ~span ~items)
+    try Some (read_commands ?commands cursor) with Stop_command -> None
   in
+  let diagnostics = List.rev cursor.diagnostics_rev in
+  let ast = if has_error diagnostics then None else ast in
   { ast; diagnostics }

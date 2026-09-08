@@ -3,6 +3,13 @@ type command
 
 val create : Session.t -> (t, string) result
 
+val observe_command :
+  t -> Frontend.Parser.command_event -> (unit, Common.Diagnostic.t list) result
+(** Consume the parser's context/command lifecycle before declaration events.
+    Reject foreign ownership, suspended-parent mismatch, replay and phase
+    errors. Completed commands retain whole source views even if later parsing
+    aborts; they grant no runtime execution or predecessor admission. *)
+
 val observe :
   t ->
   Frontend.Parser.declaration_event ->
@@ -17,10 +24,12 @@ val symbol_for : t -> Frontend.Symbol_visibility.entry -> Sema.Symbol.t option
 
 val seal :
   t -> Frontend.Ast.module_ -> (command, Common.Diagnostic.t list) result
-(** Associate a completed integer-task AST with its original publications.
-    Reusing the exact module returns its existing seal. Overlapping
-    publications, incomplete declarations and substituted source children are
-    rejected. *)
+(** Associate an exact parser-owned command or successful sequence AST with its
+    original publications. Reconstructed modules and command subsets are
+    rejected. A whole sequence can be sealed only after its completion callback
+    succeeds. Reusing the exact module returns its existing seal. Overlapping
+    commands (including statements), incomplete declarations and substituted
+    source children are rejected. *)
 
 val collection :
   table:Sema.Symbol_table.t ->

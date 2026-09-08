@@ -61,7 +61,7 @@ Files: `src/ir/integer_output.ml/.mli`, `runtime_call_context.ml/.mli`,
 - [x] Format and run the full suite, build/install, 82 checksums, eleven
   provenance scenarios and exact full corpora. The fourteen real #exe groups
   remain required and must not be relabeled or bypassed.
-- [ ] Update docs and the external prompt, preserve all 102 fenced examples,
+- [x] Update docs and the external prompt, preserve all 102 fenced examples,
   commit/push and verify committed-source reports and hosted checks.
 
 ## Following integration work
@@ -92,3 +92,10 @@ original #exe groups remain RED. CLI, formatting, generated source, build/instal
 JSON and parser JSON/normalized text match the existing baselines (528/528
 lexing, 25 standalone parsing, 126 with the prelude). The final checkpoint item
 records the committed source and hosted results after commit/push.
+
+Checkpoint: source `38e9b1e6fdd281db1631c678a1ba7c6e8f503bcc` was committed,
+pushed and verified with 157 focused controls. CI 34261852987 ran 2,181 tests
+on both OCaml versions; only the fourteen unfinished #exe groups failed. Corpus
+34261853099 passed on attempt two after an external dependency HTTP 500;
+dependency review 34261853007 passed. The external prompt and #635/#636 record
+the exact-source evidence with all seven full acceptance criteria still open.

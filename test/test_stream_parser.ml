@@ -68,6 +68,7 @@ let parse ?(mode = Preprocessor.Jit) ?max_generated_bytes ?max_definition_depth
                  {
                    reference = None;
                    declaration = None;
+                   checkpoint = None;
                    command;
                    resume = (fun () -> Ok ());
                  };
@@ -254,6 +255,7 @@ let selected_occurrence () =
             selected := receipt :: !selected;
             Ok ());
       declaration = None;
+      checkpoint = None;
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
     }
@@ -426,6 +428,7 @@ let pending_command_order () =
     {
       reference = None;
       declaration = None;
+      checkpoint = None;
       command =
         (function
         | Ast.Top_level_statement
@@ -474,6 +477,7 @@ let declaration_sink consume =
     {
       reference = None;
       declaration = Some consume;
+      checkpoint = None;
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
     }
@@ -886,8 +890,208 @@ let declaration_environment_ownership () =
         && outer.global_dimensions == variable.array_dimensions)
   | _ -> Alcotest.fail "expected outer and task publications"
 
+let command_receipt_ownership () =
+  let contexts = ref [] in
+  let sequences = ref [] in
+  let references = ref [] in
+  let declarations = ref [] in
+  let checkpoint event =
+    (match event with
+    | Parser.Sequence_started context -> contexts := context :: !contexts
+    | Parser.Sequence_completed sequence -> sequences := sequence :: !sequences
+    | _ -> ());
+    Ok ()
+  in
+  let sink =
+    {
+      (declaration_sink (fun event ->
+           declarations := event :: !declarations;
+           Ok ()))
+      with
+      Parser.checkpoint = Some checkpoint;
+      reference =
+        Some
+          (fun selection ->
+            references := selection :: !references;
+            Ok ());
+    }
+  in
+  let configure _ (execution : Parser.stream_execution) =
+    {
+      execution with
+      commands = { execution.commands with checkpoint = Some checkpoint };
+    }
+  in
+  let session, source, output, _, _, _ =
+    parse ~mode:Preprocessor.Aot ~same_task:true ~commands:sink ~configure
+      {|#exe {} I64 A=#exe {"42";};1;#exe {} I64 B;#exe {} A;|}
+  in
+  let ast = P.expect_ast output in
+  let contexts = List.rev !contexts in
+  let outer = List.hd contexts in
+  Alcotest.(check bool)
+    "root has no parent" true
+    (Option.is_none (Parser.context_parent outer));
+  Alcotest.(check bool)
+    "outer mode remains AOT" true
+    (Parser.context_mode outer = Preprocessor.Aot);
+  List.iter
+    (fun context ->
+      Alcotest.(check bool)
+        "context owns exact registered input" true
+        (Parser.context_source context == source
+        && Parser.context_sources context == Session.sources session);
+      Alcotest.(check bool)
+        "context owns selected task environment" true
+        (Parser.context_environment context == Session.symbols session))
+    contexts;
+  let kinds =
+    List.tl contexts
+    |> List.map (fun context ->
+        Alcotest.(check bool)
+          "nested mode is temporarily JIT" true
+          (Parser.context_mode context = Preprocessor.Jit);
+        match Parser.context_parent context with
+        | Some (Parser.Before_first_command parent) ->
+            Alcotest.(check bool)
+              "initial directive owns outer context" true (parent == outer);
+            0
+        | Some (Parser.Reading_command start) ->
+            Alcotest.(check bool)
+              "initializer suspends outer declaration" true
+              (start.command_context == outer);
+            1
+        | Some (Parser.Awaiting_resume command) ->
+            Alcotest.(check bool)
+              "pending directive owns outer command" true
+              (command.command_start.command_context == outer);
+            2
+        | None -> Alcotest.fail "nested context lost its parent")
+  in
+  Alcotest.(check (list int))
+    "nested entry retains all suspended phases" [ 0; 1; 1; 2 ] kinds;
+  List.iter
+    (fun (sequence : Parser.completed_sequence) ->
+      let previous = ref None in
+      let items =
+        List.mapi
+          (fun ordinal (command : Parser.completed_command) ->
+            Alcotest.(check int)
+              "original command ordinal" ordinal
+              command.command_start.command_ordinal;
+            Alcotest.(check bool)
+              "exact completed predecessor" true
+              (match (command.command_start.command_predecessor, !previous) with
+              | None, None -> true
+              | Some left, Some right -> left == right
+              | _ -> false);
+            previous := Some command;
+            match command.command_ast.items with
+            | [ item ] -> item
+            | _ -> Alcotest.fail "partial command view")
+          sequence.sequence_commands
+      in
+      Alcotest.(check bool)
+        "sequence reuses complete source commands" true
+        (List.for_all2 ( == ) items sequence.sequence_ast.items);
+      if sequence.sequence_context == outer then
+        Alcotest.(check bool)
+          "parse returns original sequence view" true
+          (sequence.sequence_ast == ast))
+    !sequences;
+  let declaration_start =
+    List.find_map
+      (function
+        | Parser.Global_declared publication ->
+            Some publication.global_header.declaration_command
+        | _ -> None)
+      !declarations
+    |> Option.get
+  in
+  Alcotest.(check bool)
+    "declaration owns original outer command" true
+    (declaration_start.command_context == outer);
+  let selected =
+    List.find
+      (fun receipt -> (Parser.selected_identifier receipt).spelling = "A")
+      !references
+  in
+  Alcotest.(check bool)
+    "selected occurrence owns later outer command" true
+    ((Parser.selected_command selected).command_context == outer
+    && (Parser.selected_command selected).command_ordinal
+       > declaration_start.command_ordinal)
+
+let checkpoint_failure_cleanup () =
+  List.iter
+    (fun (prefix, reached_phase) ->
+      List.iter
+        (fun phase ->
+          let aborts = ref 0 in
+          let entered = ref 0 in
+          let checkpoint event =
+            let kind, context =
+              match event with
+              | Parser.Sequence_started context -> (0, context)
+              | Parser.Command_started start -> (1, start.command_context)
+              | Parser.Command_completed command ->
+                  (2, command.command_start.command_context)
+              | Parser.Command_resumed command ->
+                  (3, command.command_start.command_context)
+              | Parser.Sequence_completed sequence ->
+                  (4, sequence.sequence_context)
+              | Parser.Sequence_aborted context ->
+                  incr aborts;
+                  (5, context)
+            in
+            if kind = phase then
+              Error
+                [
+                  Diagnostic.make ~code:"TESTCHECKPOINT"
+                    ~severity:Diagnostic.Warning
+                    ~message:"consumer rejected checkpoint"
+                    ~primary:
+                      (Span.unsafe_make
+                         ~source:
+                           (Source_file.id (Parser.context_source context))
+                         ~start:0 ~stop:0)
+                    ();
+                ]
+            else Ok ()
+          in
+          let commands =
+            {
+              (declaration_sink (fun _ -> Ok ())) with
+              Parser.checkpoint = Some checkpoint;
+            }
+          in
+          let _, _, output, _, _, _ =
+            parse ~commands
+              ~on_enter:(fun () -> incr entered)
+              (prefix ^ "#exe {}")
+          in
+          Alcotest.(check bool)
+            "warning-only rejection is fatal" true (Parser.has_errors output);
+          Alcotest.(check bool)
+            "missing fatal diagnostic supplied" true
+            (List.exists
+               (fun d -> d.Diagnostic.code = "HCPARSE0161")
+               output.diagnostics);
+          Alcotest.(check int) "one context abort" 1 !aborts;
+          Alcotest.(check int)
+            "lookahead retains source grammar timing"
+            (if phase < reached_phase then 0 else 1)
+            !entered)
+        [ 0; 1; 2; 3; 4 ])
+    [ ("1;", 2); ("I64 N;", 3) ]
+
 let tests =
   [
+    Alcotest.test_case
+      "command receipts preserve source, parent and predecessor" `Quick
+      command_receipt_ownership;
+    Alcotest.test_case "checkpoint rejection stops delivery and aborts context"
+      `Quick checkpoint_failure_cleanup;
     Alcotest.test_case "EOF completes native empty function syntax" `Quick
       eof_body_completion;
     Alcotest.test_case "buffered function reference sees completed header"

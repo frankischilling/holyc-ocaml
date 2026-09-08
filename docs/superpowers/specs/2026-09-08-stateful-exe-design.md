@@ -208,6 +208,22 @@ merged executable, post-merge CI and synchronized Git afterward.
 
 ## Source-execution facade requirements
 
+Use parser-issued whole-command and successful sequence views for incremental
+source membership. Each command owns its context, ordinal and exact completed
+predecessor; declarations and expression selections retain that command start.
+Nested contexts distinguish initial lookahead, a command still being read, and
+a completed command awaiting resume. In particular, statement sequence parsing
+can perform terminating lookahead before command completion. Do not relocate
+that read to manufacture a later publication boundary.
+
+Sequence acceptance belongs to the parser and becomes valid only after its
+completion callback succeeds. A consumer that records the event then rejects
+or throws must not leave a sealable sequence. Aborting tentative completion
+preserves any active parent. Earlier complete command views and accepted child
+syntax survive later parent/generation failures; this is syntax ownership, not
+VM epoch or admission authority. Runtime pending/predecessor validation remains
+required at the execution seam.
+
 The existing integer task depends on the complete-program compiler. Extract the
 checked compilation-unit core before placing source/parser orchestration above
 both; do not introduce a driver dependency cycle. Preserve ordinary no-#exe

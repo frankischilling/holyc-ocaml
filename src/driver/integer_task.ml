@@ -158,6 +158,7 @@ let run task ~source =
   in
   let commands : Frontend.Parser.command_sink =
     {
+      checkpoint = Some (Task_declarations.observe_command task.declarations);
       reference = None;
       declaration = Some (Task_declarations.observe task.declarations);
       command = (fun _ -> Ok ());

@@ -14,6 +14,54 @@ val max_switch_depth : int
 val max_aggregate_depth : int
 val max_initializer_depth : int
 
+type command_context
+
+type command_start = private {
+  command_context : command_context;
+  command_ordinal : int;
+  command_predecessor : completed_command option;
+}
+
+and completed_command = private {
+  command_start : command_start;
+  command_ast : Ast.module_;
+}
+
+type command_position = private
+  | Before_first_command of command_context
+  | Reading_command of command_start
+  | Awaiting_resume of completed_command
+
+type completed_sequence = private {
+  sequence_context : command_context;
+  sequence_commands : completed_command list;
+  sequence_ast : Ast.module_;
+}
+
+type command_event = private
+  | Sequence_started of command_context
+  | Command_started of command_start
+  | Command_completed of completed_command
+  | Command_resumed of completed_command
+  | Sequence_completed of completed_sequence
+  | Sequence_aborted of command_context
+
+val context_sources : command_context -> Common.Source_manager.t
+val context_source : command_context -> Common.Source_file.t
+val context_environment : command_context -> Symbol_visibility.Environment.t
+val context_mode : command_context -> Preprocessor.compilation_mode
+
+val context_parent : command_context -> command_position option
+(** Exact input and environment ownership, with the parent's suspended parser
+    phase at nested entry. Contexts from distinct parse calls remain distinct.
+*)
+
+val sequence_accepted : completed_sequence -> bool
+(** Becomes true only after the sequence completion callback returns
+    successfully. Rejected or exceptional completion never accepts the sequence.
+    Later parent parsing or stream-generation failures do not revoke accepted
+    child syntax. *)
+
 type reference_selection
 
 val selected_identifier : reference_selection -> Ast.identifier
@@ -29,9 +77,12 @@ val selected_lookup : reference_selection -> Symbol_visibility.lookup
     environment. Selected absence and local shadowing also remain fixed. Retain
     entry objects, not environment-local numeric IDs. *)
 
+val selected_command : reference_selection -> command_start
+
 type declaration_header = private {
   declaration_sources : Common.Source_manager.t;
   declaration_source : Common.Source_file.t;
+  declaration_command : command_start;
   modifiers : Ast.declaration_modifier list;
   binding : Ast.declaration_binding option;
   type_specifier : Ast.type_specifier;
@@ -84,6 +135,8 @@ type declaration_event = private
           installation and replay admission remain the consumer's work. *)
 
 type command_sink = {
+  checkpoint :
+    (command_event -> (unit, Common.Diagnostic.t list) result) option;
   reference :
     (reference_selection -> (unit, Common.Diagnostic.t list) result) option;
   declaration :
@@ -91,7 +144,15 @@ type command_sink = {
   command : Ast.item -> (unit, Common.Diagnostic.t list) result;
   resume : unit -> (unit, Common.Diagnostic.t list) result;
 }
-(** [command] receives a completed syntax command. [resume] runs after the next
+(** [checkpoint] receives private parser lifecycle witnesses. Complete commands
+    and successful sequences own exact AST views; they do not authorize runtime
+    admission. A sequence starts before initial lookahead. Completion precedes
+    [command]; resumption follows the next lookahead and precedes [resume]. On
+    failure or exception, an abort checkpoint releases the context. A failed
+    sequence has no successful sequence view. Declarations and references retain
+    their exact command start, including across nested parsing.
+
+    [command] receives a completed syntax command. [resume] runs after the next
     command's initial lookahead, including any #exe reached during that
     lookahead. The sink owns pending execution and must tolerate [resume] with
     no pending command. A reported error stops further command delivery. *)

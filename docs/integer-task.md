@@ -133,7 +133,7 @@ controls include a configured limit above 100,000.
 
 StreamPrint is not yet connected to parser generation. Cross-command extern
 joins, partial type/storage/header publication and initializer execution,
-selected query receipts, parser pending-command authority and the fourteen
+selected reference/query consumption, VM pending-command authority and the fourteen
 maintained #exe execution groups remain part of issue #635. The existing integer
 function domain remains unchanged, including its pointer-return boundary.
 
@@ -145,8 +145,23 @@ before parameter defaults, but its header completes only after lookahead past
 the closing parenthesis. Body completion follows the full statement sequence
 and terminating lookahead. Assigned symbols now survive completion; consumers
 still need partial type/storage/header publication, initializer execution and
-executable installation at these points. Whole-command membership/grouping and
-pending/predecessor receipts remain separate from declaration association.
+executable installation at these points.
+
+Parser command receipts now prove whole-command membership and parser order.
+Each source context retains its exact input/environment and suspended parent
+phase; starts retain the exact completed predecessor. Declarations and expression
+selections own their command start. The ledger accepts only original complete
+command views or the parser's successful sequence AST, rejecting reconstructed
+modules, subsets, reordered events and overlapping statement/declaration views.
+This records parser order without granting VM admission or execution.
+
+Sequence sealing waits until its completion callback returns successfully.
+Rejected or exceptional completion cannot leave a sealable sequence, and abort
+releases the context without losing its parent. Earlier complete command views
+survive. An accepted child syntax sequence also survives later generation or
+parent failure. Terminating statement lookahead can reach directives while the
+command is still being read; global completion can precede the next lookahead.
+Receipts retain those existing grammar boundaries.
 
 Header completion preserves newer shadows and already consumed reference
 snapshots. It updates only unconsumed tokens selecting the exact provisional

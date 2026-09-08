@@ -278,3 +278,26 @@ on compile failures and keep ordinary no-#exe unit counts unchanged. The design
 records the compilation-core split, AOT environment and cumulative result/artifact
 requirements. This service is required by that connection; it does not complete
 the fourteen runtime gates or any full #635 acceptance criterion.
+
+## Parser command receipt checkpoint
+
+The parser now issues private source contexts, starts, complete command views,
+resume events and whole sequences. Contexts retain exact input/environment and
+the parent's suspended phase; starts retain their exact completed predecessor.
+Declarations and expression selections own their command start. Task_declarations
+requires these witnesses and rejects reconstructed statement subsets, wrappers,
+reordered lifecycle events and overlap between command/sequence views.
+
+Sequence acceptance is parser-owned and follows successful callback return.
+Review reproduced and corrected a late callback failure that otherwise retained
+a sealable sequence. Tentative abort preserves the active parent; complete
+commands and accepted child syntax survive later parent/generation failure.
+Independent re-review found no remaining blocker in this receipt change.
+
+The final full suite passes 2,176 of 2,190 tests in 66.915 seconds, with only the
+fourteen original #exe groups failing. CLI checks, formatting, generated files,
+build/install, 82 checksums, eleven provenance cases and exact corpus comparisons
+pass. See the parser-command-receipts plan for reproduced failures and controls.
+These receipts prove syntax membership and parser order. VM predecessor admission,
+selected-reference semantic consumption, partial declaration/runtime publication,
+extern joins and actual source execution remain required for #635.

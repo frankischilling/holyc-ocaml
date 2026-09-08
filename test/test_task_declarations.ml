@@ -10,7 +10,7 @@ let reject message result =
 
 let config () = Preprocessor.Config.create () |> checked
 
-let parse_source ?sources ?symbols ?observe session ledger source =
+let parse_source ?sources ?symbols ?observe ?checkpoint session ledger source =
   let sources = Option.value sources ~default:(Session.sources session) in
   let symbols = Option.value symbols ~default:(Session.symbols session) in
   let events = ref [] in
@@ -22,6 +22,8 @@ let parse_source ?sources ?symbols ?observe session ledger source =
   in
   let commands : Parser.command_sink =
     {
+      checkpoint =
+        Some (Option.value checkpoint ~default:(D.observe_command ledger));
       reference = None;
       declaration = Some consume;
       command = (fun _ -> Ok ());
@@ -35,11 +37,11 @@ let parse_source ?sources ?symbols ?observe session ledger source =
   in
   (output, List.rev !events)
 
-let parse ?observe session ledger text =
+let parse ?observe ?checkpoint session ledger text =
   let source =
     Session.add_source session ~path:"declarations.hc" ~contents:text
   in
-  parse_source ?observe session ledger source
+  parse_source ?observe ?checkpoint session ledger source
 
 let setup () =
   let session = Session.create () in
@@ -241,12 +243,26 @@ let foreign_source_owners () =
 
 let phase_order_and_replay () =
   let session, ledger = setup () in
+  let checkpoints = ref [] in
   let output, events =
-    parse ~observe:(fun _ -> Ok ()) session ledger "I64 F(){return 42;}"
+    parse
+      ~observe:(fun _ -> Ok ())
+      ~checkpoint:(fun event ->
+        checkpoints := event :: !checkpoints;
+        Ok ())
+      session ledger "I64 F(){return 42;}"
   in
   let ast = Test_parser.expect_ast output in
   match events with
   | [ declared; header; body ] ->
+      let initial, completion =
+        match List.rev !checkpoints with
+        | first :: second :: rest -> ([ first; second ], rest)
+        | _ -> Alcotest.fail "expected command context and start"
+      in
+      List.iter
+        (fun event -> ignore (D.observe_command ledger event |> expect))
+        initial;
       reject "body cannot precede declaration" (D.observe ledger body);
       reject "header cannot precede declaration" (D.observe ledger header);
       ignore (D.observe ledger declared |> expect);
@@ -258,6 +274,9 @@ let phase_order_and_replay () =
       reject "unfinished function cannot seal" (D.seal ledger ast);
       ignore (D.observe ledger body |> expect);
       reject "body cannot complete twice" (D.observe ledger body);
+      List.iter
+        (fun event -> ignore (D.observe_command ledger event |> expect))
+        completion;
       ignore (D.seal ledger ast |> expect)
   | _ -> Alcotest.fail "expected three function events"
 
@@ -277,17 +296,18 @@ let nested_publication_views () =
     | _ -> ());
     D.observe ledger event
   in
-  let sink command : Parser.command_sink =
+  let sink checkpoint : Parser.command_sink =
     {
+      checkpoint =
+        Some
+          (fun event ->
+            Result.bind (D.observe_command ledger event) (fun () ->
+                checkpoint event));
       reference = None;
       declaration = Some consume;
-      command;
+      command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
     }
-  in
-  let span =
-    Span.unsafe_make ~source:(Source_file.id source) ~start:0
-      ~stop:(Source_file.length source)
   in
   let execute_stream _ =
     saw_assigned_outer :=
@@ -299,14 +319,13 @@ let nested_publication_views () =
           definitions = Session.definitions session;
           symbols = Session.symbols session;
           commands =
-            sink (fun item ->
-                let ast =
-                  Ast.make_module ~source:(Source_file.id source) ~span
-                    ~items:[ item ]
-                in
-                D.seal ledger ast
-                |> Result.map (fun command ->
-                    nested := (ast, command) :: !nested));
+            sink (function
+              | Parser.Command_completed receipt ->
+                  let ast = receipt.command_ast in
+                  D.seal ledger ast
+                  |> Result.map (fun command ->
+                      nested := (ast, command) :: !nested)
+              | _ -> Ok ());
           finish = (fun () -> Ok "42");
           abort = (fun () -> ());
         }
@@ -360,8 +379,313 @@ let singleton_and_callback_sources () =
         (List.length (C.entries collection)))
     [ "I64 N;"; "I64 A[2];"; "I64 (*Callback)(I64 n);" ]
 
+let whole_statement_membership () =
+  let session, ledger = setup () in
+  let output, _ = parse session ledger "1;42;" in
+  let ast = Test_parser.expect_ast output in
+  Alcotest.(check int) "two original commands" 2 (List.length ast.items);
+  reject "statement subset has no parser command receipt"
+    (D.seal ledger (copy_module ast [ List.hd ast.items ]));
+  reject "reordered statements have no parser sequence receipt"
+    (D.seal ledger (copy_module ast (List.rev ast.items)));
+  reject "equal wrapper has no parser sequence receipt"
+    (D.seal ledger (copy_module ast ast.items));
+  ignore (D.seal ledger ast |> expect)
+
+let command_protocol () =
+  let session, ledger = setup () in
+  let events = ref [] in
+  let output, _ =
+    parse
+      ~checkpoint:(fun event ->
+        events := event :: !events;
+        Ok ())
+      session ledger "1;42;"
+  in
+  let ast = Test_parser.expect_ast output in
+  let events = List.rev !events in
+  let accept event = ignore (D.observe_command ledger event |> expect) in
+  (match events with
+  | [ opened; started; completed; resumed; next; last; final_resume; closed ] ->
+      reject "completion cannot precede context"
+        (D.observe_command ledger completed);
+      accept opened;
+      reject "sequence cannot finish before its commands"
+        (D.observe_command ledger closed);
+      reject "second command cannot become first"
+        (D.observe_command ledger next);
+      accept started;
+      reject "resume cannot precede completion"
+        (D.observe_command ledger resumed);
+      accept completed;
+      reject "next command cannot bypass pending resume"
+        (D.observe_command ledger next);
+      accept resumed;
+      accept next;
+      reject "old resume cannot resume a new command"
+        (D.observe_command ledger resumed);
+      accept last;
+      reject "sequence cannot bypass final resume"
+        (D.observe_command ledger closed);
+      accept final_resume;
+      accept closed;
+      List.iter
+        (fun event ->
+          reject "command event replay" (D.observe_command ledger event))
+        events
+  | _ -> Alcotest.fail "expected two complete command lifecycles");
+  ignore (D.seal ledger ast |> expect)
+
+let overlapping_statement_views () =
+  List.iter
+    (fun seal_sequence ->
+      let session, ledger = setup () in
+      let views = ref [] in
+      let checkpoint event =
+        Result.map
+          (fun () ->
+            match event with
+            | Parser.Command_completed receipt ->
+                views := receipt.command_ast :: !views
+            | _ -> ())
+          (D.observe_command ledger event)
+      in
+      let output, _ = parse ~checkpoint session ledger "1;42;" in
+      let ast = Test_parser.expect_ast output in
+      let first, second =
+        match List.rev !views with
+        | [ first; second ] -> (first, second)
+        | _ -> Alcotest.fail "expected two original command views"
+      in
+      if seal_sequence then (
+        ignore (D.seal ledger ast |> expect);
+        reject "sequence claims first statement" (D.seal ledger first);
+        reject "sequence claims second statement" (D.seal ledger second))
+      else (
+        ignore (D.seal ledger first |> expect);
+        reject "single statement blocks overlapping sequence"
+          (D.seal ledger ast);
+        ignore (D.seal ledger second |> expect)))
+    [ false; true ]
+
+let failed_sequences_release_context () =
+  let session, ledger = setup () in
+  let views = ref [] in
+  let aborted = ref 0 in
+  let checkpoint event =
+    Result.map
+      (fun () ->
+        match event with
+        | Parser.Command_completed receipt ->
+            views := receipt.command_ast :: !views
+        | Parser.Sequence_aborted _ -> incr aborted
+        | _ -> ())
+      (D.observe_command ledger event)
+  in
+  let output, _ = parse ~checkpoint session ledger "42;I64 N=;" in
+  Alcotest.(check bool)
+    "unfinished sequence fails" true (Parser.has_errors output);
+  Alcotest.(check int) "one completed command survives" 1 (List.length !views);
+  Alcotest.(check int) "syntax failure closes context" 1 !aborted;
+  ignore (D.seal ledger (List.hd !views) |> expect);
+  (try
+     ignore
+       (parse ~checkpoint
+          ~observe:(fun event ->
+            ignore (D.observe ledger event |> expect);
+            raise Exit)
+          session ledger "I64 M=42;");
+     Alcotest.fail "expected consumer exception"
+   with Exit -> ());
+  Alcotest.(check int) "exception closes context" 2 !aborted;
+  let output, _ = parse session ledger "42;" in
+  ignore (D.seal ledger (Test_parser.expect_ast output) |> expect)
+
+let empty_sequence_identity () =
+  let session, ledger = setup () in
+  let output, _ = parse session ledger "" in
+  let ast = Test_parser.expect_ast output in
+  reject "empty wrapper still needs a sequence witness"
+    (D.seal ledger (copy_module ast []));
+  ignore (D.seal ledger ast |> expect)
+
+let rejected_sequence_cannot_seal () =
+  List.iter
+    (fun throws ->
+      let session, ledger = setup () in
+      let sequence = ref None in
+      let commands = ref [] in
+      let abort = ref None in
+      let checkpoint event =
+        let result = D.observe_command ledger event in
+        match (result, event) with
+        | Ok (), Parser.Command_completed receipt ->
+            commands := receipt.command_ast :: !commands;
+            Ok ()
+        | Ok (), Parser.Sequence_completed receipt ->
+            sequence := Some receipt.sequence_ast;
+            reject "sequence cannot seal during its unaccepted callback"
+              (D.seal ledger receipt.sequence_ast);
+            if throws then raise Exit
+            else
+              Error
+                [
+                  Diagnostic.make ~code:"TESTREJECT" ~severity:Diagnostic.Error
+                    ~primary:receipt.sequence_ast.span
+                    ~message:"late completion rejected" ();
+                ]
+        | Ok (), Parser.Sequence_aborted _ ->
+            abort := Some event;
+            result
+        | _ -> result
+      in
+      (try
+         let output, _ = parse ~checkpoint session ledger "42;" in
+         Alcotest.(check bool)
+           "late rejection fails parsing" true (Parser.has_errors output);
+         Alcotest.(check bool) "expected normal rejection" false throws
+       with Exit -> Alcotest.(check bool) "expected exception" true throws);
+      reject "rejected sequence cannot acquire a whole-source seal"
+        (D.seal ledger (Option.get !sequence));
+      reject "late abort is consumed once"
+        (D.observe_command ledger (Option.get !abort));
+      ignore (D.seal ledger (List.hd !commands) |> expect);
+      let output, _ = parse session ledger "1;" in
+      ignore (D.seal ledger (Test_parser.expect_ast output) |> expect))
+    [ false; true ]
+
+let nested_receipt_views () =
+  let cases =
+    [
+      ("#exe {42;} 1;", "", true, false, `None, true, Some 0);
+      ("I64 N=#exe {42;};", "42", true, false, `None, true, Some 1);
+      ("I64 N;#exe {42;}1;", "", true, false, `None, true, Some 2);
+      ("#exe {42;}1;", "", false, false, `None, false, None);
+      ("#exe {42;}1;", "", false, true, `None, true, Some 0);
+      ("#exe {42;I64 N=;}1;", "", true, false, `None, false, Some 0);
+      ("#exe {42;}1;", "", true, false, `Finish, false, Some 0);
+      ("I64 N=#exe {42;};", "42", true, false, `Completion, false, Some 1);
+    ]
+  in
+  List.iter
+    (fun ( contents,
+           generated,
+           observe_outer,
+           foreign_outer,
+           failure,
+           succeeds,
+           parent_phase ) ->
+      let session, ledger = setup () in
+      let outer = if foreign_outer then Session.create () else session in
+      let source =
+        Session.add_source session ~path:"nested-receipts.hc" ~contents
+      in
+      let child_sequence = ref None in
+      let child_context = ref None in
+      let sink checkpoint : Parser.command_sink =
+        {
+          checkpoint = Some checkpoint;
+          reference = None;
+          declaration = Some (D.observe ledger);
+          command = (fun _ -> Ok ());
+          resume = (fun () -> Ok ());
+        }
+      in
+      let inner_checkpoint event =
+        Result.bind (D.observe_command ledger event) (fun () ->
+            (match event with
+            | Parser.Sequence_started context -> child_context := Some context
+            | Parser.Sequence_completed receipt ->
+                child_sequence := Some receipt
+            | _ -> ());
+            match event with
+            | Parser.Sequence_completed receipt when failure = `Completion ->
+                Error
+                  [
+                    Diagnostic.make ~code:"TESTCOMPLETE"
+                      ~severity:Diagnostic.Error
+                      ~primary:receipt.sequence_ast.span
+                      ~message:"child completion failed" ();
+                  ]
+            | _ -> Ok ())
+      in
+      let execute_stream span =
+        Ok
+          Parser.
+            {
+              definitions = Session.definitions session;
+              symbols = Session.symbols session;
+              commands = sink inner_checkpoint;
+              finish =
+                (fun () ->
+                  if failure = `Finish then
+                    Error
+                      [
+                        Diagnostic.make ~code:"TESTFINISH"
+                          ~severity:Diagnostic.Error ~primary:span
+                          ~message:"generation failed" ();
+                      ]
+                  else Ok generated);
+              abort = (fun () -> ());
+            }
+      in
+      let commands =
+        if observe_outer then Some (sink (D.observe_command ledger)) else None
+      in
+      let output =
+        Parser.parse ?commands ~execute_stream
+          ~sources:(Session.sources session)
+          ~definitions:(Session.definitions outer)
+          ~symbols:(Session.symbols outer) ~config:(config ()) source
+      in
+      Alcotest.(check bool)
+        "nested parser/ledger outcome" succeeds
+        (not (Parser.has_errors output));
+      let actual_phase =
+        Option.map
+          (fun context ->
+            match Parser.context_parent context with
+            | Some (Parser.Before_first_command _) -> 0
+            | Some (Parser.Reading_command _) -> 1
+            | Some (Parser.Awaiting_resume _) -> 2
+            | None -> Alcotest.fail "child lost suspended parent")
+          !child_context
+      in
+      Alcotest.(check (option int))
+        "ledger consumes exact parent phase" parent_phase actual_phase;
+      Option.iter
+        (fun (receipt : Parser.completed_sequence) ->
+          Alcotest.(check bool)
+            "only accepted child syntax survives later generation failure"
+            (failure <> `Completion)
+            (Parser.sequence_accepted receipt);
+          if failure = `Completion then
+            reject "rejected child has no sequence seal"
+              (D.seal ledger receipt.sequence_ast)
+          else ignore (D.seal ledger receipt.sequence_ast |> expect))
+        !child_sequence;
+      if succeeds && observe_outer then
+        ignore (D.seal ledger (Test_parser.expect_ast output) |> expect);
+      let output, _ = parse session ledger "42;" in
+      ignore (D.seal ledger (Test_parser.expect_ast output) |> expect))
+    cases
+
 let tests =
   [
+    Alcotest.test_case "nested receipts validate parent ownership and cleanup"
+      `Quick nested_receipt_views;
+    Alcotest.test_case "late completion rejection cannot seal a failed sequence"
+      `Quick rejected_sequence_cannot_seal;
+    Alcotest.test_case "command lifecycle rejects replay and reordered phases"
+      `Quick command_protocol;
+    Alcotest.test_case "statement command and sequence views cannot overlap"
+      `Quick overlapping_statement_views;
+    Alcotest.test_case "failed and exceptional parsing release their context"
+      `Quick failed_sequences_release_context;
+    Alcotest.test_case "empty sequence has exact parser ownership" `Quick
+      empty_sequence_identity;
+    Alcotest.test_case "statement membership requires original commands" `Quick
+      whole_statement_membership;
     Alcotest.test_case
       "nested publications keep command-local declaration views" `Quick
       nested_publication_views;
