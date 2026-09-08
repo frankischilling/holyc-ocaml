@@ -1419,7 +1419,7 @@ let prepare_storage_address ?frame ?globals result =
       Global_address_lowering.prepare ?frame ~globals result
       |> Result.map (Option.map (fun address -> Global_slot address))
 
-let rec prepare_index_address ?frame result =
+let rec prepare_index_address ?frame ?globals result =
   let ( let* ) = Result.bind in
   let invalid message =
     Error [ metadata_error ?span:(result_span result) message ]
@@ -1434,6 +1434,21 @@ let rec prepare_index_address ?frame result =
         Semantic_source.argument_expression_kind
           (Semantic_result.result_source result)
       with
+      | Semantic_source.Bound_identifier_expression _
+      | Semantic_source.Top_level_bound_identifier_expression _
+        when Semantic_result.result_is_array_address result
+             && Option.is_some globals -> (
+          let* prepared =
+            Global_address_lowering.prepare ?frame ~globals:(Option.get globals)
+              result
+          in
+          match prepared with
+          | Some address ->
+              Ok
+                (Some
+                   ( Direct_address (Global_slot address),
+                     Global_address_lowering.strides address ))
+          | None -> prepare_index_address ?frame result)
       | Semantic_source.Bound_identifier_expression identifier
         when Semantic_result.result_is_array_address result -> (
           match frame with
@@ -1527,7 +1542,7 @@ let rec prepare_index_address ?frame result =
                     else
                       let* base_address =
                         if Semantic_result.result_is_array_address base then
-                          prepare_index_address ?frame base
+                          prepare_index_address ?frame ?globals base
                         else
                           match checked_frame_value base with
                           | Error e -> Error [ e ]
@@ -1618,7 +1633,8 @@ let rec prepare_assignment_address ?frame ?globals result =
       (Semantic_result.result_source result)
   with
   | Semantic_source.Index_expression _ ->
-      prepare_index_address ?frame result |> Result.map (Option.map fst)
+      prepare_index_address ?frame ?globals result
+      |> Result.map (Option.map fst)
   | Semantic_source.Parenthesized_expression source -> (
       match checked_operand result source "parenthesized assignment target" with
       | Error item -> Error [ item ]
@@ -1741,7 +1757,7 @@ let plan ?frame ?globals ~allow_calls root =
     | Error item, _ -> error := Some item
     | Ok (Checked_type pointer_type), Some span
       when scalar_pointer_type pointer_type && conversion = Keep_result -> (
-        match prepare_index_address ?frame operand with
+        match prepare_index_address ?frame ?globals operand with
         | Error (item :: _) -> error := Some item
         | Ok (Some (address, _)) ->
             address_tasks operand address
@@ -1789,7 +1805,8 @@ let plan ?frame ?globals ~allow_calls root =
                 array_value result result conversion
             | Semantic_source.Index_expression _ -> (
                 match
-                  (prepare_index_address ?frame result, result_span result)
+                  ( prepare_index_address ?frame ?globals result,
+                    result_span result )
                 with
                 | Error (item :: _), _ -> error := Some item
                 | Ok (Some (address, [])), Some span ->
@@ -3330,10 +3347,15 @@ let lower_global_initializer ~globals ?lower_call ~instruction_id ~value_id root
     ~instruction_id ~value_id
     (Semantic_result.top_level_root_value root)
 
-let lower_static_initializer ~globals ?lower_call ~instruction_id ~value_id slot
-    =
+let lower_static_initializer ~globals ?root ?lower_call ~instruction_id
+    ~value_id slot =
   let ( let* ) = Result.bind in
-  match Integer_globals.static_initializer slot with
+  let root =
+    match root with
+    | Some _ -> root
+    | None -> Integer_globals.static_initializer slot
+  in
+  match root with
   | None ->
       Error
         [ metadata_error "static initializer has no checked declaration root" ]

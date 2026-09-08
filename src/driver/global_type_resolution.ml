@@ -476,6 +476,7 @@ let global_declarator_kind visible = function
 
 let array_dimension_fact index (dimension : Frontend.Ast.array_dimension) =
   Sema.Global_type_resolution.make_array_dimension ~index
+    ?source_expression:dimension.dimension_expression
     ~origin:(origin dimension.location)
     ~opening_origin:(origin dimension.opening_bracket)
     ?expression_origin:
@@ -497,22 +498,11 @@ let array_dimension_facts dimensions =
   collect 0 [] dimensions
 
 let initializer_fact (initial_value : Frontend.Ast.global_initializer) =
-  let kind, value_origin =
-    match initial_value.global_initializer_value with
-    | Frontend.Ast.Scalar_initializer expression ->
-        ( Sema.Global_type_resolution.Scalar_initializer,
-          origin (Frontend.Ast.expression_location expression) )
-    | Frontend.Ast.Braced_initializer braced ->
-        ( Sema.Global_type_resolution.Braced_initializer,
-          origin braced.initializer_location )
-    | Frontend.Ast.Unbraced_array_initializer unbraced ->
-        ( Sema.Global_type_resolution.Braced_initializer,
-          origin unbraced.unbraced_initializer_location )
-  in
-  Sema.Global_type_resolution.make_initializer ~kind
+  Sema.Global_type_resolution.make_source_initializer
     ~origin:(origin initial_value.global_initializer_location)
     ~equals_origin:(origin initial_value.global_initializer_equals)
-    ~value_origin
+    ~source:
+      (Sema.Initializer_source.create initial_value.global_initializer_value)
 
 let delimiter_fact kind origin =
   let kind =

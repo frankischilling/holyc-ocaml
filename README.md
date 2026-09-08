@@ -1,5 +1,10 @@
 # holyc-ocaml
 
+`holyc run --format=json examples/integer-persistent-arrays.hc` initializes
+global and static arrays, mutates a passed row, captures `42`, and returns I64
+42 in both modes. [Persistent arrays](docs/integer-persistent-arrays.md) covers
+checked dimensions, per-leaf initialization, direct string copies and quotas.
+
 `holyc run --format=json examples/integer-persistent-bytes.hc` now uses a
 U8 global, a persistent static byte and a pointer call to return 42 in both
 modes. [Persistent bytes](docs/integer-persistent-bytes.md) explains narrowing,

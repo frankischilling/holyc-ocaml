@@ -1334,17 +1334,6 @@ and call_argument state (argument : Frontend.Ast.call_argument) =
   | Frontend.Ast.Omitted_call_argument -> Ok state
   | Frontend.Ast.Provided_call_argument value -> expression state value
 
-let rec initial_value state = function
-  | Frontend.Ast.Scalar_initializer value -> expression state value
-  | Frontend.Ast.Braced_initializer braced ->
-      fold_result initializer_element state braced.initializer_elements
-  | Frontend.Ast.Unbraced_array_initializer unbraced ->
-      fold_result initializer_element state
-        unbraced.unbraced_initializer_elements
-
-and initializer_element state (element : Frontend.Ast.initializer_element) =
-  initial_value state element.initializer_element_value
-
 let array_dimension state (dimension : Frontend.Ast.array_dimension) =
   match dimension.dimension_expression with
   | None -> Ok state
@@ -1352,53 +1341,96 @@ let array_dimension state (dimension : Frontend.Ast.array_dimension) =
 
 let local_initializer state (declarator : Frontend.Ast.local_declarator)
     (initial : Frontend.Ast.local_initializer) =
-  match initial.local_initializer_value with
-  | Frontend.Ast.Braced_initializer _
-  | Frontend.Ast.Unbraced_array_initializer _ ->
-      initial_value state initial.local_initializer_value
-  | Frontend.Ast.Scalar_initializer value -> (
-      let first_occurrence = state.next_occurrence in
-      match expression state value with
-      | Error _ as error -> error
-      | Ok state -> (
-          let cursor = ref first_occurrence in
-          match
-            argument_expression state.member_index state.before_item_index
-              state.visible_aggregates state.typed_values state.global_values
-              state.occurrences state.defined_queries cursor value
-          with
-          | Error _ as error -> error
-          | Ok _ when !cursor <> state.next_occurrence ->
+  let local =
+    List.find_opt
+      (fun local ->
+        Sema.Local_type_resolution.local_declarator_origin local
+        = origin declarator.local_declarator_location)
+      state.locals
+  in
+  let add_leaf local leaf state value =
+    let first_occurrence = state.next_occurrence in
+    let first_call = state.next_call in
+    match expression state value with
+    | Error _ as error -> error
+    | Ok state -> (
+        let cursor = ref first_occurrence in
+        match
+          argument_expression state.member_index state.before_item_index
+            state.visible_aggregates state.typed_values state.global_values
+            state.occurrences state.defined_queries cursor value
+        with
+        | Error _ as error -> error
+        | Ok _ when !cursor <> state.next_occurrence ->
+            Error
+              "function initializer traversal disagrees with expression binding"
+        | Ok expression -> (
+            if state.next_initializer = max_int then
+              Error "function initializer identity space is exhausted"
+            else
+              let prepared =
+                match leaf with
+                | None ->
+                    Sema.Function_call_resolution.make_initializer
+                      ~index:state.next_initializer ~local ~expression
+                      ~origin:(origin initial.local_initializer_location)
+                | Some leaf ->
+                    let calls =
+                      state.calls_rev
+                      |> List.filter (fun call ->
+                          Sema.Function_call_resolution.call_index call
+                          >= first_call)
+                      |> List.sort (fun left right ->
+                          Int.compare
+                            (Sema.Function_call_resolution.call_index left)
+                            (Sema.Function_call_resolution.call_index right))
+                    in
+                    Sema.Function_call_resolution.make_initializer_leaf
+                      ~index:state.next_initializer ~local ~leaf ~expression
+                      ~calls
+                      ~origin:(origin initial.local_initializer_location)
+              in
+              match prepared with
+              | Error _ as error -> error
+              | Ok input ->
+                  Ok
+                    {
+                      state with
+                      next_initializer = state.next_initializer + 1;
+                      initializers_rev = input :: state.initializers_rev;
+                    }))
+  in
+  match local with
+  | None -> Error "function initializer has no matching checked local"
+  | Some local -> (
+      let manifest =
+        Option.bind
+          (Sema.Local_type_resolution.local_initializer local)
+          Sema.Local_type_resolution.initializer_source
+      in
+      match manifest with
+      | Some manifest ->
+          if
+            not
+              (Sema.Initializer_source.matches_ast manifest
+                 initial.local_initializer_value)
+          then Error "function initializer has a substituted source tree"
+          else
+            fold_result
+              (fun state leaf ->
+                add_leaf local (Some leaf) state
+                  (Sema.Initializer_source.leaf_expression_ast leaf))
+              state
+              (Sema.Initializer_source.leaves manifest)
+      | None -> (
+          match initial.local_initializer_value with
+          | Frontend.Ast.Scalar_initializer value ->
+              add_leaf local None state value
+          | Frontend.Ast.Braced_initializer _
+          | Frontend.Ast.Unbraced_array_initializer _ ->
               Error
-                "function initializer traversal disagrees with expression \
-                 binding"
-          | Ok expression -> (
-              match
-                List.find_opt
-                  (fun local ->
-                    Sema.Local_type_resolution.local_declarator_origin local
-                    = origin declarator.local_declarator_location)
-                  state.locals
-              with
-              | None ->
-                  Error "function initializer has no matching checked local"
-              | Some local -> (
-                  if state.next_initializer = max_int then
-                    Error "function initializer identity space is exhausted"
-                  else
-                    match
-                      Sema.Function_call_resolution.make_initializer
-                        ~index:state.next_initializer ~local ~expression
-                        ~origin:(origin initial.local_initializer_location)
-                    with
-                    | Error _ as error -> error
-                    | Ok input ->
-                        Ok
-                          {
-                            state with
-                            next_initializer = state.next_initializer + 1;
-                            initializers_rev = input :: state.initializers_rev;
-                          }))))
+                "array initializer has no retained declaration source manifest")
+      )
 
 let local_declaration state (declaration : Frontend.Ast.local_declaration) =
   let declarator state (declarator : Frontend.Ast.local_declarator) =

@@ -4,6 +4,29 @@ type static_region
 type storage_region
 type t
 
+type prepared_root = Initializer_publication.prepared_root =
+  | Prepared_global of
+      Sema.Function_call_expression_result.top_level_root_result
+  | Prepared_static of
+      Integer_globals.static_slot
+      * Sema.Function_call_expression_result.initializer_result
+
+type publication_description = Initializer_publication.description = {
+  prepared_root : prepared_root;
+  before : Instruction_sequence.Instruction_id.t;
+}
+
+type publication
+type publication_evidence = Initializer_publication.t
+
+val publications : t -> publication list
+val publication_evidence : t -> publication_evidence option
+val publication_before : publication -> Instruction_sequence.Instruction_id.t
+val publication_storage : publication -> Integer_globals.storage_slot
+val publication_cell_offset : publication -> int
+val publication_payload : publication -> Integer_array_initializers.payload
+val describe_publication : publication -> publication_description
+
 type region_description = {
   root : Sema.Function_call_expression_result.top_level_root_result;
   first : Instruction_sequence.Instruction_id.t;
@@ -19,6 +42,8 @@ type static_region_description = {
 
 val create :
   ?static_descriptions:static_region_description list ->
+  ?publications:publication_description list ->
+  ?publication_evidence:publication_evidence ->
   span:Common.Span.t ->
   globals:Integer_globals.t ->
   entry:X87_stack.t ->

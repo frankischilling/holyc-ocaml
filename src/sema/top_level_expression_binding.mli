@@ -3,6 +3,12 @@ type event
 val make_identifier :
   name:string -> origin:Symbol.origin -> (event, string) result
 
+val make_initializer_identifier :
+  leaf:Initializer_source.leaf ->
+  name:string ->
+  origin:Symbol.origin ->
+  (event, string) result
+
 val make_name_query :
   role:Function_expression_binding.query_role ->
   name:string ->

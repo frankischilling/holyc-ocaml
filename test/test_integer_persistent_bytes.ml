@@ -427,8 +427,6 @@ let boundaries_and_dumps () =
       List.iter
         (fun source -> ignore (F.first_error (G.run ~mode source)))
         [
-          "U8 G[2];42;";
-          "I64 F(){static U8 n[2];return 42;}F();";
           "U8 *G;42;";
           "I64 F(){static U8 *p;return 42;}F();";
           "U8 G=41;G++;G;";

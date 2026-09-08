@@ -662,6 +662,7 @@ let register_requests = Register_request.of_list
 
 let array_dimension index (dimension : Frontend.Ast.array_dimension) =
   Sema.Local_type_resolution.make_array_dimension ~index
+    ?source_expression:dimension.dimension_expression
     ~origin:(origin dimension.location)
     ~opening_origin:(origin dimension.opening_bracket)
     ?expression_origin:
@@ -684,22 +685,11 @@ let array_dimensions dimensions =
   collect 0 [] dimensions
 
 let initializer_fact (initial_value : Frontend.Ast.local_initializer) =
-  let kind =
-    match initial_value.local_initializer_value with
-    | Frontend.Ast.Scalar_initializer _ ->
-        Sema.Local_type_resolution.Scalar_initializer
-    | Frontend.Ast.Braced_initializer _ ->
-        Sema.Local_type_resolution.Braced_initializer
-    | Frontend.Ast.Unbraced_array_initializer _ ->
-        Sema.Local_type_resolution.Braced_initializer
-  in
-  Sema.Local_type_resolution.make_initializer ~kind
+  Sema.Local_type_resolution.make_source_initializer
     ~origin:(origin initial_value.local_initializer_location)
     ~equals_origin:(origin initial_value.local_initializer_equals)
-    ~value_origin:
-      (origin
-         (Frontend.Ast.initial_value_location
-            initial_value.local_initializer_value))
+    ~source:
+      (Sema.Initializer_source.create initial_value.local_initializer_value)
 
 let delimiter (delimiter : Frontend.Ast.declaration_delimiter) =
   let kind =

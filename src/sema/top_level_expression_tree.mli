@@ -54,6 +54,15 @@ val make_root :
   origin:Symbol.origin ->
   (root, error) result
 
+val make_initializer_root :
+  index:int ->
+  global:Global_initializer_binding.resolved_global ->
+  leaf:Initializer_source.leaf ->
+  expression:Function_call_resolution.argument_expression ->
+  calls:call list ->
+  origin:Symbol.origin ->
+  (root, error) result
+
 val make_switch_case :
   index:int ->
   keyword_origin:Symbol.origin ->
@@ -100,6 +109,8 @@ val root_index : root -> int
 val root_role : root -> root_role
 val root_expression : root -> Function_call_resolution.argument_expression
 val root_origin : root -> Symbol.origin
+val root_initializer_leaf : root -> Initializer_source.leaf option
+val root_initializer_calls : root -> Function_call_resolution.call list
 val switch_case_index : switch_case -> int
 val switch_case_keyword_origin : switch_case -> Symbol.origin
 val switch_case_pattern : switch_case -> switch_case_pattern

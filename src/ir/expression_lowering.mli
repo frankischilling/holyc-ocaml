@@ -96,11 +96,14 @@ val lower_initializer :
 
 val lower_static_initializer :
   globals:Integer_globals.t ->
+  ?root:Sema.Function_call_expression_result.initializer_result ->
   ?lower_call:call_lowerer ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   Integer_globals.static_slot ->
   (lowering_result, Instruction_sequence.error list) result
+(** Store the exact supplied scalar-store leaf when [root] is present. Without
+    [root], preserve the scalar declaration helper. *)
 
 val lower_global_initializer :
   globals:Integer_globals.t ->
@@ -109,9 +112,10 @@ val lower_global_initializer :
   value_id:Instruction_sequence.Value_id.t ->
   Sema.Function_call_expression_result.top_level_root_result ->
   (lowering_result, Instruction_sequence.error list) result
-(** Store an exact declaration-owned initializer through its checked global
-    destination. This emits the store; scheduling and constant preparation
-    remain the program initialization context's responsibility. *)
+(** Store an exact declaration-owned scalar root or scalar-store array leaf
+    through its checked global destination. This emits the store; scheduling and
+    constant preparation remain the program initialization context's
+    responsibility. *)
 
 val sequence : t -> Instruction_sequence.t
 val result_value : t -> Instruction_sequence.Value_id.t

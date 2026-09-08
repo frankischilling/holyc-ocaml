@@ -7,6 +7,7 @@ type prepared = {
   frames_ : Sema.Function_frame_layout.t;
   records_ : Sema.Function_record_classification.t;
   global_records_ : Sema.Global_record_classification.t;
+  global_layouts_ : Sema.Global_array_layout.t;
   initializers_ : Sema.Global_initializer_binding.t option;
   function_outputs_ : Sema.Implicit_output_argument_binding.t;
   top_level_outputs_ : Sema.Top_level_implicit_output_argument_binding.t;
@@ -17,6 +18,7 @@ let functions prepared = prepared.functions_
 let frames prepared = prepared.frames_
 let records prepared = prepared.records_
 let global_records prepared = prepared.global_records_
+let global_layouts prepared = prepared.global_layouts_
 let initializers prepared = prepared.initializers_
 let function_outputs prepared = prepared.function_outputs_
 let top_level_outputs prepared = prepared.top_level_outputs_
@@ -153,6 +155,15 @@ let prepare_unit ?(include_global_initializers = false) session ~config ~span
       tables
     |> checked
   in
+  let* dimension_bindings =
+    Global_dimension_binding.resolve ~table ~environment
+      ~expressions:module_expressions ~globals ast
+    |> checked
+  in
+  let* global_layouts_ =
+    Global_array_layout.layout ~table ~bindings:dimension_bindings ast
+    |> checked
+  in
   let* expressions =
     if include_global_initializers then
       Global_initializer_binding.resolve ~table ~environment
@@ -238,6 +249,7 @@ let prepare_unit ?(include_global_initializers = false) session ~config ~span
   Ok
     {
       global_records_ = global_records;
+      global_layouts_;
       initializers_;
       top_level_ = typed;
       functions_ = function_results;

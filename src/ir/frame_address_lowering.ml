@@ -365,50 +365,59 @@ let prepare_initializer ~frame initial =
   let symbol = Sema.Local_type_resolution.local_symbol local in
   let reference = Sema.Local_type_resolution.local_type_reference local in
   let invalid message = Error [ metadata_error message ] in
-  match Frame.find_location frame symbol with
-  | None -> invalid "initializer local does not belong to the checked frame"
-  | Some location -> (
-      let binding = Frame.location_binding location in
-      if
-        (not (location_kind_matches_binding location binding))
-        || Binding.binding_local_declaration_index binding
-           <> Some (Sema.Local_type_resolution.local_declaration_index local)
-        || Binding.binding_local_declarator_index binding
-           <> Some (Sema.Local_type_resolution.local_declarator_index local)
-        || (not
-              (Option.fold ~none:false
-                 ~some:(fun checked -> checked == reference)
-                 (Frame.location_type_reference location)))
-        || (not
-              (Type.equal
-                 (Frame.location_checked_type location)
-                 (Result.initializer_target_type initial)))
-        || Result.result_source (Result.initializer_value initial)
-           != Source.initializer_expression source
-      then
-        invalid
-          "initializer declaration, type or expression evidence disagrees with \
-           the frame"
-      else if
-        Frame.location_kind location <> Frame.Automatic_local
-        || Sema.Local_type_resolution.local_storage local
-           <> Sema.Local_type_resolution.Automatic
-        || Frame.location_declarator_shape location <> Frame.Object
-        || Frame.location_value_shape location <> Frame.Scalar
-        || Sema.Local_type_resolution.local_array_dimensions local <> []
-      then Ok None
-      else
-        match
-          ( Frame.location_frame_slot location,
-            Sema.Symbol.origin symbol,
-            Type.pointer_to (Frame.location_checked_type location) )
-        with
-        | Some slot, Sema.Symbol.Source_location location, Ok address_type ->
-            Ok (Some { slot; address_type; span = location.span })
-        | _ ->
-            invalid
-              "initializer frame location has no complete slot, source or \
-               pointer type")
+  if
+    Sema.Local_type_resolution.local_array_dimensions local = []
+    && Option.fold ~none:false
+         ~some:(fun initial ->
+           Sema.Local_type_resolution.initializer_kind initial
+           <> Sema.Local_type_resolution.Scalar_initializer)
+         (Sema.Local_type_resolution.local_initializer local)
+  then invalid "scalar storage requires a scalar initializer expression"
+  else
+    match Frame.find_location frame symbol with
+    | None -> invalid "initializer local does not belong to the checked frame"
+    | Some location -> (
+        let binding = Frame.location_binding location in
+        if
+          (not (location_kind_matches_binding location binding))
+          || Binding.binding_local_declaration_index binding
+             <> Some (Sema.Local_type_resolution.local_declaration_index local)
+          || Binding.binding_local_declarator_index binding
+             <> Some (Sema.Local_type_resolution.local_declarator_index local)
+          || (not
+                (Option.fold ~none:false
+                   ~some:(fun checked -> checked == reference)
+                   (Frame.location_type_reference location)))
+          || (not
+                (Type.equal
+                   (Frame.location_checked_type location)
+                   (Result.initializer_target_type initial)))
+          || Result.result_source (Result.initializer_value initial)
+             != Source.initializer_expression source
+        then
+          invalid
+            "initializer declaration, type or expression evidence disagrees \
+             with the frame"
+        else if
+          Frame.location_kind location <> Frame.Automatic_local
+          || Sema.Local_type_resolution.local_storage local
+             <> Sema.Local_type_resolution.Automatic
+          || Frame.location_declarator_shape location <> Frame.Object
+          || Frame.location_value_shape location <> Frame.Scalar
+          || Sema.Local_type_resolution.local_array_dimensions local <> []
+        then Ok None
+        else
+          match
+            ( Frame.location_frame_slot location,
+              Sema.Symbol.origin symbol,
+              Type.pointer_to (Frame.location_checked_type location) )
+          with
+          | Some slot, Sema.Symbol.Source_location location, Ok address_type ->
+              Ok (Some { slot; address_type; span = location.span })
+          | _ ->
+              invalid
+                "initializer frame location has no complete slot, source or \
+                 pointer type")
 
 let lower_prepared ~instruction_id ~value_id checked =
   match lower_supported ~instruction_id ~value_id checked with

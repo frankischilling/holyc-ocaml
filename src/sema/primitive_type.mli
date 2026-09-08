@@ -1,9 +1,29 @@
-type t = I0 | I8 | I16 | I32 | I64 | U0 | U8 | U16 | U32 | U64 | F64 | Bool
-type category = Integer | Floating | Boolean
-type signedness = Signed | Unsigned | Not_applicable
-type declaration_form = Internal_type | Public_union
+type t = Common.Primitive_type.t =
+  | I0
+  | I8
+  | I16
+  | I32
+  | I64
+  | U0
+  | U8
+  | U16
+  | U32
+  | U64
+  | F64
+  | Bool
 
-type info = private {
+type category = Common.Primitive_type.category = Integer | Floating | Boolean
+
+type signedness = Common.Primitive_type.signedness =
+  | Signed
+  | Unsigned
+  | Not_applicable
+
+type declaration_form = Common.Primitive_type.declaration_form =
+  | Internal_type
+  | Public_union
+
+type info = Common.Primitive_type.info = private {
   primitive : t;
   spelling : string;
   storage_spelling : string;
@@ -19,7 +39,9 @@ type info = private {
   declaration_source_line : int;
 }
 
-type pointer_representation = private {
+type pointer_representation =
+      Common.Primitive_type.pointer_representation =
+  private {
   raw_name : string;
   target_raw_name : string;
   raw_id : int;

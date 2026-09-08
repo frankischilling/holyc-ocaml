@@ -8,6 +8,10 @@ type statement =
   | Initialize_global of
       Sema.Function_call_expression_result.top_level_root_result
   | Initialize_static of Integer_globals.static_slot
+  | Initialize_static_leaf of
+      Integer_globals.static_slot
+      * Sema.Function_call_expression_result.initializer_result
+  | Publish_array of Global_initialization.prepared_root
   | Return of Sema.Function_call_expression_result.return_result
   | Block of statement list
   | If of
@@ -37,6 +41,11 @@ val lower_complete :
   (t, Common.Diagnostic.t list) result
 
 val graph : t -> X87_stack.t
+val publications : t -> Global_initialization.publication_description list
+
+val publication_evidence :
+  t -> Global_initialization.publication_evidence option
+
 val initializer_regions : t -> Global_initialization.region_description list
 
 val static_initializer_regions :

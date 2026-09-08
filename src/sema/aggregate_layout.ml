@@ -32,6 +32,7 @@ type dependency_kind =
 
 type expression =
   | Integer_expression of { value : int64; origin : Symbol.origin }
+  | Unsigned_integer_expression of { value : int64; origin : Symbol.origin }
   | Floating_expression of { value : float; origin : Symbol.origin }
   | Current_position_expression of Symbol.origin
   | Unary_expression of {
@@ -212,10 +213,11 @@ let error_origin error = error.origin
 let error_message error = error.message
 let error_to_string error = Printf.sprintf "%s: %s" error.code error.message
 
-type number = Integer of int64 | Floating of float
+type number = Integer of int64 | Unsigned_integer of int64 | Floating of float
 
 let expression_origin = function
   | Integer_expression { origin; _ }
+  | Unsigned_integer_expression { origin; _ }
   | Floating_expression { origin; _ }
   | Current_position_expression origin
   | Unary_expression { origin; _ }
@@ -224,29 +226,34 @@ let expression_origin = function
   | Unsupported_expression { origin; _ } -> origin
 
 let truthy = function
-  | Integer value -> not (Int64.equal value 0L)
+  | Integer value | Unsigned_integer value -> not (Int64.equal value 0L)
   | Floating value -> not (Int64.equal (Int64.bits_of_float value) 0L)
 
 let boolean value = Integer (if value then 1L else 0L)
 
 let as_float = function
-  | Integer value -> Int64.to_float value
+  (* OptLib.HC:125-136 converts the signed IC payload when folding a mixed
+     floating expression, including an immediate whose source class is U64. *)
+  | Integer value | Unsigned_integer value -> Int64.to_float value
   | Floating value -> value
 
 let common left right =
   match (left, right) with
-  | Integer left, Integer right -> `Integer (left, right)
+  | Integer left, Integer right -> `Integer (false, left, right)
+  | ( (Integer left | Unsigned_integer left),
+      (Integer right | Unsigned_integer right) ) -> `Integer (true, left, right)
   | _ -> `Floating (as_float left, as_float right)
 
 let raw_common left right =
   match common left right with
-  | `Integer (left, right) -> (`Integer, left, right)
+  | `Integer (unsigned, left, right) -> (`Integer unsigned, left, right)
   | `Floating (left, right) ->
       (`Floating, Int64.bits_of_float left, Int64.bits_of_float right)
 
 let from_raw kind bits =
   match kind with
-  | `Integer -> Integer bits
+  | `Integer false -> Integer bits
+  | `Integer true -> Unsigned_integer bits
   | `Floating -> Floating (Int64.float_of_bits bits)
 
 let shift_count value = Int64.logand value 63L |> Int64.to_int
@@ -254,17 +261,28 @@ let shift_count value = Int64.logand value 63L |> Int64.to_int
 let evaluate_unary operator value =
   match (operator, value) with
   | Identity, value -> value
-  | Negate, Integer value -> Integer (Int64.neg value)
+  (* OptPass012.HC:180-191 changes internal U64 unary minus to I64.
+     Complement also always produces internal I64 (:153-160). *)
+  | Negate, (Integer value | Unsigned_integer value) ->
+      Integer (Int64.neg value)
   | Negate, Floating value -> Floating (-.value)
-  | Logical_not, value -> boolean (not (truthy value))
-  | Bitwise_not, Integer value -> Integer (Int64.lognot value)
+  | Logical_not, Integer value -> boolean (Int64.equal value 0L)
+  | Logical_not, Unsigned_integer value ->
+      Unsigned_integer (if Int64.equal value 0L then 1L else 0L)
+  | Logical_not, (Floating _ as value) ->
+      Floating (if truthy value then 0.0 else 1.0)
+  | Bitwise_not, (Integer value | Unsigned_integer value) ->
+      Integer (Int64.lognot value)
   | Bitwise_not, Floating value ->
       Integer (Int64.bits_of_float value |> Int64.lognot)
 
 let compare_numbers operator left right =
   match common left right with
-  | `Integer (left, right) -> (
-      let comparison = Int64.compare left right in
+  | `Integer (unsigned, left, right) -> (
+      let comparison =
+        if unsigned then Int64.unsigned_compare left right
+        else Int64.compare left right
+      in
       match operator with
       | Equal -> Int64.equal left right
       | Not_equal -> not (Int64.equal left right)
@@ -288,8 +306,13 @@ let compare_numbers operator left right =
 
 let evaluate_division ~remainder origin left right =
   match common left right with
-  | `Integer (left, right) ->
+  | `Integer (unsigned, left, right) ->
       if Int64.equal right 0L then Error (division_by_zero origin)
+      else if unsigned then
+        Ok
+          (Unsigned_integer
+             (if remainder then Int64.unsigned_rem left right
+              else Int64.unsigned_div left right))
       else if Int64.equal left Int64.min_int && Int64.equal right (-1L) then
         Error (division_overflow origin)
       else if remainder then Ok (Integer (Int64.rem left right))
@@ -307,13 +330,16 @@ let evaluate_eager_binary operator origin left right =
       let bits =
         match operator with
         | Shift_left -> Int64.shift_left left count
-        | Shift_right -> Int64.shift_right left count
+        | Shift_right ->
+            if kind = `Integer true then Int64.shift_right_logical left count
+            else Int64.shift_right left count
         | _ -> assert false
       in
       Ok (from_raw kind bits)
   | Multiply -> (
       match common left right with
-      | `Integer (left, right) -> Ok (Integer (Int64.mul left right))
+      | `Integer (unsigned, left, right) ->
+          Ok (from_raw (`Integer unsigned) (Int64.mul left right))
       | `Floating (left, right) -> Ok (Floating (left *. right)))
   | Divide -> evaluate_division ~remainder:false origin left right
   | Modulo -> evaluate_division ~remainder:true origin left right
@@ -329,9 +355,12 @@ let evaluate_eager_binary operator origin left right =
       Ok (from_raw kind bits)
   | Add | Subtract -> (
       match common left right with
-      | `Integer (left, right) ->
-          if operator = Add then Ok (Integer (Int64.add left right))
-          else Ok (Integer (Int64.sub left right))
+      | `Integer (unsigned, left, right) ->
+          let bits =
+            if operator = Add then Int64.add left right
+            else Int64.sub left right
+          in
+          Ok (from_raw (`Integer unsigned) bits)
       | `Floating (left, right) ->
           if operator = Add then Ok (Floating (left +. right))
           else Ok (Floating (left -. right)))
@@ -343,6 +372,7 @@ let evaluate_eager_binary operator origin left right =
 
 let rec evaluate_number current_position = function
   | Integer_expression { value; _ } -> Ok (Integer value)
+  | Unsigned_integer_expression { value; _ } -> Ok (Unsigned_integer value)
   | Floating_expression { value; _ } -> Ok (Floating value)
   | Current_position_expression _ -> Ok (Integer current_position)
   | Dependency_expression { dependency_kind; detail; origin } ->
@@ -375,7 +405,7 @@ let float_to_i64 origin value =
 
 let evaluate_expression ~context ~current_position expression =
   Result.bind (evaluate_number current_position expression) (function
-    | Integer value -> Ok value
+    | Integer value | Unsigned_integer value -> Ok value
     | Floating value -> (
         match context with
         | Array_dimension -> float_to_i64 (expression_origin expression) value

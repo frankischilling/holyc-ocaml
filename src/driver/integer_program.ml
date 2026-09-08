@@ -133,7 +133,9 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
           in
           let typed = Integer_source.top_level prepared in
           let* globals_ =
-            Ir.Integer_globals.create ~initializers:typed ~span:ast.span
+            Ir.Integer_globals.create_with_layout
+              ~layout:(Integer_source.global_layouts prepared)
+              ~initializers:typed ~span:ast.span
               (Integer_source.global_records prepared)
           in
           let* globals_ =
@@ -175,12 +177,20 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
           let lower_statements roots initializers returns outputs statements =
             let initializers =
               ref
-                (source_map
-                   (fun initial ->
-                     initial |> Typed.initializer_source
-                     |> Source.initializer_local
-                     |> Sema.Local_type_resolution.local_declarator_origin)
-                   initializers)
+                (List.fold_left
+                   (fun map initial ->
+                     let span =
+                       initial |> Typed.initializer_source
+                       |> Source.initializer_local
+                       |> Sema.Local_type_resolution.local_declarator_origin
+                       |> source_span
+                     in
+                     Span_map.update span
+                       (fun previous ->
+                         Some (initial :: Option.value previous ~default:[]))
+                       map)
+                   Span_map.empty initializers
+                |> Span_map.map List.rev)
             in
             let returns =
               ref
@@ -258,17 +268,62 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
                        (fun (declarator : Ast.local_declarator) ->
                          match declarator.local_initializer with
                          | None -> None
-                         | Some _ ->
-                             let initial =
+                         | Some ast_initial ->
+                             let batch =
                                consume initializers
                                  declarator.local_declarator_location.span
-                                 "initializer has no supported checked scalar \
-                                  root"
+                                 "initializer has no complete checked \
+                                  declaration batch"
+                             in
+                             let initial =
+                               match batch with
+                               | first :: _ -> first
+                               | [] ->
+                                   fail
+                                     declarator.local_declarator_location.span
+                                     "HCRUN0004"
+                                     "initializer declaration batch is empty"
                              in
                              let local =
                                initial |> Typed.initializer_source
                                |> Source.initializer_local
                              in
+                             let exact_batch =
+                               List.for_all
+                                 (fun root ->
+                                   root |> Typed.initializer_source
+                                   |> Source.initializer_local
+                                   |> fun owner -> owner == local)
+                                 batch
+                               &&
+                               match
+                                 Option.bind
+                                   (Sema.Local_type_resolution.local_initializer
+                                      local)
+                                   Sema.Local_type_resolution.initializer_source
+                               with
+                               | None -> false
+                               | Some manifest ->
+                                   Sema.Initializer_source.matches_ast manifest
+                                     ast_initial.local_initializer_value
+                                   &&
+                                   let leaves =
+                                     Sema.Initializer_source.leaves manifest
+                                   in
+                                   List.length leaves = List.length batch
+                                   && List.for_all2
+                                        (fun leaf root ->
+                                          Option.fold ~none:false
+                                            ~some:(( == ) leaf)
+                                            (root |> Typed.initializer_source
+                                           |> Source.initializer_leaf))
+                                        leaves batch
+                             in
+                             if not exact_batch then
+                               fail declarator.local_declarator_location.span
+                                 "HCRUN0004"
+                                 "initializer roots do not cover their \
+                                  original source declaration";
                              if
                                Sema.Local_type_resolution.local_storage local
                                = Sema.Local_type_resolution.Static
@@ -279,17 +334,31 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
                                       local)
                                with
                                | Some slot
-                                 when Option.fold ~none:false
-                                        ~some:(fun root -> root == initial)
-                                        (Ir.Integer_globals.static_initializer
-                                           slot) -> None
+                                 when let owned =
+                                        Ir.Integer_globals.static_initializers
+                                          slot
+                                      in
+                                      List.length owned = List.length batch
+                                      && List.for_all2 ( == ) owned batch ->
+                                   None
                                | _ ->
                                    fail
                                      declarator.local_declarator_location.span
                                      "HCRUN0004"
                                      "static initializer has no exact \
                                       persistent owner"
-                             else Some (Lower.Initialize initial))
+                             else if
+                               List.length batch = 1
+                               &&
+                               match ast_initial.local_initializer_value with
+                               | Ast.Scalar_initializer _ -> true
+                               | _ -> false
+                             then Some (Lower.Initialize initial)
+                             else
+                               fail declarator.local_declarator_location.span
+                                 "HCRUN0001"
+                                 "automatic array declaration initializer \
+                                  execution is unresolved")
                        declaration.local_declarators)
               | Ast.Return_statement returned ->
                   Lower.Return
@@ -604,21 +673,45 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
           in
           let pending =
             Ir.Integer_globals.slots globals_
-            |> List.filter_map (fun slot ->
-                if Ir.Integer_globals.slot_initializer_materialized slot then
-                  None
-                else
-                  Option.map
-                    (fun root -> (slot, root))
-                    (Ir.Integer_globals.slot_initializer slot))
+            |> List.concat_map (fun slot ->
+                Ir.Integer_globals.slot_initializers slot
+                |> List.filter_map (fun root ->
+                    if not (Ir.Integer_globals.slot_root_materialized slot root)
+                    then Some (slot, Lower.Initialize_global root)
+                    else if
+                      Option.is_some
+                        (Ir.Integer_globals.slot_array_initializers slot)
+                      && Ir.Integer_globals.slot_opcode slot
+                         = Ir.Opcode.Ic_imm_i64
+                    then
+                      Some
+                        ( slot,
+                          Lower.Publish_array
+                            (Ir.Global_initialization.Prepared_global root) )
+                    else None))
           in
           let pending_statics =
             Ir.Integer_globals.statics globals_
-            |> List.filter (fun slot ->
-                Option.is_some (Ir.Integer_globals.static_initializer slot)
-                && Ir.Integer_globals.storage_preparation_steps
-                     (Ir.Integer_globals.static_storage slot)
-                   = 0)
+            |> List.concat_map (fun slot ->
+                Ir.Integer_globals.static_initializers slot
+                |> List.filter_map (fun root ->
+                    if
+                      not
+                        (Ir.Integer_globals.static_root_materialized slot root)
+                    then Some (slot, Lower.Initialize_static_leaf (slot, root))
+                    else if
+                      Option.is_some
+                        (Ir.Integer_globals.static_array_initializers slot)
+                      && Ir.Integer_globals.storage_opcode
+                           (Ir.Integer_globals.static_storage slot)
+                         = Ir.Opcode.Ic_imm_i64
+                    then
+                      Some
+                        ( slot,
+                          Lower.Publish_array
+                            (Ir.Global_initialization.Prepared_static
+                               (slot, root)) )
+                    else None))
           in
           let statements =
             ast.items
@@ -634,7 +727,7 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
                           "module statement composition lost a source root")
                 | _ ->
                     (pending
-                    |> List.filter_map (fun (slot, root) ->
+                    |> List.filter_map (fun (slot, statement) ->
                         let global =
                           Ir.Integer_globals.slot_record slot
                           |> Sema.Global_record_classification
@@ -644,15 +737,15 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
                         if
                           Sema.Global_type_resolution.global_item_index global
                           = item_index
-                        then Some (Lower.Initialize_global root)
+                        then Some statement
                         else None))
                     @ (pending_statics
-                      |> List.filter_map (fun slot ->
+                      |> List.filter_map (fun (slot, statement) ->
                           if
                             Frame.function_item_index
                               (Ir.Integer_globals.static_frame slot)
                             = item_index
-                          then Some (Lower.Initialize_static slot)
+                          then Some statement
                           else None)))
             |> List.concat
           in
@@ -667,7 +760,10 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
             Lower.static_initializer_regions lowered_entry
           in
           let* initialization_ =
-            Ir.Global_initialization.create ~static_descriptions ~span:ast.span
+            Ir.Global_initialization.create ~static_descriptions
+              ~publications:(Lower.publications lowered_entry)
+              ~span:ast.span
+              ?publication_evidence:(Lower.publication_evidence lowered_entry)
               ~globals:globals_ ~entry:entry_ regions
           in
           let entry_calls = Lower.runtime_calls lowered_entry in

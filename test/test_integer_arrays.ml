@@ -107,8 +107,6 @@ let errors () =
           "I64 F(){I64 a[2];return a[1.0];}F();";
           "I64 F(){I64 *a[2];return a[0][0];}F();";
           "I64 F(){I64 (*a)()[2];return (a)[0];}F();";
-          "I64 a[2];a[0]=42;a[0];";
-          "I64 F(){static I64 a[2];a[0]=42;return a[0];}F();";
         ])
     G.modes
 

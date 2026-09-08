@@ -154,135 +154,13 @@ and switch_locals declaration_index elements =
   in
   collect [] declaration_index elements
 
-let unsupported description location =
-  Sema.Aggregate_layout.Unsupported_expression
-    { description; origin = origin location }
-
-let dependency dependency_kind detail location =
-  Sema.Aggregate_layout.Dependency_expression
-    { dependency_kind; detail; origin = origin location }
-
-type converted_expression = Closed of Sema.Aggregate_layout.expression
-
-let literal_expression description literal =
-  match literal.Frontend.Ast.literal_value with
-  | Frontend.Ast.Integer_value value ->
-      Closed
-        (Sema.Aggregate_layout.Integer_expression
-           { value; origin = origin literal.literal_location })
-  | Frontend.Ast.Float_value value ->
-      Closed
-        (Sema.Aggregate_layout.Floating_expression
-           { value; origin = origin literal.literal_location })
-  | Frontend.Ast.Bytes_value _ ->
-      Closed (unsupported description literal.literal_location)
-
-let unary_expression operator operand operator_origin =
-  match operand with
-  | Closed operand ->
-      Closed
-        (Sema.Aggregate_layout.Unary_expression
-           { operator; operand; origin = operator_origin })
-
-let binary_expression operator left right operator_origin =
-  match (left, right) with
-  | Closed left, Closed right ->
-      Closed
-        (Sema.Aggregate_layout.Binary_expression
-           { operator; left; right; origin = operator_origin })
-
-let rec expression = function
-  | Frontend.Ast.Integer_literal literal ->
-      literal_expression "integer literal" literal
-  | Frontend.Ast.Character_literal literal ->
-      literal_expression "character literal" literal
-  | Frontend.Ast.Float_literal literal ->
-      literal_expression "floating literal" literal
-  | Frontend.Ast.String_literal literal ->
-      Closed (unsupported "string literal" literal.literal_location)
-  | Frontend.Ast.Identifier_expression identifier ->
-      Closed
-        (dependency Sema.Aggregate_layout.Identifier_dependency
-           (Printf.sprintf "`%s`" identifier.spelling)
-           identifier.location)
-  | Frontend.Ast.Current_position_expression operator ->
-      Closed
-        (Sema.Aggregate_layout.Current_position_expression
-           (origin operator.operator_location))
-  | Frontend.Ast.Sizeof_expression sizeof ->
-      Closed
-        (dependency Sema.Aggregate_layout.Sizeof_dependency
-           (Printf.sprintf "for `%s`" sizeof.sizeof_target.spelling)
-           sizeof.sizeof_location)
-  | Frontend.Ast.Offset_expression offset ->
-      let path =
-        offset.offset_target.spelling
-        :: List.map
-             (fun member -> member.Frontend.Ast.offset_member_name.spelling)
-             offset.offset_members
-        |> String.concat "."
-      in
-      Closed
-        (dependency Sema.Aggregate_layout.Offset_dependency
-           (Printf.sprintf "for `%s`" path)
-           offset.offset_location)
-  | Frontend.Ast.Defined_expression defined ->
-      Closed
-        (dependency Sema.Aggregate_layout.Defined_dependency
-           (Printf.sprintf "for `%s`"
-              defined.defined_operand.defined_operand_spelling)
-           defined.defined_location)
-  | Frontend.Ast.Parenthesized_expression grouped ->
-      expression grouped.grouped_expression
-  | Frontend.Ast.Prefix_expression prefix -> (
-      match Layout_expression_operator.unary prefix.prefix_operator_kind with
-      | Some operator ->
-          unary_expression operator
-            (expression prefix.prefix_operand)
-            (origin prefix.prefix_operator.operator_location)
-      | None ->
-          Closed
-            (unsupported
-               (Printf.sprintf "prefix operator `%s`"
-                  prefix.prefix_operator.operator_spelling)
-               prefix.prefix_location))
-  | Frontend.Ast.Binary_expression binary -> (
-      match Layout_expression_operator.binary binary.binary_operator_spec with
-      | Some operator ->
-          binary_expression operator
-            (expression binary.binary_left)
-            (expression binary.binary_right)
-            (origin binary.binary_operator.operator_location)
-      | None ->
-          Closed
-            (unsupported
-               (Printf.sprintf "operator `%s`"
-                  binary.binary_operator.operator_spelling)
-               binary.binary_location))
-  | Frontend.Ast.Call_expression call ->
-      Closed
-        (dependency Sema.Aggregate_layout.Call_dependency "expression"
-           call.call_location)
-  | Frontend.Ast.Postfix_expression postfix ->
-      Closed
-        (unsupported
-           (Printf.sprintf "postfix operator `%s`"
-              postfix.postfix_operator.operator_spelling)
-           postfix.postfix_location)
-  | Frontend.Ast.Postfix_cast_expression cast ->
-      Closed (unsupported "postfix cast" cast.cast_location)
-  | Frontend.Ast.Index_expression index ->
-      Closed (unsupported "index expression" index.index_location)
-  | Frontend.Ast.Member_expression member ->
-      Closed (unsupported "member expression" member.member_location)
+let closed_expression ast = Sema.Closed_layout_expression.of_ast ast
 
 let dimension_expression (dimension : Frontend.Ast.array_dimension) =
   match dimension.dimension_expression with
   | None -> Sema.Function_frame_layout.Empty_dimension
-  | Some ast -> (
-      match expression ast with
-      | Closed expression ->
-          Sema.Function_frame_layout.Closed_expression expression)
+  | Some ast ->
+      Sema.Function_frame_layout.Closed_expression (closed_expression ast)
 
 let validate_dimension expected_index semantic
     (ast : Frontend.Ast.array_dimension) =
@@ -303,6 +181,17 @@ let validate_dimension expected_index semantic
            origin (Frontend.Ast.expression_location expression))
          ast.dimension_expression
   then Error "function frame local dimension has the wrong expression span"
+  else if
+    match
+      Sema.Local_type_resolution.array_dimension_source_expression semantic
+    with
+    | None -> false
+    | Some original -> (
+        match ast.dimension_expression with
+        | Some expression -> expression != original
+        | None -> true)
+  then
+    Error "function frame local dimension has a substituted source expression"
   else if
     Sema.Local_type_resolution.array_dimension_closing_origin semantic
     <> origin ast.closing_bracket

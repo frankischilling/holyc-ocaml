@@ -1,3 +1,8 @@
+val closed_expression :
+  Frontend.Ast.expression -> Sema.Aggregate_layout.expression
+(** Reuse the shared source adapter, retaining literal signedness, unresolved
+    dependencies and unsupported forms for the checked layout evaluator. *)
+
 val layout :
   table:Sema.Symbol_table.t ->
   declarations:Sema.Declaration_collection.t ->

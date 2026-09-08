@@ -1289,4 +1289,112 @@ let () =
         && contains first "holyc-integer-statics-v1 bytes=8")
         "deterministic declared and padded persistent bytes")
     [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      let run ?(options = []) source =
+        let status, output, errors =
+          invoke_raw
+            ([ "run"; "--format=json"; "--mode=" ^ mode ] @ options @ [ source ])
+        in
+        require (errors = "") "persistent arrays use one metadata stream";
+        (status, Yojson.Safe.from_string output)
+      in
+      let check report type_ capture =
+        require
+          (report |> member "schema" |> to_string = "holyc-integer-program-v2"
+          && report |> member "outcome" |> to_string = "success"
+          && report |> member "final_value" |> member "value" |> to_string
+             = "42"
+          && report |> member "final_value" |> member "type" |> to_string
+             = type_
+          && report |> member "output_hex" |> to_string = capture)
+          "persistent array value class and capture"
+      in
+      let source = Sys.argv.(19) in
+      let bounds =
+        [
+          ("step", 101, "HCIRVM0007", "3432");
+          ("initializer-step", 23, "HCIRVM0007", "");
+          ("global-byte", 43, "HCIRVM0016", "");
+          ("frame-byte", 24, "HCIRVM0011", "");
+          ("call-depth", 2, "HCIRVM0015", "3432");
+          ("literal-byte", 3, "HCIRVM0021", "");
+          ("output-byte", 2, "HCIRVM0022", "");
+          ("output-work", 8, "HCIRVM0023", "");
+        ]
+      in
+      let option name value = Printf.sprintf "--%s-limit=%d" name value in
+      let status, report =
+        run
+          ~options:
+            (List.map (fun (name, value, _, _) -> option name value) bounds)
+          source
+      in
+      require (status = Unix.WEXITED 0)
+        "maintained array fixture at all exact bounds";
+      check report "i64" "3432";
+      require
+        (report |> member "executed_steps" |> to_int = 101
+        && report |> member "compiled_initializer_steps" |> to_int = 23
+        && report |> member "output_work" |> to_int = 8)
+        "maintained array work counts";
+      List.iter
+        (fun (name, value, code, capture) ->
+          let status, report =
+            run ~options:[ option name (value - 1) ] source
+          in
+          require
+            (status = Unix.WEXITED 1
+            && report |> member "final_value" = `Null
+            && report |> member "diagnostics" |> to_list |> List.hd
+               |> member "code" |> to_string = code
+            && report |> member "output_hex" |> to_string = capture)
+            ("persistent array one-below " ^ name))
+        bounds;
+      List.iter
+        (fun (text, type_, capture) ->
+          with_file ".hc" text (fun path ->
+              let status, report = run path in
+              require (status = Unix.WEXITED 0) "persistent array source gate";
+              check report type_ capture))
+        [
+          ("U8 A[2];A[0]=40;A[1]=2;A[0]+A[1];", "u64", "");
+          ("I64 A[2];A[0]=40;A[1]=2;A[0]+A[1];", "i64", "");
+          ( "I64 F(){static U8 A[2];A[0]=40;A[1]=2;return A[0]+A[1];}F();",
+            "i64",
+            "" );
+          ( "I64 F(){static I64 A[2];A[0]=40;A[1]=2;return A[0]+A[1];}F();",
+            "i64",
+            "" );
+          ("I64 A[2]={40,2};A[0]+A[1];", "i64", "");
+          ("I64 F(){static U8 A[2]={40,2};return A[0]+A[1];}F();", "i64", "");
+          ( "extern U0 Print(U8 *fmt,...);U8 Msg[3]=\"42\";Print(\"%s\",Msg);42;",
+            "i64",
+            "3432" );
+          ( "extern U0 Print(U8 *fmt,...);I64 F(){static U8 \
+             Msg[3]=\"42\";Print(\"%s\",Msg);return 42;}F();",
+            "i64",
+            "3432" );
+        ];
+      let legacy =
+        success [ "run"; "--format=json"; "--mode=" ^ mode; source ]
+        |> Yojson.Safe.from_string
+      in
+      require
+        (legacy |> member "schema" |> to_string = "holyc-integer-program-v1"
+        && legacy |> member "final_value" |> member "value" |> to_string = "42"
+        )
+        "persistent arrays preserve v1 reports";
+      let dump () =
+        success [ "dump-ir"; "--program"; "--mode=" ^ mode; source ]
+      in
+      let first = dump () in
+      require
+        (first = dump ()
+        && contains first "holyc-persistent-arrays-v1"
+        && contains first "dimensions=[2,2] strides=[16,8] cells=4 bytes=32"
+        && contains first "prepared-bytes:343200"
+        && contains first "holyc-array-publications-v1" = (mode = "jit"))
+        "deterministic array shapes images and publication markers")
+    [ "jit"; "aot" ];
   print_endline "Integer program CLI checks passed."

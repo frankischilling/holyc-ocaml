@@ -118,6 +118,16 @@ let global_initializer_origin (global : resolved_global) =
   global_initializer_of_input global.source
   |> Option.map Global_type_resolution.initializer_origin
 
+let global_source (global : resolved_global) =
+  Option.bind
+    (global_initializer_of_input global.source)
+    Global_type_resolution.initializer_source
+
+let global_leaves global =
+  match global_source global with
+  | None -> []
+  | Some source -> Initializer_source.leaves source
+
 let global_occurrences (global : resolved_global) = global.occurrences
 
 let occurrence_index (occurrence : occurrence) =
@@ -133,6 +143,31 @@ let occurrence_resolution (occurrence : occurrence) = occurrence.resolution
 let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
 
 let validate_events input =
+  let source =
+    Option.bind
+      (global_initializer_of_input input)
+      Global_type_resolution.initializer_source
+  in
+  let manifest_matches =
+    match source with
+    | None ->
+        Global_type_resolution.global_array_dimensions (global_data input) = []
+        || Option.is_none (global_initializer_of_input input)
+    | Some source ->
+        let expected =
+          Initializer_source.leaves source
+          |> List.concat_map (fun leaf ->
+              Initializer_source.leaf_identifiers leaf
+              |> List.map (fun (name, origin) ->
+                  (Initializer_source.leaf_path leaf, name, origin)))
+        in
+        let actual =
+          List.map
+            (fun event -> (event.initializer_path, event.name, event.origin))
+            input.events
+        in
+        actual = expected
+  in
   let rec loop expected = function
     | [] -> Ok ()
     | event :: rest ->
@@ -147,7 +182,12 @@ let validate_events input =
             (invalid_input "global initializer path contains a negative index")
         else loop (expected + 1) rest
   in
-  loop 0 input.events
+  if not manifest_matches then
+    Error
+      (invalid_input
+         "global initializer occurrences do not match the retained source \
+          manifest")
+  else loop 0 input.events
 
 let same_record left right =
   let left_global = Global_resolution.global_record_global left in

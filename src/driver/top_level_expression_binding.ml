@@ -10,17 +10,25 @@ let origin_of_location (location : Frontend.Ast.location) =
 let origin (identifier : Frontend.Ast.identifier) =
   origin_of_location identifier.location
 
-type state = { events_rev : Sema.Top_level_expression_binding.event list }
+type state = {
+  events_rev : Sema.Top_level_expression_binding.event list;
+  initializer_leaf : Sema.Initializer_source.leaf option;
+}
 
-let empty_state = { events_rev = [] }
+let empty_state = { events_rev = []; initializer_leaf = None }
 
 let add_event state = function
   | Error _ as error -> error
-  | Ok event -> Ok { events_rev = event :: state.events_rev }
+  | Ok event -> Ok { state with events_rev = event :: state.events_rev }
 
 let add_identifier state (identifier : Frontend.Ast.identifier) =
-  Sema.Top_level_expression_binding.make_identifier ~name:identifier.spelling
-    ~origin:(origin identifier)
+  (match state.initializer_leaf with
+    | None ->
+        Sema.Top_level_expression_binding.make_identifier
+          ~name:identifier.spelling ~origin:(origin identifier)
+    | Some leaf ->
+        Sema.Top_level_expression_binding.make_initializer_identifier ~leaf
+          ~name:identifier.spelling ~origin:(origin identifier))
   |> add_event state
 
 let add_name_query state role ~name ~origin =
@@ -279,18 +287,30 @@ let statement_inputs ~table ?initializers (module_ : Frontend.Ast.module_) =
                   match group with
                   | `Statement node -> statement_input index item_index node
                   | `Initializer (global, initial) -> (
-                      match initial.Frontend.Ast.global_initializer_value with
-                      | Frontend.Ast.Scalar_initializer value -> (
-                          match expression empty_state value with
-                          | Error _ as error -> error
-                          | Ok state ->
-                              Sema.Top_level_expression_binding
-                              .make_global_initializer ~statement_index:index
-                                ~initializers ~global
-                                (List.rev state.events_rev))
-                      | _ ->
-                          Error
-                            "global initializer expression group is not scalar")
+                      let collected =
+                        match
+                          Sema.Global_initializer_binding.global_source global
+                        with
+                        | Some source ->
+                            fold_result
+                              (fun state leaf ->
+                                expression
+                                  { state with initializer_leaf = Some leaf }
+                                  (Sema.Initializer_source.leaf_expression_ast
+                                     leaf))
+                              empty_state
+                              (Sema.Initializer_source.leaves source)
+                        | None ->
+                            initial_value empty_state
+                              initial.Frontend.Ast.global_initializer_value
+                      in
+                      match collected with
+                      | Error _ as error -> error
+                      | Ok state ->
+                          Sema.Top_level_expression_binding
+                          .make_global_initializer ~statement_index:index
+                            ~initializers ~global
+                            (List.rev state.events_rev))
                 in
                 match prepared with
                 | Error _ as error -> error

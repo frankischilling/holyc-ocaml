@@ -1,5 +1,12 @@
 # Intermediate-code specification
 
+[Persistent arrays](integer-persistent-arrays.md) retain checked shapes and
+source-owned destinations. Scheduled leaf stores use a canonical address prefix
+for every rank. Prepared JIT leaves use graph-bound publication receipts with no
+runtime instruction charge; AOT uses sparse initial image updates. Additive
+`holyc-persistent-arrays-v1` and `holyc-array-publications-v1` dump components
+show dimensions, strides, destination payloads and publication positions.
+
 [Persistent U8 storage](integer-persistent-bytes.md) retains canonical global
 and static address instructions while preparing byte-compatible initial cells.
 Declared global widths and padded static allocation charges remain separate

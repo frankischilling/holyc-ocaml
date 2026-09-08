@@ -32,6 +32,7 @@ type dependency_kind =
 
 type expression =
   | Integer_expression of { value : int64; origin : Symbol.origin }
+  | Unsigned_integer_expression of { value : int64; origin : Symbol.origin }
   | Floating_expression of { value : float; origin : Symbol.origin }
   | Current_position_expression of Symbol.origin
   | Unary_expression of {
@@ -51,6 +52,10 @@ type expression =
       origin : Symbol.origin;
     }
   | Unsupported_expression of { description : string; origin : Symbol.origin }
+      (** [Integer_expression] retains the existing signed-I64 constructor
+          contract. [Unsigned_integer_expression] retains internal-U64 payloads
+          from source literals and keeps their signedness through closed
+          arithmetic evaluation. *)
 
 type expression_context = Array_dimension | Aggregate_offset
 

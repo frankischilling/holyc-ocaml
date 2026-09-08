@@ -18,7 +18,9 @@ val prepare :
     work follows semantic source order independently of storage indices. Static
     values may be scheduled with their declaring owner; actual containing-frame
     reads and nonconstant AOT globals-on-data-heap phases are rejected. Constant
-    preparation includes unused/unreachable declarations. *)
+    preparation includes unused/unreachable declarations. Ordered numeric array
+    leaves share this budget; direct owned byte copies charge one preparation
+    work unit per copied byte and do not create runtime literal sites. *)
 
 val globals : t -> Ir.Integer_globals.t
 val items : t -> item list

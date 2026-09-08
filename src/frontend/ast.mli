@@ -22,13 +22,13 @@ type declaration_modifier = private {
 type identifier = private { spelling : string; location : location }
 
 type primitive_type = private {
-  primitive : Sema.Primitive_type.t;
+  primitive : Common.Primitive_type.t;
   spelling : string;
   location : location;
 }
 
 type internal_type = private {
-  primitive : Sema.Primitive_type.t;
+  primitive : Common.Primitive_type.t;
   spelling : string;
   location : location;
 }
@@ -918,13 +918,13 @@ val make_aggregate_forward_declaration :
   aggregate_forward_declaration
 
 val make_primitive_type :
-  primitive:Sema.Primitive_type.t ->
+  primitive:Common.Primitive_type.t ->
   spelling:string ->
   location:location ->
   primitive_type
 
 val make_internal_type :
-  primitive:Sema.Primitive_type.t ->
+  primitive:Common.Primitive_type.t ->
   spelling:string ->
   location:location ->
   internal_type

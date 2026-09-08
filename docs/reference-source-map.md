@@ -1,5 +1,26 @@
 # Reference source map
 
+[Persistent integer arrays](integer-persistent-arrays.md) in #627 follow
+`Compiler/PrsVar.HC:123-204,247-281,530-588` for recursive fixed counts,
+dimension evaluation, direct byte copies and whole-static padding;
+`Compiler/PrsStmt.HC:285-296,334-435` for global allocation and initializer
+phases; and `Compiler/LexLib.HC:248-275` for joined strings with one terminator.
+The original dimension ASTs and initializer leaves remain checked evidence
+through layout, preparation and destination lowering. Direct copies use only
+the determined source prefix, without missing-element fill or a fabricated
+terminator after truncation.
+
+The shared closed extent evaluator follows `Compiler/PrsExp.HC:679-685,1140-1151`
+for literal signedness and final F64 truncation, `Compiler/OptLib.HC:96-179`
+for operand classes, and `Compiler/OptPass012.HC:153-191,211-217,403-445,809-822`
+for unary results, unsigned operations and the explicit comparison-chain
+boundary. Ordinary first `[]` remains zero metadata, while the inferred-size
+branches require negative counts; inference and pass-count parity are still
+unresolved. AOT sparse prepared images, exact JIT publication receipts,
+execution-private mutable cells and separate resource limits are the hosted
+implementation of the supported phase behavior. The reference remains
+`c26482bb6ad3f80106d28504ec5db3c6a360732c`; no new native capture is claimed.
+
 [Persistent bytes](integer-persistent-bytes.md) in #625 follow
 `Compiler/PrsStmt.HC:285-296,334-385,390-435` for global size and initialization,
 `PrsVar.HC:101-107,200-204,530-588` for initializer byte copies and padded static

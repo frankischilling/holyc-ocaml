@@ -8,6 +8,17 @@ val resolve :
 (** Collect ordinary identifier occurrences from global initializers and bind
     them at the source point immediately after the owning global publication. *)
 
+val initializers :
+  table:Sema.Symbol_table.t ->
+  bindings:Sema.Global_initializer_binding.t ->
+  Frontend.Ast.module_ ->
+  ( (Sema.Global_initializer_binding.resolved_global
+    * Frontend.Ast.global_initializer)
+    list,
+    string )
+  result
+(** Join exact checked owners to their complete original initializer ASTs. *)
+
 val scalar_initializers :
   table:Sema.Symbol_table.t ->
   bindings:Sema.Global_initializer_binding.t ->
@@ -17,4 +28,5 @@ val scalar_initializers :
     list,
     string )
   result
-(** Join exact checked owners to their original scalar initializer ASTs. *)
+(** Compatibility name for [initializers]; declaration groups may have several
+    retained array leaves. *)

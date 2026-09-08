@@ -1,9 +1,16 @@
 type prepared_address
 
+val strides : prepared_address -> int64 list
+(** Retain the complete declared stride sequence for ordinary reached addresses.
+*)
+
 val prepare_initializer :
   globals:Integer_globals.t ->
   Sema.Function_call_expression_result.top_level_root_result ->
   (prepared_address, Instruction_sequence.error list) result
+(** Accept an exact scalar initializer root or an original scalar-store array
+    leaf. Array destinations come from their checked layout; string-copy leaves
+    cannot be emitted as scheduled stores. *)
 
 type t
 
@@ -27,6 +34,11 @@ val lower_prepared :
   value_id:Instruction_sequence.Value_id.t ->
   prepared_address ->
   (t, Instruction_sequence.error list) result
+(** Emit the canonical storage producer followed, for each initializer array
+    rank, by a pointer-typed stride immediate, an internal-I64 coordinate,
+    pointer-typed multiplication and pointer-typed addition. All dimensions are
+    consumed, including zero coordinates. Scalar and ordinary reached addresses
+    retain their single-producer prefix. *)
 
 val sequence : t -> Instruction_sequence.t
 val result_value : t -> Instruction_sequence.Value_id.t

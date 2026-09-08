@@ -693,7 +693,8 @@ let type_spelling base_spelling pointer_layers =
 
 let primitive_type_of_token token =
   match token.Token.kind with
-  | Token_kind.Identifier -> Sema.Primitive_type.of_spelling (token_text token)
+  | Token_kind.Identifier ->
+      Common.Primitive_type.of_spelling (token_text token)
   | _ -> None
 
 let internal_type_of_token cursor token =
@@ -705,7 +706,7 @@ let internal_type_of_token cursor token =
       with
       | Symbol_visibility.Present entry
         when Symbol_visibility.kind entry = Symbol_visibility.Internal_type ->
-          Sema.Primitive_type.of_storage_spelling (token_text token)
+          Common.Primitive_type.of_storage_spelling (token_text token)
       | Symbol_visibility.Present _
       | Symbol_visibility.Absent
       | Symbol_visibility.Shadowed_by_local -> None)
@@ -1001,7 +1002,7 @@ let rec parse_register_qualifiers cursor ~position nodes_rev tokens_rev =
             let candidate = peek cursor in
             if
               candidate.token.kind = Token_kind.Identifier
-              && Sema.Register_request.is_canonical_u64_register
+              && Common.Canonical_registers.is_canonical_u64_register
                    (token_text candidate.token)
             then Some (take cursor)
             else None

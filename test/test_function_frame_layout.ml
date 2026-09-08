@@ -741,8 +741,8 @@ let malformed_foreign_function_and_binding_evidence () =
        ~parent:(Semantic_declaration_collection.scope prepared.declarations)
        ~aggregate_layouts:foreign.aggregate_layouts [ first ])
 
-let rebuild_local ?declaration_index ?declarator_index ?storage ?delimiter local
-    =
+let rebuild_local ?declaration_index ?declarator_index ?storage ?delimiter
+    ?array_dimensions local =
   let module Local = Semantic_local_type_resolution in
   let storage = Option.value storage ~default:(Local.local_storage local) in
   let declaration_index =
@@ -765,7 +765,9 @@ let rebuild_local ?declaration_index ?declarator_index ?storage ?delimiter local
     ~type_reference:(Local.local_type_reference local)
     ~register_requests
     ~declarator_kind:(Local.local_declarator_kind local)
-    ~array_dimensions:(Local.local_array_dimensions local)
+    ~array_dimensions:
+      (Option.value array_dimensions
+         ~default:(Local.local_array_dimensions local))
     ~initial_value:(Local.local_initializer local)
     ~delimiter:(Option.value delimiter ~default:(Local.local_delimiter local))
     ()
@@ -839,6 +841,24 @@ let malformed_dimensions_overflow_and_incomplete_aggregates () =
   in
   let local_function = local_function_named prepared "Arrays" in
   let values = local_named local_function "values" in
+  let module Local = Semantic_local_type_resolution in
+  let array_dimensions =
+    Local.local_array_dimensions values
+    |> List.map (fun dimension ->
+        Local.make_array_dimension
+          ~index:(Local.array_dimension_index dimension)
+          ~origin:(Local.array_dimension_origin dimension)
+          ~opening_origin:(Local.array_dimension_opening_origin dimension)
+          ?expression_origin:(Local.array_dimension_expression_origin dimension)
+          ~closing_origin:(Local.array_dimension_closing_origin dimension)
+          ()
+        |> checked)
+  in
+  let values = rebuild_local ~array_dimensions values in
+  let local_function = resolved_local_function prepared "Arrays" [ values ] in
+  let arrays_input ?locals () =
+    core_input ~local_function ?locals prepared "Arrays"
+  in
   let dimension =
     values |> Semantic_local_type_resolution.local_array_dimensions |> List.hd
   in
@@ -846,9 +866,9 @@ let malformed_dimensions_overflow_and_incomplete_aggregates () =
     Semantic_local_type_resolution.array_dimension_origin dimension
   in
   let input expression =
-    core_input
+    arrays_input
       ~locals:[ local_input ~dimension_expressions:[ expression ] values ]
-      prepared "Arrays"
+      ()
   in
   expect_frame_error "HCSEMA0070"
     (function
@@ -876,9 +896,9 @@ let malformed_dimensions_overflow_and_incomplete_aggregates () =
     (core_layout prepared
        [ input (Frame.Closed_expression (integer_expression origin (-1L))) ]);
   let missing_dimensions =
-    core_input
+    arrays_input
       ~locals:[ ({ local = values; dimensions = [] } : Frame.local_input) ]
-      prepared "Arrays"
+      ()
   in
   expect_frame_error "HCSEMA0069" invalid_input_error
     (core_layout prepared [ missing_dimensions ]);
@@ -899,7 +919,7 @@ let malformed_dimensions_overflow_and_incomplete_aggregates () =
   in
   expect_frame_error "HCSEMA0069" invalid_input_error
     (core_layout prepared
-       [ core_input ~locals:[ mismatched_expression_origin ] prepared "Arrays" ]);
+       [ arrays_input ~locals:[ mismatched_expression_origin ] () ]);
   expect_frame_error "HCSEMA0073"
     (function
       | Frame.Metadata_overflow _ -> true
@@ -933,7 +953,7 @@ let malformed_dimensions_overflow_and_incomplete_aggregates () =
   in
   expect_frame_error "HCSEMA0069" invalid_input_error
     (core_layout prepared
-       [ core_input ~locals:[ foreign_dimension_input ] prepared "Arrays" ]);
+       [ arrays_input ~locals:[ foreign_dimension_input ] () ]);
   let first_empty =
     prepare ~path:"frame-first-empty-dimension.HC"
       "U0 FirstEmpty(){I64 values[];}"
@@ -965,7 +985,9 @@ let malformed_dimensions_overflow_and_incomplete_aggregates () =
     if index = 0 then
       Frame.Closed_expression
         (integer_expression
-           (Semantic_local_type_resolution.array_dimension_origin dimension)
+           (Option.get
+              (Semantic_local_type_resolution.array_dimension_expression_origin
+                 dimension))
            2L)
     else Frame.Empty_dimension
   in
@@ -997,7 +1019,195 @@ let malformed_dimensions_overflow_and_incomplete_aggregates () =
     | Error message -> String.starts_with ~prefix:"HCSEMA0074: " message
     | Ok _ -> false)
 
-let final_value_integrality_for_floating_extents () =
+let retained_extent_source_evidence () =
+  let prepared =
+    prepare ~path:"frame-retained-extent.HC"
+      "U0 Arrays(){static I64 values[1];}"
+  in
+  let local = local_named (local_function_named prepared "Arrays") "values" in
+  let dimension =
+    Semantic_local_type_resolution.local_array_dimensions local |> List.hd
+  in
+  let origin =
+    Semantic_local_type_resolution.array_dimension_expression_origin dimension
+    |> Option.get
+  in
+  let input expression =
+    core_input
+      ~locals:
+        [
+          local_input
+            ~dimension_expressions:[ Frame.Closed_expression expression ]
+            local;
+        ]
+      prepared "Arrays"
+  in
+  ignore
+    ( core_layout prepared [ input (integer_expression origin 1L) ] |> function
+      | Ok value -> value
+      | Error error -> Alcotest.fail (Frame.error_to_string error) );
+  List.iter
+    (fun expression ->
+      expect_frame_error "HCSEMA0069" invalid_input_error
+        (core_layout prepared [ input expression ]))
+    [
+      integer_expression origin 2L;
+      integer_expression (Semantic_symbol.Synthesized "substituted origin") 1L;
+      Semantic_aggregate_layout.Unsigned_integer_expression
+        { value = 1L; origin };
+      Semantic_aggregate_layout.Unary_expression
+        {
+          operator = Semantic_aggregate_layout.Identity;
+          operand = integer_expression origin 1L;
+          origin;
+        };
+    ]
+
+let retained_extent_signed_zero_evidence () =
+  let module Layout = Semantic_aggregate_layout in
+  let origin = Semantic_initializer_source.origin_of_location in
+  let prepared =
+    prepare ~path:"frame-retained-signed-zero.HC"
+      "U0 Arrays(){static U8 values[(!0.0)+1];}"
+  in
+  let local = local_named (local_function_named prepared "Arrays") "values" in
+  let source =
+    Semantic_local_type_resolution.local_array_dimensions local
+    |> List.hd
+    |> Semantic_local_type_resolution.array_dimension_source_expression
+    |> Option.get
+  in
+  let rec expression zero = function
+    | Ast.Float_literal literal ->
+        Layout.Floating_expression
+          { value = zero; origin = origin literal.literal_location }
+    | Ast.Integer_literal literal -> (
+        match literal.literal_value with
+        | Ast.Integer_value value ->
+            integer_expression (origin literal.literal_location) value
+        | _ -> Alcotest.fail "expected integer extent literal")
+    | Ast.Parenthesized_expression grouped ->
+        expression zero grouped.grouped_expression
+    | Ast.Prefix_expression prefix ->
+        Layout.Unary_expression
+          {
+            operator = Layout.Logical_not;
+            operand = expression zero prefix.prefix_operand;
+            origin = origin prefix.prefix_operator.operator_location;
+          }
+    | Ast.Binary_expression binary ->
+        Layout.Binary_expression
+          {
+            operator = Layout.Add;
+            left = expression zero binary.binary_left;
+            right = expression zero binary.binary_right;
+            origin = origin binary.binary_operator.operator_location;
+          }
+    | _ -> Alcotest.fail "unexpected signed-zero extent fixture"
+  in
+  let input zero =
+    core_input
+      ~locals:
+        [
+          local_input
+            ~dimension_expressions:
+              [ Frame.Closed_expression (expression zero source) ]
+            local;
+        ]
+      prepared "Arrays"
+  in
+  let original =
+    match core_layout prepared [ input 0.0 ] with
+    | Ok frames ->
+        frame_named frames "Arrays" |> fun frame ->
+        location_named frame "values"
+    | Error error -> Alcotest.fail (Frame.error_to_string error)
+  in
+  Alcotest.(check (list int64))
+    "original positive-zero extent" [ 2L ]
+    (Frame.location_dimensions original |> List.map Frame.dimension_value);
+  Alcotest.(check bool)
+    "original signed-zero source proof" true
+    (Frame.location_source_dimensions_checked original);
+  expect_frame_error "HCSEMA0069" invalid_input_error
+    (core_layout prepared [ input (-0.0) ])
+
+let retained_source_dimension_proof () =
+  let module Local = Semantic_local_type_resolution in
+  List.iter
+    (fun storage ->
+      let prepared =
+        prepare ~path:"frame-source-dimension-proof.HC"
+          ("U0 Arrays(){" ^ storage ^ "I64 values[1][2];}")
+      in
+      let original_location =
+        layout prepared |> fun frames ->
+        frame_named frames "Arrays" |> fun frame ->
+        location_named frame "values"
+      in
+      Alcotest.(check bool)
+        "original source dimensions retain checked proof" true
+        (Frame.location_source_dimensions_checked original_location);
+      let original =
+        local_named (local_function_named prepared "Arrays") "values"
+      in
+      let without_witness dimension =
+        Local.make_array_dimension
+          ~index:(Local.array_dimension_index dimension)
+          ~origin:(Local.array_dimension_origin dimension)
+          ~opening_origin:(Local.array_dimension_opening_origin dimension)
+          ?expression_origin:(Local.array_dimension_expression_origin dimension)
+          ~closing_origin:(Local.array_dimension_closing_origin dimension)
+          ()
+        |> checked
+      in
+      List.iter
+        (fun strip_all ->
+          let array_dimensions =
+            Local.local_array_dimensions original
+            |> List.mapi (fun index dimension ->
+                if strip_all || index = 0 then without_witness dimension
+                else dimension)
+          in
+          let local = rebuild_local ~array_dimensions original in
+          let local_function =
+            resolved_local_function prepared "Arrays" [ local ]
+          in
+          let dimension_expressions =
+            List.mapi
+              (fun index dimension ->
+                Frame.Closed_expression
+                  (integer_expression
+                     (Option.get
+                        (Local.array_dimension_expression_origin dimension))
+                     (Int64.of_int (index + 1))))
+              array_dimensions
+          in
+          let input =
+            core_input ~local_function
+              ~locals:[ local_input ~dimension_expressions local ]
+              prepared "Arrays"
+          in
+          let frames =
+            match core_layout prepared [ input ] with
+            | Ok frames -> frames
+            | Error error -> Alcotest.fail (Frame.error_to_string error)
+          in
+          let location =
+            frame_named frames "Arrays" |> fun frame ->
+            location_named frame "values"
+          in
+          Alcotest.(check (list int64))
+            "legacy dimensions remain supported" [ 1L; 2L ]
+            (Frame.location_dimensions location
+            |> List.map Frame.dimension_value);
+          Alcotest.(check bool)
+            "every dimension needs its original source proof" false
+            (Frame.location_source_dimensions_checked location))
+        [ true; false ])
+    [ ""; "static " ]
+
+let native_floating_extent_truncation () =
   let accepted =
     prepare ~path:"frame-integral-floating-extents.HC"
       "U0 FloatingLiteral(){I8 values[2.0];}\n\
@@ -1034,26 +1244,24 @@ let final_value_integrality_for_floating_extents () =
     (power |> Frame.location_dimensions |> List.map Frame.dimension_value);
   let power_size = Frame.location_allocated_size power in
   Alcotest.(check int64) "integral power allocation" 8L power_size;
-  let expect_nonintegral ~path source description =
+  let expect_truncated ~path source function_name expected =
     let prepared = prepare ~path source in
-    Alcotest.(check bool)
-      description true
-      (match
-         Holyc_lib.layout_function_frames prepared.session
-           ~declarations:prepared.declarations ~bindings:prepared.bindings
-           ~function_types:prepared.function_types
-           ~local_types:prepared.local_types
-           ~aggregate_layouts:prepared.aggregate_layouts prepared.ast
-       with
-      | Error message -> String.starts_with ~prefix:"HCSEMA0071: " message
-      | Ok _ -> false)
+    let location =
+      layout prepared |> fun frames ->
+      frame_named frames function_name |> fun frame ->
+      location_named frame "values"
+    in
+    Alcotest.(check (list int64))
+      "native final-value truncation" [ expected ]
+      (location |> Frame.location_dimensions |> List.map Frame.dimension_value);
+    Alcotest.(check int64)
+      "truncated byte allocation" expected
+      (Frame.location_allocated_size location)
   in
-  expect_nonintegral ~path:"frame-fractional-literal.HC"
-    "U0 FractionalLiteral(){I8 values[1.5];}"
-    "fractional floating literal is nonintegral";
-  expect_nonintegral ~path:"frame-fractional-power.HC"
-    "U0 FractionalPower(){I8 values[2`-1];}"
-    "all-integer fractional power is nonintegral"
+  expect_truncated ~path:"frame-fractional-literal.HC"
+    "U0 FractionalLiteral(){I8 values[1.5];}" "FractionalLiteral" 1L;
+  expect_truncated ~path:"frame-fractional-power.HC"
+    "U0 FractionalPower(){I8 values[2`-1];}" "FractionalPower" 0L
 
 let tests =
   [
@@ -1080,6 +1288,12 @@ let tests =
       "dimension mismatches, unresolved and nonintegral extents, overflow, and \
        incomplete aggregates"
       `Quick malformed_dimensions_overflow_and_incomplete_aggregates;
-    Alcotest.test_case "final-value integrality for floating extents" `Quick
-      final_value_integrality_for_floating_extents;
+    Alcotest.test_case "native truncation for floating extents" `Quick
+      native_floating_extent_truncation;
+    Alcotest.test_case "retained extent source evidence" `Quick
+      retained_extent_source_evidence;
+    Alcotest.test_case "retained extent signed-zero evidence" `Quick
+      retained_extent_signed_zero_evidence;
+    Alcotest.test_case "retained source dimension proof" `Quick
+      retained_source_dimension_proof;
   ]
