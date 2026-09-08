@@ -13,6 +13,7 @@ val make_array_dimension :
   origin:Symbol.origin ->
   opening_origin:Symbol.origin ->
   ?expression_origin:Symbol.origin ->
+  ?source_expression:Frontend.Ast.expression ->
   closing_origin:Symbol.origin ->
   unit ->
   (array_dimension, string) result
@@ -24,6 +25,12 @@ val make_initializer :
   origin:Symbol.origin ->
   equals_origin:Symbol.origin ->
   value_origin:Symbol.origin ->
+  initial_value
+
+val make_source_initializer :
+  origin:Symbol.origin ->
+  equals_origin:Symbol.origin ->
+  source:Initializer_source.t ->
   initial_value
 
 val make_global :
@@ -60,6 +67,10 @@ val array_dimension_index : array_dimension -> int
 val array_dimension_origin : array_dimension -> Symbol.origin
 val array_dimension_opening_origin : array_dimension -> Symbol.origin
 val array_dimension_expression_origin : array_dimension -> Symbol.origin option
+
+val array_dimension_source_expression :
+  array_dimension -> Frontend.Ast.expression option
+
 val array_dimension_closing_origin : array_dimension -> Symbol.origin
 val delimiter_kind : delimiter -> delimiter_kind
 val delimiter_origin : delimiter -> Symbol.origin
@@ -68,6 +79,7 @@ val initializer_kind : initial_value -> initializer_kind
 val initializer_origin : initial_value -> Symbol.origin
 val initializer_equals_origin : initial_value -> Symbol.origin
 val initializer_value_origin : initial_value -> Symbol.origin
+val initializer_source : initial_value -> Initializer_source.t option
 val initializer_kind_name : initializer_kind -> string
 val function_pointer_origin : function_pointer -> Symbol.origin
 val function_pointer_opening_origin : function_pointer -> Symbol.origin

@@ -218,12 +218,12 @@ let print_register_qualifiers buffer sources ~indent ~position qualifiers =
 let print_type buffer sources ~indent = function
   | Ast.Primitive_type_specifier primitive ->
       Printf.bprintf buffer "%stype primitive=%s spelling=%S span=%s\n" indent
-        (Sema.Primitive_type.to_string primitive.Ast.primitive)
+        (Common.Primitive_type.to_string primitive.Ast.primitive)
         primitive.spelling
         (location_text sources primitive.location)
   | Ast.Internal_type_specifier internal ->
       Printf.bprintf buffer "%stype internal=%s spelling=%S span=%s\n" indent
-        (Sema.Primitive_type.to_string internal.Ast.primitive)
+        (Common.Primitive_type.to_string internal.Ast.primitive)
         internal.spelling
         (location_text sources internal.location)
   | Ast.Named_type_specifier name ->
@@ -235,13 +235,13 @@ let print_return_type buffer sources ~indent = function
   | Ast.Primitive_type_specifier primitive ->
       Printf.bprintf buffer "%sreturn_type primitive=%s spelling=%S span=%s\n"
         indent
-        (Sema.Primitive_type.to_string primitive.Ast.primitive)
+        (Common.Primitive_type.to_string primitive.Ast.primitive)
         primitive.spelling
         (location_text sources primitive.location)
   | Ast.Internal_type_specifier internal ->
       Printf.bprintf buffer "%sreturn_type internal=%s spelling=%S span=%s\n"
         indent
-        (Sema.Primitive_type.to_string internal.Ast.primitive)
+        (Common.Primitive_type.to_string internal.Ast.primitive)
         internal.spelling
         (location_text sources internal.location)
   | Ast.Named_type_specifier name ->
@@ -1533,7 +1533,7 @@ let print_global_declarator buffer sources ~indent ~label index
 let human sources module_ =
   let buffer = Buffer.create 256 in
   Printf.bprintf buffer "schema %s\n" schema;
-  Printf.bprintf buffer "reference %s\n" Sema.Primitive_type.reference_commit;
+  Printf.bprintf buffer "reference %s\n" Common.Primitive_type.reference_commit;
   Printf.bprintf buffer "module span=%s items=%d\n"
     (span_text sources module_.Ast.span)
     (List.length module_.items);
@@ -1733,7 +1733,7 @@ let primitive_to_yojson sources (primitive : Ast.primitive_type) =
     [
       ("kind", `String "primitive");
       ( "primitive",
-        `String (Sema.Primitive_type.to_string primitive.Ast.primitive) );
+        `String (Common.Primitive_type.to_string primitive.Ast.primitive) );
       ("spelling", `String primitive.spelling);
       ("location", location_to_yojson sources primitive.location);
     ]
@@ -1746,7 +1746,7 @@ let type_to_yojson sources = function
         [
           ("kind", `String "internal");
           ( "primitive",
-            `String (Sema.Primitive_type.to_string internal.Ast.primitive) );
+            `String (Common.Primitive_type.to_string internal.Ast.primitive) );
           ("spelling", `String internal.spelling);
           ("location", location_to_yojson sources internal.location);
         ]
@@ -3404,7 +3404,7 @@ let to_yojson sources module_ =
   `Assoc
     [
       ("schema", `String schema);
-      ("reference_commit", `String Sema.Primitive_type.reference_commit);
+      ("reference_commit", `String Common.Primitive_type.reference_commit);
       ( "module",
         `Assoc
           [

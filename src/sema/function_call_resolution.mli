@@ -347,6 +347,27 @@ val make_initializer :
 (** Retain a scalar initializer with the exact checked local declaration and
     matching initializer/expression source locations. *)
 
+val validate_initializer_expression :
+  leaf:Initializer_source.leaf ->
+  expression:argument_expression ->
+  calls:call list ->
+  ?callee_expressions:(call * argument_expression) list ->
+  ?call_expressions:(call * argument_expression) list ->
+  unit ->
+  (unit, string) result
+(** Compare literal/operator payloads, ordered children, queries and complete
+    call subtrees with the original source leaf. All supplied calls must be
+    consumed once in source order. *)
+
+val make_initializer_leaf :
+  index:int ->
+  local:Local_type_resolution.local ->
+  leaf:Initializer_source.leaf ->
+  expression:argument_expression ->
+  calls:call list ->
+  origin:Symbol.origin ->
+  (initializer_input, string) result
+
 val make_condition :
   index:int ->
   role:condition_role ->
@@ -542,6 +563,8 @@ val initializer_index : initializer_input -> int
 val initializer_local : initializer_input -> Local_type_resolution.local
 val initializer_expression : initializer_input -> argument_expression
 val initializer_origin : initializer_input -> Symbol.origin
+val initializer_leaf : initializer_input -> Initializer_source.leaf option
+val initializer_calls : initializer_input -> call list
 val call_index : call -> int
 val call_callee_occurrence_index : call -> int
 val call_callee_name : call -> string

@@ -1,5 +1,10 @@
 # Scalar static declaration initializers
 
+[Static array initializers](integer-persistent-arrays.md) extend the same phase
+and owner checks to a complete batch of original expression leaves. Initialization
+still occurs at the containing definition's module position, including functions
+that are never invoked.
+
 A declaration region can materialize [scalar references](integer-pointers.md)
 for fixed pointer arguments. `IC_ADDR` checks authority at its own instruction;
 canonical metadata cannot be borrowed after the region ends. Explicit references

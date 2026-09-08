@@ -57,6 +57,8 @@ val global_symbol : resolved_global -> Symbol.t
 val global_item_index : resolved_global -> int
 val global_declarator_index : resolved_global -> int option
 val global_initializer_origin : resolved_global -> Symbol.origin option
+val global_source : resolved_global -> Initializer_source.t option
+val global_leaves : resolved_global -> Initializer_source.leaf list
 val global_occurrences : resolved_global -> occurrence list
 val occurrence_index : occurrence -> int
 val occurrence_name : occurrence -> string

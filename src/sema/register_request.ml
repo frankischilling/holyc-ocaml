@@ -21,29 +21,13 @@ type selection =
   | Disabled
   | Explicit of explicit_register
 
-let canonical_u64_registers =
-  List.init 16 (fun register_number ->
-      match
-        List.find_opt
-          (fun (register : Generated.Opcode_keywords.register) ->
-            register.register_kind = Generated.Opcode_keywords.R64
-            && register.register_number = register_number)
-          Generated.Opcode_keywords.registers
-      with
-      | Some register -> (register.spelling, register_number)
-      | None ->
-          invalid_arg
-            (Printf.sprintf
-               "checked opcode table lacks canonical U64 register %d"
-               register_number))
+let canonical_u64_registers = Common.Canonical_registers.canonical_u64_registers
 
-let canonical_u64_register_number spelling =
-  canonical_u64_registers
-  |> List.find_map (fun (candidate, number) ->
-      if String.equal candidate spelling then Some number else None)
+let canonical_u64_register_number =
+  Common.Canonical_registers.canonical_u64_register_number
 
-let is_canonical_u64_register spelling =
-  Option.is_some (canonical_u64_register_number spelling)
+let is_canonical_u64_register =
+  Common.Canonical_registers.is_canonical_u64_register
 
 let kind_name = function
   | Allocate -> "reg"

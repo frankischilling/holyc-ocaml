@@ -703,6 +703,37 @@ let add_root state role source =
           | Ok root ->
               Ok { state with next_root; roots_rev = root :: state.roots_rev }))
 
+let add_initializer_root state global leaf =
+  let first_call = state.next_call in
+  let source = Sema.Initializer_source.leaf_expression_ast leaf in
+  match expression state source with
+  | Error _ as error -> error
+  | Ok (state, expression) -> (
+      let calls =
+        state.calls_rev
+        |> List.filter (fun call ->
+            call |> Sema.Top_level_expression_tree.call_source
+            |> Sema.Function_call_resolution.call_index >= first_call)
+        |> List.sort (fun left right ->
+            Int.compare
+              (left |> Sema.Top_level_expression_tree.call_source
+             |> Sema.Function_call_resolution.call_index)
+              (right |> Sema.Top_level_expression_tree.call_source
+             |> Sema.Function_call_resolution.call_index))
+      in
+      match increment "top-level expression root" state.next_root with
+      | Error _ as error -> error
+      | Ok next_root -> (
+          match
+            Sema.Top_level_expression_tree.make_initializer_root
+              ~index:state.next_root ~global ~leaf ~expression ~calls
+              ~origin:(Sema.Initializer_source.leaf_origin leaf)
+          with
+          | Error error ->
+              Error (Sema.Top_level_expression_tree.error_to_string error)
+          | Ok root ->
+              Ok { state with next_root; roots_rev = root :: state.roots_rev }))
+
 let record_expression_statement state
     (statement : Frontend.Ast.expression_statement) =
   let index = state.next_expression_statement in
@@ -1092,11 +1123,21 @@ let statement_input counters expected (item_index, ast) =
       match ast with
       | `Statement node -> statement state node
       | `Initializer (global, initial) -> (
-          match initial.Frontend.Ast.global_initializer_value with
-          | Frontend.Ast.Scalar_initializer value ->
-              add_root state
-                (Sema.Top_level_expression_tree.Global_initializer global) value
-          | _ -> Error "global initializer expression group is not scalar")
+          match Sema.Global_initializer_binding.global_source global with
+          | Some manifest ->
+              fold_result
+                (fun state leaf -> add_initializer_root state global leaf)
+                state
+                (Sema.Initializer_source.leaves manifest)
+          | None -> (
+              match initial.Frontend.Ast.global_initializer_value with
+              | Frontend.Ast.Scalar_initializer value ->
+                  add_root state
+                    (Sema.Top_level_expression_tree.Global_initializer global)
+                    value
+              | _ ->
+                  Error
+                    "global array initializer has no retained source manifest"))
     in
     match lowered with
     | Error _ as error -> error

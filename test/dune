@@ -19,7 +19,8 @@
   ../examples/integer-output.hc
   ../examples/integer-putchars.hc
   ../examples/integer-joined-definitions.hc
-  ../examples/integer-persistent-bytes.hc)
+  ../examples/integer-persistent-bytes.hc
+  ../examples/integer-persistent-arrays.hc)
  (action
   (run
    %{test}
@@ -40,7 +41,8 @@
    %{dep:../examples/integer-output.hc}
    %{dep:../examples/integer-putchars.hc}
    %{dep:../examples/integer-joined-definitions.hc}
-   %{dep:../examples/integer-persistent-bytes.hc})))
+   %{dep:../examples/integer-persistent-bytes.hc}
+   %{dep:../examples/integer-persistent-arrays.hc})))
 
 (test
  (name test_main)
@@ -62,6 +64,11 @@
   test_integer_output
   test_integer_joined_definitions
   test_integer_persistent_bytes
+  test_integer_persistent_arrays
+  test_global_array_layout
+  test_persistent_extent_values
+  test_initializer_leaf_evidence
+  test_integer_array_safety
   test_integer_global_initializers
   test_ir_comparison_chains
   test_ir_integer_frames

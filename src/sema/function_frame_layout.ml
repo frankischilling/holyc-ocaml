@@ -20,6 +20,7 @@ type location = {
   declarator_shape : declarator_shape;
   value_shape : value_shape;
   dimensions : dimension list;
+  source_dimensions_checked : bool;
   element_size : int64;
   allocated_size : int64;
   alignment : int;
@@ -105,6 +106,10 @@ let location_checked_type (location : location) = location.checked_type
 let location_declarator_shape (location : location) = location.declarator_shape
 let location_value_shape (location : location) = location.value_shape
 let location_dimensions (location : location) = location.dimensions
+
+let location_source_dimensions_checked (location : location) =
+  location.source_dimensions_checked
+
 let location_element_size (location : location) = location.element_size
 let location_allocated_size (location : location) = location.allocated_size
 let location_alignment (location : location) = location.alignment
@@ -316,6 +321,7 @@ let element_size table aggregate_layouts ~before_item origin declarator_shape
 
 let rec closed_expression_error = function
   | Aggregate_layout.Integer_expression _
+  | Aggregate_layout.Unsigned_integer_expression _
   | Aggregate_layout.Floating_expression _ -> None
   | Aggregate_layout.Current_position_expression origin ->
       Some (origin, "a current-position expression is not closed")
@@ -327,73 +333,6 @@ let rec closed_expression_error = function
       | None -> closed_expression_error right)
   | Aggregate_layout.Dependency_expression _
   | Aggregate_layout.Unsupported_expression _ -> None
-
-type expression_result_kind = Integer_result | Floating_result
-
-let common_result_kind left right =
-  match (left, right) with
-  | Integer_result, Integer_result -> Integer_result
-  | (Integer_result | Floating_result), (Integer_result | Floating_result) ->
-      Floating_result
-
-let rec expression_result_kind = function
-  | Aggregate_layout.Integer_expression _
-  | Aggregate_layout.Current_position_expression _
-  | Aggregate_layout.Dependency_expression _
-  | Aggregate_layout.Unsupported_expression _ -> Integer_result
-  | Aggregate_layout.Floating_expression _ -> Floating_result
-  | Aggregate_layout.Unary_expression { operator; operand; _ } -> (
-      match operator with
-      | Aggregate_layout.Identity | Aggregate_layout.Negate ->
-          expression_result_kind operand
-      | Aggregate_layout.Logical_not | Aggregate_layout.Bitwise_not ->
-          Integer_result)
-  | Aggregate_layout.Binary_expression { operator; left; right; _ } -> (
-      match operator with
-      | Aggregate_layout.Power -> Floating_result
-      | Aggregate_layout.Less
-      | Aggregate_layout.Greater
-      | Aggregate_layout.Less_equal
-      | Aggregate_layout.Greater_equal
-      | Aggregate_layout.Equal
-      | Aggregate_layout.Not_equal
-      | Aggregate_layout.Logical_and
-      | Aggregate_layout.Logical_xor
-      | Aggregate_layout.Logical_or -> Integer_result
-      | Aggregate_layout.Shift_left
-      | Aggregate_layout.Shift_right
-      | Aggregate_layout.Multiply
-      | Aggregate_layout.Divide
-      | Aggregate_layout.Modulo
-      | Aggregate_layout.Bit_and
-      | Aggregate_layout.Bit_xor
-      | Aggregate_layout.Bit_or
-      | Aggregate_layout.Add
-      | Aggregate_layout.Subtract ->
-          common_result_kind
-            (expression_result_kind left)
-            (expression_result_kind right))
-
-let integral_value_of_evaluated symbol dimension_index expression_origin
-    expression value =
-  match expression_result_kind expression with
-  | Integer_result -> Ok value
-  | Floating_result ->
-      let value = Int64.float_of_bits value in
-      if Float.trunc value <> value then
-        Error
-          (non_integral_extent symbol dimension_index
-             (Printf.sprintf "the closed expression evaluates to %.17g" value)
-             expression_origin)
-      else
-        let lower = Int64.to_float Int64.min_int in
-        let upper = 9223372036854775808.0 in
-        if value < lower || value >= upper then
-          Error
-            (invalid_extent symbol dimension_index
-               "the closed expression is outside the signed 64-bit range"
-               expression_origin)
-        else Ok (Int64.of_float value)
 
 let evaluate_dimension symbol expected_index input =
   let semantic_dimension = input.dimension in
@@ -452,35 +391,39 @@ let evaluate_dimension symbol expected_index input =
           Error
             (invalid_input ~origin
                "a dimension expression does not match an empty dimension")
+        else if
+          match
+            Local_type_resolution.array_dimension_source_expression
+              semantic_dimension
+          with
+          | None -> false
+          | Some original ->
+              not
+                (Closed_layout_expression.equal expression
+                   (Closed_layout_expression.of_ast original))
+        then
+          Error
+            (invalid_input ~origin
+               "a dimension expression does not match its retained source \
+                expression")
         else
           match closed_expression_error expression with
           | Some (expression_origin, detail) ->
               Error
                 (invalid_extent symbol expected_index detail expression_origin)
           | None -> (
-              let result_kind = expression_result_kind expression in
-              let context =
-                match result_kind with
-                | Integer_result -> Aggregate_layout.Array_dimension
-                | Floating_result -> Aggregate_layout.Aggregate_offset
-              in
               match
-                Aggregate_layout.evaluate_expression ~context
-                  ~current_position:0L expression
+                Aggregate_layout.evaluate_expression
+                  ~context:Aggregate_layout.Array_dimension ~current_position:0L
+                  expression
               with
-              | Ok evaluated ->
-                  let expression_origin =
-                    Option.value expected_expression_origin ~default:origin
-                  in
-                  Result.bind
-                    (integral_value_of_evaluated symbol expected_index
-                       expression_origin expression evaluated) (fun value ->
-                      if Int64.compare value 0L < 0 then
-                        Error
-                          (invalid_extent symbol expected_index
-                             (Printf.sprintf "extent %Ld is negative" value)
-                             origin)
-                      else Ok value)
+              | Ok value ->
+                  if Int64.compare value 0L < 0 then
+                    Error
+                      (invalid_extent symbol expected_index
+                         (Printf.sprintf "extent %Ld is negative" value)
+                         origin)
+                  else Ok value
               | Error error -> (
                   let error_origin =
                     Option.value
@@ -630,6 +573,7 @@ let parameter_location table aggregate_layouts typed_function binding evidence =
                       declarator_shape;
                       value_shape = Scalar;
                       dimensions = [];
+                      source_dimensions_checked = true;
                       element_size;
                       allocated_size = 8L;
                       alignment = 8;
@@ -722,6 +666,7 @@ let parameter_location table aggregate_layouts typed_function binding evidence =
                     declarator_shape = Object;
                     value_shape;
                     dimensions;
+                    source_dimensions_checked = dimensions = [];
                     element_size;
                     allocated_size = 8L;
                     alignment = 8;
@@ -782,6 +727,18 @@ let local_location table aggregate_layouts ~function_item cursor binding input =
              (Local_type_resolution.local_array_dimensions local)
              input.dimensions)
           (fun (element_count, dimensions) ->
+            let source_dimensions_checked =
+              List.for_all
+                (fun input ->
+                  match
+                    ( input.expression,
+                      Local_type_resolution.array_dimension_source_expression
+                        input.dimension )
+                  with
+                  | Closed_expression _, Some _ -> true
+                  | _ -> false)
+                input.dimensions
+            in
             Result.bind
               (checked_multiply_nonnegative symbol origin
                  "the local storage size" element_size element_count)
@@ -812,6 +769,7 @@ let local_location table aggregate_layouts ~function_item cursor binding input =
                             declarator_shape;
                             value_shape;
                             dimensions;
+                            source_dimensions_checked;
                             element_size;
                             allocated_size;
                             alignment = 8;
@@ -834,6 +792,7 @@ let local_location table aggregate_layouts ~function_item cursor binding input =
                             declarator_shape;
                             value_shape;
                             dimensions;
+                            source_dimensions_checked;
                             element_size;
                             allocated_size;
                             alignment;

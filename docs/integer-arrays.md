@@ -1,5 +1,10 @@
 # Automatic integer arrays
 
+[Persistent arrays](integer-persistent-arrays.md) now reuse these checked alias
+and indexing rules for globals and static locals, with numeric declaration
+initializers and direct owned byte-string copies. Automatic array declaration
+initialization remains outside the executable path described here.
+
 `holyc run --target=ir examples/integer-arrays.hc` passes an automatic array
 element's address to a helper. The helper changes the caller's element from 40
 to 42. JIT and AOT modes use 51 runtime instructions, zero preparation

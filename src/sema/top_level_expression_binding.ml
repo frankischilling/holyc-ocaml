@@ -1,4 +1,8 @@
-type identifier_event = { name : string; origin : Symbol.origin }
+type identifier_event = {
+  name : string;
+  origin : Symbol.origin;
+  initializer_leaf : Initializer_source.leaf option;
+}
 
 type query_event = {
   role : Function_expression_binding.query_role;
@@ -11,7 +15,17 @@ type event = Identifier of identifier_event | Name_query of query_event
 let make_identifier ~name ~origin =
   if String.length name = 0 then
     Error "top-level expression identifier cannot be empty"
-  else Ok (Identifier { name; origin })
+  else Ok (Identifier { name; origin; initializer_leaf = None })
+
+let make_initializer_identifier ~leaf ~name ~origin =
+  if
+    not
+      (List.exists
+         (fun (expected_name, expected_origin) ->
+           name = expected_name && origin = expected_origin)
+         (Initializer_source.leaf_identifiers leaf))
+  then Error "initializer identifier is absent from its retained source leaf"
+  else Ok (Identifier { name; origin; initializer_leaf = Some leaf })
 
 let make_name_query ~role ~name ~origin =
   if String.length name = 0 then
@@ -235,6 +249,20 @@ let validate_initializer_occurrences input occurrences =
   match input.initial_owner with
   | None -> Ok ()
   | Some (_, global) ->
+      let path_matches (occurrence : occurrence) selected =
+        match occurrence.source.initializer_leaf with
+        | None ->
+            Global_initializer_binding.occurrence_initializer_path selected = []
+            && global |> Global_initializer_binding.global_record
+               |> Global_resolution.global_record_global
+               |> Global_type_resolution.global_array_dimensions = []
+        | Some leaf ->
+            Initializer_source.leaf_path leaf
+            = Global_initializer_binding.occurrence_initializer_path selected
+            && Option.fold ~none:false
+                 ~some:(fun source -> Initializer_source.owns_leaf source leaf)
+                 (Global_initializer_binding.global_source global)
+      in
       let rec same actual expected =
         match (actual, expected) with
         | [], [] -> true
@@ -243,8 +271,7 @@ let validate_initializer_occurrences input occurrences =
             = Global_initializer_binding.occurrence_name selected
             && occurrence_origin occurrence
                = Global_initializer_binding.occurrence_origin selected
-            && Global_initializer_binding.occurrence_initializer_path selected
-               = []
+            && path_matches occurrence selected
             && (match
                   ( occurrence_resolution occurrence,
                     Global_initializer_binding.occurrence_resolution selected )

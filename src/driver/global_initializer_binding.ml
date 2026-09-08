@@ -189,6 +189,14 @@ let validate_initializer semantic ast =
         Sema.Global_type_resolution.initializer_value_origin semantic
         <> value_origin
       then Error "semantic global initializer has the wrong value origin"
+      else if
+        match Sema.Global_type_resolution.initializer_source semantic with
+        | None -> false
+        | Some source ->
+            not
+              (Sema.Initializer_source.matches_ast source
+                 ast.global_initializer_value)
+      then Error "semantic global initializer has a substituted source tree"
       else Ok ()
   | None, Some _ | Some _, None ->
       Error "semantic global initializer does not match the AST"
@@ -257,7 +265,7 @@ let resolve ~table ~environment ~expressions ~globals module_ =
       else "HCSEMA0025: " ^ message)
     result
 
-let scalar_initializers ~table ~bindings module_ =
+let initializers ~table ~bindings module_ =
   let rec pair reversed globals ast =
     match (globals, ast) with
     | [], [] -> Ok (List.rev reversed)
@@ -271,14 +279,7 @@ let scalar_initializers ~table ~bindings module_ =
         | Ok _ -> (
             match ast.initial_value with
             | None -> pair reversed rest tail
-            | Some initial -> (
-                match initial.Frontend.Ast.global_initializer_value with
-                | Frontend.Ast.Scalar_initializer _ ->
-                    pair ((global, initial) :: reversed) rest tail
-                | _ ->
-                    Error
-                      "global initializer expression groups require scalar \
-                       roots")))
+            | Some initial -> pair ((global, initial) :: reversed) rest tail))
     | _ -> Error "global initializer roots do not match their binding batch"
   in
   if not (Sema.Global_initializer_binding.owns_table bindings table) then
@@ -287,3 +288,5 @@ let scalar_initializers ~table ~bindings module_ =
     pair []
       (Sema.Global_initializer_binding.globals bindings)
       (ast_globals module_)
+
+let scalar_initializers = initializers

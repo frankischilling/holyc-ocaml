@@ -100,6 +100,13 @@ val location_checked_type : location -> Type.t
 val location_declarator_shape : location -> declarator_shape
 val location_value_shape : location -> value_shape
 val location_dimensions : location -> dimension list
+
+val location_source_dimensions_checked : location -> bool
+(** Every local array dimension was evaluated from a closed expression checked
+    against its retained original source witness. Legacy dimensions without
+    witnesses and synthetic parameter arrays return [false]. Locations without
+    dimensions return [true]. *)
+
 val location_element_size : location -> int64
 val location_allocated_size : location -> int64
 val location_alignment : location -> int

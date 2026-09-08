@@ -1,5 +1,10 @@
 # Scalar integer global initializers
 
+[Persistent array initializers](integer-persistent-arrays.md) classify ordered
+numeric leaves separately, store exact checked destinations and retain direct
+owned byte copies. Prepared AOT leaves precede all scheduled load work; JIT
+publication receipts preserve declaration and leaf positions in the entry graph.
+
 Initializer expressions can pass [checked scalar addresses](integer-pointers.md)
 to fixed pointer parameters. Callees modify the original persistent objects;
 declaration phases, publication checks and transitive arithmetic guards remain.

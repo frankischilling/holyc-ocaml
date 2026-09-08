@@ -119,6 +119,11 @@ let () =
       ("source integer output", Test_integer_output.tests);
       ("source joined definitions", Test_integer_joined_definitions.tests);
       ("source persistent bytes", Test_integer_persistent_bytes.tests);
+      ("source persistent arrays", Test_integer_persistent_arrays.tests);
+      ("global array layout", Test_global_array_layout.tests);
+      ("persistent extent values", Test_persistent_extent_values.tests);
+      ("initializer leaf evidence", Test_initializer_leaf_evidence.tests);
+      ("persistent array safety", Test_integer_array_safety.tests);
       ("comparison chains", Test_ir_comparison_chains.tests);
       ("integer frames", Test_ir_integer_frames.tests);
       ("IR bounded integer interpreter", Test_ir_integer_interpreter.tests);

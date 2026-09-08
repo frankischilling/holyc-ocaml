@@ -519,6 +519,22 @@ let rec producer_type result =
           && Type.equal (Resolution.bound_identifier_type identifier) type_)
           "materialized call argument disagrees with its checked array \
            declaration"
+    | Resolution.Top_level_bound_identifier_expression identifier ->
+        let module Top = Sema.Top_level_outer_expression_binding in
+        let module Binding = Sema.Module_expression_binding in
+        let occurrence =
+          Resolution.top_level_bound_identifier_occurrence identifier
+        in
+        require ?span
+          (Top.occurrence_origin occurrence = Typed.result_origin result
+          &&
+          match Top.occurrence_resolution occurrence with
+          | Top.Module_binding publication ->
+              Binding.publication_kind publication = Binding.Global_variable
+              && Binding.publication_source_symbol publication
+                 == Binding.publication_canonical_symbol publication
+          | _ -> false)
+          "materialized call argument has no checked global array publication"
     | Resolution.Index_expression source -> (
         match Typed.result_index_operands result with
         | Some (base, index) ->

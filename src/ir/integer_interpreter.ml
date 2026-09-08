@@ -161,7 +161,7 @@ type branch_condition = Zero | Not_zero
 
 type storage_location =
   | Frame_slot of int * int
-  | Global_slot of int
+  | Global_slot of int * int
   | Literal_slot of int * int
   | Indirect_slot of prepared_pointer
   | Indexed_slot of prepared_pointer
@@ -745,6 +745,11 @@ let indexed_address frame types (description : Sequence.description) =
                 | Ok expected when Type.equal expected pointer ->
                     Some slot.strides
                 | _ -> None)
+        | Some (Global_address slot) -> (
+            match Type.pointer_to (Integer_globals.storage_type slot) with
+            | Ok expected when Type.equal expected pointer ->
+                Some (Integer_globals.storage_strides slot)
+            | _ -> None)
         | Some (Indexed_address (expected, strides))
           when Type.equal expected pointer -> Some strides
         | Some (Pointer_value expected) when Type.equal expected pointer ->
@@ -903,11 +908,16 @@ let storage_operand ?(allow_array = false) frame initialization types
             slot.slot_type,
             slot.stored_type )
   | _, Some (Global_address slot)
-    when storage_allowed frame initialization instruction slot ->
+    when storage_allowed frame initialization instruction slot
+         && (allow_array || Integer_globals.storage_dimensions slot = []) ->
       let type_ = Integer_globals.storage_type slot in
       Option.map
         (fun kind ->
-          (Global_slot (Integer_globals.storage_index slot), type_, kind))
+          ( Global_slot
+              ( Integer_globals.storage_index slot,
+                Integer_globals.storage_element_count slot ),
+            type_,
+            kind ))
         (stored_type type_)
   | _, Some (Indexed_address (pointer_type, remaining))
     when allow_array || remaining = [] -> (
@@ -2027,9 +2037,32 @@ type caller = {
   saved_calls : call_scope list;
 }
 
+let storage_word slot bits =
+  let type_ =
+    match
+      scalar_value_type ~allow_byte:true ~allow_public:true
+        (Integer_globals.storage_type slot)
+    with
+    | Some type_ -> type_
+    | None -> assert false
+  in
+  { type_; bits }
+
+let publish_array_payload ~slot ~cell_offset payload write =
+  let base = Integer_globals.storage_index slot + cell_offset in
+  match payload with
+  | Integer_array_initializers.Word bits -> write base (storage_word slot bits)
+  | Integer_array_initializers.Bytes bytes ->
+      String.iteri
+        (fun offset byte ->
+          write (base + offset)
+            { type_ = U64; bits = Int64.of_int (Char.code byte) })
+        bytes
+
 let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
     ?(max_call_depth = Int.max_int) ?(capture_last = false) ?initialization
     ?(global_words = [||]) ?literal_image ?output ~max_steps program =
+  let entry_program = program in
   let current_block = ref program.entry_index in
   let current_instruction = ref 0 in
   let values = ref Value_map.empty in
@@ -2043,6 +2076,41 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
     make_storage
       (Array.map (Option.map (fun word -> Runtime_word word)) global_words)
       "hosted execution reached an uninitialized JIT persistent object"
+  in
+  let publications =
+    Option.fold ~none:[] ~some:Global_initialization.publications initialization
+    |> Array.of_list
+  in
+  let applied_publications = Array.make (Array.length publications) false in
+  let publications_before =
+    let by_instruction = ref Instruction_map.empty in
+    Array.iteri
+      (fun index publication ->
+        let before = Global_initialization.publication_before publication in
+        let previous =
+          Instruction_map.find_opt before !by_instruction
+          |> Option.value ~default:[]
+        in
+        by_instruction :=
+          Instruction_map.add before
+            ((index, publication) :: previous)
+            !by_instruction)
+      publications;
+    Instruction_map.map List.rev !by_instruction
+  in
+  let publish_before instruction =
+    Instruction_map.find_opt instruction publications_before
+    |> Option.value ~default:[]
+    |> List.iter (fun (index, publication) ->
+        if not applied_publications.(index) then (
+          publish_array_payload
+            ~slot:(Global_initialization.publication_storage publication)
+            ~cell_offset:
+              (Global_initialization.publication_cell_offset publication)
+            (Global_initialization.publication_payload publication)
+            (fun cell word ->
+              global_storage.cells.(cell) <- Some (Runtime_word word));
+          applied_publications.(index) <- true))
   in
   let literal_storage =
     let cells =
@@ -2211,7 +2279,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
     in
     match location with
     | Frame_slot (base, count) -> root !slots base count
-    | Global_slot base -> root global_storage base 1
+    | Global_slot (base, count) -> root global_storage base count
     | Literal_slot (base, count) -> root literal_storage base count
     | Indirect_slot operand -> require_pointer block instruction operand
     | Indexed_slot operand ->
@@ -2219,7 +2287,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
   in
   let resolve_location block instruction = function
     | Frame_slot (index, _) -> Some (!slots, index)
-    | Global_slot index -> Some (global_storage, index)
+    | Global_slot (index, _) -> Some (global_storage, index)
     | Literal_slot (index, _) -> Some (literal_storage, index)
     | Indirect_slot operand | Indexed_slot operand ->
         Option.bind (require_pointer ~bounded:false block instruction operand)
@@ -2371,11 +2439,13 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
       else
         let instruction = block.instructions.(!current_instruction) in
         let () =
-          if not !program.is_function then
+          if not !program.is_function then (
             active_initializer :=
               Option.bind initialization (fun context ->
                   Global_initialization.find_storage context
-                    instruction.instruction_id)
+                    instruction.instruction_id);
+            if !program == entry_program then
+              publish_before instruction.instruction_id)
         in
         if !steps >= max_steps then
           failed :=
@@ -3097,21 +3167,27 @@ let execute_program_with_output ?runtime_calls ~output ?globals ?initialization
       |> Result.map_error (List.map identify_entry)
     in
     let global_words =
+      let cells =
+        Array.make
+          (Option.fold ~none:0 ~some:Integer_globals.cell_count globals)
+          None
+      in
       Option.fold ~none:[] ~some:Integer_globals.storage_slots globals
-      |> List.map (fun slot ->
-          Option.map
-            (fun bits ->
-              let type_ =
-                match
-                  scalar_value_type ~allow_byte:true ~allow_public:true
-                    (Integer_globals.storage_type slot)
-                with
-                | Some type_ -> type_
-                | None -> assert false
-              in
-              { type_; bits })
-            (Integer_globals.storage_initial_bits slot))
-      |> Array.of_list
+      |> List.iter (fun slot ->
+          let initial =
+            Option.map (storage_word slot)
+              (Integer_globals.storage_initial_bits slot)
+          in
+          Array.fill cells
+            (Integer_globals.storage_index slot)
+            (Integer_globals.storage_element_count slot)
+            initial;
+          if Integer_globals.storage_opcode slot = Opcode.Ic_abs_addr then
+            Integer_globals.storage_array_image slot
+            |> List.iter (fun (cell_offset, payload) ->
+                publish_array_payload ~slot ~cell_offset payload
+                  (fun cell word -> cells.(cell) <- Some word)));
+      cells
     in
     execute_prepared ~callees:programs ~max_frame_bytes ~max_call_depth
       ?initialization ~global_words ~literal_image ~output ~capture_last:true

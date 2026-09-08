@@ -11419,3 +11419,24 @@ reporting = "CLI v1/v2 unchanged; global/static v1 dumps retain schema with decl
 verification_status = "1885 local tests in 38.547 seconds plus CLI; final 34 automatic/persistent byte groups in 0.262 seconds; independent read-only review strengthened exact type/static guards and word-destination RHS tests; final build/corpus/provenance/source CI and merge evidence tracked in issue625"
 excluded = ["persistent arrays", "pointer-valued globals and statics", "narrow updates and other primitive storage", "full formatting and linking", "general memory and aggregates", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader acceptance", "bootstrap"]
 native_oracle_status = "pinned-source audit and hosted execution; resource policy is not native module size; no new native capture"
+
+[[feature]]
+id = "HC-PERSISTENT-ARRAY-EXECUTION"
+description = "Fixed I64/U64/U8 global and static arrays retain checked shapes, ordered declaration leaves, direct byte-string copies and exact persistent aliases."
+sources = ["Compiler/PrsVar.HC:1-113,123-204,247-281,530-588", "Compiler/PrsStmt.HC:285-296,334-435", "Compiler/PrsExp.HC:679-685,1069-1098,1140-1151", "Compiler/LexLib.HC:248-275", "Compiler/OptLib.HC:96-179", "Compiler/OptPass012.HC:153-191,211-217,403-445,809-822"]
+implementation = ["src/sema/initializer_source.ml", "src/sema/global_array_layout.ml", "src/sema/closed_layout_expression.ml", "src/sema/function_frame_layout.ml", "src/sema/top_level_expression_tree.ml", "src/sema/function_call_resolution.ml", "src/driver/global_array_layout.ml", "src/driver/integer_initializers.ml", "src/driver/integer_program.ml", "src/ir/integer_storage_shape.ml", "src/ir/integer_initializer_layout.ml", "src/ir/integer_array_initializers.ml", "src/ir/initializer_publication.ml", "src/ir/integer_globals.ml", "src/ir/integer_statics.ml", "src/ir/global_initialization.ml", "src/ir/global_address_lowering.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_integer_persistent_arrays.ml", "test/test_integer_array_safety.ml", "test/test_initializer_leaf_evidence.ml", "test/test_persistent_extent_values.ml", "test/test_global_array_layout.ml", "test/test_function_frame_layout.ml", "test/test_integer_program_cli.ml", "examples/integer-persistent-arrays.hc"]
+documentation = ["docs/integer-persistent-arrays.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 627
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+baseline = "All eight gates fail in JIT/AOT on source 16fa7b98a397bbaf359656fab052328cfdf8254f and merge 1bef50509c728e6736ffb043db180e873b02919a: seven HCRUN0001 boundaries and one HCSEMA0052 braced-global boundary."
+source_gate = "All eight gates return numeric 42 with exact class/capture in both modes. Maintained fixture captures 3432 and returns I64 42 with 101 runtime instructions, 23 preparation units, 43 persistent bytes, 24 active frame bytes, depth 2, 3 literal bytes, 2 output bytes and 8 output-work units."
+semantics = "checked positive shapes and suffix strides; per-leaf AOT image visibility versus ordered JIT publications; exact native recursive token arity; final-rank owned byte copies include only the determined terminator-inclusive source prefix; fresh mutable execution cells and preserved full RHS values"
+ownership = "original dimension AST and full closed-expression payloads; exact source manifest and complete ordered leaf/call batches; frame source-dimension proof; canonical per-rank destinations; immutable receipt binds exact storage, entry graph, roots and publication markers"
+limits = "checked product, stride, padding, cumulative size and host array capacity before allocation; global declared bytes plus whole-static round-to-eight; object bounds exclude neighbors and padding; copies charge one preparation unit per byte and no runtime literal site"
+reporting = "CLI v1/v2 unchanged; additive holyc-persistent-arrays-v1 shapes and sparse prepared destinations plus holyc-array-publications-v1 JIT markers; existing scalar dump formats unchanged"
+verification_status = "Focused, full-suite, CLI, independent-review, build, provenance, exact-corpus and final-source CI/merge evidence tracked in issue 627."
+excluded = ["unresolved first-empty/inferred dimensions and native two-pass effects", "oversized direct string copies and non-final-rank root strings", "automatic array declaration initialization", "pointer-valued and other primitive/aggregate storage", "narrow updates", "full formatting/runtime linking", "general memory", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted execution; no new native TempleOS capture"

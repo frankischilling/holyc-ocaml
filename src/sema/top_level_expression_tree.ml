@@ -43,6 +43,13 @@ type root = {
   role : root_role;
   expression : Function_call_resolution.argument_expression;
   origin : Symbol.origin;
+  initializer_leaf_ : Initializer_source.leaf option;
+  initializer_calls_ : Function_call_resolution.call list;
+  initializer_call_trees_ :
+    (Function_call_resolution.call
+    * Function_call_resolution.argument_expression
+    * Function_call_resolution.argument_expression)
+    list;
 }
 
 type switch_case = {
@@ -111,6 +118,8 @@ let root_index (root : root) = root.index
 let root_role (root : root) = root.role
 let root_expression (root : root) = root.expression
 let root_origin (root : root) = root.origin
+let root_initializer_leaf (root : root) = root.initializer_leaf_
+let root_initializer_calls (root : root) = root.initializer_calls_
 let switch_case_index (case_ : switch_case) = case_.index
 let switch_case_keyword_origin (case_ : switch_case) = case_.keyword_origin
 let switch_case_pattern (case_ : switch_case) = case_.pattern
@@ -206,7 +215,63 @@ let make_root ~index ~role ~expression ~origin =
     Error (invalid_input ~origin "top-level expression role is invalid")
   else if not (valid_origin origin) then
     Error (invalid_input "top-level expression root has an invalid origin")
-  else Ok { index; role; expression; origin }
+  else
+    Ok
+      {
+        index;
+        role;
+        expression;
+        origin;
+        initializer_leaf_ = None;
+        initializer_calls_ = [];
+        initializer_call_trees_ = [];
+      }
+
+let make_initializer_root ~index ~global ~leaf ~expression ~calls ~origin =
+  if
+    (not
+       (Option.fold ~none:false
+          ~some:(fun source -> Initializer_source.owns_leaf source leaf)
+          (Global_initializer_binding.global_source global)))
+    || origin <> Initializer_source.leaf_origin leaf
+  then
+    Error (invalid_input "global initializer leaf has a foreign source owner")
+  else
+    let source_calls = List.map (fun (call : call) -> call.source) calls in
+    let callee_expressions =
+      List.map
+        (fun (call : call) -> (call.source, call.callee_expression))
+        calls
+    in
+    let call_expressions =
+      List.map
+        (fun (call : call) -> (call.source, call.result_expression))
+        calls
+    in
+    match
+      Function_call_resolution.validate_initializer_expression ~leaf ~expression
+        ~calls:source_calls ~callee_expressions ~call_expressions ()
+    with
+    | Error message -> Error (invalid_input message)
+    | Ok () -> (
+        match
+          make_root ~index ~role:(Global_initializer global) ~expression ~origin
+        with
+        | Error _ as error -> error
+        | Ok root ->
+            Ok
+              {
+                root with
+                initializer_leaf_ = Some leaf;
+                initializer_calls_ = source_calls;
+                initializer_call_trees_ =
+                  List.map
+                    (fun (call : call) ->
+                      ( call.source,
+                        call.callee_expression,
+                        call.result_expression ))
+                    calls;
+              })
 
 let make_switch_case ~index ~keyword_origin ~pattern ~origin =
   if index < 0 then
@@ -285,6 +350,56 @@ let make_statement ~source ~roots ~calls ~switch_cases =
       source |> Top_level_outer_expression_binding.statement_source
       |> Top_level_expression_binding.statement_initializer
     in
+    let retained_matches owner =
+      match Global_initializer_binding.global_source owner with
+      | None -> false
+      | Some manifest ->
+          let expected = Initializer_source.leaves manifest in
+          let scalar_shape =
+            match Initializer_source.tree manifest with
+            | Initializer_source.Scalar _ -> true
+            | Initializer_source.Braced _ | Initializer_source.Unbraced _ ->
+                owner |> Global_initializer_binding.global_record
+                |> Global_resolution.global_record_global
+                |> Global_type_resolution.global_array_dimensions <> []
+          in
+          scalar_shape && switch_cases = []
+          && List.for_all
+               (fun (call : call) ->
+                 List.exists (( == ) call.callee)
+                   (Top_level_outer_expression_binding.statement_occurrences
+                      source))
+               calls
+          && List.length roots = List.length expected
+          && List.for_all2
+               (fun root leaf ->
+                 match (root.role, root.initializer_leaf_) with
+                 | Global_initializer selected, Some actual ->
+                     selected == owner && actual == leaf
+                     && root.origin = Initializer_source.leaf_origin leaf
+                     && Function_call_resolution.argument_expression_origin
+                          root.expression
+                        = root.origin
+                 | _ -> false)
+               roots expected
+          &&
+          let expected_calls =
+            List.concat_map (fun root -> root.initializer_call_trees_) roots
+          in
+          let actual_calls =
+            List.map
+              (fun (call : call) ->
+                (call.source, call.callee_expression, call.result_expression))
+              calls
+          in
+          List.length expected_calls = List.length actual_calls
+          && List.for_all2
+               (fun (source, callee, result)
+                    (actual_source, actual_callee, actual_result) ->
+                 source == actual_source && callee == actual_callee
+                 && result == actual_result)
+               expected_calls actual_calls
+    in
     match (owner, roots) with
     | None, roots ->
         not
@@ -294,6 +409,7 @@ let make_statement ~source ~roots ~calls ~switch_cases =
                | Global_initializer _ -> true
                | _ -> false)
              roots)
+    | Some owner, _ when retained_matches owner -> true
     | ( Some owner,
         [ { role = Global_initializer selected; expression; origin; _ } ] ) -> (
         owner == selected && switch_cases = []
@@ -304,8 +420,13 @@ let make_statement ~source ~roots ~calls ~switch_cases =
           |> Global_type_resolution.global_initializer
         with
         | Some initial ->
-            Global_type_resolution.initializer_kind initial
-            = Global_type_resolution.Scalar_initializer
+            Option.is_none (Global_type_resolution.initializer_source initial)
+            && Global_type_resolution.initializer_kind initial
+               = Global_type_resolution.Scalar_initializer
+            && owner |> Global_initializer_binding.global_record
+               |> Global_resolution.global_record_global
+               |> Global_type_resolution.global_array_dimensions = []
+            && List.for_all (fun root -> root.initializer_leaf_ = None) roots
             && Global_type_resolution.initializer_value_origin initial = origin
             && Function_call_resolution.argument_expression_origin expression
                = origin

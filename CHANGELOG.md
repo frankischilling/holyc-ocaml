@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Connected fixed I64/U64/U8 global and static arrays in #627, including checked
+  multidimensional aliases, ordered numeric declaration leaves and direct owned
+  byte-string copies. AOT prepared images and JIT declaration publications retain
+  their distinct visibility. Complete source witnesses and graph-bound receipts
+  reject substituted dimensions, leaves, destinations and publication positions;
+  dumps expose array shapes, prepared cells and publication markers.
+
 - Added persistent scalar U8 globals and static locals in #625, including exact
   aliases, constant/scheduled initialization and fresh execution images. Stored
   values narrow to one byte while assignment register results remain intact.

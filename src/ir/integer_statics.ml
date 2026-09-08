@@ -6,14 +6,18 @@ module Records = Sema.Function_record_classification
 module Resolution = Sema.Function_resolution
 module Symbol = Sema.Symbol
 module Type = Sema.Type
+module Shape = Integer_storage_shape
+module Arrays = Integer_array_initializers
 
 type slot = {
   index : int;
   frame : Frame.function_layout;
   location : Frame.location;
+  shape : Shape.t;
   compiler_options : int64;
   opcode : Opcode.t;
   initial : Typed.initializer_result option;
+  array_initializers : Typed.initializer_result Arrays.t option;
   initial_bits : int64 option;
   preparation_steps : int;
 }
@@ -21,16 +25,30 @@ type slot = {
 let index slot = slot.index
 let frame slot = slot.frame
 let location slot = slot.location
+let shape slot = slot.shape
 let symbol slot = Frame.location_symbol slot.location
 let type_ slot = Frame.location_checked_type slot.location
 let compiler_options slot = slot.compiler_options
 let opcode slot = slot.opcode
 let initial slot = slot.initial
+let array_initializers slot = slot.array_initializers
+
+let initializers slot =
+  match slot.array_initializers with
+  | None -> Option.to_list slot.initial
+  | Some arrays -> List.map Arrays.root (Arrays.entries arrays)
+
 let initial_bits slot = slot.initial_bits
-let preparation_steps slot = slot.preparation_steps
+
+let preparation_steps slot =
+  slot.preparation_steps
+  + Option.fold ~none:0 ~some:Arrays.steps slot.array_initializers
 
 let materialized slot =
-  Option.is_none slot.initial || slot.preparation_steps > 0
+  (Option.is_none slot.initial || slot.preparation_steps > 0)
+  && not
+       (Option.fold ~none:false ~some:Arrays.has_unprepared
+          slot.array_initializers)
 
 let ( let* ) = Result.bind
 
@@ -129,13 +147,38 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                     Integer_scalar_storage.public_byte_size
                       (Frame.location_checked_type location)
                   in
+                  let dimensions =
+                    Frame.location_dimensions location
+                    |> List.map Frame.dimension_value
+                  in
+                  let checked_shape =
+                    Shape.create
+                      ~type_:(Frame.location_checked_type location)
+                      ~dimensions
+                  in
+                  let* shape =
+                    match checked_shape with
+                    | Ok shape -> Ok shape
+                    | Error Shape.Overflow ->
+                        invalid ~at ~code:"HCIRL0005"
+                          "persistent storage size exceeds the host integer \
+                           range"
+                    | Error _ ->
+                        invalid ~at ~code:"HCRUN0001"
+                          "static execution requires positive fixed public \
+                           I64/U64/U8 storage"
+                  in
                   if
                     Option.is_none scalar_bytes
+                    || dimensions <> []
+                       && not
+                            (Frame.location_source_dimensions_checked location)
                     || Frame.location_declarator_shape location <> Frame.Object
-                    || Frame.location_value_shape location <> Frame.Scalar
-                    || Frame.location_dimensions location <> []
+                    || (Frame.location_value_shape location
+                       <> if dimensions = [] then Frame.Scalar else Frame.Array
+                       )
                     || Frame.location_allocated_size location
-                       <> Int64.of_int (Option.get scalar_bytes)
+                       <> Int64.of_int (Shape.byte_size shape)
                     || Frame.location_element_size location
                        <> Int64.of_int (Option.get scalar_bytes)
                     || Frame.location_alignment location <> 8
@@ -145,7 +188,8 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                       "static execution requires scalar public I64/U64/U8 \
                        objects without frame slots"
                   else if
-                    index >= Int.max_int / 8 || index >= Sys.max_array_length
+                    Shape.element_count shape > Sys.max_array_length - index
+                    || Option.is_none (Shape.padded_byte_size shape)
                   then
                     invalid ~at ~code:"HCIRL0005"
                       "persistent storage size exceeds the host integer range"
@@ -167,42 +211,98 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                           |> fun owner -> owner == symbol)
                         remaining
                     in
-                    let* initial =
-                      match owned with
-                      | [] -> Ok None
-                      | [ root ] ->
-                          let* _ =
-                            Frame_address_lowering.prepare_initializer ~frame
-                              root
-                            |> Result.map_error
-                                 (List.map
-                                    (fun (error : Instruction_sequence.error) ->
-                                      Common.Diagnostic.make ~code:error.code
+                    let* () =
+                      List.fold_left
+                        (fun checked root ->
+                          let* () = checked in
+                          Frame_address_lowering.prepare_initializer ~frame root
+                          |> Result.map (fun _ -> ())
+                          |> Result.map_error
+                               (List.map
+                                  (fun (error : Instruction_sequence.error) ->
+                                    Common.Diagnostic.make ~code:error.code
+                                      ~severity:Common.Diagnostic.Error
+                                      ~message:error.message
+                                      ~primary:
+                                        (Option.value error.span ~default:at)
+                                      ())))
+                        (Ok ()) owned
+                    in
+                    let* array_initializers =
+                      if dimensions = [] then Ok None
+                      else
+                        match owned with
+                        | [] -> Ok None
+                        | root :: _ ->
+                            let local =
+                              root |> Typed.initializer_source
+                              |> Source.initializer_local
+                            in
+                            begin match
+                              Option.bind
+                                (Local.local_initializer local)
+                                Local.initializer_source
+                            with
+                            | None ->
+                                invalid ~at
+                                  "array initializer has no original source \
+                                   manifest"
+                            | Some source ->
+                                Arrays.create ~shape ~source ~roots:owned
+                                  ~source_leaf:(fun root ->
+                                    root |> Typed.initializer_source
+                                    |> Source.initializer_leaf)
+                                |> Result.map Option.some
+                                |> Result.map_error (fun message ->
+                                    [
+                                      Common.Diagnostic.make ~code:"HCRUN0006"
                                         ~severity:Common.Diagnostic.Error
-                                        ~message:error.message
-                                        ~primary:
-                                          (Option.value error.span ~default:at)
-                                        ()))
-                          in
-                          Ok (Some root)
-                      | _ ->
-                          invalid ~at
-                            "static initializer has duplicate declaration \
-                             owners"
+                                        ~message ~primary:at ();
+                                    ])
+                            end
+                    in
+                    let* initial =
+                      if dimensions <> [] then Ok None
+                      else
+                        match owned with
+                        | [] -> Ok None
+                        | [ root ] ->
+                            let* _ =
+                              Frame_address_lowering.prepare_initializer ~frame
+                                root
+                              |> Result.map_error
+                                   (List.map
+                                      (fun
+                                        (error : Instruction_sequence.error) ->
+                                        Common.Diagnostic.make ~code:error.code
+                                          ~severity:Common.Diagnostic.Error
+                                          ~message:error.message
+                                          ~primary:
+                                            (Option.value error.span ~default:at)
+                                          ()))
+                            in
+                            Ok (Some root)
+                        | _ ->
+                            invalid ~at
+                              "static initializer has duplicate declaration \
+                               owners"
                     in
                     let opcode, initial_bits =
                       match mode with
                       | Resolution.Jit -> (Opcode.Ic_imm_i64, None)
                       | Resolution.Aot -> (Opcode.Ic_abs_addr, Some 0L)
                     in
-                    locals (index + 1)
+                    locals
+                      (index + Shape.element_count shape)
                       ({
                          index;
                          frame;
                          location;
+                         shape;
                          compiler_options;
                          opcode;
                          initial;
+                         array_initializers;
                          initial_bits;
                          preparation_steps = 0;
                        }
@@ -222,3 +322,12 @@ let with_initial_value slot ~bits ~steps =
     initial_bits = Some (Integer_scalar_storage.narrow_bits (type_ slot) bits);
     preparation_steps = steps;
   }
+
+let with_array_initial_values slot updates =
+  match slot.array_initializers with
+  | None ->
+      if updates = [] then Ok slot
+      else Error "HCIRL0004: static has no array initializer"
+  | Some arrays ->
+      let* arrays = Arrays.publish arrays updates in
+      Ok { slot with array_initializers = Some arrays }

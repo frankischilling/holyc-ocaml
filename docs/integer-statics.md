@@ -1,5 +1,9 @@
 # Scalar static locals
 
+[Fixed static arrays](integer-persistent-arrays.md) use the same persistent
+lifetime and declaration-position initialization. Their whole allocation rounds
+to eight bytes; padding is outside the accessible object and invocation frame.
+
 [Scalar U8 statics](integer-persistent-bytes.md) now use the same declaration
 initialization and persistent lifetime as word statics. Each scalar allocation
 charges eight padded bytes while a U8 reference has one accessible byte.

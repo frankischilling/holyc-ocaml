@@ -315,6 +315,8 @@ type initializer_input = {
   local : Local_type_resolution.local;
   expression : argument_expression;
   origin : Symbol.origin;
+  source_leaf : Initializer_source.leaf option;
+  source_calls : call list;
 }
 
 type function_input = {
@@ -461,6 +463,8 @@ let initializer_index (initial : initializer_input) = initial.index
 let initializer_local (initial : initializer_input) = initial.local
 let initializer_expression (initial : initializer_input) = initial.expression
 let initializer_origin (initial : initializer_input) = initial.origin
+let initializer_leaf (initial : initializer_input) = initial.source_leaf
+let initializer_calls (initial : initializer_input) = initial.source_calls
 let call_index (call : call) = call.index
 let call_callee_occurrence_index (call : call) = call.callee_occurrence_index
 let call_callee_name (call : call) = call.callee_name
@@ -1683,6 +1687,257 @@ let make_return ~index ~keyword_origin ~expression ~origin =
     Error "function return statement has an invalid source origin"
   else Ok { index; keyword_origin; expression; origin }
 
+let validate_initializer_expression ~leaf ~expression ~calls
+    ?(callee_expressions = []) ?(call_expressions = []) () =
+  let module Ast = Frontend.Ast in
+  let origin = Initializer_source.origin_of_location in
+  let same_list check left right =
+    List.length left = List.length right && List.for_all2 check left right
+  in
+  let prefix = function
+    | Ast.Unary_plus -> Unary_plus
+    | Ast.Unary_minus -> Unary_minus
+    | Ast.Logical_not -> Logical_not
+    | Ast.Bitwise_not -> Bitwise_not
+    | Ast.Dereference -> Dereference
+    | Ast.Address_of -> Address_of
+    | Ast.Pre_increment -> Pre_increment
+    | Ast.Pre_decrement -> Pre_decrement
+  in
+  let postfix = function
+    | Ast.Post_increment -> Post_increment
+    | Ast.Post_decrement -> Post_decrement
+  in
+  let member_kind = function
+    | Ast.Direct_member -> Direct_member
+    | Ast.Pointer_member -> Pointer_member
+  in
+  let rec direct_callee depth = function
+    | Ast.Identifier_expression identifier ->
+        Some
+          ( identifier,
+            if depth = 0 then Identifier_callee
+            else Dereferenced_identifier_callee depth )
+    | Ast.Parenthesized_expression group ->
+        direct_callee depth group.grouped_expression
+    | Ast.Prefix_expression prefix
+      when prefix.prefix_operator_kind = Ast.Dereference ->
+        direct_callee (depth + 1) prefix.prefix_operand
+    | _ -> None
+  in
+  let rec first_identifier = function
+    | Ast.Identifier_expression identifier -> Some identifier
+    | Ast.Parenthesized_expression group ->
+        first_identifier group.grouped_expression
+    | Ast.Prefix_expression prefix -> first_identifier prefix.prefix_operand
+    | Ast.Postfix_expression postfix -> first_identifier postfix.postfix_operand
+    | Ast.Postfix_cast_expression cast -> first_identifier cast.cast_operand
+    | Ast.Index_expression index -> first_identifier index.index_base
+    | Ast.Member_expression member -> first_identifier member.member_base
+    | _ -> None
+  in
+  let remaining = ref calls in
+  let rec matches ast checked =
+    checked.expression_origin = origin (Ast.expression_location ast)
+    &&
+    match (ast, checked.expression_kind) with
+    | Ast.Integer_literal literal, Integer_literal value
+    | Ast.Character_literal literal, Character_literal value ->
+        literal.literal_value = Ast.Integer_value value
+    | Ast.Float_literal literal, Float_literal value -> (
+        match literal.literal_value with
+        | Ast.Float_value actual -> Int64.bits_of_float actual = value
+        | _ -> false)
+    | Ast.String_literal literal, String_literal value ->
+        literal.literal_value = Ast.Bytes_value value
+    | Ast.Parenthesized_expression group, Parenthesized_expression value ->
+        matches group.grouped_expression value
+    | Ast.Prefix_expression ast, Prefix_expression checked ->
+        prefix ast.prefix_operator_kind = checked.prefix_operator
+        && origin ast.prefix_operator.operator_location
+           = checked.prefix_operator_origin
+        && matches ast.prefix_operand checked.prefix_operand
+    | Ast.Postfix_expression ast, Postfix_expression checked ->
+        postfix ast.postfix_operator_kind = checked.postfix_operator
+        && origin ast.postfix_operator.operator_location
+           = checked.postfix_operator_origin
+        && matches ast.postfix_operand checked.postfix_operand
+    | Ast.Postfix_cast_expression ast, Postfix_cast_expression (operand, target)
+      ->
+        Type_reference.spelling target
+        = Ast.type_specifier_spelling ast.cast_type
+        && Type_reference.spelling_origin target
+           = origin (Ast.type_specifier_location ast.cast_type)
+        && Type_reference.pointer_origins target
+           = List.map
+               (fun (layer : Ast.pointer_layer) -> origin layer.location)
+               ast.cast_pointer_layers
+        && matches ast.cast_operand operand
+    | Ast.Binary_expression ast, Binary_expression checked ->
+        Generated.Intermediate_codes.of_source_name
+          ast.binary_operator_spec.ic_name
+        = Some checked.binary_operator
+        && origin ast.binary_operator.operator_location
+           = checked.binary_operator_origin
+        && matches ast.binary_left checked.binary_left
+        && matches ast.binary_right checked.binary_right
+    | Ast.Index_expression ast, Index_expression checked ->
+        origin ast.index_opening_bracket = checked.index_opening_origin
+        && origin ast.index_closing_bracket = checked.index_closing_origin
+        && matches ast.index_base checked.index_base
+        && matches ast.index_value checked.index_value
+    | Ast.Member_expression ast, Member_access_expression checked ->
+        member_kind ast.member_access_kind = checked.member_access_kind
+        && origin ast.member_operator.operator_location
+           = checked.member_operator_origin
+        && ast.member_name.spelling = checked.member_name
+        && origin ast.member_name.location = checked.member_origin
+        && matches ast.member_base checked.member_base
+    | Ast.Identifier_expression ast, Bound_identifier_expression checked ->
+        let occurrence = checked.bound_identifier_occurrence_ in
+        Module_expression_binding.occurrence_name occurrence = ast.spelling
+        && Module_expression_binding.occurrence_origin occurrence
+           = origin ast.location
+    | Ast.Identifier_expression ast, Aggregate_offset_base_expression checked ->
+        let occurrence = checked.aggregate_offset_base_occurrence_ in
+        Module_expression_binding.occurrence_name occurrence = ast.spelling
+        && Module_expression_binding.occurrence_origin occurrence
+           = origin ast.location
+    | ( Ast.Identifier_expression ast,
+        Top_level_bound_identifier_expression checked ) ->
+        let occurrence = checked.top_level_bound_identifier_occurrence_ in
+        Top_level_outer_expression_binding.occurrence_name occurrence
+        = ast.spelling
+        && Top_level_outer_expression_binding.occurrence_origin occurrence
+           = origin ast.location
+    | ( Ast.Current_position_expression _,
+        Unresolved_expression Current_position_expression ) -> true
+    | Ast.Sizeof_expression ast, Sizeof_expression checked ->
+        ast.sizeof_keyword_spelling = checked.sizeof_keyword_spelling_
+        && origin ast.sizeof_keyword_location = checked.sizeof_keyword_origin_
+        && List.map origin ast.sizeof_opening_parentheses
+           = checked.sizeof_opening_origins_
+        && ast.sizeof_target.spelling = checked.sizeof_target_spelling_
+        && origin ast.sizeof_target.location = checked.sizeof_target_origin_
+        && List.map origin ast.sizeof_closing_parentheses
+           = checked.sizeof_closing_origins_
+        && same_list
+             (fun (ast : Ast.sizeof_member) checked ->
+               origin ast.sizeof_member_dot = checked.sizeof_member_dot_origin_
+               && ast.sizeof_member_name.spelling = checked.sizeof_member_name_
+               && origin ast.sizeof_member_name.location
+                  = checked.sizeof_member_name_origin_
+               && origin ast.sizeof_member_location
+                  = checked.sizeof_member_origin_)
+             ast.sizeof_members checked.sizeof_members_
+        && same_list
+             (fun (ast : Ast.pointer_layer) checked ->
+               ast.depth = checked.sizeof_pointer_depth_
+               && ast.spelling = checked.sizeof_pointer_spelling_
+               && origin ast.location = checked.sizeof_pointer_origin_)
+             ast.sizeof_pointer_layers checked.sizeof_pointer_layers_
+    | Ast.Offset_expression ast, Standalone_offset_expression checked ->
+        ast.offset_keyword_spelling = checked.offset_keyword_spelling_
+        && origin ast.offset_keyword_location = checked.offset_keyword_origin_
+        && List.map origin ast.offset_opening_parentheses
+           = checked.offset_opening_origins_
+        && ast.offset_target.spelling = checked.offset_target_spelling_
+        && origin ast.offset_target.location = checked.offset_target_origin_
+        && List.map origin ast.offset_closing_parentheses
+           = checked.offset_closing_origins_
+        && same_list
+             (fun (ast : Ast.offset_member) checked ->
+               origin ast.offset_member_dot = checked.offset_member_dot_origin_
+               && ast.offset_member_name.spelling = checked.offset_member_name_
+               && origin ast.offset_member_name.location
+                  = checked.offset_member_name_origin_
+               && origin ast.offset_member_location
+                  = checked.offset_member_origin_)
+             ast.offset_members checked.offset_members_
+    | Ast.Defined_expression ast, Defined_expression checked ->
+        let operand = ast.defined_operand in
+        (match operand.defined_operand_kind with
+          | Ast.Defined_name -> Defined_name
+          | Ast.Defined_non_name -> Defined_non_name)
+        = checked.defined_operand_kind_
+        && operand.defined_operand_spelling = checked.defined_operand_spelling_
+        && origin operand.defined_operand_location
+           = checked.defined_operand_origin_
+    | Ast.Call_expression ast, Unresolved_expression Call_expression ->
+        call_matches ast checked
+    | _ -> false
+  and call_matches (ast : Ast.call_expression) expression =
+    match !remaining with
+    | [] -> false
+    | (checked : call) :: rest ->
+        remaining := rest;
+        let callee_matches =
+          match direct_callee 0 ast.call_callee with
+          | Some (identifier, form) ->
+              checked.callee_form = form
+              && checked.callee_name = identifier.spelling
+              && checked.callee_origin = origin identifier.location
+              && checked.computed_callee = None
+          | None -> (
+              match first_identifier ast.call_callee with
+              | Some identifier ->
+                  checked.callee_form = Member_callee
+                  && checked.callee_name = identifier.spelling
+                  && checked.callee_origin = origin identifier.location
+              | None -> false)
+        in
+        checked.origin = origin ast.call_location
+        && (match call_expressions with
+          | [] -> true
+          | _ ->
+              Option.fold ~none:false
+                ~some:(fun (_, expected) -> expected == expression)
+                (List.find_opt
+                   (fun (call, _) -> call == checked)
+                   call_expressions))
+        && (checked.syntax
+           =
+           match ast.call_syntax with
+           | Ast.Parenthesized_call _ -> Parenthesized
+           | Ast.Parenthesis_free_call -> Parenthesis_free)
+        && callee_matches
+        && (match
+              List.find_opt
+                (fun (call, _) -> call == checked)
+                callee_expressions
+            with
+          | Some (_, callee) -> matches ast.call_callee callee
+          | None -> (
+              match checked.computed_callee with
+              | Some callee -> matches ast.call_callee callee
+              | None -> true))
+        && same_list
+             (fun (ast : Ast.call_argument) (checked : argument) ->
+               checked.origin = origin ast.call_argument_location
+               &&
+               match
+                 (ast.call_argument_value, checked.kind, checked.expression)
+               with
+               | Ast.Omitted_call_argument, Omitted, None -> true
+               | Ast.Provided_call_argument ast, Provided, Some checked ->
+                   matches ast checked
+               | _ -> false)
+             ast.call_arguments checked.arguments
+  in
+  let pairs_are_owned =
+    List.for_all
+      (fun (call, _) -> List.exists (( == ) call) calls)
+      (callee_expressions @ call_expressions)
+  in
+  if
+    pairs_are_owned
+    && matches (Initializer_source.leaf_expression_ast leaf) expression
+    && !remaining = []
+  then Ok ()
+  else
+    Error
+      "initializer expression or calls do not match its retained source leaf"
+
 let make_initializer ~index ~local ~expression ~origin =
   if index < 0 then Error "function initializer index cannot be negative"
   else if not (valid_origin origin) then
@@ -1692,13 +1947,50 @@ let make_initializer ~index ~local ~expression ~origin =
     | Some initial
       when Local_type_resolution.initializer_kind initial
            = Local_type_resolution.Scalar_initializer
+           && Option.is_none (Local_type_resolution.initializer_source initial)
            && Local_type_resolution.initializer_origin initial = origin
            && Local_type_resolution.initializer_value_origin initial
               = argument_expression_origin expression ->
-        Ok { index; local; expression; origin }
+        if Local_type_resolution.local_array_dimensions local <> [] then
+          Error "array initializer requires a retained source leaf"
+        else
+          Ok
+            {
+              index;
+              local;
+              expression;
+              origin;
+              source_leaf = None;
+              source_calls = [];
+            }
     | _ ->
         Error
           "function initializer does not match its checked local declaration"
+
+let make_initializer_leaf ~index ~local ~leaf ~expression ~calls ~origin =
+  if index < 0 then Error "function initializer index cannot be negative"
+  else if not (valid_origin origin) then
+    Error "function initializer has an invalid source origin"
+  else
+    match Local_type_resolution.local_initializer local with
+    | Some initial
+      when Local_type_resolution.initializer_origin initial = origin
+           && Option.fold ~none:false
+                ~some:(fun source -> Initializer_source.owns_leaf source leaf)
+                (Local_type_resolution.initializer_source initial) -> (
+        match validate_initializer_expression ~leaf ~expression ~calls () with
+        | Error _ as error -> error
+        | Ok () ->
+            Ok
+              {
+                index;
+                local;
+                expression;
+                origin;
+                source_leaf = Some leaf;
+                source_calls = calls;
+              })
+    | _ -> Error "function initializer leaf has a foreign declaration owner"
 
 let make_condition ~index ~role ~keyword_origin ~expression ~origin =
   if index < 0 then Error "function condition index cannot be negative"
@@ -1845,10 +2137,85 @@ let validate_return_indexes returns =
   in
   loop 0 returns
 
+let validate_initializer_batches calls initializers =
+  let rec consume local expected actual =
+    match (expected, actual) with
+    | [], rest -> Ok rest
+    | leaf :: leaves, (initial : initializer_input) :: rest
+      when initial.local == local
+           && Option.fold ~none:false ~some:(( == ) leaf) initial.source_leaf ->
+        consume local leaves rest
+    | _ ->
+        Error "function initializer leaves are missing, repeated or reordered"
+  in
+  let position local =
+    ( Local_type_resolution.local_declaration_index local,
+      Local_type_resolution.local_declarator_index local )
+  in
+  let rec groups previous = function
+    | [] -> Ok ()
+    | (initial : initializer_input) :: rest as all -> (
+        let current = position initial.local in
+        if
+          Option.fold ~none:false
+            ~some:(fun previous -> previous >= current)
+            previous
+        then Error "function initializer declarations are repeated or reordered"
+        else
+          let remaining =
+            match initial.source_leaf with
+            | None ->
+                if
+                  Local_type_resolution.local_array_dimensions initial.local
+                  = []
+                then Ok rest
+                else Error "array initializer has no retained source leaf"
+            | Some _ -> (
+                match
+                  Option.bind
+                    (Local_type_resolution.local_initializer initial.local)
+                    Local_type_resolution.initializer_source
+                with
+                | None ->
+                    Error "function initializer has no retained source manifest"
+                | Some manifest ->
+                    consume initial.local
+                      (Initializer_source.leaves manifest)
+                      all)
+          in
+          match remaining with
+          | Error _ as error -> error
+          | Ok remaining -> groups (Some current) remaining)
+  in
+  let rec owned_calls previous = function
+    | [] -> Ok ()
+    | (call : call) :: rest ->
+        if
+          (not (List.exists (( == ) call) calls))
+          || Option.fold ~none:false
+               ~some:(fun index -> index >= call.index)
+               previous
+        then
+          Error
+            "function initializer calls have foreign or repeated source \
+             ownership"
+        else owned_calls (Some call.index) rest
+  in
+  match groups None initializers with
+  | Error _ as error -> error
+  | Ok () ->
+      owned_calls None
+        (List.concat_map (fun initial -> initial.source_calls) initializers)
+
 let make_function ~symbol ~scope ~item_index ?(expression_statements = [])
     ?(implicit_outputs = []) ?(conditions = []) ?(selectors = [])
     ?(switch_cases = []) ?(returns = []) ?(initializers = [])
     (calls : call list) : (function_input, string) result =
+  let initializer_error =
+    match validate_initializer_batches calls initializers with
+    | Error message -> Some message
+    | Ok () -> None
+  in
   if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Function) then
     Error "function call owner is not a function"
   else if Symbol_table.scope_kind scope <> Symbol_table.Function then
@@ -1862,6 +2229,8 @@ let make_function ~symbol ~scope ~item_index ?(expression_statements = [])
          initializers
       |> List.for_all Fun.id)
   then Error "function initializer indexes are not contiguous"
+  else if Option.is_some initializer_error then
+    Error (Option.get initializer_error)
   else
     match validate_expression_statement_indexes expression_statements with
     | Error _ as error -> error

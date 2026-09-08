@@ -1,5 +1,9 @@
 # Shared integer globals
 
+[Fixed persistent arrays](integer-persistent-arrays.md) extend these objects
+with checked dimensions, suffix strides, declared byte counts and sparse
+prepared leaf images. Global array aliases retain the complete object bound.
+
 [Scalar U8 globals](integer-persistent-bytes.md) extend the original word
 storage contract below. Global byte charges follow declared width; initializer
 sources can retain byte classes and full assignment register values.

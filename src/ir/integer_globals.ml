@@ -7,15 +7,19 @@ module Typed = Sema.Function_call_expression_result
 module Initial = Sema.Global_initializer_binding
 module Symbols = Map.Make (Symbol.Id)
 module Scalar = Integer_scalar_storage
+module Shape = Integer_storage_shape
+module Arrays = Integer_array_initializers
 
 type slot = {
   index : int;
   symbol : Symbol.t;
   type_ : Type.t;
   record : Records.classified_record;
+  shape : Shape.t;
   opcode : Opcode.t;
   initial_bits : int64 option;
   initializer_root : Typed.top_level_root_result option;
+  array_initializers : Typed.top_level_root_result Arrays.t option;
   initializer_materialized : bool;
   initializer_preparation_steps : int;
 }
@@ -29,6 +33,7 @@ type t = {
   statics_ : static_slot list;
   mode : Resolution.compilation_mode;
   global_byte_size_ : int;
+  global_cell_count_ : int;
   byte_size_ : int;
 }
 
@@ -38,15 +43,54 @@ let slot_index slot = slot.index
 let slot_symbol slot = slot.symbol
 let slot_type slot = slot.type_
 let slot_record slot = slot.record
+let slot_shape slot = slot.shape
 let slot_opcode slot = slot.opcode
 let slot_initial_bits slot = slot.initial_bits
 let slot_initializer slot = slot.initializer_root
+let slot_array_initializers slot = slot.array_initializers
+
+let slot_initializers slot =
+  match slot.array_initializers with
+  | None -> Option.to_list slot.initializer_root
+  | Some arrays -> List.map Arrays.root (Arrays.entries arrays)
+
 let slot_initializer_materialized slot = slot.initializer_materialized
-let slot_initializer_preparation_steps slot = slot.initializer_preparation_steps
+
+let slot_root_materialized slot root =
+  match slot.array_initializers with
+  | Some arrays ->
+      Option.fold ~none:false
+        ~some:(fun entry -> Option.is_some (Arrays.prepared entry))
+        (Arrays.find arrays root)
+  | None ->
+      Option.fold ~none:false
+        ~some:(fun expected ->
+          expected == root && slot.initializer_materialized)
+        slot.initializer_root
+
+let slot_initializer_preparation_steps slot =
+  slot.initializer_preparation_steps
+  + Option.fold ~none:0 ~some:Arrays.steps slot.array_initializers
+
 let statics globals = globals.statics_
 let static_frame = Integer_statics.frame
 let static_location = Integer_statics.location
 let static_initializer = Integer_statics.initial
+let static_initializers = Integer_statics.initializers
+let static_array_initializers = Integer_statics.array_initializers
+
+let static_root_materialized slot root =
+  match static_array_initializers slot with
+  | Some arrays ->
+      Option.fold ~none:false
+        ~some:(fun entry -> Option.is_some (Arrays.prepared entry))
+        (Arrays.find arrays root)
+  | None ->
+      Option.fold ~none:false
+        ~some:(fun expected ->
+          expected == root && Integer_statics.materialized slot)
+        (static_initializer slot)
+
 let static_compiler_options = Integer_statics.compiler_options
 let static_storage slot = Static slot
 let global_storage slot = Global slot
@@ -54,6 +98,21 @@ let global_storage slot = Global slot
 let storage_slots globals =
   List.map global_storage globals.slots_
   @ List.map static_storage globals.statics_
+
+let storage_shape = function
+  | Global slot -> slot.shape
+  | Static slot -> Integer_statics.shape slot
+
+let storage_element_count slot = Shape.element_count (storage_shape slot)
+let storage_strides slot = Shape.strides (storage_shape slot)
+let storage_dimensions slot = Shape.dimensions (storage_shape slot)
+
+let cell_count globals =
+  globals.global_cell_count_
+  + List.fold_left
+      (fun total slot ->
+        total + Shape.element_count (Integer_statics.shape slot))
+      0 globals.statics_
 
 let storage_index = function
   | Global slot -> slot.index
@@ -76,7 +135,7 @@ let storage_initial_bits = function
   | Static slot -> Integer_statics.initial_bits slot
 
 let storage_preparation_steps = function
-  | Global slot -> slot.initializer_preparation_steps
+  | Global slot -> slot_initializer_preparation_steps slot
   | Static slot -> Integer_statics.preparation_steps slot
 
 let storage_frame = function
@@ -96,9 +155,8 @@ let with_statics ~span ~frames ~functions ~records globals =
     | Resolution.Aot -> Sema.Function_resolution.Aot
   in
   let* statics_ =
-    Integer_statics.create ~span ~mode
-      ~start:(List.length globals.slots_)
-      ~frames ~functions ~records
+    Integer_statics.create ~span ~mode ~start:globals.global_cell_count_ ~frames
+      ~functions ~records
   in
   if
     List.exists
@@ -113,28 +171,29 @@ let with_statics ~span ~frames ~functions ~records globals =
           ~message:"global and static storage have colliding symbol identities"
           ~primary:span ();
       ]
-  else if List.length statics_ > (Int.max_int - globals.global_byte_size_) / 8
-  then
-    Error
-      [
-        Common.Diagnostic.make ~code:"HCIRL0005"
-          ~severity:Common.Diagnostic.Error
-          ~message:"persistent storage size exceeds the host integer range"
-          ~primary:span ();
-      ]
   else
-    Ok
-      {
-        globals with
-        statics_;
-        byte_size_ = globals.global_byte_size_ + (List.length statics_ * 8);
-      }
+    let* byte_size_ =
+      List.fold_left
+        (fun total slot ->
+          let* total = total in
+          match Shape.padded_byte_size (Integer_statics.shape slot) with
+          | Some bytes when bytes <= Int.max_int - total -> Ok (total + bytes)
+          | _ ->
+              Error
+                [
+                  Common.Diagnostic.make ~code:"HCIRL0005"
+                    ~severity:Common.Diagnostic.Error
+                    ~message:
+                      "persistent storage size exceeds the host integer range"
+                    ~primary:span ();
+                ])
+        (Ok globals.global_byte_size_) statics_
+    in
+    Ok { globals with statics_; byte_size_ }
 
 let has_initializers globals =
-  List.exists (fun slot -> Option.is_some slot.initializer_root) globals.slots_
-  || List.exists
-       (fun slot -> Option.is_some (static_initializer slot))
-       globals.statics_
+  List.exists (fun slot -> slot_initializers slot <> []) globals.slots_
+  || List.exists (fun slot -> static_initializers slot <> []) globals.statics_
 
 let has_unprepared_statics globals =
   List.exists
@@ -144,7 +203,9 @@ let has_unprepared_statics globals =
 let requires_initializer_execution globals =
   List.exists
     (fun slot ->
-      Option.is_some slot.initializer_root && not slot.initializer_materialized)
+      (Option.is_some slot.initializer_root && not slot.initializer_materialized)
+      || Option.fold ~none:false ~some:Arrays.has_unprepared
+           slot.array_initializers)
     globals.slots_
 
 let find globals symbol =
@@ -157,7 +218,7 @@ let find_storage globals symbol =
   | Some slot -> Some (Global slot)
   | None -> Option.map static_storage (find_static globals symbol)
 
-let create ?initializers ~span:unit_span records =
+let create_impl ?layout ?initializers ~span:unit_span records =
   let ( let* ) = Result.bind in
   let invalid message =
     Error
@@ -186,9 +247,12 @@ let create ?initializers ~span:unit_span records =
       (fun result (owner, root) ->
         let* roots = result in
         let id = Initial.global_symbol owner |> Symbol.id in
-        if Symbols.mem id roots then
-          invalid "global initializer roots have duplicate owners"
-        else Ok (Symbols.add id (owner, root) roots))
+        match Symbols.find_opt id roots with
+        | None -> Ok (Symbols.add id (owner, [ root ]) roots)
+        | Some (expected, previous) when expected == owner ->
+            Ok (Symbols.add id (owner, root :: previous) roots)
+        | Some _ ->
+            invalid "global initializer roots have foreign declaration owners")
       (Ok Symbols.empty) roots
   in
   let rec collect index byte_size symbols reversed roots = function
@@ -201,6 +265,7 @@ let create ?initializers ~span:unit_span records =
               statics_ = [];
               mode = Records.compilation_mode records;
               global_byte_size_ = byte_size;
+              global_cell_count_ = index;
               byte_size_ = byte_size;
             }
         else invalid "global initializer roots include an absent declaration"
@@ -227,7 +292,6 @@ let create ?initializers ~span:unit_span records =
           Global.global_type_reference global
           |> Sema.Type_reference.resolved_type
         in
-        let scalar_bytes = Scalar.public_byte_size type_ in
         if symbol != Global.global_symbol global || Option.is_none span then
           fail "HCIRL0004"
             "global storage has inconsistent symbol or source evidence"
@@ -250,56 +314,133 @@ let create ?initializers ~span:unit_span records =
           fail "HCRUN0001"
             "global declaration initializer execution is not implemented"
         else if
-          Option.is_none scalar_bytes
-          || Global.global_array_dimensions global <> []
+          Option.is_none (Scalar.public_byte_size type_)
           || Global.global_declarator_kind global <> Global.Object
         then
           fail "HCRUN0001"
             "global execution requires scalar public I64/U64/U8 objects"
-        else if
-          index >= Int.max_int / 8
-          || index >= Sys.max_array_length
-          || Option.get scalar_bytes > Int.max_int - byte_size
-        then
-          fail "HCIRL0005" "global storage size exceeds the host integer range"
         else
-          let* initializer_root =
-            match
-              ( Global.global_initializer global,
-                Symbols.find_opt (Symbol.id symbol) roots )
-            with
-            | None, None -> Ok None
-            | Some _, Some (owner, root) ->
-                let value = Typed.top_level_root_value root in
-                if
-                  Initial.global_record owner != source
-                  || Initial.global_symbol owner != symbol
-                  || Typed.top_level_root_result_use root <> None
-                then
+          let* dimensions =
+            match Global.global_array_dimensions global with
+            | [] -> Ok []
+            | _ -> (
+                match
+                  Option.bind layout (fun layout ->
+                      Sema.Global_array_layout.find layout source)
+                with
+                | Some checked ->
+                    Ok (Sema.Global_array_layout.dimensions checked)
+                | None ->
+                    fail "HCRUN0001"
+                      "global array execution requires its exact checked \
+                       extents")
+          in
+          let* shape =
+            match Shape.create ~type_ ~dimensions with
+            | Ok shape -> Ok shape
+            | Error Shape.Overflow ->
+                fail "HCIRL0005"
+                  "global storage size exceeds the host integer range"
+            | Error _ ->
+                fail "HCRUN0001"
+                  "global execution requires positive fixed integer storage"
+          in
+          let* () =
+            if
+              Shape.element_count shape > Sys.max_array_length - index
+              || Shape.byte_size shape > Int.max_int - byte_size
+            then
+              fail "HCIRL0005"
+                "global storage size exceeds the host integer range"
+            else Ok ()
+          in
+          let owned =
+            Option.map
+              (fun (owner, roots) -> (owner, List.rev roots))
+              (Symbols.find_opt (Symbol.id symbol) roots)
+          in
+          let* array_initializers =
+            if dimensions = [] then Ok None
+            else
+              match (Global.global_initializer global, owned) with
+              | None, None -> Ok None
+              | Some initial, Some (owner, owned_roots) ->
+                  if
+                    Initial.global_record owner != source
+                    || Initial.global_symbol owner != symbol
+                    || List.exists
+                         (fun root ->
+                           Typed.top_level_root_result_use root <> None)
+                         owned_roots
+                  then
+                    fail "HCIRL0004"
+                      "array initializer has inconsistent declaration evidence"
+                  else
+                    begin match Global.initializer_source initial with
+                    | None ->
+                        fail "HCIRL0004"
+                          "array initializer has no original source manifest"
+                    | Some source ->
+                        Arrays.create ~shape ~source ~roots:owned_roots
+                          ~source_leaf:(fun root ->
+                            root |> Typed.top_level_root_source
+                            |> Sema.Top_level_expression_tree
+                               .root_initializer_leaf)
+                        |> Result.map Option.some
+                        |> Result.map_error (fun message ->
+                            [
+                              Common.Diagnostic.make ~code:"HCRUN0006"
+                                ~severity:Common.Diagnostic.Error ~message
+                                ~primary:(Option.value span ~default:unit_span)
+                                ();
+                            ])
+                    end
+              | _ ->
                   fail "HCIRL0004"
-                    "global initializer root has inconsistent declaration \
-                     evidence"
-                else if
-                  Typed.result_array_rank value <> 0
-                  || (not
-                        (match Typed.result_category value with
-                        | Typed.Object_value | Typed.Lvalue -> true
-                        | _ -> false))
-                  || not
-                       (match Typed.result_type value with
-                       | Some type_ when Type.pointer_depth type_ = 0 -> (
-                           match Type.base type_ with
-                           | Type.Primitive
-                               (_, (Sema.Primitive_type.I64 | U64 | U8)) -> true
-                           | _ -> false)
-                       | _ -> false)
-                then
-                  fail "HCRUN0001"
-                    "global initializer requires a scalar I64/U64/U8 value"
-                else Ok (Some root)
-            | _ ->
-                fail "HCIRL0004"
-                  "global declaration and initializer roots disagree"
+                    "array declaration and initializer roots disagree"
+          in
+          let* initializer_root =
+            if dimensions <> [] then Ok None
+            else
+              match (Global.global_initializer global, owned) with
+              | None, None -> Ok None
+              | Some initial, Some (owner, [ root ]) ->
+                  let value = Typed.top_level_root_value root in
+                  if
+                    Global.initializer_kind initial <> Global.Scalar_initializer
+                  then
+                    fail "HCRUN0001"
+                      "scalar storage requires a scalar initializer expression"
+                  else if
+                    Initial.global_record owner != source
+                    || Initial.global_symbol owner != symbol
+                    || Typed.top_level_root_result_use root <> None
+                  then
+                    fail "HCIRL0004"
+                      "global initializer root has inconsistent declaration \
+                       evidence"
+                  else if
+                    Typed.result_array_rank value <> 0
+                    || (not
+                          (match Typed.result_category value with
+                          | Typed.Object_value | Typed.Lvalue -> true
+                          | _ -> false))
+                    || not
+                         (match Typed.result_type value with
+                         | Some type_ when Type.pointer_depth type_ = 0 -> (
+                             match Type.base type_ with
+                             | Type.Primitive
+                                 (_, (Sema.Primitive_type.I64 | U64 | U8)) ->
+                                 true
+                             | _ -> false)
+                         | _ -> false)
+                  then
+                    fail "HCRUN0001"
+                      "global initializer requires a scalar I64/U64/U8 value"
+                  else Ok (Some root)
+              | _ ->
+                  fail "HCIRL0004"
+                    "global declaration and initializer roots disagree"
           in
           let path =
             match
@@ -323,21 +464,29 @@ let create ?initializers ~span:unit_span records =
                   symbol;
                   type_;
                   record;
+                  shape;
                   opcode;
                   initial_bits;
                   initializer_root;
+                  array_initializers;
                   initializer_materialized = false;
                   initializer_preparation_steps = 0;
                 }
               in
-              collect (index + 1)
-                (byte_size + Option.get scalar_bytes)
+              collect
+                (index + Shape.element_count shape)
+                (byte_size + Shape.byte_size shape)
                 (Symbols.add (Symbol.id symbol) slot symbols)
                 (slot :: reversed)
                 (Symbols.remove (Symbol.id symbol) roots)
                 rest)
   in
   collect 0 0 Symbols.empty [] roots (Records.records records)
+
+let create ?initializers ~span records = create_impl ?initializers ~span records
+
+let create_with_layout ~layout ?initializers ~span records =
+  create_impl ~layout ?initializers ~span records
 
 let with_initial_values ~span globals values =
   let invalid message =
@@ -403,6 +552,80 @@ let with_initial_values ~span globals values =
   in
   Ok { globals with slots_; symbols; statics_ }
 
+let with_array_initial_values ~span globals ~global_values ~static_values =
+  let invalid message =
+    Error
+      [
+        Common.Diagnostic.make ~code:"HCIRL0004"
+          ~severity:Common.Diagnostic.Error ~message ~primary:span ();
+      ]
+  in
+  let ( let* ) = Result.bind in
+  let partition arrays values =
+    List.partition
+      (fun (root, _, _) ->
+        Option.fold ~none:false
+          ~some:(fun arrays -> Option.is_some (Arrays.find arrays root))
+          arrays)
+      values
+  in
+  let rec update_globals reversed values = function
+    | [] ->
+        if values = [] then Ok (List.rev reversed)
+        else invalid "array image contains a foreign global initializer root"
+    | slot :: rest ->
+        let owned, values = partition slot.array_initializers values in
+        let* slot =
+          match slot.array_initializers with
+          | None -> Ok slot
+          | Some arrays ->
+              begin match Arrays.publish arrays owned with
+              | Error message -> invalid message
+              | Ok arrays -> Ok { slot with array_initializers = Some arrays }
+              end
+        in
+        update_globals (slot :: reversed) values rest
+  in
+  let rec update_statics reversed values = function
+    | [] ->
+        if values = [] then Ok (List.rev reversed)
+        else invalid "array image contains a foreign static initializer root"
+    | slot :: rest ->
+        let owned, values = partition (static_array_initializers slot) values in
+        let* slot =
+          match Integer_statics.with_array_initial_values slot owned with
+          | Error message -> invalid message
+          | Ok slot -> Ok slot
+        in
+        update_statics (slot :: reversed) values rest
+  in
+  let* slots_ = update_globals [] global_values globals.slots_ in
+  let* statics_ = update_statics [] static_values globals.statics_ in
+  let symbols =
+    List.fold_left
+      (fun map slot -> Symbols.add (Symbol.id slot.symbol) slot map)
+      Symbols.empty slots_
+  in
+  Ok { globals with slots_; statics_; symbols }
+
+let storage_array_image slot =
+  let image arrays =
+    match arrays with
+    | None -> []
+    | Some arrays ->
+        Arrays.entries arrays
+        |> List.filter_map (fun entry ->
+            Option.map
+              (fun (payload, _) ->
+                ( Integer_initializer_layout.cell_offset
+                    (Arrays.destination entry),
+                  payload ))
+              (Arrays.prepared entry))
+  in
+  match slot with
+  | Global slot -> image slot.array_initializers
+  | Static slot -> image (Integer_statics.array_initializers slot)
+
 let global_human globals =
   match globals.slots_ with
   | [] -> ""
@@ -424,14 +647,14 @@ let global_human globals =
                  | Some bits -> Printf.sprintf "0x%016Lx" bits))
              slots)
 
-let human globals =
+let scalar_human globals =
   global_human globals
   ^
   match globals.statics_ with
   | [] -> ""
   | slots ->
       Printf.sprintf "holyc-integer-statics-v1 bytes=%d\n"
-        (List.length slots * 8)
+        (globals.byte_size_ - globals.global_byte_size_)
       ^ String.concat ""
           (List.map
              (fun slot ->
@@ -450,3 +673,75 @@ let human globals =
                  | Some bits -> Printf.sprintf "0x%016Lx" bits)
                  (Integer_statics.preparation_steps slot))
              slots)
+
+let array_human globals =
+  let hex bytes =
+    String.to_seq bytes
+    |> Seq.map (fun byte -> Printf.sprintf "%02x" (Char.code byte))
+    |> List.of_seq |> String.concat ""
+  in
+  let initializers arrays =
+    match arrays with
+    | None -> ""
+    | Some arrays ->
+        Arrays.entries arrays
+        |> List.map (fun entry ->
+            let destination = Arrays.destination entry in
+            let state, steps =
+              match Arrays.prepared entry with
+              | None -> ("scheduled", 0)
+              | Some (Arrays.Word bits, steps) ->
+                  (Printf.sprintf "prepared-word:0x%016Lx" bits, steps)
+              | Some (Arrays.Bytes bytes, steps) ->
+                  ("prepared-bytes:" ^ hex bytes, steps)
+            in
+            Printf.sprintf
+              "array-initializer leaf=%d cell=%d byte=%d state=%s \
+               preparation-steps=%d\n"
+              (Integer_initializer_layout.leaf destination
+              |> Sema.Initializer_source.leaf_index)
+              (Integer_initializer_layout.cell_offset destination)
+              (Integer_initializer_layout.byte_offset destination)
+              state steps)
+        |> String.concat ""
+  in
+  let arrays =
+    storage_slots globals
+    |> List.filter (fun slot -> storage_dimensions slot <> [])
+  in
+  match arrays with
+  | [] -> ""
+  | _ ->
+      "holyc-persistent-arrays-v1\n"
+      ^ (arrays
+        |> List.map (fun slot ->
+            let shape = storage_shape slot in
+            let numbers values =
+              String.concat "," (List.map Int64.to_string values)
+            in
+            let symbol = storage_symbol slot in
+            let owner, values =
+              match slot with
+              | Global slot -> ("global", initializers slot.array_initializers)
+              | Static slot ->
+                  ( "static:"
+                    ^ (static_frame slot
+                     |> Sema.Function_frame_layout.function_symbol
+                     |> Symbol.name),
+                    initializers (static_array_initializers slot) )
+            in
+            Printf.sprintf
+              "array storage=%s symbol=%d:%s base-cell=%d dimensions=[%s] \
+               strides=[%s] cells=%d bytes=%d preparation-steps=%d\n"
+              owner
+              (Symbol.id symbol |> Symbol.Id.to_int)
+              (Symbol.name symbol) (storage_index slot)
+              (numbers (Shape.dimensions shape))
+              (numbers (Shape.strides shape))
+              (Shape.element_count shape)
+              (Shape.byte_size shape)
+              (storage_preparation_steps slot)
+            ^ values)
+        |> String.concat "")
+
+let human globals = scalar_human globals ^ array_human globals

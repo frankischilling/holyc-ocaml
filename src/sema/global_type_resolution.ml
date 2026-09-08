@@ -6,6 +6,7 @@ type array_dimension = {
   origin : Symbol.origin;
   opening_origin : Symbol.origin;
   expression_origin : Symbol.origin option;
+  source_expression : Frontend.Ast.expression option;
   closing_origin : Symbol.origin;
 }
 
@@ -18,6 +19,7 @@ type initial_value = {
   origin : Symbol.origin;
   equals_origin : Symbol.origin;
   value_origin : Symbol.origin;
+  source : Initializer_source.t option;
 }
 
 type global = {
@@ -53,6 +55,9 @@ let array_dimension_opening_origin (dimension : array_dimension) =
 let array_dimension_expression_origin (dimension : array_dimension) =
   dimension.expression_origin
 
+let array_dimension_source_expression (dimension : array_dimension) =
+  dimension.source_expression
+
 let array_dimension_closing_origin (dimension : array_dimension) =
   dimension.closing_origin
 
@@ -62,6 +67,7 @@ let initializer_kind (initial_value : initial_value) = initial_value.kind
 let initializer_origin (initial_value : initial_value) = initial_value.origin
 let initializer_equals_origin initial_value = initial_value.equals_origin
 let initializer_value_origin initial_value = initial_value.value_origin
+let initializer_source initial_value = initial_value.source
 let function_pointer_origin = Function_type_resolution.function_pointer_origin
 
 let function_pointer_opening_origin =
@@ -85,16 +91,40 @@ let initializer_kind_name = function
   | Braced_initializer -> "braced"
 
 let make_array_dimension ~index ~origin ~opening_origin ?expression_origin
-    ~closing_origin () =
+    ?source_expression ~closing_origin () =
   if index < 0 then Error "semantic global array index cannot be negative"
   else if index > 0 && Option.is_none expression_origin then
     Error "only the first semantic global array dimension can be empty"
-  else Ok { index; origin; opening_origin; expression_origin; closing_origin }
+  else
+    Ok
+      {
+        index;
+        origin;
+        opening_origin;
+        expression_origin;
+        source_expression;
+        closing_origin;
+      }
 
 let make_delimiter ~kind ~origin = { kind; origin }
 
 let make_initializer ~kind ~origin ~equals_origin ~value_origin =
-  { kind; origin; equals_origin; value_origin }
+  { kind; origin; equals_origin; value_origin; source = None }
+
+let make_source_initializer ~origin ~equals_origin ~source =
+  let kind =
+    match Initializer_source.tree source with
+    | Initializer_source.Scalar _ -> Scalar_initializer
+    | Initializer_source.Braced _ | Initializer_source.Unbraced _ ->
+        Braced_initializer
+  in
+  {
+    kind;
+    origin;
+    equals_origin;
+    value_origin = Initializer_source.origin source;
+    source = Some source;
+  }
 
 let dimensions_are_ordered dimensions =
   let rec check expected = function

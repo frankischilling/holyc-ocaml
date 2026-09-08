@@ -1,11 +1,23 @@
 # holyc-ocaml compatibility status
 
+[Persistent integer arrays](integer-persistent-arrays.md) in
+[#627](https://github.com/frankischilling/holyc-ocaml/issues/627) connect fixed
+I64/U64/U8 global and static shapes, exact source initializer leaves, recursive
+numeric lists and determined direct-string copies. AOT prepared images and
+ordered JIT publication receipts preserve per-leaf visibility and fresh runtime
+cells. Extents retain native unsigned classes and final F64 truncation; arity,
+inference, scalar braces and unsupported storage keep explicit boundaries.
+Global declared bytes and whole-static padding remain separate from accessible
+object bounds. This is a hosted execution connection, not full compiler or
+native-loader completion.
+
 [Persistent scalar U8 storage](integer-persistent-bytes.md) in
 [#625](https://github.com/frankischilling/holyc-ocaml/issues/625) connects byte
 globals/statics, constant and scheduled initializers, aliases and fresh images.
 The hosted quota distinguishes declared global widths, padded static requests
-and exact accessible object extents. Persistent arrays, narrow updates and
-broader memory remain unfinished; this connection claims no new native capture.
+and exact accessible object extents. Arrays are connected by #627 above;
+narrow updates and broader memory remain unfinished. Neither connection claims
+a new native capture.
 
 [Joined source definitions](integer-joined-definitions.md) in
 [#623](https://github.com/frankischilling/holyc-ocaml/issues/623) execute after

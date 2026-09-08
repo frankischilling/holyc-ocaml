@@ -11,6 +11,9 @@ type statement =
   | Initialize of Typed.initializer_result
   | Initialize_global of Typed.top_level_root_result
   | Initialize_static of Integer_globals.static_slot
+  | Initialize_static_leaf of
+      Integer_globals.static_slot * Typed.initializer_result
+  | Publish_array of Global_initialization.prepared_root
   | Return of Typed.return_result
   | Block of statement list
   | If of Typed.expression_result * statement * statement option
@@ -25,12 +28,16 @@ type t = {
   static_initializer_regions_ :
     Global_initialization.static_region_description list;
   runtime_calls_ : Runtime_call_context.description list;
+  publications_ : Global_initialization.publication_description list;
+  publication_evidence_ : Global_initialization.publication_evidence option;
 }
 
 let graph result = result.graph_
 let initializer_regions result = result.initializer_regions_
 let static_initializer_regions result = result.static_initializer_regions_
 let runtime_calls result = result.runtime_calls_
+let publications result = result.publications_
+let publication_evidence result = result.publication_evidence_
 
 exception Invalid of Common.Diagnostic.t list
 
@@ -56,6 +63,7 @@ let lower_complete ?frame ?globals ?records ?(top_calls = [])
     let initial_regions = ref [] in
     let static_regions = ref [] in
     let runtime_calls = ref [] in
+    let publications = ref [] in
     let checked_id = function
       | Ok value -> value
       | Error (e : Sequence.error) -> fail span e.code e.message
@@ -386,9 +394,27 @@ let lower_complete ?frame ?globals ?records ?(top_calls = [])
               fail at "HCRUN0004"
                 "global initializer requires program storage and a module entry"
           )
+      | Publish_array prepared_root -> (
+          match (globals, frame) with
+          | Some _, None ->
+              let before =
+                Sequence.Instruction_id.of_int !instruction_count |> checked_id
+              in
+              publications :=
+                { Global_initialization.prepared_root; before } :: !publications
+          | _ ->
+              fail span "HCRUN0004"
+                "array publication requires a module entry and exact storage")
       | Initialize_static slot -> (
-          match (globals, frame, Integer_globals.static_initializer slot) with
-          | Some globals, None, Some static_root -> (
+          match Integer_globals.static_initializer slot with
+          | Some root ->
+              statement break_target (Initialize_static_leaf (slot, root))
+          | None ->
+              fail span "HCRUN0004"
+                "static initializer has no scalar declaration root")
+      | Initialize_static_leaf (slot, static_root) -> (
+          match (globals, frame) with
+          | Some globals, None -> (
               let at =
                 span_of_result span (Typed.initializer_value static_root)
               in
@@ -397,6 +423,7 @@ let lower_complete ?frame ?globals ?records ?(top_calls = [])
               in
               match
                 Expression_lowering.lower_static_initializer ~globals
+                  ~root:static_root
                   ~lower_call:
                     (direct_call_in (Some (Integer_globals.static_frame slot)))
                   ~instruction_id:first
@@ -559,11 +586,22 @@ let lower_complete ?frame ?globals ?records ?(top_calls = [])
     in
     X87_stack.verify graph
     |> Result.map (fun graph ->
+        let publications_ = List.rev !publications in
+        let publication_evidence_ =
+          match (globals, publications_) with
+          | Some globals, _ :: _ ->
+              Some
+                (Initializer_publication.create ~globals ~entry:graph
+                   publications_)
+          | _ -> None
+        in
         {
           graph_ = graph;
           initializer_regions_ = List.rev !initial_regions;
           static_initializer_regions_ = List.rev !static_regions;
           runtime_calls_ = List.rev !runtime_calls;
+          publications_;
+          publication_evidence_;
         })
     |> Result.map_error
          (List.map (fun (e : X87_stack.error) ->
@@ -580,7 +618,17 @@ let lower_with_storage_initializers ?frame ?globals ?top_calls ?function_calls
   with
   | Error _ as error -> error
   | Ok result ->
-      if
+      if result.publications_ <> [] then
+        Error
+          [
+            Common.Diagnostic.make ~code:"HCRUN0004"
+              ~severity:Common.Diagnostic.Error
+              ~message:
+                "prepared array publications require complete initialization \
+                 lowering"
+              ~primary:span ();
+          ]
+      else if
         List.exists
           (fun (call : Runtime_call_context.description) ->
             Option.is_some call.discard)

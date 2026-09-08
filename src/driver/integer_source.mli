@@ -26,6 +26,7 @@ val prepare :
   result
 
 val global_records : prepared -> Sema.Global_record_classification.t
+val global_layouts : prepared -> Sema.Global_array_layout.t
 val initializers : prepared -> Sema.Global_initializer_binding.t option
 val function_outputs : prepared -> Sema.Implicit_output_argument_binding.t
 

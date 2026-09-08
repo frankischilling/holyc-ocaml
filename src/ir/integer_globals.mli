@@ -20,10 +20,24 @@ val static_initializer :
   static_slot -> Sema.Function_call_expression_result.initializer_result option
 
 val static_compiler_options : static_slot -> int64
+
+val static_initializers :
+  static_slot -> Sema.Function_call_expression_result.initializer_result list
+
+val static_array_initializers :
+  static_slot ->
+  Sema.Function_call_expression_result.initializer_result
+  Integer_array_initializers.t
+  option
+
 val static_storage : static_slot -> storage_slot
 val global_storage : slot -> storage_slot
 val storage_slots : t -> storage_slot list
 val storage_index : storage_slot -> int
+val storage_element_count : storage_slot -> int
+val storage_dimensions : storage_slot -> int64 list
+val storage_strides : storage_slot -> int64 list
+val cell_count : t -> int
 val storage_symbol : storage_slot -> Sema.Symbol.t
 val storage_type : storage_slot -> Sema.Type.t
 val storage_opcode : storage_slot -> Opcode.t
@@ -48,6 +62,15 @@ val create :
     scalar roots. Unsupported declarations fail even when unused. The context
     contains immutable metadata, not mutable execution storage. *)
 
+val create_with_layout :
+  layout:Sema.Global_array_layout.t ->
+  ?initializers:Sema.Function_call_expression_result.top_level_t ->
+  span:Common.Span.t ->
+  Sema.Global_record_classification.t ->
+  (t, Common.Diagnostic.t list) result
+
+val slot_shape : slot -> Integer_storage_shape.t
+
 val slots : t -> slot list
 (** Ordinary global declarations only; [statics] retains separate owners. *)
 
@@ -70,6 +93,22 @@ val slot_initializer :
   slot -> Sema.Function_call_expression_result.top_level_root_result option
 
 val slot_initializer_materialized : slot -> bool
+
+val slot_root_materialized :
+  slot -> Sema.Function_call_expression_result.top_level_root_result -> bool
+
+val static_root_materialized :
+  static_slot -> Sema.Function_call_expression_result.initializer_result -> bool
+
+val slot_initializers :
+  slot -> Sema.Function_call_expression_result.top_level_root_result list
+
+val slot_array_initializers :
+  slot ->
+  Sema.Function_call_expression_result.top_level_root_result
+  Integer_array_initializers.t
+  option
+
 val slot_initializer_preparation_steps : slot -> int
 val requires_initializer_execution : t -> bool
 
@@ -82,3 +121,21 @@ val with_initial_values :
     image updater is deliberately absent from the public library signature. *)
 
 val human : t -> string
+
+val with_array_initial_values :
+  span:Common.Span.t ->
+  t ->
+  global_values:
+    (Sema.Function_call_expression_result.top_level_root_result
+    * Integer_array_initializers.payload
+    * int)
+    list ->
+  static_values:
+    (Sema.Function_call_expression_result.initializer_result
+    * Integer_array_initializers.payload
+    * int)
+    list ->
+  (t, Common.Diagnostic.t list) result
+
+val storage_array_image :
+  storage_slot -> (int * Integer_array_initializers.payload) list

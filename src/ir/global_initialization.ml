@@ -32,9 +32,27 @@ type static_region = {
 
 type storage_region = Global_region of region | Static_region of static_region
 
+type prepared_root = Initializer_publication.prepared_root =
+  | Prepared_global of Typed.top_level_root_result
+  | Prepared_static of Integer_globals.static_slot * Typed.initializer_result
+
+type publication_description = Initializer_publication.description = {
+  prepared_root : prepared_root;
+  before : Sequence.Instruction_id.t;
+}
+
+type publication_evidence = Initializer_publication.t
+
+type publication = {
+  publication_description : publication_description;
+  publication_storage_ : Integer_globals.storage_slot;
+  publication_cell_offset_ : int;
+  publication_payload_ : Integer_array_initializers.payload;
+}
+
 type pending =
-  | Global_pending of Integer_globals.slot
-  | Static_pending of Integer_globals.static_slot
+  | Global_pending of Integer_globals.slot * Typed.top_level_root_result
+  | Static_pending of Integer_globals.static_slot * Typed.initializer_result
 
 type description =
   | Global_description of region_description
@@ -46,8 +64,17 @@ type t = {
   regions_ : storage_region list;
   region_index : storage_region array;
   prepared_steps_ : int;
+  publications_ : publication list;
+  publication_evidence_ : publication_evidence option;
 }
 
+let publications context = context.publications_
+let publication_evidence context = context.publication_evidence_
+let publication_before publication = publication.publication_description.before
+let publication_storage publication = publication.publication_storage_
+let publication_cell_offset publication = publication.publication_cell_offset_
+let publication_payload publication = publication.publication_payload_
+let describe_publication publication = publication.publication_description
 let root region = region.description.root
 let describe region = region.description
 let symbol region = Integer_globals.slot_symbol region.slot
@@ -125,8 +152,8 @@ let find context instruction =
   | Some (Global_region region) -> Some region
   | _ -> None
 
-let create ?(static_descriptions = []) ~span:context_span ~globals ~entry
-    descriptions =
+let create ?(static_descriptions = []) ?(publications = [])
+    ?publication_evidence ~span:context_span ~globals ~entry descriptions =
   let ( let* ) = Result.bind in
   let invalid ?span message =
     Error
@@ -138,6 +165,17 @@ let create ?(static_descriptions = []) ~span:context_span ~globals ~entry
       ]
   in
   let blocks = X87_stack.graph entry |> Block_graph.blocks in
+  let* () =
+    match publication_evidence with
+    | None when publications = [] -> Ok ()
+    | Some receipt
+      when Initializer_publication.matches receipt ~globals ~entry publications
+      -> Ok ()
+    | _ ->
+        invalid
+          "array publication positions require their exact complete-lowering \
+           receipt"
+  in
   let* prepared_steps =
     List.fold_left
       (fun total slot ->
@@ -206,28 +244,28 @@ let create ?(static_descriptions = []) ~span:context_span ~globals ~entry
   in
   let pending =
     Integer_globals.slots globals
-    |> List.filter (fun slot ->
-        Option.is_some (Integer_globals.slot_initializer slot)
-        && not (Integer_globals.slot_initializer_materialized slot))
-    |> List.map (fun slot -> Global_pending slot)
+    |> List.concat_map (fun slot ->
+        Integer_globals.slot_initializers slot
+        |> List.filter_map (fun root ->
+            if Integer_globals.slot_root_materialized slot root then None
+            else Some (Global_pending (slot, root))))
   in
   let pending =
     pending
     @ (Integer_globals.statics globals
-      |> List.filter (fun slot ->
-          Option.is_some (Integer_globals.static_initializer slot)
-          && Integer_globals.storage_preparation_steps
-               (Integer_globals.static_storage slot)
-             = 0)
-      |> List.map (fun slot -> Static_pending slot))
+      |> List.concat_map (fun slot ->
+          Integer_globals.static_initializers slot
+          |> List.filter_map (fun root ->
+              if Integer_globals.static_root_materialized slot root then None
+              else Some (Static_pending (slot, root)))))
     |> List.stable_sort (fun left right ->
         let index = function
-          | Global_pending slot ->
+          | Global_pending (slot, _) ->
               Integer_globals.slot_record slot
               |> Sema.Global_record_classification.classified_record_source
               |> Sema.Global_resolution.global_record_global
               |> Sema.Global_type_resolution.global_item_index
-          | Static_pending slot ->
+          | Static_pending (slot, _) ->
               Integer_globals.static_frame slot
               |> Sema.Function_frame_layout.function_item_index
         in
@@ -266,21 +304,17 @@ let create ?(static_descriptions = []) ~span:context_span ~globals ~entry
     | slot :: slots, description :: descriptions ->
         let* storage, first, last, value, make_region =
           match (slot, description) with
-          | Global_pending slot, Global_description description
-            when Option.fold ~none:false
-                   ~some:(fun root -> root == description.root)
-                   (Integer_globals.slot_initializer slot) ->
+          | Global_pending (slot, root), Global_description description
+            when root == description.root ->
               Ok
                 ( Integer_globals.global_storage slot,
                   description.first,
                   description.last,
                   Typed.top_level_root_value description.root,
                   fun phase_ -> Global_region { description; slot; phase_ } )
-          | Static_pending slot, Static_description description
+          | Static_pending (slot, root), Static_description description
             when slot == description.static_slot
-                 && Option.fold ~none:false
-                      ~some:(fun root -> root == description.static_root)
-                      (Integer_globals.static_initializer slot) ->
+                 && root == description.static_root ->
               let storage = Integer_globals.static_storage slot in
               if
                 Integer_globals.storage_opcode storage = Opcode.Ic_abs_addr
@@ -345,6 +379,72 @@ let create ?(static_descriptions = []) ~span:context_span ~globals ~entry
           let* () =
             match selected with
             | [ address :: rest ] -> (
+                let* prepared =
+                  (match slot with
+                    | Global_pending (_, root) ->
+                        Global_address_lowering.prepare_initializer ~globals
+                          root
+                    | Static_pending (slot, root) ->
+                        Global_address_lowering.prepare_static_initializer
+                          ~globals slot root)
+                  |> Result.map_error
+                       (List.map (fun (error : Sequence.error) ->
+                            Common.Diagnostic.make ~code:"HCIRVM0017"
+                              ~severity:Common.Diagnostic.Error
+                              ~message:error.message
+                              ~primary:
+                                (Option.value error.span ~default:context_span)
+                              ()))
+                in
+                let* prefix =
+                  match address.result with
+                  | None ->
+                      invalid ?span
+                        "initializer destination has no address value"
+                  | Some result ->
+                      Global_address_lowering.lower_prepared
+                        ~instruction_id:first ~value_id:result.value_id prepared
+                      |> Result.map_error
+                           (List.map (fun (error : Sequence.error) ->
+                                Common.Diagnostic.make ~code:"HCIRVM0017"
+                                  ~severity:Common.Diagnostic.Error
+                                  ~message:error.message
+                                  ~primary:
+                                    (Option.value error.span
+                                       ~default:context_span)
+                                  ()))
+                in
+                let equal_instruction (expected : Sequence.description)
+                    (actual : Sequence.description) =
+                  expected.instruction_id = actual.instruction_id
+                  && expected.opcode = actual.opcode
+                  && expected.operands = actual.operands
+                  && expected.result = actual.result
+                  && expected.flags = actual.flags
+                  && expected.span = actual.span
+                  && (match (expected.target_type, actual.target_type) with
+                    | None, None -> true
+                    | Some a, Some b -> Type.equal a b
+                    | _ -> false)
+                  &&
+                  match (expected.payload, actual.payload) with
+                  | Some (Sequence.Symbol a), Some (Sequence.Symbol b) -> a == b
+                  | a, b -> a = b
+                in
+                let rec prefix_matches expected actual =
+                  match (expected, actual) with
+                  | [], _ -> true
+                  | e :: es, a :: rest ->
+                      equal_instruction e a && prefix_matches es rest
+                  | _ -> false
+                in
+                let prefix_valid =
+                  prefix_matches
+                    (Global_address_lowering.sequence prefix
+                    |> Sequence.instructions
+                    |> List.map Sequence.description)
+                    (address :: rest)
+                in
                 match List.rev rest with
                 | ending :: store :: reversed_value when reversed_value <> [] ->
                     let expected_type = Integer_globals.storage_type storage in
@@ -358,7 +458,8 @@ let create ?(static_descriptions = []) ~span:context_span ~globals ~entry
                       | Error _ -> None
                     in
                     let address_valid =
-                      address.opcode = Integer_globals.storage_opcode storage
+                      prefix_valid
+                      && address.opcode = Integer_globals.storage_opcode storage
                       && address.operands = [] && address.flags = 0L
                       && (match address.payload with
                         | Some (Sequence.Symbol actual) ->
@@ -374,9 +475,11 @@ let create ?(static_descriptions = []) ~span:context_span ~globals ~entry
                       && store.flags = 0L && store.payload = None
                       && same_type expected_type store.target_type
                       &&
-                      match (address.result, store.operands) with
-                      | Some address, [ target; _ ] ->
-                          Sequence.Value_id.equal address.value_id target
+                      match store.operands with
+                      | [ target; _ ] ->
+                          Sequence.Value_id.equal
+                            (Global_address_lowering.result_value prefix)
+                            target
                       | _ -> false
                     in
                     let end_valid =
@@ -430,6 +533,155 @@ let create ?(static_descriptions = []) ~span:context_span ~globals ~entry
           "initializer context is missing or duplicates a pending declaration"
   in
   let* regions_ = check None [] pending descriptions in
+  let all_initializers =
+    (Integer_globals.slots globals
+    |> List.concat_map (fun slot ->
+        List.map
+          (fun root -> Global_pending (slot, root))
+          (Integer_globals.slot_initializers slot)))
+    @ (Integer_globals.statics globals
+      |> List.concat_map (fun slot ->
+          List.map
+            (fun root -> Static_pending (slot, root))
+            (Integer_globals.static_initializers slot)))
+    |> List.stable_sort (fun left right ->
+        let index = function
+          | Global_pending (slot, _) ->
+              Integer_globals.slot_record slot
+              |> Sema.Global_record_classification.classified_record_source
+              |> Sema.Global_resolution.global_record_global
+              |> Sema.Global_type_resolution.global_item_index
+          | Static_pending (slot, _) ->
+              Integer_globals.static_frame slot
+              |> Sema.Function_frame_layout.function_item_index
+        in
+        Int.compare (index left) (index right))
+  in
+  let prepared_entry = function
+    | Global_pending (slot, root) ->
+        Option.bind (Integer_globals.slot_array_initializers slot)
+          (fun arrays ->
+            Option.bind (Integer_array_initializers.find arrays root)
+              (fun entry ->
+                Option.map
+                  (fun (payload, _) ->
+                    (Integer_array_initializers.destination entry, payload))
+                  (Integer_array_initializers.prepared entry)))
+    | Static_pending (slot, root) ->
+        Option.bind (Integer_globals.static_array_initializers slot)
+          (fun arrays ->
+            Option.bind (Integer_array_initializers.find arrays root)
+              (fun entry ->
+                Option.map
+                  (fun (payload, _) ->
+                    (Integer_array_initializers.destination entry, payload))
+                  (Integer_array_initializers.prepared entry)))
+  in
+  let storage = function
+    | Global_pending (slot, _) -> Integer_globals.global_storage slot
+    | Static_pending (slot, _) -> Integer_globals.static_storage slot
+  in
+  let same_root expected = function
+    | Prepared_global root -> (
+        match expected with
+        | Global_pending (_, actual) -> actual == root
+        | _ -> false)
+    | Prepared_static (slot, root) -> (
+        match expected with
+        | Static_pending (actual_slot, actual) ->
+            actual_slot == slot && actual == root
+        | _ -> false)
+  in
+  let expected_publications =
+    List.filter
+      (fun owner ->
+        Integer_globals.storage_opcode (storage owner) = Opcode.Ic_imm_i64
+        && Option.is_some (prepared_entry owner))
+      all_initializers
+  in
+  let entry_instructions = List.concat_map instructions blocks in
+  let rec check_publications reversed expected descriptions =
+    match (expected, descriptions) with
+    | [], [] -> Ok (List.rev reversed)
+    | owner :: rest, description :: tail
+      when same_root owner description.prepared_root ->
+        if
+          not
+            (List.exists
+               (fun (instruction : Sequence.description) ->
+                 Sequence.Instruction_id.equal instruction.instruction_id
+                   description.before)
+               entry_instructions)
+        then
+          invalid "prepared array publication has no module entry instruction"
+        else
+          let destination, payload = Option.get (prepared_entry owner) in
+          let publication =
+            {
+              publication_description = description;
+              publication_storage_ = storage owner;
+              publication_cell_offset_ =
+                Integer_initializer_layout.cell_offset destination;
+              publication_payload_ = payload;
+            }
+          in
+          check_publications (publication :: reversed) rest tail
+    | _ ->
+        invalid
+          "prepared array publications do not cover their exact source roots \
+           in order"
+  in
+  let* publications_ =
+    check_publications [] expected_publications publications
+  in
+  let action owner =
+    match
+      List.find_opt
+        (fun publication ->
+          same_root owner publication.publication_description.prepared_root)
+        publications_
+    with
+    | Some publication ->
+        let before = publication_before publication in
+        Some (before, before, false)
+    | None ->
+        List.find_map
+          (fun region ->
+            let matches =
+              match (owner, region) with
+              | Global_pending (_, root), Global_region region ->
+                  root == region.description.root
+              | Static_pending (slot, root), Static_region region ->
+                  slot == static_slot region && root == static_root region
+              | _ -> false
+            in
+            if matches then
+              Some (storage_first region, storage_last region, true)
+            else None)
+          regions_
+  in
+  let rec ordered_actions previous = function
+    | [] -> Ok ()
+    | owner :: rest -> (
+        match action owner with
+        | None -> ordered_actions previous rest
+        | Some (first, last, region) ->
+            let ordered =
+              match previous with
+              | None -> true
+              | Some (previous, strict) ->
+                  let comparison =
+                    Sequence.Instruction_id.compare previous first
+                  in
+                  if strict then comparison < 0 else comparison <= 0
+            in
+            if not ordered then
+              invalid
+                "prepared publications and scheduled regions disagree with \
+                 source leaf order"
+            else ordered_actions (Some (last, region)) rest)
+  in
+  let* () = ordered_actions None all_initializers in
   Ok
     {
       globals;
@@ -437,6 +689,8 @@ let create ?(static_descriptions = []) ~span:context_span ~globals ~entry
       regions_;
       region_index = Array.of_list regions_;
       prepared_steps_ = prepared_steps;
+      publications_;
+      publication_evidence_ = publication_evidence;
     }
 
 let human context =
@@ -458,7 +712,7 @@ let human context =
 
 let global_human = human
 
-let human context =
+let regions_human context =
   global_human context
   ^
   match static_regions context with
@@ -483,3 +737,28 @@ let human context =
                  (Sequence.Instruction_id.to_int region.static_description.first)
                  (Sequence.Instruction_id.to_int region.static_description.last))
              regions)
+
+let human context =
+  regions_human context
+  ^
+  match publications context with
+  | [] -> ""
+  | publications ->
+      "holyc-array-publications-v1\n"
+      ^ (publications
+        |> List.map (fun publication ->
+            let storage = publication_storage publication in
+            let symbol = Integer_globals.storage_symbol storage in
+            let count =
+              match publication_payload publication with
+              | Integer_array_initializers.Word _ -> 1
+              | Integer_array_initializers.Bytes bytes -> String.length bytes
+            in
+            Printf.sprintf
+              "array-publication symbol=%d:%s cell=%d count=%d before=%d\n"
+              (Symbol.id symbol |> Symbol.Id.to_int)
+              (Symbol.name symbol)
+              (publication_cell_offset publication)
+              count
+              (publication_before publication |> Sequence.Instruction_id.to_int))
+        |> String.concat "")

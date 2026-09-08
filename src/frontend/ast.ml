@@ -22,13 +22,13 @@ type declaration_modifier = {
 type identifier = { spelling : string; location : location }
 
 type primitive_type = {
-  primitive : Sema.Primitive_type.t;
+  primitive : Common.Primitive_type.t;
   spelling : string;
   location : location;
 }
 
 type internal_type = {
-  primitive : Sema.Primitive_type.t;
+  primitive : Common.Primitive_type.t;
   spelling : string;
   location : location;
 }
