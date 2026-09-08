@@ -1,6 +1,17 @@
 type 'a checked = { value : 'a; diagnostics : Common.Diagnostic.t list }
 type compiled
 
+val compile_ast :
+  ?max_initializer_steps:int ->
+  Session.t ->
+  config:Frontend.Preprocessor.Config.t ->
+  Frontend.Ast.module_ ->
+  (compiled checked, Common.Diagnostic.t list) result
+(** Lower already parsed syntax through the ordinary semantic and checked IR
+    pipeline. Does not consume source or invoke preprocessing again. This is an
+    independent compilation unit and does not provide persistent task linking.
+*)
+
 val compile :
   ?max_initializer_steps:int ->
   Session.t ->

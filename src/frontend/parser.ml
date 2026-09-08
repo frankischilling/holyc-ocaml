@@ -3,22 +3,62 @@ type output = {
   diagnostics : Common.Diagnostic.t list;
 }
 
+type reference_selection = {
+  identifier : Ast.identifier;
+  environment : Symbol_visibility.Environment.t;
+  lookup : Symbol_visibility.lookup;
+}
+
+let selected_identifier selection = selection.identifier
+let selected_environment selection = selection.environment
+let selected_lookup selection = selection.lookup
+
+type command_sink = {
+  reference :
+    (reference_selection -> (unit, Common.Diagnostic.t list) result) option;
+  command : Ast.item -> (unit, Common.Diagnostic.t list) result;
+  resume : unit -> (unit, Common.Diagnostic.t list) result;
+}
+
+type stream_execution = {
+  definitions : Definition.Environment.t;
+  symbols : Symbol_visibility.Environment.t;
+  commands : command_sink;
+  finish : unit -> (string, Common.Diagnostic.t list) result;
+  abort : unit -> unit;
+}
+
 type located_token = {
   token : Token.t;
   context : Preprocessor.diagnostic_context;
+  selection :
+    (Symbol_visibility.Environment.t * Symbol_visibility.lookup) option;
 }
+
+module Identifier_table = Hashtbl.Make (struct
+  type t = Ast.identifier
+
+  let equal left right = left == right
+  let hash = Hashtbl.hash
+end)
 
 type cursor = {
   stream : Preprocessor.t;
   sources : Common.Source_manager.t;
   symbols : Symbol_visibility.Environment.t;
   compilation_mode : Preprocessor.compilation_mode;
+  stop_on_error : bool;
+  reference :
+    (reference_selection -> (unit, Common.Diagnostic.t list) result) option;
+  references : reference_selection Identifier_table.t;
   mutable lookahead : located_token list;
   mutable diagnostics_rev : Common.Diagnostic.t list;
   mutable local_context : Symbol_visibility.Environment.local_context option;
 }
 
 type parsed_declarator = { node : Ast.global_declarator; tokens : Token.t list }
+
+exception Stop_command
 
 type parsed_declarator_list = {
   declarators : parsed_declarator list;
@@ -325,9 +365,30 @@ let rec pull cursor =
   match Preprocessor.next cursor.stream with
   | Lexer.Diagnostic diagnostic ->
       cursor.diagnostics_rev <- diagnostic :: cursor.diagnostics_rev;
+      if
+        cursor.stop_on_error
+        && diagnostic.Common.Diagnostic.severity = Common.Diagnostic.Error
+      then (
+        cursor.diagnostics_rev <-
+          List.rev_append
+            (Preprocessor.take_pending_diagnostics cursor.stream)
+            cursor.diagnostics_rev;
+        raise Stop_command);
       pull cursor
   | Lexer.Token token ->
-      { token; context = Preprocessor.diagnostic_context cursor.stream }
+      let selection =
+        if cursor.stop_on_error then
+          Some
+            ( cursor.symbols,
+              Symbol_visibility.Environment.find_preprocessor cursor.symbols
+                token.raw )
+        else None
+      in
+      {
+        token;
+        context = Preprocessor.diagnostic_context cursor.stream;
+        selection;
+      }
 
 let rec ensure_lookahead cursor count =
   if List.length cursor.lookahead >= count then ()
@@ -473,7 +534,40 @@ let report ?(secondary = []) cursor item ~code ~message =
       ~code ~severity:Common.Diagnostic.Error ~message ~primary:item.token.span
       ()
   in
-  cursor.diagnostics_rev <- diagnostic :: cursor.diagnostics_rev
+  cursor.diagnostics_rev <- diagnostic :: cursor.diagnostics_rev;
+  if cursor.stop_on_error then raise Stop_command
+
+let expression_identifier cursor item =
+  let identifier =
+    Ast.make_identifier ~spelling:item.token.raw
+      ~location:(token_location item.token)
+  in
+  Option.iter
+    (fun (environment, lookup) ->
+      let selection = { identifier; environment; lookup } in
+      Identifier_table.add cursor.references identifier selection;
+      Option.iter
+        (fun reference ->
+          match reference selection with
+          | Ok () -> ()
+          | Error diagnostics ->
+              cursor.diagnostics_rev <-
+                List.rev_append diagnostics cursor.diagnostics_rev;
+              if not (has_error diagnostics) then
+                report cursor item ~code:"HCPARSE0161"
+                  ~message:
+                    "reference consumer failed without an error diagnostic";
+              raise Stop_command)
+        cursor.reference)
+    item.selection;
+  Ast.Identifier_expression identifier
+
+let identifier_lookup cursor identifier =
+  match Identifier_table.find_opt cursor.references identifier with
+  | Some selection -> selection.lookup
+  | None ->
+      Symbol_visibility.Environment.find_preprocessor cursor.symbols
+        identifier.Ast.spelling
 
 let rec recover_declaration cursor =
   let item = peek cursor in
@@ -1301,19 +1395,11 @@ and parse_expression_atom cursor ~context ~depth : parsed_expression option =
   | (Token_kind.Identifier | Token_kind.Keyword _), _
     when token_is_contextual_identifier_operand cursor item.token ->
       let item = take cursor in
-      let node =
-        Ast.Identifier_expression
-          (Ast.make_identifier ~spelling:item.token.raw
-             ~location:(token_location item.token))
-      in
+      let node = expression_identifier cursor item in
       Some { node; tokens = [ item.token ] }
   | Token_kind.Identifier, _ ->
       let item = take cursor in
-      let node =
-        Ast.Identifier_expression
-          (Ast.make_identifier ~spelling:item.token.raw
-             ~location:(token_location item.token))
-      in
+      let node = expression_identifier cursor item in
       Some { node; tokens = [ item.token ] }
   | Token_kind.Operator Operator.Current_position, _ ->
       let item = take cursor in
@@ -2030,10 +2116,7 @@ and parse_expression_tail cursor ~context ~depth ~minimum_binding_power
   let direct_function =
     match left.node with
     | Ast.Identifier_expression identifier -> (
-        match
-          Symbol_visibility.Environment.find_preprocessor cursor.symbols
-            identifier.spelling
-        with
+        match identifier_lookup cursor identifier with
         | Symbol_visibility.Present entry
           when Symbol_visibility.kind entry = Symbol_visibility.Function -> (
             match Symbol_visibility.function_call_shape entry with
@@ -2077,10 +2160,7 @@ and parse_expression_modifiers cursor ~context ~depth ~minimum_binding_power
   let direct_function_shape =
     match left.node with
     | Ast.Identifier_expression identifier -> (
-        match
-          Symbol_visibility.Environment.find_preprocessor cursor.symbols
-            identifier.spelling
-        with
+        match identifier_lookup cursor identifier with
         | Symbol_visibility.Present entry
           when Symbol_visibility.kind entry = Symbol_visibility.Function ->
             Symbol_visibility.function_call_shape entry
@@ -2727,10 +2807,12 @@ let parse_global_initializer cursor ~array_dimensions =
         in
         Some (Some initial_value, tokens)
 
-let parse_variable_declarator_suffix cursor prefix =
+let parse_variable_declarator_suffix cursor (prefix : parsed_declarator_prefix)
+    =
   match parse_array_dimensions cursor 0 [] [] with
   | None -> None
   | Some (array_dimensions, array_tokens) ->
+      if cursor.stop_on_error then publish_global cursor prefix.name;
       Option.bind (parse_global_initializer cursor ~array_dimensions)
         (fun (initial_value, initializer_tokens) ->
           let delimiter_item = peek cursor in
@@ -2763,7 +2845,7 @@ let parse_variable_declarator_suffix cursor prefix =
                   ~array_dimensions ~initial_value ~delimiter
                   ~location:(location_from_tokens tokens)
               in
-              publish_global cursor prefix.name;
+              if not cursor.stop_on_error then publish_global cursor prefix.name;
               Some ({ node; tokens } : parsed_declarator))
 
 let parse_declarator cursor base_spelling ~parse_function_pointer =
@@ -6728,63 +6810,163 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
           Ast.Function_definition definition)
         parsed_body
 
-let parse ~sources ~definitions ~symbols ~config source =
-  let stream =
-    Preprocessor.create ~sources ~definitions ~symbols ~config source
+let read_command cursor =
+  let item = peek cursor in
+  let statement () =
+    parse_statement_sequence cursor ~boundary:Top_level_boundary ~block_depth:0
+      ~conditional_depth:0 ~loop_depth:0 ~lock_depth:0 ~try_depth:0
+      ~switch_depth:0
+    |> Option.map (fun (statement : parsed_statement) ->
+        Ast.Top_level_statement statement.node)
   in
-  let cursor =
-    {
-      stream;
-      sources;
-      symbols;
-      compilation_mode = Preprocessor.Config.compilation_mode config;
-      lookahead = [];
-      diagnostics_rev = [];
-      local_context = None;
-    }
+  match item.token.Token.kind with
+  | Token_kind.Identifier
+    when token_starts_function_label cursor item.token
+         || token_starts_inline_assembly cursor item.token -> statement ()
+  | _ when token_starts_global_declaration cursor item.token ->
+      parse_global cursor ~parse_function_definition
+  | _ -> statement ()
+
+let read_commands ?commands ?stream_opener cursor =
+  let accept at result =
+    match result with
+    | Ok () -> true
+    | Error diagnostics ->
+        cursor.diagnostics_rev <-
+          List.rev_append diagnostics cursor.diagnostics_rev;
+        if not (has_error diagnostics) then
+          report cursor at ~code:"HCPARSE0161"
+            ~message:"command executor failed without an error diagnostic";
+        false
   in
   let items_rev = ref [] in
   let finished = ref false in
   while not !finished do
     let item = peek cursor in
-    match item.token.Token.kind with
-    | Token_kind.Eof ->
-        ignore (take cursor);
-        finished := true
-    | Token_kind.Identifier when token_starts_function_label cursor item.token
-      -> (
-        match
-          parse_statement_sequence cursor ~boundary:Top_level_boundary
-            ~block_depth:0 ~conditional_depth:0 ~loop_depth:0 ~lock_depth:0
-            ~try_depth:0 ~switch_depth:0
-        with
-        | Some statement ->
-            items_rev := Ast.Top_level_statement statement.node :: !items_rev
-        | None -> ())
-    | Token_kind.Identifier when token_starts_inline_assembly cursor item.token
-      -> (
-        match
-          parse_statement_sequence cursor ~boundary:Top_level_boundary
-            ~block_depth:0 ~conditional_depth:0 ~loop_depth:0 ~lock_depth:0
-            ~try_depth:0 ~switch_depth:0
-        with
-        | Some statement ->
-            items_rev := Ast.Top_level_statement statement.node :: !items_rev
-        | None -> ())
-    | _ when token_starts_global_declaration cursor item.token -> (
-        match parse_global cursor ~parse_function_definition with
-        | Some item -> items_rev := item :: !items_rev
-        | None -> ())
-    | _ -> (
-        match
-          parse_statement_sequence cursor ~boundary:Top_level_boundary
-            ~block_depth:0 ~conditional_depth:0 ~loop_depth:0 ~lock_depth:0
-            ~try_depth:0 ~switch_depth:0
-        with
-        | Some statement ->
-            items_rev := Ast.Top_level_statement statement.node :: !items_rev
-        | None -> ())
+    let proceed =
+      match commands with
+      | None -> true
+      | Some commands ->
+          (not (has_error cursor.diagnostics_rev))
+          && accept item (commands.resume ())
+    in
+    if not proceed then finished := true
+    else
+      match (item.token.Token.kind, stream_opener) with
+      | Token_kind.Eof, opener ->
+          Option.iter
+            (fun span ->
+              report cursor item ~code:"HCPARSE0162"
+                ~secondary:
+                  [ { Common.Diagnostic.span; message = "#exe starts here" } ]
+                ~message:"expected '}' to close the #exe block")
+            opener;
+          ignore (take cursor);
+          finished := true
+      | Token_kind.Punctuation '}', Some _ ->
+          ignore (take cursor);
+          finished := true
+      | _ -> (
+          match read_command cursor with
+          | Some parsed ->
+              items_rev := parsed :: !items_rev;
+              Option.iter
+                (fun commands ->
+                  if
+                    has_error cursor.diagnostics_rev
+                    || not (accept item (commands.command parsed))
+                  then finished := true)
+                commands
+          | None -> if Option.is_some commands then finished := true)
   done;
+  List.rev !items_rev
+
+let make_cursor ?reference ~stream ~sources ~symbols ~compilation_mode
+    ~stop_on_error () =
+  {
+    stream;
+    sources;
+    symbols;
+    compilation_mode;
+    stop_on_error;
+    reference;
+    references = Identifier_table.create 32;
+    lookahead = [];
+    diagnostics_rev = [];
+    local_context = None;
+  }
+
+let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
+    source =
+  let execute_stream =
+    Option.map
+      (fun enter stream opener ->
+        let opening_cursor =
+          make_cursor ~stream ~sources ~symbols ~stop_on_error:true
+            ~compilation_mode:(Preprocessor.Config.compilation_mode config)
+            ()
+        in
+        try
+          let opening = take opening_cursor in
+          if opening.token.kind <> Token_kind.Punctuation '{' then
+            report opening_cursor opening ~code:"HCPARSE0163"
+              ~message:"expected '{' after #exe";
+          let entered =
+            Result.map_error
+              (fun diagnostics ->
+                List.rev opening_cursor.diagnostics_rev @ diagnostics)
+              (enter opener)
+          in
+          Result.bind entered (fun (execution : stream_execution) ->
+              let completed = ref false in
+              Fun.protect
+                ~finally:(fun () -> if not !completed then execution.abort ())
+                (fun () ->
+                  Preprocessor.with_environment stream
+                    ~definitions:execution.definitions
+                    ~symbols:execution.symbols
+                    ~compilation_mode:Preprocessor.Jit (fun () ->
+                      Symbol_visibility.Environment.without_locals
+                        execution.symbols (fun () ->
+                          let cursor =
+                            make_cursor ~stream ~sources
+                              ~symbols:execution.symbols
+                              ?reference:execution.commands.reference
+                              ~compilation_mode:Preprocessor.Jit
+                              ~stop_on_error:true ()
+                          in
+                          cursor.diagnostics_rev <-
+                            opening_cursor.diagnostics_rev;
+                          (try
+                             ignore
+                               (read_commands ~commands:execution.commands
+                                  ~stream_opener:opener cursor)
+                           with Stop_command -> ());
+                          let diagnostics = List.rev cursor.diagnostics_rev in
+                          if has_error diagnostics then Error diagnostics
+                          else
+                            match execution.finish () with
+                            | Error errors -> Error (diagnostics @ errors)
+                            | Ok generated ->
+                                completed := true;
+                                Ok { Preprocessor.generated; diagnostics }))))
+        with Stop_command -> Error (List.rev opening_cursor.diagnostics_rev))
+      execute_stream
+  in
+  let stream =
+    Preprocessor.create ?execute_stream ~sources ~definitions ~symbols ~config
+      source
+  in
+  let cursor =
+    make_cursor ~stream ~sources ~symbols
+      ?reference:
+        (Option.bind commands (fun (commands : command_sink) ->
+             commands.reference))
+      ~stop_on_error:(Option.is_some commands || Option.is_some execute_stream)
+      ~compilation_mode:(Preprocessor.Config.compilation_mode config)
+      ()
+  in
+  let items = try read_commands ?commands cursor with Stop_command -> [] in
   let diagnostics = List.rev cursor.diagnostics_rev in
   let ast =
     if has_error diagnostics then None
@@ -6795,9 +6977,6 @@ let parse ~sources ~definitions ~symbols ~config source =
           ~start:0
           ~stop:(Common.Source_file.length source)
       in
-      Some
-        (Ast.make_module
-           ~source:(Common.Source_file.id source)
-           ~span ~items:(List.rev !items_rev))
+      Some (Ast.make_module ~source:(Common.Source_file.id source) ~span ~items)
   in
   { ast; diagnostics }

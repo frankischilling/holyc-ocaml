@@ -74,6 +74,12 @@ module Environment : sig
   val find_preprocessor : t -> string -> lookup
   val all : t -> entry list
   val begin_local_context : t -> local_context
+
+  val without_locals : t -> (unit -> 'a) -> 'a
+  (** Suspend the current function's local visibility while running task
+      commands. Published task entries persist; the saved local context stack is
+      restored on success, reported failure or an exception. *)
+
   val add_local : t -> local_context -> name:string -> (unit, string) result
   val end_local_context : t -> local_context -> (unit, string) result
 

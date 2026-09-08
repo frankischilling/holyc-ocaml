@@ -816,6 +816,15 @@ val lower_integer_program :
 
 type integer_program
 
+val compile_integer_ast :
+  ?max_initializer_steps:int ->
+  Session.t ->
+  config:Preprocessor.Config.t ->
+  Ast.module_ ->
+  (integer_program integer_program_result, Diagnostic.t list) result
+(** Compile an already parsed independent unit through the ordinary semantic and
+    verified IR pipeline, without consuming or preprocessing source again. *)
+
 val compile_integer_program :
   ?max_initializer_steps:int ->
   Session.t ->

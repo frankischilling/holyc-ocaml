@@ -66,12 +66,8 @@ exception Invalid of Common.Diagnostic.t
 let fail span code message =
   raise (Invalid (Integer_source.diagnostic ~span code message))
 
-let compile_with_limit ~max_initializer_steps session ~config ~source =
-  let parsed =
-    Frontend.Parser.parse ~sources:(Session.sources session)
-      ~definitions:(Session.definitions session)
-      ~symbols:(Session.symbols session) ~config source
-  in
+let compile_parsed_with_limit ~max_initializer_steps session ~config
+    (parsed : Frontend.Parser.output) =
   match parsed.ast with
   | None -> Error parsed.diagnostics
   | Some ast -> (
@@ -790,6 +786,17 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
       | Ok value -> Ok { value; diagnostics = parsed.diagnostics }
       | Error diagnostics -> Error (parsed.diagnostics @ diagnostics))
 
+let compile_ast ?(max_initializer_steps = 100_000) session ~config ast =
+  if max_initializer_steps <= 0 then
+    Error
+      [
+        Integer_source.diagnostic ~span:ast.Ast.span "HCIRVM0001"
+          "max_initializer_steps must be greater than zero";
+      ]
+  else
+    compile_parsed_with_limit ~max_initializer_steps session ~config
+      { Frontend.Parser.ast = Some ast; diagnostics = [] }
+
 let compile ?(max_initializer_steps = 100_000) session ~config ~source =
   if max_initializer_steps <= 0 then
     Error
@@ -798,7 +805,13 @@ let compile ?(max_initializer_steps = 100_000) session ~config ~source =
           ~span:(Integer_source.source_span source)
           "HCIRVM0001" "max_initializer_steps must be greater than zero";
       ]
-  else compile_with_limit ~max_initializer_steps session ~config ~source
+  else
+    let parsed =
+      Frontend.Parser.parse ~sources:(Session.sources session)
+        ~definitions:(Session.definitions session)
+        ~symbols:(Session.symbols session) ~config source
+    in
+    compile_parsed_with_limit ~max_initializer_steps session ~config parsed
 
 let lower session ~config ~source =
   let* compiled = compile session ~config ~source in

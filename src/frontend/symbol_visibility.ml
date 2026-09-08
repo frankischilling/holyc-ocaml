@@ -125,6 +125,11 @@ module Environment = struct
       next_local_context_id = environment.next_local_context_id;
     }
 
+  let without_locals environment run =
+    let contexts = environment.local_contexts in
+    environment.local_contexts <- [];
+    Fun.protect ~finally:(fun () -> environment.local_contexts <- contexts) run
+
   let add ?(origin = Session_registration) ?function_call_shape environment
       ~name ~kind () =
     if String.length name = 0 then invalid_arg "symbol name cannot be empty";

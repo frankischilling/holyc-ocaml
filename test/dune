@@ -63,6 +63,8 @@
   test_integer_byte_updates
   test_integer_byte_signatures
   test_integer_narrow
+  test_stateful_exe
+  test_stream_parser
   test_integer_statics
   test_integer_static_initializers
   test_integer_pointers
