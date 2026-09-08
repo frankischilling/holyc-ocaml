@@ -124,10 +124,11 @@ callee rebinding during lookahead and lost opener warnings. Earlier selection
 receipts retain exact AST occurrence, environment and entry objects, including
 absence and local shadowing.
 
-The fourteen real #exe runtime groups remain RED. Before connecting execution,
-add semantic publication hooks for unfinished function headers and each global
-declarator; extend selection evidence to sizeof/offset/defined queries. These
-must precede task catalog, persistent VM and StreamPrint service integration.
+The fourteen real #exe runtime groups remain RED. Before connecting parser
+execution, add semantic publication hooks for provisional function records,
+completed headers and each global declarator; extend selection evidence to
+sizeof/offset/defined queries. Core task storage can be implemented independently
+through the existing outer-binding pipeline, as described below.
 
 Checkpoint verification: 2,074 of 2,088 tests passed in 39.577 seconds; only
 the fourteen pending runtime groups failed, all at missing #exe execution.
@@ -136,3 +137,29 @@ checksums and all eleven incremental provenance scenarios passed. Lexer results
 remain 528/528 with no errors; complete parser JSON and normalized text match
 the committed AOT baseline (25 standalone, 126 with prelude). The reference
 remains `c26482bb6ad3f80106d28504ec5db3c6a360732c`; no new native capture is claimed.
+
+## Retained global execution checkpoint
+
+The task API now compiles command deltas against immutable outer-global views
+and runs them with fixed-size retained VM allocations. Scalar/array mutations,
+unknown cells, pending selection across shadowing, new function bodies reading
+old globals, call/formatter array arguments and once-only command receipts are
+implemented. Twenty-five task groups cover these paths and cumulative execution,
+preparation, memory, output and work limits. Preparation charges occur during
+compilation, including pending commands and reached faults, and honor configured
+limits above the previous per-unit default.
+
+The phase checkboxes above remain open where they also require retained
+functions/statics/literal owners, extern joins or parser publication authority.
+This checkpoint does not claim #exe execution. Next connect retained function
+headers and bodies to existing call/argument evidence, keeping each body's
+original frame, globals, literal arena and callee context. Then add provisional
+publication hooks and StreamPrint generation through the parser callbacks.
+
+Checkpoint verification: 2,099 of 2,113 tests passed in 45.997 seconds, with only
+the fourteen pending #exe runtime groups failing. CLI checks, formatting,
+generated files, build/install, all 82 checksums and eleven provenance scenarios
+passed. Complete lexer JSON and parser JSON/normalized text match the earlier
+baselines. Independent review reproduced body-outer lowering, array argument,
+preparation-budget and statement-wrapper receipt defects before their fixes.
+The API and remaining boundaries are documented in `docs/integer-task.md`.

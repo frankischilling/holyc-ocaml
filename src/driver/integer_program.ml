@@ -66,8 +66,8 @@ exception Invalid of Common.Diagnostic.t
 let fail span code message =
   raise (Invalid (Integer_source.diagnostic ~span code message))
 
-let compile_parsed_with_limit ~max_initializer_steps session ~config
-    (parsed : Frontend.Parser.output) =
+let compile_parsed_with_limit ?task_view ?initializer_progress
+    ~max_initializer_steps session ~config (parsed : Frontend.Parser.output) =
   match parsed.ast with
   | None -> Error parsed.diagnostics
   | Some ast -> (
@@ -124,8 +124,11 @@ let compile_parsed_with_limit ~max_initializer_steps session ~config
               ast.items
           in
           let* prepared =
-            Integer_source.prepare_unit ~include_global_initializers:true
-              session ~config ~span:ast.span ast
+            Integer_source.prepare_unit
+              ?environment:
+                (Option.map Ir.Integer_globals.task_environment task_view)
+              ~include_global_initializers:true session ~config ~span:ast.span
+              ast
           in
           let typed = Integer_source.top_level prepared in
           let* globals_ =
@@ -140,6 +143,12 @@ let compile_parsed_with_limit ~max_initializer_steps session ~config
               ~functions:(Integer_source.functions prepared)
               ~records:(Integer_source.records prepared)
               globals_
+          in
+          let globals_ =
+            Option.fold ~none:globals_
+              ~some:(fun view ->
+                Ir.Integer_globals.with_task_view view globals_)
+              task_view
           in
           let root_map values =
             List.fold_left
@@ -621,6 +630,8 @@ let compile_parsed_with_limit ~max_initializer_steps session ~config
           in
           let* preparation_ =
             Integer_initializers.prepare ~max_steps:max_initializer_steps
+              ~allow_zero_budget:(Option.is_some task_view)
+              ?on_progress:initializer_progress
               ~function_calls:(List.rev !all_function_calls)
               ~span:ast.span ~globals:globals_ ~top_calls ~functions:definitions
               ()
@@ -786,16 +797,29 @@ let compile_parsed_with_limit ~max_initializer_steps session ~config
       | Ok value -> Ok { value; diagnostics = parsed.diagnostics }
       | Error diagnostics -> Error (parsed.diagnostics @ diagnostics))
 
-let compile_ast ?(max_initializer_steps = 100_000) session ~config ast =
-  if max_initializer_steps <= 0 then
+let compile_ast_internal ?task_view ?initializer_progress
+    ?(max_initializer_steps = 100_000) session ~config ast =
+  if
+    max_initializer_steps < 0
+    || (max_initializer_steps = 0 && Option.is_none task_view)
+  then
     Error
       [
         Integer_source.diagnostic ~span:ast.Ast.span "HCIRVM0001"
           "max_initializer_steps must be greater than zero";
       ]
   else
-    compile_parsed_with_limit ~max_initializer_steps session ~config
+    compile_parsed_with_limit ?task_view ?initializer_progress
+      ~max_initializer_steps session ~config
       { Frontend.Parser.ast = Some ast; diagnostics = [] }
+
+let compile_ast ?max_initializer_steps session ~config ast =
+  compile_ast_internal ?max_initializer_steps session ~config ast
+
+let compile_task_ast ~task_view ?initializer_progress ?max_initializer_steps
+    session ~config ast =
+  compile_ast_internal ~task_view ?initializer_progress ?max_initializer_steps
+    session ~config ast
 
 let compile ?(max_initializer_steps = 100_000) session ~config ~source =
   if max_initializer_steps <= 0 then

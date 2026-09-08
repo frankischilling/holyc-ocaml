@@ -4,6 +4,7 @@ val source_span : Common.Source_file.t -> Common.Span.t
 type prepared
 
 val prepare_unit :
+  ?environment:Sema.Outer_environment.t ->
   ?include_global_initializers:bool ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->

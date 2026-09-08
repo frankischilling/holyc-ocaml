@@ -37,6 +37,7 @@ type payload =
   | Float_bits of int64
   | Bytes of string
   | Symbol of Sema.Symbol.t
+  | Retained_global of Retained_global.t
   | Block of Block_id.t
   | Block_targets of Block_id.t list
 

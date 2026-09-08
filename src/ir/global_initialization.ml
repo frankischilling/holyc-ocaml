@@ -69,6 +69,7 @@ type t = {
 }
 
 let publications context = context.publications_
+let globals context = context.globals
 let publication_evidence context = context.publication_evidence_
 let publication_before publication = publication.publication_description.before
 let publication_storage publication = publication.publication_storage_

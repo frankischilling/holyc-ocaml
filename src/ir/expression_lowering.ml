@@ -1436,6 +1436,8 @@ let rec prepare_index_address ?frame ?globals result =
       with
       | Semantic_source.Bound_identifier_expression _
       | Semantic_source.Top_level_bound_identifier_expression _
+      | Semantic_source.Unresolved_expression
+          Semantic_source.Identifier_expression
         when Semantic_result.result_is_array_address result
              && Option.is_some globals -> (
           let* prepared =
@@ -1823,7 +1825,9 @@ let plan ?frame ?globals ~allow_calls root =
                       ]
                 | _ -> unsupported := true)
             | Semantic_source.Bound_identifier_expression _
-            | Semantic_source.Top_level_bound_identifier_expression _ -> (
+            | Semantic_source.Top_level_bound_identifier_expression _
+            | Semantic_source.Unresolved_expression
+                Semantic_source.Identifier_expression -> (
                 match (checked_frame_scalar result, result_span result) with
                 | Error item, _ -> error := Some item
                 | Ok (Checked_type result_type), Some span -> (
@@ -2334,8 +2338,7 @@ let plan ?frame ?globals ~allow_calls root =
                   conversion
             | Semantic_source.Aggregate_offset_base_expression _
             | Semantic_source.Unresolved_expression
-                ( Semantic_source.Identifier_expression
-                | Semantic_source.Offset_expression
+                ( Semantic_source.Offset_expression
                 | Semantic_source.Postfix_cast_expression
                 | Semantic_source.Call_expression ) -> unsupported := true)
         | Emit_index_stride step -> reversed := Index_stride step :: !reversed

@@ -43,8 +43,8 @@ let message_diagnostic ~span message =
               (String.length message - separator - 1)))
   | _ -> diagnostic ~span "HCEVAL0003" message
 
-let prepare_unit ?(include_global_initializers = false) session ~config ~span
-    ast =
+let prepare_unit ?environment:task_environment
+    ?(include_global_initializers = false) session ~config ~span ast =
   let table = Session.semantic_symbols session in
   let mode = Frontend.Preprocessor.Config.compilation_mode config in
   let checked result =
@@ -122,10 +122,55 @@ let prepare_unit ?(include_global_initializers = false) session ~config ~span
       ~functions ~globals ~expressions
     |> checked
   in
+  let* environment =
+    match task_environment with
+    | Some environment ->
+        let expected_mode =
+          match mode with
+          | Frontend.Preprocessor.Jit -> Sema.Outer_environment.Jit
+          | Frontend.Preprocessor.Aot -> Sema.Outer_environment.Aot
+        in
+        if
+          Sema.Outer_environment.owns_table environment table
+          && Sema.Outer_environment.compilation_mode environment = expected_mode
+        then Ok environment
+        else
+          checked
+            (Error
+               "HCRUN0004: task environment has a foreign owner or compilation \
+                mode")
+    | None ->
+        let make_table table_kind table_index =
+          Sema.Outer_environment.make_table ~table_kind ~table_index []
+          |> Result.map_error Sema.Outer_environment.error_to_string
+          |> checked
+        in
+        let* tables =
+          match mode with
+          | Frontend.Preprocessor.Jit ->
+              let* task = make_table (Sema.Outer_environment.Jit_task 0) 0 in
+              let* assembler = make_table Sema.Outer_environment.Assembler 1 in
+              Ok [ task; assembler ]
+          | Frontend.Preprocessor.Aot ->
+              let* assembler = make_table Sema.Outer_environment.Assembler 0 in
+              Ok [ assembler ]
+        in
+        Outer_expression_binding.create_environment ~table
+          ~compilation_mode:mode tables
+        |> checked
+  in
+  let* outer =
+    match task_environment with
+    | None -> Ok None
+    | Some _ ->
+        Outer_expression_binding.resolve ~table ~environment
+          ~expressions:module_expressions
+        |> checked |> Result.map Option.some
+  in
   let* calls =
     Function_call_resolution.resolve ~table ~declarations ~function_types
       ~members ~local_types ~global_types ~functions
-      ~expressions:module_expressions ast
+      ~expressions:module_expressions ?outer ast
     |> checked
   in
   let* policies =
@@ -133,26 +178,6 @@ let prepare_unit ?(include_global_initializers = false) session ~config ~span
       ~parent:(Sema.Declaration_collection.scope declarations)
       ~headers ~calls
     |> Result.map_error Sema.Function_call_conversion_policy.error_to_string
-    |> checked
-  in
-  let make_table table_kind table_index =
-    Sema.Outer_environment.make_table ~table_kind ~table_index []
-    |> Result.map_error Sema.Outer_environment.error_to_string
-    |> checked
-  in
-  let* tables =
-    match mode with
-    | Frontend.Preprocessor.Jit ->
-        let* task = make_table (Sema.Outer_environment.Jit_task 0) 0 in
-        let* assembler = make_table Sema.Outer_environment.Assembler 1 in
-        Ok [ task; assembler ]
-    | Frontend.Preprocessor.Aot ->
-        let* assembler = make_table Sema.Outer_environment.Assembler 0 in
-        Ok [ assembler ]
-  in
-  let* environment =
-    Outer_expression_binding.create_environment ~table ~compilation_mode:mode
-      tables
     |> checked
   in
   let* dimension_bindings =
@@ -204,7 +229,7 @@ let prepare_unit ?(include_global_initializers = false) session ~config ~span
     |> checked
   in
   let* function_results =
-    Typed.analyze ~table ~members policies
+    Typed.analyze ~table ~members ?outer policies
     |> Result.map_error Typed.error_to_string
     |> checked
   in

@@ -137,6 +137,13 @@ Function header and completed-declarator callbacks must publish semantic state
 at the native boundaries described above. A completed whole item alone cannot
 publish the first declarator before a second declarator's #exe initializer.
 
+The function boundary includes provisional publication before parameters:
+`PrsStmt.HC:104-108` inserts a newly allocated function record before
+`PrsVarLst` parses its parameter list at line 113. Publish provisional identity
+before parsing parameter defaults, then complete the retained header afterward.
+Publishing only a complete header before the body would still be too late for a
+directive inside a parameter default. Extern joins need their existing identity.
+
 Extend selection evidence to query operands before supporting directives inside
 sizeof/offset/defined queries. `PrsExp.HC:317-329` computes sizeof from its
 selected record before subsequent lexing; `942-947` similarly evaluates defined.

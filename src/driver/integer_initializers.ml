@@ -62,8 +62,9 @@ let value_instructions graph =
       | Ir.Opcode.Ic_end_exp | Ic_end -> false
       | _ -> true)
 
-let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
-    ~functions () =
+let prepare ?(function_calls = []) ?(allow_zero_budget = false)
+    ?(on_progress = fun _ -> ()) ~max_steps ~span ~globals ~top_calls ~functions
+    () =
   let invalid ?(notes = []) ?(at = span) code message =
     Error
       [
@@ -71,7 +72,7 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
           ~notes ~primary:at ();
       ]
   in
-  if max_steps <= 0 then
+  if max_steps < 0 || (max_steps = 0 && not allow_zero_budget) then
     invalid "HCIRVM0001" "max_initializer_steps must be greater than zero"
   else
     let work =
@@ -98,7 +99,9 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
           in
           Int.compare (index left) (index right))
     in
-    let rec collect total updates reversed = function
+    let rec collect total updates reversed work =
+      on_progress total;
+      match work with
       | [] ->
           let updates = List.rev updates in
           let scalar_values =
@@ -433,6 +436,7 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
                     value_graph_
                   |> Result.map_error
                        (List.map (fun (error : VM.error) ->
+                            on_progress (total + error.executed_steps);
                             Common.Diagnostic.make ~code:error.code
                               ~severity:Common.Diagnostic.Error
                               ~message:error.message

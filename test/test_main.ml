@@ -113,6 +113,7 @@ let () =
       ("source byte signatures", Test_integer_byte_signatures.tests);
       ("source narrow integers", Test_integer_narrow.tests);
       ("stateful exe", Test_stateful_exe.tests);
+      ("integer task", Test_integer_task.tests);
       ("stream parser", Test_stream_parser.tests);
       ("source integer statics", Test_integer_statics.tests);
       ("source static initializers", Test_integer_static_initializers.tests);

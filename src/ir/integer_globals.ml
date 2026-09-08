@@ -27,6 +27,18 @@ type slot = {
 type static_slot = Integer_statics.slot
 type storage_slot = Global of slot | Static of static_slot
 
+type task_catalog = {
+  table : Sema.Symbol_table.t;
+  mutable published : (Retained_global.t * slot) list;
+}
+
+type task_view = {
+  catalog : task_catalog;
+  environment : Sema.Outer_environment.t;
+  task_table : Sema.Outer_environment.table;
+  entries : (Sema.Outer_environment.entry * Retained_global.t * slot) list;
+}
+
 type t = {
   slots_ : slot list;
   symbols : slot Symbols.t;
@@ -35,6 +47,7 @@ type t = {
   global_byte_size_ : int;
   global_cell_count_ : int;
   byte_size_ : int;
+  task_view : task_view option;
 }
 
 let slots globals = globals.slots_
@@ -94,6 +107,12 @@ let static_root_materialized slot root =
 let static_compiler_options = Integer_statics.compiler_options
 let static_storage slot = Static slot
 let global_storage slot = Global slot
+
+let same_storage left right =
+  match (left, right) with
+  | Global left, Global right -> left == right
+  | Static left, Static right -> left == right
+  | _ -> false
 
 let storage_slots globals =
   List.map global_storage globals.slots_
@@ -267,6 +286,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
               global_byte_size_ = byte_size;
               global_cell_count_ = index;
               byte_size_ = byte_size;
+              task_view = None;
             }
         else invalid "global initializer roots include an absent declaration"
     | record :: rest -> (
@@ -485,6 +505,121 @@ let create ?initializers ~span records = create_impl ?initializers ~span records
 
 let create_with_layout ~layout ?initializers ~span records =
   create_impl ~layout ?initializers ~span records
+
+let create_task_catalog ~table = { table; published = [] }
+
+let snapshot_task catalog =
+  let module Outer = Sema.Outer_environment in
+  let ( let* ) = Result.bind in
+  let checked result = Result.map_error Outer.error_to_string result in
+  let rec collect index rev = function
+    | [] -> Ok (List.rev rev)
+    | (reference, slot) :: rest ->
+        let source =
+          Records.classified_record_source slot.record
+          |> Resolution.global_record_global
+        in
+        let declarator_kind =
+          match Global.global_declarator_kind source with
+          | Global.Object -> Outer.Object_global
+          | Global.Function_pointer pointer ->
+              Outer.Function_pointer_global pointer
+        in
+        let* global_metadata =
+          Outer.make_global_metadata
+            ~type_reference:(Global.global_type_reference source)
+            ~declarator_kind
+            ~array_rank:(List.length (Shape.dimensions slot.shape))
+          |> checked
+        in
+        let* entry =
+          Outer.make_global_entry ~symbol:slot.symbol ~entry_index:index
+            ~global_metadata
+          |> checked
+        in
+        collect (index + 1) ((entry, reference, slot) :: rev) rest
+  in
+  let* entries = collect 0 [] catalog.published in
+  let* task_table =
+    Outer.make_table ~table_kind:(Outer.Jit_task 0) ~table_index:0
+      (List.map (fun (entry, _, _) -> entry) entries)
+    |> checked
+  in
+  let* assembler =
+    Outer.make_table ~table_kind:Outer.Assembler ~table_index:1 [] |> checked
+  in
+  let* environment =
+    Outer.create ~table:catalog.table ~compilation_mode:Outer.Jit
+      [ task_table; assembler ]
+    |> checked
+  in
+  Ok { catalog; environment; task_table; entries }
+
+let task_environment view = view.environment
+let with_task_view view globals = { globals with task_view = Some view }
+
+let retained_binding globals binding =
+  let module Outer = Sema.Outer_environment in
+  Option.bind globals.task_view (fun view ->
+      if Outer.binding_table binding != view.task_table then None
+      else
+        List.find_map
+          (fun (entry, reference, slot) ->
+            if Outer.binding_entry binding == entry then Some (reference, slot)
+            else None)
+          view.entries)
+
+let retained_slot globals reference =
+  Option.bind globals.task_view (fun view ->
+      List.find_map
+        (fun (_, candidate, slot) ->
+          if Retained_global.same candidate reference then Some (Global slot)
+          else None)
+        view.entries)
+
+let is_task_command globals = Option.is_some globals.task_view
+
+let check_task_command catalog globals =
+  match globals.task_view with
+  | None -> Error "task execution requires a compiled task storage view"
+  | Some view when view.catalog != catalog ->
+      Error "compiled storage view belongs to another task"
+  | Some view ->
+      if globals.mode <> Resolution.Jit then
+        Error "task commands require JIT storage"
+      else if
+        not
+          (List.for_all
+             (fun slot ->
+               Sema.Symbol_table.owns_symbol catalog.table (storage_symbol slot))
+             (storage_slots globals))
+      then Error "new task storage has foreign symbols"
+      else if
+        List.exists
+          (fun slot ->
+            List.exists
+              (fun (_, prior) -> prior.symbol == slot.symbol)
+              catalog.published)
+          globals.slots_
+      then Error "task storage declaration has already been admitted"
+      else if
+        not
+          (List.for_all
+             (fun (_, reference, slot) ->
+               List.exists
+                 (fun (prior, expected) ->
+                   Retained_global.same prior reference && expected == slot)
+                 catalog.published)
+             view.entries)
+      then Error "retained global reference is absent from this task"
+      else Ok ()
+
+let publish_task catalog globals =
+  catalog.published <-
+    catalog.published
+    @ List.map
+        (fun slot -> (Retained_global.create slot.symbol, slot))
+        globals.slots_
 
 let with_initial_values ~span globals values =
   let invalid message =

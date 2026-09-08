@@ -5,6 +5,8 @@ type t
 
 val prepare :
   ?function_calls:Sema.Function_call_target_classification.t list ->
+  ?allow_zero_budget:bool ->
+  ?on_progress:(int -> unit) ->
   max_steps:int ->
   span:Common.Span.t ->
   globals:Ir.Integer_globals.t ->

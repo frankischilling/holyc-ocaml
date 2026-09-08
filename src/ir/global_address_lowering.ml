@@ -11,6 +11,7 @@ type prepared_address = {
   address_type : Type.t;
   span : Common.Span.t;
   initializer_indices : (int64 * int64) list;
+  retained : Retained_global.t option;
 }
 
 let strides address = Integer_globals.storage_strides address.slot
@@ -25,6 +26,100 @@ type t = {
 
 let error ?span code message =
   Error [ { Sequence.code; message; instruction_id = None; span } ]
+
+let prepare_retained ~globals result =
+  let module Outer = Sema.Outer_expression_binding in
+  let source = Result.result_source result in
+  let origin = Source.argument_expression_origin source in
+  let span =
+    match origin with
+    | Sema.Symbol.Source_location location -> Some location.span
+    | _ -> None
+  in
+  let invalid message = error ?span "HCIRL0004" message in
+  match Result.result_outer_binding result with
+  | None -> Ok None
+  | Some binding -> (
+      let occurrence_matches =
+        match
+          ( Source.argument_expression_kind source,
+            Result.result_outer_occurrence result,
+            Result.result_top_level_outer_occurrence result )
+        with
+        | ( Source.Unresolved_expression Source.Identifier_expression,
+            Some occurrence,
+            None ) -> (
+            Binding.occurrence_resolution (Outer.occurrence_source occurrence)
+            = Binding.Outer_candidate
+            && Binding.occurrence_origin (Outer.occurrence_source occurrence)
+               = origin
+            && Outer.occurrence_origin occurrence = origin
+            && String.equal
+                 (Outer.occurrence_name occurrence)
+                 (Sema.Symbol.name
+                    (Sema.Outer_environment.entry_symbol
+                       (Sema.Outer_environment.binding_entry binding)))
+            &&
+            match Outer.occurrence_resolution occurrence with
+            | Outer.Outer_binding expected -> expected == binding
+            | _ -> false)
+        | ( Source.Top_level_bound_identifier_expression identifier,
+            None,
+            Some occurrence ) -> (
+            occurrence
+            == Source.top_level_bound_identifier_occurrence identifier
+            && Top.occurrence_origin occurrence = origin
+            &&
+            match Top.occurrence_resolution occurrence with
+            | Top.Outer_binding expected -> expected == binding
+            | _ -> false)
+        | _ -> false
+      in
+      if (not occurrence_matches) || Result.result_origin result <> origin then
+        invalid "retained global requires its exact typed outer occurrence"
+      else
+        match Integer_globals.retained_binding globals binding with
+        | None ->
+            invalid "outer global is absent from the compiled task storage view"
+        | Some (reference, slot) -> (
+            let type_ = Integer_globals.slot_type slot in
+            let rank =
+              Integer_globals.slot_shape slot
+              |> Integer_storage_shape.dimensions |> List.length
+            in
+            if
+              (not
+                 (Option.fold ~none:false ~some:(Type.equal type_)
+                    (Result.result_type result)))
+              || Result.result_array_rank result <> rank
+              || Result.result_is_array_address result <> (rank > 0)
+              || Option.is_some (Result.result_function_declaration result)
+              || Option.is_some (Result.result_function_address_path result)
+              || not
+                   (match Result.result_category result with
+                   | Result.Object_value | Result.Lvalue -> rank = 0
+                   | Result.Array_value -> rank > 0
+                   | _ -> false)
+            then
+              invalid
+                "retained global type or value shape disagrees with its exact \
+                 object"
+            else
+              match (span, Type.pointer_to type_) with
+              | Some span, Ok address_type ->
+                  Ok
+                    (Some
+                       {
+                         slot = Integer_globals.global_storage slot;
+                         address_type;
+                         span;
+                         initializer_indices = [];
+                         retained = Some reference;
+                       })
+              | _ ->
+                  invalid
+                    "retained global has no checked pointer type or physical \
+                     span"))
 
 let prepare_global ~globals result =
   let source = Result.result_source result in
@@ -59,7 +154,7 @@ let prepare_global ~globals result =
     | _ -> None
   in
   match bound with
-  | None -> Ok None
+  | None -> prepare_retained ~globals result
   | Some (publication, name, occurrence_origin, source_type) -> (
       if Binding.publication_kind publication <> Binding.Global_variable then
         Ok None
@@ -144,6 +239,7 @@ let prepare_global ~globals result =
                          address_type;
                          span;
                          initializer_indices = [];
+                         retained = None;
                        })
               | _ ->
                   invalid
@@ -188,6 +284,7 @@ let prepare ?frame ~globals result =
                              address_type;
                              span;
                              initializer_indices = [];
+                             retained = None;
                            })
                   | _ ->
                       invalid
@@ -292,6 +389,7 @@ let prepare_initializer ~globals root =
                   address_type;
                   span = location.span;
                   initializer_indices;
+                  retained = None;
                 }
           | _ ->
               error "HCIRL0004"
@@ -334,6 +432,7 @@ let prepare_static_initializer ~globals slot root =
               address_type;
               span = location.span;
               initializer_indices;
+              retained = None;
             }
       | _ ->
           invalid
@@ -390,7 +489,10 @@ let lower_prepared ~instruction_id ~value_id address =
           ~operands:[] ~target_type:address.address_type
           ~payload:
             (Some
-               (Sequence.Symbol (Integer_globals.storage_symbol address.slot)))
+               (match address.retained with
+               | Some reference -> Sequence.Retained_global reference
+               | None ->
+                   Sequence.Symbol (Integer_globals.storage_symbol address.slot)))
       in
       let rec indexed base = function
         | [] -> Ok base

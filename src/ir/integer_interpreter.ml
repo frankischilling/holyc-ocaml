@@ -63,6 +63,83 @@ and runtime_storage = {
   unknown_message : string;
 }
 
+type task_state = {
+  catalog : Integer_globals.task_catalog;
+  mutable arenas : (Integer_globals.t * runtime_storage) list;
+  mutable literal_arenas : runtime_storage list;
+  mutable started : X87.t list;
+  mutable global_bytes : int;
+  mutable literal_bytes : int;
+  mutable steps : int;
+  mutable initializer_steps : int;
+  max_steps : int;
+  max_initializer_steps : int;
+  max_global_bytes : int;
+  max_literal_bytes : int;
+  max_frame_bytes : int;
+  max_call_depth : int;
+  output : Output.t;
+}
+
+let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
+    ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
+    ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
+    ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576) ~table () =
+  if
+    List.exists
+      (fun limit -> limit <= 0)
+      [
+        max_steps;
+        max_initializer_steps;
+        max_global_bytes;
+        max_literal_bytes;
+        max_frame_bytes;
+        max_call_depth;
+        max_output_bytes;
+        max_output_work;
+      ]
+    || max_output_bytes > Sys.max_string_length
+  then
+    Error
+      "task limits must be positive and output capacity must fit a host string"
+  else
+    Ok
+      {
+        catalog = Integer_globals.create_task_catalog ~table;
+        arenas = [];
+        literal_arenas = [];
+        started = [];
+        global_bytes = 0;
+        literal_bytes = 0;
+        steps = 0;
+        initializer_steps = 0;
+        max_steps;
+        max_initializer_steps;
+        max_global_bytes;
+        max_literal_bytes;
+        max_frame_bytes;
+        max_call_depth;
+        output = Output.create ~max_output_bytes ~max_output_work;
+      }
+
+let task_snapshot task = Integer_globals.snapshot_task task.catalog
+let task_output_bytes task = Output.contents task.output
+let task_output_work task = Output.work task.output
+let task_executed_steps task = task.steps
+let task_initializer_steps task = task.initializer_steps
+let task_initializer_limit task = task.max_initializer_steps
+
+let record_task_preparation task ~before ~steps =
+  if
+    before < 0 || steps < 0
+    || before > task.initializer_steps
+    || steps > task.max_initializer_steps - before
+    || before + steps < task.initializer_steps
+  then
+    invalid_arg
+      "task preparation progress is inconsistent with its cumulative budget";
+  task.initializer_steps <- before + steps
+
 type frame_slot = {
   slot_type : Type.t;
   stored_type : stored_type;
@@ -168,7 +245,7 @@ type branch_condition = Zero | Not_zero
 
 type storage_location =
   | Frame_slot of int * int
-  | Global_slot of int * int
+  | Global_slot of Integer_globals.storage_slot
   | Literal_slot of int * int
   | Indirect_slot of prepared_pointer
   | Indexed_slot of prepared_pointer
@@ -721,9 +798,17 @@ let storage_allowed frame initialization instruction slot =
 
 let global_address frame globals initialization
     (description : Sequence.description) =
-  match (globals, description.payload, description.target_type) with
-  | Some globals, Some (Sequence.Symbol symbol), Some type_ -> (
-      match Integer_globals.find_storage globals symbol with
+  match (globals, description.target_type) with
+  | Some globals, Some type_ -> (
+      let selected =
+        match description.payload with
+        | Some (Sequence.Symbol symbol) ->
+            Integer_globals.find_storage globals symbol
+        | Some (Sequence.Retained_global reference) ->
+            Integer_globals.retained_slot globals reference
+        | _ -> None
+      in
+      match selected with
       | Some slot
         when description.opcode = Integer_globals.storage_opcode slot
              && storage_allowed frame initialization description.instruction_id
@@ -953,12 +1038,7 @@ let storage_operand ?(allow_array = false) frame initialization types
          && (allow_array || Integer_globals.storage_dimensions slot = []) ->
       let type_ = Integer_globals.storage_type slot in
       Option.map
-        (fun kind ->
-          ( Global_slot
-              ( Integer_globals.storage_index slot,
-                Integer_globals.storage_element_count slot ),
-            type_,
-            kind ))
+        (fun kind -> (Global_slot slot, type_, kind))
         (stored_type type_)
   | _, Some (Indexed_address (pointer_type, remaining))
     when allow_array || remaining = [] -> (
@@ -1217,7 +1297,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
       when Option.is_some globals
            &&
            match description.payload with
-           | Some (Sequence.Symbol _) -> true
+           | Some (Sequence.Symbol _ | Sequence.Retained_global _) -> true
            | _ -> false -> Some Global_address_kind
     | Some _, Opcode.Ic_rbp -> Some Frame_address_kind
     | _, (Opcode.Ic_imm_i64 | Opcode.Ic_add)
@@ -2089,7 +2169,8 @@ let publish_array_payload ~slot ~cell_offset payload write =
 
 let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
     ?(max_call_depth = Int.max_int) ?(capture_last = false) ?initialization
-    ?(global_words = [||]) ?literal_image ?output ~max_steps program =
+    ?(global_words = [||]) ?literal_image ?output ?admit
+    ?(retained_regions = []) ~max_steps program =
   let entry_program = program in
   let current_block = ref program.entry_index in
   let current_instruction = ref 0 in
@@ -2104,6 +2185,22 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
     make_storage
       (Array.map (Option.map (fun word -> Runtime_word word)) global_words)
       "hosted execution reached an uninitialized JIT persistent object"
+  in
+  let global_region slot =
+    let storage =
+      List.find_map
+        (fun (owner, storage) ->
+          match
+            Integer_globals.find_storage owner
+              (Integer_globals.storage_symbol slot)
+          with
+          | Some expected when Integer_globals.same_storage expected slot ->
+              Some storage
+          | _ -> None)
+        retained_regions
+      |> Option.value ~default:global_storage
+    in
+    (storage, Integer_globals.storage_index slot)
   in
   let publications =
     Option.fold ~none:[] ~some:Global_initialization.publications initialization
@@ -2137,7 +2234,11 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
               (Global_initialization.publication_cell_offset publication)
             (Global_initialization.publication_payload publication)
             (fun cell word ->
-              global_storage.cells.(cell) <- Some (Runtime_word word));
+              let storage, _ =
+                global_region
+                  (Global_initialization.publication_storage publication)
+              in
+              storage.cells.(cell) <- Some (Runtime_word word));
           applied_publications.(index) <- true))
   in
   let literal_storage =
@@ -2168,6 +2269,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
         "owned string literal byte is unexpectedly uninitialized";
     }
   in
+  Option.iter (fun admit -> admit global_storage literal_storage) admit;
   let slots = ref (frame_storage program.initial_slots) in
   let program = ref program in
   let callers = ref [] in
@@ -2313,7 +2415,9 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
     in
     match location with
     | Frame_slot (base, count) -> root !slots base count
-    | Global_slot (base, count) -> root global_storage base count
+    | Global_slot slot ->
+        let storage, base = global_region slot in
+        root storage base (Integer_globals.storage_element_count slot)
     | Literal_slot (base, count) -> root literal_storage base count
     | Indirect_slot operand -> require_pointer block instruction operand
     | Indexed_slot operand ->
@@ -2321,7 +2425,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
   in
   let resolve_location block instruction = function
     | Frame_slot (index, _) -> Some (!slots, index)
-    | Global_slot (index, _) -> Some (global_storage, index)
+    | Global_slot slot -> Some (global_region slot)
     | Literal_slot (index, _) -> Some (literal_storage, index)
     | Indirect_slot operand | Indexed_slot operand ->
         Option.bind (require_pointer ~bounded:false block instruction operand)
@@ -2911,8 +3015,9 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
   done;
   !slots.live <- false;
   List.iter (fun caller -> caller.saved_slots.live <- false) !callers;
-  global_storage.live <- false;
-  literal_storage.live <- false;
+  if Option.is_none admit then (
+    global_storage.live <- false;
+    literal_storage.live <- false);
   match (!failed, !completed) with
   | Some error, _ ->
       let error =
@@ -2994,9 +3099,10 @@ let execute_function ?(max_literal_bytes = 1_048_576) ~max_steps
             execute_prepared ~literal_image ~max_steps
               { program with owner = Some (function_id, function_name) })
 
-let execute_program_with_output ?runtime_calls ~output ?globals ?initialization
-    ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576) ~max_steps
-    ~max_frame_bytes ~max_call_depth ~functions checked =
+let execute_program_with_output ?task ?runtime_calls ~output ?globals
+    ?initialization ?(max_global_bytes = 1_048_576)
+    ?(max_literal_bytes = 1_048_576) ~max_steps ~max_frame_bytes ~max_call_depth
+    ~functions checked =
   let ( let* ) = Result.bind in
   if
     max_steps <= 0 || max_frame_bytes <= 0 || max_call_depth <= 0
@@ -3050,6 +3156,31 @@ let execute_program_with_output ?runtime_calls ~output ?globals ?initialization
            initialization context";
       ]
   else
+    let* () =
+      let invalid code message =
+        Error [ make_error ~stage:Preflight ~executed_steps:0 code message ]
+      in
+      match (task, globals) with
+      | None, Some globals when Integer_globals.is_task_command globals ->
+          invalid "HCIRVM0026"
+            "compiled task storage requires its owning task runtime"
+      | None, _ -> Ok ()
+      | Some _, None ->
+          invalid "HCIRVM0026" "task command has no checked storage context"
+      | Some task, Some globals -> (
+          if List.exists (fun entry -> entry == checked) task.started then
+            invalid "HCIRVM0026" "task command has already started"
+          else if
+            Integer_globals.byte_size globals
+            > max_global_bytes - task.global_bytes
+          then
+            invalid "HCIRVM0016"
+              "task global storage exceeds the cumulative byte limit"
+          else
+            match Integer_globals.check_task_command task.catalog globals with
+            | Error message -> invalid "HCIRVM0026" message
+            | Ok () -> Ok ())
+    in
     let owner body =
       ( Function.Function_id.to_int (Function.function_id body),
         Sema.Symbol.name (Function.symbol body) )
@@ -3190,6 +3321,10 @@ let execute_program_with_output ?runtime_calls ~output ?globals ?initialization
     in
     let callees = List.map (fun (callee, _, _) -> callee) summaries in
     let literal_image = fresh_literal_image () in
+    let max_literal_bytes =
+      max_literal_bytes
+      - Option.fold ~none:0 ~some:(fun task -> task.literal_bytes) task
+    in
     let rec bodies rev = function
       | [] -> Ok (Array.of_list (List.rev rev))
       | (callee, frame, body) :: rest ->
@@ -3250,9 +3385,57 @@ let execute_program_with_output ?runtime_calls ~output ?globals ?initialization
                   (fun cell word -> cells.(cell) <- Some word)));
       cells
     in
-    execute_prepared ~callees:programs ~max_frame_bytes ~max_call_depth
-      ?initialization ~global_words ~literal_image ~output ~capture_last:true
-      ~max_steps entry
+    let retained_regions =
+      Option.fold ~none:[] ~some:(fun task -> task.arenas) task
+    in
+    let admit =
+      Option.map
+        (fun task storage literals ->
+          let globals = Option.get globals in
+          task.started <- checked :: task.started;
+          task.arenas <- (globals, storage) :: task.arenas;
+          task.literal_arenas <- literals :: task.literal_arenas;
+          task.global_bytes <-
+            task.global_bytes + Integer_globals.byte_size globals;
+          task.literal_bytes <-
+            task.literal_bytes + literal_image.literal_byte_count;
+          Integer_globals.publish_task task.catalog globals)
+        task
+    in
+    let outcome =
+      execute_prepared ~callees:programs ~max_frame_bytes ~max_call_depth
+        ?initialization ~global_words ~literal_image ~output ~capture_last:true
+        ?admit ~retained_regions ~max_steps entry
+    in
+    Option.iter
+      (fun task ->
+        let steps =
+          match outcome with
+          | Ok result -> result.executed_steps_
+          | Error errors ->
+              List.fold_left
+                (fun count (error : error) -> max count error.executed_steps)
+                0 errors
+        in
+        task.steps <- task.steps + steps)
+      task;
+    outcome
+
+let execute_task_program task ~runtime_calls ~globals ~initialization ~functions
+    checked =
+  if task.steps >= task.max_steps then
+    Error
+      [
+        make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0007"
+          "the task cumulative execution step limit was exhausted";
+      ]
+  else
+    execute_program_with_output ~task ~runtime_calls ~output:task.output
+      ~globals ~initialization ~max_global_bytes:task.max_global_bytes
+      ~max_literal_bytes:task.max_literal_bytes
+      ~max_steps:(task.max_steps - task.steps)
+      ~max_frame_bytes:task.max_frame_bytes ~max_call_depth:task.max_call_depth
+      ~functions checked
 
 let execute_program_report ?runtime_calls ?globals ?initialization
     ?max_global_bytes ?max_literal_bytes ?(max_output_bytes = 1_048_576)

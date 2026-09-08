@@ -26,6 +26,37 @@ type error = private {
 
 type t
 type report
+type task_state
+
+val create_task_state :
+  ?max_steps:int ->
+  ?max_initializer_steps:int ->
+  ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
+  ?max_frame_bytes:int ->
+  ?max_call_depth:int ->
+  ?max_output_bytes:int ->
+  ?max_output_work:int ->
+  table:Sema.Symbol_table.t ->
+  unit ->
+  (task_state, string) result
+
+val task_snapshot : task_state -> (Integer_globals.task_view, string) result
+val task_output_bytes : task_state -> string
+val task_output_work : task_state -> int
+val task_executed_steps : task_state -> int
+val task_initializer_steps : task_state -> int
+val task_initializer_limit : task_state -> int
+val record_task_preparation : task_state -> before:int -> steps:int -> unit
+
+val execute_task_program :
+  task_state ->
+  runtime_calls:Runtime_call_context.t ->
+  globals:Integer_globals.t ->
+  initialization:Global_initialization.t ->
+  functions:function_definition list ->
+  X87_stack.t ->
+  (t, error list) result
 
 val reference_commit : string
 

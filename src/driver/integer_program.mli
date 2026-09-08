@@ -1,6 +1,15 @@
 type 'a checked = { value : 'a; diagnostics : Common.Diagnostic.t list }
 type compiled
 
+val compile_task_ast :
+  task_view:Ir.Integer_globals.task_view ->
+  ?initializer_progress:(int -> unit) ->
+  ?max_initializer_steps:int ->
+  Session.t ->
+  config:Frontend.Preprocessor.Config.t ->
+  Frontend.Ast.module_ ->
+  (compiled checked, Common.Diagnostic.t list) result
+
 val compile_ast :
   ?max_initializer_steps:int ->
   Session.t ->

@@ -484,7 +484,7 @@ let rec producer_origin result =
         origin_span (Resolution.binary_operator_origin binary)
     | _ -> own ()
 
-let rec producer_type result =
+let rec producer_type ~globals result =
   let span = origin_span (Typed.result_origin result) in
   let type_ =
     match Typed.result_type result with
@@ -510,6 +510,16 @@ let rec producer_type result =
     (match
        Typed.result_source result |> Resolution.argument_expression_kind
      with
+    | _ when Option.is_some (Typed.result_outer_binding result) -> (
+        match Global_address_lowering.prepare ~globals result with
+        | Ok (Some address) ->
+            require ?span
+              (List.length (Global_address_lowering.strides address) = rank)
+              "retained array argument disagrees with its exact task object \
+               rank"
+        | _ ->
+            fail ?span
+              "retained array argument has no checked task storage reference")
     | Resolution.Bound_identifier_expression identifier ->
         require ?span
           (Resolution.bound_identifier_is_ordinary_array identifier
@@ -547,7 +557,7 @@ let rec producer_type result =
                    (Typed.result_type base))
               "materialized call argument lost its checked remaining array \
                dimensions";
-            ignore (producer_type base)
+            ignore (producer_type ~globals base)
         | None -> fail ?span "materialized array index has no checked operands")
     | _ ->
         fail ?span
@@ -558,10 +568,10 @@ let rec producer_type result =
         fail ?span
           "materialized call argument cannot form its checked element pointer"
 
-let expected_arguments shape =
+let expected_arguments ~globals shape =
   let span = origin_span shape.origin in
   let actual role target value =
-    let source = producer_type value in
+    let source = producer_type ~globals value in
     {
       expected_role = role;
       expected_source = source;
@@ -607,7 +617,7 @@ type pending = {
   mutable expected : expected_argument list;
 }
 
-let graph_context ~records ~validate_source owner graph descriptions =
+let graph_context ~globals ~records ~validate_source owner graph descriptions =
   let pending_shapes =
     List.fold_left
       (fun map description ->
@@ -683,7 +693,7 @@ let graph_context ~records ~validate_source owner graph descriptions =
                   shape;
                   phase = Collecting;
                   pushes = [];
-                  expected = expected_arguments shape;
+                  expected = expected_arguments ~globals shape;
                 }
                 :: !stack
           | ( ( Opcode.Ic_call
@@ -885,6 +895,7 @@ let graph_context ~records ~validate_source owner graph descriptions =
 let create ~records ~function_sources ~top_level ~initialization ~entry
     ~entry_calls ~functions =
   try
+    let globals = Global_initialization.globals initialization in
     let provided = function
       | Typed.Provided_result value -> Some value
       | Typed.Declared_default_result _ -> None
@@ -1140,13 +1151,13 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
           ignore
             (source_function ?span:(Function_body.span body)
                (Function_body.symbol body));
-          graph_context ~records ~validate_source (Function body)
+          graph_context ~globals ~records ~validate_source (Function body)
             (Function_body.body body) descriptions
           :: checked_functions (body :: seen) rest
     in
     let graphs =
-      graph_context ~records ~validate_source Entry (X87_stack.graph entry)
-        entry_calls
+      graph_context ~globals ~records ~validate_source Entry
+        (X87_stack.graph entry) entry_calls
       :: checked_functions [] functions
     in
     Ok { entry; initialization; functions = List.map fst functions; graphs }

@@ -1,0 +1,432 @@
+open Holyc_lib
+module Task = Integer_task
+module VM = Ir_integer_interpreter
+
+let create session =
+  match Task.create session with
+  | Ok task -> task
+  | Error message -> Alcotest.fail message
+
+let run session task text =
+  let source = Session.add_source session ~path:"task.hc" ~contents:text in
+  Task.run task ~source
+
+let value expected result =
+  let execution = Test_integer_program.checked result in
+  match VM.final_value execution with
+  | Some word -> Alcotest.(check int64) "reached task word" expected word.bits
+  | None -> Alcotest.fail "task command produced no word"
+
+let persistent_scalar () =
+  let session = Session.create () in
+  let task = create session in
+  ignore (run session task "I64 N=40;" |> Test_integer_program.checked);
+  value 42L (run session task "N+=2;");
+  value 42L (run session task "N;");
+  value 43L (run session task "++N;")
+
+let persistent_array () =
+  let session = Session.create () in
+  let task = create session in
+  ignore (run session task "I64 A[2]={40,2};" |> Test_integer_program.checked);
+  value 42L (run session task "A[0]+=A[1];");
+  value 44L (run session task "A[0]+A[1];")
+
+let reached_fault () =
+  let session = Session.create () in
+  let task = create session in
+  ignore (run session task "I64 N=40;" |> Test_integer_program.checked);
+  (match run session task "N+=2;1/0;" with
+  | Error (diagnostic :: _) ->
+      Alcotest.(check string)
+        "reached division fault" "HCIRVM0009" diagnostic.code
+  | _ -> Alcotest.fail "expected the reached arithmetic fault");
+  value 42L (run session task "N;")
+
+let parse session text =
+  let source = Session.add_source session ~path:"pending.hc" ~contents:text in
+  let config =
+    match Preprocessor.Config.create () with
+    | Ok config -> config
+    | Error message -> Alcotest.fail message
+  in
+  let parsed =
+    Parser.parse ~sources:(Session.sources session)
+      ~definitions:(Session.definitions session)
+      ~symbols:(Session.symbols session) ~config source
+  in
+  match parsed.ast with
+  | Some ast -> ast
+  | None -> Alcotest.fail "test command did not parse"
+
+let compile session task text =
+  Task.compile_ast task (parse session text) |> Test_integer_program.checked
+
+let fault code = function
+  | Error (diagnostic :: _) ->
+      Alcotest.(check string) diagnostic.Diagnostic.message code diagnostic.code
+  | _ -> Alcotest.fail "expected task diagnostic"
+
+let selected_before_shadow () =
+  let session = Session.create () in
+  let task = create session in
+  ignore (run session task "I64 N=40;" |> Test_integer_program.checked);
+  let pending = compile session task "N+=2;" in
+  ignore
+    (run session task "I64 N=100; I64 Other[4]={1,2,3,4};"
+    |> Test_integer_program.checked);
+  value 42L (Task.execute task pending);
+  value 100L (run session task "N;");
+  value 10L (run session task "Other[0]+Other[1]+Other[2]+Other[3];")
+
+let replay_and_foreign_owner () =
+  let session = Session.create () in
+  let task = create session in
+  let other = create session in
+  let ast = parse session "40+2;" in
+  let command = Task.compile_ast task ast |> Test_integer_program.checked in
+  fault "HCIRVM0026" (Task.execute other command);
+  value 42L (Task.execute task command);
+  let before = Task.executed_steps task in
+  fault "HCIRVM0026" (Task.execute task command);
+  let same_ast = Task.compile_ast task ast |> Test_integer_program.checked in
+  fault "HCIRVM0026" (Task.execute task same_ast);
+  Alcotest.(check int)
+    "replay charges no instructions" before (Task.executed_steps task);
+  value 42L (run session task "40+2;")
+
+let failed_command_cannot_replay () =
+  let session = Session.create () in
+  let task = create session in
+  ignore (run session task "I64 N=40;" |> Test_integer_program.checked);
+  let command = compile session task "N+=2;1/0;" in
+  fault "HCIRVM0009" (Task.execute task command);
+  fault "HCIRVM0026" (Task.execute task command);
+  value 42L (run session task "N;")
+
+let rejected_command_has_no_effects () =
+  let session = Session.create () in
+  let task = create session in
+  ignore (run session task "I64 N=40;" |> Test_integer_program.checked);
+  let command =
+    compile session task "extern I64 Missing();I64 M=1;N=99;if(0)Missing();"
+  in
+  let before = Task.executed_steps task in
+  fault "HCIRVM0014" (Task.execute task command);
+  fault "HCIRVM0014" (Task.execute task command);
+  Alcotest.(check int)
+    "preflight charges no instructions" before (Task.executed_steps task);
+  value 40L (run session task "N;");
+  fault "HCSEMA0054" (run session task "M;")
+
+let new_function_reads_old_global () =
+  let session = Session.create () in
+  let task = create session in
+  ignore (run session task "I64 N=40;" |> Test_integer_program.checked);
+  value 42L (run session task "I64 Add(){return N+2;}Add();")
+
+let initializer_reads_old_global () =
+  let session = Session.create () in
+  let task = create session in
+  ignore (run session task "I64 N=40;" |> Test_integer_program.checked);
+  value 42L (run session task "I64 M=N+2;M;");
+  value 42L (run session task "M;")
+
+let narrow_storage () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task "I8 N=127;U16 A[2]={65535,42};"
+    |> Test_integer_program.checked);
+  value (-128L) (run session task "++N;");
+  value 0L (run session task "++A[0];");
+  value 42L (run session task "A[1];")
+
+let cumulative_global_limit () =
+  let session = Session.create () in
+  let task =
+    match Task.create ~max_global_bytes:16 session with
+    | Ok task -> task
+    | Error message -> Alcotest.fail message
+  in
+  ignore (run session task "I64 N=40;" |> Test_integer_program.checked);
+  ignore (run session task "I64 M=2;" |> Test_integer_program.checked);
+  fault "HCIRVM0016" (run session task "I8 Excess=1;N=0;");
+  value 42L (run session task "N+M;");
+  fault "HCSEMA0054" (run session task "Excess;")
+
+let cumulative_output () =
+  let session = Session.create () in
+  let task =
+    match Task.create ~max_output_bytes:2 session with
+    | Ok task -> task
+    | Error message -> Alcotest.fail message
+  in
+  ignore
+    (run session task "extern U0 PutChars(U64 ch);PutChars('4');"
+    |> Test_integer_program.checked);
+  ignore
+    (run session task "extern U0 PutChars(U64 ch);PutChars('2');"
+    |> Test_integer_program.checked);
+  Alcotest.(check string) "capture joins commands" "42" (Task.output_bytes task);
+  fault "HCIRVM0022"
+    (run session task "extern U0 PutChars(U64 ch);PutChars('!');");
+  Alcotest.(check string)
+    "failed append retains prior capture" "42" (Task.output_bytes task)
+
+let retained_array_argument () =
+  let session = Session.create () in
+  let task = create session in
+  ignore (run session task "I64 A[2]={40,2};" |> Test_integer_program.checked);
+  value 42L (run session task "I64 Sum(I64 *p){return p[0]+p[1];}Sum(A);");
+  value 42L
+    (run session task
+       "I64 Sum(I64 *p){return p[0]+p[1];}I64 F(){return Sum(A);}F();")
+
+let retained_array_output () =
+  let session = Session.create () in
+  let task = create session in
+  ignore (run session task "U8 Text[3]=\"42\";" |> Test_integer_program.checked);
+  ignore
+    (run session task "extern U0 Print(U8 *fmt,...);Print(\"%s\",Text);"
+    |> Test_integer_program.checked);
+  Alcotest.(check string)
+    "retained bytes passed to formatter" "42" (Task.output_bytes task)
+
+let compilation_budget () =
+  let session = Session.create () in
+  let task =
+    match Task.create ~max_initializer_steps:1 session with
+    | Ok task -> task
+    | Error message -> Alcotest.fail message
+  in
+  fault "HCIRVM0007" (Task.compile_ast task (parse session "I64 N=40;"));
+  value 42L (run session task "42;");
+  fault "HCSEMA0054" (run session task "N;")
+
+let shared_compilation_budget () =
+  let session = Session.create () in
+  let task =
+    match Task.create ~max_initializer_steps:6 session with
+    | Ok task -> task
+    | Error message -> Alcotest.fail message
+  in
+  let first = compile session task "I64 N=40;" in
+  Alcotest.(check int)
+    "literal preparation precedes admission" 3
+    (Task.initializer_steps task);
+  let second = compile session task "I64 M=2;" in
+  Alcotest.(check int)
+    "pending commands share preparation work" 6
+    (Task.initializer_steps task);
+  fault "HCIRVM0007" (Task.compile_ast task (parse session "I64 Excess=1;"));
+  Alcotest.(check int)
+    "exhaustion does not exceed preparation bound" 6
+    (Task.initializer_steps task);
+  ignore (Task.execute task first |> Test_integer_program.checked);
+  ignore (Task.execute task second |> Test_integer_program.checked);
+  value 42L (run session task "N+M;")
+
+let failed_preparation_charges_work () =
+  let session = Session.create () in
+  let task =
+    match Task.create ~max_initializer_steps:6 session with
+    | Ok task -> task
+    | Error message -> Alcotest.fail message
+  in
+  fault "HCIRVM0009" (Task.compile_ast task (parse session "I64 Failed=1/0;"));
+  Alcotest.(check int)
+    "faulting preparation consumes reached instructions" 3
+    (Task.initializer_steps task);
+  ignore (run session task "I64 N=42;" |> Test_integer_program.checked);
+  Alcotest.(check int)
+    "successful preparation consumes remaining budget" 6
+    (Task.initializer_steps task);
+  fault "HCIRVM0007" (Task.compile_ast task (parse session "I64 M=1;"));
+  value 42L (run session task "N;")
+
+let larger_preparation_limit () =
+  let session = Session.create () in
+  let task =
+    match Task.create ~max_initializer_steps:100_001 session with
+    | Ok task -> task
+    | Error message -> Alcotest.fail message
+  in
+  let source = "U8 Bytes[100001]=\"" ^ String.make 100_000 '*' ^ "\";" in
+  ignore (run session task source |> Test_integer_program.checked);
+  Alcotest.(check int)
+    "configured limit above compiler default is honored" 100_001
+    (Task.initializer_steps task);
+  value 42L (run session task "Bytes[99999];")
+
+let reconstructed_module_cannot_replay () =
+  let session = Session.create () in
+  let task = create session in
+  let ast = parse session "40+2;" in
+  let first = Task.compile_ast task ast |> Test_integer_program.checked in
+  value 42L (Task.execute task first);
+  let wrapper =
+    Ast.make_module ~source:ast.source ~span:ast.span
+      ~items:(List.map Fun.id ast.items)
+  in
+  let repeated =
+    Task.compile_ast task wrapper |> Test_integer_program.checked
+  in
+  fault "HCIRVM0026" (Task.execute task repeated)
+
+let retained_item_cannot_be_recompiled () =
+  let session = Session.create () in
+  let task = create session in
+  let ast = parse session "40;42;" in
+  let first = Task.compile_ast task ast |> Test_integer_program.checked in
+  value 42L (Task.execute task first);
+  let item =
+    match List.hd ast.items with
+    | Ast.Top_level_statement statement -> Ast.Top_level_statement statement
+    | _ -> Alcotest.fail "expected statement source"
+  in
+  let subset =
+    Ast.make_module ~source:ast.source ~span:ast.span ~items:[ item ]
+  in
+  fault "HCIRVM0026" (Task.compile_ast task subset)
+
+let reconstructed_statement_cannot_replay () =
+  let session = Session.create () in
+  let task = create session in
+  ignore (run session task "I64 N=40;" |> Test_integer_program.checked);
+  let ast = parse session "++N;" in
+  let command = Task.compile_ast task ast |> Test_integer_program.checked in
+  value 41L (Task.execute task command);
+  let item =
+    match List.hd ast.items with
+    | Ast.Top_level_statement (Ast.Expression_statement statement) ->
+        Ast.Top_level_statement (Ast.Expression_statement statement)
+    | _ -> Alcotest.fail "expected expression statement source"
+  in
+  let wrapper =
+    Ast.make_module ~source:ast.source ~span:ast.span ~items:[ item ]
+  in
+  let repeated =
+    Task.compile_ast task wrapper |> Test_integer_program.checked
+  in
+  fault "HCIRVM0026" (Task.execute task repeated);
+  value 41L (run session task "N;")
+
+let independent_tasks_and_unknown_cells () =
+  let session = Session.create () in
+  let task = create session and other = create session in
+  ignore
+    (run session task "I64 N=40;I64 Unknown;" |> Test_integer_program.checked);
+  ignore (run session other "I64 N=2;" |> Test_integer_program.checked);
+  value 42L (run session task "N+=2;");
+  value 2L (run session other "N;");
+  fault "HCIRVM0012" (run session task "Unknown;");
+  value 42L (run session task "Unknown=42;");
+  value 42L (run session task "Unknown;")
+
+let cumulative_instruction_limit () =
+  List.iter
+    (fun (limit, succeeds) ->
+      let session = Session.create () in
+      let task =
+        match Task.create ~max_steps:limit session with
+        | Ok task -> task
+        | Error message -> Alcotest.fail message
+      in
+      value 40L (run session task "40;");
+      if succeeds then value 42L (run session task "42;")
+      else fault "HCIRVM0007" (run session task "42;");
+      Alcotest.(check int)
+        "commands share exact execution budget" limit (Task.executed_steps task);
+      fault "HCIRVM0007" (run session task "1;"))
+    [ (6, true); (5, false) ]
+
+let cumulative_literal_limit () =
+  let session = Session.create () in
+  let task =
+    match Task.create ~max_literal_bytes:4 session with
+    | Ok task -> task
+    | Error message -> Alcotest.fail message
+  in
+  value 42L (run session task "(\"*\")[0];");
+  value 42L (run session task "(\"*\")[0];");
+  let before = Task.executed_steps task in
+  fault "HCIRVM0021" (run session task "(\"!\")[0];");
+  Alcotest.(check int)
+    "literal rejection precedes execution" before (Task.executed_steps task);
+  value 42L (run session task "42;")
+
+let cumulative_output_work () =
+  let session = Session.create () in
+  let task =
+    match Task.create ~max_output_work:4 session with
+    | Ok task -> task
+    | Error message -> Alcotest.fail message
+  in
+  List.iter
+    (fun byte ->
+      ignore
+        (run session task
+           ("extern U0 PutChars(U64 ch);PutChars('" ^ byte ^ "');")
+        |> Test_integer_program.checked))
+    [ "4"; "2" ];
+  Alcotest.(check int)
+    "packed-byte scans and appends share work" 4 (Task.output_work task);
+  fault "HCIRVM0023"
+    (run session task "extern U0 PutChars(U64 ch);PutChars('!');");
+  Alcotest.(check string)
+    "work exhaustion retains capture" "42" (Task.output_bytes task);
+  Alcotest.(check int) "work never exceeds bound" 4 (Task.output_work task)
+
+let tests =
+  [
+    Alcotest.test_case "separate commands retain scalar writes" `Quick
+      persistent_scalar;
+    Alcotest.test_case "separate commands retain array cells" `Quick
+      persistent_array;
+    Alcotest.test_case "writes before a fault remain reached" `Quick
+      reached_fault;
+    Alcotest.test_case "pending reference survives later shadow and allocations"
+      `Quick selected_before_shadow;
+    Alcotest.test_case "command owner and exact AST replay" `Quick
+      replay_and_foreign_owner;
+    Alcotest.test_case "fault consumes command" `Quick
+      failed_command_cannot_replay;
+    Alcotest.test_case "late preflight preserves cells and namespace" `Quick
+      rejected_command_has_no_effects;
+    Alcotest.test_case "new function reads retained global" `Quick
+      new_function_reads_old_global;
+    Alcotest.test_case "new initializer reads retained global" `Quick
+      initializer_reads_old_global;
+    Alcotest.test_case "retained narrow scalar and array storage" `Quick
+      narrow_storage;
+    Alcotest.test_case "cumulative global allocation limit" `Quick
+      cumulative_global_limit;
+    Alcotest.test_case "cumulative ordinary output limit" `Quick
+      cumulative_output;
+    Alcotest.test_case "retained arrays are checked call arguments" `Quick
+      retained_array_argument;
+    Alcotest.test_case "retained bytes feed checked formatter" `Quick
+      retained_array_output;
+    Alcotest.test_case "preparation limit applies during compilation" `Quick
+      compilation_budget;
+    Alcotest.test_case "pending commands share preparation budget" `Quick
+      shared_compilation_budget;
+    Alcotest.test_case "failed preparation retains its work charge" `Quick
+      failed_preparation_charges_work;
+    Alcotest.test_case "configured preparation exceeds default" `Quick
+      larger_preparation_limit;
+    Alcotest.test_case "module wrapper cannot replay retained syntax" `Quick
+      reconstructed_module_cannot_replay;
+    Alcotest.test_case "item wrapper cannot replay retained syntax" `Quick
+      retained_item_cannot_be_recompiled;
+    Alcotest.test_case "statement wrapper cannot repeat a reached update" `Quick
+      reconstructed_statement_cannot_replay;
+    Alcotest.test_case "task cells are independent and retain unknown state"
+      `Quick independent_tasks_and_unknown_cells;
+    Alcotest.test_case "cumulative instruction exact and one below" `Quick
+      cumulative_instruction_limit;
+    Alcotest.test_case "cumulative literal capacity" `Quick
+      cumulative_literal_limit;
+    Alcotest.test_case "cumulative formatter work" `Quick cumulative_output_work;
+  ]

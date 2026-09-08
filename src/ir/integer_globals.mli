@@ -2,6 +2,25 @@ type t
 type slot
 type static_slot
 type storage_slot
+type task_catalog
+type task_view
+
+val create_task_catalog : table:Sema.Symbol_table.t -> task_catalog
+val snapshot_task : task_catalog -> (task_view, string) result
+val task_environment : task_view -> Sema.Outer_environment.t
+val with_task_view : task_view -> t -> t
+
+val retained_binding :
+  t -> Sema.Outer_environment.binding -> (Retained_global.t * slot) option
+
+val retained_slot : t -> Retained_global.t -> storage_slot option
+val is_task_command : t -> bool
+val check_task_command : task_catalog -> t -> (unit, string) result
+
+val publish_task : task_catalog -> t -> unit
+(** Internal task admission API; absent from the public storage signature. *)
+
+val same_storage : storage_slot -> storage_slot -> bool
 
 val with_statics :
   span:Common.Span.t ->

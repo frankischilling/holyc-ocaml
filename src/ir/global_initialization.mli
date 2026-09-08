@@ -57,6 +57,7 @@ val create :
 *)
 
 val matches : t -> globals:Integer_globals.t -> entry:X87_stack.t -> bool
+val globals : t -> Integer_globals.t
 val regions : t -> region list
 val static_regions : t -> static_region list
 
