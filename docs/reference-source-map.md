@@ -1,5 +1,13 @@
 # Reference source map
 
+The [owned string connection](integer-strings.md#source-evidence) in #617
+uses `CInit.HC:9`, `AsmInit.HC:197-206` and `PrsExp.HC:693-694` for the U8
+class; `LexLib.HC:248-274` for payload and termination; `PrsLib.HC:143` and
+`OptPass789A.HC:1098-1105` for separate records and emitted bytes; and
+`PrsLib.HC:298-308` / `PrsStmt.HC:150-189` for compiled-storage lifetime.
+The exact reference is `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
+Mutable literal behavior is source-derived; no new native capture is claimed.
+
 The [U8 storage connection](integer-bytes.md#source-evidence-and-validation)
 in #615 follows `CInit.HC:3-14`, `PrsVar.HC:247-281,532,590-606` and
 `PrsExp.HC:1055-1098` for byte width, allocation and strides.

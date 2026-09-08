@@ -702,4 +702,113 @@ let () =
           ("I64 F(){U8 a[2];U8 *p=&a[2];return *p;}F();", "HCIRVM0019");
         ])
     [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      let source = Sys.argv.(13) in
+      let result =
+        success
+          [
+            "run";
+            "--target=ir";
+            "--format=json";
+            "--mode=" ^ mode;
+            "--literal-byte-limit=2";
+            "--step-limit=45";
+            "--frame-byte-limit=16";
+            "--call-depth-limit=2";
+            source;
+          ]
+        |> Yojson.Safe.from_string
+      in
+      require
+        (result |> member "final_value" |> member "value" |> to_string = "42")
+        "owned string Read fixture returns 42";
+      require
+        (result |> member "literal_byte_limit" |> to_int = 2)
+        "literal storage has a separately reported byte bound";
+      require
+        (result |> member "executed_steps" |> to_int = 45)
+        "owned-string fixture instruction count";
+      require
+        (result |> member "compiled_initializer_steps" |> to_int = 0)
+        "literal allocation consumes no constant-preparation instructions";
+      let human =
+        success [ "run"; "--mode=" ^ mode; "--literal-byte-limit=2"; source ]
+      in
+      require
+        (contains human "literal-byte-limit=2"
+        && contains human "final-value=42 type=i64")
+        "human report retains string bound and result";
+      let dump_command = [ "dump-ir"; "--program"; "--mode=" ^ mode; source ] in
+      let dump = success dump_command in
+      require
+        (dump = success dump_command && contains dump "IC_STR_CONST")
+        "owned strings reuse deterministic canonical literal IR";
+      let status, stdout, stderr =
+        invoke
+          [
+            "run";
+            "--format=json";
+            "--mode=" ^ mode;
+            "--literal-byte-limit=1";
+            source;
+          ]
+      in
+      require
+        (status = Unix.WEXITED 1 && stdout = "")
+        "literal capacity fails before publishing a result";
+      let diagnostic = Yojson.Safe.from_string stderr |> to_list |> List.hd in
+      require
+        (diagnostic |> member "code" |> to_string = "HCIRVM0021")
+        "literal image capacity diagnostic";
+      let notes =
+        diagnostic |> member "notes" |> to_list |> List.map to_string
+      in
+      require
+        (List.mem "stage=preflight" notes
+        && List.mem "executed_steps=0" notes
+        && List.mem "function=F" notes)
+        "capacity reports the literal owner and no executed effects";
+      List.iter
+        (fun (limit, code) ->
+          let status, stdout, stderr =
+            invoke [ "run"; "--format=json"; "--mode=" ^ mode; limit; source ]
+          in
+          require
+            (status = Unix.WEXITED 1 && stdout = "")
+            "string execution limit has no result";
+          require
+            (Yojson.Safe.from_string stderr
+            |> to_list |> List.hd |> member "code" |> to_string = code)
+            "string execution limit diagnostic")
+        [
+          ("--step-limit=44", "HCIRVM0007");
+          ("--frame-byte-limit=15", "HCIRVM0011");
+          ("--call-depth-limit=1", "HCIRVM0015");
+        ];
+      with_file ".hc" "I64 F(){return \"*\"[2];}F();" (fun source ->
+          let status, stdout, stderr =
+            invoke [ "run"; "--format=json"; "--mode=" ^ mode; source ]
+          in
+          require
+            (status = Unix.WEXITED 1 && stdout = "")
+            "literal one-past dereference has no result";
+          let diagnostic =
+            Yojson.Safe.from_string stderr |> to_list |> List.hd
+          in
+          require
+            (diagnostic |> member "code" |> to_string = "HCIRVM0019")
+            "literal access uses declared object bounds"))
+    [ "jit"; "aot" ];
+  List.iter
+    (fun limit ->
+      with_file ".hc" "this is not a valid program" (fun source ->
+          let status, stdout, stderr =
+            invoke [ "run"; "--literal-byte-limit=" ^ limit; source ]
+          in
+          require
+            (status = Unix.WEXITED 1 && stdout = ""
+            && contains stderr "HCIRVM0001")
+            "nonpositive literal budget rejects before source compilation"))
+    [ "0"; "-1" ];
   print_endline "Integer program CLI checks passed."

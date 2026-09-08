@@ -192,7 +192,6 @@ let unsupported_domains () =
           "U8 *F(){U8 n=42;return &n;}42;";
           "I64 F(){U8 n=42;U8 *p=&n,**q=&p;return **q;}F();";
           "I64 F(){U8 *a[2];return a[0][0];}F();";
-          "I64 F(){U8 *p=\"x\";return p[0];}F();";
         ])
     G.modes
 

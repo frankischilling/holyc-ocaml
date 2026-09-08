@@ -24,6 +24,7 @@ val lower :
 val run :
   ?max_initializer_steps:int ->
   ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
   ?max_frame_bytes:int ->
   ?max_call_depth:int ->
   Session.t ->

@@ -823,6 +823,7 @@ val integer_program_human : integer_program -> string
 val run_integer_program :
   ?max_initializer_steps:int ->
   ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
   ?max_frame_bytes:int ->
   ?max_call_depth:int ->
   Session.t ->
@@ -837,6 +838,11 @@ val run_integer_program :
     and narrowing plain assignments; assignment results retain the RHS payload.
     One-level U8/I64/U64 pointer locals and fixed parameters can alias scalar
     local objects and automatic U8/I64/U64 array elements across direct calls.
+    String literals own mutable bytes and a final initialized zero for one
+    execution image; each source site persists across calls and initializers.
+    Compatible public/internal U8 pointer forms preserve the same object.
+    [max_literal_bytes] defaults to 1,048,576 and bounds all literal sites,
+    including uncalled definitions, separately from frame and global bytes.
     Checked indexing retains source strides, grouping behavior and
     declared-object bounds through copies and recursion. Constant preparation,
     runtime instructions, active frame bytes, global bytes and call depth have

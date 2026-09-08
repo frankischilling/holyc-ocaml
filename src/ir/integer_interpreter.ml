@@ -21,6 +21,12 @@ module Block_map = Map.Make (struct
   let compare = Block_id.compare
 end)
 
+module Instruction_map = Map.Make (struct
+  type t = Instruction_id.t
+
+  let compare = Instruction_id.compare
+end)
+
 type word_type = I64 | U64
 type word = { type_ : word_type; bits : int64 }
 type function_definition = { frame : Frame.function_layout; body : Function.t }
@@ -92,6 +98,18 @@ type t = {
   compiled_initializer_steps_ : int;
 }
 
+type literal_region = { literal_base : int; literal_count : int }
+
+type literal_context = {
+  literal_graph : Graph.t;
+  literal_regions : literal_region Instruction_map.t;
+}
+
+type literal_image = {
+  mutable literal_byte_count : int;
+  mutable literal_chunks_rev : (int * string) list;
+}
+
 type prepared_operand = { value_id : Value_id.t; expected_type : word_type }
 type prepared_pointer = { pointer_value : Value_id.t; pointer_type : Type.t }
 
@@ -130,6 +148,7 @@ type branch_condition = Zero | Not_zero
 type storage_location =
   | Frame_slot of int * int
   | Global_slot of int
+  | Literal_slot of int * int
   | Indirect_slot of prepared_pointer
   | Indexed_slot of prepared_pointer
 
@@ -202,6 +221,7 @@ type call_phase = Collecting of int | Needs_cleanup | Needs_end
 type checked_call = { callee : callee; phase : call_phase }
 
 type opcode_kind =
+  | Literal_address_kind
   | Scale_index_kind
   | Index_address_kind
   | Pointer_address_kind
@@ -363,6 +383,13 @@ let scalar_pointer_type type_ =
   &&
   match Type.base type_ with
   | Type.Primitive (_, (Sema.Primitive_type.I64 | U64 | U8)) -> true
+  | _ -> false
+
+let literal_pointer_type type_ =
+  Type.pointer_depth type_ = 1
+  &&
+  match Type.base type_ with
+  | Type.Primitive (Type.Internal_storage, Sema.Primitive_type.U8) -> true
   | _ -> false
 
 let stored_type type_ =
@@ -699,8 +726,12 @@ let indexed_address frame types (description : Sequence.description) =
       | _ -> Unsupported)
   | _ -> Unsupported
 
-let declared_types ?frame ?globals ?initialization ?(allow_calls = false) block
-    =
+let declared_types ?frame ?globals ?literals ?initialization
+    ?(allow_calls = false) block =
+  let memory_enabled =
+    Option.is_some frame || Option.is_some globals || Option.is_some literals
+  in
+  let allow_byte = Option.is_some frame || Option.is_some literals in
   Graph.instructions block |> Sequence.instructions
   |> List.fold_left
        (fun types instruction ->
@@ -717,8 +748,12 @@ let declared_types ?frame ?globals ?initialization ?(allow_calls = false) block
                    match description.target_type with
                    | Some type_ -> (
                        if
-                         (Option.is_some frame || Option.is_some globals)
-                         && scalar_pointer_type type_
+                         Option.is_some literals
+                         && description.opcode = Opcode.Ic_str_const
+                         && literal_pointer_type type_
+                       then Pointer_value type_
+                       else if
+                         memory_enabled && scalar_pointer_type type_
                          && (description.opcode = Opcode.Ic_addr
                             || description.opcode = Opcode.Ic_deref
                             || description.opcode = Opcode.Ic_assign)
@@ -732,31 +767,26 @@ let declared_types ?frame ?globals ?initialization ?(allow_calls = false) block
                        else
                          match (frame, description.opcode) with
                          | _, opcode
-                           when (Option.is_some frame || Option.is_some globals)
+                           when memory_enabled
                                 && (opcode = Opcode.Ic_deref
                                   || opcode = Opcode.Ic_assign
                                    || Option.is_some (update_kind opcode)) -> (
                              match
-                               scalar_value_type
-                                 ~allow_byte:(Option.is_some frame)
-                                 ~allow_public:true type_
+                               scalar_value_type ~allow_byte ~allow_public:true
+                                 type_
                              with
                              | Some word_type -> Supported (word_type, type_)
                              | None -> Unsupported)
                          | Some _, Opcode.Ic_rbp when frame_pointer type_ ->
                              Frame_base type_
                          | _, Opcode.Ic_imm_i64
-                           when frame_pointer type_
-                                && (Option.is_some frame
-                                  || Option.is_some globals) -> (
+                           when frame_pointer type_ && memory_enabled -> (
                              match description.payload with
                              | Some (Sequence.Integer offset) ->
                                  Frame_offset (type_, offset)
                              | _ -> Unsupported)
                          | _, Opcode.Ic_mul
-                           when scalar_pointer_type type_
-                                && (Option.is_some frame
-                                  || Option.is_some globals) ->
+                           when scalar_pointer_type type_ && memory_enabled ->
                              index_offset types description
                          | _, Opcode.Ic_add when frame_pointer type_ -> (
                              match indexed_address frame types description with
@@ -767,16 +797,14 @@ let declared_types ?frame ?globals ?initialization ?(allow_calls = false) block
                                      address_slot context types description
                                  | None -> Unsupported))
                          | _, opcode
-                           when (Option.is_some frame || Option.is_some globals
-                               || allow_calls)
+                           when (memory_enabled || allow_calls)
                                 &&
                                 match opcode_kind opcode with
                                 | Some (Unary_kind _ | Binary_kind _) -> true
                                 | _ -> false -> (
                              match
-                               scalar_value_type
-                                 ~allow_byte:(Option.is_some frame)
-                                 ~allow_public:true type_
+                               scalar_value_type ~allow_byte ~allow_public:true
+                                 type_
                              with
                              | Some word_type -> Supported (word_type, type_)
                              | None -> Unsupported)
@@ -820,7 +848,7 @@ let value_matches stored operand =
   match (stored, operand) with
   | (Stored_word _ | Stored_byte), Word_operand _ -> true
   | Stored_pointer expected, Pointer_operand actual ->
-      Type.equal expected actual.pointer_type
+      Type.compatible_u8_pointer expected actual.pointer_type
   | _ -> false
 
 let storage_operand ?(allow_array = false) frame initialization types
@@ -1010,14 +1038,85 @@ let invalid_type_matrix block_id description =
     (Printf.sprintf "%s has an invalid operand/result word-type relationship"
        (Opcode.to_source_name description.Sequence.opcode))
 
-let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
-    block_index types block_id (description : Sequence.description) =
+let fresh_literal_image () = { literal_byte_count = 0; literal_chunks_rev = [] }
+
+let collect_literals ~max_literal_bytes image graph =
+  let ( let* ) = Result.bind in
+  (* Each owner gets a fresh map, even if two definitions share a graph object.
+     Only immutable payloads are retained here; byte cells are allocated after
+     every owner and instruction has passed preflight. *)
+  let* literal_regions =
+    Graph.blocks graph
+    |> List.fold_left
+         (fun result block ->
+           let* regions = result in
+           let block_id = Graph.block_id block in
+           Graph.instructions block |> Sequence.instructions
+           |> List.fold_left
+                (fun result instruction ->
+                  let* regions = result in
+                  let description = Sequence.description instruction in
+                  if description.opcode <> Opcode.Ic_str_const then Ok regions
+                  else
+                    match
+                      ( description.operands,
+                        description.result,
+                        description.target_type,
+                        description.payload )
+                    with
+                    | [], Some _, Some type_, Some (Sequence.Bytes bytes) ->
+                        if not (literal_pointer_type type_) then
+                          Error
+                            [
+                              preflight_error block_id description "HCIRVM0005"
+                                "IC_STR_CONST requires internal-storage U8*";
+                            ]
+                        else
+                          let remaining =
+                            min max_literal_bytes Sys.max_array_length
+                            - image.literal_byte_count
+                          in
+                          let length = String.length bytes in
+                          if length >= remaining then
+                            Error
+                              [
+                                preflight_error block_id description
+                                  "HCIRVM0021"
+                                  "owned string literals exceed the literal \
+                                   byte limit or host array capacity";
+                              ]
+                          else
+                            let literal_count = length + 1 in
+                            let literal_base = image.literal_byte_count in
+                            image.literal_byte_count <-
+                              literal_base + literal_count;
+                            image.literal_chunks_rev <-
+                              (literal_base, bytes) :: image.literal_chunks_rev;
+                            Ok
+                              (Instruction_map.add description.instruction_id
+                                 { literal_base; literal_count }
+                                 regions)
+                    | _ -> Error [ malformed block_id description ])
+                (Ok regions))
+         (Ok Instruction_map.empty)
+  in
+  Ok { literal_graph = graph; literal_regions }
+
+let prepare_instruction ?frame ?globals ?literals ?initialization
+    ?(allow_public = false) block_index types block_id
+    (description : Sequence.description) =
+  let memory_enabled =
+    Option.is_some frame || Option.is_some globals || Option.is_some literals
+  in
+  let allow_byte = Option.is_some frame || Option.is_some literals in
   let produced =
     Option.bind description.result (fun result ->
         Value_map.find_opt result.value_id types)
   in
   let kind =
     match (frame, description.opcode) with
+    | _, Opcode.Ic_str_const when Option.is_some literals ->
+        Some Literal_address_kind
     | _, Opcode.Ic_mul
       when match produced with
            | Some (Index_offset _) -> true
@@ -1026,8 +1125,7 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
       when match produced with
            | Some (Indexed_address _) -> true
            | _ -> false -> Some Index_address_kind
-    | _, Opcode.Ic_addr when Option.is_some frame || Option.is_some globals ->
-        Some Pointer_address_kind
+    | _, Opcode.Ic_addr when memory_enabled -> Some Pointer_address_kind
     | _, (Opcode.Ic_imm_i64 | Opcode.Ic_abs_addr)
       when Option.is_some globals
            &&
@@ -1036,17 +1134,14 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
            | _ -> false -> Some Global_address_kind
     | Some _, Opcode.Ic_rbp -> Some Frame_address_kind
     | _, (Opcode.Ic_imm_i64 | Opcode.Ic_add)
-      when (Option.is_some frame || Option.is_some globals)
+      when memory_enabled
            && Option.fold ~none:false
                 ~some:(fun type_ -> Type.pointer_depth type_ > 0)
                 description.target_type -> Some Frame_address_kind
-    | _, Opcode.Ic_deref when Option.is_some frame || Option.is_some globals ->
-        Some Load_slot_kind
-    | _, Opcode.Ic_assign when Option.is_some frame || Option.is_some globals ->
-        Some Store_slot_kind
-    | _, opcode
-      when (Option.is_some frame || Option.is_some globals)
-           && Option.is_some (update_kind opcode) -> update_kind opcode
+    | _, Opcode.Ic_deref when memory_enabled -> Some Load_slot_kind
+    | _, Opcode.Ic_assign when memory_enabled -> Some Store_slot_kind
+    | _, opcode when memory_enabled && Option.is_some (update_kind opcode) ->
+        update_kind opcode
     | _ -> opcode_kind description.opcode
   in
   match kind with
@@ -1070,6 +1165,34 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
       else
         let operation =
           match kind with
+          | Literal_address_kind -> (
+              match
+                ( literals,
+                  description.operands,
+                  description.result,
+                  description.target_type,
+                  description.payload )
+              with
+              | ( Some context,
+                  [],
+                  Some result,
+                  Some pointer,
+                  Some (Sequence.Bytes _) )
+                when literal_pointer_type pointer -> (
+                  match
+                    ( Instruction_map.find_opt description.instruction_id
+                        context.literal_regions,
+                      Type.dereference pointer )
+                  with
+                  | Some region, Ok pointee ->
+                      Ok
+                        (Materialize_address
+                           ( Literal_slot
+                               (region.literal_base, region.literal_count),
+                             result.value_id,
+                             pointee ))
+                  | _ -> Error (malformed block_id description))
+              | _ -> Error (malformed block_id description))
           | Scale_index_kind -> (
               match
                 ( description.operands,
@@ -1250,10 +1373,8 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
               with
               | [ operand_id ], Some result, Some result_type, None -> (
                   match
-                    scalar_value_type ~allow_byte:(Option.is_some frame)
-                      ~allow_public:
-                        (Option.is_some frame || Option.is_some globals
-                       || allow_public)
+                    scalar_value_type ~allow_byte
+                      ~allow_public:(memory_enabled || allow_public)
                       result_type
                   with
                   | None -> Error (unsupported_type block_id description)
@@ -1307,10 +1428,8 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
               with
               | [ left_id; right_id ], Some result, Some result_type, None -> (
                   match
-                    scalar_value_type ~allow_byte:(Option.is_some frame)
-                      ~allow_public:
-                        (Option.is_some frame || Option.is_some globals
-                       || allow_public)
+                    scalar_value_type ~allow_byte
+                      ~allow_public:(memory_enabled || allow_public)
                       result_type
                   with
                   | None -> Error (unsupported_type block_id description)
@@ -1346,7 +1465,8 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
                   match memory_operand_of_value types operand_id with
                   | Some (Word_operand _ as operand) -> Ok (Discard operand)
                   | Some (Pointer_operand _ as operand)
-                    when Option.is_some frame -> Ok (Discard operand)
+                    when Option.is_some frame || Option.is_some literals ->
+                      Ok (Discard operand)
                   | _ -> Error (invalid_type_matrix block_id description))
               | _ -> Error (malformed block_id description))
           | Return_value_kind -> (
@@ -1430,7 +1550,18 @@ let prepare_instruction ?frame ?globals ?initialization ?(allow_public = false)
             })
           operation
 
-let prepare ?frame ?globals ?initialization ?callees graph =
+let prepare ?frame ?globals ?literals ?initialization ?callees graph =
+  let ( let* ) = Result.bind in
+  let* () =
+    match literals with
+    | Some context when context.literal_graph != graph ->
+        Error
+          [
+            make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0004"
+              "literal storage requires its exact checked instruction graph";
+          ]
+    | _ -> Ok ()
+  in
   let source_blocks = Graph.blocks graph in
   let block_count = List.length source_blocks in
   let block_index =
@@ -1446,7 +1577,7 @@ let prepare ?frame ?globals ?initialization ?callees graph =
     |> List.mapi (fun index block ->
         let block_id = Graph.block_id block in
         let types =
-          declared_types ?frame ?globals ?initialization
+          declared_types ?frame ?globals ?literals ?initialization
             ~allow_calls:(Option.is_some callees) block
         in
         let instructions_rev = ref [] in
@@ -1556,7 +1687,7 @@ let prepare ?frame ?globals ?initialization ?callees graph =
                 (call_error description
                    "direct call cleanup and call end must follow the call")
           | _ ->
-              prepare_instruction ?frame ?globals ?initialization
+              prepare_instruction ?frame ?globals ?literals ?initialization
                 ~allow_public:true block_index types block_id description
         in
         Graph.instructions block |> Sequence.instructions
@@ -1577,8 +1708,8 @@ let prepare ?frame ?globals ?initialization ?callees graph =
             match
               if Option.is_some callees then prepare_call checked_description
               else
-                prepare_instruction ?frame ?globals ?initialization block_index
-                  types block_id description
+                prepare_instruction ?frame ?globals ?literals ?initialization
+                  block_index types block_id description
             with
             | Ok prepared ->
                 let control_transfer =
@@ -1698,7 +1829,7 @@ type caller = {
 
 let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
     ?(max_call_depth = Int.max_int) ?(capture_last = false) ?initialization
-    ?(global_words = [||]) ~max_steps program =
+    ?(global_words = [||]) ?literal_image ~max_steps program =
   let current_block = ref program.entry_index in
   let current_instruction = ref 0 in
   let values = ref Value_map.empty in
@@ -1712,6 +1843,34 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
     make_storage
       (Array.map (Option.map (fun word -> Runtime_word word)) global_words)
       "hosted execution reached an uninitialized JIT persistent object"
+  in
+  let literal_storage =
+    let cells =
+      match literal_image with
+      | None -> [||]
+      | Some image ->
+          let cells =
+            Array.make image.literal_byte_count
+              (Some (Runtime_word { type_ = U64; bits = 0L }))
+          in
+          List.iter
+            (fun (base, bytes) ->
+              String.iteri
+                (fun index byte ->
+                  cells.(base + index) <-
+                    Some
+                      (Runtime_word
+                         { type_ = U64; bits = Int64.of_int (Char.code byte) }))
+                bytes)
+            image.literal_chunks_rev;
+          cells
+    in
+    {
+      cells;
+      live = true;
+      unknown_message =
+        "owned string literal byte is unexpectedly uninitialized";
+    }
   in
   let slots = ref (frame_storage program.initial_slots) in
   let program = ref program in
@@ -1822,10 +1981,13 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
     | Runtime_pointer address -> (
         match expected with
         | Stored_pointer type_ -> (
-            match Type.pointer_to address.pointer_pointee with
-            | Ok actual
-              when Type.equal type_ actual && address.pointer_storage.live ->
-                Some (Runtime_pointer address)
+            match
+              (Type.pointer_to address.pointer_pointee, Type.dereference type_)
+            with
+            | Ok actual, Ok pointer_pointee
+              when Type.compatible_u8_pointer type_ actual
+                   && address.pointer_storage.live ->
+                Some (Runtime_pointer { address with pointer_pointee })
             | _ -> None)
         | _ -> None)
   in
@@ -1850,6 +2012,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
     match location with
     | Frame_slot (base, count) -> root !slots base count
     | Global_slot base -> root global_storage base 1
+    | Literal_slot (base, count) -> root literal_storage base count
     | Indirect_slot operand -> require_pointer block instruction operand
     | Indexed_slot operand ->
         require_pointer ~bounded:false block instruction operand
@@ -1857,6 +2020,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
   let resolve_location block instruction = function
     | Frame_slot (index, _) -> Some (!slots, index)
     | Global_slot index -> Some (global_storage, index)
+    | Literal_slot (index, _) -> Some (literal_storage, index)
     | Indirect_slot operand | Indexed_slot operand ->
         Option.bind (require_pointer ~bounded:false block instruction operand)
           (fun address ->
@@ -2239,6 +2403,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
   !slots.live <- false;
   List.iter (fun caller -> caller.saved_slots.live <- false) !callers;
   global_storage.live <- false;
+  literal_storage.live <- false;
   match (!failed, !completed) with
   | Some error, _ ->
       let error =
@@ -2281,42 +2446,58 @@ let execute ~max_steps checked =
     | Error errors -> Error errors
     | Ok program -> execute_prepared ~max_steps program
 
-let execute_function ~max_steps ~max_frame_bytes ~frame ~arguments function_ =
-  if max_steps <= 0 || max_frame_bytes <= 0 then
+let execute_function ?(max_literal_bytes = 1_048_576) ~max_steps
+    ~max_frame_bytes ~frame ~arguments function_ =
+  let ( let* ) = Result.bind in
+  if max_steps <= 0 || max_frame_bytes <= 0 || max_literal_bytes <= 0 then
     Error
       [
         make_error ~stage:Configuration ~executed_steps:0 "HCIRVM0001"
-          "max_steps and max_frame_bytes must be greater than zero";
+          "max_steps, max_frame_bytes and max_literal_bytes must be greater \
+           than zero";
       ]
   else
     match frame_context ~max_frame_bytes ~frame ~arguments function_ with
     | Error errors -> Error errors
     | Ok frame -> (
-        match prepare ~frame (Function.body function_) with
+        let function_id =
+          Function.Function_id.to_int (Function.function_id function_)
+        and function_name = Sema.Symbol.name (Function.symbol function_) in
+        let identify error =
+          {
+            error with
+            function_id = Some function_id;
+            function_name = Some function_name;
+          }
+        in
+        let literal_image = fresh_literal_image () in
+        let* literals =
+          collect_literals ~max_literal_bytes literal_image
+            (Function.body function_)
+          |> Result.map_error (List.map identify)
+        in
+        match
+          prepare ~frame ~literals (Function.body function_)
+          |> Result.map_error (List.map identify)
+        with
         | Error errors -> Error errors
         | Ok program ->
-            execute_prepared ~max_steps
-              {
-                program with
-                owner =
-                  Some
-                    ( Function.Function_id.to_int
-                        (Function.function_id function_),
-                      Sema.Symbol.name (Function.symbol function_) );
-              })
+            execute_prepared ~literal_image ~max_steps
+              { program with owner = Some (function_id, function_name) })
 
 let execute_program ?globals ?initialization ?(max_global_bytes = 1_048_576)
-    ~max_steps ~max_frame_bytes ~max_call_depth ~functions checked =
+    ?(max_literal_bytes = 1_048_576) ~max_steps ~max_frame_bytes ~max_call_depth
+    ~functions checked =
   let ( let* ) = Result.bind in
   if
     max_steps <= 0 || max_frame_bytes <= 0 || max_call_depth <= 0
-    || max_global_bytes <= 0
+    || max_global_bytes <= 0 || max_literal_bytes <= 0
   then
     Error
       [
         make_error ~stage:Configuration ~executed_steps:0 "HCIRVM0001"
-          "max_steps, max_frame_bytes, max_call_depth and max_global_bytes \
-           must be greater than zero";
+          "max_steps, max_frame_bytes, max_call_depth, max_global_bytes and \
+           max_literal_bytes must be greater than zero";
       ]
   else if
     Option.fold ~none:false
@@ -2482,11 +2663,17 @@ let execute_program ?globals ?initialization ?(max_global_bytes = 1_048_576)
            (Ok ())
     in
     let callees = List.map (fun (callee, _, _) -> callee) summaries in
+    let literal_image = fresh_literal_image () in
     let rec bodies rev = function
       | [] -> Ok (Array.of_list (List.rev rev))
       | (callee, frame, body) :: rest ->
+          let* literals =
+            collect_literals ~max_literal_bytes literal_image
+              (Function.body body)
+            |> Result.map_error (List.map (identify body))
+          in
           let* program =
-            prepare ~frame ?globals ~callees (Function.body body)
+            prepare ~frame ?globals ~literals ~callees (Function.body body)
             |> Result.map_error (List.map (identify body))
           in
           bodies
@@ -2494,19 +2681,23 @@ let execute_program ?globals ?initialization ?(max_global_bytes = 1_048_576)
             rest
     in
     let* programs = bodies [] summaries in
+    let identify_entry (error : error) =
+      let region =
+        Option.bind initialization (fun context ->
+            Option.bind error.instruction_id (fun id ->
+                match Instruction_id.of_int id with
+                | Ok id -> Global_initialization.find_storage context id
+                | Error _ -> None))
+      in
+      identify_initializer region error
+    in
+    let* literals =
+      collect_literals ~max_literal_bytes literal_image (X87.graph checked)
+      |> Result.map_error (List.map identify_entry)
+    in
     let* entry =
-      prepare ?globals ?initialization ~callees (X87.graph checked)
-      |> Result.map_error
-           (List.map (fun (error : error) ->
-                let region =
-                  Option.bind initialization (fun context ->
-                      Option.bind error.instruction_id (fun id ->
-                          match Instruction_id.of_int id with
-                          | Ok id ->
-                              Global_initialization.find_storage context id
-                          | Error _ -> None))
-                in
-                identify_initializer region error))
+      prepare ?globals ~literals ?initialization ~callees (X87.graph checked)
+      |> Result.map_error (List.map identify_entry)
     in
     let global_words =
       Option.fold ~none:[] ~some:Integer_globals.storage_slots globals
@@ -2523,7 +2714,8 @@ let execute_program ?globals ?initialization ?(max_global_bytes = 1_048_576)
       |> Array.of_list
     in
     execute_prepared ~callees:programs ~max_frame_bytes ~max_call_depth
-      ?initialization ~global_words ~capture_last:true ~max_steps entry
+      ?initialization ~global_words ~literal_image ~capture_last:true ~max_steps
+      entry
 
 let termination execution = execution.termination_
 let executed_steps execution = execution.executed_steps_

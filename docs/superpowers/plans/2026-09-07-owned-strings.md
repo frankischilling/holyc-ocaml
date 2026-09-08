@@ -6,18 +6,18 @@ Spec: [owned strings](../specs/2026-09-07-owned-strings-design.md).
 Stack: existing OCaml/Dune, Alcotest and CLI suites. Keep packaging unchanged.
 
 - [x] Inspect current main, remote state, #617 and the pinned reference.
-- [ ] Capture maintained source tests failing at the existing connection.
-- [ ] Add the narrow checked U8 pointer conversion predicate and lowerer joins.
-- [ ] Add private per-owner literal plans, preflight, initialized image storage,
+- [x] Capture maintained source tests failing at the existing connection.
+- [x] Add the narrow checked U8 pointer conversion predicate and lowerer joins.
+- [x] Add private per-owner literal plans, preflight, initialized image storage,
   resource bounds and reference coercion to the VM.
-- [ ] Thread optional literal limits through the public program API and CLI,
+- [x] Thread optional literal limits through the public program API and CLI,
   including configuration errors and additive result reporting.
-- [ ] Expand source and malformed-IR tests for identity, lifetime, initializers,
+- [x] Expand source and malformed-IR tests for identity, lifetime, initializers,
   fresh images, exact bytes, bounds, flags and resource limits.
-- [ ] Maintain the source example and CLI regressions; update previously
+- [x] Maintain the source example and CLI regressions; update previously
   unsupported string-storage assertions while preserving unrelated boundaries.
 - [ ] Update docs, traceability and the external compiler prompt with evidence.
-- [ ] Pass focused/full/CLI, formatting/generated/build/install, 82 reference
+- [x] Pass focused/full/CLI, formatting/generated/build/install, 82 reference
   checksums, provenance scenarios and exact corpus comparisons. One coordinator
   owns all builds/executions; compiled source/test files stay fixed during them.
 - [ ] Obtain independent review, address findings, commit/rebuild/push and
@@ -28,3 +28,12 @@ Stack: existing OCaml/Dune, Alcotest and CLI suites. Keep packaging unchanged.
 Validation records will distinguish source audits, hosted execution, corpus
 results and native captures. The reference stays
 `c26482bb6ad3f80106d28504ec5db3c6a360732c`. The full compiler goal stays active.
+
+Local source snapshot: all 1,825 tests pass in 117.064 seconds, including 14
+string groups and CLI checks. The example is 42/45+0, with two literal bytes,
+16 frame bytes and depth two. All quoted build gates, 82 reference checksums,
+11 provenance scenarios and the 528-file corpus checks pass; the complete
+parser JSON matches after Windows newline normalization. Independent review
+approved the frozen code and initializer phase tests. Delivery boxes remain
+pending in this source snapshot; #617/#618 record exact revision, final CI,
+merge and external-prompt checkpoint evidence.

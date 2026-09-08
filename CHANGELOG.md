@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added owned string-literal byte storage in #617, with separate mutable sites,
+  initialized terminators, lifetime across calls and initializer phases, and
+  fresh images for each execution. Checked U8 pointer conversions retain object
+  bounds; `--literal-byte-limit` separately bounds all supplied literal sites.
+
 - Added U8 storage execution in #615: automatic scalars and arrays, byte indexing, exact pointer aliases, zero-extending loads and narrowing stores. Assignment expression results retain their RHS payload separately from stored bytes; frame charges use checked allocation sizes. The Sum example returns 42 in both modes with 69 runtime instructions, 16 frame bytes and call depth two.
 
 - Added automatic I64/U64 arrays with indexed loads, assignments, updates and element aliases. Checked strides and declared-object extents survive pointer copies and recursion; grouping discards dimensions and explicit array address-of retains its extra pointer layer. The caller-element fixture returns 42 in 51 runtime steps with 24 active frame bytes and depth two. Bounds and address overflow retain explicit hosted diagnostics.

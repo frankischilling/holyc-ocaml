@@ -577,25 +577,27 @@ let lower session ~config ~source =
           ])
 
 let run ?(max_initializer_steps = 100_000) ?(max_global_bytes = 1_048_576)
-    ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128) session ~config
-    ~source ~max_steps =
+    ?(max_literal_bytes = 1_048_576) ?(max_frame_bytes = 1_048_576)
+    ?(max_call_depth = 128) session ~config ~source ~max_steps =
   let span = Integer_source.source_span source in
   if
     max_steps <= 0 || max_frame_bytes <= 0 || max_call_depth <= 0
     || max_global_bytes <= 0 || max_initializer_steps <= 0
+    || max_literal_bytes <= 0
   then
     Error
       [
         Integer_source.diagnostic ~span "HCIRVM0001"
-          "max_steps, max_frame_bytes, max_call_depth, max_global_bytes and \
-           max_initializer_steps must be greater than zero";
+          "max_steps, max_frame_bytes, max_call_depth, max_global_bytes, \
+           max_literal_bytes and max_initializer_steps must be greater than \
+           zero";
       ]
   else
     let* graph = compile ~max_initializer_steps session ~config ~source in
     Ir.Integer_interpreter.execute_program ~globals:graph.value.globals_
-      ~initialization:graph.value.initialization_ ~max_global_bytes ~max_steps
-      ~max_frame_bytes ~max_call_depth ~functions:graph.value.functions_
-      graph.value.entry_
+      ~initialization:graph.value.initialization_ ~max_global_bytes
+      ~max_literal_bytes ~max_steps ~max_frame_bytes ~max_call_depth
+      ~functions:graph.value.functions_ graph.value.entry_
     |> Result.map (fun value -> { value; diagnostics = graph.diagnostics })
     |> Result.map_error
          (List.map (fun (error : Ir.Integer_interpreter.error) ->

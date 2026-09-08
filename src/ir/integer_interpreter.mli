@@ -32,6 +32,7 @@ val execute_program :
   ?globals:Integer_globals.t ->
   ?initialization:Global_initialization.t ->
   ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
   max_steps:int ->
   max_frame_bytes:int ->
   max_call_depth:int ->
@@ -82,6 +83,19 @@ val execute_program :
     Explicit references can pass to callees without granting canonical
     static-address authority. Returned frames are invalidated; pointer returns,
     arbitrary integer addresses and pointer arithmetic remain unsupported.
+    Canonical [IC_STR_CONST] instructions own mutable byte regions containing
+    the exact payload followed by one zero byte. Every literal site in every
+    definition and the entry is checked before execution, including unreachable
+    sites. The positive [max_literal_bytes] limit (default 1,048,576) includes
+    their terminators and is separate from frame and global bytes. Capacity is
+    checked before byte-cell allocation; excess reports HCIRVM0021. Each site
+    has independent identity, even for identical payloads or shared graph
+    objects in distinct definitions. Its region persists across calls and
+    returns within one execution; each execution starts with a fresh image.
+    Internal/public U8 pointer forms may convert at checked stores and fixed
+    arguments because U8 denotes a native internal class. Conversion preserves
+    object identity, extent and byte offset while adopting the destination
+    pointee type. Canonical producer and memory-operation types remain exact.
     Public results remain words. *)
 
 val final_value : t -> word option
@@ -100,6 +114,7 @@ val execute : max_steps:int -> X87_stack.t -> (t, error list) result
     unsupported. *)
 
 val execute_function :
+  ?max_literal_bytes:int ->
   max_steps:int ->
   max_frame_bytes:int ->
   frame:Sema.Function_frame_layout.function_layout ->
@@ -118,7 +133,12 @@ val execute_function :
     automatic I64/U64/U8 array elements through checked indexing. U8 automatic
     scalars and elements have independent byte initialization state. The
     [arguments] bit interface cannot supply pointer parameters. This entry point
-    does not execute calls or arbitrary pointer operations. *)
+    does not execute calls or arbitrary pointer operations. Canonical string
+    literals use a fresh, mutable, terminated byte image independent of frame
+    storage. The positive [max_literal_bytes] limit defaults to 1,048,576 and
+    counts every literal site, including unreachable sites, before allocation.
+    U8 pointer storage conversion preserves the referenced object's identity,
+    extent and offset. *)
 
 val termination : t -> termination
 val executed_steps : t -> int

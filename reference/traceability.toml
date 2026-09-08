@@ -11309,3 +11309,26 @@ diagnostics = ["HCIRVM0012 unwritten byte", "HCIRVM0018 invalid or expired refer
 verification_status = "19 byte groups and all1811 local tests pass, including CLI; formatting/generated/build/install pass; independent code review approved; final revision and CI evidence tracked by #615/#616"
 excluded = ["persistent U8 objects and array images", "other narrow integer storage", "U8 numeric parameters and returns", "narrow compound and prefix/postfix updates", "U8 negation to I8", "U8 numeric indices and casts", "whole-array initialization and assignment", "general pointer arithmetic, casts, returns and deeper pointers", "owned strings and runtime output", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader acceptance", "bootstrap"]
 native_oracle_status = "hosted source, malformed IR and CLI regressions with pinned-source audit; no new native capture"
+
+[[feature]]
+id = "HC-SOURCE-OWNED-STRING-STORAGE"
+description = "Canonical string literal IR owns mutable terminated byte objects through the checked program execution path."
+sources = ["Compiler/CInit.HC:9", "Compiler/AsmInit.HC:197-206", "Compiler/PrsExp.HC:693-694", "Compiler/LexLib.HC:248-274", "Compiler/PrsLib.HC:143,298-308", "Compiler/PrsStmt.HC:150-189", "Compiler/OptPass789A.HC:1098-1105"]
+implementation = ["src/sema/type.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_program.ml", "bin/holyc.ml"]
+tests = ["test/test_integer_strings.ml", "test/test_integer_program_cli.ml", "examples/integer-strings.hc"]
+documentation = ["docs/integer-strings.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 617
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+baseline = "The U8* literal initializer fails HCRUN0003 in both modes at 4af56c7db43b12dfb9b6fae659f4eaaa1e49be49; six maintained source groups first fail before implementation."
+semantics = "each body/site owns exact payload plus initialized zero; identical text remains distinct; mutations persist across calls, recursion and initializer phases; fresh execution images reset contents"
+types = "canonical Internal_storage U8* producers; narrow checked public/internal one-level U8 conversion at storage and formal binding; exact identity remains for other types and producer/load/index joins"
+runtime = "private owner-specific region maps feed one bounded byte image; runtime references retain original object, extent, offset, exact pointee and image lifetime"
+limits = "optional max_literal_bytes defaults1048576; CLI literal-byte-limit; every supplied site counted before allocation including unreachable blocks and uncalled functions; separate frame/global/preparation accounting"
+diagnostics = ["HCIRVM0001 nonpositive configuration", "HCIRVM0021 literal byte or host capacity", "HCIRVM0019 object bounds", "HCIRVM0020 offset overflow"]
+verification_status = "final source, local validation and CI/merge evidence tracked by #617/#618"
+source_gate = "examples/integer-strings.hc returns I64 42 in both modes;45 runtime instructions,0 preparation,2 literal bytes,16 active frame bytes,depth2; one-below limits tested"
+local_verification = "14 string groups and all1825 tests including CLI pass; formatting/generated/build/install,82 checksums,11 provenance scenarios,528/528 lexer and exact normalized parser baseline pass; independent review approved"
+excluded = ["graph-only eval string execution", "pointer returns and arbitrary address conversions", "general pointer arithmetic", "runtime formatting/output and U0 external calls", "broader memory and aggregates", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted execution; mutability is source-derived inference; no new native capture"

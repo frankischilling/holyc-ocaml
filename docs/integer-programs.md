@@ -1,5 +1,10 @@
 # Integer programs in the IR interpreter
 
+[Owned string literals](integer-strings.md) use one mutable byte object per
+source site and execution image. They compose with U8 pointer initialization,
+assignment, indexing and fixed calls; `--literal-byte-limit` bounds their
+payloads plus terminators separately from frame/global storage.
+
 [U8 byte storage](integer-bytes.md) extends the same checked program context
 with automatic byte scalars and arrays, plain assignment and exact U8* aliases.
 Stored bytes narrow independently from assignment results, and frame limits
