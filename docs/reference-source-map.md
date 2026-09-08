@@ -1,5 +1,12 @@
 # Reference source map
 
+The [U0 execution connection](integer-u0.md#source-evidence-and-tests) in #619
+uses `Compiler/PrsExp.HC:530-588` for call order and cleanup,
+`Compiler/PrsStmt.HC:150-169,1110-1119` for leave/return and warning semantics,
+and `Kernel/KExts.HC:83-84` for the downstream Print/PutChars declarations.
+The reference remains `c26482bb6ad3f80106d28504ec5db3c6a360732c`;
+hosted return restrictions are separate from native warning behavior.
+
 The [owned string connection](integer-strings.md#source-evidence) in #617
 uses `CInit.HC:9`, `AsmInit.HC:197-206` and `PrsExp.HC:693-694` for the U8
 class; `LexLib.HC:248-274` for payload and termination; `PrsLib.HC:143` and

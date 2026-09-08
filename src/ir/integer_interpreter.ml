@@ -29,6 +29,7 @@ end)
 
 type word_type = I64 | U64
 type word = { type_ : word_type; bits : int64 }
+type return_kind = Word_return of word_type | Void_return
 type function_definition = { frame : Frame.function_layout; body : Function.t }
 
 type stored_type =
@@ -40,6 +41,7 @@ type runtime_value =
   | Runtime_word of word
   | Runtime_pointer of runtime_address
   | Runtime_offset of int64
+  | Runtime_void
 
 and runtime_address = {
   pointer_storage : runtime_storage;
@@ -157,6 +159,7 @@ type prepared_operation =
   | Call of int
   | Call_cleanup
   | Call_end of Value_id.t * word_type
+  | Call_end_void of Value_id.t
   | Frame_address_tick
   | Scale_index of prepared_operand * int64 * Value_id.t
   | Index_address of storage_location * Value_id.t * Value_id.t * Type.t
@@ -180,6 +183,7 @@ type prepared_operation =
       * Value_id.t
       * word_type
   | Discard of prepared_value
+  | Discard_void of Value_id.t
   | Return_value of prepared_operand * word_type
   | Jump of int
   | Branch of branch_condition * prepared_operand * int
@@ -205,6 +209,7 @@ type prepared = {
   initial_slots : runtime_value option array;
   initial_frame_bytes : int;
   is_function : bool;
+  required_return : return_kind option;
   owner : (int * string) option;
 }
 
@@ -245,6 +250,7 @@ type opcode_kind =
 type declared_type =
   | Pointer_value of Type.t
   | Supported of word_type * Type.t
+  | Void_value
   | Frame_base of Type.t
   | Frame_offset of Type.t * int64
   | Frame_address of int
@@ -357,6 +363,15 @@ let scalar_word_type ~allow_public type_ =
 
 let producer_word_type type_ = scalar_word_type ~allow_public:false type_
 let return_word_type type_ = scalar_word_type ~allow_public:true type_
+
+let checked_return_kind type_ =
+  match return_word_type type_ with
+  | Some word -> Some (Word_return word)
+  | None when Type.pointer_depth type_ = 0 -> (
+      match Type.base type_ with
+      | Type.Primitive (_, Sema.Primitive_type.U0) -> Some Void_return
+      | _ -> None)
+  | None -> None
 
 (* A byte expression retains its checked raw class and full register bits.
    Only storage narrows it; the public execution result remains I64/U64. *)
@@ -483,8 +498,8 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
     invalid
       "execution requires ordinary parameters, automatic scalar locals and \
        exact function-owned persistent statics"
-  else if Option.is_none (return_word_type (Function.return_type function_))
-  then invalid "the function return type is outside scalar I64/U64 execution"
+  else if Option.is_none (checked_return_kind (Function.return_type function_))
+  then invalid "the function return type is outside I64/U64/U0 execution"
   else if List.length arguments <> parameter_count then
     invalid "the argument word count does not match the checked parameters"
   else if
@@ -761,8 +776,10 @@ let declared_types ?frame ?globals ?literals ?initialization
                        else if
                          allow_calls && description.opcode = Opcode.Ic_call_end
                        then
-                         match return_word_type type_ with
-                         | Some word_type -> Supported (word_type, type_)
+                         match checked_return_kind type_ with
+                         | Some (Word_return word_type) ->
+                             Supported (word_type, type_)
+                         | Some Void_return -> Void_value
                          | None -> Unsupported
                        else
                          match (frame, description.opcode) with
@@ -822,6 +839,7 @@ let operand_of_value types value_id =
   | Some (Supported (expected_type, _)) -> Some { value_id; expected_type }
   | Some
       ( Pointer_value _
+      | Void_value
       | Unsupported
       | Frame_base _
       | Frame_offset _
@@ -1462,12 +1480,15 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                   description.payload )
               with
               | [ operand_id ], None, None, None -> (
-                  match memory_operand_of_value types operand_id with
-                  | Some (Word_operand _ as operand) -> Ok (Discard operand)
-                  | Some (Pointer_operand _ as operand)
-                    when Option.is_some frame || Option.is_some literals ->
-                      Ok (Discard operand)
-                  | _ -> Error (invalid_type_matrix block_id description))
+                  match Value_map.find_opt operand_id types with
+                  | Some Void_value -> Ok (Discard_void operand_id)
+                  | _ -> (
+                      match memory_operand_of_value types operand_id with
+                      | Some (Word_operand _ as operand) -> Ok (Discard operand)
+                      | Some (Pointer_operand _ as operand)
+                        when Option.is_some frame || Option.is_some literals ->
+                          Ok (Discard operand)
+                      | _ -> Error (invalid_type_matrix block_id description)))
               | _ -> Error (malformed block_id description))
           | Return_value_kind -> (
               match
@@ -1661,13 +1682,19 @@ let prepare ?frame ?globals ?literals ?initialization ?callees graph =
               match
                 ( description.payload,
                   description.result,
-                  return_word_type callee.callee_return_type )
+                  checked_return_kind callee.callee_return_type )
               with
-              | Some (Sequence.Symbol symbol), Some result, Some type_
+              | ( Some (Sequence.Symbol symbol),
+                  Some result,
+                  Some (Word_return type_) )
                 when symbol == callee.callee_symbol ->
                   calls := rest;
                   call_instruction description
                     (Call_end (result.value_id, type_))
+              | Some (Sequence.Symbol symbol), Some result, Some Void_return
+                when symbol == callee.callee_symbol ->
+                  calls := rest;
+                  call_instruction description (Call_end_void result.value_id)
               | _ ->
                   Error
                     (call_error description
@@ -1793,6 +1820,9 @@ let prepare ?frame ?globals ?literals ?initialization ?callees graph =
                   ~some:(fun context -> context.allocated_bytes)
                   frame;
               is_function = Option.is_some frame;
+              required_return =
+                Option.bind frame (fun context ->
+                    checked_return_kind context.return_type);
               owner = None;
             }
       | None ->
@@ -1812,9 +1842,11 @@ let runtime_error ?instruction block executed_steps code message =
         ~instruction_id:instruction.instruction_id ?span:instruction.span code
         message
 
+type call_completion = Pending | Completed_void | Completed_word of word
+
 type call_scope = {
   arguments_rev : runtime_value list;
-  returned_word : word option;
+  completion : call_completion;
 }
 
 type caller = {
@@ -1970,7 +2002,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
           (require_pointer block instruction operand)
   in
   let coerce_value expected = function
-    | Runtime_offset _ -> None
+    | Runtime_offset _ | Runtime_void -> None
     | Runtime_word word -> (
         match expected with
         | Stored_word type_ -> Some (Runtime_word { type_; bits = word.bits })
@@ -2068,11 +2100,12 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
           current_instruction := !current_instruction + 1;
           (match instruction.operation with
           | Call_start ->
-              calls := { arguments_rev = []; returned_word = None } :: !calls
+              calls := { arguments_rev = []; completion = Pending } :: !calls
           | Call_cleanup -> ()
           | Call index -> (
               match !calls with
-              | scope :: _ when index >= 0 && index < Array.length callees ->
+              | ({ completion = Pending; _ } as scope) :: _
+                when index >= 0 && index < Array.length callees ->
                   let callee, body = callees.(index) in
                   if !depth >= max_call_depth then
                     failed :=
@@ -2130,8 +2163,8 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                          "prepared direct call has no available caller scope"))
           | Call_end (result, type_) -> (
               match !calls with
-              | { returned_word = Some word; _ } :: rest when word.type_ = type_
-                ->
+              | { completion = Completed_word word; _ } :: rest
+                when word.type_ = type_ ->
                   calls := rest;
                   values := Value_map.add result (Runtime_word word) !values
               | _ ->
@@ -2139,6 +2172,16 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                     Some
                       (runtime_error ~instruction block !steps "HCIRVM0008"
                          "direct call did not supply its declared return word"))
+          | Call_end_void result -> (
+              match !calls with
+              | { completion = Completed_void; _ } :: rest ->
+                  calls := rest;
+                  values := Value_map.add result Runtime_void !values
+              | _ ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0008"
+                         "prepared U0 call did not complete without a value"))
           | Frame_address_tick -> ()
           | Scale_index (operand, stride, result) -> (
               match require_operand block instruction operand with
@@ -2255,7 +2298,9 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                             Some
                               (runtime_error ~instruction block !steps
                                  "HCIRVM0012" storage.unknown_message)
-                      | Some (Runtime_pointer _ | Runtime_offset _) ->
+                      | Some
+                          (Runtime_pointer _ | Runtime_offset _ | Runtime_void)
+                        ->
                           failed :=
                             Some
                               (runtime_error ~instruction block !steps
@@ -2326,12 +2371,24 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
               let value =
                 Option.bind (require_value block instruction operand) (function
                   | Runtime_word word -> Some word
-                  | Runtime_pointer _ | Runtime_offset _ -> None)
+                  | Runtime_pointer _ | Runtime_offset _ | Runtime_void -> None)
               in
               if
                 capture_last && (not !program.is_function)
                 && Option.is_none !active_initializer
               then final_value := value
+          | Discard_void value_id -> (
+              match Value_map.find_opt value_id !values with
+              | Some Runtime_void ->
+                  if
+                    capture_last && (not !program.is_function)
+                    && Option.is_none !active_initializer
+                  then final_value := None
+              | _ ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0008"
+                         "prepared no-value result is unavailable or invalid"))
           | Return_value (operand, type_) -> (
               match require_operand block instruction operand with
               | Some word -> pending_return := Some { type_; bits = word.bits }
@@ -2358,32 +2415,49 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                                "HCIRVM0008"
                                "a conditional branch has no physical \
                                 fallthrough")))
-          | Return when !program.is_function && Option.is_none !pending_return
-            ->
+          | Return
+            when match !program.required_return with
+                 | Some (Word_return _) -> Option.is_none !pending_return
+                 | Some Void_return | None -> false ->
               failed :=
                 Some
                   (runtime_error ~instruction block !steps "HCIRVM0013"
                      "the integer function returned without a value")
           | Return -> (
-              !slots.live <- false;
-              match !callers with
-              | [] -> completed := Some (Returned !pending_return)
-              | caller :: rest -> (
-                  let returned_word = !pending_return in
-                  callers := rest;
-                  decr depth;
-                  live_frame_bytes :=
-                    !live_frame_bytes - !program.initial_frame_bytes;
-                  program := caller.saved_program;
-                  current_block := caller.saved_block;
-                  current_instruction := caller.saved_instruction;
-                  values := caller.saved_values;
-                  slots := caller.saved_slots;
-                  pending_return := caller.saved_return;
-                  calls :=
-                    match caller.saved_calls with
-                    | scope :: rest -> { scope with returned_word } :: rest
-                    | [] -> []))
+              let completion =
+                match (!program.required_return, !pending_return) with
+                | (Some Void_return | None), None -> Some Completed_void
+                | Some (Word_return type_), Some word when word.type_ = type_ ->
+                    Some (Completed_word word)
+                | None, Some word -> Some (Completed_word word)
+                | _ -> None
+              in
+              match completion with
+              | None ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0008"
+                         "function completion disagrees with its checked \
+                          return kind")
+              | Some completion -> (
+                  !slots.live <- false;
+                  match !callers with
+                  | [] -> completed := Some (Returned !pending_return)
+                  | caller :: rest -> (
+                      callers := rest;
+                      decr depth;
+                      live_frame_bytes :=
+                        !live_frame_bytes - !program.initial_frame_bytes;
+                      program := caller.saved_program;
+                      current_block := caller.saved_block;
+                      current_instruction := caller.saved_instruction;
+                      values := caller.saved_values;
+                      slots := caller.saved_slots;
+                      pending_return := caller.saved_return;
+                      calls :=
+                        match caller.saved_calls with
+                        | scope :: rest -> { scope with completion } :: rest
+                        | [] -> [])))
           | End -> completed := Some Stream_end);
           if Option.is_none !failed then
             Option.iter

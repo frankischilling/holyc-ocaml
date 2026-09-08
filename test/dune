@@ -14,7 +14,8 @@
   ../examples/integer-pointers.hc
   ../examples/integer-arrays.hc
   ../examples/integer-bytes.hc
-  ../examples/integer-strings.hc)
+  ../examples/integer-strings.hc
+  ../examples/integer-u0.hc)
  (action
   (run
    %{test}
@@ -30,7 +31,8 @@
    %{dep:../examples/integer-pointers.hc}
    %{dep:../examples/integer-arrays.hc}
    %{dep:../examples/integer-bytes.hc}
-   %{dep:../examples/integer-strings.hc})))
+   %{dep:../examples/integer-strings.hc}
+   %{dep:../examples/integer-u0.hc})))
 
 (test
  (name test_main)
@@ -48,6 +50,7 @@
   test_integer_arrays
   test_integer_bytes
   test_integer_strings
+  test_integer_u0
   test_integer_global_initializers
   test_ir_comparison_chains
   test_ir_integer_frames

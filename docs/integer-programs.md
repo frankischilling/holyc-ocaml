@@ -1,5 +1,10 @@
 # Integer programs in the IR interpreter
 
+[U0 function calls](integer-u0.md) execute ordinary procedures, early bare
+returns and fallthrough through the same checked call protocol. A discarded U0
+call reports no final word; it preserves preceding storage effects and resumes
+the caller. Numeric returns remain I64/U64.
+
 [Owned string literals](integer-strings.md) use one mutable byte object per
 source site and execution image. They compose with U8 pointer initialization,
 assignment, indexing and fixed calls; `--literal-byte-limit` bounds their

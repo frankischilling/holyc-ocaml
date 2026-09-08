@@ -2,6 +2,15 @@
 
 `holyc-ocaml` is an OCaml implementation of the HolyC compiler. The command is `holyc`, and the public OCaml library is `holyc_lib`. Compatibility work follows the TempleOS source tree at commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
+## U0 calls
+
+`holyc run --target=ir examples/integer-u0.hc` calls a U0 procedure that
+writes a global, then reports 42 in both modes. It uses 19 runtime instructions,
+eight frame bytes, eight global bytes and call depth one.
+[U0 function calls](docs/integer-u0.md) describes early returns, fallthrough,
+checked no-value completion and human/JSON reporting. Runtime output remains
+unfinished.
+
 ## String-literal storage
 
 The string-storage continuation in [issue #617](https://github.com/frankischilling/holyc-ocaml/issues/617)

@@ -42,6 +42,14 @@ val execute_program :
 (** Preflight the entry and every checked definition, then execute direct calls
     with explicit continuations and independent slots. Limits cover the total
     instruction count, simultaneously active frame bytes and active calls.
+    Ordinary U0 functions complete without a word through bare return or
+    fallthrough. Call completion distinguishes pending, no-value and word
+    results; the canonical U0 call-end result remains a private no-value marker
+    accepted only by checked expression discard. U0 is not a word, memory value
+    or numeric argument. Word functions still require their own reached return
+    value, regardless of results from other calls. These are hosted execution
+    boundaries; the pinned compiler warns for missing word return values and
+    value-returning U0 functions rather than rejecting those source forms.
     Checked public I64/U64 call results may participate in top-level unary and
     binary operations without requiring a local frame. [globals] supplies exact
     shared scalar objects, bounded separately by positive [max_global_bytes]
@@ -100,7 +108,9 @@ val execute_program :
 
 val final_value : t -> word option
 (** Last reached top-level expression value from [execute_program], separate
-    from stream termination and function return values. *)
+    from stream termination and function return values. A last U0 expression has
+    no final word: [42; Set(1);] yields [None], while [Set(1); 42;] yields the
+    word 42. Function-internal discards do not replace the top-level value. *)
 
 val execute : max_steps:int -> X87_stack.t -> (t, error list) result
 (** Preflight and execute the source-audited integer subset. Every executed
@@ -121,8 +131,8 @@ val execute_function :
   arguments:int64 list ->
   Function_body.t ->
   (t, error list) result
-(** Execute one verified ordinary I64/U64 function with its exact checked frame.
-    Argument bits initialize the named parameter slots in source order.
+(** Execute one verified ordinary I64/U64/U0 function with its exact checked
+    frame. Argument bits initialize the named parameter slots in source order.
     Automatic locals begin uninitialized. The allocation bound includes
     parameter slots and the checked local frame size. Canonical frame addresses,
     loads, assignments and scalar updates are preflighted before execution; slot
@@ -138,7 +148,9 @@ val execute_function :
     storage. The positive [max_literal_bytes] limit defaults to 1,048,576 and
     counts every literal site, including unreachable sites, before allocation.
     U8 pointer storage conversion preserves the referenced object's identity,
-    extent and offset. *)
+    extent and offset. U0 bare return and fallthrough complete as
+    [Returned None] without allocating a synthetic return word or frame slot. An
+    I64/U64 function that returns without a value still reports HCIRVM0013. *)
 
 val termination : t -> termination
 val executed_steps : t -> int
