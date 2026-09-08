@@ -6,6 +6,7 @@ module Diagnostic = Common.Diagnostic
 module Diagnostic_render = Common.Diagnostic_render
 module Session = Driver.Session
 module Integer_task = Driver.Integer_task
+module Task_declarations = Driver.Task_declarations
 module Version = Driver.Version
 module Corpus = Driver.Corpus
 module Primitive_type = Sema.Primitive_type

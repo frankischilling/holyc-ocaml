@@ -55,6 +55,29 @@ shadows that name. Thus an earlier compiled `N+=2;` still updates the earlier N,
 while a newly compiled `N;` selects the newer declaration. Parser-aware pending
 and predecessor receipts are still needed before connecting this API to #exe.
 
+## Parser-assigned declarations
+
+`Integer_task.run` assigns global and function symbols at the parser's native
+publication events. Completed commands reuse those exact symbols in one task
+module scope. The ordinary type, frame, call and IR checks then process the new
+command. Earlier admitted objects remain explicit retained outer bindings even
+though their symbols share that scope.
+
+`Task_declarations` records private parser events and exposes a checked
+declaration collection for an exact AST and semantic table. It retains the
+source manager, registered input object, provisional and completed parser
+entries, original source children and publication order. Nested commands can
+occupy gaps in that order; a later seal cannot reverse the original declarations.
+All associations are checked before any publication is claimed. Replayed or
+out-of-order events, substituted children and foreign source owners are rejected.
+
+Semantic publication does not allocate runtime storage or install code. For
+example, `I64 Broken=;` leaves a reached semantic symbol after its syntax error,
+but a later command cannot read it as an admitted global. A completed `I64 N;`
+receives storage through normal preflight and keeps its unknown-cell state until
+a reached assignment. Parsing must use the exact registered Source_file object.
+The existing `compile_ast` API keeps its callback-free collection path.
+
 ## Bounds
 
 Positive creation limits cover cumulative runtime instructions, constant
@@ -77,7 +100,7 @@ controls include a configured limit above 100,000.
 ## Remaining #635 work
 
 StreamPrint is not yet connected to parser generation. Cross-command extern
-joins, semantic consumption of parser declaration events,
+joins, partial type/storage/header publication and initializer execution,
 selected query receipts, parser pending-command authority and the fourteen
 maintained #exe execution groups remain part of issue #635. The existing integer
 function domain remains unchanged, including its pointer-return boundary.
@@ -88,8 +111,10 @@ A global is visible after its dimensions and before its initializer; its
 completion precedes lookahead into the next declarator. A function is visible
 before parameter defaults, but its header completes only after lookahead past
 the closing parenthesis. Body completion follows the full statement sequence
-and terminating lookahead. Consumers still need checked semantic publication,
-initializer execution and executable installation at these points.
+and terminating lookahead. Assigned symbols now survive completion; consumers
+still need partial type/storage/header publication, initializer execution and
+executable installation at these points. Whole-command membership/grouping and
+pending/predecessor receipts remain separate from declaration association.
 
 Header completion preserves newer shadows and already consumed reference
 snapshots. It updates only unconsumed tokens selecting the exact provisional

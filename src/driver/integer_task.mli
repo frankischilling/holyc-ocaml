@@ -2,7 +2,8 @@ type t
 type command
 
 (** Incremental JIT execution with retained globals and functions. Calls
-    preserve each body's original storage, literals and callees; parser
+    preserve each body's original storage, literals and callees. [run] retains
+    assigned declaration symbols across parsing and compilation; partial runtime
     publication and #exe integration remain separate work. *)
 
 val create :
@@ -43,3 +44,7 @@ val run :
   t ->
   source:Common.Source_file.t ->
   (Ir.Integer_interpreter.t, Common.Diagnostic.t list) result
+(** Parse the exact registered source with declaration observation, then compile
+    using those assigned symbols in the task's shared module scope. Reached
+    semantic publications survive parse errors; failed declarations have no
+    runtime binding. [compile_ast] retains its callback-free collection path. *)

@@ -5,6 +5,7 @@ val compile_task_ast :
   task_view:Ir.Integer_globals.task_view ->
   ?initializer_progress:(int -> unit) ->
   ?max_initializer_steps:int ->
+  ?declaration_command:Task_declarations.command ->
   ?retained_function_source:
     (Ir.Retained_function.t ->
     Ir.Integer_interpreter.task_function_source option) ->

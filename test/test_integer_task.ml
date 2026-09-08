@@ -7,6 +7,10 @@ let create session =
   | Ok task -> task
   | Error message -> Alcotest.fail message
 
+let source_symbols session name =
+  Semantic_symbol_table.all_symbols (Session.semantic_symbols session)
+  |> List.filter (fun symbol -> Semantic_symbol.name symbol = name)
+
 let run session task text =
   let source = Session.add_source session ~path:"task.hc" ~contents:text in
   Task.run task ~source
@@ -608,8 +612,82 @@ let retained_unfinished_selection () =
   fault "HCIRVM0014" (Task.execute task pending);
   value 42L (run session task "F();")
 
+let retained_declaration_scope () =
+  let session = Session.create () in
+  let task = create session in
+  ignore (run session task "I64 A=40;" |> Test_integer_program.checked);
+  value 42L (run session task "I64 F(){return A+2;}F();");
+  let a = List.hd (source_symbols session "A") in
+  let f = List.hd (source_symbols session "F") in
+  Alcotest.(check bool)
+    "separate task declarations retain one module scope" true
+    (Semantic_symbol.Scope_id.equal
+       (Semantic_symbol.scope_id a)
+       (Semantic_symbol.scope_id f));
+  Alcotest.(check int)
+    "completion does not allocate another global symbol" 1
+    (List.length (source_symbols session "A"));
+  Alcotest.(check int)
+    "completion does not allocate another function symbol" 1
+    (List.length (source_symbols session "F"))
+
+let reached_semantic_publication () =
+  List.iter
+    (fun (name, source) ->
+      let session = Session.create () in
+      let task = create session in
+      Alcotest.(check bool)
+        "source fails after declaration publication" true
+        (Result.is_error (run session task source));
+      Alcotest.(check int)
+        "reached provisional symbol remains assigned" 1
+        (List.length (source_symbols session name));
+      value 42L (run session task "I64 Good=42;Good;");
+      Alcotest.(check bool)
+        "unfinished declaration has no runtime binding" true
+        (Result.is_error (run session task (name ^ ";"))))
+    [ ("Broken", "I64 Broken=;"); ("Unfinished", "I64 Unfinished(I64 n=);") ]
+
+let reconstructed_source_is_rejected () =
+  let session = Session.create () in
+  let task = create session in
+  let original = Session.add_source session ~path:"owned.hc" ~contents:"42;" in
+  let substitute =
+    Source_file.create ~id:(Source_file.id original)
+      ~path:(Source_file.path original)
+      ~display_path:(Source_file.display_path original)
+      ~contents:(Source_file.contents original)
+  in
+  fault "HCRUN0004" (Task.run task ~source:substitute);
+  Alcotest.(check int)
+    "foreign source executes nothing" 0 (Task.executed_steps task);
+  value 42L (Task.run task ~source:original)
+
+let uninitialized_seed_keeps_storage_identity () =
+  let session = Session.create () in
+  let task = create session in
+  ignore (run session task "I64 N;" |> Test_integer_program.checked);
+  let symbol = List.hd (source_symbols session "N") in
+  fault "HCIRVM0012" (run session task "N;");
+  value 42L (run session task "N=42;");
+  value 42L (run session task "N;");
+  Alcotest.(check bool)
+    "uninitialized declaration keeps its single assigned symbol" true
+    (match source_symbols session "N" with
+    | [ current ] -> current == symbol
+    | _ -> false)
+
 let tests =
   [
+    Alcotest.test_case
+      "uninitialized seed retains unknown storage and exact symbol" `Quick
+      uninitialized_seed_keeps_storage_identity;
+    Alcotest.test_case "task source requires exact registered object" `Quick
+      reconstructed_source_is_rejected;
+    Alcotest.test_case "task declarations retain one semantic scope" `Quick
+      retained_declaration_scope;
+    Alcotest.test_case "parse failure retains reached semantic publication"
+      `Quick reached_semantic_publication;
     Alcotest.test_case "separate commands retain scalar writes" `Quick
       persistent_scalar;
     Alcotest.test_case "separate commands retain array cells" `Quick

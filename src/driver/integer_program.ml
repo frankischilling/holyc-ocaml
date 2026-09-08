@@ -67,8 +67,8 @@ let fail span code message =
   raise (Invalid (Integer_source.diagnostic ~span code message))
 
 let compile_parsed_with_limit ?task_view ?initializer_progress
-    ?retained_function_source ~max_initializer_steps session ~config
-    (parsed : Frontend.Parser.output) =
+    ?declaration_command ?retained_function_source ~max_initializer_steps
+    session ~config (parsed : Frontend.Parser.output) =
   match parsed.ast with
   | None -> Error parsed.diagnostics
   | Some ast -> (
@@ -125,7 +125,7 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               ast.items
           in
           let* prepared =
-            Integer_source.prepare_unit
+            Integer_source.prepare_unit ?declaration_command
               ?environment:
                 (Option.map Ir.Integer_globals.task_environment task_view)
               ~include_global_initializers:true session ~config ~span:ast.span
@@ -810,7 +810,7 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
       | Ok value -> Ok { value; diagnostics = parsed.diagnostics }
       | Error diagnostics -> Error (parsed.diagnostics @ diagnostics))
 
-let compile_ast_internal ?task_view ?initializer_progress
+let compile_ast_internal ?task_view ?initializer_progress ?declaration_command
     ?retained_function_source ?(max_initializer_steps = 100_000) session ~config
     ast =
   if
@@ -824,16 +824,17 @@ let compile_ast_internal ?task_view ?initializer_progress
       ]
   else
     compile_parsed_with_limit ?task_view ?initializer_progress
-      ?retained_function_source ~max_initializer_steps session ~config
+      ?declaration_command ?retained_function_source ~max_initializer_steps
+      session ~config
       { Frontend.Parser.ast = Some ast; diagnostics = [] }
 
 let compile_ast ?max_initializer_steps session ~config ast =
   compile_ast_internal ?max_initializer_steps session ~config ast
 
 let compile_task_ast ~task_view ?initializer_progress ?max_initializer_steps
-    ?retained_function_source session ~config ast =
+    ?declaration_command ?retained_function_source session ~config ast =
   compile_ast_internal ~task_view ?initializer_progress ?max_initializer_steps
-    ?retained_function_source session ~config ast
+    ?declaration_command ?retained_function_source session ~config ast
 
 let compile ?(max_initializer_steps = 100_000) session ~config ~source =
   if max_initializer_steps <= 0 then

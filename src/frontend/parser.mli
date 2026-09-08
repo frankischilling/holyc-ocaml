@@ -30,6 +30,8 @@ val selected_lookup : reference_selection -> Symbol_visibility.lookup
     entry objects, not environment-local numeric IDs. *)
 
 type declaration_header = private {
+  declaration_sources : Common.Source_manager.t;
+  declaration_source : Common.Source_file.t;
   modifiers : Ast.declaration_modifier list;
   binding : Ast.declaration_binding option;
   type_specifier : Ast.type_specifier;

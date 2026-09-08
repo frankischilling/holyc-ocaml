@@ -43,7 +43,7 @@ let message_diagnostic ~span message =
               (String.length message - separator - 1)))
   | _ -> diagnostic ~span "HCEVAL0003" message
 
-let prepare_unit ?environment:task_environment
+let prepare_unit ?environment:task_environment ?declaration_command
     ?(include_global_initializers = false) session ~config ~span ast =
   let table = Session.semantic_symbols session in
   let mode = Frontend.Preprocessor.Config.compilation_mode config in
@@ -53,8 +53,12 @@ let prepare_unit ?environment:task_environment
       result
   in
   let* declarations =
-    Semantic_collection.collect ~sources:(Session.sources session) ~table ast
-    |> checked
+    match declaration_command with
+    | Some command -> Task_declarations.collection ~table ~ast command
+    | None ->
+        Semantic_collection.collect ~sources:(Session.sources session) ~table
+          ast
+        |> checked
   in
   let* aggregates =
     Aggregate_resolution.resolve ~table ~declarations ast |> checked

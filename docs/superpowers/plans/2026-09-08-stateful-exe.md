@@ -219,3 +219,32 @@ The previous retained-function source CI is now final: OCaml 5.1/5.3 in run
 34247494871 passed their other 2,120 tests and failed only the fourteen #exe
 groups. Corpus 34247494815 and dependency review 34247494698 passed. Keep draft
 PR #636 in draft while actual #exe execution remains incomplete.
+
+## Task declaration seed checkpoint
+
+Task parsing now assigns semantic symbols at the private declaration events and
+reuses them in a shared module scope. A retained namespace supplies opaque
+publication tokens; the task ledger matches completed source children before
+the existing type, frame, call and IR pipeline consumes the declaration view.
+Earlier admitted objects still use exact retained outer bindings. Failed parsing
+keeps reached semantic symbols without making runtime bindings available.
+
+Independent review identified colliding source IDs, reconstructed input objects,
+unfinished singleton declarations and reversed original declarators. Controls
+now require the exact source manager and registered input, completed source
+children and increasing original publication order, with gaps for nested
+commands. Validation precedes claiming any declaration. These associations do
+not yet prove whole-command membership or predecessor authority.
+
+Full verification passed 2,148 of 2,162 tests in 51.275 seconds; the fourteen
+pending #exe groups remain RED and CLI checks pass. The 101 focused task,
+parser, ledger and semantic collection controls pass. Formatting, generated
+files, build/install, all 82 checksums and eleven provenance scenarios pass.
+See the task-declaration-seeds plan for the exact source controls and checkpoint
+verification. The existing callback-free compile_ast API retains its collection
+path; aggregate execution remains outside the integer-program domain.
+
+Partial type/storage/header admission, native initializer execution,
+cross-command extern joins, query selections, whole-command and predecessor
+receipts, and StreamPrint generation remain required. All seven full #635
+acceptance criteria and the larger compiler goal stay active.

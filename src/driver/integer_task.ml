@@ -4,6 +4,7 @@ type t = {
   session : Session.t;
   config : Frontend.Preprocessor.Config.t;
   state : VM.task_state;
+  declarations : Task_declarations.t;
   identity : unit ref;
   mutable commands : (Frontend.Ast.module_ * command) list;
 }
@@ -27,8 +28,18 @@ let create ?max_steps ?max_initializer_steps ?max_global_bytes
     ?max_output_work
     ~table:(Session.semantic_symbols session)
     ()
-  |> Result.map (fun state ->
-      { session; config; state; identity = ref (); commands = [] })
+  |> fun result ->
+  Result.bind result (fun state ->
+      Task_declarations.create session
+      |> Result.map (fun declarations ->
+          {
+            session;
+            config;
+            state;
+            declarations;
+            identity = ref ();
+            commands = [];
+          }))
 
 let output_bytes task = VM.task_output_bytes task.state
 let output_work task = VM.task_output_work task.state
@@ -55,7 +66,8 @@ let same_syntax (left : Frontend.Ast.module_) (right : Frontend.Ast.module_) =
      && List.length left.items = List.length right.items
      && List.for_all2 same_item left.items right.items
 
-let compile_ast task (ast : Frontend.Ast.module_) =
+let compile_ast_internal ?declaration_command task (ast : Frontend.Ast.module_)
+    =
   match
     List.find_opt (fun (source, _) -> same_syntax source ast) task.commands
   with
@@ -85,6 +97,7 @@ let compile_ast task (ast : Frontend.Ast.module_) =
       in
       let* checked =
         Integer_program.compile_task_ast ~task_view ~max_initializer_steps
+          ?declaration_command
           ~retained_function_source:(VM.task_function_source task.state)
           ~initializer_progress:(fun steps ->
             VM.record_task_preparation task.state ~before ~steps)
@@ -99,6 +112,8 @@ let compile_ast task (ast : Frontend.Ast.module_) =
       in
       task.commands <- (ast, command) :: task.commands;
       Ok command
+
+let compile_ast task ast = compile_ast_internal task ast
 
 let execute task command =
   let program = command.program in
@@ -119,8 +134,32 @@ let execute task command =
          (Integer_execution_diagnostics.of_errors ~span:command.span)
 
 let run task ~source =
+  let ( let* ) = Result.bind in
+  let* () =
+    match
+      Common.Source_manager.find
+        (Session.sources task.session)
+        (Common.Source_file.id source)
+    with
+    | Some registered when registered == source -> Ok ()
+    | _ ->
+        Error
+          [
+            Integer_source.diagnostic
+              ~span:(Integer_source.source_span source)
+              "HCRUN0004" "task input is not the exact registered source";
+          ]
+  in
+  let commands : Frontend.Parser.command_sink =
+    {
+      reference = None;
+      declaration = Some (Task_declarations.observe task.declarations);
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
   let parsed =
-    Frontend.Parser.parse
+    Frontend.Parser.parse ~commands
       ~sources:(Session.sources task.session)
       ~definitions:(Session.definitions task.session)
       ~symbols:(Session.symbols task.session)
@@ -129,6 +168,6 @@ let run task ~source =
   match parsed.ast with
   | None -> Error parsed.diagnostics
   | Some ast ->
-      let ( let* ) = Result.bind in
-      let* command = compile_ast task ast in
+      let* declaration_command = Task_declarations.seal task.declarations ast in
+      let* command = compile_ast_internal ~declaration_command task ast in
       execute task command

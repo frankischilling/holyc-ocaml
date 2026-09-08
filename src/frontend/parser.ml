@@ -14,6 +14,8 @@ let selected_environment selection = selection.environment
 let selected_lookup selection = selection.lookup
 
 type declaration_header = {
+  declaration_sources : Common.Source_manager.t;
+  declaration_source : Common.Source_file.t;
   modifiers : Ast.declaration_modifier list;
   binding : Ast.declaration_binding option;
   type_specifier : Ast.type_specifier;
@@ -91,6 +93,7 @@ end)
 type cursor = {
   stream : Preprocessor.t;
   sources : Common.Source_manager.t;
+  source : Common.Source_file.t;
   symbols : Symbol_visibility.Environment.t;
   compilation_mode : Preprocessor.compilation_mode;
   stop_on_error : bool;
@@ -953,6 +956,15 @@ let publish_function cursor (name : Ast.identifier) parameters variadic =
        ~kind:Symbol_visibility.Function ~function_call_shape
        ~origin:(symbol_source_origin name.location)
        ())
+
+let declaration_header cursor ~modifiers ~binding ~type_specifier =
+  {
+    declaration_sources = cursor.sources;
+    declaration_source = cursor.source;
+    modifiers;
+    binding;
+    type_specifier;
+  }
 
 let declare_function cursor header (prefix : parsed_declarator_prefix) opening =
   if not cursor.stop_on_error then None
@@ -3480,11 +3492,8 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
                     match
                       parse_declarators
                         ~header:
-                          {
-                            modifiers;
-                            binding = None;
-                            type_specifier = Ast.Named_type_specifier name;
-                          }
+                          (declaration_header cursor ~modifiers ~binding:None
+                             ~type_specifier:(Ast.Named_type_specifier name))
                         cursor name.spelling ~parse_function_pointer []
                     with
                     | None -> None
@@ -3961,7 +3970,8 @@ let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
     ~binding ~type_item ~return_type (prefix : parsed_declarator_prefix) =
   let provisional =
     declare_function cursor
-      { modifiers; binding = Some binding; type_specifier = return_type }
+      (declaration_header cursor ~modifiers ~binding:(Some binding)
+         ~type_specifier:return_type)
       prefix (peek cursor)
   in
   let opening = take cursor in
@@ -4191,7 +4201,9 @@ let parse_global cursor ~parse_function_definition =
                           | _ -> (
                               match
                                 parse_variable_declarator_suffix
-                                  ~header:{ modifiers; binding; type_specifier }
+                                  ~header:
+                                    (declaration_header cursor ~modifiers
+                                       ~binding ~type_specifier)
                                   cursor first_prefix
                               with
                               | None -> None
@@ -4209,11 +4221,9 @@ let parse_global cursor ~parse_function_definition =
                                     | Ast.Comma ->
                                         parse_declarators
                                           ~header:
-                                            {
-                                              modifiers;
-                                              binding;
-                                              type_specifier;
-                                            }
+                                            (declaration_header cursor
+                                               ~modifiers ~binding
+                                               ~type_specifier)
                                           cursor spelling
                                           ~parse_function_pointer:
                                             parse_global_function_pointer
@@ -6986,7 +6996,8 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
     ~return_type (prefix : parsed_declarator_prefix) =
   let provisional =
     declare_function cursor
-      { modifiers; binding = None; type_specifier = return_type }
+      (declaration_header cursor ~modifiers ~binding:None
+         ~type_specifier:return_type)
       prefix (peek cursor)
   in
   let opening = take cursor in
@@ -7117,11 +7128,12 @@ let read_commands ?commands ?stream_opener cursor =
   done;
   List.rev !items_rev
 
-let make_cursor ?reference ?declaration ~stream ~sources ~symbols
+let make_cursor ?reference ?declaration ~stream ~sources ~source ~symbols
     ~compilation_mode ~stop_on_error () =
   {
     stream;
     sources;
+    source;
     symbols;
     compilation_mode;
     stop_on_error;
@@ -7139,7 +7151,7 @@ let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
     Option.map
       (fun enter stream opener ->
         let opening_cursor =
-          make_cursor ~stream ~sources ~symbols ~stop_on_error:true
+          make_cursor ~stream ~sources ~source ~symbols ~stop_on_error:true
             ~compilation_mode:(Preprocessor.Config.compilation_mode config)
             ()
         in
@@ -7166,7 +7178,7 @@ let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
                       Symbol_visibility.Environment.without_locals
                         execution.symbols (fun () ->
                           let cursor =
-                            make_cursor ~stream ~sources
+                            make_cursor ~stream ~sources ~source
                               ~symbols:execution.symbols
                               ?reference:execution.commands.reference
                               ?declaration:execution.commands.declaration
@@ -7196,7 +7208,7 @@ let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
       source
   in
   let cursor =
-    make_cursor ~stream ~sources ~symbols
+    make_cursor ~stream ~sources ~source ~symbols
       ?reference:
         (Option.bind commands (fun (commands : command_sink) ->
              commands.reference))

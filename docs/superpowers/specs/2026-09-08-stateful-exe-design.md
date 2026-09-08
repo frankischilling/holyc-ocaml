@@ -171,6 +171,15 @@ existing `Global_variable` form. Semantic consumers must associate that final
 item with its earlier publication, retain assigned identities and reject replay;
 they must not recollect the source or treat a callback as runtime admission.
 
+Source authority includes the exact Source_manager and registered root
+Source_file, not just a source ID. IDs can collide between managers, and a caller
+can reconstruct an input object with a registered ID. Reject those owners before
+assigning semantic identity or consuming input in the task run path. Retain
+original declaration publication order separately from command-local positions;
+nested commands create gaps. Checking fresh positions after rebuilding a caller's
+AST cannot detect reversed original declarators. Whole-command membership and
+grouping still need a parser-owned command receipt alongside predecessor state.
+
 Extend selection evidence to query operands before supporting directives inside
 sizeof/offset/defined queries. `PrsExp.HC:317-329` computes sizeof from its
 selected record before subsequent lexing; `942-947` similarly evaluates defined.

@@ -2,12 +2,19 @@
 
 ## Unreleased
 
+- Task parsing now retains assigned global and function symbols in one semantic
+  module scope. Completed ASTs reuse checked declaration views through the
+  existing type and IR pipeline. Source owners, declaration order and completion
+  phases are validated before claiming publications. Reached semantic symbols
+  survive parse errors without granting runtime storage or executable bindings.
+  Partial runtime publication, extern joins and #exe generation remain pending.
+
 - Added streaming parser declaration events at native global and function
   publication boundaries. Function headers complete after closing-parenthesis
   lookahead while preserving selected references and newer shadows. Global
   alias candidates retain their name-token selection across dimension directives.
-  Private completion events share original AST nodes; semantic publication and
-  StreamPrint integration remain pending.
+  Private completion events share original AST nodes. Partial runtime
+  publication and StreamPrint integration remain pending.
 
 - Added incremental JIT task execution for retained global scalars and arrays
   in #635. Separate commands share exact storage, preserve reached writes after
@@ -15,7 +22,8 @@
   Later commands and initializers can call earlier functions while preserving
   original callees, globals, statics, mutable literal sites and exact selected
   declaration snapshots. Initializer guards inspect retained callees with their
-  original context. Parser publication and StreamPrint integration remain pending.
+  original context. Partial runtime publication and StreamPrint integration
+  remain pending.
 
 - Connected I8/I16/U16/I32/U32 storage, fixed arrays, references, updates and
   numeric signatures in #633 through shared generated width/signedness metadata.

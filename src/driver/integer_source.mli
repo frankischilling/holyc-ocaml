@@ -5,6 +5,7 @@ type prepared
 
 val prepare_unit :
   ?environment:Sema.Outer_environment.t ->
+  ?declaration_command:Task_declarations.command ->
   ?include_global_initializers:bool ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->
