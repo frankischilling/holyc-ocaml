@@ -43,16 +43,18 @@ val create :
   span:Common.Span.t ->
   Sema.Global_record_classification.t ->
   (t, Common.Diagnostic.t list) result
-(** Check every declaration for ordinary, non-aliased public I64/U64 code-heap
-    storage. Initialized declarations require their exact checked scalar roots.
-    Unsupported declarations fail even when unused. The context contains
-    immutable metadata, not mutable execution storage. *)
+(** Check every declaration for ordinary, non-aliased public I64/U64/U8
+    code-heap storage. Initialized declarations require their exact checked
+    scalar roots. Unsupported declarations fail even when unused. The context
+    contains immutable metadata, not mutable execution storage. *)
 
 val slots : t -> slot list
 (** Ordinary global declarations only; [statics] retains separate owners. *)
 
 val byte_size : t -> int
-(** Combined global/static bytes, including unused declarations. *)
+(** Combined global declared widths and eight-byte-padded static allocations,
+    including unused declarations. Padding is not accessible object extent. This
+    hosted quota excludes inter-object AOT alignment gaps and host overhead. *)
 
 val find : t -> Sema.Symbol.t -> slot option
 (** Lookup requires the exact symbol object, not just its table-local ID. *)

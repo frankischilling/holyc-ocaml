@@ -1,5 +1,12 @@
 # Reference source map
 
+[Persistent bytes](integer-persistent-bytes.md) in #625 follow
+`Compiler/PrsStmt.HC:285-296,334-385,390-435` for global size and initialization,
+`PrsVar.HC:101-107,200-204,530-588` for initializer byte copies and padded static
+allocation, and `BackC.HC:159-204` / `BackLib.HC:453-572` for narrowing stores
+and independent register values. Reference:
+`c26482bb6ad3f80106d28504ec5db3c6a360732c`.
+
 [Joined definitions](integer-joined-definitions.md) in #623 use
 `Compiler/PrsStmt.HC:62-109,110-137,151-190` for join eligibility, header
 replacement and definition publication; `Compiler/PrsExp.HC:545-586` for call

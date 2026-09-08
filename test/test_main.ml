@@ -118,6 +118,7 @@ let () =
       ("source integer U0 calls", Test_integer_u0.tests);
       ("source integer output", Test_integer_output.tests);
       ("source joined definitions", Test_integer_joined_definitions.tests);
+      ("source persistent bytes", Test_integer_persistent_bytes.tests);
       ("comparison chains", Test_ir_comparison_chains.tests);
       ("integer frames", Test_ir_integer_frames.tests);
       ("IR bounded integer interpreter", Test_ir_integer_interpreter.tests);

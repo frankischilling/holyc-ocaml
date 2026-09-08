@@ -3102,7 +3102,10 @@ let execute_program_with_output ?runtime_calls ~output ?globals ?initialization
           Option.map
             (fun bits ->
               let type_ =
-                match return_word_type (Integer_globals.storage_type slot) with
+                match
+                  scalar_value_type ~allow_byte:true ~allow_public:true
+                    (Integer_globals.storage_type slot)
+                with
                 | Some type_ -> type_
                 | None -> assert false
               in

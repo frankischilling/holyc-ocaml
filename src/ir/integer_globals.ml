@@ -6,6 +6,7 @@ module Type = Sema.Type
 module Typed = Sema.Function_call_expression_result
 module Initial = Sema.Global_initializer_binding
 module Symbols = Map.Make (Symbol.Id)
+module Scalar = Integer_scalar_storage
 
 type slot = {
   index : int;
@@ -27,6 +28,7 @@ type t = {
   symbols : slot Symbols.t;
   statics_ : static_slot list;
   mode : Resolution.compilation_mode;
+  global_byte_size_ : int;
   byte_size_ : int;
 }
 
@@ -111,12 +113,21 @@ let with_statics ~span ~frames ~functions ~records globals =
           ~message:"global and static storage have colliding symbol identities"
           ~primary:span ();
       ]
+  else if List.length statics_ > (Int.max_int - globals.global_byte_size_) / 8
+  then
+    Error
+      [
+        Common.Diagnostic.make ~code:"HCIRL0005"
+          ~severity:Common.Diagnostic.Error
+          ~message:"persistent storage size exceeds the host integer range"
+          ~primary:span ();
+      ]
   else
     Ok
       {
         globals with
         statics_;
-        byte_size_ = (List.length globals.slots_ + List.length statics_) * 8;
+        byte_size_ = globals.global_byte_size_ + (List.length statics_ * 8);
       }
 
 let has_initializers globals =
@@ -180,7 +191,7 @@ let create ?initializers ~span:unit_span records =
         else Ok (Symbols.add id (owner, root) roots))
       (Ok Symbols.empty) roots
   in
-  let rec collect index symbols reversed roots = function
+  let rec collect index byte_size symbols reversed roots = function
     | [] ->
         if Symbols.is_empty roots then
           Ok
@@ -189,7 +200,8 @@ let create ?initializers ~span:unit_span records =
               symbols;
               statics_ = [];
               mode = Records.compilation_mode records;
-              byte_size_ = index * 8;
+              global_byte_size_ = byte_size;
+              byte_size_ = byte_size;
             }
         else invalid "global initializer roots include an absent declaration"
     | record :: rest -> (
@@ -215,14 +227,7 @@ let create ?initializers ~span:unit_span records =
           Global.global_type_reference global
           |> Sema.Type_reference.resolved_type
         in
-        let scalar =
-          Type.pointer_depth type_ = 0
-          &&
-          match Type.base type_ with
-          | Type.Primitive
-              (Type.Public_spelling, (Sema.Primitive_type.I64 | U64)) -> true
-          | _ -> false
-        in
+        let scalar_bytes = Scalar.public_byte_size type_ in
         if symbol != Global.global_symbol global || Option.is_none span then
           fail "HCIRL0004"
             "global storage has inconsistent symbol or source evidence"
@@ -245,13 +250,17 @@ let create ?initializers ~span:unit_span records =
           fail "HCRUN0001"
             "global declaration initializer execution is not implemented"
         else if
-          (not scalar)
+          Option.is_none scalar_bytes
           || Global.global_array_dimensions global <> []
           || Global.global_declarator_kind global <> Global.Object
         then
           fail "HCRUN0001"
-            "global execution requires scalar public I64/U64 objects"
-        else if index >= Int.max_int / 8 then
+            "global execution requires scalar public I64/U64/U8 objects"
+        else if
+          index >= Int.max_int / 8
+          || index >= Sys.max_array_length
+          || Option.get scalar_bytes > Int.max_int - byte_size
+        then
           fail "HCIRL0005" "global storage size exceeds the host integer range"
         else
           let* initializer_root =
@@ -280,13 +289,13 @@ let create ?initializers ~span:unit_span records =
                        (match Typed.result_type value with
                        | Some type_ when Type.pointer_depth type_ = 0 -> (
                            match Type.base type_ with
-                           | Type.Primitive (_, (Sema.Primitive_type.I64 | U64))
-                             -> true
+                           | Type.Primitive
+                               (_, (Sema.Primitive_type.I64 | U64 | U8)) -> true
                            | _ -> false)
                        | _ -> false)
                 then
                   fail "HCRUN0001"
-                    "global initializer requires a scalar I64/U64 value"
+                    "global initializer requires a scalar I64/U64/U8 value"
                 else Ok (Some root)
             | _ ->
                 fail "HCIRL0004"
@@ -322,12 +331,13 @@ let create ?initializers ~span:unit_span records =
                 }
               in
               collect (index + 1)
+                (byte_size + Option.get scalar_bytes)
                 (Symbols.add (Symbol.id symbol) slot symbols)
                 (slot :: reversed)
                 (Symbols.remove (Symbol.id symbol) roots)
                 rest)
   in
-  collect 0 Symbols.empty [] roots (Records.records records)
+  collect 0 0 Symbols.empty [] roots (Records.records records)
 
 let with_initial_values ~span globals values =
   let invalid message =
@@ -369,7 +379,7 @@ let with_initial_values ~span globals values =
         | Some (bits, steps) ->
             {
               slot with
-              initial_bits = Some bits;
+              initial_bits = Some (Scalar.narrow_bits slot.type_ bits);
               initializer_materialized = true;
               initializer_preparation_steps = steps;
             })
@@ -398,7 +408,7 @@ let global_human globals =
   | [] -> ""
   | slots ->
       Printf.sprintf "holyc-integer-globals-v1 bytes=%d\n"
-        (List.length globals.slots_ * 8)
+        globals.global_byte_size_
       ^ String.concat ""
           (List.map
              (fun slot ->

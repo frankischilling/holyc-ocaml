@@ -1,5 +1,9 @@
 # Shared integer globals
 
+[Scalar U8 globals](integer-persistent-bytes.md) extend the original word
+storage contract below. Global byte charges follow declared width; initializer
+sources can retain byte classes and full assignment register values.
+
 [Scalar pointer aliases](integer-pointers.md) can reference these global words
 from function locals and fixed parameters. Dereferences share the same cells as
 ordinary global reads and writes. Pointer-valued globals remain unsupported.

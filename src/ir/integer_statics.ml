@@ -125,29 +125,28 @@ let create ~span ~mode ~start ~frames ~functions ~records =
                     | Symbol.Source_location source -> source.span
                     | _ -> span
                   in
-                  let scalar =
-                    let type_ = Frame.location_checked_type location in
-                    Type.pointer_depth type_ = 0
-                    &&
-                    match Type.base type_ with
-                    | Type.Primitive
-                        (Type.Public_spelling, (Sema.Primitive_type.I64 | U64))
-                      -> true
-                    | _ -> false
+                  let scalar_bytes =
+                    Integer_scalar_storage.public_byte_size
+                      (Frame.location_checked_type location)
                   in
                   if
-                    (not scalar)
+                    Option.is_none scalar_bytes
                     || Frame.location_declarator_shape location <> Frame.Object
                     || Frame.location_value_shape location <> Frame.Scalar
                     || Frame.location_dimensions location <> []
-                    || Frame.location_allocated_size location <> 8L
+                    || Frame.location_allocated_size location
+                       <> Int64.of_int (Option.get scalar_bytes)
+                    || Frame.location_element_size location
+                       <> Int64.of_int (Option.get scalar_bytes)
                     || Frame.location_alignment location <> 8
                     || Option.is_some (Frame.location_frame_slot location)
                   then
                     invalid ~at ~code:"HCRUN0001"
-                      "static execution requires scalar public I64/U64 objects \
-                       without frame slots"
-                  else if index >= Int.max_int / 8 then
+                      "static execution requires scalar public I64/U64/U8 \
+                       objects without frame slots"
+                  else if
+                    index >= Int.max_int / 8 || index >= Sys.max_array_length
+                  then
                     invalid ~at ~code:"HCIRL0005"
                       "persistent storage size exceeds the host integer range"
                   else if
@@ -218,4 +217,8 @@ let create ~span ~mode ~start ~frames ~functions ~records =
     collect start [] (Typed.functions functions)
 
 let with_initial_value slot ~bits ~steps =
-  { slot with initial_bits = Some bits; preparation_steps = steps }
+  {
+    slot with
+    initial_bits = Some (Integer_scalar_storage.narrow_bits (type_ slot) bits);
+    preparation_steps = steps;
+  }

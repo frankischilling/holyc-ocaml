@@ -1,5 +1,11 @@
 # Intermediate-code specification
 
+[Persistent U8 storage](integer-persistent-bytes.md) retains canonical global
+and static address instructions while preparing byte-compatible initial cells.
+Declared global widths and padded static allocation charges remain separate
+from scalar pointer extents. Existing versioned storage dumps report these
+charges and narrowed initial payloads.
+
 [Joined definitions](integer-joined-definitions.md) add a checked callable
 association to named bodies. Definition symbols still own frames and statics;
 canonical symbols select callees. Exact declaration and frame-header provenance
