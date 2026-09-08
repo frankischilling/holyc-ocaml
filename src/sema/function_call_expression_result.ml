@@ -338,6 +338,9 @@ let owns_table result table = result.table == table
 let owns_members result members = result.members == members
 let owns_policies result policies = result.policies == policies
 
+let owns_declaration result declaration =
+  Function_call_conversion_policy.owns_declaration result.policies declaration
+
 let owns_outer result outer =
   match result.outer with
   | Some owned -> owned == outer

@@ -404,6 +404,7 @@ module String_map = Map.Make (String)
 type t = {
   table : Symbol_table.t;
   expressions : Module_expression_binding.t;
+  declarations : Function_resolution.resolved_declaration list;
   compilation_mode : Function_resolution.compilation_mode;
   functions : resolved_function list;
   by_symbol : resolved_function Int_map.t;
@@ -429,6 +430,10 @@ let functions (result : t) = result.functions
 let expressions (result : t) = result.expressions
 let compilation_mode (result : t) = result.compilation_mode
 let owns_table (result : t) table = result.table == table
+
+let owns_declaration (result : t) declaration =
+  List.exists (fun actual -> actual == declaration) result.declarations
+
 let function_symbol (function_ : resolved_function) = function_.symbol
 let function_scope (function_ : resolved_function) = function_.scope
 let function_item_index (function_ : resolved_function) = function_.item_index
@@ -3608,6 +3613,8 @@ let resolve ~table ~parent ?members ~function_types ~functions ~expressions
                       {
                         table;
                         expressions;
+                        declarations =
+                          Function_resolution.declarations functions;
                         compilation_mode =
                           Function_resolution.compilation_mode functions;
                         functions = functions_result;

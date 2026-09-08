@@ -46,8 +46,9 @@ U0 Print(U8*,...) and U0 PutChars(U64). Parameter names are immaterial. Provider
 selection requires the checked symbol, declaration, signature, flags, linkage
 and mode. JIT extern uses IC_CALL_INDIRECT2; AOT extern uses IC_CALL_EXTERN.
 Unsupported externs and imports retain explicit execution boundaries. A source
-definition named Print or PutChars executes its own body. Joined extern/body
-frame identities and user-defined variadic frames retain their earlier limits.
+definition named Print or PutChars executes its own body. [Joined extern/body definitions](integer-joined-definitions.md) now execute
+through exact checked associations; earlier selected providers retain their
+declaration snapshots. User-defined variadic frames remain unsupported.
 
 Implicit statement origins also travel in the checked context. `42;"x";`
 retains final 42; `42;Print("x");` has no final word because it ends in an

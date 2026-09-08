@@ -41,7 +41,22 @@ let human compiled =
       ^ String.concat ""
           (List.map
              (fun (function_ : Ir.Integer_interpreter.function_definition) ->
-               Body.human function_.body)
+               let body = function_.body in
+               let definition = Body.symbol body in
+               let callable = Body.callable_symbol body in
+               let binding =
+                 if definition == callable then ""
+                 else
+                   Printf.sprintf
+                     "holyc-ir-function-binding-v1 reference=%s\n\
+                      function=^f%d definition=@s%d callable=@s%d item=%d\n"
+                     Body.reference_commit
+                     (Body.function_id body |> Body.Function_id.to_int)
+                     (Sema.Symbol.id definition |> Sema.Symbol.Id.to_int)
+                     (Sema.Symbol.id callable |> Sema.Symbol.Id.to_int)
+                     (Frame.function_item_index function_.frame)
+               in
+               binding ^ Body.human body)
              functions)
 
 let ( let* ) = Result.bind
@@ -398,13 +413,6 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
                    let declaration =
                      Records.classified_declaration_source record
                    in
-                   if
-                     Resolution.resolved_declaration_identity_symbol declaration
-                     != Frame.function_symbol frame
-                   then
-                     fail definition.location.span "HCRUN0001"
-                       "joined function declaration identities are outside \
-                        integer execution";
                    let typed_header =
                      declaration |> Resolution.resolved_declaration_site
                      |> Resolution.declaration_site_function
@@ -528,6 +536,12 @@ let compile_with_limit ~max_initializer_steps session ~config ~source =
                          span = Some definition.location.span;
                          body = Ir.X87_stack.graph graph;
                        }
+                     |> (fun result ->
+                     Result.bind result
+                       (Body.with_definition ~records
+                          ~sources:(Integer_source.functions prepared)
+                          ~frames:(Integer_source.frames prepared)
+                          ~definition:record ~frame))
                      |> Result.map_error
                           (List.map (fun (error : Body.error) ->
                                Integer_source.diagnostic

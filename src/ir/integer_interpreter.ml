@@ -230,6 +230,7 @@ type prepared = {
 type callee = {
   callee_index : int;
   callee_symbol : Sema.Symbol.t;
+  callee_definition : Sema.Function_resolution.resolved_declaration option;
   callee_return_type : Type.t;
   parameter_types : stored_type array;
   cleanup_opcode : Opcode.t;
@@ -493,6 +494,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
   in
   if
     Function.symbol function_ != Frame.function_symbol frame
+    || (not (Function.definition_matches_frame function_ frame))
     || not
          (Sema.Symbol.Scope_id.equal
             (Function.function_scope function_)
@@ -1675,6 +1677,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                 {
                   callee_index = -1;
                   callee_symbol = Runtime.symbol site;
+                  callee_definition = None;
                   callee_return_type = Runtime.return_type site;
                   parameter_types = Array.of_list types;
                   cleanup_opcode = Runtime.cleanup_opcode site;
@@ -1701,7 +1704,12 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                     | _ ->
                         Option.value callees ~default:[]
                         |> List.find_opt (fun callee ->
-                            callee.callee_symbol == symbol)
+                            callee.callee_symbol == symbol
+                            &&
+                            match (site, callee.callee_definition) with
+                            | Some site, Some declaration ->
+                                Runtime.declaration site == declaration
+                            | _ -> true)
                   in
                   match selected with
                   | Some callee
@@ -2926,7 +2934,7 @@ let execute_program_with_output ?runtime_calls ~output ?globals ?initialization
     let rec summaries index symbols ids rev = function
       | [] -> Ok (List.rev rev)
       | ({ frame; body } : function_definition) :: rest ->
-          let symbol = Function.symbol body in
+          let symbol = Function.callable_symbol body in
           let function_id =
             Function.Function_id.to_int (Function.function_id body)
           in
@@ -2965,6 +2973,7 @@ let execute_program_with_output ?runtime_calls ~output ?globals ?initialization
               {
                 callee_index = index;
                 callee_symbol = symbol;
+                callee_definition = Function.definition_declaration body;
                 callee_return_type = Function.return_type body;
                 parameter_types =
                   Array.init parameter_count (fun position ->

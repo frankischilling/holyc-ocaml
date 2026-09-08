@@ -64,6 +64,11 @@ type description = {
 
 type member = member_description
 
+type definition_binding = {
+  declaration : Sema.Function_resolution.resolved_declaration;
+  frame : Sema.Function_frame_layout.function_layout;
+}
+
 type t = {
   function_id_ : Function_id.t;
   symbol_ : Symbol.t;
@@ -76,6 +81,7 @@ type t = {
   span_ : Common.Span.t option;
   body_ : Block_graph.t;
   x87_ : X87_stack.t;
+  definition_ : definition_binding option;
 }
 
 let reference_commit = Instruction_sequence.reference_commit
@@ -258,6 +264,7 @@ let create description =
               span_ = description.span;
               body_ = description.body;
               x87_ = x87;
+              definition_ = None;
             })
 
 let function_id function_ = function_.function_id_
@@ -275,6 +282,144 @@ let member_position (member : member) = member.position
 let member_symbol (member : member) = member.symbol
 let member_type (member : member) = member.type_
 let member_span (member : member) = member.span
+
+let callable_symbol function_ =
+  match function_.definition_ with
+  | None -> symbol function_
+  | Some binding ->
+      Sema.Function_resolution.resolved_declaration_identity_symbol
+        binding.declaration
+
+let definition_declaration function_ =
+  Option.map (fun binding -> binding.declaration) function_.definition_
+
+let definition_matches_frame function_ frame =
+  Option.fold ~none:true
+    ~some:(fun binding -> binding.frame == frame)
+    function_.definition_
+
+let with_definition ~records ~sources ~frames ~definition ~frame function_ =
+  let module Records = Sema.Function_record_classification in
+  let module Resolution = Sema.Function_resolution in
+  let module Headers = Sema.Function_type_resolution in
+  let module Typed = Sema.Function_call_expression_result in
+  let module Frame = Sema.Function_frame_layout in
+  let ( let* ) = Result.bind in
+  let invalid message =
+    Error
+      [
+        make_error
+          ~function_id:(Function_id.to_int (function_id function_))
+          ~symbol_id:(symbol_number (symbol function_))
+          ?span:(span function_) "HCIR0027" message;
+      ]
+  in
+  let require condition message =
+    if condition then Ok () else invalid message
+  in
+  let* () =
+    require
+      (List.exists
+         (fun actual -> actual == definition)
+         (Records.declarations records)
+      && List.exists (fun actual -> actual == frame) (Frame.functions frames)
+      && Records.compilation_mode records = Typed.compilation_mode sources)
+      "function definition binding requires its exact record and frame batches"
+  in
+  let declaration = Records.classified_declaration_source definition in
+  let site = Resolution.resolved_declaration_site declaration in
+  let header = Resolution.declaration_site_function site in
+  let record = Records.classified_declaration_record definition in
+  let* () =
+    require
+      (Typed.owns_declaration sources declaration
+      && Frame.function_header frame == header)
+      "function binding requires its exact source declaration and frame header"
+  in
+  let* () =
+    require
+      (Resolution.declaration_site_source_kind site = Resolution.Definition
+      && Resolution.declaration_site_kind site = Resolution.Definition
+      && Resolution.declaration_site_state site = Resolution.Resolved
+      && Records.call_access record = Records.Direct_executable_call)
+      "function body binding requires an ordinary source definition"
+  in
+  let* source =
+    match
+      Typed.functions sources
+      |> List.find_opt (fun source ->
+          Typed.function_symbol source == Headers.function_symbol header)
+    with
+    | Some source -> Ok source
+    | None -> invalid "function definition has no exact typed source owner"
+  in
+  let scope = Frame.function_scope frame in
+  let item_index = Frame.function_item_index frame in
+  let* () =
+    require
+      (symbol function_ == Frame.function_symbol frame
+      && symbol function_ == Headers.function_symbol header
+      && Typed.function_scope source == scope
+      && Headers.function_scope header == scope
+      && Symbol.Scope_id.equal (function_scope function_)
+           (Sema.Symbol_table.scope_id scope)
+      && Headers.function_item_index header = item_index
+      && Typed.function_item_index source = item_index)
+      "function definition, typed source and frame have different owners"
+  in
+  let* () =
+    require
+      (Sema.Type.equal (return_type function_)
+         (header |> Headers.function_return_type
+        |> Sema.Type_reference.resolved_type)
+      && stored_flags function_ = Records.stored_flag_mask record
+      && compiler_options function_
+         = (definition |> Records.classified_declaration_state
+          |> Records.declaration_state_compiler_option_mask)
+      && compiler_options function_
+         = Resolution.declaration_site_compiler_option_mask site)
+      "function body type, flags or options differ from its definition snapshot"
+  in
+  let locations kind =
+    Frame.function_locations frame
+    |> List.filter (fun location -> Frame.location_kind location = kind)
+  in
+  let parameters_ = locations Frame.Named_parameter in
+  let members_match members locations =
+    List.length members = List.length locations
+    && List.for_all2
+         (fun (position, member) location ->
+           member_position member = position
+           && member_symbol member == Frame.location_symbol location
+           && Sema.Type.equal (member_type member)
+                (Frame.location_checked_type location))
+         (List.mapi (fun position member -> (position, member)) members)
+         locations
+  in
+  let bindings = Headers.function_parameter_bindings header in
+  let* () =
+    require
+      (members_match (parameters function_) parameters_
+      && members_match (locals function_) (locations Frame.Automatic_local)
+      && List.length bindings = List.length parameters_
+      && List.for_all2
+           (fun (position, binding) location ->
+             Headers.parameter_binding_index binding = position
+             && Headers.parameter_binding_symbol binding
+                == Frame.location_symbol location)
+           (List.mapi (fun position binding -> (position, binding)) bindings)
+           parameters_)
+      "function body members do not belong to its definition header and frame"
+  in
+  let* () =
+    require
+      (Option.fold ~none:true
+         ~some:(fun previous ->
+           previous.declaration == declaration && previous.frame == frame)
+         function_.definition_)
+      "a bound function body cannot change its definition association"
+  in
+  Ok { function_ with definition_ = Some { declaration; frame } }
 
 let add_quoted buffer text =
   Buffer.add_char buffer '"';

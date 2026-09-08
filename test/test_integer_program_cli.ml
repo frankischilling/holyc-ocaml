@@ -1110,4 +1110,84 @@ let () =
         )
         "explicit v1 retains the established outcome projection")
     [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      let run ?(options = []) source =
+        let status, output, errors =
+          invoke_raw
+            ([ "run"; "--format=json"; "--mode=" ^ mode ] @ options @ [ source ])
+        in
+        require (errors = "") "joined program JSON has one metadata stream";
+        (status, Yojson.Safe.from_string output)
+      in
+      let check_value report capture =
+        require
+          (report |> member "outcome" |> to_string = "success"
+          && report |> member "final_value" |> member "value" |> to_string
+             = "42"
+          && report |> member "output_hex" |> to_string = capture)
+          "joined definition preserves value and capture"
+      in
+      let source = Sys.argv.(17) in
+      let status, report =
+        run
+          ~options:
+            [
+              "--step-limit=29"; "--frame-byte-limit=24"; "--call-depth-limit=1";
+            ]
+          source
+      in
+      require (status = Unix.WEXITED 0) "maintained joined Add exact limits";
+      check_value report "";
+      require
+        (report |> member "executed_steps" |> to_int = 29
+        && report |> member "compiled_initializer_steps" |> to_int = 0
+        && report |> member "output_work" |> to_int = 0)
+        "prototypes add no runtime or preparation charge";
+      List.iter
+        (fun (source, capture) ->
+          with_file ".hc" source (fun path ->
+              let status, report = run path in
+              require (status = Unix.WEXITED 0) "joined source gate";
+              check_value report capture))
+        [
+          ("extern I64 Id(I64 value);I64 Id(I64 n){return n;}Id(42);", "");
+          ("extern U0 Set(I64 value);I64 G=0;U0 Set(I64 n){G=n;}Set(42);G;", "");
+          ( "extern I64 Inc(I64 value);I64 Inc(I64 n){return n+1;}I64 \
+             Twice(I64 n){return Inc(Inc(n));}Twice(40);",
+            "" );
+          ( "I64 G=0;extern U0 PutChars(U64 ch);PutChars('A');U0 PutChars(U64 \
+             word){G=42;}PutChars('B');G;",
+            "41" );
+        ];
+      List.iter
+        (fun (option, code) ->
+          let status, report = run ~options:[ option ] source in
+          require
+            (status = Unix.WEXITED 1
+            && report |> member "final_value" = `Null
+            && report |> member "diagnostics" |> to_list |> List.hd
+               |> member "code" |> to_string = code)
+            "joined fixture one-below resource bound")
+        [
+          ("--step-limit=28", "HCIRVM0007");
+          ("--frame-byte-limit=23", "HCIRVM0011");
+        ];
+      let legacy =
+        success [ "run"; "--format=json"; "--mode=" ^ mode; source ]
+        |> Yojson.Safe.from_string
+      in
+      require
+        (legacy |> member "schema" |> to_string = "holyc-integer-program-v1"
+        && legacy |> member "final_value" |> member "value" |> to_string = "42"
+        )
+        "joined execution preserves legacy reporting";
+      let dump () =
+        success [ "dump-ir"; "--program"; "--mode=" ^ mode; source ]
+      in
+      let first = dump () in
+      require
+        (first = dump () && contains first "holyc-ir-function-binding-v1")
+        "deterministic joined callable/definition mapping")
+    [ "jit"; "aot" ];
   print_endline "Integer program CLI checks passed."

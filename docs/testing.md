@@ -1,5 +1,16 @@
 # Testing holyc-ocaml
 
+The 14 `source joined definitions` groups in
+`test/test_integer_joined_definitions.ml` cover #623's four source gates, typed
+parameters and locals, recursion, statics, initializer effects/faults,
+publication timing and retained provider snapshots. Negative tests independently
+exercise replayed declaration chains and reconstructed frame headers, preserving
+valid metadata up to each guard. CLI checks run the maintained Add fixture in
+both modes at 29 instructions, 24 frame bytes and depth one, with v1/v2 reports,
+one-below failures and deterministic callable/definition dump markers. The API
+group additionally checks exact symbol IDs and definition item positions.
+See [joined definitions](integer-joined-definitions.md).
+
 Runtime output regressions in `test/test_integer_output.ml` connect all four
 Print/PutChars source forms in both modes. They cover byte capture, formatting,
 declaration and call ownership, statement-origin reporting, prior effects on

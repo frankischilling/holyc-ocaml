@@ -1,5 +1,11 @@
 # holyc-ocaml
 
+`holyc run --format=json examples/integer-joined-definitions.hc` executes
+an Add definition preceded by an extern prototype, including renamed parameters
+and its own local frame. It returns 42 in 29 instructions in both modes.
+[Joined definitions](docs/integer-joined-definitions.md) explains canonical call
+identity, exact definition ownership and declaration snapshots.
+
 `holyc-ocaml` is an OCaml implementation of the HolyC compiler. The command is `holyc`, and the public OCaml library is `holyc_lib`. Compatibility work follows the TempleOS source tree at commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
 ## Captured runtime output

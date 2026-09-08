@@ -1,5 +1,11 @@
 # Intermediate-code specification
 
+[Joined definitions](integer-joined-definitions.md) add a checked callable
+association to named bodies. Definition symbols still own frames and statics;
+canonical symbols select callees. Exact declaration and frame-header provenance
+survives the semantic producers. Program dumps add a versioned
+`holyc-ir-function-binding-v1` component only when those symbols differ.
+
 [Captured output](integer-output.md) adds a checked runtime-call context for the
 exact finished entry and function bodies. Selected declaration/header snapshots,
 argument producers, hidden counts, opcode, cleanup and implicit discard origins

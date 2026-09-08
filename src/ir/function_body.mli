@@ -49,6 +49,32 @@ val create : description -> (t, error list) result
 (** Validate the function boundary and its checked graph, including x87 stack
     discipline, before constructing an immutable body. *)
 
+val with_definition :
+  records:Sema.Function_record_classification.t ->
+  sources:Sema.Function_call_expression_result.t ->
+  frames:Sema.Function_frame_layout.t ->
+  definition:Sema.Function_record_classification.classified_declaration ->
+  frame:Sema.Function_frame_layout.function_layout ->
+  t ->
+  (t, error list) result
+(** Bind a body's definition owner to its checked callable identity. The exact
+    record, typed source, frame, members, type, flags and options must agree.
+    Typed sources retain the exact resolved declaration, and the frame retains
+    its exact input header; reconstructed metadata cannot replace either. The
+    callable identity comes from the selected Definition snapshot; [symbol] and
+    frame ownership remain attached to that definition's own header. *)
+
+val callable_symbol : t -> Sema.Symbol.t
+(** The checked module call identity, or [symbol] for a raw body. *)
+
+val definition_declaration :
+  t -> Sema.Function_resolution.resolved_declaration option
+
+val definition_matches_frame :
+  t -> Sema.Function_frame_layout.function_layout -> bool
+(** A bound body requires its exact associated frame. A raw body retains the
+    existing structural frame validation contract. *)
+
 val function_id : t -> Function_id.t
 val symbol : t -> Sema.Symbol.t
 val function_scope : t -> Sema.Symbol.Scope_id.t

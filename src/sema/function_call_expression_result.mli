@@ -135,6 +135,11 @@ val analyze_top_level :
 val owns_table : t -> Symbol_table.t -> bool
 val owns_members : t -> Aggregate_member_index.t -> bool
 val owns_policies : t -> Function_call_conversion_policy.t -> bool
+
+val owns_declaration : t -> Function_resolution.resolved_declaration -> bool
+(** Test the exact declaration provenance retained through call resolution and
+    conversion analysis, including declarations with no call sites. *)
+
 val owns_outer : t -> Outer_expression_binding.t -> bool
 val compilation_mode : t -> Function_resolution.compilation_mode
 val functions : t -> resolved_function list

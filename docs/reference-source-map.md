@@ -1,5 +1,12 @@
 # Reference source map
 
+[Joined definitions](integer-joined-definitions.md) in #623 use
+`Compiler/PrsStmt.HC:62-109,110-137,151-190` for join eligibility, header
+replacement and definition publication; `Compiler/PrsExp.HC:545-586` for call
+opcodes and cleanup; and `Compiler/LexLib.HC:157-180` with `PrsStmt.HC:124-135`
+for optional renamed-parameter warnings. All use the pinned
+`c26482bb6ad3f80106d28504ec5db3c6a360732c` reference.
+
 [Captured output](integer-output.md) in #621 uses `Kernel/KExts.HC:83-84` for
 provider signatures, `Compiler/PrsExp.HC:530-588` for the call protocol,
 `Kernel/StrPrint.HC:364-365,390-411,433-434,869-895` for consumed arguments,
