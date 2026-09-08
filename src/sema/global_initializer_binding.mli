@@ -65,6 +65,16 @@ val occurrence_name : occurrence -> string
 val occurrence_origin : occurrence -> Symbol.origin
 val occurrence_initializer_path : occurrence -> int list
 val occurrence_resolution : occurrence -> resolution
+val occurrence_selection : occurrence -> Reference_selection.t option
+
+val make_selected_identifier :
+  selection:Reference_selection.t ->
+  name:string ->
+  origin:Symbol.origin ->
+  occurrence_index:int ->
+  initializer_path:int list ->
+  (event, string) result
+
 val error_code : error -> string
 val error_kind : error -> error_kind
 val error_origin : error -> Symbol.origin option

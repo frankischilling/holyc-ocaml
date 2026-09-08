@@ -67,6 +67,7 @@ val abort_task_stream : task_state -> task_stream -> (unit, string) result
 *)
 
 val task_snapshot : task_state -> (Integer_globals.task_view, string) result
+val task_owns_snapshot : task_state -> Integer_globals.task_view -> bool
 val task_owns_table : task_state -> Sema.Symbol_table.t -> bool
 
 val task_admission :
@@ -77,6 +78,13 @@ val task_admission :
 
 val owns_task_admission : task_state -> task_admission -> bool
 val admission_publications : task_admission -> admitted_publication list
+val admitted_source_symbol : admitted_publication -> Sema.Symbol.t
+
+val admitted_publication_for_symbol :
+  task_state -> Sema.Symbol.t -> admitted_publication option
+(** Read the already admitted publication for this exact source symbol,
+    including the original declaration of a joined function. Names and canonical
+    function identities cannot substitute for source identity. *)
 
 val latest_task_admission : task_state -> task_admission option
 (** Exact successful preflight/admission evidence for this task and compiled

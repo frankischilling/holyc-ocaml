@@ -2,6 +2,11 @@ type t
 
 val create : unit -> t
 
+val task_frontend : t -> t
+(** Retain a private frontend publication owner sharing source files and
+    semantic table identity with the session. Sibling task publications are
+    hidden from lookups; the original root session can inspect all entries. *)
+
 val fork_frontend : t -> t
 (** Copy the frontend definition and symbol state while sharing source files.
     Semantic state starts fresh. *)

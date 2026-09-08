@@ -58,6 +58,12 @@ module Environment : sig
 
   val create : unit -> t
 
+  val task_view : t -> t
+  (** A persistent owner in the same publication store. Lookups see unowned
+      baseline entries and this view's entries. The root environment inspects
+      all publications; other task views cannot see or complete this owner's
+      entries. Local contexts belong only to the view. *)
+
   val copy : t -> t
   (** Copy the visible entries and active local contexts. Later registrations in
       either environment do not affect the other. *)
@@ -81,7 +87,7 @@ module Environment : sig
   (** Replace this exact provisional entry in its original publication position.
       Prior entry snapshots and copied environments remain unchanged;
       intervening shadow declarations remain newer. Completion is allowed only
-      once. *)
+      once by its writer owner. *)
 
   val all : t -> entry list
 

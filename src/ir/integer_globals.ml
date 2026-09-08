@@ -623,6 +623,24 @@ let snapshot_task catalog =
   Ok { catalog; environment; task_table; entries; function_entries }
 
 let task_environment view = view.environment
+let task_catalog_owns_view catalog view = view.catalog == catalog
+
+let task_global_binding view reference =
+  List.find_map
+    (fun (entry, candidate, _) ->
+      if Retained_global.same reference candidate then
+        Sema.Outer_environment.binding_for_entry view.environment entry
+      else None)
+    view.entries
+
+let task_function_binding view reference =
+  List.find_map
+    (fun (entry, candidate) ->
+      if Retained_function.same reference candidate then
+        Sema.Outer_environment.binding_for_entry view.environment entry
+      else None)
+    view.function_entries
+
 let with_task_view view globals = { globals with task_view = Some view }
 
 let retained_binding globals binding =

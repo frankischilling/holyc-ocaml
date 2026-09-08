@@ -94,6 +94,13 @@ let fork_frontend session =
     semantic_symbols;
   }
 
+let task_frontend session =
+  {
+    session with
+    definitions = Definition.Environment.task_view session.definitions;
+    symbols = Symbol_visibility.Environment.task_view session.symbols;
+  }
+
 let sources session = session.sources
 let definitions session = session.definitions
 let symbols session = session.symbols

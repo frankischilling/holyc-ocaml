@@ -120,12 +120,41 @@ let resolve_occurrence environment source =
   | Top_level_expression_binding.Module_binding publication ->
       Ok { source; resolution = Module_binding publication }
   | Top_level_expression_binding.Outer_candidate -> (
-      match
-        Outer_environment.find environment
-          (Top_level_expression_binding.occurrence_name source)
-      with
-      | Some binding -> Ok { source; resolution = Outer_binding binding }
-      | None ->
+      let selected =
+        match
+          Top_level_expression_binding.occurrence_initializer_binding source
+        with
+        | Some binding ->
+            if Outer_environment.owns_binding environment binding then
+              Ok (Some binding)
+            else
+              Error
+                (invalid_input
+                   "initializer binding belongs to another outer environment")
+        | None -> (
+            match Top_level_expression_binding.occurrence_selection source with
+            | None ->
+                Ok
+                  (Outer_environment.find environment
+                     (Top_level_expression_binding.occurrence_name source))
+            | Some selection -> (
+                match Reference_selection.kind selection with
+                | Reference_selection.Outer (owner, binding)
+                  when owner == environment
+                       && Outer_environment.owns_binding environment binding ->
+                    Ok (Some binding)
+                | Reference_selection.Absent | Reference_selection.Unavailable
+                  -> Ok None
+                | _ ->
+                    Error
+                      (invalid_input
+                         "selected identifier has no binding in this exact \
+                          outer environment")))
+      in
+      match selected with
+      | Error _ as error -> error
+      | Ok (Some binding) -> Ok { source; resolution = Outer_binding binding }
+      | Ok None ->
           Error
             (unresolved_identifier source
                (Outer_environment.compilation_mode environment)))

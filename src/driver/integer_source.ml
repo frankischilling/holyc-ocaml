@@ -43,7 +43,7 @@ let message_diagnostic ~span message =
               (String.length message - separator - 1)))
   | _ -> diagnostic ~span "HCEVAL0003" message
 
-let prepare_unit ?environment:task_environment ?declaration_command
+let prepare_unit ?environment:task_environment ?declaration_command ?selections
     ?(include_global_initializers = false) session ~config ~span ast =
   let table = Session.semantic_symbols session in
   let mode = Frontend.Preprocessor.Config.compilation_mode config in
@@ -104,7 +104,7 @@ let prepare_unit ?environment:task_environment ?declaration_command
   in
   let* expressions =
     Function_expression_binding.resolve ~table ~declarations
-      ~functions:collected_functions ~local_types ~bindings ast
+      ~functions:collected_functions ~local_types ~bindings ?selections ast
     |> checked
   in
   let* global_types =
@@ -186,7 +186,7 @@ let prepare_unit ?environment:task_environment ?declaration_command
   in
   let* dimension_bindings =
     Global_dimension_binding.resolve ~table ~environment
-      ~expressions:module_expressions ~globals ast
+      ~expressions:module_expressions ~globals ?selections ast
     |> checked
   in
   let* global_layouts_ =
@@ -196,14 +196,14 @@ let prepare_unit ?environment:task_environment ?declaration_command
   let* expressions =
     if include_global_initializers then
       Global_initializer_binding.resolve ~table ~environment
-        ~expressions:module_expressions ~globals ast
+        ~expressions:module_expressions ~globals ?selections ast
       |> checked |> Result.map Option.some
     else Ok None
   in
   let initializers_ = expressions in
   let* expressions =
     Top_level_expression_binding.resolve ~table ~declarations
-      ~module_expressions ?initializers:initializers_ ast
+      ~module_expressions ?initializers:initializers_ ?selections ast
     |> checked
   in
   let* expressions =

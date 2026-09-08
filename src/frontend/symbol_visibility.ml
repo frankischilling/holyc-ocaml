@@ -40,7 +40,10 @@ type function_call_shape = {
   variadic : bool;
 }
 
+type owner = unit ref
+
 type entry = {
+  owner : owner option;
   id : int;
   name : string;
   kind : kind;
@@ -99,28 +102,71 @@ module String_set = Set.Make (String)
 module Environment = struct
   type local_context = int
 
-  type t = {
+  type store = {
     entries_by_name : (string, entry list) Hashtbl.t;
     mutable entries_rev : entry list;
     mutable next_entry_id : int;
+  }
+
+  type t = {
+    store : store;
+    owner : owner option;
     mutable local_contexts : (local_context * String_set.t) list;
     mutable next_local_context_id : int;
   }
 
   let create () =
     {
-      entries_by_name = Hashtbl.create 128;
-      entries_rev = [];
-      next_entry_id = 0;
+      store =
+        {
+          entries_by_name = Hashtbl.create 128;
+          entries_rev = [];
+          next_entry_id = 0;
+        };
+      owner = None;
+      local_contexts = [];
+      next_local_context_id = 0;
+    }
+
+  let same_owner left right =
+    match (left, right) with
+    | None, None -> true
+    | Some left, Some right -> left == right
+    | _ -> false
+
+  let visible environment (entry : entry) =
+    Option.is_none environment.owner
+    || Option.is_none entry.owner
+    || same_owner environment.owner entry.owner
+
+  let task_view environment =
+    {
+      store = environment.store;
+      owner = Some (ref ());
       local_contexts = [];
       next_local_context_id = 0;
     }
 
   let copy environment =
+    let entries_rev =
+      List.filter (visible environment) environment.store.entries_rev
+    in
+    let entries_by_name = Hashtbl.create 128 in
+    List.iter
+      (fun (entry : entry) ->
+        let entries =
+          Option.value (Hashtbl.find_opt entries_by_name entry.name) ~default:[]
+        in
+        Hashtbl.replace entries_by_name entry.name (entry :: entries))
+      (List.rev entries_rev);
     {
-      entries_by_name = Hashtbl.copy environment.entries_by_name;
-      entries_rev = environment.entries_rev;
-      next_entry_id = environment.next_entry_id;
+      store =
+        {
+          entries_by_name;
+          entries_rev;
+          next_entry_id = environment.store.next_entry_id;
+        };
+      owner = environment.owner;
       local_contexts = environment.local_contexts;
       next_local_context_id = environment.next_local_context_id;
     }
@@ -135,25 +181,26 @@ module Environment = struct
     if String.length name = 0 then invalid_arg "symbol name cannot be empty";
     if Option.is_some function_call_shape && kind <> Function then
       invalid_arg "only function symbols may carry a function call shape";
-    if environment.next_entry_id = max_int then
+    if environment.store.next_entry_id = max_int then
       invalid_arg "symbol visibility identity space is exhausted";
     let entry =
       {
-        id = environment.next_entry_id;
+        owner = environment.owner;
+        id = environment.store.next_entry_id;
         name;
         kind;
         origin;
         function_call_shape;
       }
     in
-    environment.next_entry_id <- environment.next_entry_id + 1;
+    environment.store.next_entry_id <- environment.store.next_entry_id + 1;
     let existing =
       Option.value
-        (Hashtbl.find_opt environment.entries_by_name name)
+        (Hashtbl.find_opt environment.store.entries_by_name name)
         ~default:[]
     in
-    Hashtbl.replace environment.entries_by_name name (entry :: existing);
-    environment.entries_rev <- entry :: environment.entries_rev;
+    Hashtbl.replace environment.store.entries_by_name name (entry :: existing);
+    environment.store.entries_rev <- entry :: environment.store.entries_rev;
     entry
 
   let local_shadow environment name =
@@ -164,11 +211,13 @@ module Environment = struct
   let complete_function_header environment ~entry ~function_call_shape =
     if entry.kind <> Function || Option.is_some entry.function_call_shape then
       Error "function header completion requires a provisional function entry"
+    else if not (same_owner environment.owner entry.owner) then
+      Error "provisional function entry belongs to another frontend owner"
     else if
       not
         (List.exists
            (fun candidate -> candidate == entry)
-           environment.entries_rev)
+           environment.store.entries_rev)
     then Error "provisional function entry does not belong to this environment"
     else
       let completed =
@@ -177,9 +226,10 @@ module Environment = struct
       let replace candidate =
         if candidate == entry then completed else candidate
       in
-      environment.entries_rev <- List.map replace environment.entries_rev;
-      let entries = Hashtbl.find environment.entries_by_name entry.name in
-      Hashtbl.replace environment.entries_by_name entry.name
+      environment.store.entries_rev <-
+        List.map replace environment.store.entries_rev;
+      let entries = Hashtbl.find environment.store.entries_by_name entry.name in
+      Hashtbl.replace environment.store.entries_by_name entry.name
         (List.map replace entries);
       Ok completed
 
@@ -188,23 +238,27 @@ module Environment = struct
   let find_preprocessor environment name =
     if local_shadow environment name then Shadowed_by_local
     else
-      match Hashtbl.find_opt environment.entries_by_name name with
+      match Hashtbl.find_opt environment.store.entries_by_name name with
       | None -> Absent
       | Some entries -> (
           match
             List.find_opt
-              (fun entry -> kind_bit entry.kind land preprocessor_mask <> 0)
+              (fun entry ->
+                visible environment entry
+                && kind_bit entry.kind land preprocessor_mask <> 0)
               entries
           with
           | Some entry -> Present entry
           | None -> Absent)
 
-  let all environment = List.rev environment.entries_rev
+  let all environment =
+    List.rev environment.store.entries_rev |> List.filter (visible environment)
 
   let find_function environment name =
     Option.bind
-      (Hashtbl.find_opt environment.entries_by_name name)
-      (List.find_opt (fun entry -> entry.kind = Function))
+      (Hashtbl.find_opt environment.store.entries_by_name name)
+      (List.find_opt (fun entry ->
+           visible environment entry && entry.kind = Function))
 
   let begin_local_context environment =
     if environment.next_local_context_id = max_int then

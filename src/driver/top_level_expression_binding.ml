@@ -13,22 +13,38 @@ let origin (identifier : Frontend.Ast.identifier) =
 type state = {
   events_rev : Sema.Top_level_expression_binding.event list;
   initializer_leaf : Sema.Initializer_source.leaf option;
+  selections :
+    (Frontend.Ast.identifier -> (Sema.Reference_selection.t, string) result)
+    option;
 }
 
-let empty_state = { events_rev = []; initializer_leaf = None }
+let empty_state selections =
+  { events_rev = []; initializer_leaf = None; selections }
 
 let add_event state = function
   | Error _ as error -> error
   | Ok event -> Ok { state with events_rev = event :: state.events_rev }
 
 let add_identifier state (identifier : Frontend.Ast.identifier) =
-  (match state.initializer_leaf with
-    | None ->
+  let ( let* ) = Result.bind in
+  let* selection =
+    match state.selections with
+    | None -> Ok None
+    | Some select -> select identifier |> Result.map Option.some
+  in
+  (match (state.initializer_leaf, selection) with
+    | None, None ->
         Sema.Top_level_expression_binding.make_identifier
           ~name:identifier.spelling ~origin:(origin identifier)
-    | Some leaf ->
+    | Some leaf, None ->
         Sema.Top_level_expression_binding.make_initializer_identifier ~leaf
-          ~name:identifier.spelling ~origin:(origin identifier))
+          ~name:identifier.spelling ~origin:(origin identifier)
+    | None, Some selection ->
+        Sema.Top_level_expression_binding.make_selected_identifier ~selection
+          ~name:identifier.spelling ~origin:(origin identifier)
+    | Some leaf, Some selection ->
+        Sema.Top_level_expression_binding.make_selected_initializer_identifier
+          ~selection ~leaf ~name:identifier.spelling ~origin:(origin identifier))
   |> add_event state
 
 let add_name_query state role ~name ~origin =
@@ -225,8 +241,8 @@ and switch_element state = function
   | Frontend.Ast.Switch_statement_element statement_ ->
       statement state statement_
 
-let statement_input statement_index item_index statement_node =
-  match statement empty_state statement_node with
+let statement_input selections statement_index item_index statement_node =
+  match statement (empty_state selections) statement_node with
   | Error _ as error -> error
   | Ok state ->
       Sema.Top_level_expression_binding.make_statement ~statement_index
@@ -236,11 +252,13 @@ let statement_input statement_index item_index statement_node =
          |> origin_of_location)
         (List.rev state.events_rev)
 
-let ordinary_statement_inputs (module_ : Frontend.Ast.module_) =
+let ordinary_statement_inputs selections (module_ : Frontend.Ast.module_) =
   let rec loop statement_index inputs_rev item_index = function
     | [] -> Ok (List.rev inputs_rev)
     | Frontend.Ast.Top_level_statement statement :: rest -> (
-        match statement_input statement_index item_index statement with
+        match
+          statement_input selections statement_index item_index statement
+        with
         | Error _ as error -> error
         | Ok input ->
             if statement_index = max_int then
@@ -252,9 +270,10 @@ let ordinary_statement_inputs (module_ : Frontend.Ast.module_) =
   in
   loop 0 [] 0 module_.items
 
-let statement_inputs ~table ?initializers (module_ : Frontend.Ast.module_) =
+let statement_inputs ~table selections ?initializers
+    (module_ : Frontend.Ast.module_) =
   match initializers with
-  | None -> ordinary_statement_inputs module_
+  | None -> ordinary_statement_inputs selections module_
   | Some initializers -> (
       match
         Global_initializer_binding.scalar_initializers ~table
@@ -285,7 +304,8 @@ let statement_inputs ~table ?initializers (module_ : Frontend.Ast.module_) =
             | (item_index, group) :: rest -> (
                 let prepared =
                   match group with
-                  | `Statement node -> statement_input index item_index node
+                  | `Statement node ->
+                      statement_input selections index item_index node
                   | `Initializer (global, initial) -> (
                       let collected =
                         match
@@ -298,10 +318,10 @@ let statement_inputs ~table ?initializers (module_ : Frontend.Ast.module_) =
                                   { state with initializer_leaf = Some leaf }
                                   (Sema.Initializer_source.leaf_expression_ast
                                      leaf))
-                              empty_state
+                              (empty_state selections)
                               (Sema.Initializer_source.leaves source)
                         | None ->
-                            initial_value empty_state
+                            initial_value (empty_state selections)
                               initial.Frontend.Ast.global_initializer_value
                       in
                       match collected with
@@ -322,7 +342,8 @@ let statement_inputs ~table ?initializers (module_ : Frontend.Ast.module_) =
           in
           loop 0 [] groups)
 
-let resolve ~table ~declarations ~module_expressions ?initializers module_ =
+let resolve ~table ~declarations ~module_expressions ?initializers ?selections
+    module_ =
   let parent = Sema.Declaration_collection.scope declarations in
   let result =
     if not (Sema.Symbol_table.owns_scope table parent) then
@@ -330,7 +351,7 @@ let resolve ~table ~declarations ~module_expressions ?initializers module_ =
     else if Sema.Symbol_table.scope_kind parent <> Sema.Symbol_table.Module then
       Error "top-level expression binding requires a module declaration scope"
     else
-      match statement_inputs ~table ?initializers module_ with
+      match statement_inputs ~table selections ?initializers module_ with
       | Error _ as error -> error
       | Ok inputs ->
           Sema.Top_level_expression_binding.resolve ~table ~parent

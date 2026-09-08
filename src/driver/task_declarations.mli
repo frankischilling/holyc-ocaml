@@ -1,6 +1,59 @@
 type t
 type command
 
+val owns_runtime : Ir.Integer_interpreter.task_state -> command -> bool
+(** A runtime-bound ledger's command retains that exact runtime owner. A
+    semantic-only ledger grants no runtime compilation authority. *)
+
+type reference_stage = private
+  | Global_selection of
+      Frontend.Parser.global_publication * Frontend.Ast.global_declarator option
+  | Provisional_function_selection of Frontend.Parser.function_publication
+  | Function_selection of
+      Frontend.Parser.completed_function_header
+      * Frontend.Ast.function_definition option
+
+type reference_target = private
+  | Selected_absent
+  | Selected_unbound of Frontend.Symbol_visibility.entry
+  | Selected_local
+  | Selected_source of {
+      publication : Sema.Declaration_collection.publication;
+      stage : reference_stage;
+      admitted : Ir.Integer_interpreter.admitted_publication option;
+    }
+  | Selected_runtime of Ir.Integer_interpreter.admitted_publication
+
+val observe_reference :
+  t ->
+  Frontend.Parser.reference_selection ->
+  (unit, Common.Diagnostic.t list) result
+(** Freeze the exact selected entry, source stage and already admitted runtime
+    publication while its original parser command is active. Later completion or
+    admission cannot upgrade the saved selection. Observation rejects replay. *)
+
+val reference_for :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  Frontend.Ast.identifier ->
+  (reference_target, Common.Diagnostic.t list) result
+(** Read the selection for this exact AST occurrence in its sealed command view.
+    Repeated reads preserve the same target; foreign owners and missing receipts
+    are errors, including equal rebuilt identifiers. *)
+
+val reference_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  task_view:Ir.Integer_globals.task_view ->
+  command ->
+  ( Frontend.Ast.identifier -> (Sema.Reference_selection.t, string) result,
+    Common.Diagnostic.t list )
+  result
+(** Normalize frozen source/retained selections against this exact compilation
+    view of the owning runtime's catalog. Different snapshots of that catalog
+    remain valid. Repeated identifier walks reuse the same outer binding. *)
+
 val create :
   ?runtime:Ir.Integer_interpreter.task_state -> Session.t -> (t, string) result
 

@@ -124,8 +124,23 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                       "declaration is outside integer program execution")
               ast.items
           in
+          let* selections =
+            match (declaration_command, task_view) with
+            | None, _ -> Ok None
+            | Some command, Some task_view ->
+                Task_declarations.reference_resolver
+                  ~table:(Session.semantic_symbols session)
+                  ~ast ~task_view command
+                |> Result.map Option.some
+            | Some _, None ->
+                Error
+                  [
+                    Integer_source.diagnostic ~span:ast.span "HCRUN0004"
+                      "parser-selected compilation requires its task snapshot";
+                  ]
+          in
           let* prepared =
-            Integer_source.prepare_unit ?declaration_command
+            Integer_source.prepare_unit ?declaration_command ?selections
               ?environment:
                 (Option.map Ir.Integer_globals.task_environment task_view)
               ~include_global_initializers:true session ~config ~span:ast.span
@@ -843,6 +858,16 @@ let compile_task_ast ~task ?declaration_command session ~config
       [
         Integer_source.diagnostic ~span:ast.span "HCRUN0004"
           "task compilation requires its owning semantic table and JIT mode";
+      ]
+  else if
+    Option.fold ~none:false
+      ~some:(fun command -> not (Task_declarations.owns_runtime task command))
+      declaration_command
+  then
+    Error
+      [
+        Integer_source.diagnostic ~span:ast.span "HCRUN0004"
+          "parser command belongs to another runtime or a semantic-only ledger";
       ]
   else
     let* task_view =

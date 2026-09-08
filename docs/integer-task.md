@@ -14,6 +14,15 @@ and execute the resulting opaque command. `output_bytes`, `output_work`,
 `generated_bytes`, `executed_steps` and `initializer_steps` expose cumulative task results. The
 existing complete-program APIs still allocate fresh execution images.
 
+Each task retains a frontend view available through `Integer_task.frontend`.
+Independent tasks sharing a session see baseline registrations and their own
+declarations and definitions. Their local contexts are separate. The caller's
+root session can inspect every publication once, in original order; it cannot
+complete another owner's provisional header. Use the task frontend for
+callback-free parsing that needs its exact function shapes and definitions.
+`Session.fork_frontend` still creates a detached snapshot with fresh semantic
+state; `Session.task_frontend` shares source files and semantic table identity.
+
 ## Ownership and timing
 
 Compilation captures an immutable view of the task's published declarations. Each global
@@ -93,13 +102,42 @@ its runtime's current receipt, once. It links fresh frontend entries to those
 retained publications and their original function declarations, without matching
 discarded parser entries by name or location. Parser-aware `run` keeps its early
 declaration publication path. These receipts record actual legacy admission;
-parser-selected reference consumption and VM predecessor checks remain separate.
+VM predecessor checks remain separate.
+
+`run` also observes exact parser-selected identifiers. A sealed command retains
+the original occurrence and command start, explicit local/absent selection,
+source declaration stage and any already admitted runtime owner. Replayed,
+missing, reconstructed and foreign reference evidence is rejected. A valid
+selection without a runtime binding remains unresolved, even if a same-named
+declaration is admitted later.
+
+Selected bindings now pass through function bodies, top-level expressions,
+global initializers and dimensions. Local references validate the existing
+source-ordered local index. Current-unit references require the exact source
+publication in the allowed prefix. Earlier commands use exact retained outer
+bindings. Initializer and top-level walks reuse the same binding and environment;
+neither repeats a name lookup after selection.
+
+Native timing separates lexical identity from subsequent field reads.
+`Lex.HC:494-509` saves the selected record pointer; global expression consumption
+reads storage before advancing (`PrsExp.HC:870-898`). Terminating lookahead can
+precede command admission, so an already buffered token may see that same record
+admitted before consumption. After consumption, a new shadow does not replace
+its selected storage. Function calls read parameter and target fields at later
+phases (`PrsExp.HC:430-431,532-571`). The identifier-stage receipt does not freeze
+all those fields: future extern/default integration needs separate receipts for
+same-record joins at the later call phases.
 
 The low-level `compile_integer_task_ast` API takes the owning VM task, validates
 its semantic table and JIT mode before collection, and snapshots retained state
 internally. Preparation uses that task's remaining cumulative budget, including
 reached work on compilation failure. It returns an opaque checked program;
 execution and frontend admission delivery remain explicit.
+Parser-aware command seals retain their exact runtime owner. A sibling task
+sharing the semantic table cannot compile the seal; the public reference
+resolver also checks its snapshot's catalog owner. Different snapshots of the
+same catalog remain valid. Semantic-only ledgers grant no runtime authority.
+These owner checks are separate from pending predecessor admission checks.
 This unit compiler does not provide `Integer_task`'s AST cache or overlap checks.
 VM replay rejection belongs to each compiled entry; parser/source command
 admission requires the higher-level orchestration.
@@ -159,7 +197,7 @@ controls include a configured limit above 100,000.
 
 StreamPrint is not yet connected to parser generation. Cross-command extern
 joins, partial type/storage/header publication and initializer execution,
-selected reference/query consumption, VM pending-command authority and the fourteen
+selected query/default/provider and later call-phase receipts, VM pending-command authority and the fourteen
 maintained #exe execution groups remain part of issue #635. The existing integer
 function domain remains unchanged, including its pointer-return boundary.
 

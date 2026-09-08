@@ -21,6 +21,7 @@ and command = {
 let create ?max_steps ?max_initializer_steps ?max_global_bytes
     ?max_literal_bytes ?max_frame_bytes ?max_call_depth ?max_output_bytes
     ?max_output_work ?max_generated_bytes ?max_stream_depth session =
+  let session = Session.task_frontend session in
   let config =
     match Frontend.Preprocessor.Config.create ~compilation_mode:Jit () with
     | Ok config -> config
@@ -44,6 +45,7 @@ let create ?max_steps ?max_initializer_steps ?max_global_bytes
             commands = [];
           }))
 
+let frontend task = task.session
 let output_bytes task = VM.task_output_bytes task.state
 let output_work task = VM.task_output_work task.state
 let generated_bytes task = VM.task_generated_bytes task.state
@@ -173,7 +175,7 @@ let run task ~source =
   let commands : Frontend.Parser.command_sink =
     {
       checkpoint = Some (Task_declarations.observe_command task.declarations);
-      reference = None;
+      reference = Some (Task_declarations.observe_reference task.declarations);
       declaration = Some (Task_declarations.observe task.declarations);
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());

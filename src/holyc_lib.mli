@@ -200,6 +200,7 @@ module Semantic_top_level_identifier_resolution =
   Sema.Top_level_identifier_resolution
 
 module Semantic_outer_environment = Sema.Outer_environment
+module Semantic_reference_selection = Sema.Reference_selection
 module Semantic_outer_expression_binding = Sema.Outer_expression_binding
 module Semantic_global_initializer_binding = Sema.Global_initializer_binding
 module Semantic_global_dimension_binding = Sema.Global_dimension_binding

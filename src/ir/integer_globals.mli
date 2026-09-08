@@ -13,6 +13,14 @@ val create_task_catalog : table:Sema.Symbol_table.t -> task_catalog
 val task_catalog_owns_table : task_catalog -> Sema.Symbol_table.t -> bool
 val snapshot_task : task_catalog -> (task_view, string) result
 val task_environment : task_view -> Sema.Outer_environment.t
+val task_catalog_owns_view : task_catalog -> task_view -> bool
+
+val task_global_binding :
+  task_view -> Retained_global.t -> Sema.Outer_environment.binding option
+
+val task_function_binding :
+  task_view -> Retained_function.t -> Sema.Outer_environment.binding option
+
 val with_task_view : task_view -> t -> t
 
 val with_function_publications :

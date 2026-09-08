@@ -415,6 +415,118 @@ let input_for record events =
   in
   Semantic_global_dimension_binding.make_global ~record [ dimension ] |> checked
 
+let selected_entry_ownership () =
+  let module E = Semantic_outer_environment in
+  let module S = Semantic_reference_selection in
+  let module B = Semantic_global_dimension_binding in
+  let prepared = prepare ~path:"selected-dimension.hc" "I64 Values[Target];" in
+  let outer =
+    jit_environment prepared
+      [ ("Target", E.Global_variable); ("Target", E.Global_variable) ]
+      []
+  in
+  let table = Session.semantic_symbols prepared.session in
+  let task_table = List.hd (E.tables outer) in
+  let original = List.hd (E.table_entries task_table) in
+  let binding = E.binding_for_entry outer original |> Option.get in
+  let selection =
+    S.outer ~table ~name:"Target" ~environment:outer ~binding |> checked
+  in
+  let event =
+    B.make_selected_identifier ~selection ~name:"Target"
+      ~origin:(Semantic_symbol.Synthesized "selected dimension reference")
+      ~occurrence_index:0 ~dimension_index:0
+    |> checked
+  in
+  let record = List.hd (Semantic_global_resolution.records prepared.globals) in
+  let resolve outer =
+    B.resolve ~table ~environment:outer ~expressions:prepared.expressions
+      ~globals:prepared.globals
+      [ input_for record [ event ] ]
+  in
+  let result =
+    match resolve outer with
+    | Ok result -> result
+    | Error error -> Alcotest.fail (B.error_to_string error)
+  in
+  let occurrence =
+    dimensions result "Values" |> List.hd |> B.dimension_occurrences |> List.hd
+  in
+  Alcotest.(check bool)
+    "dimension keeps the exact older binding" true
+    (match B.occurrence_resolution occurrence with
+    | B.Outer_binding actual -> actual == binding
+    | _ -> false);
+  let rebuilt_entry =
+    E.make_entry ~symbol:(E.entry_symbol original)
+      ~record_kind:E.Global_variable ~entry_index:0
+    |> checked_environment
+  in
+  Alcotest.(check bool)
+    "rebuilt entry has no original membership" true
+    (Option.is_none (E.binding_for_entry outer rebuilt_entry));
+  let rebuilt_table =
+    E.make_table ~table_kind:(E.Jit_task 0) ~table_index:0
+      (E.table_entries task_table)
+    |> checked_environment
+  in
+  let other =
+    environment prepared [ rebuilt_table; List.nth (E.tables outer) 1 ]
+  in
+  Alcotest.(check bool)
+    "same entries in a foreign table do not own the binding" false
+    (E.owns_binding other binding);
+  expect_low_error "HCSEMA0027" (resolve other);
+  Alcotest.(check bool)
+    "selection rejects a foreign semantic table" true
+    (S.outer
+       ~table:(Session.semantic_symbols (Session.create ()))
+       ~name:"Target" ~environment:outer ~binding
+    |> Result.is_error);
+  Alcotest.(check bool)
+    "selection rejects another spelling" true
+    (S.validate ~table ~name:"Other" selection |> Result.is_error)
+
+let selected_dimension_prefix () =
+  let module S = Semantic_reference_selection in
+  let module B = Semantic_global_dimension_binding in
+  let prepared =
+    prepare ~path:"selected-prefix.hc" "I64 Target[1],Values[Target],Target[1];"
+  in
+  let outer = jit_environment prepared [] [] in
+  let table = Session.semantic_symbols prepared.session in
+  let records = Semantic_global_resolution.records prepared.globals in
+  let publications =
+    Semantic_module_expression_binding.publications prepared.expressions
+  in
+  let resolve publication =
+    let selection =
+      S.source ~table ~name:"Target"
+        ~symbol:
+          (Semantic_module_expression_binding.publication_source_symbol
+             publication)
+        ~stage:S.Global_completed
+      |> checked
+    in
+    let event =
+      B.make_selected_identifier ~selection ~name:"Target"
+        ~origin:(Semantic_symbol.Synthesized "selected prefix reference")
+        ~occurrence_index:0 ~dimension_index:0
+      |> checked
+    in
+    B.resolve ~table ~environment:outer ~expressions:prepared.expressions
+      ~globals:prepared.globals
+      [
+        input_for (List.nth records 0) [];
+        input_for (List.nth records 1) [ event ];
+        input_for (List.nth records 2) [];
+      ]
+  in
+  Alcotest.(check bool)
+    "earlier exact source is in the dimension prefix" true
+    (resolve (List.nth publications 0) |> Result.is_ok);
+  expect_low_error "HCSEMA0027" (resolve (List.nth publications 2))
+
 let determinism_purity_and_validation () =
   let prepared =
     prepare ~path:"global-extent-deterministic.HC"
@@ -554,6 +666,10 @@ let determinism_purity_and_validation () =
 
 let tests =
   [
+    Alcotest.test_case "selected dimension retains exact older entry ownership"
+      `Quick selected_entry_ownership;
+    Alcotest.test_case "selected dimensions require the original source prefix"
+      `Quick selected_dimension_prefix;
     Alcotest.test_case "prepublication and source order" `Quick
       prepublication_and_source_order;
     Alcotest.test_case "empty and multidimensional extents" `Quick

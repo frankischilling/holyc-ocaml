@@ -6,6 +6,8 @@ type prepared
 val prepare_unit :
   ?environment:Sema.Outer_environment.t ->
   ?declaration_command:Task_declarations.command ->
+  ?selections:
+    (Frontend.Ast.identifier -> (Sema.Reference_selection.t, string) result) ->
   ?include_global_initializers:bool ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->

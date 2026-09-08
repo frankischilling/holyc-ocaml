@@ -36,10 +36,34 @@ type assigned = {
   mutable claimed : bool;
 }
 
+type reference_stage =
+  | Global_selection of Parser.global_publication * Ast.global_declarator option
+  | Provisional_function_selection of Parser.function_publication
+  | Function_selection of
+      Parser.completed_function_header * Ast.function_definition option
+
+type reference_target =
+  | Selected_absent
+  | Selected_unbound of Visibility.entry
+  | Selected_local
+  | Selected_source of {
+      publication : Collection.publication;
+      stage : reference_stage;
+      admitted : VM.admitted_publication option;
+    }
+  | Selected_runtime of VM.admitted_publication
+
+type selected_reference = {
+  selection : Parser.reference_selection;
+  target : reference_target;
+}
+
 type command = {
   table : Sema.Symbol_table.t;
+  runtime : VM.task_state option;
   ast : Ast.module_;
   declarations : Collection.t;
+  references : selected_reference Names.t;
 }
 
 type command_phase =
@@ -76,6 +100,7 @@ type t = {
   runtime : VM.task_state option;
   runtime_entries : VM.admitted_publication Entries.t;
   mutable admissions : VM.task_admission list;
+  references : selected_reference Names.t;
 }
 
 exception Invalid of Common.Diagnostic.t
@@ -129,17 +154,10 @@ let create ?runtime session =
           runtime;
           runtime_entries = Entries.create 32;
           admissions = [];
+          references = Names.create 32;
         })
 
-let runtime_symbol = function
-  | VM.Admitted_global (reference, _) -> Ir.Retained_global.symbol reference
-  | VM.Admitted_function reference ->
-      Ir.Retained_function.metadata reference
-      |> Sema.Outer_environment.function_declaration
-      |> Sema.Function_resolution.resolved_declaration_site
-      |> Sema.Function_resolution.declaration_site_function
-      |> Sema.Function_type_resolution.function_symbol
-
+let runtime_symbol = VM.admitted_source_symbol
 let retained_for ledger entry = Entries.find_opt ledger.runtime_entries entry
 
 let symbol_for ledger entry =
@@ -391,6 +409,57 @@ let validate_command ledger (header : Parser.declaration_header) =
       fail
         (context_span start.command_context)
         "declaration does not belong to the active parser command"
+
+let observe_reference ledger selection =
+  protect (fun () ->
+      let identifier = Parser.selected_identifier selection in
+      let start = Parser.selected_command selection in
+      let sequence = active_sequence ledger start.command_context in
+      (match sequence.phase with
+      | Reading saved when saved == start -> ()
+      | _ ->
+          fail identifier.location.span
+            "identifier selection does not belong to the active parser command");
+      if Parser.selected_environment selection != ledger.symbols then
+        fail identifier.location.span
+          "identifier selection belongs to another frontend environment";
+      if Names.mem ledger.references identifier then
+        fail identifier.location.span
+          "identifier selection was already consumed";
+      let target =
+        match Parser.selected_lookup selection with
+        | Visibility.Absent -> Selected_absent
+        | Visibility.Shadowed_by_local -> Selected_local
+        | Visibility.Present entry -> (
+            match Entries.find_opt ledger.entries entry with
+            | Some assigned ->
+                let stage =
+                  match assigned.source with
+                  | Global state ->
+                      Global_selection (state.publication, state.completed)
+                  | Function state
+                    when state.publication.function_entry == entry ->
+                      Provisional_function_selection state.publication
+                  | Function { header = Some header; body; _ }
+                    when header.completed_entry == entry ->
+                      Function_selection (header, body)
+                  | Function _ ->
+                      fail identifier.location.span
+                        "selected function entry has no original header witness"
+                in
+                let admitted =
+                  Option.bind ledger.runtime (fun runtime ->
+                      VM.admitted_publication_for_symbol runtime
+                        (Collection.publication_symbol assigned.publication))
+                in
+                Selected_source
+                  { publication = assigned.publication; stage; admitted }
+            | None -> (
+                match retained_for ledger entry with
+                | Some publication -> Selected_runtime publication
+                | None -> Selected_unbound entry))
+      in
+      Names.add ledger.references identifier { selection; target })
 
 let validate_source ledger environment (header : Parser.declaration_header)
     (name : Ast.identifier) =
@@ -680,11 +749,33 @@ let seal ledger (ast : Ast.module_) =
               Collection.view ledger.namespace (List.rev !facts)
               |> checked ast.span
             in
-            let command = { table = ledger.table; ast; declarations } in
+            let references = Names.create 32 in
+            Names.iter
+              (fun identifier reference ->
+                if
+                  List.exists
+                    (fun entry ->
+                      entry.receipt.command_start
+                      == Parser.selected_command reference.selection)
+                    original_commands
+                then Names.add references identifier reference)
+              ledger.references;
+            let command =
+              {
+                table = ledger.table;
+                runtime = ledger.runtime;
+                ast;
+                declarations;
+                references;
+              }
+            in
             List.iter (fun entry -> entry.sealed <- true) original_commands;
             List.iter (fun assigned -> assigned.claimed <- true) !claimed;
             ledger.commands <- command :: ledger.commands;
             command)
+
+let owns_runtime runtime (command : command) =
+  Option.fold ~none:false ~some:(fun owner -> owner == runtime) command.runtime
 
 let collection ~table ~ast (command : command) =
   protect (fun () ->
@@ -692,3 +783,97 @@ let collection ~table ~ast (command : command) =
         fail ast.Ast.span
           "task declaration seal belongs to another table or source AST";
       command.declarations)
+
+let reference_for ~table ~ast (command : command) (identifier : Ast.identifier)
+    =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span
+          "task reference seal belongs to another table or source AST";
+      match Names.find_opt command.references identifier with
+      | Some reference -> reference.target
+      | None ->
+          fail identifier.location.span
+            "identifier has no parser selection in this task command")
+
+let reference_resolver ~table ~ast ~task_view command =
+  let module Selection = Sema.Reference_selection in
+  let module Globals = Ir.Integer_globals in
+  let ( let* ) = Result.bind in
+  let* declarations = collection ~table ~ast command in
+  let environment = Globals.task_environment task_view in
+  if
+    not
+      (Option.fold ~none:false
+         ~some:(fun runtime -> VM.task_owns_snapshot runtime task_view)
+         command.runtime)
+  then
+    protect (fun () ->
+        fail ast.Ast.span
+          "parser command has no authority for this runtime snapshot")
+  else if not (Sema.Outer_environment.owns_table environment table) then
+    protect (fun () ->
+        fail ast.Ast.span "task reference view has a foreign semantic table")
+  else
+    let cache = Names.create 32 in
+    let retained name publication =
+      let binding =
+        match publication with
+        | VM.Admitted_global (reference, _) ->
+            Globals.task_global_binding task_view reference
+        | VM.Admitted_function reference ->
+            Globals.task_function_binding task_view reference
+      in
+      match binding with
+      | Some binding -> Selection.outer ~table ~name ~environment ~binding
+      | None ->
+          Error
+            "selected runtime publication is absent from this exact task \
+             snapshot"
+    in
+    let resolve (identifier : Ast.identifier) =
+      let* target =
+        reference_for ~table ~ast command identifier
+        |> Result.map_error (fun diagnostics ->
+            diagnostics
+            |> List.map (fun diagnostic ->
+                diagnostic.Common.Diagnostic.code ^ ": " ^ diagnostic.message)
+            |> String.concat "; ")
+      in
+      let name = identifier.spelling in
+      match target with
+      | Selected_absent -> Selection.absent ~table ~name
+      | Selected_unbound _ -> Selection.unavailable ~table ~name
+      | Selected_local -> Selection.local ~table ~name
+      | Selected_runtime publication -> retained name publication
+      | Selected_source { publication; stage; admitted } -> (
+          let symbol = Collection.publication_symbol publication in
+          if
+            List.exists
+              (fun entry -> Collection.entry_symbol entry == symbol)
+              (Collection.entries declarations)
+          then
+            let stage =
+              match stage with
+              | Global_selection (_, None) -> Selection.Global_declared
+              | Global_selection (_, Some _) -> Selection.Global_completed
+              | Provisional_function_selection _ -> Selection.Function_declared
+              | Function_selection (_, None) ->
+                  Selection.Function_header_completed
+              | Function_selection (_, Some _) ->
+                  Selection.Function_body_completed
+            in
+            Selection.source ~table ~name ~symbol ~stage
+          else
+            match admitted with
+            | Some publication -> retained name publication
+            | None -> Selection.unavailable ~table ~name)
+    in
+    Ok
+      (fun identifier ->
+        match Names.find_opt cache identifier with
+        | Some result -> result
+        | None ->
+            let result = resolve identifier in
+            Names.add cache identifier result;
+            result)

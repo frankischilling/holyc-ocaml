@@ -3,7 +3,20 @@ type event
 val make_identifier :
   name:string -> origin:Symbol.origin -> (event, string) result
 
+val make_selected_identifier :
+  selection:Reference_selection.t ->
+  name:string ->
+  origin:Symbol.origin ->
+  (event, string) result
+
 val make_initializer_identifier :
+  leaf:Initializer_source.leaf ->
+  name:string ->
+  origin:Symbol.origin ->
+  (event, string) result
+
+val make_selected_initializer_identifier :
+  selection:Reference_selection.t ->
   leaf:Initializer_source.leaf ->
   name:string ->
   origin:Symbol.origin ->
@@ -75,6 +88,11 @@ val occurrence_index : occurrence -> int
 val occurrence_name : occurrence -> string
 val occurrence_origin : occurrence -> Symbol.origin
 val occurrence_resolution : occurrence -> resolution
+val occurrence_selection : occurrence -> Reference_selection.t option
+
+val occurrence_initializer_binding :
+  occurrence -> Outer_environment.binding option
+
 val query_index : query -> int
 val query_role : query -> Function_expression_binding.query_role
 val query_name : query -> string

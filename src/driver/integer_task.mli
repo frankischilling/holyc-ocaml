@@ -25,6 +25,11 @@ val create :
     output are cumulative across admitted commands. Frame bytes and call depth
     bound simultaneously active calls. *)
 
+val frontend : t -> Session.t
+(** The task's persistent frontend view, also usable for callback-free parsing.
+    Sources and semantic table are shared with the caller session; declarations,
+    definitions and local contexts have this task's visibility owner. *)
+
 val output_bytes : t -> string
 val output_work : t -> int
 val generated_bytes : t -> int

@@ -382,6 +382,21 @@ let global_array_rank metadata = metadata.array_rank
 let binding_table binding = binding.table
 let binding_entry binding = binding.entry
 
+let binding_for_entry environment entry =
+  List.find_map
+    (fun table ->
+      if List.exists (fun owned -> owned == entry) table.entries then
+        Some { table; entry }
+      else None)
+    environment.tables
+
+let owns_binding environment binding =
+  List.exists
+    (fun table ->
+      table == binding.table
+      && List.exists (fun entry -> entry == binding.entry) table.entries)
+    environment.tables
+
 let find environment name =
   let rec find_table = function
     | [] -> None

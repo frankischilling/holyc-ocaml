@@ -506,8 +506,59 @@ let determinism_purity_and_validation () =
         "driver validation uses the stable family" true
         (String.starts_with ~prefix:"HCSEMA0025: " message)
 
+let selected_initializer_environment () =
+  let module E = Semantic_outer_environment in
+  let module S = Semantic_reference_selection in
+  let module G = Semantic_global_initializer_binding in
+  let module T = Semantic_top_level_expression_binding in
+  let prepared = prepare ~path:"selected-initializer.hc" "I64 Value=Target;" in
+  let original =
+    jit_environment prepared [ ("Target", E.Global_variable) ] []
+  in
+  let table = Session.semantic_symbols prepared.session in
+  let other =
+    E.create ~table ~compilation_mode:E.Jit (E.tables original)
+    |> checked_environment
+  in
+  let initializers = resolve prepared original in
+  let global = G.globals initializers |> List.hd in
+  let occurrence = G.global_occurrences global |> List.hd in
+  let binding =
+    match G.occurrence_resolution occurrence with
+    | G.Outer_binding binding -> binding
+    | _ -> Alcotest.fail "expected initializer outer binding"
+  in
+  let second_pass environment =
+    let selection =
+      S.outer ~table ~name:"Target" ~environment ~binding |> checked
+    in
+    let event =
+      T.make_selected_identifier ~selection ~name:"Target"
+        ~origin:(G.occurrence_origin occurrence)
+      |> checked
+    in
+    let input =
+      T.make_global_initializer ~statement_index:0 ~initializers ~global
+        [ event ]
+      |> checked
+    in
+    T.resolve ~table
+      ~parent:
+        (Semantic_module_expression_binding.parent_scope prepared.expressions)
+      ~module_expressions:prepared.expressions [ input ]
+  in
+  Alcotest.(check bool)
+    "original environment supports the same initializer binding" true
+    (second_pass original |> Result.is_ok);
+  Alcotest.(check bool)
+    "same binding in another environment cannot replace initializer selection"
+    true
+    (second_pass other |> Result.is_error)
+
 let tests =
   [
+    Alcotest.test_case "initializer second pass retains exact environment"
+      `Quick selected_initializer_environment;
     Alcotest.test_case "self and comma source order" `Quick
       self_and_comma_source_order;
     Alcotest.test_case "prior module records and nested paths" `Quick

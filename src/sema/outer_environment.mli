@@ -103,6 +103,12 @@ val global_declarator_kind : global_metadata -> global_declarator_kind
 val global_array_rank : global_metadata -> int
 val binding_table : binding -> table
 val binding_entry : binding -> entry
+val binding_for_entry : t -> entry -> binding option
+
+val owns_binding : t -> binding -> bool
+(** Resolve and validate exact entry/table membership without repeating a name
+    lookup. An equal reconstructed entry or table grants no ownership. *)
+
 val compilation_mode_name : compilation_mode -> string
 val table_kind_name : table_kind -> string
 val record_kind_name : record_kind -> string

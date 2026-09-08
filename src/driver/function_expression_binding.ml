@@ -13,18 +13,29 @@ let origin (identifier : Frontend.Ast.identifier) =
 type state = {
   events_rev : Sema.Function_expression_binding.event list;
   declaration_index : int;
+  selections :
+    (Frontend.Ast.identifier -> (Sema.Reference_selection.t, string) result)
+    option;
 }
 
-let empty_state = { events_rev = []; declaration_index = 0 }
+let empty_state selections =
+  { events_rev = []; declaration_index = 0; selections }
 
 let add_event state = function
   | Error _ as error -> error
   | Ok event -> Ok { state with events_rev = event :: state.events_rev }
 
 let add_identifier state (identifier : Frontend.Ast.identifier) =
-  Sema.Function_expression_binding.make_identifier ~name:identifier.spelling
-    ~origin:(origin identifier)
-  |> add_event state
+  let ( let* ) = Result.bind in
+  let* make =
+    match state.selections with
+    | None -> Ok Sema.Function_expression_binding.make_identifier
+    | Some select ->
+        select identifier
+        |> Result.map (fun selection ->
+            Sema.Function_expression_binding.make_selected_identifier ~selection)
+  in
+  make ~name:identifier.spelling ~origin:(origin identifier) |> add_event state
 
 let add_name_query state role ~name ~origin =
   Sema.Function_expression_binding.make_name_query ~role ~name ~origin
@@ -275,12 +286,12 @@ and switch_element state = function
   | Frontend.Ast.Switch_statement_element statement_ ->
       statement state statement_
 
-let events = function
+let events selections = function
   | None -> Ok []
   | Some body ->
       Result.map
         (fun state -> List.rev state.events_rev)
-        (statement empty_state body)
+        (statement (empty_state selections) body)
 
 type function_ast =
   | Prototype of Frontend.Ast.function_prototype
@@ -399,7 +410,8 @@ let validate_locals local_types indexed =
   in
   pair locals bindings
 
-let function_input table collected local_types indexed (item_index, ast) =
+let function_input selections table collected local_types indexed
+    (item_index, ast) =
   let collected_symbol = Sema.Function_collection.function_symbol collected in
   let collected_scope = Sema.Function_collection.function_scope collected in
   let collected_item = Sema.Function_collection.function_item_index collected in
@@ -447,14 +459,14 @@ let function_input table collected local_types indexed (item_index, ast) =
         match validate_locals local_types indexed with
         | Error _ as error -> error
         | Ok () -> (
-            match events body with
+            match events selections body with
             | Error _ as error -> error
             | Ok events ->
                 Sema.Function_expression_binding.make_function
                   ~symbol:collected_symbol ~scope:collected_scope ~item_index
                   events))
 
-let function_inputs table functions local_types bindings module_ =
+let function_inputs selections table functions local_types bindings module_ =
   let rec pair inputs_rev functions local_types bindings ast =
     match (functions, local_types, bindings, ast) with
     | [], [], [], [] -> Ok (List.rev inputs_rev)
@@ -462,7 +474,9 @@ let function_inputs table functions local_types bindings module_ =
         local :: local_rest,
         indexed :: binding_rest,
         ast_function :: ast_rest ) -> (
-        match function_input table collected local indexed ast_function with
+        match
+          function_input selections table collected local indexed ast_function
+        with
         | Error _ as error -> error
         | Ok input ->
             pair (input :: inputs_rev) function_rest local_rest binding_rest
@@ -477,7 +491,8 @@ let function_inputs table functions local_types bindings module_ =
     (Sema.Function_binding_index.functions bindings)
     (ast_functions module_)
 
-let resolve ~table ~declarations ~functions ~local_types ~bindings module_ =
+let resolve ~table ~declarations ~functions ~local_types ~bindings ?selections
+    module_ =
   let parent = Sema.Declaration_collection.scope declarations in
   let result =
     if not (Sema.Symbol_table.owns_scope table parent) then
@@ -485,7 +500,9 @@ let resolve ~table ~declarations ~functions ~local_types ~bindings module_ =
     else if Sema.Symbol_table.scope_kind parent <> Sema.Symbol_table.Module then
       Error "function expression binding requires a module declaration scope"
     else
-      match function_inputs table functions local_types bindings module_ with
+      match
+        function_inputs selections table functions local_types bindings module_
+      with
       | Error _ as error -> error
       | Ok inputs ->
           Sema.Function_expression_binding.resolve ~table ~parent ~bindings

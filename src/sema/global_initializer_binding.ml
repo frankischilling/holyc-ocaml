@@ -7,6 +7,7 @@ type event = {
   origin : Symbol.origin;
   occurrence_index : int;
   initializer_path : int list;
+  selection : Reference_selection.t option;
 }
 
 type global_input = {
@@ -94,7 +95,12 @@ let make_identifier ~name ~origin ~occurrence_index ~initializer_path =
     Error "global initializer occurrence index cannot be negative"
   else if List.exists (fun index -> index < 0) initializer_path then
     Error "global initializer path cannot contain a negative index"
-  else Ok { name; origin; occurrence_index; initializer_path }
+  else Ok { name; origin; occurrence_index; initializer_path; selection = None }
+
+let make_selected_identifier ~selection ~name ~origin ~occurrence_index
+    ~initializer_path =
+  make_identifier ~name ~origin ~occurrence_index ~initializer_path
+  |> Result.map (fun event -> { event with selection = Some selection })
 
 let make_global ~record events = Ok { record; events }
 let globals result = result.globals
@@ -140,6 +146,7 @@ let occurrence_initializer_path (occurrence : occurrence) =
   occurrence.source.initializer_path
 
 let occurrence_resolution (occurrence : occurrence) = occurrence.resolution
+let occurrence_selection (occurrence : occurrence) = occurrence.source.selection
 let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
 
 let validate_events input =
@@ -233,9 +240,16 @@ let validate_inputs table paired inputs =
   pair (paired, inputs)
 
 let resolve_event environment cursor global_symbol event =
-  match Global_binding_environment.resolve cursor event.name with
-  | Some resolution -> Ok { source = event; resolution }
-  | None ->
+  let selected =
+    match event.selection with
+    | None -> Ok (Global_binding_environment.resolve cursor event.name)
+    | Some selection ->
+        Global_binding_environment.resolve_selected cursor event.name selection
+  in
+  match selected with
+  | Error message -> Error (invalid_input message)
+  | Ok (Some resolution) -> Ok { source = event; resolution }
+  | Ok None ->
       Error
         (unresolved_identifier global_symbol event
            (Outer_environment.compilation_mode environment))

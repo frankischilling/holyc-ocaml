@@ -10,7 +10,8 @@ let reject message result =
 
 let config () = Preprocessor.Config.create () |> checked
 
-let parse_source ?sources ?symbols ?observe ?checkpoint session ledger source =
+let parse_source ?sources ?symbols ?observe ?checkpoint ?reference session
+    ledger source =
   let sources = Option.value sources ~default:(Session.sources session) in
   let symbols = Option.value symbols ~default:(Session.symbols session) in
   let events = ref [] in
@@ -24,7 +25,7 @@ let parse_source ?sources ?symbols ?observe ?checkpoint session ledger source =
     {
       checkpoint =
         Some (Option.value checkpoint ~default:(D.observe_command ledger));
-      reference = None;
+      reference;
       declaration = Some consume;
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
@@ -37,11 +38,11 @@ let parse_source ?sources ?symbols ?observe ?checkpoint session ledger source =
   in
   (output, List.rev !events)
 
-let parse ?observe ?checkpoint session ledger text =
+let parse ?observe ?checkpoint ?reference session ledger text =
   let source =
     Session.add_source session ~path:"declarations.hc" ~contents:text
   in
-  parse_source ?observe ?checkpoint session ledger source
+  parse_source ?observe ?checkpoint ?reference session ledger source
 
 let setup () =
   let session = Session.create () in
@@ -927,8 +928,398 @@ let runtime_admission_boundaries () =
         (VM.final_value result |> Option.get).bits
   | Error _ -> Alcotest.fail "retained call failed"
 
+(* Exercise real nested parser receipts and checked task compilation without
+   claiming the production source-execution facade is connected. *)
+let selected_runtime_source session runtime ledger contents =
+  let execute ast =
+    let ( let* ) = Result.bind in
+    let* declaration_command = D.seal ledger ast in
+    let* program =
+      Program.compile_task_ast ~task:runtime ~declaration_command session
+        ~config:(config ()) ast
+    in
+    execute_runtime runtime program.value
+    |> Result.map_error
+         (List.map (fun (error : VM.error) ->
+              Diagnostic.make ~code:error.code ~severity:Diagnostic.Error
+                ~primary:ast.Ast.span ~message:error.message ()))
+  in
+  let sink run : Parser.command_sink =
+    {
+      checkpoint =
+        Some
+          (fun event ->
+            Result.bind (D.observe_command ledger event) (fun () ->
+                match event with
+                | Parser.Command_completed receipt when run ->
+                    execute receipt.command_ast |> Result.map ignore
+                | _ -> Ok ()));
+      reference = Some (D.observe_reference ledger);
+      declaration = Some (D.observe ledger);
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let source =
+    Session.add_source session ~path:"selected-runtime.hc" ~contents
+  in
+  let parsed =
+    Parser.parse ~commands:(sink false)
+      ~execute_stream:(fun _ ->
+        Ok
+          Parser.
+            {
+              definitions = Session.definitions session;
+              symbols = Session.symbols session;
+              commands = sink true;
+              finish = (fun () -> Ok "");
+              abort = (fun () -> ());
+            })
+      ~sources:(Session.sources session)
+      ~definitions:(Session.definitions session)
+      ~symbols:(Session.symbols session) ~config:(config ()) source
+  in
+  execute (Test_parser.expect_ast parsed)
+
+let selected_runtime_global () =
+  let session, runtime, ledger = runtime_setup () in
+  let initial = compile_runtime session runtime "I64 N=40;" in
+  execute_runtime_ok runtime initial;
+  ignore
+    (D.observe_admission ledger (admission runtime initial |> Option.get)
+    |> checked);
+  let result =
+    selected_runtime_source session runtime ledger "N #exe {I64 N=100;} +2;"
+    |> expect
+  in
+  Alcotest.(check int64)
+    "original selected global survives nested shadow" 42L
+    (VM.final_value result |> Option.get).bits
+
+let selected_runtime_function () =
+  let session, runtime, ledger = runtime_setup () in
+  let initial = compile_runtime session runtime "I64 F(){return 42;}" in
+  execute_runtime_ok runtime initial;
+  ignore
+    (D.observe_admission ledger (admission runtime initial |> Option.get)
+    |> checked);
+  let result =
+    selected_runtime_source session runtime ledger
+      "F #exe {I64 F(I64 n){return n;}};"
+    |> expect
+  in
+  Alcotest.(check int64)
+    "selected function retains original callable and argument shape" 42L
+    (VM.final_value result |> Option.get).bits
+
+let selected_runtime_expression_contexts () =
+  List.iter
+    (fun source ->
+      let session, runtime, ledger = runtime_setup () in
+      let initial =
+        compile_runtime session runtime "I64 N=40;I64 F(){return 40;}"
+      in
+      execute_runtime_ok runtime initial;
+      ignore
+        (D.observe_admission ledger (admission runtime initial |> Option.get)
+        |> checked);
+      let result =
+        selected_runtime_source session runtime ledger source |> expect
+      in
+      Alcotest.(check int64)
+        source 42L (VM.final_value result |> Option.get).bits)
+    [
+      "I64 G(){return N #exe {I64 N=100;} +2;}G;";
+      "I64 G(){return F #exe {I64 F(){return 100;}} +2;}G;";
+      "I64 X=N #exe {I64 N=100;} +2;X;";
+      "I64 X=F #exe {I64 F(){return 100;}} +2;X;";
+      "I64 G(I64 N){return N #exe {I64 N=100;} +2;}G(40);";
+    ]
+
+let selected_absence_stays_absent () =
+  List.iter
+    (fun source ->
+      let session, runtime, ledger = runtime_setup () in
+      reject "later admitted same-name entry cannot fill selected absence"
+        (selected_runtime_source session runtime ledger source);
+      let later =
+        selected_runtime_source session runtime ledger "Missing;" |> expect
+      in
+      Alcotest.(check int64)
+        "reached nested publication survives the outer binding failure" 42L
+        (VM.final_value later |> Option.get).bits)
+    [
+      "Missing #exe {I64 Missing=42;};";
+      "I64 G(){return Missing #exe {I64 Missing=42;};}G;";
+      "I64 X=Missing #exe {I64 Missing=42;};X;";
+      "I64 X[Missing #exe {I64 Missing=42;}];";
+    ]
+
+let selected_reference_ownership () =
+  let session, ledger = setup () in
+  let selections = ref [] in
+  let reference selection =
+    Result.map
+      (fun () ->
+        reject "reference replay rejects while command is active"
+          (D.observe_reference ledger selection);
+        selections := selection :: !selections)
+      (D.observe_reference ledger selection)
+  in
+  let output, _ =
+    parse ~reference session ledger "I64 N=N;I64 F(I64 n=F()){return n+N;}F(2);"
+  in
+  let ast = Test_parser.expect_ast output in
+  let command = D.seal ledger ast |> expect in
+  let table = Session.semantic_symbols session in
+  let target selection =
+    D.reference_for ~table ~ast command (Parser.selected_identifier selection)
+    |> expect
+  in
+  match List.rev !selections with
+  | [ initial; provisional; local; completed_global; completed_function ] ->
+      Alcotest.(check bool)
+        "initializer keeps incomplete global stage" true
+        (match target initial with
+        | D.Selected_source
+            { stage = D.Global_selection (_, None); admitted = None; _ } -> true
+        | _ -> false);
+      Alcotest.(check bool)
+        "consumed provisional function cannot upgrade" true
+        (match target provisional with
+        | D.Selected_source { stage = D.Provisional_function_selection _; _ } ->
+            true
+        | _ -> false);
+      Alcotest.(check bool)
+        "local selection stays explicit" true
+        (match target local with
+        | D.Selected_local -> true
+        | _ -> false);
+      Alcotest.(check bool)
+        "later occurrence sees completed global" true
+        (match target completed_global with
+        | D.Selected_source { stage = D.Global_selection (_, Some _); _ } ->
+            true
+        | _ -> false);
+      Alcotest.(check bool)
+        "completed function keeps its original body" true
+        (match target completed_function with
+        | D.Selected_source { stage = D.Function_selection (_, Some _); _ } ->
+            true
+        | _ -> false);
+      let identifier = Parser.selected_identifier initial in
+      let copied =
+        Ast.make_identifier ~spelling:identifier.spelling
+          ~location:identifier.location
+      in
+      reject "equal rebuilt identifier cannot borrow selection"
+        (D.reference_for ~table ~ast command copied);
+      reject "rebuilt module cannot borrow selection"
+        (D.reference_for ~table
+           ~ast:(copy_module ast ast.items)
+           command identifier);
+      reject "foreign table cannot borrow selection"
+        (D.reference_for
+           ~table:(Session.semantic_symbols (Session.create ()))
+           ~ast command identifier);
+      Alcotest.(check bool)
+        "repeat reads keep the exact frozen target" true
+        (target initial == target initial)
+  | _ -> Alcotest.fail "expected five selected identifiers"
+
+let command_runtime_ownership () =
+  let session, runtime, ledger = runtime_setup () in
+  let output, _ = parse session ledger "40+2;" in
+  let ast = Test_parser.expect_ast output in
+  let declaration_command = D.seal ledger ast |> expect in
+  let other =
+    VM.create_task_state ~table:(Session.semantic_symbols session) () |> checked
+  in
+  let before =
+    Semantic_symbol_table.all_symbols (Session.semantic_symbols session)
+    |> List.length
+  in
+  reject
+    "same semantic table cannot transfer a parser command to another runtime"
+    (Program.compile_task_ast ~task:other ~declaration_command session
+       ~config:(config ()) ast);
+  Alcotest.(check int)
+    "foreign command creates no semantic artifacts" before
+    (Semantic_symbol_table.all_symbols (Session.semantic_symbols session)
+    |> List.length);
+  Alcotest.(check int)
+    "foreign command charges no preparation" 0
+    (VM.task_initializer_steps other);
+  reject "public reference resolver rejects a sibling runtime snapshot"
+    (D.reference_resolver
+       ~table:(Session.semantic_symbols session)
+       ~ast
+       ~task_view:(VM.task_snapshot other |> checked)
+       declaration_command);
+  let earlier_view = VM.task_snapshot runtime |> checked in
+  let program =
+    Program.compile_task_ast ~task:runtime ~declaration_command session
+      ~config:(config ()) ast
+    |> expect
+  in
+  execute_runtime_ok runtime program.value;
+  List.iter
+    (fun task_view ->
+      Alcotest.(check bool)
+        "owning catalog permits earlier and later snapshots" true
+        (D.reference_resolver
+           ~table:(Session.semantic_symbols session)
+           ~ast ~task_view declaration_command
+        |> Result.is_ok))
+    [ earlier_view; VM.task_snapshot runtime |> checked ];
+  let unbound = D.create session |> checked in
+  let output, _ = parse session unbound "42;" in
+  let ast = Test_parser.expect_ast output in
+  let declaration_command = D.seal unbound ast |> expect in
+  reject "semantic-only command grants no runtime authority"
+    (Program.compile_task_ast ~task:runtime ~declaration_command session
+       ~config:(config ()) ast)
+
+let missing_reference_rejects_before_execution () =
+  let session, runtime, ledger = runtime_setup () in
+  let output, _ = parse session ledger "I64 N=40;N+=2;" in
+  let ast = Test_parser.expect_ast output in
+  let declaration_command = D.seal ledger ast |> expect in
+  reject "parser-aware compilation requires every original reference receipt"
+    (Program.compile_task_ast ~task:runtime ~declaration_command session
+       ~config:(config ()) ast);
+  Alcotest.(check int)
+    "missing evidence executes no instructions" 0
+    (VM.task_executed_steps runtime);
+  Alcotest.(check bool)
+    "missing evidence admits no declaration" true
+    (Option.is_none (VM.latest_task_admission runtime))
+
+let selected_reference_admission_stage () =
+  let session, runtime, ledger = runtime_setup () in
+  let output, _ = parse session ledger "I64 N=40;" in
+  let ast = Test_parser.expect_ast output in
+  let declaration_command = D.seal ledger ast |> expect in
+  let pending =
+    Program.compile_task_ast ~task:runtime ~declaration_command session
+      ~config:(config ()) ast
+    |> expect
+  in
+  let reference () =
+    let selected = ref None in
+    let output, _ =
+      parse session ledger "N;" ~reference:(fun selection ->
+          Result.map
+            (fun () -> selected := Some selection)
+            (D.observe_reference ledger selection))
+    in
+    let ast = Test_parser.expect_ast output in
+    let command = D.seal ledger ast |> expect in
+    fun () ->
+      D.reference_for
+        ~table:(Session.semantic_symbols session)
+        ~ast command
+        (Parser.selected_identifier (Option.get !selected))
+      |> expect
+  in
+  let before = reference () in
+  execute_runtime_ok runtime pending.value;
+  Alcotest.(check bool)
+    "later admission cannot upgrade consumed reference" true
+    (match before () with
+    | D.Selected_source { admitted = None; _ } -> true
+    | _ -> false);
+  let after = reference () in
+  Alcotest.(check bool)
+    "later reference captures exact reached admission" true
+    (match after () with
+    | D.Selected_source { publication; admitted = Some admitted; _ } ->
+        C.publication_symbol publication == VM.admitted_source_symbol admitted
+    | _ -> false)
+
+let selected_reference_resume_admission () =
+  let session, runtime, ledger = runtime_setup () in
+  let pending = ref None in
+  let selected = ref None in
+  let checkpoint event =
+    Result.bind (D.observe_command ledger event) (fun () ->
+        match event with
+        | Parser.Command_completed receipt when Option.is_none !pending ->
+            let ast = receipt.command_ast in
+            Result.bind (D.seal ledger ast) (fun declaration_command ->
+                Program.compile_task_ast ~task:runtime ~declaration_command
+                  session ~config:(config ()) ast
+                |> Result.map (fun program -> pending := Some program.value))
+        | Parser.Command_resumed receipt
+          when receipt.command_start.command_ordinal = 0 ->
+            Alcotest.(check bool)
+              "resume follows lookahead before reference delivery" true
+              (Option.is_none !selected);
+            Alcotest.(check bool)
+              "first unit is still unadmitted before resume" true
+              (Option.is_none (admission runtime (Option.get !pending)));
+            execute_runtime_ok runtime (Option.get !pending);
+            Ok ()
+        | _ -> Ok ())
+  in
+  let reference selection =
+    Result.map
+      (fun () -> selected := Some selection)
+      (D.observe_reference ledger selection)
+  in
+  let command = ref None in
+  let output, _ =
+    parse ~reference
+      ~checkpoint:(fun event ->
+        Result.bind (checkpoint event) (fun () ->
+            match event with
+            | Parser.Command_completed receipt
+              when receipt.command_start.command_ordinal = 1 ->
+                command := Some receipt.command_ast;
+                Ok ()
+            | _ -> Ok ()))
+      session ledger "I64 N=40;N;"
+  in
+  ignore (Test_parser.expect_ast output);
+  let ast = Option.get !command in
+  let command = D.seal ledger ast |> expect in
+  let target =
+    D.reference_for
+      ~table:(Session.semantic_symbols session)
+      ~ast command
+      (Parser.selected_identifier (Option.get !selected))
+    |> expect
+  in
+  Alcotest.(check bool)
+    "buffered identifier consumes the admitted selected record" true
+    (match target with
+    | D.Selected_source { admitted = Some _; _ } -> true
+    | _ -> false)
+
 let tests =
   [
+    Alcotest.test_case "parser command seals retain their exact runtime owner"
+      `Quick command_runtime_ownership;
+    Alcotest.test_case "missing selections reject before runtime effects" `Quick
+      missing_reference_rejects_before_execution;
+    Alcotest.test_case "selected absence survives later nested publication"
+      `Quick selected_absence_stays_absent;
+    Alcotest.test_case
+      "nested shadow preserves selected function and call shape" `Quick
+      selected_runtime_function;
+    Alcotest.test_case "selected bindings cross body and initializer walks"
+      `Quick selected_runtime_expression_contexts;
+    Alcotest.test_case
+      "buffered reference sees same-record admission before consumption" `Quick
+      selected_reference_resume_admission;
+    Alcotest.test_case
+      "reference seals freeze consumed source stage and ownership" `Quick
+      selected_reference_ownership;
+    Alcotest.test_case "consumed references cannot gain later runtime admission"
+      `Quick selected_reference_admission_stage;
+    Alcotest.test_case
+      "selected runtime global survives nested parser execution" `Quick
+      selected_runtime_global;
     Alcotest.test_case "checked runtime compilation owns preparation charges"
       `Quick runtime_compilation_budget;
     Alcotest.test_case

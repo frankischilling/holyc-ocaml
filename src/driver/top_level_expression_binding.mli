@@ -3,6 +3,8 @@ val resolve :
   declarations:Sema.Declaration_collection.t ->
   module_expressions:Sema.Module_expression_binding.t ->
   ?initializers:Sema.Global_initializer_binding.t ->
+  ?selections:
+    (Frontend.Ast.identifier -> (Sema.Reference_selection.t, string) result) ->
   Frontend.Ast.module_ ->
   (Sema.Top_level_expression_binding.t, string) result
 (** Traverse executable top-level statement expressions in source order. Bind

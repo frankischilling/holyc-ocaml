@@ -10,17 +10,30 @@ let origin (location : Frontend.Ast.location) =
 type state = {
   events_rev : Sema.Global_initializer_binding.event list;
   next_index : int;
+  selections :
+    (Frontend.Ast.identifier -> (Sema.Reference_selection.t, string) result)
+    option;
 }
 
-let empty_state = { events_rev = []; next_index = 0 }
+let empty_state selections = { events_rev = []; next_index = 0; selections }
 
 let add_identifier initializer_path state (identifier : Frontend.Ast.identifier)
     =
   if state.next_index = max_int then
     Error "global initializer occurrence identity space is exhausted"
   else
+    let ( let* ) = Result.bind in
+    let* make =
+      match state.selections with
+      | None -> Ok Sema.Global_initializer_binding.make_identifier
+      | Some select ->
+          select identifier
+          |> Result.map (fun selection ->
+              Sema.Global_initializer_binding.make_selected_identifier
+                ~selection)
+    in
     match
-      Sema.Global_initializer_binding.make_identifier ~name:identifier.spelling
+      make ~name:identifier.spelling
         ~origin:(origin identifier.location)
         ~occurrence_index:state.next_index ~initializer_path
     with
@@ -28,6 +41,7 @@ let add_identifier initializer_path state (identifier : Frontend.Ast.identifier)
     | Ok event ->
         Ok
           {
+            state with
             events_rev = event :: state.events_rev;
             next_index = state.next_index + 1;
           }
@@ -113,12 +127,13 @@ let rec initial_value path state = function
       in
       elements 0 state unbraced.unbraced_initializer_elements
 
-let events = function
+let events selections = function
   | None -> Ok []
   | Some (initial : Frontend.Ast.global_initializer) ->
       Result.map
         (fun state -> List.rev state.events_rev)
-        (initial_value [] empty_state initial.global_initializer_value)
+        (initial_value [] (empty_state selections)
+           initial.global_initializer_value)
 
 type ast_global = {
   item_index : int;
@@ -201,7 +216,7 @@ let validate_initializer semantic ast =
   | None, Some _ | Some _, None ->
       Error "semantic global initializer does not match the AST"
 
-let global_input table record (ast : ast_global) =
+let global_input selections table record (ast : ast_global) =
   let global = Sema.Global_resolution.global_record_global record in
   let symbol = Sema.Global_resolution.global_record_symbol record in
   let semantic_symbol = Sema.Global_type_resolution.global_symbol global in
@@ -230,19 +245,19 @@ let global_input table record (ast : ast_global) =
     with
     | Error _ as error -> error
     | Ok () -> (
-        match events ast.initial_value with
+        match events selections ast.initial_value with
         | Error _ as error -> error
         | Ok events ->
             Sema.Global_initializer_binding.make_global ~record events)
 
-let inputs table globals module_ =
+let inputs selections table globals module_ =
   let records = Sema.Global_resolution.records globals in
   let ast = ast_globals module_ in
   let rec pair inputs_rev records ast =
     match (records, ast) with
     | [], [] -> Ok (List.rev inputs_rev)
     | record :: record_rest, ast :: ast_rest -> (
-        match global_input table record ast with
+        match global_input selections table record ast with
         | Error _ as error -> error
         | Ok input -> pair (input :: inputs_rev) record_rest ast_rest)
     | [], _ :: _ | _ :: _, [] ->
@@ -250,9 +265,9 @@ let inputs table globals module_ =
   in
   pair [] records ast
 
-let resolve ~table ~environment ~expressions ~globals module_ =
+let resolve ~table ~environment ~expressions ~globals ?selections module_ =
   let result =
-    match inputs table globals module_ with
+    match inputs selections table globals module_ with
     | Error _ as error -> error
     | Ok inputs ->
         Sema.Global_initializer_binding.resolve ~table ~environment ~expressions
@@ -271,7 +286,7 @@ let initializers ~table ~bindings module_ =
     | [], [] -> Ok (List.rev reversed)
     | global :: rest, ast :: tail -> (
         match
-          global_input table
+          global_input None table
             (Sema.Global_initializer_binding.global_record global)
             ast
         with

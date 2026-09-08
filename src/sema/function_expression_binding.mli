@@ -48,6 +48,12 @@ type error
 val make_identifier :
   name:string -> origin:Symbol.origin -> (event, string) result
 
+val make_selected_identifier :
+  selection:Reference_selection.t ->
+  name:string ->
+  origin:Symbol.origin ->
+  (event, string) result
+
 val make_name_query :
   role:query_role ->
   name:string ->
@@ -107,6 +113,7 @@ val occurrence_index : occurrence -> int
 val occurrence_name : occurrence -> string
 val occurrence_origin : occurrence -> Symbol.origin
 val occurrence_resolution : occurrence -> resolution
+val occurrence_selection : occurrence -> Reference_selection.t option
 val query_index : query -> int
 val query_role : query -> query_role
 val query_name : query -> string

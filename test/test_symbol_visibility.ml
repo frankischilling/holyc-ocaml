@@ -337,8 +337,69 @@ let provisional_function_completion () =
     (Symbol_visibility.id entry)
     (Symbol_visibility.id completed)
 
+let task_views_and_detached_snapshots () =
+  let module E = Symbol_visibility.Environment in
+  let root = E.create () in
+  let baseline = E.add root ~name:"Baseline" ~kind:Symbol_visibility.Class () in
+  let task = E.task_view root and other = E.task_view root in
+  let original = E.add task ~name:"F" ~kind:Symbol_visibility.Function () in
+  let hidden = E.add other ~name:"F" ~kind:Symbol_visibility.Function () in
+  let copied = E.copy task in
+  let shape = Symbol_visibility.{ parameters = []; variadic = false } in
+  List.iter
+    (fun target ->
+      Alcotest.(check bool)
+        "another writer cannot complete a visible provisional entry" true
+        (E.complete_function_header target ~entry:original
+           ~function_call_shape:shape
+        |> Result.is_error))
+    [ root; other ];
+  let completed =
+    E.complete_function_header task ~entry:original ~function_call_shape:shape
+    |> checked
+  in
+  let same_entries message expected actual =
+    Alcotest.(check bool)
+      message true
+      (List.length expected = List.length actual
+      && List.for_all2 ( == ) expected actual)
+  in
+  same_entries "root keeps publication order without replacing a shadow"
+    [ baseline; completed; hidden ]
+    (E.all root);
+  same_entries "copy keeps only the original visible immutable snapshots"
+    [ baseline; original ] (E.all copied);
+  same_entries "owner sees baseline and own completed entry"
+    [ baseline; completed ] (E.all task);
+  let copied_completion =
+    E.complete_function_header copied ~entry:original
+      ~function_call_shape:{ shape with variadic = true }
+    |> checked
+  in
+  Alcotest.(check bool)
+    "detached completion changes neither root nor owner" true
+    (Option.get (E.find_function copied "F") == copied_completion
+    && Option.get (E.find_function task "F") == completed);
+  let context = E.begin_local_context task in
+  ignore (E.add_local task context ~name:"Baseline" |> checked);
+  Alcotest.(check bool)
+    "local contexts belong to the view" true
+    (E.find_preprocessor task "Baseline" = Symbol_visibility.Shadowed_by_local
+    && E.find_preprocessor root "Baseline" = Symbol_visibility.Present baseline
+    && E.find_preprocessor other "Baseline" = Symbol_visibility.Present baseline
+    );
+  ignore (E.end_local_context task context |> checked);
+  let later = E.add root ~name:"Later" ~kind:Symbol_visibility.Class () in
+  Alcotest.(check bool)
+    "baseline updates are shared, snapshots stay detached" true
+    (E.find_preprocessor task "Later" = Symbol_visibility.Present later
+    && E.find_preprocessor copied "Later" = Symbol_visibility.Absent)
+
 let tests =
   [
+    Alcotest.test_case
+      "task views preserve writer ownership and detached copies" `Quick
+      task_views_and_detached_snapshots;
     Alcotest.test_case
       "provisional completion retains owner order and snapshots" `Quick
       provisional_function_completion;

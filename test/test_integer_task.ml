@@ -438,6 +438,45 @@ let independent_tasks_and_unknown_cells () =
   value 42L (run session task "Unknown=42;");
   value 42L (run session task "Unknown;")
 
+let independent_function_headers () =
+  let session = Session.create () in
+  let task = create session in
+  ignore (run session task "I64 F(){return 42;}" |> Test_integer_program.checked);
+  let other = create session in
+  value 0L (run session other "#ifdef F\n1;\n#else\n0;\n#endif");
+  ignore
+    (run session other "I64 F(I64 n){return n+1;}"
+    |> Test_integer_program.checked);
+  value 42L (run session task "F;");
+  value 3L (run session other "F(2);");
+  let entries =
+    Symbol_visibility.Environment.all (Session.symbols session)
+    |> List.filter (fun entry -> Symbol_visibility.name entry = "F")
+  in
+  Alcotest.(check int)
+    "root sees each completed task header exactly once" 2 (List.length entries)
+
+let independent_definitions () =
+  let session = Session.create () in
+  ignore (parse session "#define Shared 40\n");
+  let task = create session and other = create session in
+  ignore (run session task "#define N 40\n0;" |> Test_integer_program.checked);
+  ignore (run session other "#define N 2\n0;" |> Test_integer_program.checked);
+  value 42L (run session task "N+2;");
+  value 42L (run session other "Shared+N;");
+  let copied = Session.fork_frontend (Task.frontend task) in
+  ignore (run session task "#define N 100\n0;" |> Test_integer_program.checked);
+  Alcotest.(check string)
+    "detached frontend keeps the task's original definition" "40"
+    (Definition.Environment.find (Session.definitions copied) "N"
+    |> Option.get |> Definition.replacement);
+  let later = create session in
+  value 0L (run session later "#ifdef N\n1;\n#else\n0;\n#endif");
+  value 42L (run session later "Shared+2;");
+  let definitions = Definition.Environment.all (Session.definitions session) in
+  Alcotest.(check int)
+    "root sees each task definition exactly once" 4 (List.length definitions)
+
 let cumulative_instruction_limit () =
   List.iter
     (fun (limit, succeeds) ->
@@ -789,6 +828,10 @@ let uninitialized_seed_keeps_storage_identity () =
 
 let tests =
   [
+    Alcotest.test_case "independent tasks retain their function headers" `Quick
+      independent_function_headers;
+    Alcotest.test_case "independent tasks retain their definitions" `Quick
+      independent_definitions;
     Alcotest.test_case "legacy reached faults retain frontend publications"
       `Quick legacy_fault_publication;
     Alcotest.test_case

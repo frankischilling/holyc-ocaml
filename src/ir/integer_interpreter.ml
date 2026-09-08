@@ -382,6 +382,9 @@ let abort_task_stream task stream =
 
 let task_snapshot task = Integer_globals.snapshot_task task.catalog
 
+let task_owns_snapshot task view =
+  Integer_globals.task_catalog_owns_view task.catalog view
+
 let task_owns_table task table =
   Integer_globals.task_catalog_owns_table task.catalog table
 
@@ -397,6 +400,23 @@ let owns_task_admission task receipt =
 
 let admission_publications receipt = receipt.admission_publications
 let latest_task_admission task = List.nth_opt task.admissions 0
+
+let admitted_source_symbol = function
+  | Admitted_global (reference, _) -> Retained_global.symbol reference
+  | Admitted_function reference ->
+      Retained_function.metadata reference
+      |> Sema.Outer_environment.function_declaration
+      |> Sema.Function_resolution.resolved_declaration_site
+      |> Sema.Function_resolution.declaration_site_function
+      |> Sema.Function_type_resolution.function_symbol
+
+let admitted_publication_for_symbol task symbol =
+  List.find_map
+    (fun receipt ->
+      List.find_opt
+        (fun publication -> admitted_source_symbol publication == symbol)
+        receipt.admission_publications)
+    task.admissions
 
 let task_function_source task link =
   List.find_opt

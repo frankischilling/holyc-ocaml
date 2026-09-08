@@ -7,6 +7,7 @@ type event = {
   origin : Symbol.origin;
   occurrence_index : int;
   dimension_index : int;
+  selection : Reference_selection.t option;
 }
 
 type dimension_input = {
@@ -109,7 +110,12 @@ let make_identifier ~name ~origin ~occurrence_index ~dimension_index =
     Error "global array extent occurrence index cannot be negative"
   else if dimension_index < 0 then
     Error "global array extent dimension index cannot be negative"
-  else Ok { name; origin; occurrence_index; dimension_index }
+  else Ok { name; origin; occurrence_index; dimension_index; selection = None }
+
+let make_selected_identifier ~selection ~name ~origin ~occurrence_index
+    ~dimension_index =
+  make_identifier ~name ~origin ~occurrence_index ~dimension_index
+  |> Result.map (fun event -> { event with selection = Some selection })
 
 let make_dimension ~dimension events = Ok { dimension; events }
 let make_global ~record dimensions = Ok { record; dimensions }
@@ -165,6 +171,7 @@ let occurrence_dimension_index (occurrence : occurrence) =
 let occurrence_name (occurrence : occurrence) = occurrence.source.name
 let occurrence_origin (occurrence : occurrence) = occurrence.source.origin
 let occurrence_resolution (occurrence : occurrence) = occurrence.resolution
+let occurrence_selection (occurrence : occurrence) = occurrence.source.selection
 let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
 
 let same_record left right =
@@ -279,9 +286,16 @@ let validate_inputs table paired inputs =
   pair (paired, inputs)
 
 let resolve_event environment cursor global_symbol event =
-  match Global_binding_environment.resolve cursor event.name with
-  | Some resolution -> Ok { source = event; resolution }
-  | None ->
+  let selected =
+    match event.selection with
+    | None -> Ok (Global_binding_environment.resolve cursor event.name)
+    | Some selection ->
+        Global_binding_environment.resolve_selected cursor event.name selection
+  in
+  match selected with
+  | Error message -> Error (invalid_input message)
+  | Ok (Some resolution) -> Ok { source = event; resolution }
+  | Ok None ->
       Error
         (unresolved_identifier global_symbol event
            (Outer_environment.compilation_mode environment))
