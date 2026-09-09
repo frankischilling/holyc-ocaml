@@ -73,6 +73,8 @@
   test_source_promotion
   test_live_initializer_leaves
   test_partial_global_storage
+  test_live_initializer_execution
+  test_initializer_fragment_typing
   test_task_command_order
   test_stream_parser
   test_integer_statics

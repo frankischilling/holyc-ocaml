@@ -89,13 +89,85 @@ type input = {
   initial_owner :
     (Global_initializer_binding.t * Global_initializer_binding.resolved_global)
     option;
+  fragment_owner : Initializer_fragment.t option;
 }
 
 let make_statement ~statement_index ~item_index ~origin events =
   if statement_index < 0 then
     Error "top-level statement index cannot be negative"
   else if item_index < 0 then Error "top-level item index cannot be negative"
-  else Ok { statement_index; item_index; origin; events; initial_owner = None }
+  else
+    Ok
+      {
+        statement_index;
+        item_index;
+        origin;
+        events;
+        initial_owner = None;
+        fragment_owner = None;
+      }
+
+let make_initializer_fragment ~fragment events =
+  let leaf = Initializer_fragment.leaf fragment in
+  let identifiers =
+    List.filter_map
+      (function
+        | Identifier value -> Some value
+        | _ -> None)
+      events
+  in
+  let queries =
+    List.filter_map
+      (function
+        | Name_query value -> Some value
+        | _ -> None)
+      events
+  in
+  let references = Initializer_fragment.references fragment in
+  let expected_queries =
+    Initializer_fragment.queries fragment
+    |> List.filter_map (fun selection ->
+        Option.map
+          (fun facts -> (selection, facts))
+          (Query_selection.name_query_facts
+             (Query_selection.expression selection)))
+  in
+  if
+    List.length identifiers <> List.length references
+    || (not
+          (List.for_all2
+             (fun (actual : identifier_event)
+                  ((identifier : Frontend.Ast.identifier), selection) ->
+               actual.name = identifier.spelling
+               && actual.origin
+                  = Initializer_source.origin_of_location identifier.location
+               && Option.fold ~none:false ~some:(( == ) leaf)
+                    actual.initializer_leaf
+               && Option.fold ~none:false ~some:(( == ) selection)
+                    actual.selection)
+             identifiers references))
+    || List.length queries <> List.length expected_queries
+    || not
+         (List.for_all2
+            (fun (actual : query_event) (selection, (role, name, origin)) ->
+              actual.role = role && actual.name = name && actual.origin = origin
+              && Option.fold ~none:false ~some:(( == ) leaf)
+                   actual.initializer_leaf
+              && Option.fold ~none:false ~some:(( == ) selection)
+                   actual.selection)
+            queries expected_queries)
+  then
+    Error "initializer fragment events differ from its checked leaf transcript"
+  else
+    Ok
+      {
+        statement_index = 0;
+        item_index = 0;
+        origin = Initializer_source.leaf_origin leaf;
+        events;
+        initial_owner = None;
+        fragment_owner = Some fragment;
+      }
 
 let make_global_initializer ~statement_index ~initializers ~global events =
   let symbol = Global_initializer_binding.global_symbol global in
@@ -165,6 +237,8 @@ let statement_queries (statement : statement) = statement.queries
 
 let statement_initializer (statement : statement) =
   Option.map snd statement.source.initial_owner
+
+let statement_fragment (statement : statement) = statement.source.fragment_owner
 
 let initializer_bindings result =
   List.find_map
@@ -584,6 +658,25 @@ let resolve ~table ~parent ~module_expressions inputs =
     Error
       (invalid_input
          "top-level module expressions belong to another symbol table")
+  else if
+    List.exists
+      (fun input ->
+        match input.fragment_owner with
+        | None -> false
+        | Some fragment ->
+            (not (Initializer_fragment.owns_table fragment table))
+            || (not
+                  (symbol_in_scope
+                     (Compiler_record.declared_global_symbol
+                        (Initializer_fragment.declaration fragment))
+                     parent))
+            || Module_expression_binding.publications module_expressions <> []
+            || List.length inputs <> 1)
+      inputs
+  then
+    Error
+      (invalid_input
+         "initializer fragment requires its own empty module expression context")
   else if
     let first =
       List.find_map (fun input -> Option.map fst input.initial_owner) inputs

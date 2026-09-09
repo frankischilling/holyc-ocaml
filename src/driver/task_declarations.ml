@@ -1683,6 +1683,103 @@ let initializer_leaf_for ledger (receipt : Parser.completed_initializer_leaf) =
           Sema.Initializer_source.parser_leaf pending receipt |> checked span
       | _ -> fail span "initializer leaf belongs to another source declaration")
 
+let initializer_fragment ledger ~runtime ~task_view
+    (receipt : Parser.completed_initializer_leaf) =
+  let ( let* ) = Result.bind in
+  let* leaf = initializer_leaf_for ledger receipt in
+  protect (fun () ->
+      let module Fragment = Sema.Initializer_fragment in
+      let module Selection = Sema.Reference_selection in
+      let module Globals = Ir.Integer_globals in
+      let publication = receipt.leaf_initializer.initializer_owner in
+      let span = publication.global_name.location.span in
+      if not (Parser.initializer_leaf_is_current receipt) then
+        fail span "initializer fragment is outside its original leaf callback";
+      if
+        (not
+           (Option.fold ~none:false ~some:(( == ) runtime)
+              (ledger_runtime ledger)))
+        || not (VM.task_owns_snapshot runtime task_view)
+      then fail span "initializer fragment has another task runtime or snapshot";
+      let declaration =
+        match
+          Names.find_opt ledger.storage_boundaries publication.global_name
+        with
+        | Some { storage_source; storage_declaration = Some declaration; _ }
+          when storage_source == publication -> declaration
+        | _ ->
+            fail span
+              "initializer fragment has no checked original storage declaration"
+      in
+      (match
+         VM.admitted_publication_for_symbol runtime
+           (Sema.Compiler_record.declared_global_symbol declaration)
+       with
+      | Some (VM.Admitted_declared_global (reference, slot))
+        when Globals.declared_record slot == declaration
+             && Option.is_some (Globals.task_global_binding task_view reference)
+        -> ()
+      | _ ->
+          fail span
+            "initializer fragment storage is absent from its exact task \
+             snapshot");
+      let table = ledger.table in
+      let environment = Globals.task_environment task_view in
+      let retained name publication =
+        let binding =
+          match publication with
+          | VM.Admitted_global (reference, _)
+          | VM.Admitted_declared_global (reference, _) ->
+              Globals.task_global_binding task_view reference
+          | VM.Admitted_function reference ->
+              Globals.task_function_binding task_view reference
+        in
+        match binding with
+        | Some binding ->
+            Selection.outer ~table ~name ~environment ~binding |> checked span
+        | None ->
+            fail span
+              "initializer reference is absent from its exact task snapshot"
+      in
+      let references =
+        List.map
+          (fun (identifier : Ast.identifier) ->
+            let name = identifier.spelling in
+            let selection =
+              match Names.find_opt ledger.references identifier with
+              | None ->
+                  fail span
+                    "initializer reference has no original source observation"
+              | Some { target; _ } -> (
+                  match target with
+                  | Selected_absent ->
+                      Selection.absent ~table ~name |> checked span
+                  | Selected_unbound _ | Selected_source { admitted = None; _ }
+                    -> Selection.unavailable ~table ~name |> checked span
+                  | Selected_local ->
+                      fail span "global initializer selected a local reference"
+                  | Selected_runtime publication
+                  | Selected_source { admitted = Some publication; _ } ->
+                      retained name publication)
+            in
+            (identifier, selection))
+          (Sema.Initializer_source.leaf_identifier_nodes leaf)
+      in
+      let queries =
+        Sema.Query_selection.source_queries
+          (Sema.Initializer_source.leaf_expression_ast leaf)
+        |> List.map (fun expression ->
+            match Query_expressions.find_opt ledger.queries expression with
+            | Some query -> query.query_selection
+            | None ->
+                fail span "initializer query has no original source observation")
+      in
+      Fragment.create ~table ~declaration ~leaf ~environment ~references
+        ~queries
+      |> checked span)
+
+let initializer_scope ledger = Collection.namespace_scope ledger.namespace
+
 let initializer_for ~table ~ast (command : command) name initial =
   protect (fun () ->
       if command.table != table || command.ast != ast then

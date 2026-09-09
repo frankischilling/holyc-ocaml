@@ -407,3 +407,26 @@ let resolve ~table ~declarations ~module_expressions ?initializers ?selections
       if String.starts_with ~prefix:"HCSEMA" message then message
       else "HCSEMA0052: " ^ message)
     result
+
+let resolve_initializer_fragment ~table ~parent ~module_expressions fragment =
+  let ( let* ) = Result.bind in
+  let leaf = Sema.Initializer_fragment.leaf fragment in
+  let state =
+    {
+      (empty_state
+         (Some (Sema.Initializer_fragment.reference_for fragment))
+         (Some (Sema.Initializer_fragment.query_for fragment)))
+      with
+      initializer_leaf = Some leaf;
+    }
+  in
+  let* state =
+    expression state (Sema.Initializer_source.leaf_expression_ast leaf)
+  in
+  let* input =
+    Sema.Top_level_expression_binding.make_initializer_fragment ~fragment
+      (List.rev state.events_rev)
+  in
+  Sema.Top_level_expression_binding.resolve ~table ~parent ~module_expressions
+    [ input ]
+  |> Result.map_error Sema.Top_level_expression_binding.error_to_string

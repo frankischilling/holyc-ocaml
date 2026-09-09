@@ -12,3 +12,10 @@ val resolve :
     ordinary names and retain specialized [defined] queries against the checked
     module publication prefix. [initializers] also retains declaration-owned
     scalar groups after their exact owning publication. *)
+
+val resolve_initializer_fragment :
+  table:Sema.Symbol_table.t ->
+  parent:Sema.Symbol_table.scope ->
+  module_expressions:Sema.Module_expression_binding.t ->
+  Sema.Initializer_fragment.t ->
+  (Sema.Top_level_expression_binding.t, string) result

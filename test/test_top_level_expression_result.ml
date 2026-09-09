@@ -452,6 +452,7 @@ let literals_and_module_values () =
                 Some "ICF_RES_NOT_USED"
             | Semantic_top_level_expression_tree.Implicit_output_fixed _
             | Semantic_top_level_expression_tree.Global_initializer _
+            | Semantic_top_level_expression_tree.Initializer_fragment _
             | Semantic_top_level_expression_tree.Implicit_output_argument _
             | Semantic_top_level_expression_tree.Condition _
             | Semantic_top_level_expression_tree.Switch_selector _

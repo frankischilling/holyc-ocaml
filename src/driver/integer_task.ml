@@ -91,6 +91,31 @@ let admit_global task publication =
   Task_declarations.admit_global task.declarations ~runtime:task.state
     publication
 
+let prepare_initializer task receipt =
+  let ( let* ) = Result.bind in
+  let span =
+    receipt.Frontend.Parser.leaf_initializer.initializer_owner.global_name
+      .location
+      .span
+  in
+  let diagnose result =
+    Result.map_error
+      (fun message -> [ Integer_source.message_diagnostic ~span message ])
+      result
+  in
+  let* task_view = VM.task_snapshot task.state |> diagnose in
+  let* fragment =
+    Task_declarations.initializer_fragment task.declarations ~runtime:task.state
+      ~task_view receipt
+  in
+  let* context =
+    Initializer_fragment_typing.create_context
+      ~table:(Session.semantic_symbols task.session)
+      ~parent:(Task_declarations.initializer_scope task.declarations)
+    |> diagnose
+  in
+  Initializer_fragment_typing.prepare context fragment |> diagnose
+
 let compiled_units task =
   List.rev_map (fun (_, command) -> command.program) task.commands
 

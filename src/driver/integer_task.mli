@@ -68,6 +68,15 @@ val admit_global :
     storage before initialization. Completion reuses that same object. This
     operation neither admits a command nor executes initializer leaves. *)
 
+val prepare_initializer :
+  t ->
+  Frontend.Parser.completed_initializer_leaf ->
+  ( Sema.Function_call_expression_result.top_level_t,
+    Common.Diagnostic.t list )
+  result
+(** Type one current observed initializer leaf against its original admitted
+    storage and selected retained bindings. This performs no runtime effects. *)
+
 val adopt_source :
   ?max_steps:int ->
   ?max_initializer_steps:int ->

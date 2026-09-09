@@ -1249,3 +1249,58 @@ let build ~table ~declarations ~compilation_mode ~expressions module_ =
       if String.starts_with ~prefix:"HCSEMA" message then message
       else "HCSEMA0055: " ^ message)
     result
+
+let build_initializer_fragment ~table ~expressions fragment =
+  let ( let* ) = Result.bind in
+  let module Tree = Sema.Top_level_expression_tree in
+  let module Binding = Sema.Top_level_outer_expression_binding in
+  let convert result = Result.map_error Tree.error_to_string result in
+  let* source =
+    match Binding.statements expressions with
+    | [ source ]
+      when Option.fold ~none:false ~some:(( == ) fragment)
+             (source |> Binding.statement_source
+            |> Sema.Top_level_expression_binding.statement_fragment) ->
+        Ok source
+    | _ -> Error "initializer fragment has foreign expression bindings"
+  in
+  let module_expressions =
+    expressions |> Binding.source
+    |> Sema.Top_level_expression_binding.module_expressions
+  in
+  let state =
+    initial_state ~next_occurrence:0 ~next_query:0 ~next_root:0 ~next_call:0
+      ~next_expression_statement:0 ~next_output:0 ~next_condition:0
+      ~next_selector:0 ~next_case:0 ~next_local_declaration:0 ~next_return:0
+      ~module_expressions ~item_index:0
+      (Binding.statement_occurrences source)
+      (Binding.statement_queries source)
+  in
+  let* state, expression =
+    expression state
+      (fragment |> Sema.Initializer_fragment.leaf
+     |> Sema.Initializer_source.leaf_expression_ast)
+  in
+  if
+    state.occurrence_cursor <> Array.length state.occurrences
+    || state.query_cursor <> Array.length state.queries
+  then Error "initializer fragment traversal did not consume its exact bindings"
+  else
+    let calls =
+      List.sort
+        (fun left right ->
+          Int.compare
+            (left |> Tree.call_source
+           |> Sema.Function_call_resolution.call_index)
+            (right |> Tree.call_source
+           |> Sema.Function_call_resolution.call_index))
+        state.calls_rev
+    in
+    let* root =
+      Tree.make_fragment_root ~index:0 ~fragment ~expression ~calls |> convert
+    in
+    let* statement =
+      Tree.make_statement ~source ~roots:[ root ] ~calls ~switch_cases:[]
+      |> convert
+    in
+    Tree.create ~table ~source:expressions [ statement ] |> convert

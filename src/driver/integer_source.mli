@@ -1,5 +1,6 @@
 val diagnostic : span:Common.Span.t -> string -> string -> Common.Diagnostic.t
 val source_span : Common.Source_file.t -> Common.Span.t
+val message_diagnostic : span:Common.Span.t -> string -> Common.Diagnostic.t
 
 type prepared
 

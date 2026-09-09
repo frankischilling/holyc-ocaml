@@ -67,6 +67,7 @@ let top_level_call_inputs ~mode ~path source =
         | Top_level_source.Local_array_dimension _
         | Top_level_source.Local_initializer _
         | Top_level_source.Global_initializer _
+        | Top_level_source.Initializer_fragment _
         | Top_level_source.Return_value _ -> false)
   in
   (records, calls, roots)
@@ -125,6 +126,7 @@ let expression_statement_roots roots =
       | Top_level_source.Local_array_dimension _
       | Top_level_source.Local_initializer _
       | Top_level_source.Global_initializer _
+      | Top_level_source.Initializer_fragment _
       | Top_level_source.Return_value _ -> false)
     roots
 
@@ -526,6 +528,7 @@ let nonstatement_top_level_roots_are_rejected () =
         | Top_level_source.Local_array_dimension _
         | Top_level_source.Local_initializer _
         | Top_level_source.Global_initializer _
+        | Top_level_source.Initializer_fragment _
         | Top_level_source.Return_value _ -> false)
   in
   match lower_top_level root with
@@ -661,6 +664,7 @@ let top_level_direct_call_statement_ownership_is_checked () =
         | Top_level_source.Local_array_dimension _
         | Top_level_source.Local_initializer _
         | Top_level_source.Global_initializer _
+        | Top_level_source.Initializer_fragment _
         | Top_level_source.Return_value _ -> false)
   in
   (match

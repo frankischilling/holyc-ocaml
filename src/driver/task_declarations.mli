@@ -1,5 +1,17 @@
 type t
 
+val initializer_scope : t -> Sema.Symbol_table.scope
+
+val initializer_fragment :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  task_view:Ir.Integer_globals.task_view ->
+  Frontend.Parser.completed_initializer_leaf ->
+  (Sema.Initializer_fragment.t, Common.Diagnostic.t list) result
+(** Capture the observed current leaf against this runtime's admitted original
+    storage and exact snapshot. Frozen unavailable references stay unavailable.
+*)
+
 val admit_global :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->

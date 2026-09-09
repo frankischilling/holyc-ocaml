@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added direct typing for an original initializer leaf while its global remains
+  open. The fragment retains its checked declaration, task snapshot, ordered
+  references and queries, and uses the existing expression and call type checker
+  without completed syntax wrappers. Exact occurrence checks reject substituted
+  bindings; stale leaf callbacks cannot prepare fragments. Live scalar/copy
+  execution and completion reuse of those effects remain unfinished in #635.
+
 - Added checked partial global allocation to retained JIT tasks. Nested commands
   use the original unknown object while its declaration is open; completion
   reuses the same storage for scalar, array and copied-row initialization without

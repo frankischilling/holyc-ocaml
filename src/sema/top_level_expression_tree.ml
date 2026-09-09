@@ -8,6 +8,7 @@ type switch_case_pattern =
 type root_role =
   | Expression_statement of { statement_index : int }
   | Global_initializer of Global_initializer_binding.resolved_global
+  | Initializer_fragment of Initializer_fragment.t
   | Implicit_output_fixed of {
       output_index : int;
       target : Function_call_resolution.implicit_output_target;
@@ -142,6 +143,12 @@ let switch_case_pattern_name = function
   | Ranged_case_pattern _ -> "ranged"
 
 let root_role_name = function
+  | Initializer_fragment fragment ->
+      Printf.sprintf "global:%d:initializer-leaf:%d"
+        (fragment |> Initializer_fragment.declaration
+       |> Compiler_record.declared_global_symbol |> Symbol.id
+       |> Symbol.Id.to_int)
+        (fragment |> Initializer_fragment.leaf |> Initializer_source.leaf_index)
   | Global_initializer global ->
       Printf.sprintf "global:%d:initializer"
         (Global_initializer_binding.global_symbol global
@@ -187,6 +194,7 @@ let valid_origin = function
   | Symbol.Synthesized description -> not (String.equal description "")
 
 let role_is_valid = function
+  | Initializer_fragment _ -> true
   | Global_initializer global ->
       Option.is_some
         (Global_initializer_binding.global_initializer_origin global)
@@ -227,14 +235,8 @@ let make_root ~index ~role ~expression ~origin =
         initializer_call_trees_ = [];
       }
 
-let make_initializer_root ~index ~global ~leaf ~expression ~calls ~origin =
-  if
-    (not
-       (Option.fold ~none:false
-          ~some:(fun source -> Initializer_source.owns_leaf source leaf)
-          (Global_initializer_binding.global_source global)))
-    || origin <> Initializer_source.leaf_origin leaf
-  then
+let make_leaf_root ~index ~role ~leaf ~expression ~calls ~origin =
+  if origin <> Initializer_source.leaf_origin leaf then
     Error (invalid_input "global initializer leaf has a foreign source owner")
   else
     let source_calls = List.map (fun (call : call) -> call.source) calls in
@@ -254,9 +256,7 @@ let make_initializer_root ~index ~global ~leaf ~expression ~calls ~origin =
     with
     | Error message -> Error (invalid_input message)
     | Ok () -> (
-        match
-          make_root ~index ~role:(Global_initializer global) ~expression ~origin
-        with
+        match make_root ~index ~role ~expression ~origin with
         | Error _ as error -> error
         | Ok root ->
             Ok
@@ -272,6 +272,24 @@ let make_initializer_root ~index ~global ~leaf ~expression ~calls ~origin =
                         call.result_expression ))
                     calls;
               })
+
+let make_initializer_root ~index ~global ~leaf ~expression ~calls ~origin =
+  if
+    not
+      (Option.fold ~none:false
+         ~some:(fun source -> Initializer_source.owns_leaf source leaf)
+         (Global_initializer_binding.global_source global))
+  then
+    Error (invalid_input "global initializer leaf has a foreign source owner")
+  else
+    make_leaf_root ~index ~role:(Global_initializer global) ~leaf ~expression
+      ~calls ~origin
+
+let make_fragment_root ~index ~fragment ~expression ~calls =
+  let leaf = Initializer_fragment.leaf fragment in
+  make_leaf_root ~index ~role:(Initializer_fragment fragment) ~leaf ~expression
+    ~calls
+    ~origin:(Initializer_source.leaf_origin leaf)
 
 let make_switch_case ~index ~keyword_origin ~pattern ~origin =
   if index < 0 then
@@ -346,6 +364,10 @@ let indexes_increase accessor values =
 
 let make_statement ~source ~roots ~calls ~switch_cases =
   let initializer_matches =
+    let fragment =
+      source |> Top_level_outer_expression_binding.statement_source
+      |> Top_level_expression_binding.statement_fragment
+    in
     let owner =
       source |> Top_level_outer_expression_binding.statement_source
       |> Top_level_expression_binding.statement_initializer
@@ -400,38 +422,74 @@ let make_statement ~source ~roots ~calls ~switch_cases =
                  && result == actual_result)
                expected_calls actual_calls
     in
-    match (owner, roots) with
-    | None, roots ->
-        not
-          (List.exists
-             (fun root ->
-               match root.role with
-               | Global_initializer _ -> true
-               | _ -> false)
-             roots)
-    | Some owner, _ when retained_matches owner -> true
-    | ( Some owner,
-        [ { role = Global_initializer selected; expression; origin; _ } ] ) -> (
-        owner == selected && switch_cases = []
-        &&
-        match
-          owner |> Global_initializer_binding.global_record
-          |> Global_resolution.global_record_global
-          |> Global_type_resolution.global_initializer
-        with
-        | Some initial ->
-            Option.is_none (Global_type_resolution.initializer_source initial)
-            && Global_type_resolution.initializer_kind initial
-               = Global_type_resolution.Scalar_initializer
-            && owner |> Global_initializer_binding.global_record
-               |> Global_resolution.global_record_global
-               |> Global_type_resolution.global_array_dimensions = []
-            && List.for_all (fun root -> root.initializer_leaf_ = None) roots
-            && Global_type_resolution.initializer_value_origin initial = origin
-            && Function_call_resolution.argument_expression_origin expression
-               = origin
-        | None -> false)
-    | Some _, _ -> false
+    match fragment with
+    | Some fragment -> (
+        match (owner, roots) with
+        | ( None,
+            [
+              ({
+                 role = Initializer_fragment selected;
+                 initializer_leaf_ = Some leaf;
+                 _;
+               } as root);
+            ] ) ->
+            selected == fragment
+            && leaf == Initializer_fragment.leaf fragment
+            && root.origin = Initializer_source.leaf_origin leaf
+            && Function_call_resolution.argument_expression_origin
+                 root.expression
+               = root.origin
+            && switch_cases = []
+            && List.length calls = List.length root.initializer_call_trees_
+            && List.for_all2
+                 (fun (call : call) (source_call, callee, result) ->
+                   call.source == source_call
+                   && call.callee_expression == callee
+                   && call.result_expression == result
+                   && List.exists (( == ) call.callee)
+                        (Top_level_outer_expression_binding
+                         .statement_occurrences source))
+                 calls root.initializer_call_trees_
+        | _ -> false)
+    | None -> (
+        match (owner, roots) with
+        | None, roots ->
+            not
+              (List.exists
+                 (fun root ->
+                   match root.role with
+                   | Global_initializer _ | Initializer_fragment _ -> true
+                   | _ -> false)
+                 roots)
+        | Some owner, _ when retained_matches owner -> true
+        | ( Some owner,
+            [ { role = Global_initializer selected; expression; origin; _ } ] )
+          -> (
+            owner == selected && switch_cases = []
+            &&
+            match
+              owner |> Global_initializer_binding.global_record
+              |> Global_resolution.global_record_global
+              |> Global_type_resolution.global_initializer
+            with
+            | Some initial ->
+                Option.is_none
+                  (Global_type_resolution.initializer_source initial)
+                && Global_type_resolution.initializer_kind initial
+                   = Global_type_resolution.Scalar_initializer
+                && owner |> Global_initializer_binding.global_record
+                   |> Global_resolution.global_record_global
+                   |> Global_type_resolution.global_array_dimensions = []
+                && List.for_all
+                     (fun root -> root.initializer_leaf_ = None)
+                     roots
+                && Global_type_resolution.initializer_value_origin initial
+                   = origin
+                && Function_call_resolution.argument_expression_origin
+                     expression
+                   = origin
+            | None -> false)
+        | Some _, _ -> false)
   in
   if not initializer_matches then
     Error
@@ -718,6 +776,55 @@ let expression_nodes statements =
   in
   List.mapi (fun index source -> { index; source }) expressions
 
+let validate_fragment_identifiers (statement : statement) =
+  match
+    statement.source |> Top_level_outer_expression_binding.statement_source
+    |> Top_level_expression_binding.statement_fragment
+  with
+  | None -> Ok ()
+  | Some _ ->
+      let expected =
+        Top_level_outer_expression_binding.statement_occurrences
+          statement.source
+      in
+      let seen = ref [] in
+      let valid =
+        expression_nodes [ statement ]
+        |> List.for_all (fun node ->
+            match
+              Function_call_resolution.argument_expression_kind node.source
+            with
+            | Function_call_resolution.Top_level_bound_identifier_expression
+                identifier ->
+                let occurrence =
+                  Function_call_resolution.top_level_bound_identifier_occurrence
+                    identifier
+                in
+                seen := occurrence :: !seen;
+                List.exists (( == ) occurrence) expected
+            | Function_call_resolution.Bound_identifier_expression _
+            | Function_call_resolution.Aggregate_offset_base_expression _ ->
+                false
+            | _ -> true)
+      in
+      if
+        valid
+        && List.for_all
+             (fun occurrence -> List.exists (( == ) occurrence) !seen)
+             expected
+      then Ok ()
+      else
+        Error
+          (invalid_input
+             "initializer fragment identifier differs from its exact statement \
+              binding")
+
+let validate_fragment_evidence statements =
+  List.fold_left
+    (fun result statement ->
+      Result.bind result (fun () -> validate_fragment_identifiers statement))
+    (Ok ()) statements
+
 let validate_statement_sources source statements =
   let expected = Top_level_outer_expression_binding.statements source in
   let rec loop = function
@@ -758,7 +865,10 @@ let create ~table ~source statements =
     match validate_statement_sources source statements with
     | Error _ as error -> error
     | Ok () -> (
-        match validate_query_evidence statements with
+        match
+          Result.bind (validate_query_evidence statements) (fun () ->
+              validate_fragment_evidence statements)
+        with
         | Error _ as error -> error
         | Ok () -> (
             match validate_global_indexes statements with

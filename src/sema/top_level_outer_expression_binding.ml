@@ -227,6 +227,16 @@ let resolve ~table ~environment ~expressions =
   else if not (Outer_environment.owns_table environment table) then
     Error (invalid_input "outer environment belongs to another symbol table")
   else if
+    List.exists
+      (fun statement ->
+        Option.fold ~none:false
+          ~some:(fun fragment ->
+            Initializer_fragment.environment fragment != environment)
+          (Top_level_expression_binding.statement_fragment statement))
+      (Top_level_expression_binding.statements expressions)
+  then
+    Error (invalid_input "initializer fragment uses another outer environment")
+  else if
     match Top_level_expression_binding.initializer_bindings expressions with
     | None -> false
     | Some batch -> Global_initializer_binding.environment batch != environment
