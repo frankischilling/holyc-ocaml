@@ -52,6 +52,18 @@ let persistent_array () =
   value 42L (run session task "A[0]+=A[1];");
   value 44L (run session task "A[0]+A[1];")
 
+let persistent_unbraced_array () =
+  let session = Session.create () in
+  let task = create session in
+  ignore (run session task "I64 A[1+1]=40,2;" |> Test_integer_program.checked);
+  Alcotest.(check int)
+    "task grammar preserves checked dimension work" 3 (Task.dimension_work task);
+  let preparation = Task.initializer_steps task in
+  value 42L (run session task "A[0]+A[1];");
+  Alcotest.(check int)
+    "later task execution does not repeat extent preparation" preparation
+    (Task.initializer_steps task)
+
 let reached_fault () =
   let session = Session.create () in
   let task = create session in
@@ -856,6 +868,8 @@ let query_self_metadata () =
 
 let tests =
   [
+    Alcotest.test_case "unbraced checked arrays persist across task commands"
+      `Quick persistent_unbraced_array;
     Alcotest.test_case "sizeof uses the exact seeded primitive record" `Quick
       query_builtin_metadata;
     Alcotest.test_case

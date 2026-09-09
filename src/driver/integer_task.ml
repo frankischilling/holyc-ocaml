@@ -179,6 +179,8 @@ let run task ~source =
       query = Some (Task_declarations.observe_query task.declarations);
       reference = Some (Task_declarations.observe_reference task.declarations);
       declaration = Some (Task_declarations.observe task.declarations);
+      dimension_count =
+        Some (Task_declarations.grammar_dimension_count task.declarations);
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
     }

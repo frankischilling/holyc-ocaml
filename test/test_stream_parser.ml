@@ -69,6 +69,7 @@ let parse ?(mode = Preprocessor.Jit) ?max_generated_bytes ?max_definition_depth
                    query = None;
                    reference = None;
                    declaration = None;
+                   dimension_count = None;
                    checkpoint = None;
                    command;
                    resume = (fun () -> Ok ());
@@ -257,6 +258,7 @@ let selected_occurrence () =
             selected := receipt :: !selected;
             Ok ());
       declaration = None;
+      dimension_count = None;
       checkpoint = None;
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
@@ -431,6 +433,7 @@ let pending_command_order () =
       query = None;
       reference = None;
       declaration = None;
+      dimension_count = None;
       checkpoint = None;
       command =
         (function
@@ -481,6 +484,7 @@ let declaration_sink consume =
       query = None;
       reference = None;
       declaration = Some consume;
+      dimension_count = None;
       checkpoint = None;
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
@@ -1109,6 +1113,7 @@ let query_consumption_order () =
       reference = None;
       query = Some query;
       declaration = None;
+      dimension_count = None;
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
     }
@@ -1238,6 +1243,7 @@ let query_native_presence () =
       reference = None;
       query = Some query;
       declaration = None;
+      dimension_count = None;
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
     }
@@ -1269,6 +1275,7 @@ let query_rejection_order () =
           checkpoint = None;
           reference = None;
           declaration = None;
+          dimension_count = None;
           query =
             Some
               (fun event ->
@@ -1438,8 +1445,154 @@ let dimension_member_and_local_children () =
         && List.hd dimensions == receipt.dimension_ast))
     children (List.rev !receipts)
 
+let dimension_count_service_failures () =
+  List.iter
+    (fun failure ->
+      let completed = ref [] in
+      let reached = ref false in
+      let reads = ref 0 in
+      let commands =
+        declaration_sink (function
+          | Parser.Array_dimension_completed receipt ->
+              completed := receipt :: !completed;
+              Ok ()
+          | _ -> Ok ())
+      in
+      let read receipt =
+        incr reads;
+        Alcotest.(check bool)
+          "read follows exact completed event" true
+          (List.hd !completed == receipt);
+        let diagnostic severity =
+          Diagnostic.make ~code:"TESTCOUNT" ~severity
+            ~message:"count service failed"
+            ~primary:receipt.Parser.dimension_ast.location.span ()
+        in
+        match failure with
+        | `Foreign when !reads = 2 -> Ok (Some (List.nth !completed 1, 1L))
+        | `Foreign -> Ok (Some (receipt, 1L))
+        | `Error -> Error [ diagnostic Diagnostic.Error ]
+        | `Warning -> Error [ diagnostic Diagnostic.Warning ]
+        | `Empty -> Error []
+        | `Exception -> failwith "count service"
+      in
+      let commands = { commands with Parser.dimension_count = Some read } in
+      let run () =
+        parse ~commands
+          ~on_enter:(fun () -> reached := true)
+          "U8 A[1][1] #exe {};"
+      in
+      (match failure with
+      | `Exception ->
+          Alcotest.check_raises "service exception propagates"
+            (Failure "count service") (fun () -> ignore (run ()))
+      | `Error -> run () |> error "TESTCOUNT"
+      | `Warning ->
+          let _, _, output, _, _, _ = run () in
+          Alcotest.(check (list string))
+            "warning is retained before fatal fallback"
+            [ "TESTCOUNT"; "HCPARSE0161" ]
+            (List.map (fun (d : Diagnostic.t) -> d.code) output.diagnostics)
+      | `Empty | `Foreign -> run () |> error "HCPARSE0161");
+      Alcotest.(check bool)
+        "failed count stops following lexer effects" false !reached)
+    [ `Foreign; `Error; `Warning; `Empty; `Exception ];
+  let invoked = ref false in
+  let commands =
+    {
+      (declaration_sink (fun _ -> Ok ())) with
+      Parser.declaration = None;
+      dimension_count =
+        Some
+          (fun _ ->
+            invoked := true;
+            Ok None);
+    }
+  in
+  Alcotest.check_raises "count service requires declaration ownership"
+    (Invalid_argument "an array count reader requires a declaration observer")
+    (fun () -> ignore (parse ~commands "U8 A[1];"));
+  Alcotest.(check bool) "invalid service is not silently ignored" false !invoked;
+  let aborted = ref false in
+  Alcotest.check_raises "nested count service requires its declaration observer"
+    (Invalid_argument "an array count reader requires a declaration observer")
+    (fun () ->
+      ignore
+        (parse
+           ~configure:(fun _ execution ->
+             { execution with commands; abort = (fun () -> aborted := true) })
+           "#exe {U8 A[1];}"));
+  Alcotest.(check bool)
+    "invalid child service releases entered stream" true !aborted
+
+let dimension_count_grammar_boundaries () =
+  List.iter
+    (fun count ->
+      let reads = ref 0 in
+      let commands =
+        {
+          (declaration_sink (fun _ -> Ok ())) with
+          Parser.dimension_count =
+            Some
+              (fun receipt ->
+                incr reads;
+                Ok (Some (receipt, count)));
+        }
+      in
+      parse ~commands "U8 A[2]=40,2;" |> error "HCPARSE0159";
+      Alcotest.(check int)
+        "invalid count does not fall back to source literal" 1 !reads)
+    [ 0L; -1L; 1_000_001L; Int64.max_int ];
+  let commands =
+    {
+      (declaration_sink (fun _ -> Ok ())) with
+      Parser.dimension_count = Some (fun _ -> Ok None);
+    }
+  in
+  let _, _, output, _, _, _ = parse ~commands "U8 A[2]=40,2;" in
+  ignore (P.expect_ast output);
+  parse ~commands "U8 A[1+1]=40,2;" |> error "HCPARSE0159";
+  let receipts = ref [] in
+  let commands =
+    {
+      commands with
+      Parser.dimension_count =
+        Some
+          (fun receipt ->
+            receipts := receipt :: !receipts;
+            Ok (Some (receipt, 2L)));
+    }
+  in
+  let _, _, output, _, _, _ = parse ~commands "U8 A[1+1][1+1]=10,10,20,2;" in
+  let ast = P.expect_ast output in
+  Alcotest.(check int)
+    "recursive rows reuse cursor counts without service calls" 2
+    (List.length !receipts);
+  let dimensions =
+    match ast.items with
+    | [ Ast.Global_declaration { declarators = [ declarator ]; _ } ] ->
+        declarator.array_dimensions
+    | _ -> Alcotest.fail "expected original global array"
+  in
+  List.iter2
+    (fun dimension receipt ->
+      Alcotest.(check bool)
+        "grammar retains original dimension" true
+        (dimension == receipt.Parser.dimension_ast);
+      Alcotest.(check bool)
+        "grammar retains arithmetic expression" true
+        (match dimension.Ast.dimension_expression with
+        | Some (Ast.Integer_literal _) | None -> false
+        | _ -> true))
+    dimensions (List.rev !receipts)
+
 let tests =
   [
+    Alcotest.test_case
+      "array count service failures precede following lexer effects" `Quick
+      dimension_count_service_failures;
+    Alcotest.test_case "grammar count bounds preserve explicit literal fallback"
+      `Quick dimension_count_grammar_boundaries;
     Alcotest.test_case "dimension expression retains terminating lookahead"
       `Quick dimension_expression_lookahead;
     Alcotest.test_case "argument array rejects before extent lookahead" `Quick

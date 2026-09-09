@@ -1842,6 +1842,43 @@ let () =
             (legacy |> member "dimension_work_limit" = `Null
             && legacy |> member "dimension_preparation_work" = `Null)
             "v1 retains its existing field contract");
+      with_file ".hc" "I64 A[1+1]=40,2;A[0]+A[1];" (fun source ->
+          let status, output, errors =
+            invoke_raw
+              [
+                "run";
+                "--format=json";
+                "--report-version=2";
+                "--mode=" ^ mode;
+                "--dimension-work-limit=3";
+                source;
+              ]
+          in
+          require
+            (status = Unix.WEXITED 0 && errors = "")
+            "CLI checked unbraced bound succeeds";
+          let report = Yojson.Safe.from_string output in
+          require
+            (report |> member "final_value" |> member "value" |> to_string
+             = "42"
+            && report |> member "dimension_preparation_work" |> to_int = 3)
+            "CLI unbraced initializer reuses checked expression count";
+          let status, report = run source 2 in
+          require
+            (status = Unix.WEXITED 1
+            && report |> member "dimension_preparation_work" |> to_int = 2
+            && report |> member "diagnostics" |> to_list |> List.hd
+               |> member "code" |> to_string = "HCIRVM0007")
+            "unbraced initializer preserves one-below numeric limit";
+          ignore
+            (success
+               [
+                 "dump-ir";
+                 "--program";
+                 "--mode=" ^ mode;
+                 "--dimension-work-limit=3";
+                 source;
+               ]));
       List.iter
         (fun (contents, limit, work, code) ->
           with_file ".hc" contents (fun source ->

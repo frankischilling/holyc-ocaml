@@ -84,9 +84,10 @@ Source array dimensions have an independent `--dimension-work-limit` (default
 100000), also available as `max_dimension_work` through the compile/run/report
 APIs. One visit is charged on entry to each evaluated numeric leaf or operator;
 grouping and skipped short-circuit operands add nothing. A failed expression or
-missing closing bracket retains its reached visits. Later sizeof and layout
-reads reuse the checked value without more work. The option also applies to
-`dump-ir --program` and is validated before parsing.
+missing closing bracket retains its reached visits. Later sizeof, layout and
+unbraced initializer grammar reuse the checked value without more work. Closed
+arithmetic/query bounds such as `I64 A[1+1]=40,2;` work through source compilation.
+The option also applies to `dump-ir --program` and is validated before parsing.
 
 V2 reports add `dimension_work_limit` and `dimension_preparation_work`; the latter
 is available through `integer_program_report_dimension_work` even on failure.

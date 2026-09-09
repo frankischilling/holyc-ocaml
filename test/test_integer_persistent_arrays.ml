@@ -21,6 +21,48 @@ let declared_size_queries () =
       ("I64 F(){U8 A[sizeof U8*];return sizeof A+34;}F();", 42L);
     ]
 
+let evaluated_unbraced_bounds () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (source, literal, work) ->
+          let literal_result = (G.run ~mode literal |> F.checked).value in
+          let type_ = (Option.get (VM.final_value literal_result)).type_ in
+          ignore (G.run ~mode source |> F.expect ~type_ 42L);
+          let session, config, input = F.inputs ~mode source in
+          let compiled =
+            compile_integer_program ~max_dimension_work:work session ~config
+              ~source:input
+            |> F.checked
+          in
+          Alcotest.(check int)
+            "grammar and layout reuse original numeric work" work
+            (integer_program_dimension_preparation_work compiled.value);
+          let instructions program =
+            integer_program_initializer_preparation program
+            |> Integer_initializer_preparation.executed_steps
+          in
+          Alcotest.(check int)
+            "evaluated bounds preserve literal initializer work"
+            (instructions (G.compile ~mode literal))
+            (instructions compiled.value))
+        [
+          ("I64 A[1+1]=40,2;A[0]+A[1];", "I64 A[2]=40,2;A[0]+A[1];", 3);
+          ("U8 A[sizeof U8+1]=40,2;A[0]+A[1];", "U8 A[2]=40,2;A[0]+A[1];", 3);
+          ( "U8 A[2]=40,2,B[sizeof A]=20,22;A[0]+B[1]-20;",
+            "U8 A[2]=40,2,B[2]=20,22;A[0]+B[1]-20;",
+            2 );
+          ( "I64 A[1+1][sizeof \
+             U8+1]=10,10,20,2,B[1]=0;A[0][0]+A[0][1]+A[1][0]+A[1][1]+B[0];",
+            "I64 \
+             A[2][2]=10,10,20,2,B[1]=0;A[0][0]+A[0][1]+A[1][0]+A[1][1]+B[0];",
+            7 );
+          ( "U8 A[1+2]=sizeof A,39,0;A[0]+A[1];",
+            "U8 A[3]=sizeof A,39,0;A[0]+A[1];",
+            3 );
+        ])
+    G.modes
+
 let shapes_and_aliases () =
   cases
     [
@@ -313,6 +355,8 @@ let tests =
   @ [
       Alcotest.test_case "sizeof consumes declared array extents" `Quick
         declared_size_queries;
+      Alcotest.test_case "unbraced initializers reuse checked array counts"
+        `Quick evaluated_unbraced_bounds;
       Alcotest.test_case "shapes and persistent aliases" `Quick
         shapes_and_aliases;
       Alcotest.test_case "array quotas and object bounds" `Quick

@@ -244,6 +244,12 @@ type command_sink = {
   query : (query_event -> (unit, Common.Diagnostic.t list) result) option;
   declaration :
     (declaration_event -> (unit, Common.Diagnostic.t list) result) option;
+  dimension_count :
+    (completed_array_dimension ->
+    ( (completed_array_dimension * int64) option,
+      Common.Diagnostic.t list )
+    result)
+    option;
   command : Ast.item -> (unit, Common.Diagnostic.t list) result;
   resume : unit -> (unit, Common.Diagnostic.t list) result;
 }
@@ -254,6 +260,15 @@ type command_sink = {
     failure or exception, an abort checkpoint releases the context. A failed
     sequence has no successful sequence view. Declarations and references retain
     their exact command start, including across nested parsing.
+
+    [dimension_count] requires [declaration]. After that observer accepts a
+    completed dimension, before the next lexer read, this service may return its
+    cached count with the exact same receipt. A foreign receipt rejects. Each
+    cursor caches the projection by the original AST dimension solely to consume
+    unbraced initializer elements. No AST is rewritten and this count supplies
+    no semantic or runtime authority. [None] preserves the literal-only grammar
+    path for analysis or callback-free parsing. A supplied source/runtime
+    service must reject missing checked evidence rather than return [None].
 
     [command] receives a completed syntax command. [resume] runs after the next
     command's initial lookahead, including any #exe reached during that

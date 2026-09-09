@@ -960,6 +960,33 @@ let complete_dimension ledger (receipt : Parser.completed_array_dimension) =
   Dimensions.add ledger.dimensions dimension receipt;
   Option.iter (Dimensions.add ledger.checked_dimensions dimension) prepared
 
+let grammar_dimension_count ledger (receipt : Parser.completed_array_dimension)
+    =
+  protect (fun () ->
+      validate_dimension_owner ledger
+        receipt.dimension_preparation.dimension_owner;
+      let dimension = receipt.dimension_ast in
+      let span = dimension.location.span in
+      (match Dimensions.find_opt ledger.dimensions dimension with
+      | Some original when original == receipt -> ()
+      | _ -> fail span "array count read has no original completed dimension");
+      match ledger.authority with
+      | Semantic_analysis -> None
+      | Source_compilation _ | Task_runtime _ ->
+          let prepared =
+            match Dimensions.find_opt ledger.checked_dimensions dimension with
+            | Some prepared
+              when Sema.Compiler_record.dimension_receipt prepared == receipt ->
+                prepared
+            | _ ->
+                fail span
+                  "array count read has no checked dimension preparation"
+          in
+          Sema.Compiler_record.validate_dimension ~table:ledger.table ~dimension
+            prepared
+          |> checked span;
+          Some (receipt, Sema.Compiler_record.dimension_count prepared))
+
 let validate_global_dimensions ledger (publication : Parser.global_publication)
     =
   let dimensions = publication.global_dimensions in

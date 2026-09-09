@@ -46,6 +46,19 @@ val dimension_work : t -> int
 val command_dimension_work : command -> int
 val source_dimension_work : source_command -> int
 
+val grammar_dimension_count :
+  t ->
+  Frontend.Parser.completed_array_dimension ->
+  ( (Frontend.Parser.completed_array_dimension * int64) option,
+    Common.Diagnostic.t list )
+  result
+(** Project a completed checked count while its original command and environment
+    are active. Requires the exact successful receipt; performs no evaluation or
+    preparation work. Analysis-only ledgers return [None] after validating their
+    original completion. Source/runtime ledgers reject missing checked evidence.
+    This projection is solely for parser grammar and grants no layout authority.
+*)
+
 type reference_target = private
   | Selected_absent
   | Selected_unbound of Frontend.Symbol_visibility.entry

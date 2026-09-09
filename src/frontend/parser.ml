@@ -204,6 +204,12 @@ type command_sink = {
   query : (query_event -> (unit, Common.Diagnostic.t list) result) option;
   declaration :
     (declaration_event -> (unit, Common.Diagnostic.t list) result) option;
+  dimension_count :
+    (completed_array_dimension ->
+    ( (completed_array_dimension * int64) option,
+      Common.Diagnostic.t list )
+    result)
+    option;
   command : Ast.item -> (unit, Common.Diagnostic.t list) result;
   resume : unit -> (unit, Common.Diagnostic.t list) result;
 }
@@ -231,6 +237,13 @@ module Identifier_table = Hashtbl.Make (struct
   let hash = Hashtbl.hash
 end)
 
+module Dimension_table = Hashtbl.Make (struct
+  type t = Ast.array_dimension
+
+  let equal left right = left == right
+  let hash = Hashtbl.hash
+end)
+
 type cursor = {
   command_stack : command_position ref list ref;
   mutable current_command : command_start option;
@@ -246,6 +259,13 @@ type cursor = {
   query : (query_event -> (unit, Common.Diagnostic.t list) result) option;
   declaration :
     (declaration_event -> (unit, Common.Diagnostic.t list) result) option;
+  dimension_count :
+    (completed_array_dimension ->
+    ( (completed_array_dimension * int64) option,
+      Common.Diagnostic.t list )
+    result)
+    option;
+  dimension_counts : int64 Dimension_table.t;
   mutable lookahead : located_token list;
   mutable diagnostics_rev : Common.Diagnostic.t list;
   mutable local_context : Symbol_visibility.Environment.local_context option;
@@ -759,6 +779,27 @@ let publish_declaration cursor at event =
               ~message:"declaration consumer failed without an error diagnostic";
           raise Stop_command)
     cursor.declaration
+
+let cache_dimension_count cursor at receipt =
+  Option.iter
+    (fun read ->
+      match read receipt with
+      | Ok None -> ()
+      | Ok (Some (original, count)) ->
+          if original != receipt then (
+            report cursor at ~code:"HCPARSE0161"
+              ~message:"array count reader returned another completed dimension";
+            raise Stop_command);
+          Dimension_table.add cursor.dimension_counts receipt.dimension_ast
+            count
+      | Error diagnostics ->
+          cursor.diagnostics_rev <-
+            List.rev_append diagnostics cursor.diagnostics_rev;
+          if not (has_error diagnostics) then
+            report cursor at ~code:"HCPARSE0161"
+              ~message:"array count reader failed without an error diagnostic";
+          raise Stop_command)
+    cursor.dimension_count
 
 let expression_identifier cursor item =
   let identifier =
@@ -2936,6 +2977,7 @@ let parse_array_dimension cursor ~owner ~predecessor ~index =
         (fun dimension_preparation ->
           let receipt = { dimension_preparation; dimension_ast = node } in
           publish_declaration cursor closing (Array_dimension_completed receipt);
+          cache_dimension_count cursor closing receipt;
           receipt)
         preparation
     in
@@ -3142,9 +3184,19 @@ and parse_unbraced_array_initializer cursor ~declarator_context ~depth
     match dimensions with
     | [] -> None
     | (dimension : Ast.array_dimension) :: _ -> (
-        match dimension.dimension_expression with
-        | Some
-            (Ast.Integer_literal { literal_value = Ast.Integer_value value; _ })
+        let value =
+          match Dimension_table.find_opt cursor.dimension_counts dimension with
+          | Some count -> Some count
+          | None -> (
+              match dimension.dimension_expression with
+              | Some
+                  (Ast.Integer_literal
+                     { literal_value = Ast.Integer_value value; _ }) ->
+                  Some value
+              | None | Some _ -> None)
+        in
+        match value with
+        | Some value
           when Int64.compare value 0L > 0
                && Int64.compare value
                     (Int64.of_int max_unbraced_initializer_elements)
@@ -3153,14 +3205,21 @@ and parse_unbraced_array_initializer cursor ~declarator_context ~depth
   in
   match count with
   | None ->
+      let bound_kind =
+        match dimensions with
+        | dimension :: _
+          when Dimension_table.mem cursor.dimension_counts dimension ->
+            "checked"
+        | _ -> "definition-expanded literal"
+      in
       initializer_failure cursor ~declarator_context item
         ~local_open_braces:depth ~global_code:"HCPARSE0159"
         ~local_code:"HCPARSE0159"
         ~global_message:
           (Printf.sprintf
-             "an unbraced global array initializer requires a positive, \
-              definition-expanded literal bound no larger than %d"
-             max_unbraced_initializer_elements)
+             "an unbraced global array initializer requires a positive, %s \
+              bound no larger than %d"
+             bound_kind max_unbraced_initializer_elements)
         ~local_message:
           "unbraced static local array initializers are not implemented"
   | Some count ->
@@ -7530,8 +7589,10 @@ let read_commands ?commands ?stream_opener cursor =
         succeeded := true);
       ast)
 
-let make_cursor ?reference ?query ?declaration ~command_stack ~stream ~sources
-    ~source ~symbols ~compilation_mode ~stop_on_error () =
+let make_cursor ?reference ?query ?declaration ?dimension_count ~command_stack
+    ~stream ~sources ~source ~symbols ~compilation_mode ~stop_on_error () =
+  if Option.is_some dimension_count && Option.is_none declaration then
+    invalid_arg "an array count reader requires a declaration observer";
   {
     command_stack;
     current_command = None;
@@ -7545,6 +7606,8 @@ let make_cursor ?reference ?query ?declaration ~command_stack ~stream ~sources
     references = Identifier_table.create 32;
     query;
     declaration;
+    dimension_count;
+    dimension_counts = Dimension_table.create 16;
     lookahead = [];
     diagnostics_rev = [];
     local_context = None;
@@ -7591,6 +7654,8 @@ let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
                               ?reference:execution.commands.reference
                               ?query:execution.commands.query
                               ?declaration:execution.commands.declaration
+                              ?dimension_count:
+                                execution.commands.dimension_count
                               ~compilation_mode:Preprocessor.Jit
                               ~stop_on_error:true ()
                           in
@@ -7626,6 +7691,9 @@ let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
       ?declaration:
         (Option.bind commands (fun (commands : command_sink) ->
              commands.declaration))
+      ?dimension_count:
+        (Option.bind commands (fun (commands : command_sink) ->
+             commands.dimension_count))
       ~stop_on_error:(Option.is_some commands || Option.is_some execute_stream)
       ~compilation_mode:(Preprocessor.Config.compilation_mode config)
       ()

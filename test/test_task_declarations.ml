@@ -11,7 +11,7 @@ let reject message result =
 let config () = Preprocessor.Config.create () |> checked
 
 let parse_source ?sources ?symbols ?observe ?checkpoint ?reference ?query
-    session ledger source =
+    ?dimension_count ?execute_stream session ledger source =
   let sources = Option.value sources ~default:(Session.sources session) in
   let symbols = Option.value symbols ~default:(Session.symbols session) in
   let events = ref [] in
@@ -28,22 +28,28 @@ let parse_source ?sources ?symbols ?observe ?checkpoint ?reference ?query
       reference;
       query = Some (Option.value query ~default:(D.observe_query ledger));
       declaration = Some consume;
+      dimension_count =
+        Some
+          (Option.value dimension_count
+             ~default:(D.grammar_dimension_count ledger));
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
     }
   in
   let output =
-    Parser.parse ~commands ~sources ~symbols
+    Parser.parse ~commands ?execute_stream ~sources ~symbols
       ~definitions:(Session.definitions session)
       ~config:(config ()) source
   in
   (output, List.rev !events)
 
-let parse ?observe ?checkpoint ?reference ?query session ledger text =
+let parse ?observe ?checkpoint ?reference ?query ?dimension_count
+    ?execute_stream session ledger text =
   let source =
     Session.add_source session ~path:"declarations.hc" ~contents:text
   in
-  parse_source ?observe ?checkpoint ?reference ?query session ledger source
+  parse_source ?observe ?checkpoint ?reference ?query ?dimension_count
+    ?execute_stream session ledger source
 
 let setup () =
   let session = Session.create () in
@@ -308,6 +314,7 @@ let nested_publication_views () =
       query = None;
       reference = None;
       declaration = Some consume;
+      dimension_count = Some (D.grammar_dimension_count ledger);
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
     }
@@ -591,6 +598,7 @@ let nested_receipt_views () =
           query = None;
           reference = None;
           declaration = Some (D.observe ledger);
+          dimension_count = Some (D.grammar_dimension_count ledger);
           command = (fun _ -> Ok ());
           resume = (fun () -> Ok ());
         }
@@ -960,6 +968,7 @@ let selected_runtime_source session runtime ledger contents =
       query = Some (D.observe_query ledger);
       reference = Some (D.observe_reference ledger);
       declaration = Some (D.observe ledger);
+      dimension_count = Some (D.grammar_dimension_count ledger);
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
     }
@@ -2305,6 +2314,7 @@ let nested_dimension_receipts () =
       reference = None;
       query = None;
       declaration = Some observe;
+      dimension_count = Some (D.grammar_dimension_count ledger);
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
     }
@@ -2616,8 +2626,200 @@ let checked_extent_native_timing () =
   Alcotest.(check int)
     "parent visits only its remaining allowance" 1 (D.dimension_work ledger)
 
+let grammar_dimension_ownership () =
+  let session = Session.create () in
+  let source =
+    Session.add_source session ~path:"grammar-counts.hc"
+      ~contents:"U8 A[1+1]=40,2,B[sizeof A]=20,22;sizeof A;"
+  in
+  let ledger =
+    D.create_source ~max_dimension_work:4 session ~source |> checked
+  in
+  let receipts = ref [] in
+  let observe event =
+    (match event with
+    | Parser.Array_dimension_completed receipt ->
+        reject "count unavailable before successful completion"
+          (D.grammar_dimension_count ledger receipt)
+    | _ -> ());
+    D.observe ledger event
+  in
+  let dimension_count receipt =
+    receipts := receipt :: !receipts;
+    let before = D.dimension_work ledger in
+    let read () =
+      let original, count =
+        D.grammar_dimension_count ledger receipt |> expect |> Option.get
+      in
+      Alcotest.(check bool)
+        "count echoes exact original receipt" true (original == receipt);
+      Alcotest.(check int64) "checked array count" 2L count
+    in
+    read ();
+    read ();
+    Alcotest.(check int)
+      "repeated grammar reads charge no work" before (D.dimension_work ledger);
+    D.grammar_dimension_count ledger receipt
+  in
+  let output, _ =
+    parse_source ~observe ~dimension_count session ledger source
+  in
+  let ast = Test_parser.expect_ast output in
+  let command = D.seal_source ledger ast |> expect in
+  Alcotest.(check int)
+    "one service call per original dimension" 2 (List.length !receipts);
+  Alcotest.(check int)
+    "grammar, sizeof and sealing preserve exact work" 4
+    (D.source_dimension_work command);
+  let foreign = D.create_source session ~source |> checked in
+  List.iter
+    (fun receipt ->
+      reject "completed context cannot supply a new grammar read"
+        (D.grammar_dimension_count ledger receipt);
+      reject "foreign ledger cannot borrow a completed receipt"
+        (D.grammar_dimension_count foreign receipt))
+    !receipts
+
+let grammar_completion_failure () =
+  List.iter
+    (fun failure ->
+      let session, runtime, ledger =
+        runtime_setup ~max_initializer_steps:3 ()
+      in
+      let reads = ref 0 in
+      let reached = ref false in
+      let completed = ref None in
+      let observe event =
+        match event with
+        | Parser.Array_dimension_completed receipt ->
+            completed := Some receipt;
+            if failure = `Omitted then Ok ()
+            else (
+              ignore (D.observe ledger event |> expect);
+              if failure = `Exception then failwith "completion wrapper"
+              else Error [])
+        | _ -> D.observe ledger event
+      in
+      let dimension_count receipt =
+        incr reads;
+        D.grammar_dimension_count ledger receipt
+      in
+      let execute_stream _ =
+        reached := true;
+        Error []
+      in
+      let run () =
+        parse ~observe ~dimension_count ~execute_stream session ledger
+          "U8 A[1+1] #exe {} =40,2;"
+      in
+      (if failure = `Exception then
+         Alcotest.check_raises "completion exception propagates"
+           (Failure "completion wrapper") (fun () -> ignore (run ()))
+       else
+         let output, events = run () in
+         Alcotest.(check bool)
+           "failed completion aborts grammar" true (Parser.has_errors output);
+         Alcotest.(check bool)
+           "failed completion cannot publish global" false
+           (List.exists
+              (function
+                | Parser.Global_declared _ -> true
+                | _ -> false)
+              events));
+      Alcotest.(check int)
+        "reader only follows accepted completion"
+        (if failure = `Omitted then 1 else 0)
+        !reads;
+      Alcotest.(check bool)
+        "completion failure stops subsequent directive" false !reached;
+      Alcotest.(check int)
+        "reached preparation remains charged once" 3
+        (VM.task_initializer_steps runtime);
+      reject "aborted wrapper cannot read its original completion"
+        (D.grammar_dimension_count ledger (Option.get !completed)))
+    [ `Omitted; `Rejected; `Exception ]
+
+let nested_grammar_dimensions () =
+  List.iter
+    (fun contents ->
+      let session, runtime, ledger =
+        runtime_setup ~max_initializer_steps:7 ()
+      in
+      let source =
+        Session.add_source session ~path:"nested-grammar.hc" ~contents
+      in
+      let receipts = ref [] in
+      let count receipt =
+        List.iter
+          (fun other ->
+            if
+              other.Parser.dimension_preparation.dimension_owner
+                .dimensions_command
+              != receipt.Parser.dimension_preparation.dimension_owner
+                   .dimensions_command
+            then
+              reject "nested command cannot read another command's count"
+                (D.grammar_dimension_count ledger other))
+          !receipts;
+        receipts := receipt :: !receipts;
+        D.grammar_dimension_count ledger receipt
+      in
+      let commands : Parser.command_sink =
+        {
+          checkpoint = Some (D.observe_command ledger);
+          reference = None;
+          query = Some (D.observe_query ledger);
+          declaration = Some (D.observe ledger);
+          dimension_count = Some count;
+          command = (fun _ -> Ok ());
+          resume = (fun () -> Ok ());
+        }
+      in
+      let execute_stream _ =
+        Ok
+          Parser.
+            {
+              definitions = Session.definitions session;
+              symbols = Session.symbols session;
+              commands;
+              finish = (fun () -> Ok "");
+              abort = (fun () -> ());
+            }
+      in
+      let output =
+        Parser.parse ~commands ~execute_stream
+          ~sources:(Session.sources session) ~symbols:(Session.symbols session)
+          ~definitions:(Session.definitions session)
+          ~config:(config ()) source
+      in
+      ignore (Test_parser.expect_ast output);
+      Alcotest.(check int)
+        "both cursors read their own counts" 3 (List.length !receipts);
+      Alcotest.(check int)
+        "nested grammar reuses cumulative preparation" 7
+        (VM.task_initializer_steps runtime);
+      List.iter
+        (fun receipt ->
+          let dimension = receipt.Parser.dimension_ast in
+          Alcotest.(check bool)
+            "original expression remains nonliteral" true
+            (match dimension.dimension_expression with
+            | Some (Ast.Integer_literal _) -> false
+            | _ -> true))
+        !receipts)
+    [
+      "U8 A[1+1 #exe {U8 A[1+2]=10,20,12;}]=40,2,B[sizeof A]=20,22;";
+      "U8 A[1+1]=#exe {U8 A[1+2]=10,20,12;}40,2,B[sizeof A]=10,20,12;";
+    ]
+
 let tests =
   [
+    Alcotest.test_case "grammar counts require active original checked extents"
+      `Quick grammar_dimension_ownership;
+    Alcotest.test_case "failed completion cannot supply grammar counts" `Quick
+      grammar_completion_failure;
+    Alcotest.test_case "nested initializer grammar keeps its own extent counts"
+      `Quick nested_grammar_dimensions;
     Alcotest.test_case "checked extents retain exact source ownership" `Quick
       checked_extent_ownership;
     Alcotest.test_case

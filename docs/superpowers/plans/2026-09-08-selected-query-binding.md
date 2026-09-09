@@ -102,6 +102,42 @@ facade to execute directives past a native early error.
 
 ### Checked extents after 8f53c73
 
+The pushed checked-extent checkpoint is30b6871 (tree bf7b7f3). Its rebuilt
+source passes239 focused groups and the complete CLI checks. Both hosted OCaml
+jobs pass2255/2269 tests, failing only the14 pending #exe groups; corpus and
+dependency review pass. The external prompt and guarded issue/PR bodies retain
+the exact verification and all unfinished requirements.
+
+Continue the planned grammar consumer through an optional command-sink service.
+Call it after successful dimension completion and before the next lexer read.
+Its reply echoes the exact completed receipt; cache only its grammar count by
+the physical original dimension in each cursor. Require a declaration observer
+when a service is supplied. The ledger validates active owner/environment and
+the exact completed checked proof, then projects the count without evaluation
+or work. Source/runtime ledgers reject missing proof; analysis-only parsing may
+use the existing literal fallback. Semantic consumers still require opaque
+checked extents, never this numeric projection. Wire root and child cursors.
+Test arithmetic/query/unbraced rows and comma declarations, original ASTs,
+service errors/foreign receipts/missing phases, nesting and exact unchanged
+work; preserve callback-free literal and unsized/static-local boundaries.
+
+24N7FY8W reproduced the missing grammar count at HCPARSE0159. The implemented
+service now passes source arithmetic/query/comma/multidimensional controls and
+exact unchanged preparation counts. OSW3R08O passes186 focused parser, ledger,
+array and task groups. Read-only review found no ownership or timing blocker.
+The full main run Z65OZTCB passes2262/2276 groups in69.318s, failing only the14
+pending #exe groups. Its separate CLI action found a test-helper mistake: the
+legacy success helper injected a second report-version flag. The new v2 case
+now uses invoke_raw, preserving the existing helper contract; final checks follow.
+
+Final run UMZ31I40 passes2262/2276 groups in80.669s with exactly the14 known
+stateful #exe failures; the CLI action passes. Formatting, generated/all/install
+builds,82 reference checksums and11 provenance scenarios pass. The complete
+lexer/parser JSON and normalized parser JSON text match the existing baselines:
+528/528 lex,25 standalone parses and126 with the prelude. The cached grammar
+consumer is verified within this scope. Retained extent proofs, effectful
+dimensions and the full compiler/#635 implementation remain required.
+
 Continue serial implementation under the approved stateful compiler design.
 Root owns edits and executable use; independent ownership/accounting review is
 read-only. Preserve the complete compiler and all seven #635 requirements.
@@ -129,11 +165,11 @@ read-only. Preserve the complete compiler and all seven #635 requirements.
   interface. Numeric visits charge on node entry, before children; grouping and
   skipped operands are free and empty dimensions cost zero. Keep this work
   separate from initializer instruction evidence, including reached failures.
-- [ ] Feed exact cached values into published/global/local sizeof, global and
+- [x] Feed exact cached values into published/global/local sizeof, global and
   function-frame layout, and unbraced initializer grammar. Grammar receives only
   a receipt-bound read-only numeric projection; semantic consumers require the
   opaque preparation. Do not infer authority from raw integers or synthetic ASTs.
-- [ ] Test native error/Lex ordering, original/foreign/replayed/missing evidence,
+- [x] Test native error/Lex ordering, original/foreign/replayed/missing evidence,
   empty and negative extents, overflow, nested queries, no repeated work and
   exact/one-below shared budgets; then run required full checks and review.
 
@@ -145,8 +181,9 @@ Checked source extents now feed published/global/local sizeof and global/frame
 layout. Typed descriptors retain the complete original dimension node and reject
 mixed source-expression/bracket evidence. The reviewer reproduced the A[3]/B[2]
 substitution gap before that validation; maintained global/local controls now
-reject it. Grammar feedback and retained-runtime/legacy global extent proofs
-remain unfinished. Keep the explicit callback-free layout path until its checked
+reject it. Grammar feedback now consumes an exact receipt-bound projection after
+completion. Retained-runtime/legacy global extent proofs remain unfinished.
+Keep the explicit callback-free layout path until its checked
 evaluation and retained storage metadata are integrated without re-evaluation.
 
 Full run OVK96TB0 exposed an accounting conflict: sharing ordinary numeric visits

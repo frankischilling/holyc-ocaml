@@ -286,10 +286,14 @@ Completion associates the checked value with its original source node. Global
 and local sizeof and layout reuse it without evaluating or charging again.
 Numeric node visits share the task preparation allowance while remaining visible
 through `dimension_work`; ordinary source has its separate dimension allowance.
-Unbraced initializer feedback, effectful dimension evaluation and retained legacy
-array metadata remain required. Declared sizes remain separate from rounded runtime
-storage. The pinned PrsArrayDims assigns zero to
-an empty first dimension, while initializer inference branches test negative
+The parser reads each original completed count after the declaration observer
+accepts it and before the next lexer read. Each cursor caches that grammar-only
+projection for unbraced initializer rows; expressions and checked semantic
+evidence remain unchanged. Missing, foreign and aborted completion reads reject,
+and nested cursors keep separate caches. Effectful dimension evaluation and
+retained legacy array metadata remain required. Declared sizes remain separate
+from rounded runtime storage. The pinned PrsArrayDims assigns zero to an empty
+first dimension, while initializer inference branches test negative
 counts; the comments alone do not establish positive inference for that syntax.
 
 Parser command receipts now prove whole-command membership and parser order.

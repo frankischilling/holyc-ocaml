@@ -41,6 +41,7 @@ let prepare ?(mode = Preprocessor.Jit) ?capture_queries ~path contents =
             reference = None;
             query = Some query;
             declaration = None;
+            dimension_count = None;
             command = (fun _ -> Ok ());
             resume = (fun () -> Ok ());
           }

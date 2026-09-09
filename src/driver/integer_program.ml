@@ -935,6 +935,8 @@ let compile_report ?(max_dimension_work = 100_000)
           query = Some (Task_declarations.observe_query ledger);
           reference = None;
           declaration = Some (Task_declarations.observe ledger);
+          dimension_count =
+            Some (Task_declarations.grammar_dimension_count ledger);
           command = (fun _ -> Ok ());
           resume = (fun () -> Ok ());
         }
