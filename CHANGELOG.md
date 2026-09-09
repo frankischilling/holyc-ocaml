@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Expanded provenance checks to built executable consumers after Git or release
+  override changes, including normal build/install aliases and both cache modes.
+  Quoted Dune aliases in local command examples so PowerShell passes the requested
+  targets instead of treating them as variable splats. The existing metadata
+  generator and Dune rule are unchanged.
+
 - Connected I8/I16/U16/I32/U32 storage, fixed arrays, references, updates and
   numeric signatures in #633 through shared generated width/signedness metadata.
   Generalized native initializer range proof and signed copied-byte handling.
