@@ -159,6 +159,17 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               (Integer_source.global_records prepared)
           in
           let* globals_ =
+            Option.fold ~none:(Ok globals_)
+              ~some:(fun view ->
+                Ir.Integer_globals.join_declared view globals_
+                |> Result.map_error (fun message ->
+                    [
+                      Integer_source.diagnostic ~span:ast.span "HCRUN0004"
+                        message;
+                    ]))
+              task_view
+          in
+          let* globals_ =
             Ir.Integer_globals.with_statics ~span:ast.span
               ~frames:(Integer_source.frames prepared)
               ~functions:(Integer_source.functions prepared)
@@ -720,8 +731,9 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                     if not (Ir.Integer_globals.slot_root_materialized slot root)
                     then Some (slot, Lower.Initialize_global root)
                     else if
-                      Option.is_some
-                        (Ir.Integer_globals.slot_array_initializers slot)
+                      (Option.is_some
+                         (Ir.Integer_globals.slot_array_initializers slot)
+                      || Ir.Integer_globals.slot_reuses_declared_storage slot)
                       && Ir.Integer_globals.slot_opcode slot
                          = Ir.Opcode.Ic_imm_i64
                     then

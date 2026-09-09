@@ -559,6 +559,13 @@ let create ?(static_descriptions = []) ?(publications = [])
         Int.compare (index left) (index right))
   in
   let prepared_entry = function
+    | Global_pending (slot, root)
+      when Integer_globals.slot_reuses_declared_storage slot
+           && Option.is_none (Integer_globals.slot_array_initializers slot)
+           && Integer_globals.slot_root_materialized slot root ->
+        Option.map
+          (fun bits -> (0, Integer_array_initializers.Word bits))
+          (Integer_globals.slot_initial_bits slot)
     | Global_pending (slot, root) ->
         Option.bind (Integer_globals.slot_array_initializers slot)
           (fun arrays ->
@@ -566,7 +573,9 @@ let create ?(static_descriptions = []) ?(publications = [])
               (fun entry ->
                 Option.map
                   (fun (payload, _) ->
-                    (Integer_array_initializers.destination entry, payload))
+                    ( Integer_array_initializers.destination entry
+                      |> Integer_initializer_layout.cell_offset,
+                      payload ))
                   (Integer_array_initializers.prepared entry)))
     | Static_pending (slot, root) ->
         Option.bind (Integer_globals.static_array_initializers slot)
@@ -575,7 +584,9 @@ let create ?(static_descriptions = []) ?(publications = [])
               (fun entry ->
                 Option.map
                   (fun (payload, _) ->
-                    (Integer_array_initializers.destination entry, payload))
+                    ( Integer_array_initializers.destination entry
+                      |> Integer_initializer_layout.cell_offset,
+                      payload ))
                   (Integer_array_initializers.prepared entry)))
   in
   let storage = function
@@ -616,13 +627,12 @@ let create ?(static_descriptions = []) ?(publications = [])
         then
           invalid "prepared array publication has no module entry instruction"
         else
-          let destination, payload = Option.get (prepared_entry owner) in
+          let cell_offset, payload = Option.get (prepared_entry owner) in
           let publication =
             {
               publication_description = description;
               publication_storage_ = storage owner;
-              publication_cell_offset_ =
-                Integer_initializer_layout.cell_offset destination;
+              publication_cell_offset_ = cell_offset;
               publication_payload_ = payload;
             }
           in

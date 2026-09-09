@@ -69,6 +69,18 @@ type global_extent = {
   global_extent_count : int64;
 }
 
+type declared_global = {
+  declared_table : Symbol_table.t;
+  declared_namespace : Declaration_collection.namespace;
+  declared_predecessor : Parser.completed_command option;
+  declared_previous_global : Symbol.t option;
+  declared_publication : Declaration_collection.publication;
+  declared_source : Parser.global_publication;
+  declared_type : Type_reference.t;
+  declared_dimensions : declared_dimension list;
+  mutable declared_completion : Ast.global_declarator option;
+}
+
 let ( let* ) = Result.bind
 
 let validate_dimension ~table ~(dimension : Ast.array_dimension) checked =
@@ -242,6 +254,99 @@ let published_scalar ?(dimensions = []) ~table ~namespace publication =
               byte_size;
               internal = false;
             }
+
+let declare_global ~dimensions ~table ~namespace ~predecessor ~previous_global
+    publication =
+  let* _ = published_scalar ~dimensions ~table ~namespace publication in
+  let source =
+    Option.get (Declaration_collection.publication_source_global publication)
+  in
+  if
+    Option.is_some source.global_header.binding
+    || List.exists
+         (fun (modifier : Ast.declaration_modifier) ->
+           modifier.kind <> Ast.Public)
+         source.global_header.modifiers
+  then Error "partial storage requires an ordinary code-heap definition"
+  else
+    let* declared_type =
+      Source_type_reference.builtin source.global_header.type_specifier
+        source.global_pointer_layers
+    in
+    Ok
+      {
+        declared_table = table;
+        declared_namespace = namespace;
+        declared_predecessor = predecessor;
+        declared_previous_global = previous_global;
+        declared_publication = publication;
+        declared_source = source;
+        declared_type;
+        declared_dimensions = dimensions;
+        declared_completion = None;
+      }
+
+let declared_global_symbol declaration =
+  Declaration_collection.publication_symbol declaration.declared_publication
+
+let declared_global_source declaration = declaration.declared_source
+let declared_global_type declaration = declaration.declared_type
+
+let declared_global_dimensions declaration =
+  List.map dimension_count declaration.declared_dimensions
+
+let declared_global_owns_table declaration table =
+  declaration.declared_table == table
+
+let declared_global_owns_namespace declaration namespace =
+  declaration.declared_namespace == namespace
+
+let declared_global_predecessor declaration = declaration.declared_predecessor
+
+let declared_global_previous_global declaration =
+  declaration.declared_previous_global
+
+let complete_declared_global declaration event =
+  match event with
+  | Parser.Global_completed (source, completed)
+    when source == declaration.declared_source
+         && completed.name == source.global_name
+         && completed.pointer_layers == source.global_pointer_layers
+         && completed.array_dimensions == source.global_dimensions
+         && Option.is_none declaration.declared_completion ->
+      declaration.declared_completion <- Some completed;
+      Ok ()
+  | _ -> Error "declared storage completion is foreign or repeated"
+
+let declared_global_completion declaration = declaration.declared_completion
+
+let validate_declared_global_type declaration global =
+  let module Global = Global_type_resolution in
+  let reference = Global.global_type_reference global in
+  let original = declaration.declared_type in
+  let dimensions = Global.global_array_dimensions global in
+  if
+    Global.global_symbol global != declared_global_symbol declaration
+    || Global.global_declarator_kind global <> Global.Object
+    || (not
+          (Type.equal
+             (Type_reference.resolved_type reference)
+             (Type_reference.resolved_type original)))
+    || Type_reference.spelling reference <> Type_reference.spelling original
+    || Type_reference.spelling_origin reference
+       <> Type_reference.spelling_origin original
+    || Type_reference.pointer_origins reference
+       <> Type_reference.pointer_origins original
+    || List.length dimensions <> List.length declaration.declared_dimensions
+    || not
+         (List.for_all2
+            (fun dimension checked ->
+              Option.fold ~none:false
+                ~some:(fun source -> source == checked.completed.dimension_ast)
+                (Global.array_dimension_source dimension))
+            dimensions declaration.declared_dimensions)
+  then Error "completed storage substituted its declared type or dimensions"
+  else Ok ()
 
 let bind_retained_scalar ~table ~entry global =
   let symbol = Global_type_resolution.global_symbol global in

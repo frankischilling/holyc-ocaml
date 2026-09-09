@@ -142,7 +142,10 @@ type declaration_header = {
   type_specifier : Ast.type_specifier;
 }
 
+type global_activity = { mutable global_active : bool }
+
 type global_publication = {
+  global_activity : global_activity;
   global_header : declaration_header;
   global_environment : Symbol_visibility.Environment.t;
   global_entry : Symbol_visibility.entry;
@@ -152,6 +155,11 @@ type global_publication = {
   global_function_pointer : Ast.function_pointer_declarator option;
   global_dimensions : Ast.array_dimension list;
 }
+
+let global_publication_is_current publication =
+  publication.global_activity.global_active
+  && publication.global_header.declaration_command.command_context
+       .context_active
 
 type initializer_activity = { mutable initializer_phase : int option }
 
@@ -3434,6 +3442,7 @@ let parse_variable_declarator_suffix ?header cursor
               in
               let publication =
                 {
+                  global_activity = { global_active = true };
                   global_header;
                   global_environment = cursor.symbols;
                   global_entry;
@@ -3444,8 +3453,12 @@ let parse_variable_declarator_suffix ?header cursor
                   global_dimensions = array_dimensions;
                 }
               in
-              publish_declaration cursor (peek cursor)
-                (Global_declared publication);
+              Fun.protect
+                ~finally:(fun () ->
+                  publication.global_activity.global_active <- false)
+                (fun () ->
+                  publish_declaration cursor (peek cursor)
+                    (Global_declared publication));
               publication)
             header
       in

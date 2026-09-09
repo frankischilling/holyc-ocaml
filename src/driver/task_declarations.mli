@@ -1,4 +1,11 @@
 type t
+
+val admit_global :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.global_publication ->
+  (unit, Common.Diagnostic.t list) result
+
 type command
 type source_command
 type query

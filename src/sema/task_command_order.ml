@@ -11,6 +11,8 @@ type family = {
 }
 
 type t = {
+  mutable events : Parser.command_event list;
+  mutable starts : Parser.command_start list;
   table : Symbol_table.t;
   mutable families : family list;
   mutable contexts : (Parser.command_context * family) list;
@@ -31,7 +33,15 @@ type command = {
 }
 
 let create ~table =
-  { table; families = []; contexts = []; nodes = []; sequences = [] }
+  {
+    table;
+    events = [];
+    starts = [];
+    families = [];
+    contexts = [];
+    nodes = [];
+    sequences = [];
+  }
 
 let rec root context =
   match Parser.context_parent context with
@@ -49,7 +59,7 @@ let context_family order context =
 let find_node (order : t) receipt =
   List.find_opt (fun node -> node.receipt == receipt) order.nodes
 
-let observe order event =
+let observe_impl order event =
   match event with
   | Parser.Sequence_started context ->
       if Parser.context_mode context <> Frontend.Preprocessor.Jit then
@@ -95,12 +105,25 @@ let observe order event =
           order.sequences <- (receipt, family.last_resumed) :: order.sequences;
           Ok ()
       | None -> Error "task source sequence has no original context")
-  | Parser.Command_started _ | Parser.Sequence_aborted _ -> Ok ()
+  | Parser.Command_started start ->
+      if
+        Option.is_none (context_family order start.command_context)
+        || List.exists (( == ) start) order.starts
+      then Error "task source start is foreign or repeated"
+      else (
+        order.starts <- start :: order.starts;
+        Ok ())
+  | Parser.Sequence_aborted _ -> Ok ()
+
+let observe order event =
+  Result.map
+    (fun () -> order.events <- event :: order.events)
+    (observe_impl order event)
 
 let import_source_events order events =
   if
-    order.contexts <> [] || order.families <> [] || order.nodes <> []
-    || order.sequences <> []
+    order.contexts <> [] || order.starts <> [] || order.families <> []
+    || order.nodes <> [] || order.sequences <> []
   then Error "source promotion requires an empty task command order"
   else
     let pending = create ~table:order.table in
@@ -112,6 +135,8 @@ let import_source_events order events =
     in
     Result.map
       (fun () ->
+        order.events <- pending.events;
+        order.starts <- pending.starts;
         order.families <- pending.families;
         order.contexts <- pending.contexts;
         order.nodes <- pending.nodes;
@@ -191,6 +216,71 @@ let same_identity left right =
   | _ -> false
 
 let contains node nodes = List.exists (fun saved -> saved == node) nodes
+
+let check_declaration order ~admitted ~(publication : Parser.global_publication)
+    ~predecessor =
+  let start = publication.global_header.declaration_command in
+  let observed_events =
+    List.fold_left
+      (fun count event ->
+        let context =
+          match event with
+          | Parser.Sequence_started context | Parser.Sequence_aborted context ->
+              context
+          | Parser.Command_started start -> start.command_context
+          | Parser.Command_completed receipt | Parser.Command_resumed receipt ->
+              receipt.command_start.command_context
+          | Parser.Sequence_completed receipt -> receipt.sequence_context
+        in
+        if context == start.command_context then count + 1 else count)
+      0 order.events
+  in
+  if not (Parser.context_is_current start.command_context ~observed_events) then
+    Error "declared storage source context is no longer current"
+  else if not (List.exists (( == ) start) order.starts) then
+    Error "declared storage has no original task command start"
+  else
+    match predecessor with
+    | None -> Ok ()
+    | Some receipt -> (
+        match find_node order receipt with
+        | Some node
+          when Option.is_some node.predecessor
+               && root receipt.command_start.command_context
+                  == root start.command_context
+               && List.exists
+                    (fun command ->
+                      command.owner == order && contains node command.nodes)
+                    admitted -> Ok ()
+        | _ -> Error "declared storage predecessor has not been admitted")
+
+let contains_global command ~(publication : Parser.global_publication)
+    ~(completed : Frontend.Ast.global_declarator) ~item_index ~declarator_index
+    =
+  let open Frontend.Ast in
+  List.exists
+    (fun node ->
+      node.receipt.command_start
+      == publication.global_header.declaration_command)
+    command.nodes
+  &&
+  match List.nth_opt command.ast.items item_index with
+  | Some (Global_declaration declaration) ->
+      Option.fold ~none:false
+        ~some:(fun index ->
+          Option.fold ~none:false ~some:(( == ) completed)
+            (List.nth_opt declaration.declarators index))
+        declarator_index
+  | Some (Global_variable variable) ->
+      Option.is_none declarator_index
+      && variable.name == completed.name
+      && variable.pointer_layers == completed.pointer_layers
+      && variable.array_dimensions == completed.array_dimensions
+      && Option.is_none completed.global_initial_value
+      && Option.is_none completed.function_pointer
+      && completed.delimiter.kind = Semicolon
+      && completed.delimiter.location.span == variable.semicolon
+  | _ -> false
 
 let check order ~admitted command =
   if command.owner != order then Error "source order belongs to another task"

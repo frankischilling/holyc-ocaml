@@ -1,5 +1,14 @@
 # Reference source map
 
+[Partial task storage](integer-task.md) follows the pinned
+`Compiler/PrsStmt.HC:334-435` allocation and publication path. Global storage
+exists before initializer parsing, and the same address remains attached to the
+record afterward. Hosted unknown-cell diagnostics, namespace certificates and
+byte quotas are implementation controls. Per-leaf native timing from
+`Compiler/PrsVar.HC:81-204` still needs live initializer execution; completed
+command initialization does not establish that compatibility result. The
+reference remains `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
+
 [Narrow integers](integer-narrow.md) in #633 follow `BackLib.HC:281-309,509-534,
 550-572` for memory width/extension and register transport, and
 `OptPass789A.HC:710-717,779-782,1026-1030` for parameter entry and returns.

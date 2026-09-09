@@ -2,15 +2,24 @@ type t
 type slot
 type static_slot
 type storage_slot
+type declared_slot
 type task_catalog
 type task_view
 
 type task_publication = private
   | Global_publication of Retained_global.t * slot
+  | Declared_publication of Retained_global.t * declared_slot
   | Function_publication of Retained_function.t
 
 val create_task_catalog : table:Sema.Symbol_table.t -> task_catalog
 val task_catalog_owns_table : task_catalog -> Sema.Symbol_table.t -> bool
+
+val check_task_namespace :
+  task_catalog -> Sema.Declaration_collection.namespace -> (unit, string) result
+
+val bind_task_namespace :
+  task_catalog -> Sema.Declaration_collection.namespace -> (unit, string) result
+
 val task_source_order : task_catalog -> Sema.Task_command_order.t
 
 val with_source_command :
@@ -46,8 +55,22 @@ val retained_function_symbol : t -> Sema.Symbol.t -> Retained_function.t option
     the exact selected binding and sealed call site. *)
 
 val retained_binding :
-  t -> Sema.Outer_environment.binding -> (Retained_global.t * slot) option
+  t ->
+  Sema.Outer_environment.binding ->
+  (Retained_global.t * storage_slot) option
 
+val declared_storage : declared_slot -> storage_slot
+val declared_record : declared_slot -> Sema.Compiler_record.declared_global
+val allocated_storage_slots : t -> storage_slot list
+val find_allocated_storage : t -> Sema.Symbol.t -> storage_slot option
+
+val prepare_declared :
+  task_catalog ->
+  Sema.Compiler_record.declared_global ->
+  (t * declared_slot, string) result
+
+val publish_declared : task_catalog -> declared_slot -> task_publication
+val join_declared : task_view -> t -> (t, string) result
 val retained_slot : t -> Retained_global.t -> storage_slot option
 val is_task_command : t -> bool
 val check_task_command : task_catalog -> t -> (unit, string) result
@@ -141,6 +164,7 @@ val find : t -> Sema.Symbol.t -> slot option
 (** Lookup requires the exact symbol object, not just its table-local ID. *)
 
 val slot_index : slot -> int
+val slot_reuses_declared_storage : slot -> bool
 val slot_symbol : slot -> Sema.Symbol.t
 val slot_type : slot -> Sema.Type.t
 val slot_record : slot -> Sema.Global_record_classification.classified_record

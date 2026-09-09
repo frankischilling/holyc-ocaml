@@ -281,6 +281,8 @@ type retained_executable = {
 type task_stream = { stream_output : Output.t }
 
 type admitted_publication =
+  | Admitted_declared_global of
+      Retained_global.t * Integer_globals.declared_slot
   | Admitted_global of Retained_global.t * Integer_globals.slot
   | Admitted_function of Retained_function.t
 
@@ -306,6 +308,7 @@ type isolated_preparation = {
 }
 
 type task_state = {
+  mutable declared_admissions : admitted_publication list;
   mutable source_promotion_open : bool;
   catalog : Integer_globals.task_catalog;
   mutable arenas : (Integer_globals.t * runtime_storage) list;
@@ -363,6 +366,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
     let output = Output.create ~max_output_bytes ~max_output_work in
     Ok
       {
+        declared_admissions = [];
         source_promotion_open = true;
         catalog = Integer_globals.create_task_catalog ~table;
         arenas = [];
@@ -423,13 +427,21 @@ let task_snapshot task = Integer_globals.snapshot_task task.catalog
 let task_source_order task = Integer_globals.task_source_order task.catalog
 let start_task_compilation task = task.source_promotion_open <- false
 
-let promote_task_source task ~events ~dimension_steps =
+let bind_task_namespace task namespace =
+  Integer_globals.bind_task_namespace task.catalog namespace
+
+let promote_task_source task ~namespace ~events ~dimension_steps =
   if not task.source_promotion_open then
     Error "source promotion requires a fresh task runtime"
   else if dimension_steps < 0 || dimension_steps > task.max_initializer_steps
   then Error "source dimension work exceeds the task preparation allowance"
   else
-    Sema.Task_command_order.import_source_events (task_source_order task) events
+    Result.bind (Integer_globals.check_task_namespace task.catalog namespace)
+      (fun () ->
+        Sema.Task_command_order.import_source_events (task_source_order task)
+          events)
+    |> fun result ->
+    Result.bind result (fun () -> bind_task_namespace task namespace)
     |> Result.map (fun () ->
         task.initializer_steps <- dimension_steps;
         task.source_promotion_open <- false)
@@ -499,6 +511,7 @@ let admission_publications receipt = receipt.admission_publications
 let latest_task_admission task = List.nth_opt task.admissions 0
 
 let admitted_source_symbol = function
+  | Admitted_declared_global (reference, _) -> Retained_global.symbol reference
   | Admitted_global (reference, _) -> Retained_global.symbol reference
   | Admitted_function reference ->
       Retained_function.metadata reference
@@ -508,12 +521,48 @@ let admitted_source_symbol = function
       |> Sema.Function_type_resolution.function_symbol
 
 let admitted_publication_for_symbol task symbol =
-  List.find_map
-    (fun receipt ->
-      List.find_opt
-        (fun publication -> admitted_source_symbol publication == symbol)
-        receipt.admission_publications)
-    task.admissions
+  match
+    List.find_opt
+      (fun publication -> admitted_source_symbol publication == symbol)
+      task.declared_admissions
+  with
+  | Some publication -> Some publication
+  | None ->
+      List.find_map
+        (fun receipt ->
+          List.find_opt
+            (fun publication -> admitted_source_symbol publication == symbol)
+            receipt.admission_publications)
+        task.admissions
+
+let admit_declared_global task declaration =
+  let ( let* ) = Result.bind in
+  let* globals, slot =
+    Integer_globals.prepare_declared task.catalog declaration
+  in
+  let bytes = Integer_globals.byte_size globals in
+  if bytes > task.max_global_bytes - task.global_bytes then
+    Error "HCIRVM0016: task global storage exceeds the cumulative byte limit"
+  else
+    let storage =
+      {
+        cells = Array.make (Integer_globals.cell_count globals) None;
+        live = true;
+        unknown_message =
+          "hosted execution reached an uninitialized JIT persistent object";
+      }
+    in
+    let publication =
+      match Integer_globals.publish_declared task.catalog slot with
+      | Integer_globals.Declared_publication (reference, slot) ->
+          Admitted_declared_global (reference, slot)
+      | _ -> assert false
+    in
+    task.arenas <- (globals, storage) :: task.arenas;
+    task.declared_admissions <- publication :: task.declared_admissions;
+    task.global_bytes <- task.global_bytes + bytes;
+    task.source_promotion_open <- false;
+    Ok ()
 
 let task_function_source task link =
   List.find_opt
@@ -2495,20 +2544,21 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
       "hosted execution reached an uninitialized JIT persistent object"
   in
   let global_region slot =
-    let storage =
+    let region =
       List.find_map
         (fun (owner, storage) ->
           match
-            Integer_globals.find_storage owner
+            Integer_globals.find_allocated_storage owner
               (Integer_globals.storage_symbol slot)
           with
           | Some expected when Integer_globals.same_storage expected slot ->
-              Some storage
+              Some (storage, Integer_globals.storage_index expected)
           | _ -> None)
         retained_regions
-      |> Option.value ~default:global_storage
+      |> Option.value
+           ~default:(global_storage, Integer_globals.storage_index slot)
     in
-    (storage, Integer_globals.storage_index slot)
+    region
   in
   let publications =
     Option.fold ~none:[] ~some:Global_initialization.publications initialization
@@ -2542,11 +2592,15 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
               (Global_initialization.publication_cell_offset publication)
             (Global_initialization.publication_payload publication)
             (fun cell word ->
-              let storage, _ =
+              let storage, base =
                 global_region
                   (Global_initialization.publication_storage publication)
               in
-              storage.cells.(cell) <- Some (Runtime_word word));
+              let original =
+                Integer_globals.storage_index
+                  (Global_initialization.publication_storage publication)
+              in
+              storage.cells.(base + cell - original) <- Some (Runtime_word word));
           applied_publications.(index) <- true))
   in
   let literal_storage =
@@ -3810,7 +3864,7 @@ let execute_program_with_output ?task ?isolated_budget ?runtime_calls ~output
           (Option.fold ~none:0 ~some:Integer_globals.cell_count globals)
           None
       in
-      Option.fold ~none:[] ~some:Integer_globals.storage_slots globals
+      Option.fold ~none:[] ~some:Integer_globals.allocated_storage_slots globals
       |> List.iter (fun slot ->
           let initial =
             Option.map (storage_word slot)
@@ -3882,6 +3936,8 @@ let execute_program_with_output ?task ?isolated_budget ?runtime_calls ~output
               (function
                 | Integer_globals.Global_publication (reference, slot) ->
                     Admitted_global (reference, slot)
+                | Integer_globals.Declared_publication (reference, slot) ->
+                    Admitted_declared_global (reference, slot)
                 | Integer_globals.Function_publication reference ->
                     Admitted_function reference)
               publications

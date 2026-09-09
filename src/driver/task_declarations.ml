@@ -75,6 +75,14 @@ type assigned = {
   mutable claimed : bool;
 }
 
+type storage_boundary = {
+  storage_source : Parser.global_publication;
+  storage_predecessor : Parser.completed_command option;
+  storage_previous_global : Sema.Symbol.t option;
+  mutable storage_declaration : Sema.Compiler_record.declared_global option;
+  mutable storage_completion : Parser.declaration_event option;
+}
+
 type reference_stage =
   | Global_selection of Parser.global_publication * Ast.global_declarator option
   | Provisional_function_selection of Parser.function_publication
@@ -150,6 +158,8 @@ type command_sequence = {
 }
 
 type t = {
+  storage_boundaries : storage_boundary Names.t;
+  mutable last_storage_global : Sema.Symbol.t option;
   session : Session.t;
   table : Sema.Symbol_table.t;
   sources : Common.Source_manager.t;
@@ -223,37 +233,47 @@ let create_with_authority ?(max_dimension_work = 100_000) authority session =
           Some (Common.Source_file.display_path source)
       | _ -> None
     in
-    Collection.create_namespace ~table ?module_name ()
-    |> Result.map (fun namespace ->
-        {
-          session;
-          table;
-          namespace;
-          sources = Session.sources session;
-          symbols = Session.symbols session;
-          names = Names.create 32;
-          entries = Entries.create 32;
-          commands = [];
-          next_ordinal = 0;
-          sequences = [];
-          active = [];
-          views = [];
-          sequence_views = [];
-          authority;
-          source_events_rev = [];
-          max_dimension_work;
-          dimension_work = 0;
-          runtime_entries = Entries.create 32;
-          runtime_records = Entries.create 32;
-          admissions = [];
-          references = Names.create 32;
-          query_roots = Query_roots.create 16;
-          queries = Query_expressions.create 16;
-          dimension_owners = Names.create 16;
-          dimensions = Dimensions.create 16;
-          checked_dimensions = Dimensions.create 16;
-          initializers = Names.create 16;
-        })
+    Collection.create_namespace ~table ?module_name () |> fun result ->
+    Result.bind result (fun namespace ->
+        let binding =
+          match authority with
+          | Task_runtime runtime -> VM.bind_task_namespace runtime namespace
+          | _ -> Ok ()
+        in
+        Result.map
+          (fun () ->
+            {
+              storage_boundaries = Names.create 16;
+              last_storage_global = None;
+              session;
+              table;
+              namespace;
+              sources = Session.sources session;
+              symbols = Session.symbols session;
+              names = Names.create 32;
+              entries = Entries.create 32;
+              commands = [];
+              next_ordinal = 0;
+              sequences = [];
+              active = [];
+              views = [];
+              sequence_views = [];
+              authority;
+              source_events_rev = [];
+              max_dimension_work;
+              dimension_work = 0;
+              runtime_entries = Entries.create 32;
+              runtime_records = Entries.create 32;
+              admissions = [];
+              references = Names.create 32;
+              query_roots = Query_roots.create 16;
+              queries = Query_expressions.create 16;
+              dimension_owners = Names.create 16;
+              dimensions = Dimensions.create 16;
+              checked_dimensions = Dimensions.create 16;
+              initializers = Names.create 16;
+            })
+          binding)
 
 let create ?runtime session =
   create_with_authority
@@ -296,12 +316,10 @@ let promote_source ledger ~runtime session ~source =
              | Ready | Reading _ | Pending _ -> true
              | Closed | Aborted -> false)
            && ledger.commands = [] ->
-        VM.promote_task_source runtime
+        VM.promote_task_source runtime ~namespace:ledger.namespace
           ~events:(List.rev ledger.source_events_rev)
           ~dimension_steps:ledger.dimension_work
-        |> Result.map (fun () ->
-            ledger.authority <- Task_runtime runtime;
-            ledger.source_events_rev <- [])
+        |> Result.map (fun () -> ledger.authority <- Task_runtime runtime)
     | _ -> Error "source promotion requires its original live unsealed JIT root"
 
 let ledger_runtime ledger =
@@ -375,6 +393,10 @@ let observe_admission ledger receipt =
         (fun result publication ->
           let* () = result in
           match publication with
+          | VM.Admitted_declared_global _ ->
+              Error
+                "partial storage cannot masquerade as a completed command \
+                 admission"
           | VM.Admitted_function _ -> Ok ()
           | VM.Admitted_global (reference, slot) ->
               if
@@ -390,7 +412,8 @@ let observe_admission ledger receipt =
         let symbol = runtime_symbol publication in
         let kind, function_call_shape =
           match publication with
-          | VM.Admitted_global _ -> (Visibility.Global_variable, None)
+          | VM.Admitted_global _ | VM.Admitted_declared_global _ ->
+              (Visibility.Global_variable, None)
           | VM.Admitted_function reference ->
               let module Function = Sema.Function_type_resolution in
               let signature =
@@ -427,6 +450,7 @@ let observe_admission ledger receipt =
         in
         Entries.add ledger.runtime_entries entry publication;
         match publication with
+        | VM.Admitted_declared_global _ -> assert false
         | VM.Admitted_function _ -> ()
         | VM.Admitted_global (_, slot) ->
             let record =
@@ -594,29 +618,38 @@ let observe_command_source ledger event =
               ledger.active <- List.tl ledger.active))
 
 let observe_command ledger event =
-  Result.bind (observe_command_source ledger event) (fun () ->
-      match ledger_runtime ledger with
-      | None ->
-          (match ledger.authority with
-          | Source_compilation _ ->
-              ledger.source_events_rev <- event :: ledger.source_events_rev
-          | Semantic_analysis | Task_runtime _ -> ());
-          Ok ()
-      | Some runtime ->
-          let context =
-            match event with
-            | Parser.Sequence_started context | Parser.Sequence_aborted context
-              -> context
-            | Parser.Command_started start -> start.command_context
-            | Parser.Command_completed receipt | Parser.Command_resumed receipt
-              -> receipt.command_start.command_context
-            | Parser.Sequence_completed receipt -> receipt.sequence_context
-          in
-          protect (fun () ->
-              Sema.Task_command_order.observe
-                (VM.task_source_order runtime)
-                event
-              |> checked (context_span context)))
+  let result =
+    Result.bind (observe_command_source ledger event) (fun () ->
+        match ledger_runtime ledger with
+        | None -> Ok ()
+        | Some runtime ->
+            let context =
+              match event with
+              | Parser.Sequence_started context
+              | Parser.Sequence_aborted context -> context
+              | Parser.Command_started start -> start.command_context
+              | Parser.Command_completed receipt
+              | Parser.Command_resumed receipt ->
+                  receipt.command_start.command_context
+              | Parser.Sequence_completed receipt -> receipt.sequence_context
+            in
+            protect (fun () ->
+                Sema.Task_command_order.observe
+                  (VM.task_source_order runtime)
+                  event
+                |> checked (context_span context)))
+  in
+  Result.map
+    (fun () -> ledger.source_events_rev <- event :: ledger.source_events_rev)
+    result
+
+let rec source_root context =
+  match Parser.context_parent context with
+  | None -> context
+  | Some (Parser.Before_first_command parent) -> source_root parent
+  | Some (Parser.Reading_command start) -> source_root start.command_context
+  | Some (Parser.Awaiting_resume completed) ->
+      source_root completed.command_start.command_context
 
 let validate_command ledger (header : Parser.declaration_header) =
   let start = header.declaration_command in
@@ -1184,12 +1217,40 @@ let observe ledger event =
               fail start.initializer_equals.span
                 "initializer leaf has no active original initializer")
       | Parser.Global_declared publication ->
+          if not (Parser.global_publication_is_current publication) then
+            fail publication.global_name.location.span
+              "global publication is outside its original callback";
           validate_source ledger publication.global_environment
             publication.global_header publication.global_name;
           validate_global_dimensions ledger publication;
           assign ledger publication.global_name Sema.Symbol.Global_variable
             (Global { publication; completed = None; initializing = None })
-            publication.global_entry
+            publication.global_entry;
+          let family =
+            source_root
+              publication.global_header.declaration_command.command_context
+          in
+          let predecessor =
+            List.find_map
+              (function
+                | Parser.Command_resumed receipt
+                  when source_root receipt.command_start.command_context
+                       == family -> Some receipt
+                | _ -> None)
+              ledger.source_events_rev
+          in
+          Names.add ledger.storage_boundaries publication.global_name
+            {
+              storage_source = publication;
+              storage_predecessor = predecessor;
+              storage_previous_global = ledger.last_storage_global;
+              storage_declaration = None;
+              storage_completion = None;
+            };
+          ledger.last_storage_global <-
+            Some
+              (Collection.publication_symbol
+                 (find ledger publication.global_name).publication)
       | Parser.Function_declared publication ->
           validate_source ledger publication.function_environment
             publication.function_header publication.function_name;
@@ -1215,6 +1276,16 @@ let observe ledger event =
                   fail completed.location.span
                     "global completion is missing its original initializer \
                      transcript");
+              let boundary =
+                Names.find ledger.storage_boundaries publication.global_name
+              in
+              Option.iter
+                (fun declaration ->
+                  Sema.Compiler_record.complete_declared_global declaration
+                    event
+                  |> checked completed.location.span)
+                boundary.storage_declaration;
+              boundary.storage_completion <- Some event;
               state.completed <- Some completed
           | _ ->
               fail publication.global_name.location.span
@@ -1250,6 +1321,72 @@ let observe ledger event =
           | _ ->
               fail publication.function_name.location.span
                 "function body completion is foreign, repeated or out of order"))
+
+let admit_global ledger ~runtime (publication : Parser.global_publication) =
+  protect (fun () ->
+      let span = publication.global_name.location.span in
+      if
+        not
+          (Option.fold ~none:false ~some:(( == ) runtime)
+             (ledger_runtime ledger))
+      then fail span "declared storage belongs to another task runtime";
+      let boundary =
+        match
+          Names.find_opt ledger.storage_boundaries publication.global_name
+        with
+        | Some boundary when boundary.storage_source == publication -> boundary
+        | _ -> fail span "declared storage has no original observed publication"
+      in
+      let context =
+        publication.global_header.declaration_command.command_context
+      in
+      let observed_events =
+        List.fold_left
+          (fun count event ->
+            let candidate =
+              match event with
+              | Parser.Sequence_started context
+              | Parser.Sequence_aborted context -> context
+              | Parser.Command_started start -> start.command_context
+              | Parser.Command_completed receipt
+              | Parser.Command_resumed receipt ->
+                  receipt.command_start.command_context
+              | Parser.Sequence_completed receipt -> receipt.sequence_context
+            in
+            if candidate == context then count + 1 else count)
+          0 ledger.source_events_rev
+      in
+      if
+        (not (Parser.context_is_current context ~observed_events))
+        || not
+             (List.exists
+                (fun sequence -> sequence.context == context)
+                ledger.active)
+      then fail span "declared storage source context is no longer live";
+      let declaration =
+        match boundary.storage_declaration with
+        | Some declaration -> declaration
+        | None ->
+            let assigned = Names.find ledger.names publication.global_name in
+            let declaration =
+              Sema.Compiler_record.declare_global
+                ~dimensions:
+                  (selected_dimensions ledger publication.global_dimensions)
+                ~predecessor:boundary.storage_predecessor
+                ~previous_global:boundary.storage_previous_global
+                ~table:ledger.table ~namespace:ledger.namespace
+                assigned.publication
+              |> checked span
+            in
+            Option.iter
+              (fun event ->
+                Sema.Compiler_record.complete_declared_global declaration event
+                |> checked span)
+              boundary.storage_completion;
+            boundary.storage_declaration <- Some declaration;
+            declaration
+      in
+      VM.admit_declared_global runtime declaration |> checked span)
 
 let check_global_header (name : Ast.identifier)
     (header : Parser.declaration_header) modifiers binding type_specifier =
@@ -1686,7 +1823,8 @@ let reference_resolver ~table ~ast ~task_view command =
     let retained name publication =
       let binding =
         match publication with
-        | VM.Admitted_global (reference, _) ->
+        | VM.Admitted_global (reference, _)
+        | VM.Admitted_declared_global (reference, _) ->
             Globals.task_global_binding task_view reference
         | VM.Admitted_function reference ->
             Globals.task_function_binding task_view reference

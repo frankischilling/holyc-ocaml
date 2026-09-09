@@ -166,7 +166,10 @@ type declaration_header = private {
   type_specifier : Ast.type_specifier;
 }
 
+type global_activity
+
 type global_publication = private {
+  global_activity : global_activity;
   global_header : declaration_header;
   global_environment : Symbol_visibility.Environment.t;
   global_entry : Symbol_visibility.entry;
@@ -176,6 +179,8 @@ type global_publication = private {
   global_function_pointer : Ast.function_pointer_declarator option;
   global_dimensions : Ast.array_dimension list;
 }
+
+val global_publication_is_current : global_publication -> bool
 
 type initializer_activity
 

@@ -10,7 +10,13 @@ module Scalar = Integer_scalar_storage
 module Shape = Integer_storage_shape
 module Arrays = Integer_array_initializers
 
+type declared_slot = {
+  declaration : Sema.Compiler_record.declared_global;
+  declared_shape : Shape.t;
+}
+
 type slot = {
+  declared_owner : declared_slot option;
   index : int;
   symbol : Symbol.t;
   type_ : Type.t;
@@ -26,14 +32,20 @@ type slot = {
 }
 
 type static_slot = Integer_statics.slot
-type storage_slot = Global of slot | Static of static_slot
+
+type storage_slot =
+  | Global of slot
+  | Static of static_slot
+  | Declared of declared_slot
 
 type task_publication =
   | Global_publication of Retained_global.t * slot
+  | Declared_publication of Retained_global.t * declared_slot
   | Function_publication of Retained_function.t
 
 type task_catalog = {
   table : Sema.Symbol_table.t;
+  mutable namespace : Sema.Declaration_collection.namespace option;
   mutable published : task_publication list;
   source_order : Sema.Task_command_order.t;
   mutable admitted_commands : Sema.Task_command_order.command list;
@@ -43,12 +55,14 @@ type task_view = {
   catalog : task_catalog;
   environment : Sema.Outer_environment.t;
   task_table : Sema.Outer_environment.table;
-  entries : (Sema.Outer_environment.entry * Retained_global.t * slot) list;
+  entries :
+    (Sema.Outer_environment.entry * Retained_global.t * storage_slot) list;
   function_entries : (Sema.Outer_environment.entry * Retained_function.t) list;
   source_command : Sema.Task_command_order.command option;
 }
 
 type t = {
+  declared_slots_ : declared_slot list;
   slots_ : slot list;
   symbols : slot Symbols.t;
   statics_ : static_slot list;
@@ -118,18 +132,31 @@ let static_root_materialized slot root =
 let static_compiler_options = Integer_statics.compiler_options
 let static_storage slot = Static slot
 let global_storage slot = Global slot
+let declared_storage slot = Declared slot
+let declared_record slot = slot.declaration
 
 let same_storage left right =
   match (left, right) with
   | Global left, Global right -> left == right
   | Static left, Static right -> left == right
+  | Declared left, Declared right -> left == right
+  | Global complete, Declared pending | Declared pending, Global complete ->
+      Option.fold ~none:false ~some:(( == ) pending) complete.declared_owner
   | _ -> false
 
 let storage_slots globals =
   List.map global_storage globals.slots_
+  @ List.map declared_storage globals.declared_slots_
   @ List.map static_storage globals.statics_
 
+let allocated_storage_slots globals =
+  storage_slots globals
+  |> List.filter (function
+    | Global slot -> Option.is_none slot.declared_owner
+    | _ -> true)
+
 let storage_shape = function
+  | Declared slot -> slot.declared_shape
   | Global slot -> slot.shape
   | Static slot -> Integer_statics.shape slot
 
@@ -145,31 +172,40 @@ let cell_count globals =
       0 globals.statics_
 
 let storage_index = function
+  | Declared _ -> 0
   | Global slot -> slot.index
   | Static slot -> Integer_statics.index slot
 
 let storage_symbol = function
+  | Declared slot ->
+      Sema.Compiler_record.declared_global_symbol slot.declaration
   | Global slot -> slot.symbol
   | Static slot -> Integer_statics.symbol slot
 
 let storage_type = function
+  | Declared slot ->
+      Sema.Compiler_record.declared_global_type slot.declaration
+      |> Sema.Type_reference.resolved_type
   | Global slot -> slot.type_
   | Static slot -> Integer_statics.type_ slot
 
 let storage_opcode = function
+  | Declared _ -> Opcode.Ic_imm_i64
   | Global slot -> slot.opcode
   | Static slot -> Integer_statics.opcode slot
 
 let storage_initial_bits = function
+  | Declared _ -> None
   | Global slot -> slot.initial_bits
   | Static slot -> Integer_statics.initial_bits slot
 
 let storage_preparation_steps = function
+  | Declared _ -> 0
   | Global slot -> slot_initializer_preparation_steps slot
   | Static slot -> Integer_statics.preparation_steps slot
 
 let storage_frame = function
-  | Global _ -> None
+  | Global _ | Declared _ -> None
   | Static slot -> Some (static_frame slot)
 
 let find_static globals symbol =
@@ -246,7 +282,21 @@ let find globals symbol =
 let find_storage globals symbol =
   match find globals symbol with
   | Some slot -> Some (Global slot)
-  | None -> Option.map static_storage (find_static globals symbol)
+  | None -> (
+      match
+        List.find_opt
+          (fun slot ->
+            Sema.Compiler_record.declared_global_symbol slot.declaration
+            == symbol)
+          globals.declared_slots_
+      with
+      | Some slot -> Some (Declared slot)
+      | None -> Option.map static_storage (find_static globals symbol))
+
+let find_allocated_storage globals symbol =
+  match find_storage globals symbol with
+  | Some (Global slot) when Option.is_some slot.declared_owner -> None
+  | result -> result
 
 let create_impl ?layout ?initializers ~span:unit_span records =
   let ( let* ) = Result.bind in
@@ -290,6 +340,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
         if Symbols.is_empty roots then
           Ok
             {
+              declared_slots_ = [];
               slots_ = List.rev reversed;
               symbols;
               statics_ = [];
@@ -499,6 +550,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
           | Some (opcode, initial_bits) ->
               let slot =
                 {
+                  declared_owner = None;
                   index;
                   symbol;
                   type_;
@@ -531,12 +583,28 @@ let create_with_layout ~layout ?initializers ~span records =
 let create_task_catalog ~table =
   {
     table;
+    namespace = None;
     published = [];
     source_order = Sema.Task_command_order.create ~table;
     admitted_commands = [];
   }
 
 let task_catalog_owns_table catalog table = catalog.table == table
+
+let check_task_namespace catalog namespace =
+  if Option.is_some catalog.namespace then
+    Error "task declaration namespace is already bound"
+  else if
+    not
+      (Sema.Declaration_collection.namespace_owns_table namespace catalog.table)
+  then Error "task declaration namespace belongs to another table"
+  else Ok ()
+
+let bind_task_namespace catalog namespace =
+  Result.map
+    (fun () -> catalog.namespace <- Some namespace)
+    (check_task_namespace catalog namespace)
+
 let task_source_order catalog = catalog.source_order
 
 let with_source_command view ~ast command =
@@ -555,6 +623,8 @@ let owns_task_storage catalog globals =
     globals.task_view
 
 let publication_symbol = function
+  | Declared_publication (_, slot) ->
+      Sema.Compiler_record.declared_global_symbol slot.declaration
   | Global_publication (_, slot) -> slot.symbol
   | Function_publication reference -> Retained_function.symbol reference
 
@@ -597,7 +667,7 @@ let with_function_publications ~records globals =
     newest_publications (List.rev publications)
     |> List.filter_map (function
       | Function_publication reference -> Some reference
-      | Global_publication _ -> None)
+      | Global_publication _ | Declared_publication _ -> None)
   in
   Ok { globals with function_publications_ }
 
@@ -616,27 +686,36 @@ let snapshot_task catalog =
         collect (index + 1) (entry :: rev) globals
           ((entry, reference) :: functions)
           rest
-    | Global_publication (reference, slot) :: rest ->
-        let source =
-          Records.classified_record_source slot.record
-          |> Resolution.global_record_global
-        in
-        let declarator_kind =
-          match Global.global_declarator_kind source with
-          | Global.Object -> Outer.Object_global
-          | Global.Function_pointer pointer ->
-              Outer.Function_pointer_global pointer
+    | publication :: rest ->
+        let reference, slot, type_reference, declarator_kind =
+          match publication with
+          | Declared_publication (reference, slot) ->
+              ( reference,
+                Declared slot,
+                Sema.Compiler_record.declared_global_type slot.declaration,
+                Outer.Object_global )
+          | Global_publication (reference, slot) ->
+              let source =
+                Records.classified_record_source slot.record
+                |> Resolution.global_record_global
+              in
+              let kind =
+                match Global.global_declarator_kind source with
+                | Global.Object -> Outer.Object_global
+                | Global.Function_pointer pointer ->
+                    Outer.Function_pointer_global pointer
+              in
+              (reference, Global slot, Global.global_type_reference source, kind)
+          | Function_publication _ -> assert false
         in
         let* global_metadata =
-          Outer.make_global_metadata
-            ~type_reference:(Global.global_type_reference source)
-            ~declarator_kind
-            ~array_rank:(List.length (Shape.dimensions slot.shape))
+          Outer.make_global_metadata ~type_reference ~declarator_kind
+            ~array_rank:(List.length (storage_dimensions slot))
           |> checked
         in
         let* entry =
-          Outer.make_global_entry ~symbol:slot.symbol ~entry_index:index
-            ~global_metadata
+          Outer.make_global_entry ~symbol:(storage_symbol slot)
+            ~entry_index:index ~global_metadata
           |> checked
         in
         collect (index + 1) (entry :: rev)
@@ -704,8 +783,7 @@ let retained_slot globals reference =
   Option.bind globals.task_view (fun view ->
       List.find_map
         (fun (_, candidate, slot) ->
-          if Retained_global.same candidate reference then Some (Global slot)
-          else None)
+          if Retained_global.same candidate reference then Some slot else None)
         view.entries)
 
 let retained_function_binding globals binding =
@@ -749,6 +827,168 @@ let validate_slot_extent ~table slot =
         else Ok ()
     | _ -> Error "global storage lacks its original checked extent"
 
+let prepare_declared catalog declaration =
+  let ( let* ) = Result.bind in
+  let module Declared = Sema.Compiler_record in
+  let symbol = Declared.declared_global_symbol declaration in
+  let previous_global = Declared.declared_global_previous_global declaration in
+  if not (Declared.declared_global_owns_table declaration catalog.table) then
+    Error "declared storage belongs to another semantic table"
+  else if
+    not
+      (Option.fold ~none:false
+         ~some:(Declared.declared_global_owns_namespace declaration)
+         catalog.namespace)
+  then Error "declared storage belongs to another task namespace"
+  else if
+    List.exists
+      (fun publication -> publication_symbol publication == symbol)
+      catalog.published
+  then Error "declared storage has already been admitted"
+  else if
+    Option.fold ~none:false
+      ~some:(fun previous ->
+        not
+          (List.exists
+             (fun publication -> publication_symbol publication == previous)
+             catalog.published))
+      previous_global
+  then Error "previous global storage has not been admitted"
+  else
+    let* () =
+      Sema.Task_command_order.check_declaration catalog.source_order
+        ~admitted:catalog.admitted_commands
+        ~publication:(Declared.declared_global_source declaration)
+        ~predecessor:(Declared.declared_global_predecessor declaration)
+    in
+    let type_ =
+      Declared.declared_global_type declaration
+      |> Sema.Type_reference.resolved_type
+    in
+    let* declared_shape =
+      match
+        Shape.create ~type_
+          ~dimensions:(Declared.declared_global_dimensions declaration)
+      with
+      | Ok shape -> Ok shape
+      | Error Shape.Overflow ->
+          Error "declared storage size exceeds the host integer range"
+      | Error _ ->
+          Error
+            "declared storage requires positive fixed public integer objects"
+    in
+    let slot = { declaration; declared_shape } in
+    let bytes = Shape.byte_size declared_shape in
+    Ok
+      ( {
+          declared_slots_ = [ slot ];
+          slots_ = [];
+          symbols = Symbols.empty;
+          statics_ = [];
+          mode = Resolution.Jit;
+          global_byte_size_ = bytes;
+          global_cell_count_ = Shape.element_count declared_shape;
+          byte_size_ = bytes;
+          task_view = None;
+          function_publications_ = [];
+        },
+        slot )
+
+let publish_declared catalog slot =
+  let publication =
+    Declared_publication
+      ( Retained_global.create
+          (Sema.Compiler_record.declared_global_symbol slot.declaration),
+        slot )
+  in
+  catalog.published <- catalog.published @ [ publication ];
+  publication
+
+let join_declared view globals =
+  let ( let* ) = Result.bind in
+  let module Declared = Sema.Compiler_record in
+  let rec collect index bytes rev = function
+    | [] ->
+        let slots_ = List.rev rev in
+        let symbols =
+          List.fold_left
+            (fun symbols slot ->
+              Symbols.add (Symbol.id slot.symbol) slot symbols)
+            Symbols.empty slots_
+        in
+        Ok
+          {
+            globals with
+            slots_;
+            symbols;
+            global_byte_size_ = bytes;
+            global_cell_count_ = index;
+            byte_size_ = bytes;
+            task_view = Some view;
+          }
+    | slot :: rest -> (
+        let prior =
+          List.find_map
+            (function
+              | _, _, Declared prior
+                when Declared.declared_global_symbol prior.declaration
+                     == slot.symbol -> Some prior
+              | _ -> None)
+            view.entries
+        in
+        match prior with
+        | None ->
+            collect
+              (index + Shape.element_count slot.shape)
+              (bytes + Shape.byte_size slot.shape)
+              ({ slot with index } :: rev)
+              rest
+        | Some prior ->
+            let global =
+              Records.classified_record_source slot.record
+              |> Resolution.global_record_global
+            in
+            let* () =
+              match
+                ( view.source_command,
+                  Declared.declared_global_completion prior.declaration )
+              with
+              | Some command, Some completed
+                when Sema.Task_command_order.contains_global command
+                       ~publication:
+                         (Declared.declared_global_source prior.declaration)
+                       ~completed
+                       ~item_index:(Global.global_item_index global)
+                       ~declarator_index:(Global.global_declarator_index global)
+                -> Ok ()
+              | _ ->
+                  Error
+                    "declared storage join lacks its original completed source \
+                     command"
+            in
+            let* () =
+              Declared.validate_declared_global_type prior.declaration global
+            in
+            let* () = validate_slot_extent ~table:view.catalog.table slot in
+            if
+              Shape.dimensions slot.shape
+              <> Shape.dimensions prior.declared_shape
+              || Shape.byte_size slot.shape
+                 <> Shape.byte_size prior.declared_shape
+            then
+              Error
+                "completed storage disagrees with its original allocation shape"
+            else
+              collect index bytes
+                ({ slot with index = 0; declared_owner = Some prior } :: rev)
+                rest)
+  in
+  if globals.statics_ <> [] || globals.declared_slots_ <> [] then
+    Error "declared storage join must precede new static storage layout"
+  else collect 0 0 [] globals.slots_
+
+let slot_reuses_declared_storage slot = Option.is_some slot.declared_owner
+
 let check_task_command catalog globals =
   match globals.task_view with
   | None -> Error "task execution requires a compiled task storage view"
@@ -768,7 +1008,13 @@ let check_task_command catalog globals =
         List.exists
           (fun slot ->
             List.exists
-              (fun prior -> publication_symbol prior == slot.symbol)
+              (fun prior ->
+                publication_symbol prior == slot.symbol
+                && not
+                     (match (prior, slot.declared_owner) with
+                     | Declared_publication (_, pending), Some owner ->
+                         pending == owner
+                     | _ -> false))
               catalog.published)
           globals.slots_
       then Error "task storage declaration has already been admitted"
@@ -779,7 +1025,11 @@ let check_task_command catalog globals =
                List.exists
                  (function
                    | Global_publication (prior, expected) ->
-                       Retained_global.same prior reference && expected == slot
+                       Retained_global.same prior reference
+                       && same_storage (Global expected) slot
+                   | Declared_publication (prior, expected) ->
+                       Retained_global.same prior reference
+                       && same_storage (Declared expected) slot
                    | Function_publication _ -> false)
                  catalog.published)
              view.entries)
@@ -792,7 +1042,7 @@ let check_task_command catalog globals =
                  (function
                    | Function_publication prior ->
                        Retained_function.same prior reference
-                   | Global_publication _ -> false)
+                   | Global_publication _ | Declared_publication _ -> false)
                  catalog.published)
              view.function_entries)
       then Error "retained function reference is absent from this task"
@@ -822,7 +1072,12 @@ let check_task_command catalog globals =
                 Result.bind result (fun () ->
                     validate_slot_extent ~table:catalog.table slot))
               (Ok ())
-              (globals.slots_ @ List.map (fun (_, _, slot) -> slot) view.entries))
+              (globals.slots_
+              @ List.filter_map
+                  (function
+                    | _, _, Global slot -> Some slot
+                    | _ -> None)
+                  view.entries))
 
 let publish_task catalog globals =
   Option.iter
@@ -833,6 +1088,7 @@ let publish_task catalog globals =
         view.source_command)
     globals.task_view;
   let order = function
+    | Declared_publication _ -> assert false
     | Global_publication (_, slot) ->
         let source =
           Records.classified_record_source slot.record
@@ -853,7 +1109,9 @@ let publish_task catalog globals =
     List.map
       (fun slot ->
         Global_publication (Retained_global.create slot.symbol, slot))
-      globals.slots_
+      (List.filter
+         (fun slot -> Option.is_none slot.declared_owner)
+         globals.slots_)
     @ List.map
         (fun reference -> Function_publication reference)
         globals.function_publications_
@@ -997,6 +1255,7 @@ let storage_array_image slot =
               (Arrays.prepared entry))
   in
   match slot with
+  | Declared _ -> []
   | Global slot -> image slot.array_initializers
   | Static slot -> image (Integer_statics.array_initializers slot)
 
@@ -1096,6 +1355,7 @@ let array_human globals =
             let symbol = storage_symbol slot in
             let owner, values =
               match slot with
+              | Declared _ -> ("declared-global", "")
               | Global slot -> ("global", initializers slot.array_initializers)
               | Static slot ->
                   ( "static:"

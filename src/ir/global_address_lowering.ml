@@ -82,11 +82,8 @@ let prepare_retained ~globals result =
         | None ->
             invalid "outer global is absent from the compiled task storage view"
         | Some (reference, slot) -> (
-            let type_ = Integer_globals.slot_type slot in
-            let rank =
-              Integer_globals.slot_shape slot
-              |> Integer_storage_shape.dimensions |> List.length
-            in
+            let type_ = Integer_globals.storage_type slot in
+            let rank = Integer_globals.storage_dimensions slot |> List.length in
             if
               (not
                  (Option.fold ~none:false ~some:(Type.equal type_)
@@ -110,7 +107,7 @@ let prepare_retained ~globals result =
                   Ok
                     (Some
                        {
-                         slot = Integer_globals.global_storage slot;
+                         slot;
                          address_type;
                          span;
                          initializer_indices = [];

@@ -59,6 +59,15 @@ val frontend : t -> Session.t
     Sources and semantic table are shared with the caller session; declarations,
     definitions and local contexts have this task's visibility owner. *)
 
+val admit_global :
+  t ->
+  Frontend.Parser.global_publication ->
+  (unit, Common.Diagnostic.t list) result
+(** Admit one original observed integer global while its parser context is live.
+    Checked dimensions, namespace and predecessor evidence authorize unknown
+    storage before initialization. Completion reuses that same object. This
+    operation neither admits a command nor executes initializer leaves. *)
+
 val adopt_source :
   ?max_steps:int ->
   ?max_initializer_steps:int ->

@@ -1,5 +1,14 @@
 # Testing holyc-ocaml
 
+The twelve `partial global storage` groups cover real nested StreamPrint reads
+and writes during open declarations, scalar/array/copied-row completion, mixed
+fresh and retained allocations, exact byte quotas, unknown-cell faults and
+retained-boundary promotion. Foreign namespaces, runtime rebinding, missing
+predecessors, replay, delayed publication and expired or incompletely observed
+parser contexts reject without allocation or runtime work. Completed-command
+initialization is covered; live execution between individual parser leaves and
+the public shared JIT facade remain pending.
+
 The twelve `live initializer leaves` groups cover original native lookahead
 boundaries, nested and flattened braces, unbraced rows, adjacent generated strings,
 copied rows and exact source nodes. Promotion during an initializer preserves

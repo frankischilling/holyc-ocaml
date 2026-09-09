@@ -1,5 +1,24 @@
 # Incremental integer task execution
 
+`Integer_task.admit_global` allocates an observed ordinary integer global while
+its source declaration is still open. The original publication, source namespace,
+checked fixed dimensions and required command/global predecessors authorize one
+unknown JIT object. Nested commands can read and write that object through the
+retained IR address path. Uninitialized reads report HCIRVM0012. Failed allocation
+preflight changes no runtime work or byte charge.
+
+Completing the exact source declaration reuses its allocation. Scalar values,
+array leaves and copied rows published by completed-command initialization reach
+that same object, without another allocation or byte charge. Mixed fresh and
+retained objects retain distinct arena indices and bounds. A task namespace binds
+once; foreign certificates, substituted source children, replay, missing
+predecessors and expired parser contexts cannot admit storage. A live source may
+activate from its retained original publication boundary after the callback ends.
+
+Ordered execution of each initializer leaf before the parser reads the next leaf
+remains unfinished. The public JIT source facade and partial function publication
+also remain open in #635. The partial-storage API does not enable those paths.
+
 Global initializer callbacks retain the original `=` location, scalar expression,
 syntax path, ordinal and predecessor. Start occurs before reading the first value;
 leaf completion follows expression lookahead and precedes parent separator
@@ -15,8 +34,8 @@ and initializer publications. Promotion preserves leaves already observed in the
 open initializer. Missing, foreign, repeated and delayed phases reject. Callback
 failure revokes its synchronous authority and stops later lexer effects; a parse
 failure retains reached leaves without producing a complete manifest. These are
-source witnesses. Partial storage allocation and initializer execution still
-require their own checked admission path.
+source witnesses. Their ordered live execution still requires checked fragment
+typing and initializer admission.
 
 `Holyc_lib.Integer_task` compiles separate JIT commands against retained global
 objects and functions. For example, running `I64 N=40;`, then `N+=2;`, then `N;` in one task

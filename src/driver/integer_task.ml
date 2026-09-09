@@ -87,6 +87,10 @@ let progress task =
     dimension_work = dimension_work task;
   }
 
+let admit_global task publication =
+  Task_declarations.admit_global task.declarations ~runtime:task.state
+    publication
+
 let compiled_units task =
   List.rev_map (fun (_, command) -> command.program) task.commands
 

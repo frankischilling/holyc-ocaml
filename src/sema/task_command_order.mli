@@ -1,6 +1,21 @@
 type t
 type command
 
+val check_declaration :
+  t ->
+  admitted:command list ->
+  publication:Frontend.Parser.global_publication ->
+  predecessor:Frontend.Parser.completed_command option ->
+  (unit, string) result
+
+val contains_global :
+  command ->
+  publication:Frontend.Parser.global_publication ->
+  completed:Frontend.Ast.global_declarator ->
+  item_index:int ->
+  declarator_index:int option ->
+  bool
+
 val create : table:Symbol_table.t -> t
 
 val observe : t -> Frontend.Parser.command_event -> (unit, string) result

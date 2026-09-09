@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added checked partial global allocation to retained JIT tasks. Nested commands
+  use the original unknown object while its declaration is open; completion
+  reuses the same storage for scalar, array and copied-row initialization without
+  another allocation charge. Original namespace, predecessor, shape and parser
+  lifetime checks reject foreign or stale admission. Ordered live initializer
+  execution and the public shared JIT source path remain unfinished in #635.
+
 - Added original parser receipts for global initializer starts and scalar/copy
   leaves at the native lookahead boundary. Source and task compilation reuse the
   same semantic leaves through typed IR and initializer publications, including

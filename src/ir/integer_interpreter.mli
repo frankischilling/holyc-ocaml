@@ -57,6 +57,8 @@ val task_progress : task_state -> task_progress
     describe a successful whole-invocation outcome. *)
 
 type admitted_publication = private
+  | Admitted_declared_global of
+      Retained_global.t * Integer_globals.declared_slot
   | Admitted_global of Retained_global.t * Integer_globals.slot
   | Admitted_function of Retained_function.t
 
@@ -90,6 +92,15 @@ val abort_task_stream : task_state -> task_stream -> (unit, string) result
 *)
 
 val task_snapshot : task_state -> (Integer_globals.task_view, string) result
+
+val admit_declared_global :
+  task_state -> Sema.Compiler_record.declared_global -> (unit, string) result
+
+val bind_task_namespace :
+  task_state -> Sema.Declaration_collection.namespace -> (unit, string) result
+(** Internal single-assignment ledger binding. Driver-owned namespaces remain
+    private; an unrelated semantic publication cannot allocate in their task. *)
+
 val task_source_order : task_state -> Sema.Task_command_order.t
 
 val start_task_compilation : task_state -> unit
@@ -98,6 +109,7 @@ val start_task_compilation : task_state -> unit
 
 val promote_task_source :
   task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
   events:Frontend.Parser.command_event list ->
   dimension_steps:int ->
   (unit, string) result

@@ -1,7 +1,44 @@
 type t
+type declared_dimension
+type declared_global
+
+val declare_global :
+  dimensions:declared_dimension list ->
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  predecessor:Frontend.Parser.completed_command option ->
+  previous_global:Symbol.t option ->
+  Declaration_collection.publication ->
+  (declared_global, string) result
+
+val declared_global_symbol : declared_global -> Symbol.t
+
+val declared_global_source :
+  declared_global -> Frontend.Parser.global_publication
+
+val declared_global_type : declared_global -> Type_reference.t
+val declared_global_dimensions : declared_global -> int64 list
+val declared_global_owns_table : declared_global -> Symbol_table.t -> bool
+
+val declared_global_owns_namespace :
+  declared_global -> Declaration_collection.namespace -> bool
+
+val declared_global_predecessor :
+  declared_global -> Frontend.Parser.completed_command option
+
+val declared_global_previous_global : declared_global -> Symbol.t option
+
+val complete_declared_global :
+  declared_global -> Frontend.Parser.declaration_event -> (unit, string) result
+
+val declared_global_completion :
+  declared_global -> Frontend.Ast.global_declarator option
+
+val validate_declared_global_type :
+  declared_global -> Global_type_resolution.global -> (unit, string) result
+
 type sizeof_read
 type dimension_preparation
-type declared_dimension
 
 val seed_primitive :
   table:Symbol_table.t ->
