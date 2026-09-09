@@ -33,6 +33,7 @@ val record : layout -> Global_resolution.global_record
 val source : layout -> Global_dimension_binding.resolved_global
 val dimension_inputs : layout -> dimension_input list
 val dimensions : layout -> int64 list
+val extent : layout -> Compiler_record.global_extent
 
 val element_count : layout -> int64
 (** Scalars retain an empty dimension list and an element count of one. *)

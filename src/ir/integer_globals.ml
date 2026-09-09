@@ -16,6 +16,7 @@ type slot = {
   type_ : Type.t;
   record : Records.classified_record;
   shape : Shape.t;
+  extent : Sema.Compiler_record.global_extent option;
   opcode : Opcode.t;
   initial_bits : int64 option;
   initializer_root : Typed.top_level_root_result option;
@@ -63,6 +64,7 @@ let slot_symbol slot = slot.symbol
 let slot_type slot = slot.type_
 let slot_record slot = slot.record
 let slot_shape slot = slot.shape
+let slot_extent slot = slot.extent
 let slot_opcode slot = slot.opcode
 let slot_initial_bits slot = slot.initial_bits
 let slot_initializer slot = slot.initializer_root
@@ -347,16 +349,25 @@ let create_impl ?layout ?initializers ~span:unit_span records =
           fail "HCRUN0001"
             "global execution requires public nonzero integer objects"
         else
-          let* dimensions =
+          let* dimensions, extent =
             match Global.global_array_dimensions global with
-            | [] -> Ok []
+            | [] -> Ok ([], None)
             | _ -> (
                 match
                   Option.bind layout (fun layout ->
                       Sema.Global_array_layout.find layout source)
                 with
                 | Some checked ->
-                    Ok (Sema.Global_array_layout.dimensions checked)
+                    let extent = Sema.Global_array_layout.extent checked in
+                    if
+                      Sema.Compiler_record.global_extent_record extent != source
+                    then
+                      fail "HCIRL0004"
+                        "global extent has another declaration record"
+                    else
+                      Ok
+                        ( Sema.Global_array_layout.dimensions checked,
+                          Some extent )
                 | None ->
                     fail "HCRUN0001"
                       "global array execution requires its exact checked \
@@ -490,6 +501,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
                   type_;
                   record;
                   shape;
+                  extent;
                   opcode;
                   initial_bits;
                   initializer_root;
@@ -683,6 +695,26 @@ let retained_function_symbol globals symbol =
 
 let is_task_command globals = Option.is_some globals.task_view
 
+let validate_slot_extent ~table slot =
+  let ( let* ) = Result.bind in
+  let module Extent = Sema.Compiler_record in
+  let record = Records.classified_record_source slot.record in
+  let global = Resolution.global_record_global record in
+  if slot.symbol != Resolution.global_record_symbol record then
+    Error "global storage has another declaration symbol"
+  else
+    match (Global.global_array_dimensions global, slot.extent) with
+    | [], None when Shape.dimensions slot.shape = [] -> Ok ()
+    | _ :: _, Some extent ->
+        let* () = Extent.validate_global_extent ~table ~record extent in
+        if
+          Extent.global_extent_dimensions extent <> Shape.dimensions slot.shape
+          || Extent.global_extent_element_count extent
+             <> Int64.of_int (Shape.element_count slot.shape)
+        then Error "global storage shape disagrees with its checked extent"
+        else Ok ()
+    | _ -> Error "global storage lacks its original checked extent"
+
 let check_task_command catalog globals =
   match globals.task_view with
   | None -> Error "task execution requires a compiled task storage view"
@@ -743,7 +775,13 @@ let check_task_command catalog globals =
                  catalog.published)
           globals.function_publications_
       then Error "task function declaration is foreign or already admitted"
-      else Ok ()
+      else
+        List.fold_left
+          (fun result slot ->
+            Result.bind result (fun () ->
+                validate_slot_extent ~table:catalog.table slot))
+          (Ok ())
+          (globals.slots_ @ List.map (fun (_, _, slot) -> slot) view.entries)
 
 let publish_task catalog globals =
   let order = function

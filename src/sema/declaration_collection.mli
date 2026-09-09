@@ -82,6 +82,11 @@ val publication_source_function :
 val namespace_owns_publication : namespace -> publication -> bool
 val namespace_owns_table : namespace -> Symbol_table.t -> bool
 
+val source_global_for_symbol : namespace -> Symbol.t -> publication option
+(** Return only the original source publication retained when this exact symbol
+    was allocated by [publish_global]. Equal names, origins and scope membership
+    cannot create or replace this association. *)
+
 val view : namespace -> (publication * declaration) list -> (t, string) result
 (** Make a command-local collection without allocating symbols. Every
     publication must belong to this exact namespace and match its declaration's

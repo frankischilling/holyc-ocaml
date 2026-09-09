@@ -94,6 +94,62 @@ let parse session text =
 let compile session task text =
   Task.compile_ast task (parse session text) |> Test_integer_program.checked
 
+let retained_array_sizeof () =
+  List.iter
+    (fun legacy ->
+      List.iter
+        (fun (declaration, size, work) ->
+          let session = Session.create () in
+          let task = create session in
+          if legacy then
+            let command =
+              compile (Session.fork_frontend session) task declaration
+            in
+            ignore (Task.execute task command |> Test_integer_program.checked)
+          else
+            ignore (run session task declaration |> Test_integer_program.checked);
+          let preparation = Task.initializer_steps task in
+          let dimension_work = if legacy then 0 else work in
+          Alcotest.(check int)
+            "original source preparation policy" dimension_work
+            (Task.dimension_work task);
+          value size (run session task "sizeof A;");
+          value size (run session task "sizeof A;");
+          Alcotest.(check int)
+            "retained metadata reads do not prepare again" preparation
+            (Task.initializer_steps task);
+          value size (run session task "U8 B[sizeof A];sizeof B;");
+          value size (run session task "sizeof B;");
+          Alcotest.(check int)
+            "query-based new extent adds only its own visit"
+            (dimension_work + 1) (Task.dimension_work task))
+        [
+          ("U8 A[1+2]={40,2,0};", 3L, 3);
+          ("U16 A[2][3]={{1,2,3},{4,5,6}};", 12L, 2);
+          ("I64 A[2][3];", 48L, 2);
+        ])
+    [ false; true ]
+
+let retained_array_sizeof_shadow () =
+  List.iter
+    (fun legacy ->
+      let session = Session.create () in
+      let task = create session in
+      let admit text =
+        if legacy then
+          compile (Session.fork_frontend session) task text
+          |> Task.execute task |> Test_integer_program.checked |> ignore
+        else run session task text |> Test_integer_program.checked |> ignore
+      in
+      admit "U8 A[3];";
+      ignore
+        (run session task "I64 Saved(){return sizeof A;}"
+        |> Test_integer_program.checked);
+      admit "U8 A[5];";
+      value 3L (run session task "Saved();");
+      value 5L (run session task "sizeof A;"))
+    [ false; true ]
+
 let legacy_admission_frontend_visibility () =
   let session = Session.create () in
   let task = create session in
@@ -131,6 +187,34 @@ let fault code = function
   | Error (diagnostic :: _) ->
       Alcotest.(check string) diagnostic.Diagnostic.message code diagnostic.code
   | _ -> Alcotest.fail "expected task diagnostic"
+
+let retained_array_extent_admission_boundaries () =
+  let session = Session.create () in
+  let task = create session in
+  let command =
+    compile (Session.fork_frontend session) task "U8 A[3]={40,2,0};1/0;"
+  in
+  value 0L (run session task "defined A;");
+  fault "HCIRVM0009" (Task.execute task command);
+  value 3L (run session task "sizeof A;");
+  value 42L (run session task "A[0]+A[1];");
+  fault "HCIRVM0026" (Task.execute task command);
+  value 3L (run session task "sizeof A;");
+  let session = Session.create () in
+  let task =
+    Task.create ~max_global_bytes:2 session
+    |> Test_global_dimension_binding.checked
+  in
+  let command =
+    compile (Session.fork_frontend session) task "U8 Rejected[3];"
+  in
+  fault "HCIRVM0016" (Task.execute task command);
+  value 0L (run session task "defined Rejected;");
+  let command =
+    compile (Session.fork_frontend session) task "U8 Accepted[2];"
+  in
+  ignore (Task.execute task command |> Test_integer_program.checked);
+  value 2L (run session task "sizeof Accepted;")
 
 let legacy_fault_publication () =
   let session = Session.create () in
@@ -868,6 +952,13 @@ let query_self_metadata () =
 
 let tests =
   [
+    Alcotest.test_case
+      "retained array extents follow preflight and reached admission" `Quick
+      retained_array_extent_admission_boundaries;
+    Alcotest.test_case "retained arrays preserve original declared sizeof"
+      `Quick retained_array_sizeof;
+    Alcotest.test_case "retained sizeof survives later array shadow" `Quick
+      retained_array_sizeof_shadow;
     Alcotest.test_case "unbraced checked arrays persist across task commands"
       `Quick persistent_unbraced_array;
     Alcotest.test_case "sizeof uses the exact seeded primitive record" `Quick

@@ -137,3 +137,54 @@ val validate_dimension :
 
 val validate_dimension_queries :
   declared_dimension -> query_read list -> (unit, string) result
+
+type global_dimension_extent
+type global_extent
+
+val reuse_global_dimension :
+  table:Symbol_table.t ->
+  record:Global_resolution.global_record ->
+  dimension:Global_type_resolution.array_dimension ->
+  queries:query_read list ->
+  declared_dimension ->
+  (global_dimension_extent, string) result
+(** Reuse the original parser preparation only for the original publication's
+    complete ordered source dimensions and exact query reads. The result binds
+    this dimension value to the supplied physical semantic record. *)
+
+val evaluate_global_dimension :
+  table:Symbol_table.t ->
+  record:Global_resolution.global_record ->
+  dimension:Global_type_resolution.array_dimension ->
+  queries:query_read list option ->
+  (global_dimension_extent, string) result
+(** Evaluate the supplied record's original typed dimension internally. This
+    legacy layout path remains unmetered and does not create parser evidence. *)
+
+val make_global_extent :
+  table:Symbol_table.t ->
+  record:Global_resolution.global_record ->
+  global_dimension_extent list ->
+  (global_extent, string) result
+(** Require every dimension, in original order, with positive counts and a
+    nonoverflowing product. Layout evidence does not grant runtime admission. *)
+
+val global_extent_record : global_extent -> Global_resolution.global_record
+val global_dimension_extent_count : global_dimension_extent -> int64
+val global_extent_dimensions : global_extent -> int64 list
+val global_extent_element_count : global_extent -> int64
+
+val validate_global_extent :
+  table:Symbol_table.t ->
+  record:Global_resolution.global_record ->
+  global_extent ->
+  (unit, string) result
+
+val bind_retained_global :
+  table:Symbol_table.t ->
+  entry:Frontend.Symbol_visibility.entry ->
+  record:Global_resolution.global_record ->
+  extent:global_extent option ->
+  (t, string) result
+(** Associate a newly admitted frontend entry with its original record and
+    checked extent. Declared byte size is independent of padded VM storage. *)

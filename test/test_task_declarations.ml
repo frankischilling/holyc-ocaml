@@ -2460,6 +2460,170 @@ let checked_extent_ownership () =
     "semantic collection does not execute" 0
     (D.dimension_work semantic)
 
+let global_extent_ownership () =
+  let module G = Semantic_global_type_resolution in
+  let module R = Semantic_global_resolution in
+  let module Symbols = Semantic_symbol_table in
+  let session = Session.create () in
+  let source =
+    Session.add_source session ~path:"global-extent-owner.hc"
+      ~contents:"U8 A[1+2][sizeof U8*];U8 B[3][8];"
+  in
+  let ledger =
+    D.create_source ~max_dimension_work:6 session ~source |> checked
+  in
+  let output, _ = parse_source session ledger source in
+  let ast = Test_parser.expect_ast output in
+  let table = Session.semantic_symbols session in
+  let command = D.seal_source ledger ast |> expect in
+  let declarations = D.source_collection ~table ~ast command |> expect in
+  let aggregates = resolve_aggregates session ~declarations ast |> checked in
+  let globals =
+    resolve_global_types session ~declarations ~aggregates ast |> checked
+  in
+  let records =
+    resolve_global_records session ~declarations ~globals
+      ~compilation_mode:Preprocessor.Jit ast
+    |> checked |> R.records
+  in
+  let record = List.hd records in
+  let global = R.global_record_global record in
+  let dimensions = G.global_array_dimensions global in
+  let checked_dimensions =
+    List.map
+      (fun dimension ->
+        D.source_checked_dimension_for ~table ~ast command
+          (G.array_dimension_source dimension |> Option.get)
+        |> expect)
+      dimensions
+  in
+  let queries dimension =
+    G.array_dimension_source_expression dimension
+    |> Option.get |> Semantic_query_selection.source_queries
+    |> List.map (fun expression ->
+        D.source_query_for ~table ~ast command expression
+        |> expect |> D.query_selection |> Semantic_query_selection.checked_read)
+  in
+  let reuse record dimension value =
+    Extent.reuse_global_dimension ~table ~record ~dimension
+      ~queries:(queries dimension) value
+  in
+  let values =
+    List.map2 (reuse record) dimensions checked_dimensions |> List.map checked
+  in
+  let extent = Extent.make_global_extent ~table ~record values |> checked in
+  Alcotest.(check (list int64))
+    "complete retained dimensions" [ 3L; 8L ]
+    (Extent.global_extent_dimensions extent);
+  Alcotest.(check int64)
+    "declared element count" 24L
+    (Extent.global_extent_element_count extent);
+  reject "foreign table cannot consume global extent"
+    (Extent.validate_global_extent
+       ~table:(Session.semantic_symbols (Session.create ()))
+       ~record extent);
+  reject "missing dimension cannot complete extent"
+    (Extent.make_global_extent ~table ~record [ List.hd values ]);
+  reject "reordered dimensions cannot complete extent"
+    (Extent.make_global_extent ~table ~record (List.rev values));
+  reject "repeated dimensions cannot complete extent"
+    (Extent.make_global_extent ~table ~record
+       [ List.hd values; List.hd values ]);
+  reject "other declaration cannot consume dimension"
+    (reuse (List.nth records 1) (List.hd dimensions)
+       (List.hd checked_dimensions));
+  reject "other prepared source cannot replace dimension"
+    (reuse record (List.hd dimensions) (List.nth checked_dimensions 1));
+  reject "selected query manifest cannot be dropped"
+    (Extent.reuse_global_dimension ~table ~record
+       ~dimension:(List.nth dimensions 1) ~queries:[]
+       (List.nth checked_dimensions 1));
+  let parent = C.scope declarations in
+  let resolve global =
+    R.make_declaration ~global () |> checked |> fun declaration ->
+    R.resolve ~table ~parent ~compilation_mode:R.Jit [ declaration ]
+    |> checked |> R.records |> List.hd
+  in
+  let rebuilt_record = resolve global in
+  reject "same source and symbol cannot consume another record's extent"
+    (Extent.validate_global_extent ~table ~record:rebuilt_record extent);
+  reject "same source record cannot consume another record's dimension proof"
+    (Extent.make_global_extent ~table ~record:rebuilt_record values);
+  ignore
+    (List.map2 (reuse rebuilt_record) dimensions checked_dimensions
+    |> List.map checked
+    |> Extent.make_global_extent ~table ~record:rebuilt_record
+    |> checked);
+  let original_symbol = G.global_symbol global in
+  let copied_symbol =
+    Symbols.add table ~scope:parent
+      ~name:(Semantic_symbol.name original_symbol)
+      ~kind:Semantic_symbol.Global_variable
+      ~origin:(Semantic_symbol.origin original_symbol)
+    |> checked
+  in
+  let copy ~symbol ~array_dimensions =
+    G.make_global ~symbol
+      ~item_index:(G.global_item_index global)
+      ?declarator_index:(G.global_declarator_index global)
+      ~declarator_origin:(G.global_declarator_origin global)
+      ~type_reference:(G.global_type_reference global)
+      ~declarator_kind:(G.global_declarator_kind global)
+      ~array_dimensions
+      ~initial_value:(G.global_initializer global)
+      ~delimiter:(G.global_delimiter global)
+      ()
+    |> checked
+  in
+  let copied_record =
+    copy ~symbol:copied_symbol ~array_dimensions:dimensions |> resolve
+  in
+  reject "same scope name origin and source cannot replace original publication"
+    (reuse copied_record (List.hd dimensions) (List.hd checked_dimensions));
+  let dimension = List.hd dimensions in
+  let rebuilt_dimension =
+    G.make_array_dimension
+      ~index:(G.array_dimension_index dimension)
+      ~origin:(G.array_dimension_origin dimension)
+      ~opening_origin:(G.array_dimension_opening_origin dimension)
+      ?expression_origin:(G.array_dimension_expression_origin dimension)
+      ?source_expression:(G.array_dimension_source_expression dimension)
+      ?source_dimension:(G.array_dimension_source dimension)
+      ~closing_origin:(G.array_dimension_closing_origin dimension)
+      ()
+    |> checked
+  in
+  reject "copied typed dimension is not a member of original record"
+    (reuse record rebuilt_dimension (List.hd checked_dimensions));
+  let changed_record =
+    copy ~symbol:original_symbol ~array_dimensions:[ dimension ] |> resolve
+  in
+  reject "original publication rejects missing source dimensions"
+    (reuse changed_record dimension (List.hd checked_dimensions));
+  let legacy =
+    Extent.evaluate_global_dimension ~table ~record ~dimension ~queries:None
+    |> checked
+  in
+  Alcotest.(check int64)
+    "legacy evaluator reads original expression" 3L
+    (Extent.global_dimension_extent_count legacy);
+  let mixed =
+    Extent.make_global_extent ~table ~record [ legacy; List.nth values 1 ]
+    |> checked
+  in
+  Alcotest.(check (list int64))
+    "mixed preparation retains original predecessor" [ 3L; 8L ]
+    (Extent.global_extent_dimensions mixed);
+  reject "legacy evaluator also requires exact typed dimension membership"
+    (Extent.evaluate_global_dimension ~table ~record
+       ~dimension:rebuilt_dimension ~queries:None);
+  reject "legacy selected query requires exact manifest"
+    (Extent.evaluate_global_dimension ~table ~record
+       ~dimension:(List.nth dimensions 1) ~queries:(Some []));
+  Alcotest.(check int)
+    "reuse and legacy layout do not charge source preparation" 6
+    (D.dimension_work ledger)
+
 let checked_extent_failures () =
   List.iter
     (fun (contents, limit, work, code) ->
@@ -2814,6 +2978,9 @@ let nested_grammar_dimensions () =
 
 let tests =
   [
+    Alcotest.test_case
+      "global extents retain exact publication and record ownership" `Quick
+      global_extent_ownership;
     Alcotest.test_case "grammar counts require active original checked extents"
       `Quick grammar_dimension_ownership;
     Alcotest.test_case "failed completion cannot supply grammar counts" `Quick

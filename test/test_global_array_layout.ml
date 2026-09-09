@@ -118,8 +118,26 @@ let declaration_identity_after_binding () =
       accepts [ statement; declaration ];
     ]
 
+let legacy_overflow_precedes_later_fault () =
+  let prepared =
+    D.prepare ~path:"extent-overflow-order.hc"
+      "U8 A[9223372036854775807][2][1/0];"
+  in
+  let environment = D.jit_environment prepared [] [] in
+  let bindings = D.resolve prepared environment in
+  match layout_global_arrays prepared.session ~bindings prepared.ast with
+  | Ok _ -> Alcotest.fail "overflowing array cannot acquire layout"
+  | Error message ->
+      Alcotest.(check string)
+        "prefix overflow precedes later division"
+        "HCSEMA0027: global array dimension 1 for \"A\" overflows the declared \
+         element count"
+        message
+
 let tests =
   [
+    Alcotest.test_case "legacy overflow stops before later dimension faults"
+      `Quick legacy_overflow_precedes_later_fault;
     Alcotest.test_case "original extent expression identity" `Quick
       original_expression_and_inputs;
     Alcotest.test_case "layout preserves declaration identity after binding"

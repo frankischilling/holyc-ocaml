@@ -23,17 +23,18 @@ type entry = {
 
 type t = { scope : Symbol_table.scope; entries : entry list }
 
-type namespace = {
-  table : Symbol_table.t;
-  scope : Symbol_table.scope;
-  owner : unit ref;
-}
-
 type publication = {
   owner : unit ref;
   symbol : Symbol.t;
   source_global : Frontend.Parser.global_publication option;
   source_function : Frontend.Parser.function_publication option;
+}
+
+type namespace = {
+  table : Symbol_table.t;
+  scope : Symbol_table.scope;
+  owner : unit ref;
+  mutable source_globals : publication list;
 }
 
 let scope (collection : t) = collection.scope
@@ -107,19 +108,26 @@ let collect ~table ?module_name declarations =
 
 let create_namespace ~table ?module_name () =
   create_module_scope table module_name
-  |> Result.map (fun scope -> { table; scope; owner = ref () })
+  |> Result.map (fun scope ->
+      { table; scope; owner = ref (); source_globals = [] })
 
 let namespace_scope (namespace : namespace) = namespace.scope
 let publication_symbol (publication : publication) = publication.symbol
 let publication_source_global publication = publication.source_global
 let publication_source_function publication = publication.source_function
 
-let namespace_owns_publication (namespace : namespace) publication =
+let namespace_owns_publication (namespace : namespace)
+    (publication : publication) =
   publication.owner == namespace.owner
   && Symbol_table.owns_symbol namespace.table publication.symbol
 
 let namespace_owns_table (namespace : namespace) table =
   namespace.table == table
+
+let source_global_for_symbol (namespace : namespace) symbol =
+  List.find_opt
+    (fun (publication : publication) -> publication.symbol == symbol)
+    namespace.source_globals
 
 let publish (namespace : namespace) ~name ~kind ~origin =
   match kind with
@@ -151,7 +159,9 @@ let publish_global namespace (source : Frontend.Parser.global_publication) =
   publish namespace ~name:source.global_name.spelling
     ~kind:Symbol.Global_variable ~origin
   |> Result.map (fun publication ->
-      { publication with source_global = Some source })
+      let publication = { publication with source_global = Some source } in
+      namespace.source_globals <- publication :: namespace.source_globals;
+      publication)
 
 let publish_function namespace (source : Frontend.Parser.function_publication) =
   let location = source.function_name.location in

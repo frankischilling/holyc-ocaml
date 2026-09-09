@@ -50,6 +50,25 @@ type declared_dimension = {
   completed : Parser.completed_array_dimension;
 }
 
+type extent_evaluation =
+  | Prepared_extent of declared_dimension
+  | Legacy_extent of query_read list option
+
+type global_dimension_extent = {
+  extent_table : Symbol_table.t;
+  extent_record : Global_resolution.global_record;
+  extent_dimension : Global_type_resolution.array_dimension;
+  extent_evaluation : extent_evaluation;
+  extent_count : int64;
+}
+
+type global_extent = {
+  global_extent_table : Symbol_table.t;
+  global_extent_record : Global_resolution.global_record;
+  global_extent_dimensions : global_dimension_extent list;
+  global_extent_count : int64;
+}
+
 let ( let* ) = Result.bind
 
 let validate_dimension ~table ~(dimension : Ast.array_dimension) checked =
@@ -591,3 +610,275 @@ let complete_dimension ~receipt prepared =
       "checked dimension completion substituted its original preparation or \
        children"
   else Ok { prepared; completed = receipt }
+
+let global_dimensions record =
+  Global_resolution.global_record_global record
+  |> Global_type_resolution.global_array_dimensions
+
+let validate_global_dimension_owner ~table ~record ~dimension =
+  let symbol = Global_resolution.global_record_symbol record in
+  let global = Global_resolution.global_record_global record in
+  let index = Global_type_resolution.array_dimension_index dimension in
+  if
+    (not (Symbol_table.owns_symbol table symbol))
+    || symbol != Global_type_resolution.global_symbol global
+    || Symbol.kind symbol <> Symbol.Global_variable
+  then Error "checked global extent belongs to another table or symbol"
+  else
+    match List.nth_opt (global_dimensions record) index with
+    | Some original when original == dimension -> Ok ()
+    | _ -> Error "checked global extent has a foreign dimension or index"
+
+let positive_extent value =
+  if Int64.compare value 0L > 0 then Ok ()
+  else
+    Error
+      (Printf.sprintf
+         "has nonpositive extent %Ld; persistent arrays require a positive \
+          fixed extent"
+         value)
+
+let reuse_global_dimension ~table ~record ~dimension ~queries checked =
+  let* () = validate_global_dimension_owner ~table ~record ~dimension in
+  let namespace = checked.prepared.dimension_namespace in
+  let* publication =
+    match
+      Declaration_collection.source_global_for_symbol namespace
+        (Global_resolution.global_record_symbol record)
+    with
+    | Some publication
+      when Declaration_collection.namespace_owns_table namespace table
+           && Declaration_collection.namespace_owns_publication namespace
+                publication -> Ok publication
+    | _ ->
+        Error "checked global extent lacks its original declaration publication"
+  in
+  let* source =
+    match Declaration_collection.publication_source_global publication with
+    | Some source -> Ok source
+    | None ->
+        Error "checked global extent lacks its original parser declaration"
+  in
+  let preparation = checked.prepared.preparation in
+  let owner = preparation.dimension_owner in
+  let index = Global_type_resolution.array_dimension_index dimension in
+  let rec same_dimensions originals dimensions =
+    match (originals, dimensions) with
+    | [], [] -> true
+    | original :: originals, dimension :: dimensions ->
+        (match Global_type_resolution.array_dimension_source dimension with
+          | Some source -> source == original
+          | None -> false)
+        && same_dimensions originals dimensions
+    | _ -> false
+  in
+  if
+    owner.dimensions_command != source.global_header.declaration_command
+    || owner.dimensions_environment != source.global_environment
+    || owner.dimensions_name != source.global_name
+    || preparation.dimension_index <> index
+    || not (same_dimensions source.global_dimensions (global_dimensions record))
+  then
+    Error
+      "checked global extent has substituted declaration dimensions or owner"
+  else
+    let* original =
+      match Global_type_resolution.array_dimension_source dimension with
+      | Some original -> Ok original
+      | None ->
+          Error
+            "checked global extent needs its complete original AST dimension"
+    in
+    let* () = validate_dimension ~table ~dimension:original checked in
+    let* () = validate_dimension_queries checked queries in
+    let* () = positive_extent checked.prepared.count in
+    Ok
+      {
+        extent_table = table;
+        extent_record = record;
+        extent_dimension = dimension;
+        extent_evaluation = Prepared_extent checked;
+        extent_count = checked.prepared.count;
+      }
+
+let evaluate_global_dimension ~table ~record ~dimension ~queries =
+  let module Numeric = Closed_numeric_expression in
+  let* () = validate_global_dimension_owner ~table ~record ~dimension in
+  let* source =
+    match
+      Global_type_resolution.array_dimension_source_expression dimension
+    with
+    | Some expression -> Ok expression
+    | None ->
+        Error "has an empty extent; inferred persistent arrays are unresolved"
+  in
+  let* () =
+    match queries with
+    | None -> Ok ()
+    | Some queries -> validate_query_manifest ~table ~expression:source queries
+  in
+  let expression =
+    Numeric.of_ast ~query_expression
+      ~queries:(Option.value queries ~default:[])
+      source
+  in
+  let rec closed = function
+    | Numeric.Selected_query_expression query ->
+        if Option.is_some (query_constant query) then Ok ()
+        else Error "requires the selected query's checked constant metadata"
+    | Numeric.Integer_expression _
+    | Numeric.Unsigned_integer_expression _
+    | Numeric.Floating_expression _ -> Ok ()
+    | Numeric.Current_position_expression _ ->
+        Error "requires unresolved current-position layout evidence"
+    | Numeric.Dependency_expression { detail; _ } ->
+        Error ("requires unresolved closed layout evidence: " ^ detail)
+    | Numeric.Unsupported_expression { description; _ } ->
+        Error ("has an unsupported closed layout expression: " ^ description)
+    | Numeric.Unary_expression { operand; _ } -> closed operand
+    | Numeric.Binary_expression { left; right; _ } ->
+        let* () = closed left in
+        closed right
+  in
+  let* () = closed expression in
+  let* count =
+    Numeric.evaluate_expression
+      ~query_origin:(fun query -> query.origin)
+      ~query_value:query_constant ~context:Numeric.Array_dimension
+      ~current_position:0L expression
+    |> Result.map_error (fun error -> ": " ^ Numeric.error_to_string error)
+  in
+  let* () = positive_extent count in
+  Ok
+    {
+      extent_table = table;
+      extent_record = record;
+      extent_dimension = dimension;
+      extent_evaluation = Legacy_extent queries;
+      extent_count = count;
+    }
+
+let make_global_extent ~table ~record dimensions =
+  let rec loop predecessor count expected dimensions =
+    match (expected, dimensions) with
+    | [], [] -> Ok count
+    | original :: expected, value :: dimensions ->
+        if
+          value.extent_table != table
+          || value.extent_record != record
+          || value.extent_dimension != original
+        then Error "global extent has foreign or reordered dimension evidence"
+        else
+          let* () =
+            validate_global_dimension_owner ~table ~record ~dimension:original
+          in
+          let* next =
+            match value.extent_evaluation with
+            | Legacy_extent _ -> Ok None
+            | Prepared_extent checked ->
+                let matches =
+                  match
+                    ( checked.prepared.preparation.dimension_predecessor,
+                      predecessor )
+                  with
+                  | None, None -> true
+                  | Some left, Some (prior, prepared) ->
+                      (match
+                         Global_type_resolution.array_dimension_source prior
+                       with
+                        | Some source -> source == left.dimension_ast
+                        | None -> false)
+                      && Option.fold ~none:true
+                           ~some:(fun right -> left == right)
+                           prepared
+                  | _ -> false
+                in
+                if matches then Ok (Some checked.completed)
+                else
+                  Error
+                    "global extent has a substituted preparation predecessor"
+          in
+          let* () = positive_extent value.extent_count in
+          if
+            Int64.compare count (Int64.div Int64.max_int value.extent_count) > 0
+          then Error "global extent overflows the declared element count"
+          else
+            loop
+              (Some (original, next))
+              (Int64.mul count value.extent_count)
+              expected dimensions
+    | _ -> Error "global extent lacks its complete ordered dimensions"
+  in
+  let symbol = Global_resolution.global_record_symbol record in
+  if not (Symbol_table.owns_symbol table symbol) then
+    Error "global extent belongs to another semantic table"
+  else
+    let* count = loop None 1L (global_dimensions record) dimensions in
+    Ok
+      {
+        global_extent_table = table;
+        global_extent_record = record;
+        global_extent_dimensions = dimensions;
+        global_extent_count = count;
+      }
+
+let global_extent_record extent = extent.global_extent_record
+let global_dimension_extent_count extent = extent.extent_count
+
+let global_extent_dimensions extent =
+  List.map (fun value -> value.extent_count) extent.global_extent_dimensions
+
+let global_extent_element_count extent = extent.global_extent_count
+
+let validate_global_extent ~table ~record extent =
+  if
+    extent.global_extent_table != table || extent.global_extent_record != record
+  then
+    Error "checked global extent belongs to another table or declaration record"
+  else Ok ()
+
+let bind_retained_global ~table ~entry ~record ~extent =
+  let global = Global_resolution.global_record_global record in
+  match global_dimensions record with
+  | [] ->
+      let* () =
+        match extent with
+        | None -> Ok ()
+        | Some extent -> validate_global_extent ~table ~record extent
+      in
+      bind_retained_scalar ~table ~entry global
+  | _ ->
+      let symbol = Global_resolution.global_record_symbol record in
+      let* extent =
+        match extent with
+        | None ->
+            Error "sizeof requires the retained global's checked array extent"
+        | Some extent ->
+            let* () = validate_global_extent ~table ~record extent in
+            Ok extent
+      in
+      if
+        symbol != Global_type_resolution.global_symbol global
+        || (not (Symbol_table.owns_symbol table symbol))
+        || Symbol.kind symbol <> Symbol.Global_variable
+        || Visibility.kind entry <> Visibility.Global_variable
+        || Symbol.name symbol <> Visibility.name entry
+      then Error "retained compiler record has a foreign symbol or entry"
+      else if
+        Global_type_resolution.global_declarator_kind global
+        <> Global_type_resolution.Object
+      then Error "sizeof requires the retained function-pointer signature"
+      else
+        let* byte_size =
+          Global_type_resolution.global_type_reference global
+          |> Type_reference.resolved_type |> scalar_size
+        in
+        Ok
+          {
+            table;
+            entry;
+            symbol;
+            primitive = None;
+            byte_size = Int64.mul byte_size extent.global_extent_count;
+            internal = false;
+          }

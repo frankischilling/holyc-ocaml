@@ -100,6 +100,63 @@ facade to execute directives past a native early error.
 
 ## In-progress evidence
 
+### Retained global extent proofs after b6de3fe
+
+Continue the approved source/task compiler implementation. The numeric extent
+list currently survives storage creation, but the original checked layout proof
+does not. Add opaque lower Compiler_record global-dimension/global-extent proofs
+tied to the exact table and Global_resolution.global_record. Prepared dimensions
+reuse original source/query evidence; callback-free dimensions evaluate internally
+at their existing first semantic evaluation boundary. Never certify a supplied
+integer or synthesize a parser receipt. Preserve legacy accounting separately.
+
+Global_array_layout retains existing binding-batch, occurrence and original AST
+checks, delegates proof-producing evaluation to Compiler_record, and retains the
+assembled extent. Keep Compiler_record below Global_dimension_binding and
+Aggregate_layout to avoid their Query_selection cycle. Store the exact proof
+alongside Integer_globals.slot shape, preserve it through initializer updates,
+and validate original record/table/shape before task mutation. At admission,
+bind the fresh frontend entry to the exact admitted slot/reference and extent;
+later sizeof uses that original association without a name lookup or evaluation.
+
+- [x] Reproduce retained source/legacy array sizeof, query-derived dimensions,
+  declared-versus-padded byte sizes and later shadow behavior.
+- [x] Add lower opaque extent construction from original checked evidence or
+  original closed-AST evaluation, with exact record/order/query validation.
+- [x] Retain proof through global layout, slot transforms and task admission.
+- [x] Add foreign/mixed/reconstructed record and proof controls, preserve source
+  and legacy resource accounting, review and run full required verification.
+
+KDE6Q2CI reproduced lost sizeof metadata only for callback-free admitted arrays.
+Source arrays already passed. Opaque per-dimension evidence now comes either
+from original parser preparation or from legacy evaluation of the exact typed
+source expression. A namespace registry retains only original publish_global
+associations keyed by physical symbol; matching scope/name/origin is insufficient.
+Fresh semantic records may reuse the original declaration preparation, but each
+minted extent belongs to that exact record and cannot be transferred.
+
+FFHT21CR passed118 groups after propagation through layout, slots and admission.
+Q4ZLCHMZ passed120 with direct ownership controls. Review identified a legacy
+prefix-overflow ordering regression and rejection of mixed preparation paths.
+The final implementation checks overflow before evaluating the next dimension,
+and mixed paths retain the preceding original AST and available exact receipt.
+KKJYJAH9 passed129 focused groups in0.299s, including source/legacy shadows,
+preflight/reached-fault/replay, copied symbols,
+reconstructed records, missing/reordered/repeated dimensions and query manifests.
+The initial full run passed2267/2281 in55.840s with only fourteen known failures.
+Review caught an unregistered JIT/AOT initializer-preservation test. Registering
+it produced HSN64GLX:130 focused groups pass in0.313s. Final full run7IDBGUZW passed2268/2282 groups in52.973s; exactly the fourteen
+pending stateful #exe groups fail. Complete CLI, format/generated/all/install,
+82 reference checksums and eleven provenance scenarios pass. The full lexer
+JSON and parser JSON/normalized text match existing baselines:528/528 lex,
+25 standalone parses and126 with the prelude. Final read-only review found no
+remaining production blocker. These are local changes after b6de3fe; rebuild
+and verify committed identity before recording the pushed checkpoint.
+
+This does not complete effectful dimensions, aggregate/member/debug metadata,
+native partial initialization/header/storage behavior, extern/provider/call
+phases, production source #exe orchestration or the full compiler goal.
+
 ### Checked extents after 8f53c73
 
 The pushed checked-extent checkpoint is30b6871 (tree bf7b7f3). Its rebuilt

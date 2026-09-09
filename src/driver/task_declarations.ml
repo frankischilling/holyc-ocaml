@@ -332,7 +332,23 @@ let observe_admission ledger receipt =
              (runtime_symbol publication)))
       publications
   then Error "runtime publication belongs to another semantic table"
-  else (
+  else
+    let ( let* ) = Result.bind in
+    let* () =
+      List.fold_left
+        (fun result publication ->
+          let* () = result in
+          match publication with
+          | VM.Admitted_function _ -> Ok ()
+          | VM.Admitted_global (reference, slot) ->
+              if
+                Ir.Retained_global.symbol reference
+                != Ir.Integer_globals.slot_symbol slot
+              then Error "runtime global publication has another storage symbol"
+              else
+                Ir.Integer_globals.validate_slot_extent ~table:ledger.table slot)
+        (Ok ()) publications
+    in
     List.iter
       (fun publication ->
         let symbol = runtime_symbol publication in
@@ -377,17 +393,17 @@ let observe_admission ledger receipt =
         match publication with
         | VM.Admitted_function _ -> ()
         | VM.Admitted_global (_, slot) ->
-            let global =
+            let record =
               Ir.Integer_globals.slot_record slot
               |> Sema.Global_record_classification.classified_record_source
-              |> Sema.Global_resolution.global_record_global
             in
             Entries.add ledger.runtime_records entry
-              (Sema.Compiler_record.bind_retained_scalar ~table:ledger.table
-                 ~entry global))
+              (Sema.Compiler_record.bind_retained_global ~table:ledger.table
+                 ~entry ~record
+                 ~extent:(Ir.Integer_globals.slot_extent slot)))
       publications;
     ledger.admissions <- receipt :: ledger.admissions;
-    Ok ())
+    Ok ()
 
 let context_span context =
   let source = Parser.context_source context in

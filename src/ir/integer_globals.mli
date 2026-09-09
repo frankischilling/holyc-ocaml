@@ -114,6 +114,10 @@ val create_with_layout :
   (t, Common.Diagnostic.t list) result
 
 val slot_shape : slot -> Integer_storage_shape.t
+val slot_extent : slot -> Sema.Compiler_record.global_extent option
+
+val validate_slot_extent :
+  table:Sema.Symbol_table.t -> slot -> (unit, string) result
 
 val slots : t -> slot list
 (** Ordinary global declarations only; [statics] retains separate owners. *)

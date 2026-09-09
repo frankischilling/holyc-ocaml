@@ -77,6 +77,7 @@ module Ir_integer_globals : sig
   val slot_symbol : slot -> Sema.Symbol.t
   val slot_type : slot -> Sema.Type.t
   val slot_record : slot -> Sema.Global_record_classification.classified_record
+  val slot_extent : slot -> Sema.Compiler_record.global_extent option
   val slot_opcode : slot -> Ir.Opcode.t
   val slot_initial_bits : slot -> int64 option
 
