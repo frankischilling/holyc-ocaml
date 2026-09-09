@@ -1,5 +1,9 @@
-type 'a checked = { value : 'a; diagnostics : Common.Diagnostic.t list }
-type compiled
+type 'a checked = 'a Integer_unit.checked = {
+  value : 'a;
+  diagnostics : Common.Diagnostic.t list;
+}
+
+type compiled = Integer_unit.compiled
 
 val compile_task_ast :
   task:Ir.Integer_interpreter.task_state ->

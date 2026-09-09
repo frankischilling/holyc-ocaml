@@ -2,6 +2,16 @@ type t
 type command
 type stream
 
+type progress = private {
+  runtime : Ir.Integer_interpreter.task_progress;
+  dimension_work : int;
+}
+
+val progress : t -> progress
+(** Immutable cumulative task observation, including dimension preparation and
+    effects reached before a later parse, compile or execution failure. This is
+    neither a successful program outcome nor an executable artifact. *)
+
 (** Incremental JIT execution with retained globals and functions. Calls
     preserve each body's original storage, literals and callees. [run] retains
     assigned declaration symbols across parsing and compilation; partial runtime

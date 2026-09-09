@@ -66,6 +66,7 @@
   test_stateful_exe
   test_integer_task
   test_task_stream
+  test_task_progress
   test_task_declarations
   test_task_command_order
   test_stream_parser

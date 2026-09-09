@@ -180,7 +180,8 @@ for structured top-level control flow and `OptLib.HC:229-484` for conditional
 NOT, AND and OR branches. `PrsExp.HC:49-52,225-230,728-759` establishes
 comparison chains, parentheses and unary plus. The implementation is
 `src/ir/integer_program_lowering.ml` with the shared semantic preparation in
-`src/driver/integer_source.ml` and AST join in `src/driver/integer_program.ml`.
+`src/driver/integer_source.ml` and AST join in `src/driver/integer_unit.ml`.
+`src/driver/integer_program.ml` retains source parsing and isolated-unit APIs.
 Source and CLI tests are `test/test_integer_program.ml` and
 `test/test_integer_program_cli.ml`. [Integer programs](integer-programs.md)
 records the accepted domain and the remaining memory, call and native gaps.

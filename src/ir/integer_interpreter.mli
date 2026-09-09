@@ -37,6 +37,25 @@ type task_state
 type task_stream
 type task_admission
 
+type task_progress = private {
+  executed_steps : int;
+  initializer_steps : int;
+  global_bytes : int;
+  literal_bytes : int;
+  output_bytes : string;
+  output_work : int;
+  generated_bytes : int;
+  final_value : word option;
+}
+
+val task_progress : task_state -> task_progress
+(** Immutable observation of task-lifetime work, allocated storage, captured
+    output and the last reached outer expression value. Reached faults retain
+    that value; declarations and implicit output leave it alone, while an
+    explicit no-value expression clears it. Active stream commands do not alter
+    it. Snapshots grant no runtime, source or admission authority and do not
+    describe a successful whole-invocation outcome. *)
+
 type admitted_publication = private
   | Admitted_global of Retained_global.t * Integer_globals.slot
   | Admitted_function of Retained_function.t

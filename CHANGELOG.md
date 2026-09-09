@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added immutable task progress snapshots for reached output, cumulative work
+  and storage, and the outer expression value. Later declarations, nested stream
+  commands and failures preserve the appropriate earlier observations. Extracted
+  the checked compilation core so source orchestration can use it and retained
+  tasks without a driver dependency cycle. The public #exe run path remains
+  unfinished in #635.
+
 - Task source commands now retain original parser resume order through VM
   admission. Nested lookahead runs before its suspended command; source replay,
   missing predecessors and substituted compilation bundles fail before effects.

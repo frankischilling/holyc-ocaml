@@ -116,6 +116,7 @@ let () =
       ("task command order", Test_task_command_order.tests);
       ("integer task", Test_integer_task.tests);
       ("task stream output", Test_task_stream.tests);
+      ("task progress", Test_task_progress.tests);
       ("task declarations", Test_task_declarations.tests);
       ("stream parser", Test_stream_parser.tests);
       ("source integer statics", Test_integer_statics.tests);

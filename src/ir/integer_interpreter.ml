@@ -117,6 +117,17 @@ type report = {
   output_work_ : int;
 }
 
+type task_progress = {
+  executed_steps : int;
+  initializer_steps : int;
+  global_bytes : int;
+  literal_bytes : int;
+  output_bytes : string;
+  output_work : int;
+  generated_bytes : int;
+  final_value : word option;
+}
+
 let report_outcome report = report.outcome_
 let report_output_bytes report = report.output_bytes_
 let report_output_work report = report.output_work_
@@ -298,6 +309,7 @@ type task_state = {
   mutable literal_bytes : int;
   mutable steps : int;
   mutable initializer_steps : int;
+  mutable outer_value : word option;
   max_steps : int;
   max_initializer_steps : int;
   max_global_bytes : int;
@@ -352,6 +364,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         literal_bytes = 0;
         steps = 0;
         initializer_steps = 0;
+        outer_value = None;
         max_steps;
         max_initializer_steps;
         max_global_bytes;
@@ -485,6 +498,18 @@ let task_generated_bytes task = Output.committed_bytes task.generated
 let task_executed_steps task = task.steps
 let task_initializer_steps task = task.initializer_steps
 let task_initializer_limit task = task.max_initializer_steps
+
+let task_progress (task : task_state) =
+  {
+    executed_steps = task.steps;
+    initializer_steps = task.initializer_steps;
+    global_bytes = task.global_bytes;
+    literal_bytes = task.literal_bytes;
+    output_bytes = Output.contents task.output;
+    output_work = Output.work task.output;
+    generated_bytes = Output.committed_bytes task.generated;
+    final_value = task.outer_value;
+  }
 
 let record_task_preparation task ~before ~steps =
   if
@@ -2360,8 +2385,8 @@ let publish_array_payload ~slot ~cell_offset payload write =
         bytes
 
 let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
-    ?(max_call_depth = Int.max_int) ?(capture_last = false) ?initialization
-    ?(global_words = [||]) ?literal_image ?output ?stream_output
+    ?(max_call_depth = Int.max_int) ?(capture_last = false) ?on_capture
+    ?initialization ?(global_words = [||]) ?literal_image ?output ?stream_output
     ?generation_output ?admit ?(retained_regions = [])
     ?(retained_functions = []) ~max_steps program =
   let entry_program = program in
@@ -2473,6 +2498,10 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
   let depth = ref 0 in
   let live_frame_bytes = ref !program.initial_frame_bytes in
   let final_value = ref None in
+  let capture value =
+    final_value := value;
+    Option.iter (fun observe -> observe value) on_capture
+  in
   let pending_return = ref None in
   let steps = ref 0 in
   let completed = ref None in
@@ -3169,7 +3198,8 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                 capture_last && instruction.capture_discard
                 && (not !program.is_function)
                 && Option.is_none !active_initializer
-              then final_value := value
+                && Option.is_none !failed
+              then capture value
           | Discard_void value_id -> (
               match Value_map.find_opt value_id !values with
               | Some Runtime_void ->
@@ -3177,7 +3207,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                     capture_last && instruction.capture_discard
                     && (not !program.is_function)
                     && Option.is_none !active_initializer
-                  then final_value := None
+                  then capture None
               | _ ->
                   failed :=
                     Some
@@ -3778,10 +3808,16 @@ let execute_program_with_output ?task ?runtime_calls ~output ?globals
             | [] -> None)
       in
       let generation_output = Option.map (fun task -> task.generated) task in
+      let on_capture =
+        Option.bind task (fun task ->
+            if task.streams = [] then
+              Some (fun value -> task.outer_value <- value)
+            else None)
+      in
       execute_prepared ~callees:programs ~max_frame_bytes ~max_call_depth
         ?initialization ~global_words ~literal_image ~output ?stream_output
-        ?generation_output ~capture_last:true ?admit ~retained_regions
-        ~retained_functions ~max_steps entry
+        ?generation_output ~capture_last:true ?on_capture ?admit
+        ~retained_regions ~retained_functions ~max_steps entry
     in
     Option.iter
       (fun task ->

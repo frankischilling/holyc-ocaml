@@ -1,6 +1,7 @@
 module VM = Ir.Integer_interpreter
 
 type stream = VM.task_stream
+type progress = { runtime : VM.task_progress; dimension_work : int }
 
 type t = {
   session : Session.t;
@@ -13,7 +14,7 @@ type t = {
 
 and command = {
   owner : unit ref;
-  program : Integer_program.compiled;
+  program : Integer_unit.compiled;
   span : Common.Span.t;
   mutable frontend_pending : bool;
 }
@@ -52,6 +53,13 @@ let generated_bytes task = VM.task_generated_bytes task.state
 let executed_steps task = VM.task_executed_steps task.state
 let initializer_steps task = VM.task_initializer_steps task.state
 let dimension_work task = Task_declarations.dimension_work task.declarations
+
+let progress task =
+  {
+    runtime = VM.task_progress task.state;
+    dimension_work = dimension_work task;
+  }
+
 let begin_stream task = VM.begin_task_stream task.state
 let finish_stream task stream = VM.finish_task_stream task.state stream
 let abort_stream task stream = VM.abort_task_stream task.state stream
@@ -97,13 +105,13 @@ let compile_ast_internal ?declaration_command task (ast : Frontend.Ast.module_)
   | None ->
       let ( let* ) = Result.bind in
       let* checked =
-        Integer_program.compile_task_ast ~task:task.state ?declaration_command
+        Integer_unit.compile_task_ast ~task:task.state ?declaration_command
           task.session ~config:task.config ast
       in
       let command =
         {
           owner = task.identity;
-          program = checked.Integer_program.value;
+          program = checked.Integer_unit.value;
           span = ast.span;
           frontend_pending = Option.is_none declaration_command;
         }
@@ -124,11 +132,11 @@ let execute task command =
   else
     let outcome =
       VM.execute_task_program task.state
-        ~runtime_calls:(Integer_program.runtime_calls program)
-        ~globals:(Integer_program.globals program)
-        ~initialization:(Integer_program.initialization program)
-        ~functions:(Integer_program.functions program)
-        (Integer_program.entry program)
+        ~runtime_calls:(Integer_unit.runtime_calls program)
+        ~globals:(Integer_unit.globals program)
+        ~initialization:(Integer_unit.initialization program)
+        ~functions:(Integer_unit.functions program)
+        (Integer_unit.entry program)
       |> Result.map_error
            (Integer_execution_diagnostics.of_errors ~span:command.span)
     in
@@ -137,8 +145,8 @@ let execute task command =
       else
         match
           VM.task_admission task.state
-            ~globals:(Integer_program.globals program)
-            ~entry:(Integer_program.entry program)
+            ~globals:(Integer_unit.globals program)
+            ~entry:(Integer_unit.entry program)
         with
         | None -> Ok ()
         | Some receipt ->
