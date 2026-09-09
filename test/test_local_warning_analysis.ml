@@ -26,12 +26,30 @@ type prepared = {
   expressions : Semantic_function_expression_binding.t;
 }
 
-let prepare ?(mode = Preprocessor.Jit) ~path contents =
+let prepare ?(mode = Preprocessor.Jit) ?capture_queries ~path contents =
   let session = Session.create () in
   let source = Session.add_source session ~path ~contents in
   let ast =
-    Holyc_lib.parse_with_config session ~config:(config mode) ~source
-    |> expect_ast
+    match capture_queries with
+    | None ->
+        Holyc_lib.parse_with_config session ~config:(config mode) ~source
+        |> expect_ast
+    | Some query ->
+        let commands : Parser.command_sink =
+          {
+            checkpoint = None;
+            reference = None;
+            query = Some query;
+            declaration = None;
+            command = (fun _ -> Ok ());
+            resume = (fun () -> Ok ());
+          }
+        in
+        Parser.parse ~commands ~sources:(Session.sources session)
+          ~symbols:(Session.symbols session)
+          ~definitions:(Session.definitions session)
+          ~config:(config mode) source
+        |> Test_parser.expect_ast
   in
   let declarations = checked (Holyc_lib.collect_declarations session ast) in
   let aggregates =
@@ -280,6 +298,120 @@ let specialized_queries_count_as_uses () =
     (Semantic_local_warning_analysis.function_warnings function_
     |> List.map warning_signature)
 
+let selected_query_uses () =
+  List.iter
+    (fun (contents, expected) ->
+      let receipts = ref [] in
+      let capture_queries = function
+        | Parser.Query_completed receipt ->
+            receipts := receipt :: !receipts;
+            Ok ()
+        | _ -> Ok ()
+      in
+      let prepared =
+        prepare ~capture_queries ~path:"selected-query-uses.HC" contents
+      in
+      let table = Session.semantic_symbols prepared.session in
+      let indexed =
+        List.hd (Semantic_function_binding_index.functions prepared.bindings)
+      in
+      let events =
+        List.rev !receipts
+        |> List.map (fun receipt ->
+            let selection =
+              Semantic_query_selection.make ~table ~receipt () |> checked
+            in
+            let operand =
+              match receipt.Parser.query_root.query_node with
+              | Parser.Defined_target operand -> operand
+              | _ -> Alcotest.fail "expected defined query"
+            in
+            let location = operand.defined_operand_location in
+            let origin =
+              Semantic_symbol.Source_location
+                {
+                  span = location.span;
+                  source_segments = location.source_segments;
+                  generated_from = location.generated_from;
+                  defined_at = location.defined_at;
+                }
+            in
+            Semantic_function_expression_binding.make_selected_name_query
+              ~selection
+              ~role:Semantic_function_expression_binding.Defined_operand
+              ~name:operand.defined_operand_spelling ~origin
+            |> checked)
+      in
+      let locals =
+        Semantic_function_binding_index.function_bindings indexed
+        |> List.filter_map (fun binding ->
+            match
+              ( binding.Semantic_function_binding_index.local_declaration_index,
+                binding.local_declarator_index )
+            with
+            | Some declaration_index, Some declarator_index ->
+                Some
+                  (Semantic_function_expression_binding.make_local_publication
+                     ~name:(Semantic_symbol.name binding.symbol)
+                     ~origin:(Semantic_symbol.origin binding.symbol)
+                     ~declaration_index ~declarator_index
+                  |> checked)
+            | _ -> None)
+      in
+      let input =
+        Semantic_function_expression_binding.make_function
+          ~symbol:(Semantic_function_binding_index.function_symbol indexed)
+          ~scope:(Semantic_function_binding_index.function_scope indexed)
+          ~item_index:
+            (Semantic_function_binding_index.function_item_index indexed)
+          (events @ locals)
+        |> checked
+      in
+      (if expected = 1 then
+         let empty_input : Semantic_function_binding_index.function_input =
+           {
+             function_symbol =
+               Semantic_function_binding_index.function_symbol indexed;
+             function_scope =
+               Semantic_function_binding_index.function_scope indexed;
+             function_item_index =
+               Semantic_function_binding_index.function_item_index indexed;
+             function_bindings = [];
+           }
+         in
+         let empty_bindings =
+           Semantic_function_binding_index.build ~table
+             ~parent:
+               (Semantic_declaration_collection.scope prepared.declarations)
+             [ empty_input ]
+           |> Result.map_error Semantic_function_binding_index.error_to_string
+           |> checked
+         in
+         Alcotest.(check bool)
+           "saved local cannot borrow a missing source binding" true
+           (Semantic_function_expression_binding.resolve ~table
+              ~parent:
+                (Semantic_declaration_collection.scope prepared.declarations)
+              ~bindings:empty_bindings [ input ]
+           |> Result.is_error));
+      let expressions =
+        Semantic_function_expression_binding.resolve ~table
+          ~parent:(Semantic_declaration_collection.scope prepared.declarations)
+          ~bindings:prepared.bindings [ input ]
+        |> Result.map_error Semantic_function_expression_binding.error_to_string
+        |> checked
+      in
+      let result = analyze { prepared with expressions } in
+      let binding = binding_named (function_named result "F") "n" in
+      Alcotest.(check int)
+        "only parser-selected local receives query use" expected
+        (Semantic_local_warning_analysis.binding_query_use_count binding))
+    [
+      ("I64 F(I64 n){return defined n;}", 1);
+      ("I64 F(){defined n;I64 n;}", 0);
+      ("I64 n;I64 F(){defined n;I64 n;}", 0);
+    ]
+
 let source_origin = function
   | Semantic_symbol.Source_location source -> source
   | Semantic_symbol.Pinned_source _ | Semantic_symbol.Synthesized _ ->
@@ -507,6 +639,8 @@ let pinned_warning_rules () =
 
 let tests =
   [
+    Alcotest.test_case "selected queries preserve exact local use counts" `Quick
+      selected_query_uses;
     Alcotest.test_case "counts, flags, and warning thresholds" `Quick
       counts_flags_and_thresholds;
     Alcotest.test_case "options, repeats, and prototypes" `Quick

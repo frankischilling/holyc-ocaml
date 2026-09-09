@@ -74,14 +74,20 @@ let resolve_type visible type_source pointer_layers =
           | Some symbol -> Sema.Type.make_aggregate ~symbol ~pointer_depth))
 
 let make_type_reference visible type_source pointer_layers =
-  match resolve_type visible type_source pointer_layers with
-  | Error _ as error -> error
-  | Ok resolved_type ->
-      Sema.Type_reference.make
-        ~spelling:(type_source_spelling type_source)
-        ~spelling_origin:(type_source_origin type_source)
-        ~pointer_origins:(pointer_origins pointer_layers)
-        ~resolved_type
+  match type_source with
+  | Explicit_type
+      (( Frontend.Ast.Primitive_type_specifier _
+       | Frontend.Ast.Internal_type_specifier _ ) as type_specifier) ->
+      Sema.Source_type_reference.builtin type_specifier pointer_layers
+  | _ -> (
+      match resolve_type visible type_source pointer_layers with
+      | Error _ as error -> error
+      | Ok resolved_type ->
+          Sema.Type_reference.make
+            ~spelling:(type_source_spelling type_source)
+            ~spelling_origin:(type_source_origin type_source)
+            ~pointer_origins:(pointer_origins pointer_layers)
+            ~resolved_type)
 
 type aggregate_ast = {
   identifier : Frontend.Ast.identifier;

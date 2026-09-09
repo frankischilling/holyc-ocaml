@@ -1,4 +1,7 @@
-type query_role = Sizeof_root | Offset_root | Defined_operand
+type query_role = Query_selection.role =
+  | Sizeof_root
+  | Offset_root
+  | Defined_operand
 
 type event =
   | Identifier of {
@@ -6,7 +9,12 @@ type event =
       origin : Symbol.origin;
       selection : Reference_selection.t option;
     }
-  | Name_query of { role : query_role; name : string; origin : Symbol.origin }
+  | Name_query of {
+      role : query_role;
+      name : string;
+      origin : Symbol.origin;
+      selection : Query_selection.t option;
+    }
   | Publish_local of {
       name : string;
       origin : Symbol.origin;
@@ -46,6 +54,7 @@ type query = {
   name : string;
   origin : Symbol.origin;
   resolution : resolution;
+  selection : Query_selection.t option;
 }
 
 type suppression = {
@@ -131,6 +140,7 @@ let query_role (query : query) = query.role
 let query_name (query : query) = query.name
 let query_origin (query : query) = query.origin
 let query_resolution (query : query) = query.resolution
+let query_selection (query : query) = query.selection
 
 let query_role_name = function
   | Sizeof_root -> "sizeof-root"
@@ -264,7 +274,13 @@ let make_name_query ~role ~name ~origin =
     Error "function expression query name cannot be empty"
   else if not (valid_origin origin) then
     Error "function expression query has an invalid source origin"
-  else Ok (Name_query { role; name; origin })
+  else Ok (Name_query { role; name; origin; selection = None })
+
+let make_selected_name_query ~selection ~role ~name ~origin =
+  make_name_query ~role ~name ~origin
+  |> Result.map (function
+    | Name_query query -> Name_query { query with selection = Some selection }
+    | _ -> assert false)
 
 let make_local_publication ~name ~origin ~declaration_index ~declarator_index =
   if String.equal name "" then Error "local publication name cannot be empty"
@@ -511,19 +527,52 @@ let resolve_function table indexed (input : function_input) =
                 (Bound_use occurrence :: binding_events_rev)
                 (next_occurrence + 1) next_query next_suppression next_reset
                 rest)
-    | Name_query { role; name; origin } :: rest ->
+    | Name_query { role; name; origin; selection } :: rest -> (
         if next_query = max_int then
           Error (invalid_input "function expression query space is exhausted")
         else
-          let resolution =
-            match String_map.find_opt name environment with
-            | Some binding -> Function_binding binding
-            | None -> Nonlocal_candidate
+          let checked =
+            match selection with
+            | None -> Ok ()
+            | Some selected ->
+                Result.bind
+                  (Query_selection.validate ~table ~role ~name ~origin selected
+                  |> Result.map_error invalid_input)
+                  (fun () ->
+                    if
+                      Query_selection.is_local selected
+                      && not (String_map.mem name environment)
+                    then
+                      Error
+                        (invalid_input
+                           "selected query local has no visible source binding")
+                    else Ok ())
           in
-          let query = { index = next_query; role; name; origin; resolution } in
-          events environment published remaining_locals
-            (Bound_query query :: binding_events_rev)
-            next_occurrence (next_query + 1) next_suppression next_reset rest
+          match checked with
+          | Error _ as error -> error
+          | Ok () ->
+              let resolution =
+                match (selection, String_map.find_opt name environment) with
+                | None, Some binding -> Function_binding binding
+                | Some selected, Some binding
+                  when Query_selection.is_local selected ->
+                    Function_binding binding
+                | _ -> Nonlocal_candidate
+              in
+              let query =
+                {
+                  index = next_query;
+                  role;
+                  name;
+                  origin;
+                  resolution;
+                  selection;
+                }
+              in
+              events environment published remaining_locals
+                (Bound_query query :: binding_events_rev)
+                next_occurrence (next_query + 1) next_suppression next_reset
+                rest)
     | (Publish_local publication as event) :: rest -> (
         match remaining_locals with
         | binding :: local_rest when publication_matches event binding ->

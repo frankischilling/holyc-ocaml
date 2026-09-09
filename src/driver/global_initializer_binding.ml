@@ -216,7 +216,31 @@ let validate_initializer semantic ast =
   | None, Some _ | Some _, None ->
       Error "semantic global initializer does not match the AST"
 
-let global_input selections table record (ast : ast_global) =
+let query_reads queries global =
+  match queries with
+  | None -> Ok None
+  | Some select ->
+      let source =
+        Option.bind
+          (Sema.Global_type_resolution.global_initializer global)
+          Sema.Global_type_resolution.initializer_source
+      in
+      let leaves =
+        Option.fold ~none:[] ~some:Sema.Initializer_source.leaves source
+      in
+      fold_result
+        (fun reversed leaf ->
+          fold_result
+            (fun reversed expression ->
+              select expression
+              |> Result.map (fun selection -> (leaf, selection) :: reversed))
+            reversed
+            (Sema.Query_selection.source_queries
+               (Sema.Initializer_source.leaf_expression_ast leaf)))
+        [] leaves
+      |> Result.map (fun reversed -> Some (List.rev reversed))
+
+let global_input selections queries table record (ast : ast_global) =
   let global = Sema.Global_resolution.global_record_global record in
   let symbol = Sema.Global_resolution.global_record_symbol record in
   let semantic_symbol = Sema.Global_type_resolution.global_symbol global in
@@ -244,20 +268,20 @@ let global_input selections table record (ast : ast_global) =
         ast.initial_value
     with
     | Error _ as error -> error
-    | Ok () -> (
-        match events selections ast.initial_value with
-        | Error _ as error -> error
-        | Ok events ->
-            Sema.Global_initializer_binding.make_global ~record events)
+    | Ok () ->
+        let ( let* ) = Result.bind in
+        let* events = events selections ast.initial_value in
+        let* queries = query_reads queries global in
+        Sema.Global_initializer_binding.make_global ?queries ~record events
 
-let inputs selections table globals module_ =
+let inputs selections queries table globals module_ =
   let records = Sema.Global_resolution.records globals in
   let ast = ast_globals module_ in
   let rec pair inputs_rev records ast =
     match (records, ast) with
     | [], [] -> Ok (List.rev inputs_rev)
     | record :: record_rest, ast :: ast_rest -> (
-        match global_input selections table record ast with
+        match global_input selections queries table record ast with
         | Error _ as error -> error
         | Ok input -> pair (input :: inputs_rev) record_rest ast_rest)
     | [], _ :: _ | _ :: _, [] ->
@@ -265,9 +289,10 @@ let inputs selections table globals module_ =
   in
   pair [] records ast
 
-let resolve ~table ~environment ~expressions ~globals ?selections module_ =
+let resolve ~table ~environment ~expressions ~globals ?selections ?queries
+    module_ =
   let result =
-    match inputs selections table globals module_ with
+    match inputs selections queries table globals module_ with
     | Error _ as error -> error
     | Ok inputs ->
         Sema.Global_initializer_binding.resolve ~table ~environment ~expressions
@@ -286,7 +311,7 @@ let initializers ~table ~bindings module_ =
     | [], [] -> Ok (List.rev reversed)
     | global :: rest, ast :: tail -> (
         match
-          global_input None table
+          global_input None None table
             (Sema.Global_initializer_binding.global_record global)
             ast
         with

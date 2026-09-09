@@ -44,6 +44,11 @@ let invalid_extent global index detail =
        detail)
 
 let rec validate_closed_expression global index = function
+  | Aggregate_layout.Selected_query_expression query ->
+      if Option.is_some (Query_selection.constant query) then Ok ()
+      else
+        invalid_extent global index
+          "requires the selected query's checked constant metadata"
   | Aggregate_layout.Integer_expression _
   | Aggregate_layout.Unsigned_integer_expression _
   | Aggregate_layout.Floating_expression _ -> Ok ()
@@ -97,7 +102,11 @@ let evaluate_dimension global index input =
                    "requires an evaluated value for bound identifier %S"
                    (Global_dimension_binding.occurrence_name occurrence))
         in
-        let expression = Closed_layout_expression.of_ast expression in
+        let expression =
+          Closed_layout_expression.of_ast
+            ?queries:(Global_dimension_binding.dimension_queries dimension)
+            expression
+        in
         let* () = validate_closed_expression global index expression in
         let* value =
           Aggregate_layout.evaluate_expression

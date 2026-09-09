@@ -694,11 +694,26 @@ let function_query_origin = function
   | Sema.Function_call_resolution.Outer_query query ->
       Sema.Outer_expression_binding.query_origin query
 
-let defined_query queries (operand : Frontend.Ast.defined_operand) =
+let selected_query_matches query expression =
+  let selection =
+    match query with
+    | Sema.Function_call_resolution.Module_query query ->
+        Sema.Module_expression_binding.query_selection query
+    | Sema.Function_call_resolution.Outer_query query ->
+        Sema.Outer_expression_binding.query_selection query
+  in
+  Option.fold ~none:true
+    ~some:(fun selected ->
+      Sema.Query_selection.expression selected == expression)
+    selection
+
+let defined_query queries expression (operand : Frontend.Ast.defined_operand) =
   let spelling = operand.defined_operand_spelling in
   let operand_origin = origin operand.defined_operand_location in
   let matches query =
-    function_query_role query = Sema.Function_expression_binding.Defined_operand
+    selected_query_matches query expression
+    && function_query_role query
+       = Sema.Function_expression_binding.Defined_operand
     && String.equal spelling (function_query_name query)
     && operand_origin = function_query_origin query
   in
@@ -707,11 +722,12 @@ let defined_query queries (operand : Frontend.Ast.defined_operand) =
   | [] -> Error "defined operand has no matching function query"
   | _ -> Error "defined operand has more than one matching function query"
 
-let sizeof_query queries (sizeof : Frontend.Ast.sizeof_expression) =
+let sizeof_query queries expression (sizeof : Frontend.Ast.sizeof_expression) =
   let spelling = sizeof.sizeof_target.spelling in
   let target_origin = origin sizeof.sizeof_target.location in
   let matches query =
-    function_query_role query = Sema.Function_expression_binding.Sizeof_root
+    selected_query_matches query expression
+    && function_query_role query = Sema.Function_expression_binding.Sizeof_root
     && String.equal spelling (function_query_name query)
     && target_origin = function_query_origin query
   in
@@ -720,11 +736,12 @@ let sizeof_query queries (sizeof : Frontend.Ast.sizeof_expression) =
   | [] -> Error "sizeof target has no matching function query"
   | _ -> Error "sizeof target has more than one matching function query"
 
-let offset_query queries (offset : Frontend.Ast.offset_expression) =
+let offset_query queries expression (offset : Frontend.Ast.offset_expression) =
   let spelling = offset.offset_target.spelling in
   let target_origin = origin offset.offset_target.location in
   let matches query =
-    function_query_role query = Sema.Function_expression_binding.Offset_root
+    selected_query_matches query expression
+    && function_query_role query = Sema.Function_expression_binding.Offset_root
     && String.equal spelling (function_query_name query)
     && target_origin = function_query_origin query
   in
@@ -744,12 +761,12 @@ let map_result apply values =
   loop [] values
 
 let sizeof_kind member_index ~before_item_index locals globals queries
-    (sizeof : Frontend.Ast.sizeof_expression) =
+    expression (sizeof : Frontend.Ast.sizeof_expression) =
   let pointer (layer : Frontend.Ast.pointer_layer) =
     Sema.Function_call_resolution.make_sizeof_pointer_layer ~depth:layer.depth
       ~spelling:layer.spelling ~origin:(origin layer.location)
   in
-  match sizeof_query queries sizeof with
+  match sizeof_query queries expression sizeof with
   | Error _ as error -> error
   | Ok query -> (
       let bound_target =
@@ -796,7 +813,7 @@ let sizeof_kind member_index ~before_item_index locals globals queries
                       (Sema.Function_call_resolution.Sizeof_function_query query)
                     ~bound_aggregate_size ~bound_target)))
 
-let offset_kind locals globals queries visible
+let offset_kind locals globals queries visible expression
     (offset : Frontend.Ast.offset_expression) =
   let publication_for_target target =
     let target_type =
@@ -822,7 +839,7 @@ let offset_kind locals globals queries visible
       ~origin:(origin source.offset_member_location)
       ()
   in
-  Result.bind (offset_query queries offset) (fun root_query ->
+  Result.bind (offset_query queries expression offset) (fun root_query ->
       let bound_target =
         root_query
         |> typed_value_for_query locals globals
@@ -976,9 +993,9 @@ let rec argument_expression member_index before_item_index visible locals
              Sema.Function_call_resolution.Current_position_expression)
     | Frontend.Ast.Sizeof_expression sizeof ->
         sizeof_kind member_index ~before_item_index locals globals
-          defined_queries sizeof
+          defined_queries expression sizeof
     | Frontend.Ast.Offset_expression offset ->
-        offset_kind locals globals defined_queries visible offset
+        offset_kind locals globals defined_queries visible expression offset
     | Frontend.Ast.Defined_expression defined ->
         let operand = defined.defined_operand in
         let operand_kind =
@@ -996,7 +1013,7 @@ let rec argument_expression member_index before_item_index visible locals
               Result.map
                 (fun query ->
                   Sema.Function_call_resolution.Defined_function_query query)
-                (defined_query defined_queries operand)
+                (defined_query defined_queries expression operand)
         in
         Result.bind resolution (fun operand_resolution ->
             Sema.Function_call_resolution.make_defined_argument_expression

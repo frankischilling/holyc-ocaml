@@ -65,6 +65,49 @@ let selected_environment selection = selection.environment
 let selected_lookup selection = selection.lookup
 let selected_command selection = selection.selected_command
 
+type query_node =
+  | Sizeof_target of Ast.identifier
+  | Offset_target of Ast.identifier
+  | Defined_target of Ast.defined_operand
+
+type query_root = {
+  query_node : query_node;
+  query_location : Ast.location;
+  query_environment : Symbol_visibility.Environment.t;
+  query_lookup : Symbol_visibility.lookup;
+  query_present : bool;
+  query_command : command_start;
+}
+
+type query_member_node =
+  | Sizeof_member of Ast.sizeof_member
+  | Offset_member of Ast.offset_member
+
+type query_member_start = {
+  member_start_root : query_root;
+  member_start_ordinal : int;
+  member_start_dot : Ast.location;
+}
+
+type query_member = {
+  query_member_root : query_root;
+  query_member_ordinal : int;
+  query_member_node : query_member_node;
+  query_member_start : query_member_start;
+}
+
+type completed_query = {
+  query_root : query_root;
+  query_members : query_member list;
+  query_expression : Ast.expression;
+}
+
+type query_event =
+  | Query_root of query_root
+  | Query_member_started of query_member_start
+  | Query_member of query_member
+  | Query_completed of completed_query
+
 type declaration_header = {
   declaration_sources : Common.Source_manager.t;
   declaration_source : Common.Source_file.t;
@@ -117,6 +160,7 @@ type command_sink = {
     (command_event -> (unit, Common.Diagnostic.t list) result) option;
   reference :
     (reference_selection -> (unit, Common.Diagnostic.t list) result) option;
+  query : (query_event -> (unit, Common.Diagnostic.t list) result) option;
   declaration :
     (declaration_event -> (unit, Common.Diagnostic.t list) result) option;
   command : Ast.item -> (unit, Common.Diagnostic.t list) result;
@@ -157,6 +201,7 @@ type cursor = {
   reference :
     (reference_selection -> (unit, Common.Diagnostic.t list) result) option;
   references : reference_selection Identifier_table.t;
+  query : (query_event -> (unit, Common.Diagnostic.t list) result) option;
   declaration :
     (declaration_event -> (unit, Common.Diagnostic.t list) result) option;
   mutable lookahead : located_token list;
@@ -701,6 +746,88 @@ let identifier_lookup cursor identifier =
   | None ->
       Symbol_visibility.Environment.find_preprocessor cursor.symbols
         identifier.Ast.spelling
+
+let publish_query cursor item event =
+  Option.iter
+    (fun consume ->
+      match consume event with
+      | Ok () -> ()
+      | Error diagnostics ->
+          cursor.diagnostics_rev <-
+            List.rev_append diagnostics cursor.diagnostics_rev;
+          if not (has_error diagnostics) then
+            report cursor item ~code:"HCPARSE0161"
+              ~message:"query consumer failed without an error diagnostic";
+          raise Stop_command)
+    cursor.query
+
+let start_query cursor keyword item query_node =
+  Option.map
+    (fun (query_environment, query_lookup) ->
+      let query_present =
+        match (item.token.kind, query_lookup) with
+        | ( (Token_kind.Identifier | Token_kind.Keyword _),
+            (Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local)
+          ) -> true
+        | _ -> false
+      in
+      let root =
+        {
+          query_node;
+          query_location = token_location keyword.token;
+          query_environment;
+          query_lookup;
+          query_present;
+          query_command = Option.get cursor.current_command;
+        }
+      in
+      publish_query cursor item (Query_root root);
+      (root, ref []))
+    item.selection
+
+let start_query_member cursor item query member_start_dot =
+  Option.map
+    (fun (query_member_root, members) ->
+      let query_member_ordinal =
+        match !members with
+        | [] -> 0
+        | previous :: _ -> previous.query_member_ordinal + 1
+      in
+      let start =
+        {
+          member_start_root = query_member_root;
+          member_start_ordinal = query_member_ordinal;
+          member_start_dot;
+        }
+      in
+      publish_query cursor item (Query_member_started start);
+      start)
+    query
+
+let query_member cursor item query start query_member_node =
+  Option.iter
+    (fun (query_member_root, members) ->
+      let query_member_start = Option.get start in
+      let query_member_ordinal = query_member_start.member_start_ordinal in
+      let member =
+        {
+          query_member_root;
+          query_member_ordinal;
+          query_member_node;
+          query_member_start;
+        }
+      in
+      publish_query cursor item (Query_member member);
+      members := member :: !members)
+    query
+
+let complete_query cursor item query query_expression =
+  Option.iter
+    (fun (query_root, members) ->
+      publish_query cursor item
+        (Query_completed
+           { query_root; query_members = List.rev !members; query_expression }))
+    query
 
 let rec recover_declaration cursor =
   let item = peek cursor in
@@ -1713,11 +1840,16 @@ and parse_sizeof_expression cursor ~context : parsed_expression option =
       Ast.make_identifier ~spelling:target_item.token.raw
         ~location:(token_location target_item.token)
     in
+    let query =
+      start_query cursor keyword_item target_item (Sizeof_target target)
+    in
     let rec take_members members_rev items_rev =
       let item = peek cursor in
       match item.token.kind with
       | Token_kind.Punctuation '.' ->
           let dot_item = take cursor in
+          let dot = token_location dot_item.token in
+          let member_start = start_query_member cursor dot_item query dot in
           let name_item = peek cursor in
           if not (token_is_name_position_identifier name_item.token) then
             expression_failure ~secondary:dot_item.context.definition_trace
@@ -1734,13 +1866,13 @@ and parse_sizeof_expression cursor ~context : parsed_expression option =
                 ~location:(token_location name_item.token)
             in
             let member =
-              Ast.make_sizeof_member
-                ~dot:(token_location dot_item.token)
-                ~name
+              Ast.make_sizeof_member ~dot ~name
                 ~location:
                   (location_from_expression_tokens
                      [ dot_item.token; name_item.token ])
             in
+            query_member cursor name_item query member_start
+              (Sizeof_member member);
             take_members (member :: members_rev)
               (name_item :: dot_item :: items_rev)
       | _ -> Some (List.rev members_rev, List.rev items_rev)
@@ -1819,6 +1951,7 @@ and parse_sizeof_expression cursor ~context : parsed_expression option =
                         closing_items)
                    ~location:(location_from_expression_tokens tokens))
             in
+            complete_query cursor target_item query node;
             Some { node; tokens })
 
 and parse_offset_expression cursor ~context : parsed_expression option =
@@ -1844,6 +1977,9 @@ and parse_offset_expression cursor ~context : parsed_expression option =
       Ast.make_identifier ~spelling:target_item.token.raw
         ~location:(token_location target_item.token)
     in
+    let query =
+      start_query cursor keyword_item target_item (Offset_target target)
+    in
     let first_dot = peek cursor in
     if first_dot.token.kind <> Token_kind.Punctuation '.' then
       expression_failure cursor first_dot ~code:"HCPARSE0036"
@@ -1856,6 +1992,8 @@ and parse_offset_expression cursor ~context : parsed_expression option =
     else
       let rec take_members members_rev items_rev =
         let dot_item = take cursor in
+        let dot = token_location dot_item.token in
+        let member_start = start_query_member cursor dot_item query dot in
         let name_item = peek cursor in
         if not (token_is_name_position_identifier name_item.token) then
           expression_failure ~secondary:dot_item.context.definition_trace cursor
@@ -1872,13 +2010,13 @@ and parse_offset_expression cursor ~context : parsed_expression option =
               ~location:(token_location name_item.token)
           in
           let member =
-            Ast.make_offset_member
-              ~dot:(token_location dot_item.token)
-              ~name
+            Ast.make_offset_member ~dot ~name
               ~location:
                 (location_from_expression_tokens
                    [ dot_item.token; name_item.token ])
           in
+          query_member cursor name_item query member_start
+            (Offset_member member);
           let members_rev = member :: members_rev in
           let items_rev = name_item :: dot_item :: items_rev in
           let following = peek cursor in
@@ -1946,6 +2084,7 @@ and parse_offset_expression cursor ~context : parsed_expression option =
                           closing_items)
                      ~location:(location_from_expression_tokens tokens))
               in
+              complete_query cursor target_item query node;
               Some { node; tokens })
 
 and parse_defined_expression cursor ~context : parsed_expression option =
@@ -1983,6 +2122,9 @@ and parse_defined_expression cursor ~context : parsed_expression option =
       Ast.make_defined_operand ~kind:operand_kind
         ~spelling:operand_item.token.raw
         ~location:(token_location operand_item.token)
+    in
+    let query =
+      start_query cursor keyword_item operand_item (Defined_target operand)
     in
     let items_before_closing =
       keyword_item :: (opening_items @ [ operand_item ])
@@ -2039,6 +2181,7 @@ and parse_defined_expression cursor ~context : parsed_expression option =
                     closing_items)
                ~location:(location_from_expression_tokens tokens))
         in
+        complete_query cursor operand_item query node;
         Some { node; tokens }
 
 and parse_parenthesis_free_call cursor ~depth (callee : parsed_expression)
@@ -7281,8 +7424,8 @@ let read_commands ?commands ?stream_opener cursor =
         succeeded := true);
       ast)
 
-let make_cursor ?reference ?declaration ~command_stack ~stream ~sources ~source
-    ~symbols ~compilation_mode ~stop_on_error () =
+let make_cursor ?reference ?query ?declaration ~command_stack ~stream ~sources
+    ~source ~symbols ~compilation_mode ~stop_on_error () =
   {
     command_stack;
     current_command = None;
@@ -7294,6 +7437,7 @@ let make_cursor ?reference ?declaration ~command_stack ~stream ~sources ~source
     stop_on_error;
     reference;
     references = Identifier_table.create 32;
+    query;
     declaration;
     lookahead = [];
     diagnostics_rev = [];
@@ -7338,6 +7482,7 @@ let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
                             make_cursor ~command_stack ~stream ~sources ~source
                               ~symbols:execution.symbols
                               ?reference:execution.commands.reference
+                              ?query:execution.commands.query
                               ?declaration:execution.commands.declaration
                               ~compilation_mode:Preprocessor.Jit
                               ~stop_on_error:true ()
@@ -7369,6 +7514,8 @@ let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
       ?reference:
         (Option.bind commands (fun (commands : command_sink) ->
              commands.reference))
+      ?query:
+        (Option.bind commands (fun (commands : command_sink) -> commands.query))
       ?declaration:
         (Option.bind commands (fun (commands : command_sink) ->
              commands.declaration))

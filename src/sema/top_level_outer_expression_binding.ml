@@ -86,6 +86,9 @@ let occurrence_origin (occurrence : occurrence) =
 let occurrence_resolution (occurrence : occurrence) = occurrence.resolution
 let query_source (query : query) = query.query_source_
 
+let query_selection query =
+  Top_level_expression_binding.query_selection query.query_source_
+
 let query_index (query : query) =
   Top_level_expression_binding.query_index query.query_source_
 
@@ -171,16 +174,19 @@ let resolve_occurrences environment occurrences =
 
 let resolve_query environment source =
   let query_resolution_ =
-    match Top_level_expression_binding.query_resolution source with
-    | Top_level_expression_binding.Module_binding publication ->
-        Query_binding (Module_binding publication)
-    | Top_level_expression_binding.Outer_candidate -> (
-        match
-          Outer_environment.find environment
-            (Top_level_expression_binding.query_name source)
-        with
-        | Some binding -> Query_binding (Outer_binding binding)
-        | None -> Query_undefined)
+    if Option.is_some (Top_level_expression_binding.query_selection source) then
+      Query_undefined
+    else
+      match Top_level_expression_binding.query_resolution source with
+      | Top_level_expression_binding.Module_binding publication ->
+          Query_binding (Module_binding publication)
+      | Top_level_expression_binding.Outer_candidate -> (
+          match
+            Outer_environment.find environment
+              (Top_level_expression_binding.query_name source)
+          with
+          | Some binding -> Query_binding (Outer_binding binding)
+          | None -> Query_undefined)
   in
   { query_source_ = source; query_resolution_ }
 

@@ -9,7 +9,10 @@ val binary :
   Frontend.Operator.binary_operator -> Aggregate_layout.binary_operator option
 
 val of_ast :
-  ?allow_floating:bool -> Frontend.Ast.expression -> Aggregate_layout.expression
+  ?allow_floating:bool ->
+  ?queries:Query_selection.t list ->
+  Frontend.Ast.expression ->
+  Aggregate_layout.expression
 (** Convert the retained source expression without binding or evaluating names.
     High-bit integer and character literals retain their internal U64 class.
     Unparenthesized comparison chains are explicitly unsupported.

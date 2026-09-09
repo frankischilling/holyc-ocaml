@@ -99,6 +99,10 @@ let query_origin (query : query) =
   Function_expression_binding.query_origin query.query_source_
 
 let query_resolution (query : query) = query.query_resolution_
+
+let query_selection query =
+  Function_expression_binding.query_selection query.query_source_
+
 let symbol_number symbol = Symbol.id symbol |> Symbol.Id.to_int
 
 let publication_kind_name = function
@@ -368,6 +372,9 @@ let resolve_query environment source =
     match Function_expression_binding.query_resolution source with
     | Function_expression_binding.Function_binding binding ->
         Local_binding binding
+    | Function_expression_binding.Nonlocal_candidate
+      when Option.is_some (Function_expression_binding.query_selection source)
+      -> Outer_candidate
     | Function_expression_binding.Nonlocal_candidate -> (
         match
           String_map.find_opt

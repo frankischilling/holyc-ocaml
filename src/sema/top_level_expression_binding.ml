@@ -9,6 +9,8 @@ type query_event = {
   role : Function_expression_binding.query_role;
   name : string;
   origin : Symbol.origin;
+  selection : Query_selection.t option;
+  initializer_leaf : Initializer_source.leaf option;
 }
 
 type event = Identifier of identifier_event | Name_query of query_event
@@ -47,7 +49,37 @@ let make_selected_initializer_identifier ~selection ~leaf ~name ~origin =
 let make_name_query ~role ~name ~origin =
   if String.length name = 0 then
     Error "top-level expression query cannot be empty"
-  else Ok (Name_query { role; name; origin })
+  else
+    Ok
+      (Name_query
+         { role; name; origin; selection = None; initializer_leaf = None })
+
+let make_selected_name_query ~selection ~role ~name ~origin =
+  make_name_query ~role ~name ~origin
+  |> Result.map (function
+    | Name_query query -> Name_query { query with selection = Some selection }
+    | Identifier _ -> assert false)
+
+let make_initializer_name_query ?selection ~leaf ~role ~name ~origin () =
+  if
+    not
+      (List.exists
+         (fun expression ->
+           Query_selection.name_query_facts expression
+           = Some (role, name, origin)
+           && Option.fold ~none:true
+                ~some:(fun selection ->
+                  Query_selection.expression selection == expression)
+                selection)
+         (Query_selection.source_queries
+            (Initializer_source.leaf_expression_ast leaf)))
+  then Error "initializer query is absent from its retained source leaf"
+  else
+    make_name_query ~role ~name ~origin
+    |> Result.map (function
+      | Name_query query ->
+          Name_query { query with selection; initializer_leaf = Some leaf }
+      | Identifier _ -> assert false)
 
 type input = {
   statement_index : int;
@@ -154,6 +186,7 @@ let query_role (query : query) = query.source.role
 let query_name (query : query) = query.source.name
 let query_origin (query : query) = query.source.origin
 let query_resolution (query : query) = query.resolution
+let query_selection (query : query) = query.source.selection
 let error_code error = error.code
 let error_kind error = error.kind
 let error_origin error = error.origin
@@ -339,6 +372,54 @@ let validate_initializer_occurrences input occurrences =
                "global initializer occurrences do not match their checked owner")
       )
 
+let validate_initializer_queries input queries =
+  match input.initial_owner with
+  | None -> Ok ()
+  | Some (_, global) ->
+      let expected =
+        Global_initializer_binding.global_queries global
+        |> List.filter_map (fun query ->
+            Query_selection.name_query_facts
+              (Global_initializer_binding.query_expression query)
+            |> Option.map (fun facts -> (query, facts)))
+      in
+      let rec matches actual expected =
+        match (actual, expected) with
+        | [], [] -> true
+        | (actual : query) :: rest, (expected, (role, name, origin)) :: tail ->
+            let leaf = Global_initializer_binding.query_leaf expected in
+            let same_leaf =
+              match actual.source.initializer_leaf with
+              | Some actual_leaf -> actual_leaf == leaf
+              | None ->
+                  Option.is_none actual.source.selection
+                  && Initializer_source.leaf_path leaf = []
+                  && global |> Global_initializer_binding.global_record
+                     |> Global_resolution.global_record_global
+                     |> Global_type_resolution.global_array_dimensions = []
+            in
+            let same_selection =
+              match
+                ( actual.source.selection,
+                  Global_initializer_binding.query_selection expected )
+              with
+              | None, None -> true
+              | Some actual, Some expected -> actual == expected
+              | _ -> false
+            in
+            same_leaf && same_selection && actual.source.role = role
+            && actual.source.name = name
+            && actual.source.origin = origin
+            && matches rest tail
+        | _ -> false
+      in
+      if matches queries expected then Ok ()
+      else
+        Error
+          (invalid_input
+             "global initializer queries do not match their original source \
+              reads")
+
 let resolve_events table publications visible next_occurrence next_query events
     =
   let resolution name =
@@ -346,7 +427,7 @@ let resolve_events table publications visible next_occurrence next_query events
     | Some publication -> Module_binding publication
     | None -> Outer_candidate
   in
-  let selected_resolution source =
+  let selected_resolution (source : identifier_event) =
     match source.selection with
     | None -> Ok (resolution source.name)
     | Some selection ->
@@ -408,15 +489,41 @@ let resolve_events table publications visible next_occurrence next_query events
               loop (next_occurrence + 1) next_query
                 (occurrence :: occurrences_rev)
                 queries_rev rest)
-    | Name_query source :: rest ->
-        let query : query =
-          { index = next_query; source; resolution = resolution source.name }
+    | Name_query source :: rest -> (
+        let checked =
+          match source.selection with
+          | None -> Ok ()
+          | Some selection ->
+              Result.bind
+                (Query_selection.validate ~table ~role:source.role
+                   ~name:source.name ~origin:source.origin selection
+                |> Result.map_error invalid_input)
+                (fun () ->
+                  if Query_selection.is_local selection then
+                    Error
+                      (invalid_input
+                         "selected local query has no top-level source binding")
+                  else Ok ())
         in
-        if next_query = max_int then
-          Error (invalid_input "top-level query identity space is exhausted")
-        else
-          loop next_occurrence (next_query + 1) occurrences_rev
-            (query :: queries_rev) rest
+        match checked with
+        | Error _ as error -> error
+        | Ok () ->
+            let query : query =
+              {
+                index = next_query;
+                source;
+                resolution =
+                  (match source.selection with
+                  | Some _ -> Outer_candidate
+                  | None -> resolution source.name);
+              }
+            in
+            if next_query = max_int then
+              Error
+                (invalid_input "top-level query identity space is exhausted")
+            else
+              loop next_occurrence (next_query + 1) occurrences_rev
+                (query :: queries_rev) rest)
   in
   loop next_occurrence next_query [] [] events
 
@@ -453,7 +560,10 @@ let resolve_validated table all_publications inputs =
         with
         | Error _ as error -> error
         | Ok (next_occurrence, next_query, occurrences, queries) -> (
-            match validate_initializer_occurrences input occurrences with
+            match
+              Result.bind (validate_initializer_queries input queries)
+                (fun () -> validate_initializer_occurrences input occurrences)
+            with
             | Error _ as error -> error
             | Ok occurrences ->
                 loop visible publications next_occurrence next_query

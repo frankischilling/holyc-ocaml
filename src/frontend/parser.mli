@@ -79,6 +79,59 @@ val selected_lookup : reference_selection -> Symbol_visibility.lookup
 
 val selected_command : reference_selection -> command_start
 
+type query_node =
+  | Sizeof_target of Ast.identifier
+  | Offset_target of Ast.identifier
+  | Defined_target of Ast.defined_operand
+
+type query_root = private {
+  query_node : query_node;
+  query_location : Ast.location;
+  query_environment : Symbol_visibility.Environment.t;
+  query_lookup : Symbol_visibility.lookup;
+  query_present : bool;
+  query_command : command_start;
+}
+
+type query_member_node =
+  | Sizeof_member of Ast.sizeof_member
+  | Offset_member of Ast.offset_member
+
+type query_member_start = private {
+  member_start_root : query_root;
+  member_start_ordinal : int;
+  member_start_dot : Ast.location;
+}
+
+type query_member = private {
+  query_member_root : query_root;
+  query_member_ordinal : int;
+  query_member_node : query_member_node;
+  query_member_start : query_member_start;
+}
+
+type completed_query = private {
+  query_root : query_root;
+  query_members : query_member list;
+  query_expression : Ast.expression;
+}
+
+type query_event = private
+  | Query_root of query_root
+  | Query_member_started of query_member_start
+  | Query_member of query_member
+  | Query_completed of completed_query
+
+(** Root, dot and member reads precede their respective subsequent lookahead.
+    The dot receipt retains the same location child used by the completed member
+    and allows class validation before the member token is produced. Presence
+    tests the actual post-preprocessing native identifier token (including
+    hosted Keyword tokens), independently of runtime admission. Member receipts
+    describe reads through the retained root's class; their spelling does not
+    authorize a fresh environment lookup. Completion associates the original AST
+    expression with its exact root and ordered member receipts. Rejection stops
+    parsing at that read point. *)
+
 type declaration_header = private {
   declaration_sources : Common.Source_manager.t;
   declaration_source : Common.Source_file.t;
@@ -139,6 +192,7 @@ type command_sink = {
     (command_event -> (unit, Common.Diagnostic.t list) result) option;
   reference :
     (reference_selection -> (unit, Common.Diagnostic.t list) result) option;
+  query : (query_event -> (unit, Common.Diagnostic.t list) result) option;
   declaration :
     (declaration_event -> (unit, Common.Diagnostic.t list) result) option;
   command : Ast.item -> (unit, Common.Diagnostic.t list) result;

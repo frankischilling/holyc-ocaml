@@ -13,6 +13,7 @@ type event = {
 type dimension_input = {
   dimension : Global_type_resolution.array_dimension;
   events : event list;
+  queries : Query_selection.t list option;
 }
 
 type global_input = {
@@ -117,7 +118,9 @@ let make_selected_identifier ~selection ~name ~origin ~occurrence_index
   make_identifier ~name ~origin ~occurrence_index ~dimension_index
   |> Result.map (fun event -> { event with selection = Some selection })
 
-let make_dimension ~dimension events = Ok { dimension; events }
+let make_dimension ?queries ~dimension events =
+  Ok { dimension; events; queries }
+
 let make_global ~record dimensions = Ok { record; dimensions }
 let globals result = result.globals
 let environment result = result.environment
@@ -162,6 +165,9 @@ let dimension_closing_origin (dimension : resolved_dimension) =
 let dimension_occurrences (dimension : resolved_dimension) =
   dimension.occurrences
 
+let dimension_queries (dimension : resolved_dimension) =
+  dimension.source.queries
+
 let occurrence_index (occurrence : occurrence) =
   occurrence.source.occurrence_index
 
@@ -172,32 +178,6 @@ let occurrence_name (occurrence : occurrence) = occurrence.source.name
 let occurrence_origin (occurrence : occurrence) = occurrence.source.origin
 let occurrence_resolution (occurrence : occurrence) = occurrence.resolution
 let occurrence_selection (occurrence : occurrence) = occurrence.source.selection
-let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
-
-let same_record left right =
-  let left_global = Global_resolution.global_record_global left in
-  let right_global = Global_resolution.global_record_global right in
-  same_symbol
-    (Global_resolution.global_record_symbol left)
-    (Global_resolution.global_record_symbol right)
-  && Global_type_resolution.global_item_index left_global
-     = Global_type_resolution.global_item_index right_global
-  && Global_type_resolution.global_declarator_index left_global
-     = Global_type_resolution.global_declarator_index right_global
-  && Global_resolution.global_record_kind left
-     = Global_resolution.global_record_kind right
-
-let same_dimension left right =
-  Global_type_resolution.array_dimension_index left
-  = Global_type_resolution.array_dimension_index right
-  && Global_type_resolution.array_dimension_origin left
-     = Global_type_resolution.array_dimension_origin right
-  && Global_type_resolution.array_dimension_opening_origin left
-     = Global_type_resolution.array_dimension_opening_origin right
-  && Global_type_resolution.array_dimension_expression_origin left
-     = Global_type_resolution.array_dimension_expression_origin right
-  && Global_type_resolution.array_dimension_closing_origin left
-     = Global_type_resolution.array_dimension_closing_origin right
 
 let validate_events expected_occurrence dimension =
   let dimension_index =
@@ -232,18 +212,32 @@ let validate_events expected_occurrence dimension =
     in
     loop expected_occurrence dimension.events
 
-let validate_dimensions semantic (input : global_input) =
+let validate_dimensions table semantic (input : global_input) =
   let rec pair expected_occurrence = function
     | [], [] -> Ok expected_occurrence
     | semantic :: semantic_rest, dimension :: input_rest -> (
-        if not (same_dimension semantic dimension.dimension) then
+        if semantic != dimension.dimension then
           Error
             (invalid_input
                "global array extent dimensions do not match the global record")
         else
           match validate_events expected_occurrence dimension with
           | Error _ as error -> error
-          | Ok next -> pair next (semantic_rest, input_rest))
+          | Ok next -> (
+              let checked =
+                match
+                  ( dimension.queries,
+                    Global_type_resolution.array_dimension_source_expression
+                      dimension.dimension )
+                with
+                | None, _ | Some [], None -> Ok ()
+                | Some queries, Some expression ->
+                    Query_selection.validate_manifest ~table ~expression queries
+                | Some _, None -> Error "empty dimension has query reads"
+              in
+              match checked with
+              | Error message -> Error (invalid_input message)
+              | Ok () -> pair next (semantic_rest, input_rest)))
     | [], _ :: _ | _ :: _, [] ->
         Error
           (invalid_input
@@ -258,7 +252,7 @@ let validate_inputs table paired inputs =
     | expected :: expected_rest, input :: input_rest -> (
         let record = Global_binding_environment.global_record expected in
         let symbol = global_symbol_of_input input in
-        if not (same_record record input.record) then
+        if record != input.record then
           Error
             (invalid_input
                "global array extent inputs do not match the global records")
@@ -275,7 +269,7 @@ let validate_inputs table paired inputs =
           let semantic =
             global_data input |> Global_type_resolution.global_array_dimensions
           in
-          match validate_dimensions semantic input with
+          match validate_dimensions table semantic input with
           | Error _ as error -> error
           | Ok () -> pair (expected_rest, input_rest))
     | [], _ :: _ | _ :: _, [] ->

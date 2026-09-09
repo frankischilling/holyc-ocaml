@@ -5,6 +5,7 @@ val resolve :
   globals:Sema.Global_resolution.t ->
   ?selections:
     (Frontend.Ast.identifier -> (Sema.Reference_selection.t, string) result) ->
+  ?queries:(Frontend.Ast.expression -> (Sema.Query_selection.t, string) result) ->
   Frontend.Ast.module_ ->
   (Sema.Global_initializer_binding.t, string) result
 (** Collect ordinary identifier occurrences from global initializers and bind

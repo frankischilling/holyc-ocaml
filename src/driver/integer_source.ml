@@ -46,6 +46,21 @@ let message_diagnostic ~span message =
 let prepare_unit ?environment:task_environment ?declaration_command ?selections
     ?(include_global_initializers = false) session ~config ~span ast =
   let table = Session.semantic_symbols session in
+  let queries =
+    Option.map
+      (fun command expression ->
+        match Task_declarations.query_for ~table ~ast command expression with
+        | Error diagnostics ->
+            Error
+              (String.concat "; "
+                 (List.map
+                    (fun diagnostic ->
+                      diagnostic.Common.Diagnostic.code ^ ": "
+                      ^ diagnostic.message)
+                    diagnostics))
+        | Ok query -> Ok (Task_declarations.query_selection query))
+      declaration_command
+  in
   let mode = Frontend.Preprocessor.Config.compilation_mode config in
   let checked result =
     Result.map_error
@@ -104,7 +119,8 @@ let prepare_unit ?environment:task_environment ?declaration_command ?selections
   in
   let* expressions =
     Function_expression_binding.resolve ~table ~declarations
-      ~functions:collected_functions ~local_types ~bindings ?selections ast
+      ~functions:collected_functions ~local_types ~bindings ?selections ?queries
+      ast
     |> checked
   in
   let* global_types =
@@ -186,7 +202,7 @@ let prepare_unit ?environment:task_environment ?declaration_command ?selections
   in
   let* dimension_bindings =
     Global_dimension_binding.resolve ~table ~environment
-      ~expressions:module_expressions ~globals ?selections ast
+      ~expressions:module_expressions ~globals ?selections ?queries ast
     |> checked
   in
   let* global_layouts_ =
@@ -196,14 +212,14 @@ let prepare_unit ?environment:task_environment ?declaration_command ?selections
   let* expressions =
     if include_global_initializers then
       Global_initializer_binding.resolve ~table ~environment
-        ~expressions:module_expressions ~globals ?selections ast
+        ~expressions:module_expressions ~globals ?selections ?queries ast
       |> checked |> Result.map Option.some
     else Ok None
   in
   let initializers_ = expressions in
   let* expressions =
     Top_level_expression_binding.resolve ~table ~declarations
-      ~module_expressions ?initializers:initializers_ ?selections ast
+      ~module_expressions ?initializers:initializers_ ?selections ?queries ast
     |> checked
   in
   let* expressions =

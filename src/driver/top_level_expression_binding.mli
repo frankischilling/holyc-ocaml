@@ -5,6 +5,7 @@ val resolve :
   ?initializers:Sema.Global_initializer_binding.t ->
   ?selections:
     (Frontend.Ast.identifier -> (Sema.Reference_selection.t, string) result) ->
+  ?queries:(Frontend.Ast.expression -> (Sema.Query_selection.t, string) result) ->
   Frontend.Ast.module_ ->
   (Sema.Top_level_expression_binding.t, string) result
 (** Traverse executable top-level statement expressions in source order. Bind

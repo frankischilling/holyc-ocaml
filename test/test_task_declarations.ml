@@ -10,8 +10,8 @@ let reject message result =
 
 let config () = Preprocessor.Config.create () |> checked
 
-let parse_source ?sources ?symbols ?observe ?checkpoint ?reference session
-    ledger source =
+let parse_source ?sources ?symbols ?observe ?checkpoint ?reference ?query
+    session ledger source =
   let sources = Option.value sources ~default:(Session.sources session) in
   let symbols = Option.value symbols ~default:(Session.symbols session) in
   let events = ref [] in
@@ -26,6 +26,7 @@ let parse_source ?sources ?symbols ?observe ?checkpoint ?reference session
       checkpoint =
         Some (Option.value checkpoint ~default:(D.observe_command ledger));
       reference;
+      query = Some (Option.value query ~default:(D.observe_query ledger));
       declaration = Some consume;
       command = (fun _ -> Ok ());
       resume = (fun () -> Ok ());
@@ -38,11 +39,11 @@ let parse_source ?sources ?symbols ?observe ?checkpoint ?reference session
   in
   (output, List.rev !events)
 
-let parse ?observe ?checkpoint ?reference session ledger text =
+let parse ?observe ?checkpoint ?reference ?query session ledger text =
   let source =
     Session.add_source session ~path:"declarations.hc" ~contents:text
   in
-  parse_source ?observe ?checkpoint ?reference session ledger source
+  parse_source ?observe ?checkpoint ?reference ?query session ledger source
 
 let setup () =
   let session = Session.create () in
@@ -304,6 +305,7 @@ let nested_publication_views () =
           (fun event ->
             Result.bind (D.observe_command ledger event) (fun () ->
                 checkpoint event));
+      query = None;
       reference = None;
       declaration = Some consume;
       command = (fun _ -> Ok ());
@@ -586,6 +588,7 @@ let nested_receipt_views () =
       let sink checkpoint : Parser.command_sink =
         {
           checkpoint = Some checkpoint;
+          query = None;
           reference = None;
           declaration = Some (D.observe ledger);
           command = (fun _ -> Ok ());
@@ -954,6 +957,7 @@ let selected_runtime_source session runtime ledger contents =
                 | Parser.Command_completed receipt when run ->
                     execute receipt.command_ast |> Result.map ignore
                 | _ -> Ok ()));
+      query = Some (D.observe_query ledger);
       reference = Some (D.observe_reference ledger);
       declaration = Some (D.observe ledger);
       command = (fun _ -> Ok ());
@@ -979,7 +983,9 @@ let selected_runtime_source session runtime ledger contents =
       ~definitions:(Session.definitions session)
       ~symbols:(Session.symbols session) ~config:(config ()) source
   in
-  execute (Test_parser.expect_ast parsed)
+  match parsed.Parser.ast with
+  | Some ast -> execute ast
+  | None -> Error parsed.diagnostics
 
 let selected_runtime_global () =
   let session, runtime, ledger = runtime_setup () in
@@ -1054,6 +1060,299 @@ let selected_absence_stays_absent () =
       "I64 X=Missing #exe {I64 Missing=42;};X;";
       "I64 X[Missing #exe {I64 Missing=42;}];";
     ]
+
+let selected_defined_query () =
+  List.iter
+    (fun source ->
+      let session, runtime, ledger = runtime_setup () in
+      let result =
+        selected_runtime_source session runtime ledger source |> expect
+      in
+      Alcotest.(check int64)
+        "defined preserves selected absence" 0L
+        (VM.final_value result |> Option.get).bits;
+      let later =
+        selected_runtime_source session runtime ledger "defined Missing;"
+        |> expect
+      in
+      Alcotest.(check int64)
+        "later query sees reached publication" 1L
+        (VM.final_value later |> Option.get).bits)
+    [
+      "defined Missing #exe {I64 Missing=42;};";
+      "I64 G(){return defined Missing #exe {I64 Missing=42;};}G;";
+      "I64 N=defined Missing #exe {I64 Missing=42;};N;";
+    ]
+
+let selected_sizeof_query () =
+  List.iter
+    (fun source ->
+      let session, runtime, ledger = runtime_setup () in
+      let initial = compile_runtime session runtime "I64 N=40;" in
+      execute_runtime_ok runtime initial;
+      ignore
+        (D.observe_admission ledger (admission runtime initial |> Option.get)
+        |> checked);
+      let result =
+        selected_runtime_source session runtime ledger source |> expect
+      in
+      Alcotest.(check int64)
+        "sizeof retains selected I64 record" 8L
+        (VM.final_value result |> Option.get).bits)
+    [
+      "sizeof N #exe {U8 N=1;};";
+      "I64 G(){return sizeof N #exe {U8 N=1;};}G;";
+      "I64 Result=sizeof N #exe {U8 N=1;};Result;";
+    ]
+
+let selected_dimension_query () =
+  let session, runtime, ledger = runtime_setup () in
+  let initial = compile_runtime session runtime "I64 N=40;" in
+  execute_runtime_ok runtime initial;
+  ignore
+    (D.observe_admission ledger (admission runtime initial |> Option.get)
+    |> checked);
+  let result =
+    selected_runtime_source session runtime ledger
+      "I64 A[sizeof N #exe {U8 N=1;}];A[7]=42;A[7];"
+    |> expect
+  in
+  Alcotest.(check int64)
+    "dimension consumes the selected constant size" 42L
+    (VM.final_value result |> Option.get).bits
+
+let selected_query_ownership () =
+  let session, ledger = setup () in
+  let _, foreign = setup () in
+  let completed = ref [] in
+  let observed = ref [] in
+  let query event =
+    reject "foreign ledger cannot consume query receipts"
+      (D.observe_query foreign event);
+    Result.map
+      (fun () ->
+        observed := event :: !observed;
+        reject "each query phase rejects replay" (D.observe_query ledger event);
+        match event with
+        | Parser.Query_completed query -> completed := query :: !completed
+        | _ -> ())
+      (D.observe_query ledger event)
+  in
+  let output, _ =
+    parse ~query session ledger
+      "I64 N=sizeof N;defined N;sizeof I64.one.two;offset I64.one.two;defined \
+       Missing;"
+  in
+  let ast = Test_parser.expect_ast output in
+  let command = D.seal ledger ast |> expect in
+  let table = Session.semantic_symbols session in
+  let receipts = List.rev !completed in
+  let read receipt =
+    D.query_for ~table ~ast command receipt.Parser.query_expression |> expect
+  in
+  Alcotest.(check (list bool))
+    "presence is independent of runtime admission"
+    [ true; true; true; true; false ]
+    (List.map (fun receipt -> D.query_presence (read receipt)) receipts);
+  let first = List.hd receipts in
+  let evidence = D.query_selection (read first) in
+  let selection_origin =
+    match first.query_root.query_node with
+    | Parser.Sizeof_target identifier ->
+        Semantic_symbol.Source_location
+          {
+            span = identifier.location.span;
+            source_segments = identifier.location.source_segments;
+            generated_from = identifier.location.generated_from;
+            defined_at = identifier.location.defined_at;
+          }
+    | _ -> Alcotest.fail "expected sizeof root"
+  in
+  ignore
+    (Semantic_query_selection.validate ~table
+       ~role:Semantic_query_selection.Sizeof_root ~name:"N"
+       ~origin:selection_origin evidence
+    |> checked);
+  reject "semantic query evidence rejects foreign table"
+    (Semantic_query_selection.validate
+       ~table:(Session.semantic_symbols (Session.create ()))
+       ~role:Semantic_query_selection.Sizeof_root ~name:"N"
+       ~origin:selection_origin evidence);
+  reject "semantic query evidence rejects a different role"
+    (Semantic_query_selection.validate ~table
+       ~role:Semantic_query_selection.Defined_operand ~name:"N"
+       ~origin:selection_origin evidence);
+  Alcotest.(check bool)
+    "query evidence keeps original expression" true
+    (Semantic_query_selection.expression evidence == first.query_expression);
+  ignore
+    (Semantic_query_selection.validate_manifest ~table
+       ~expression:first.query_expression [ evidence ]
+    |> checked);
+  reject "query manifest requires the original read"
+    (Semantic_query_selection.validate_manifest ~table
+       ~expression:first.query_expression []);
+  reject "query manifest rejects foreign table"
+    (Semantic_query_selection.validate_manifest
+       ~table:(Session.semantic_symbols (Session.create ()))
+       ~expression:first.query_expression [ evidence ]);
+  reject "query manifest rejects another source occurrence"
+    (Semantic_query_selection.validate_manifest ~table
+       ~expression:(List.nth receipts 1).query_expression [ evidence ]);
+  reject "query manifest rejects a repeated read"
+    (Semantic_query_selection.validate_manifest ~table
+       ~expression:first.query_expression [ evidence; evidence ]);
+  Alcotest.(check bool)
+    "repeated walks keep exact semantic evidence" true
+    (evidence == D.query_selection (read first));
+  Alcotest.(check bool)
+    "self query retains provisional global metadata" true
+    (match D.query_target (read first) with
+    | D.Selected_source
+        { stage = D.Global_selection (_, None); admitted = None; _ } -> true
+    | _ -> false);
+  List.iter
+    (fun receipt ->
+      let original = read receipt in
+      Alcotest.(check bool)
+        "repeat reads retain exact capability" true
+        (original == read receipt);
+      Alcotest.(check bool)
+        "original parser completion retained" true
+        (D.query_receipt original == receipt);
+      reject "foreign table cannot borrow query receipt"
+        (D.query_for
+           ~table:(Session.semantic_symbols (Session.create ()))
+           ~ast command receipt.query_expression);
+      reject "rebuilt AST cannot borrow query receipt"
+        (D.query_for ~table
+           ~ast:(copy_module ast ast.items)
+           command receipt.query_expression))
+    receipts;
+  List.iter
+    (fun event ->
+      reject "closed query cannot replay" (D.observe_query ledger event))
+    !observed;
+  let expression =
+    match first.query_expression with
+    | Ast.Sizeof_expression value ->
+        Ast.Sizeof_expression
+          (Ast.make_sizeof_expression
+             ~keyword_spelling:value.sizeof_keyword_spelling
+             ~keyword_location:value.sizeof_keyword_location
+             ~opening_parentheses:value.sizeof_opening_parentheses
+             ~target:value.sizeof_target ~members:value.sizeof_members
+             ~pointer_layers:value.sizeof_pointer_layers
+             ~closing_parentheses:value.sizeof_closing_parentheses
+             ~location:value.sizeof_location)
+    | _ -> Alcotest.fail "expected sizeof initializer"
+  in
+  reject "equal rebuilt expression cannot borrow receipt"
+    (D.query_for ~table ~ast command expression)
+
+let missing_query_phases () =
+  List.iter
+    (fun skip_root ->
+      let session, ledger = setup () in
+      let query event =
+        match event with
+        | Parser.Query_root _ when skip_root -> Ok ()
+        | Parser.Query_root _ -> D.observe_query ledger event
+        | Parser.Query_member_started start ->
+            if skip_root then
+              reject "dot requires its observed root"
+                (D.observe_query ledger event)
+            else if start.member_start_ordinal = 0 then
+              ignore (D.observe_query ledger event |> expect)
+            else
+              reject "next dot requires the previous completed member"
+                (D.observe_query ledger event);
+            Ok ()
+        | Parser.Query_member _ ->
+            if skip_root then
+              reject "member requires its observed root"
+                (D.observe_query ledger event);
+            Ok ()
+        | Parser.Query_completed _ ->
+            reject "completion requires every original read"
+              (D.observe_query ledger event);
+            Ok ()
+      in
+      let output, _ = parse ~query session ledger "sizeof I64.one.two;" in
+      let ast = Test_parser.expect_ast output in
+      let command = D.seal ledger ast |> expect in
+      match ast.items with
+      | [ Ast.Top_level_statement (Ast.Expression_statement statement) ] ->
+          reject "missing completion has no sealed query capability"
+            (D.query_for
+               ~table:(Session.semantic_symbols session)
+               ~ast command statement.expression_statement_expression)
+      | _ -> Alcotest.fail "expected query statement")
+    [ true; false ]
+
+let rejected_query_completion () =
+  List.iter
+    (fun throws ->
+      let session, ledger = setup () in
+      let completed = ref None in
+      let commands = ref [] in
+      let checkpoint event =
+        Result.map
+          (fun () ->
+            match event with
+            | Parser.Command_completed command ->
+                commands := command.command_ast :: !commands
+            | _ -> ())
+          (D.observe_command ledger event)
+      in
+      let query event =
+        Result.bind (D.observe_query ledger event) (fun () ->
+            match event with
+            | Parser.Query_completed query ->
+                completed := Some query;
+                if throws then raise Exit
+                else
+                  Error
+                    [
+                      Diagnostic.make ~code:"TESTQUERY"
+                        ~severity:Diagnostic.Error
+                        ~message:"late query rejection"
+                        ~primary:query.query_root.query_location.span ();
+                    ]
+            | _ -> Ok ())
+      in
+      let source =
+        Session.add_source session ~path:"query-rejected.hc"
+          ~contents:"40;defined Missing;"
+      in
+      (try
+         let output, _ =
+           parse_source ~query ~checkpoint session ledger source
+         in
+         Alcotest.(check bool)
+           "late query rejection fails parsing" true (Parser.has_errors output);
+         Alcotest.(check bool) "normal rejection expected" false throws
+       with Exit -> Alcotest.(check bool) "exception expected" true throws);
+      let completed = Option.get !completed in
+      let expression = completed.query_expression in
+      let item =
+        Ast.Top_level_statement
+          (Ast.Expression_statement
+             (Ast.make_expression_statement ~expression ~semicolon:None
+                ~location:(Ast.expression_location expression)))
+      in
+      let forged =
+        Ast.make_module ~source:(Source_file.id source)
+          ~span:(Ast.expression_location expression).span ~items:[ item ]
+      in
+      reject "recorded query cannot seal without its completed command"
+        (D.seal ledger forged);
+      Alcotest.(check int)
+        "only preceding command completed" 1 (List.length !commands);
+      ignore (D.seal ledger (List.hd !commands) |> expect);
+      let output, _ = parse session ledger "defined Missing;" in
+      ignore (D.seal ledger (Test_parser.expect_ast output) |> expect))
+    [ false; true ]
 
 let selected_reference_ownership () =
   let session, ledger = setup () in
@@ -1296,8 +1595,316 @@ let selected_reference_resume_admission () =
     | D.Selected_source { admitted = Some _; _ } -> true
     | _ -> false)
 
+let selected_sizeof_constructor_shape () =
+  let module F = Semantic_function_collection in
+  let module B = Semantic_function_binding_index in
+  let module E = Semantic_function_expression_binding in
+  let module M = Semantic_module_expression_binding in
+  let module Q = Semantic_function_call_resolution in
+  let session, ledger = setup () in
+  let receipts = ref [] in
+  let query event =
+    Result.map
+      (fun () ->
+        match event with
+        | Parser.Query_completed receipt -> receipts := receipt :: !receipts
+        | _ -> ())
+      (D.observe_query ledger event)
+  in
+  let output, _ =
+    parse ~query session ledger "I64 F(){sizeof U8;sizeof U8*;}"
+  in
+  let ast = Test_parser.expect_ast output in
+  let command = D.seal ledger ast |> expect in
+  let table = Session.semantic_symbols session in
+  let declarations = D.collection ~table ~ast command |> expect in
+  let parent = C.scope declarations in
+  let functions = collect_functions session ~declarations ast |> checked in
+  let function_ = List.hd (F.functions functions) in
+  let symbol = F.function_symbol function_ in
+  let scope = F.function_scope function_ in
+  let item_index = F.function_item_index function_ in
+  let bindings =
+    B.build ~table ~parent
+      [
+        {
+          B.function_symbol = symbol;
+          function_scope = scope;
+          function_item_index = item_index;
+          function_bindings = [];
+        };
+      ]
+    |> Result.map_error B.error_to_string
+    |> checked
+  in
+  let source_origin (location : Ast.location) =
+    Semantic_symbol.Source_location
+      {
+        span = location.span;
+        source_segments = location.source_segments;
+        generated_from = location.generated_from;
+        defined_at = location.defined_at;
+      }
+  in
+  let receipts = List.rev !receipts in
+  let events =
+    List.map
+      (fun receipt ->
+        let selection =
+          D.query_for ~table ~ast command receipt.Parser.query_expression
+          |> expect |> D.query_selection
+        in
+        match receipt.query_expression with
+        | Ast.Sizeof_expression expression ->
+            E.make_selected_name_query ~selection ~role:E.Sizeof_root
+              ~name:expression.sizeof_target.spelling
+              ~origin:(source_origin expression.sizeof_target.location)
+            |> checked
+        | _ -> Alcotest.fail "expected original sizeof expression")
+      receipts
+  in
+  let input = E.make_function ~symbol ~scope ~item_index events |> checked in
+  let expressions =
+    E.resolve ~table ~parent ~bindings [ input ]
+    |> Result.map_error E.error_to_string
+    |> checked
+  in
+  let publication =
+    M.make_publication ~source_symbol:symbol ~canonical_symbol:symbol
+      ~publication_kind:M.Function ~declaration_index:0 ~item_index ()
+    |> checked
+  in
+  let module_ =
+    M.resolve ~table ~parent ~compilation_mode:Semantic_function_resolution.Jit
+      ~expressions [ publication ]
+    |> Result.map_error M.error_to_string
+    |> checked
+  in
+  let queries = M.functions module_ |> List.hd |> M.function_queries in
+  let originals =
+    List.map
+      (fun receipt ->
+        match receipt.Parser.query_expression with
+        | Ast.Sizeof_expression expression -> expression
+        | _ -> Alcotest.fail "expected sizeof")
+      receipts
+  in
+  let make expression query ?(members = []) ?pointer_layers () =
+    let layers =
+      Option.value pointer_layers
+        ~default:
+          (List.map
+             (fun (layer : Ast.pointer_layer) ->
+               Q.make_sizeof_pointer_layer ~depth:layer.depth
+                 ~spelling:layer.spelling
+                 ~origin:(source_origin layer.location)
+               |> checked)
+             expression.Ast.sizeof_pointer_layers)
+    in
+    Q.make_sizeof_argument_expression
+      ~keyword_spelling:expression.sizeof_keyword_spelling
+      ~keyword_origin:(source_origin expression.sizeof_keyword_location)
+      ~opening_origins:
+        (List.map source_origin expression.sizeof_opening_parentheses)
+      ~target_spelling:expression.sizeof_target.spelling
+      ~target_origin:(source_origin expression.sizeof_target.location)
+      ~members ~pointer_layers:layers
+      ~closing_origins:
+        (List.map source_origin expression.sizeof_closing_parentheses)
+      ~root_resolution:(Q.Sizeof_function_query (Q.Module_query query))
+      ~bound_aggregate_size:None ~bound_target:None
+  in
+  List.iter2
+    (fun (expression, query) expected ->
+      match make expression query () |> checked with
+      | Q.Sizeof_expression result ->
+          Alcotest.(check (option int64))
+            "original selected query constant" (Some expected)
+            (Q.sizeof_known_value result)
+      | _ -> Alcotest.fail "expected semantic sizeof")
+    (List.combine originals queries)
+    [ 1L; 8L ];
+  let scalar = List.nth originals 0 and pointer = List.nth originals 1 in
+  let scalar_query = List.nth queries 0
+  and pointer_query = List.nth queries 1 in
+  reject "selected pointer suffix cannot be removed"
+    (make pointer pointer_query ~pointer_layers:[] ());
+  let layer = List.hd pointer.sizeof_pointer_layers in
+  let semantic_layer =
+    Q.make_sizeof_pointer_layer ~depth:layer.depth ~spelling:layer.spelling
+      ~origin:(source_origin layer.location)
+    |> checked
+  in
+  reject "selected scalar cannot acquire a pointer suffix"
+    (make scalar scalar_query ~pointer_layers:[ semantic_layer ] ());
+  let member_origin = source_origin scalar.sizeof_target.location in
+  let member =
+    Q.make_sizeof_member ~lookup:None ~dot_origin:member_origin ~name:"extra"
+      ~name_origin:member_origin ~origin:member_origin
+    |> checked
+  in
+  reject "selected query cannot acquire a member"
+    (make scalar scalar_query ~members:[ member ] ())
+
+let sizeof_native_member_boundaries () =
+  List.iter
+    (fun (source, expected) ->
+      let session, runtime, ledger = runtime_setup () in
+      ignore
+        (selected_runtime_source session runtime ledger "I64 N=40;" |> expect);
+      reject "invalid sizeof member rejects"
+        (selected_runtime_source session runtime ledger source);
+      let result =
+        selected_runtime_source session runtime ledger "N;" |> expect
+      in
+      Alcotest.(check int64)
+        "only effects before the native member boundary run" expected
+        (VM.final_value result |> Option.get).bits)
+    [
+      ("sizeof Missing #exe {N=1;} *;", 40L);
+      ("sizeof I64i . #exe {N=1;} bad;", 40L);
+      ("sizeof N . #exe {N=1;} bad #exe {N=2;};", 1L);
+    ]
+
+let aggregate_query_table_ownership () =
+  let module L = Semantic_aggregate_layout in
+  let capture () =
+    let session, ledger = setup () in
+    let receipt = ref None in
+    let query event =
+      Result.map
+        (fun () ->
+          match event with
+          | Parser.Query_completed value -> receipt := Some value
+          | _ -> ())
+        (D.observe_query ledger event)
+    in
+    let output, _ = parse ~query session ledger "sizeof U8;" in
+    let ast = Test_parser.expect_ast output in
+    let command = D.seal ledger ast |> expect in
+    let table = Session.semantic_symbols session in
+    let query =
+      D.query_for ~table ~ast command (Option.get !receipt).query_expression
+      |> expect |> D.query_selection
+    in
+    (table, query)
+  in
+  let table, own = capture () in
+  let _, foreign = capture () in
+  let namespace = C.create_namespace ~table () |> checked in
+  let parent = C.namespace_scope namespace in
+  let origin = Semantic_symbol.Synthesized "query layout owner" in
+  let symbol =
+    Semantic_symbol_table.add table ~scope:parent ~name:"Owner"
+      ~kind:Semantic_symbol.Aggregate_type ~origin
+    |> checked
+  in
+  let scope =
+    Semantic_symbol_table.create_scope table ~parent
+      ~kind:Semantic_symbol_table.Aggregate ()
+    |> checked
+  in
+  let member_symbol =
+    Semantic_symbol_table.add table ~scope ~name:"values"
+      ~kind:Semantic_symbol.Member ~origin
+    |> checked
+  in
+  let type_ =
+    Semantic_type.make_primitive ~form:Semantic_type.Public_spelling
+      ~primitive:Primitive_type.U8 ~pointer_depth:0
+    |> checked
+  in
+  let accepts query wrap =
+    let expression = L.Selected_query_expression query in
+    let field =
+      L.Field
+        {
+          L.member_symbol;
+          member_path = [ 0 ];
+          member_declarator_index = 0;
+          member_origin = origin;
+          member_type = type_;
+          member_is_function_pointer = false;
+          member_dimensions =
+            [
+              {
+                dimension_expression = Some expression;
+                dimension_origin = origin;
+              };
+            ];
+        }
+    in
+    let items =
+      match wrap with
+      | 0 -> [ L.Offset_directive expression ]
+      | 1 ->
+          [
+            L.Offset_directive
+              (L.Unary_expression
+                 { operator = L.Identity; operand = expression; origin });
+          ]
+      | 2 ->
+          [
+            L.Offset_directive
+              (L.Binary_expression
+                 {
+                   operator = L.Add;
+                   left = expression;
+                   right = L.Integer_expression { value = 1L; origin };
+                   origin;
+                 });
+          ]
+      | 3 -> [ field ]
+      | _ ->
+          [
+            L.Anonymous_union { union_origin = origin; union_items = [ field ] };
+          ]
+    in
+    L.layout ~table ~parent
+      [
+        {
+          L.aggregate_symbol = symbol;
+          aggregate_scope = scope;
+          aggregate_kind = L.Class;
+          aggregate_item_index = 0;
+          aggregate_origin = origin;
+          aggregate_base = None;
+          aggregate_items = items;
+        };
+      ]
+    |> Result.is_ok
+  in
+  let shapes = [ 0; 1; 2; 3; 4 ] in
+  Alcotest.(check (list bool))
+    "own query metadata works in every layout expression"
+    [ true; true; true; true; true ]
+    (List.map (accepts own) shapes);
+  Alcotest.(check (list bool))
+    "foreign query metadata cannot enter a checked layout"
+    [ false; false; false; false; false ]
+    (List.map (accepts foreign) shapes)
+
 let tests =
   [
+    Alcotest.test_case "query seals own original reads and AST children" `Quick
+      selected_query_ownership;
+    Alcotest.test_case "query seals require root, members and completion" `Quick
+      missing_query_phases;
+    Alcotest.test_case "rejected query completion cannot acquire command seal"
+      `Quick rejected_query_completion;
+    Alcotest.test_case "defined retains presence at query consumption" `Quick
+      selected_defined_query;
+    Alcotest.test_case "sizeof retains its selected compiler record" `Quick
+      selected_sizeof_query;
+    Alcotest.test_case "constant dimensions consume selected queries" `Quick
+      selected_dimension_query;
+    Alcotest.test_case
+      "selected sizeof constructor preserves its original suffix" `Quick
+      selected_sizeof_constructor_shape;
+    Alcotest.test_case "sizeof member validation precedes its next native Lex"
+      `Quick sizeof_native_member_boundaries;
+    Alcotest.test_case "aggregate layout owns all selected query metadata"
+      `Quick aggregate_query_table_ownership;
     Alcotest.test_case "parser command seals retain their exact runtime owner"
       `Quick command_runtime_ownership;
     Alcotest.test_case "missing selections reject before runtime effects" `Quick

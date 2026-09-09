@@ -165,7 +165,7 @@ let take_occurrence state (identifier : Frontend.Ast.identifier) =
                 next_occurrence;
               } )
 
-let take_query state (operand : Frontend.Ast.defined_operand) =
+let take_query state source (operand : Frontend.Ast.defined_operand) =
   if state.query_cursor >= Array.length state.queries then
     Error "top-level defined expression has no bound name query"
   else
@@ -187,6 +187,12 @@ let take_query state (operand : Frontend.Ast.defined_operand) =
       origin operand.defined_operand_location
       <> Sema.Top_level_outer_expression_binding.query_origin query
     then Error "top-level defined operand origin does not match its query"
+    else if
+      Option.fold ~none:false
+        ~some:(fun selected ->
+          Sema.Query_selection.expression selected != source)
+        (Sema.Top_level_outer_expression_binding.query_selection query)
+    then Error "top-level query selection belongs to another AST expression"
     else
       match increment "top-level query" state.next_query with
       | Error _ as error -> error
@@ -196,7 +202,7 @@ let take_query state (operand : Frontend.Ast.defined_operand) =
               { state with query_cursor = state.query_cursor + 1; next_query }
             )
 
-let take_sizeof_query state (sizeof : Frontend.Ast.sizeof_expression) =
+let take_sizeof_query state source (sizeof : Frontend.Ast.sizeof_expression) =
   if state.query_cursor >= Array.length state.queries then
     Error "top-level sizeof expression has no bound target query"
   else
@@ -218,6 +224,12 @@ let take_sizeof_query state (sizeof : Frontend.Ast.sizeof_expression) =
       origin sizeof.sizeof_target.location
       <> Sema.Top_level_outer_expression_binding.query_origin query
     then Error "top-level sizeof target origin does not match its query"
+    else if
+      Option.fold ~none:false
+        ~some:(fun selected ->
+          Sema.Query_selection.expression selected != source)
+        (Sema.Top_level_outer_expression_binding.query_selection query)
+    then Error "top-level query selection belongs to another AST expression"
     else
       match increment "top-level query" state.next_query with
       | Error _ as error -> error
@@ -227,7 +239,7 @@ let take_sizeof_query state (sizeof : Frontend.Ast.sizeof_expression) =
               { state with query_cursor = state.query_cursor + 1; next_query }
             )
 
-let take_offset_query state (offset : Frontend.Ast.offset_expression) =
+let take_offset_query state source (offset : Frontend.Ast.offset_expression) =
   if state.query_cursor >= Array.length state.queries then
     Error "top-level offset expression has no bound target query"
   else
@@ -249,6 +261,12 @@ let take_offset_query state (offset : Frontend.Ast.offset_expression) =
       origin offset.offset_target.location
       <> Sema.Top_level_outer_expression_binding.query_origin query
     then Error "top-level offset target origin does not match its query"
+    else if
+      Option.fold ~none:false
+        ~some:(fun selected ->
+          Sema.Query_selection.expression selected != source)
+        (Sema.Top_level_outer_expression_binding.query_selection query)
+    then Error "top-level query selection belongs to another AST expression"
     else
       match increment "top-level query" state.next_query with
       | Error _ as error -> error
@@ -533,14 +551,14 @@ let rec expression state (source : Frontend.Ast.expression) =
         (Sema.Function_call_resolution.Unresolved_expression
            Sema.Function_call_resolution.Current_position_expression)
   | Frontend.Ast.Sizeof_expression sizeof -> (
-      match take_sizeof_query state sizeof with
+      match take_sizeof_query state source sizeof with
       | Error _ as error -> error
       | Ok (query, state) -> (
           match top_level_sizeof_kind query sizeof with
           | Error _ as error -> error
           | Ok kind -> finish state kind))
   | Frontend.Ast.Offset_expression offset -> (
-      match take_offset_query state offset with
+      match take_offset_query state source offset with
       | Error _ as error -> error
       | Ok (query, state) -> (
           match top_level_offset_kind state query offset with
@@ -569,7 +587,7 @@ let rec expression state (source : Frontend.Ast.expression) =
       | Frontend.Ast.Defined_non_name ->
           make state Sema.Function_call_resolution.Defined_non_name_false
       | Frontend.Ast.Defined_name -> (
-          match take_query state operand with
+          match take_query state source operand with
           | Error _ as error -> error
           | Ok (query, state) ->
               make state

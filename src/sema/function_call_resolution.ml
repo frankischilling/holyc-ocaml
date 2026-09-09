@@ -1047,23 +1047,68 @@ let sizeof_bound_value target ~bound_aggregate_size ~members ~pointer_layers =
       (None, Some (Int64.of_int Primitive_type.pointer_byte_size), true)
   | _ -> (None, value, uses_pointer_size)
 
+let function_query_selection = function
+  | Module_query query -> Module_expression_binding.query_selection query
+  | Outer_query query -> Outer_expression_binding.query_selection query
+
+let sizeof_query_selection = function
+  | Sizeof_function_query query -> function_query_selection query
+  | Sizeof_top_level_query query ->
+      Top_level_outer_expression_binding.query_selection query
+
 let sizeof_value ~target_spelling ~members ~pointer_layers ~root_resolution
     ~bound_target ~bound_aggregate_size =
-  match bound_target with
-  | Some target ->
-      sizeof_bound_value target ~bound_aggregate_size ~members ~pointer_layers
-  | None when members <> [] || not (sizeof_root_is_unbound root_resolution) ->
-      (None, None, false)
+  match sizeof_query_selection root_resolution with
+  | Some selection -> (
+      match Query_selection.sizeof selection with
+      | Some (primitive, value, pointer) -> (primitive, Some value, pointer)
+      | None -> (None, None, false))
   | None -> (
-      match Primitive_type.of_spelling target_spelling with
-      | None -> (None, None, false)
-      | Some primitive ->
-          let uses_pointer_size = pointer_layers <> [] in
-          let byte_size =
-            if uses_pointer_size then Primitive_type.pointer_byte_size
-            else (Primitive_type.info primitive).byte_size
-          in
-          (Some primitive, Some (Int64.of_int byte_size), uses_pointer_size))
+      match bound_target with
+      | Some target ->
+          sizeof_bound_value target ~bound_aggregate_size ~members
+            ~pointer_layers
+      | None when members <> [] || not (sizeof_root_is_unbound root_resolution)
+        -> (None, None, false)
+      | None -> (
+          match Primitive_type.of_spelling target_spelling with
+          | None -> (None, None, false)
+          | Some primitive ->
+              let uses_pointer_size = pointer_layers <> [] in
+              let byte_size =
+                if uses_pointer_size then Primitive_type.pointer_byte_size
+                else (Primitive_type.info primitive).byte_size
+              in
+              (Some primitive, Some (Int64.of_int byte_size), uses_pointer_size)
+          ))
+
+let sizeof_source_matches (ast : Frontend.Ast.sizeof_expression)
+    ~keyword_spelling ~keyword_origin ~opening_origins ~target_spelling
+    ~target_origin ~members ~pointer_layers ~closing_origins =
+  let origin = Initializer_source.origin_of_location in
+  let same_list compare left right =
+    List.length left = List.length right && List.for_all2 compare left right
+  in
+  ast.sizeof_keyword_spelling = keyword_spelling
+  && origin ast.sizeof_keyword_location = keyword_origin
+  && List.map origin ast.sizeof_opening_parentheses = opening_origins
+  && ast.sizeof_target.spelling = target_spelling
+  && origin ast.sizeof_target.location = target_origin
+  && List.map origin ast.sizeof_closing_parentheses = closing_origins
+  && same_list
+       (fun (ast : Frontend.Ast.sizeof_member) checked ->
+         origin ast.sizeof_member_dot = checked.sizeof_member_dot_origin_
+         && ast.sizeof_member_name.spelling = checked.sizeof_member_name_
+         && origin ast.sizeof_member_name.location
+            = checked.sizeof_member_name_origin_
+         && origin ast.sizeof_member_location = checked.sizeof_member_origin_)
+       ast.sizeof_members members
+  && same_list
+       (fun (ast : Frontend.Ast.pointer_layer) checked ->
+         ast.depth = checked.sizeof_pointer_depth_
+         && ast.spelling = checked.sizeof_pointer_spelling_
+         && origin ast.location = checked.sizeof_pointer_origin_)
+       ast.sizeof_pointer_layers pointer_layers
 
 let make_sizeof_argument_expression ~keyword_spelling ~keyword_origin
     ~opening_origins ~target_spelling ~target_origin ~members ~pointer_layers
@@ -1140,6 +1185,18 @@ let make_sizeof_argument_expression ~keyword_spelling ~keyword_origin
     else if
       Option.is_some bound_target && sizeof_root_is_unbound root_resolution
     then Error "sizeof bound target does not match an unbound query"
+    else if
+      Option.fold ~none:false
+        ~some:(fun selection ->
+          match Query_selection.expression selection with
+          | Frontend.Ast.Sizeof_expression original ->
+              not
+                (sizeof_source_matches original ~keyword_spelling
+                   ~keyword_origin ~opening_origins ~target_spelling
+                   ~target_origin ~members ~pointer_layers ~closing_origins)
+          | _ -> true)
+        (sizeof_query_selection root_resolution)
+    then Error "sizeof source shape differs from its selected query"
     else
       let sizeof_primitive_, sizeof_known_value_, sizeof_uses_pointer_size_ =
         sizeof_value ~target_spelling ~members ~pointer_layers ~root_resolution
@@ -1604,22 +1661,32 @@ let defined_operand_resolution expression =
   expression.defined_operand_resolution_
 
 let defined_known_value expression =
-  match expression.defined_operand_resolution_ with
-  | Defined_non_name_false -> Some false
-  | Defined_function_query (Module_query query) -> (
-      match Module_expression_binding.query_resolution query with
-      | Module_expression_binding.Local_binding _
-      | Module_expression_binding.Module_binding _ -> Some true
-      | Module_expression_binding.Outer_candidate -> None)
-  | Defined_function_query (Outer_query query) -> (
-      match Outer_expression_binding.query_resolution query with
-      | Outer_expression_binding.Query_binding _ -> Some true
-      | Outer_expression_binding.Query_undefined -> Some false)
-  | Defined_top_level_query query -> (
-      match Top_level_outer_expression_binding.query_resolution query with
-      | Top_level_outer_expression_binding.Query_binding _ -> Some true
-      | Top_level_outer_expression_binding.Query_undefined -> Some false)
-  | Defined_top_level_name -> None
+  let selected =
+    match expression.defined_operand_resolution_ with
+    | Defined_function_query query -> function_query_selection query
+    | Defined_top_level_query query ->
+        Top_level_outer_expression_binding.query_selection query
+    | Defined_non_name_false | Defined_top_level_name -> None
+  in
+  match selected with
+  | Some selection -> Query_selection.presence selection
+  | None -> (
+      match expression.defined_operand_resolution_ with
+      | Defined_non_name_false -> Some false
+      | Defined_function_query (Module_query query) -> (
+          match Module_expression_binding.query_resolution query with
+          | Module_expression_binding.Local_binding _
+          | Module_expression_binding.Module_binding _ -> Some true
+          | Module_expression_binding.Outer_candidate -> None)
+      | Defined_function_query (Outer_query query) -> (
+          match Outer_expression_binding.query_resolution query with
+          | Outer_expression_binding.Query_binding _ -> Some true
+          | Outer_expression_binding.Query_undefined -> Some false)
+      | Defined_top_level_query query -> (
+          match Top_level_outer_expression_binding.query_resolution query with
+          | Top_level_outer_expression_binding.Query_binding _ -> Some true
+          | Top_level_outer_expression_binding.Query_undefined -> Some false)
+      | Defined_top_level_name -> None)
 
 let make_argument ~index ~kind ~expression ~origin =
   if index < 0 then Error "call argument index cannot be negative"

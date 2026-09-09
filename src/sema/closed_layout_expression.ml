@@ -1,6 +1,8 @@
 let rec equal (left : Aggregate_layout.expression)
     (right : Aggregate_layout.expression) =
   match (left, right) with
+  | Selected_query_expression left, Selected_query_expression right ->
+      left == right
   | Floating_expression left, Floating_expression right ->
       Int64.bits_of_float left.value = Int64.bits_of_float right.value
       && left.origin = right.origin
@@ -111,9 +113,19 @@ let rec comparison_chain_location = function
       comparison_chain_location grouped.grouped_expression
   | _ -> None
 
-let rec convert_ast ~allow_floating ast =
-  let convert = convert_ast ~allow_floating in
+let rec convert_ast ~allow_floating ~queries ast =
+  let convert = convert_ast ~allow_floating ~queries in
   match ast with
+  | Frontend.Ast.Sizeof_expression _
+  | Frontend.Ast.Offset_expression _
+  | Frontend.Ast.Defined_expression _
+    when List.exists
+           (fun query -> Query_selection.expression query == ast)
+           queries ->
+      Aggregate_layout.Selected_query_expression
+        (List.find
+           (fun query -> Query_selection.expression query == ast)
+           queries)
   | Frontend.Ast.Integer_literal literal ->
       literal_expression ~allow_floating "integer literal" literal
   | Frontend.Ast.Character_literal literal ->
@@ -195,9 +207,9 @@ let rec convert_ast ~allow_floating ast =
   | Frontend.Ast.Member_expression member ->
       unsupported "member expression" member.member_location
 
-let of_ast ?(allow_floating = true) ast =
+let of_ast ?(allow_floating = true) ?(queries = []) ast =
   (* PrsExp/OptPass012 preserve operands for native comparison chains.
      Reject those before evaluation, including inside short-circuit branches. *)
   match comparison_chain_location ast with
   | Some location -> unsupported "unparenthesized chained comparison" location
-  | None -> convert_ast ~allow_floating ast
+  | None -> convert_ast ~allow_floating ~queries ast

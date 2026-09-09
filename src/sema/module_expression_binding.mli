@@ -70,6 +70,7 @@ val query_role : query -> Function_expression_binding.query_role
 val query_name : query -> string
 val query_origin : query -> Symbol.origin
 val query_resolution : query -> resolution
+val query_selection : query -> Query_selection.t option
 val error_code : error -> string
 val error_kind : error -> error_kind
 val error_origin : error -> Symbol.origin option

@@ -664,8 +664,61 @@ let determinism_purity_and_validation () =
         "driver validation uses the stable family" true
         (String.starts_with ~prefix:"HCSEMA0027: " message)
 
+let original_dimension_records () =
+  let module G = Semantic_global_resolution in
+  let module D = Semantic_global_type_resolution in
+  let module B = Semantic_global_dimension_binding in
+  let prepared =
+    prepare ~path:"original-dimension-record.hc" "I64 Values[defined Missing];"
+  in
+  let table = Session.semantic_symbols prepared.session in
+  let parent =
+    Semantic_module_expression_binding.parent_scope prepared.expressions
+  in
+  let outer = jit_environment prepared [] [] in
+  let record = G.records prepared.globals |> List.hd in
+  let dimension = dimension_for record in
+  let copied_record =
+    G.resolve ~table ~parent ~compilation_mode:G.Jit
+      [ G.global_record_declaration record ]
+    |> checked |> G.records |> List.hd
+  in
+  let copied_dimension ?source_expression () =
+    D.make_array_dimension
+      ~index:(D.array_dimension_index dimension)
+      ~origin:(D.array_dimension_origin dimension)
+      ~opening_origin:(D.array_dimension_opening_origin dimension)
+      ?expression_origin:(D.array_dimension_expression_origin dimension)
+      ?source_expression
+      ~closing_origin:(D.array_dimension_closing_origin dimension)
+      ()
+    |> checked
+  in
+  let accepts record dimension =
+    let dimension = B.make_dimension ~dimension [] |> checked in
+    let input = B.make_global ~record [ dimension ] |> checked in
+    B.resolve ~table ~environment:outer ~expressions:prepared.expressions
+      ~globals:prepared.globals [ input ]
+    |> Result.is_ok
+  in
+  Alcotest.(check (list bool))
+    "dimension bindings require original records and source children"
+    [ true; false; false; false ]
+    [
+      accepts record dimension;
+      accepts copied_record dimension;
+      accepts record
+        (copied_dimension
+           ?source_expression:(D.array_dimension_source_expression dimension)
+           ());
+      accepts record (copied_dimension ());
+    ]
+
 let tests =
   [
+    Alcotest.test_case
+      "dimension bindings retain original records and source children" `Quick
+      original_dimension_records;
     Alcotest.test_case "selected dimension retains exact older entry ownership"
       `Quick selected_entry_ownership;
     Alcotest.test_case "selected dimensions require the original source prefix"

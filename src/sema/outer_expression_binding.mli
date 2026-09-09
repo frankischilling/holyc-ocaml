@@ -43,6 +43,7 @@ val occurrence_name : occurrence -> string
 val occurrence_origin : occurrence -> Symbol.origin
 val occurrence_resolution : occurrence -> resolution
 val query_source : query -> Module_expression_binding.query
+val query_selection : query -> Query_selection.t option
 val query_index : query -> int
 val query_role : query -> Function_expression_binding.query_role
 val query_name : query -> string

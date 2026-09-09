@@ -29,7 +29,11 @@ type namespace = {
   owner : unit ref;
 }
 
-type publication = { owner : unit ref; symbol : Symbol.t }
+type publication = {
+  owner : unit ref;
+  symbol : Symbol.t;
+  source_global : Frontend.Parser.global_publication option;
+}
 
 let scope (collection : t) = collection.scope
 let entries collection = collection.entries
@@ -106,16 +110,41 @@ let create_namespace ~table ?module_name () =
 
 let namespace_scope (namespace : namespace) = namespace.scope
 let publication_symbol (publication : publication) = publication.symbol
+let publication_source_global publication = publication.source_global
+
+let namespace_owns_publication (namespace : namespace) publication =
+  publication.owner == namespace.owner
+  && Symbol_table.owns_symbol namespace.table publication.symbol
+
+let namespace_owns_table (namespace : namespace) table =
+  namespace.table == table
 
 let publish (namespace : namespace) ~name ~kind ~origin =
   match kind with
   | Symbol.Global_variable | Symbol.Function | Symbol.Aggregate_type ->
       Symbol_table.add namespace.table ~scope:namespace.scope ~name ~kind
         ~origin
-      |> Result.map (fun symbol -> { owner = namespace.owner; symbol })
+      |> Result.map (fun symbol ->
+          { owner = namespace.owner; symbol; source_global = None })
   | _ ->
       Error
         "semantic declaration publication needs a top-level declaration kind"
+
+let publish_global namespace (source : Frontend.Parser.global_publication) =
+  let location = source.global_name.location in
+  let origin =
+    Symbol.Source_location
+      {
+        span = location.span;
+        source_segments = location.source_segments;
+        generated_from = location.generated_from;
+        defined_at = location.defined_at;
+      }
+  in
+  publish namespace ~name:source.global_name.spelling
+    ~kind:Symbol.Global_variable ~origin
+  |> Result.map (fun publication ->
+      { publication with source_global = Some source })
 
 let view (namespace : namespace) publications =
   let rec validate previous seen entries_rev = function

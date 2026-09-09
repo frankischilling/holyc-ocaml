@@ -24,6 +24,30 @@ type reference_target = private
     }
   | Selected_runtime of Ir.Integer_interpreter.admitted_publication
 
+type query
+
+val observe_query :
+  t -> Frontend.Parser.query_event -> (unit, Common.Diagnostic.t list) result
+(** Observe the original root, each ordered member and completed expression
+    while its parser command is active. Reject foreign ownership, replay and
+    missing phases. Freeze root presence and source stage independently of
+    runtime admission; this receipt alone does not prepare size/member metadata.
+*)
+
+val query_for :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  Frontend.Ast.expression ->
+  (query, Common.Diagnostic.t list) result
+(** Read an exact completed query in its original sealed command view.
+    Reconstructed ASTs or expressions and missing completions are rejected. *)
+
+val query_receipt : query -> Frontend.Parser.completed_query
+val query_selection : query -> Sema.Query_selection.t
+val query_target : query -> reference_target
+val query_presence : query -> bool
+
 val observe_reference :
   t ->
   Frontend.Parser.reference_selection ->

@@ -28,6 +28,22 @@ val make_name_query :
   origin:Symbol.origin ->
   (event, string) result
 
+val make_selected_name_query :
+  selection:Query_selection.t ->
+  role:Function_expression_binding.query_role ->
+  name:string ->
+  origin:Symbol.origin ->
+  (event, string) result
+
+val make_initializer_name_query :
+  ?selection:Query_selection.t ->
+  leaf:Initializer_source.leaf ->
+  role:Function_expression_binding.query_role ->
+  name:string ->
+  origin:Symbol.origin ->
+  unit ->
+  (event, string) result
+
 type input
 
 val make_statement :
@@ -98,6 +114,7 @@ val query_role : query -> Function_expression_binding.query_role
 val query_name : query -> string
 val query_origin : query -> Symbol.origin
 val query_resolution : query -> resolution
+val query_selection : query -> Query_selection.t option
 val error_code : error -> string
 val error_kind : error -> error_kind
 val error_origin : error -> Symbol.origin option

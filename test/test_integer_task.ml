@@ -826,8 +826,42 @@ let uninitialized_seed_keeps_storage_identity () =
     | [ current ] -> current == symbol
     | _ -> false)
 
+let query_presence_without_admission () =
+  let session = Session.create () in
+  let task = create session in
+  Alcotest.(check bool)
+    "declaration fails after parser publication" true
+    (run session task "I64 Broken=;" |> Result.is_error);
+  value 1L (run session task "defined Broken;");
+  value 1L (run session task "defined return;");
+  value 0L (run session task "defined Missing;");
+  value 0L (run session task "#define NUMBER 42\ndefined NUMBER;");
+  value 1L (run session task "I64 Self=defined Self;Self;");
+  value 1L (run session task "I64 F(I64 n){return defined n;}F(0);")
+
+let query_builtin_metadata () =
+  List.iter
+    (fun (source, expected) ->
+      let session = Session.create () in
+      let task = create session in
+      value expected (run session task source))
+    [ ("sizeof U8;", 1L); ("sizeof I64i;", 8L); ("sizeof U8*;", 8L) ]
+
+let query_self_metadata () =
+  let session = Session.create () in
+  let task = create session in
+  value 8L (run session task "I64 N=sizeof N;N;")
+
 let tests =
   [
+    Alcotest.test_case "sizeof uses the exact seeded primitive record" `Quick
+      query_builtin_metadata;
+    Alcotest.test_case
+      "sizeof sees its published global before initializer admission" `Quick
+      query_self_metadata;
+    Alcotest.test_case
+      "defined sees published records without runtime admission" `Quick
+      query_presence_without_admission;
     Alcotest.test_case "independent tasks retain their function headers" `Quick
       independent_function_headers;
     Alcotest.test_case "independent tasks retain their definitions" `Quick

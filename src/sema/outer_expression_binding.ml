@@ -101,6 +101,9 @@ let occurrence_origin (occurrence : occurrence) =
 let occurrence_resolution (occurrence : occurrence) = occurrence.resolution
 let query_source (query : query) = query.query_source_
 
+let query_selection query =
+  Module_expression_binding.query_selection query.query_source_
+
 let query_index (query : query) =
   Module_expression_binding.query_index query.query_source_
 
@@ -171,6 +174,9 @@ let resolve_query environment source =
         Query_binding (Local_binding binding)
     | Module_expression_binding.Module_binding publication ->
         Query_binding (Module_binding publication)
+    | Module_expression_binding.Outer_candidate
+      when Option.is_some (Module_expression_binding.query_selection source) ->
+        Query_undefined
     | Module_expression_binding.Outer_candidate -> (
         match
           Outer_environment.find environment

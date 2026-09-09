@@ -60,6 +60,20 @@ val publish :
 
 val publication_symbol : publication -> Symbol.t
 
+val publish_global :
+  namespace ->
+  Frontend.Parser.global_publication ->
+  (publication, string) result
+(** Allocate a global symbol and retain the exact parser publication at that
+    allocation. Later matching names or origins cannot attach source metadata.
+*)
+
+val publication_source_global :
+  publication -> Frontend.Parser.global_publication option
+
+val namespace_owns_publication : namespace -> publication -> bool
+val namespace_owns_table : namespace -> Symbol_table.t -> bool
+
 val view : namespace -> (publication * declaration) list -> (t, string) result
 (** Make a command-local collection without allocating symbols. Every
     publication must belong to this exact namespace and match its declaration's

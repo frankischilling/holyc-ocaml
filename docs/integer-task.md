@@ -142,6 +142,40 @@ This unit compiler does not provide `Integer_task`'s AST cache or overlap checks
 VM replay rejection belongs to each compiled entry; parser/source command
 admission requires the higher-level orchestration.
 
+## Query reads
+
+Parser-aware commands retain separate receipts for `defined`, `sizeof` and
+`offset`. A query owns its original command, environment and AST children.
+`defined` preserves presence at operand consumption, including keyword entries
+and non-name operands. Later declarations cannot fill a saved absence. Local
+queries retain the original local binding and its warning-analysis use count.
+
+Scalar `sizeof` reads checked metadata from the exact seeded primitive,
+published source global or admitted retained record before following lookahead.
+Metadata is separate from storage admission: `I64 N=sizeof N;` can read its own
+published type. Pointer suffixes remain part of the original query. Arrays,
+aggregate/member/local layouts and function debug extents still require their
+own checked metadata. Unsupported reads report an explicit diagnostic.
+
+Member queries have a distinct dot boundary before the member token. An
+internal-type member rejects there; a scalar global can reach member-token
+lookahead before rejecting unavailable member layout. Original dot and member
+receipts prevent a later walk from moving either boundary.
+
+Global dimensions and initializers retain ordered query manifests. Dimensions
+bind before their owner is published; initializers bind through that publication.
+Initializer descriptors retain exact source leaves, including non-name `defined`
+operands. The repeated initializer walk consumes the same selected objects and
+does not call its external query resolver again. An AST-only descriptor has no
+selection; missing descriptors are errors. Reordered, omitted, repeated, foreign
+or reconstructed source evidence cannot replace the original manifest. Constant
+layout evaluation consumes checked results for actual query nodes without
+creating replacement literal ASTs or rerunning name lookup.
+
+These checks do not provide full source execution. Array and member preparation,
+implicit providers, default arguments and later call-target reads remain separate
+integration work.
+
 ## StreamPrint generation service
 
 The task service exposes opaque `begin_stream`, `finish_stream` and `abort_stream`
@@ -197,7 +231,8 @@ controls include a configured limit above 100,000.
 
 StreamPrint is not yet connected to parser generation. Cross-command extern
 joins, partial type/storage/header publication and initializer execution,
-selected query/default/provider and later call-phase receipts, VM pending-command authority and the fourteen
+remaining query metadata, default/provider and later call-phase receipts,
+VM pending-command authority and the fourteen
 maintained #exe execution groups remain part of issue #635. The existing integer
 function domain remains unchanged, including its pointer-return boundary.
 

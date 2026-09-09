@@ -18,6 +18,20 @@ module Entries = Hashtbl.Make (struct
   let hash = Hashtbl.hash
 end)
 
+module Query_roots = Hashtbl.Make (struct
+  type t = Parser.query_root
+
+  let equal left right = left == right
+  let hash = Hashtbl.hash
+end)
+
+module Query_expressions = Hashtbl.Make (struct
+  type t = Ast.expression
+
+  let equal left right = left == right
+  let hash = Hashtbl.hash
+end)
+
 type source =
   | Global of {
       publication : Parser.global_publication;
@@ -58,12 +72,27 @@ type selected_reference = {
   target : reference_target;
 }
 
+type query = {
+  query_receipt : Parser.completed_query;
+  query_target : reference_target;
+  query_selection : Sema.Query_selection.t;
+}
+
+type reading_query = {
+  target : reference_target;
+  sizeof_read : Sema.Compiler_record.sizeof_read option;
+  mutable member_start : Parser.query_member_start option;
+  mutable members_rev : Parser.query_member list;
+  mutable completed : bool;
+}
+
 type command = {
   table : Sema.Symbol_table.t;
   runtime : VM.task_state option;
   ast : Ast.module_;
   declarations : Collection.t;
   references : selected_reference Names.t;
+  queries : query Query_expressions.t;
 }
 
 type command_phase =
@@ -85,6 +114,7 @@ type command_sequence = {
 }
 
 type t = {
+  session : Session.t;
   table : Sema.Symbol_table.t;
   sources : Common.Source_manager.t;
   symbols : Visibility.Environment.t;
@@ -99,8 +129,11 @@ type t = {
   mutable sequence_views : (Ast.module_ * Parser.completed_sequence) list;
   runtime : VM.task_state option;
   runtime_entries : VM.admitted_publication Entries.t;
+  runtime_records : (Sema.Compiler_record.t, string) result Entries.t;
   mutable admissions : VM.task_admission list;
   references : selected_reference Names.t;
+  query_roots : reading_query Query_roots.t;
+  queries : query Query_expressions.t;
 }
 
 exception Invalid of Common.Diagnostic.t
@@ -139,6 +172,7 @@ let create ?runtime session =
     Collection.create_namespace ~table ()
     |> Result.map (fun namespace ->
         {
+          session;
           table;
           namespace;
           sources = Session.sources session;
@@ -153,8 +187,11 @@ let create ?runtime session =
           sequence_views = [];
           runtime;
           runtime_entries = Entries.create 32;
+          runtime_records = Entries.create 32;
           admissions = [];
           references = Names.create 32;
+          query_roots = Query_roots.create 16;
+          queries = Query_expressions.create 16;
         })
 
 let runtime_symbol = VM.admitted_source_symbol
@@ -247,7 +284,18 @@ let observe_admission ledger receipt =
             ~name:(Sema.Symbol.name symbol) ~kind
             ~origin:(frontend_origin symbol) ?function_call_shape ()
         in
-        Entries.add ledger.runtime_entries entry publication)
+        Entries.add ledger.runtime_entries entry publication;
+        match publication with
+        | VM.Admitted_function _ -> ()
+        | VM.Admitted_global (_, slot) ->
+            let global =
+              Ir.Integer_globals.slot_record slot
+              |> Sema.Global_record_classification.classified_record_source
+              |> Sema.Global_resolution.global_record_global
+            in
+            Entries.add ledger.runtime_records entry
+              (Sema.Compiler_record.bind_retained_scalar ~table:ledger.table
+                 ~entry global))
       publications;
     ledger.admissions <- receipt :: ledger.admissions;
     Ok ())
@@ -410,6 +458,37 @@ let validate_command ledger (header : Parser.declaration_header) =
         (context_span start.command_context)
         "declaration does not belong to the active parser command"
 
+let selection_target ledger span = function
+  | Visibility.Absent -> Selected_absent
+  | Visibility.Shadowed_by_local -> Selected_local
+  | Visibility.Present entry -> (
+      match Entries.find_opt ledger.entries entry with
+      | Some assigned ->
+          let stage =
+            match assigned.source with
+            | Global state ->
+                Global_selection (state.publication, state.completed)
+            | Function state when state.publication.function_entry == entry ->
+                Provisional_function_selection state.publication
+            | Function { header = Some header; body; _ }
+              when header.completed_entry == entry ->
+                Function_selection (header, body)
+            | Function _ ->
+                fail span
+                  "selected function entry has no original header witness"
+          in
+          let admitted =
+            Option.bind ledger.runtime (fun runtime ->
+                VM.admitted_publication_for_symbol runtime
+                  (Collection.publication_symbol assigned.publication))
+          in
+          Selected_source
+            { publication = assigned.publication; stage; admitted }
+      | None -> (
+          match retained_for ledger entry with
+          | Some publication -> Selected_runtime publication
+          | None -> Selected_unbound entry))
+
 let observe_reference ledger selection =
   protect (fun () ->
       let identifier = Parser.selected_identifier selection in
@@ -427,39 +506,153 @@ let observe_reference ledger selection =
         fail identifier.location.span
           "identifier selection was already consumed";
       let target =
-        match Parser.selected_lookup selection with
-        | Visibility.Absent -> Selected_absent
-        | Visibility.Shadowed_by_local -> Selected_local
-        | Visibility.Present entry -> (
-            match Entries.find_opt ledger.entries entry with
-            | Some assigned ->
-                let stage =
-                  match assigned.source with
-                  | Global state ->
-                      Global_selection (state.publication, state.completed)
-                  | Function state
-                    when state.publication.function_entry == entry ->
-                      Provisional_function_selection state.publication
-                  | Function { header = Some header; body; _ }
-                    when header.completed_entry == entry ->
-                      Function_selection (header, body)
-                  | Function _ ->
-                      fail identifier.location.span
-                        "selected function entry has no original header witness"
-                in
-                let admitted =
-                  Option.bind ledger.runtime (fun runtime ->
-                      VM.admitted_publication_for_symbol runtime
-                        (Collection.publication_symbol assigned.publication))
-                in
-                Selected_source
-                  { publication = assigned.publication; stage; admitted }
-            | None -> (
-                match retained_for ledger entry with
-                | Some publication -> Selected_runtime publication
-                | None -> Selected_unbound entry))
+        selection_target ledger identifier.location.span
+          (Parser.selected_lookup selection)
       in
       Names.add ledger.references identifier { selection; target })
+
+let read_sizeof ledger (root : Parser.query_root) target =
+  match root.query_node with
+  | Parser.Defined_target _ | Parser.Offset_target _ -> None
+  | Parser.Sizeof_target _ -> (
+      let record =
+        match target with
+        | Selected_source { publication; stage = Global_selection _; _ } ->
+            Some
+              (Sema.Compiler_record.published_scalar ~table:ledger.table
+                 ~namespace:ledger.namespace publication)
+        | Selected_unbound entry ->
+            Session.primitive_for ledger.session entry
+            |> Option.map (fun binding -> Ok (Session.primitive_record binding))
+        | Selected_runtime _ -> (
+            match root.query_lookup with
+            | Visibility.Present entry ->
+                Entries.find_opt ledger.runtime_records entry
+            | _ -> None)
+        | _ -> None
+      in
+      match record with
+      | Some (Ok record) ->
+          Some
+            (Sema.Compiler_record.read_sizeof ~table:ledger.table ~root record
+            |> checked root.query_location.span)
+      | Some (Error message) when Option.is_some ledger.runtime ->
+          fail root.query_location.span message
+      | None when Option.is_some ledger.runtime ->
+          fail root.query_location.span
+            "sizeof target has no selected compiler size metadata"
+      | Some (Error _) | None -> None)
+
+let observe_query ledger event =
+  protect (fun () ->
+      let root =
+        match event with
+        | Parser.Query_root root -> root
+        | Parser.Query_member_started start -> start.member_start_root
+        | Parser.Query_member member -> member.query_member_root
+        | Parser.Query_completed query -> query.query_root
+      in
+      let span = root.query_location.span in
+      let start = root.query_command in
+      let sequence = active_sequence ledger start.command_context in
+      (match sequence.phase with
+      | Reading saved when saved == start -> ()
+      | _ -> fail span "query read does not belong to the active parser command");
+      if root.query_environment != ledger.symbols then
+        fail span "query read belongs to another frontend environment";
+      match event with
+      | Parser.Query_root _ ->
+          if Query_roots.mem ledger.query_roots root then
+            fail span "query root was already consumed";
+          let target = selection_target ledger span root.query_lookup in
+          let sizeof_read = read_sizeof ledger root target in
+          Query_roots.add ledger.query_roots root
+            {
+              target;
+              sizeof_read;
+              member_start = None;
+              members_rev = [];
+              completed = false;
+            }
+      | Parser.Query_member_started start ->
+          let state =
+            match Query_roots.find_opt ledger.query_roots root with
+            | Some state
+              when (not state.completed) && Option.is_none state.member_start ->
+                state
+            | _ ->
+                fail span
+                  "query dot has no active root or repeats a pending member"
+          in
+          let next =
+            match state.members_rev with
+            | [] -> 0
+            | previous :: _ -> previous.query_member_ordinal + 1
+          in
+          if start.member_start_ordinal <> next then
+            fail span "query dot is missing, replayed or out of order";
+          if
+            Option.fold ~none:false
+              ~some:Sema.Compiler_record.sizeof_is_internal state.sizeof_read
+          then
+            fail start.member_start_dot.span
+              "sizeof internal type cannot select a member";
+          state.member_start <- Some start
+      | Parser.Query_member member ->
+          let state =
+            match Query_roots.find_opt ledger.query_roots root with
+            | Some state when not state.completed -> state
+            | _ -> fail span "query member has no active observed root"
+          in
+          let next =
+            match state.members_rev with
+            | [] -> 0
+            | previous :: _ -> previous.query_member_ordinal + 1
+          in
+          if member.query_member_ordinal <> next then
+            fail span "query member is missing, replayed or out of order";
+          let dot =
+            match member.query_member_node with
+            | Parser.Sizeof_member member -> member.sizeof_member_dot
+            | Parser.Offset_member member -> member.offset_member_dot
+          in
+          (match state.member_start with
+          | Some start
+            when start == member.query_member_start
+                 && start.member_start_dot == dot -> ()
+          | _ -> fail span "query member lacks its original observed dot");
+          if Option.is_some state.sizeof_read then
+            fail span
+              "sizeof requires the selected global's checked member layout";
+          state.member_start <- None;
+          state.members_rev <- member :: state.members_rev
+      | Parser.Query_completed receipt ->
+          let state =
+            match Query_roots.find_opt ledger.query_roots root with
+            | Some state when not state.completed -> state
+            | _ -> fail span "query completion has no active observed root"
+          in
+          let members = List.rev state.members_rev in
+          if
+            Option.is_some state.member_start
+            || List.length members <> List.length receipt.query_members
+            || not (List.for_all2 ( == ) members receipt.query_members)
+          then
+            fail span "query completion lacks its original ordered member reads";
+          if Query_expressions.mem ledger.queries receipt.query_expression then
+            fail span "query expression was already completed";
+          let query_selection =
+            Sema.Query_selection.make ?sizeof_read:state.sizeof_read
+              ~table:ledger.table ~receipt ()
+            |> checked span
+          in
+          Query_expressions.add ledger.queries receipt.query_expression
+            {
+              query_receipt = receipt;
+              query_target = state.target;
+              query_selection;
+            };
+          state.completed <- true)
 
 let validate_source ledger environment (header : Parser.declaration_header)
     (name : Ast.identifier) =
@@ -486,8 +679,12 @@ let assign ledger (name : Ast.identifier) kind source entry =
   if ledger.next_ordinal = max_int then
     fail name.location.span "task declaration publication order is exhausted";
   let publication =
-    Collection.publish ledger.namespace ~name:name.spelling ~kind
-      ~origin:(origin name)
+    (match source with
+      | Global state ->
+          Collection.publish_global ledger.namespace state.publication
+      | Function _ ->
+          Collection.publish ledger.namespace ~name:name.spelling ~kind
+            ~origin:(origin name))
     |> checked name.location.span
   in
   let assigned =
@@ -760,6 +957,17 @@ let seal ledger (ast : Ast.module_) =
                     original_commands
                 then Names.add references identifier reference)
               ledger.references;
+            let queries = Query_expressions.create 16 in
+            Query_expressions.iter
+              (fun expression query ->
+                if
+                  List.exists
+                    (fun entry ->
+                      entry.receipt.command_start
+                      == query.query_receipt.query_root.query_command)
+                    original_commands
+                then Query_expressions.add queries expression query)
+              ledger.queries;
             let command =
               {
                 table = ledger.table;
@@ -767,6 +975,7 @@ let seal ledger (ast : Ast.module_) =
                 ast;
                 declarations;
                 references;
+                queries;
               }
             in
             List.iter (fun entry -> entry.sealed <- true) original_commands;
@@ -795,6 +1004,22 @@ let reference_for ~table ~ast (command : command) (identifier : Ast.identifier)
       | None ->
           fail identifier.location.span
             "identifier has no parser selection in this task command")
+
+let query_receipt query = query.query_receipt
+let query_selection query = query.query_selection
+let query_target query = query.query_target
+let query_presence query = query.query_receipt.query_root.query_present
+
+let query_for ~table ~ast (command : command) expression =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span
+          "task query seal belongs to another table or source AST";
+      match Query_expressions.find_opt command.queries expression with
+      | Some query -> query
+      | None ->
+          fail (Ast.expression_location expression).span
+            "query has no complete parser receipt in this task command")
 
 let reference_resolver ~table ~ast ~task_view command =
   let module Selection = Sema.Reference_selection in

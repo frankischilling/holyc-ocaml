@@ -66,6 +66,7 @@ let parse ?(mode = Preprocessor.Jit) ?max_generated_bytes ?max_definition_depth
                symbols = Session.symbols task;
                commands =
                  {
+                   query = None;
                    reference = None;
                    declaration = None;
                    checkpoint = None;
@@ -249,6 +250,7 @@ let selected_occurrence () =
   let selected = ref [] in
   let commands : Parser.command_sink =
     {
+      query = None;
       reference =
         Some
           (fun receipt ->
@@ -426,6 +428,7 @@ let pending_command_order () =
   let pending = ref None in
   let commands : Parser.command_sink =
     {
+      query = None;
       reference = None;
       declaration = None;
       checkpoint = None;
@@ -475,6 +478,7 @@ let shared_generation_quota () =
 let declaration_sink consume =
   Parser.
     {
+      query = None;
       reference = None;
       declaration = Some consume;
       checkpoint = None;
@@ -1085,8 +1089,230 @@ let checkpoint_failure_cleanup () =
         [ 0; 1; 2; 3; 4 ])
     [ ("1;", 2); ("I64 N;", 3) ]
 
+let query_consumption_order () =
+  let events = ref [] in
+  let trace = ref [] in
+  let query event =
+    events := event :: !events;
+    trace :=
+      (match event with
+      | Parser.Query_root _ -> "root"
+      | Parser.Query_member_started _ -> "dot"
+      | Parser.Query_member _ -> "member"
+      | Parser.Query_completed _ -> "complete")
+      :: !trace;
+    Ok ()
+  in
+  let commands : Parser.command_sink =
+    {
+      checkpoint = None;
+      reference = None;
+      query = Some query;
+      declaration = None;
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let session, _, output, _, _, _ =
+    parse ~same_task:true ~commands
+      ~on_enter:(fun () -> trace := "enter" :: !trace)
+      "defined(Missing #exe {I64 Missing;});sizeof I64 #exe {}.one #exe {}.two \
+       #exe {};offset I64 #exe {}.one #exe {}.two #exe {};defined 42;defined \
+       return;"
+  in
+  let ast = P.expect_ast output in
+  Alcotest.(check (list string))
+    "each query read precedes its following directive"
+    [
+      "root";
+      "enter";
+      "complete";
+      "root";
+      "enter";
+      "dot";
+      "member";
+      "enter";
+      "dot";
+      "member";
+      "enter";
+      "complete";
+      "root";
+      "enter";
+      "dot";
+      "member";
+      "enter";
+      "dot";
+      "member";
+      "enter";
+      "complete";
+      "root";
+      "complete";
+      "root";
+      "complete";
+    ]
+    (List.rev !trace);
+  let completed =
+    List.filter_map
+      (function
+        | Parser.Query_completed query -> Some query
+        | _ -> None)
+      (List.rev !events)
+  in
+  List.iter2
+    (fun query item ->
+      let expression =
+        match item with
+        | Ast.Top_level_statement (Ast.Expression_statement statement) ->
+            statement.expression_statement_expression
+        | _ -> Alcotest.fail "expected query statement"
+      in
+      Alcotest.(check bool)
+        "original completed expression" true
+        (query.Parser.query_expression == expression);
+      let root = query.query_root in
+      Alcotest.(check bool)
+        "exact frontend owner" true
+        (root.query_environment == Session.symbols session);
+      Alcotest.(check bool)
+        "root command owns original statement" true
+        (List.exists
+           (function
+             | Parser.Query_root original -> original == root
+             | _ -> false)
+           !events);
+      match (root.query_node, expression) with
+      | Parser.Defined_target operand, Ast.Defined_expression expression ->
+          Alcotest.(check bool)
+            "original operand" true
+            (operand == expression.defined_operand);
+          Alcotest.(check bool)
+            "native identifier-like presence"
+            (operand.defined_operand_spelling = "return")
+            root.query_present
+      | Parser.Sizeof_target target, Ast.Sizeof_expression expression ->
+          Alcotest.(check bool)
+            "original sizeof root" true
+            (target == expression.sizeof_target);
+          List.iter2
+            (fun receipt member ->
+              match receipt.Parser.query_member_node with
+              | Parser.Sizeof_member original ->
+                  Alcotest.(check bool)
+                    "original sizeof member" true (original == member);
+                  Alcotest.(check bool)
+                    "sizeof dot keeps its exact start child" true
+                    (receipt.query_member_start.member_start_dot
+                   == original.sizeof_member_dot)
+              | _ -> Alcotest.fail "wrong query member kind")
+            query.query_members expression.sizeof_members
+      | Parser.Offset_target target, Ast.Offset_expression expression ->
+          Alcotest.(check bool)
+            "original offset root" true
+            (target == expression.offset_target);
+          List.iter2
+            (fun receipt member ->
+              match receipt.Parser.query_member_node with
+              | Parser.Offset_member original ->
+                  Alcotest.(check bool)
+                    "original offset member" true (original == member);
+                  Alcotest.(check bool)
+                    "offset dot keeps its exact start child" true
+                    (receipt.query_member_start.member_start_dot
+                   == original.offset_member_dot)
+              | _ -> Alcotest.fail "wrong query member kind")
+            query.query_members expression.offset_members
+      | _ -> Alcotest.fail "query receipt substituted its AST child")
+    completed ast.items
+
+let query_native_presence () =
+  let present = ref [] in
+  let query = function
+    | Parser.Query_root root ->
+        present := root.query_present :: !present;
+        Ok ()
+    | _ -> Ok ()
+  in
+  let commands : Parser.command_sink =
+    {
+      checkpoint = None;
+      reference = None;
+      query = Some query;
+      declaration = None;
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let _, _, output, _, _, _ =
+    parse ~commands
+      ~configure:(fun _ execution ->
+        {
+          execution with
+          Parser.symbols = Symbol_visibility.Environment.create ();
+          commands;
+        })
+      "defined return;defined Missing;defined 42;\n\
+       #define NUMBER 42\n\
+       defined NUMBER;I64 F(I64 n){return defined n;}#exe {defined return;}"
+  in
+  ignore (P.expect_ast output);
+  Alcotest.(check (list bool))
+    "presence uses expanded token and saved hash/local"
+    [ true; false; false; false; true; false ]
+    (List.rev !present)
+
+let query_rejection_order () =
+  List.iter
+    (fun member ->
+      let reached = ref false in
+      let commands : Parser.command_sink =
+        {
+          checkpoint = None;
+          reference = None;
+          declaration = None;
+          query =
+            Some
+              (fun event ->
+                let reject, location =
+                  match event with
+                  | Parser.Query_root root -> (not member, root.query_location)
+                  | Parser.Query_member_started start ->
+                      (false, start.member_start_dot)
+                  | Parser.Query_member receipt ->
+                      (member, receipt.query_member_root.query_location)
+                  | Parser.Query_completed query ->
+                      (false, query.query_root.query_location)
+                in
+                if reject then
+                  Error
+                    [
+                      Diagnostic.make ~code:"TESTQUERY"
+                        ~severity:Diagnostic.Error ~message:"query read failed"
+                        ~primary:location.span ();
+                    ]
+                else Ok ());
+          command = (fun _ -> Ok ());
+          resume = (fun () -> Ok ());
+        }
+      in
+      let result =
+        parse ~commands
+          ~on_enter:(fun () -> reached := true)
+          (if member then "sizeof I64.missing #exe {};"
+           else "sizeof Missing #exe {};")
+      in
+      error "TESTQUERY" result;
+      Alcotest.(check bool)
+        "failed read stops following directive" false !reached)
+    [ false; true ]
+
 let tests =
   [
+    Alcotest.test_case "query receipts retain native consumption order" `Quick
+      query_consumption_order;
+    Alcotest.test_case "query rejection stops later directives" `Quick
+      query_rejection_order;
+    Alcotest.test_case "query presence follows native identifier tokens" `Quick
+      query_native_presence;
     Alcotest.test_case
       "command receipts preserve source, parent and predecessor" `Quick
       command_receipt_ownership;

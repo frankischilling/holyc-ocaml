@@ -31,6 +31,7 @@ type dependency_kind =
   | Aggregate_dependency
 
 type expression =
+  | Selected_query_expression of Query_selection.t
   | Integer_expression of { value : int64; origin : Symbol.origin }
   | Unsigned_integer_expression of { value : int64; origin : Symbol.origin }
   | Floating_expression of { value : float; origin : Symbol.origin }

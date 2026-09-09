@@ -325,6 +325,12 @@ let element_size table aggregate_layouts ~before_item origin declarator_shape
               symbol)
 
 let rec closed_expression_error = function
+  | Aggregate_layout.Selected_query_expression query ->
+      Some
+        ( Initializer_source.origin_of_location
+            (Frontend.Ast.expression_location
+               (Query_selection.expression query)),
+          "local query dimensions require their checked source manifest" )
   | Aggregate_layout.Integer_expression _
   | Aggregate_layout.Unsigned_integer_expression _
   | Aggregate_layout.Floating_expression _ -> None

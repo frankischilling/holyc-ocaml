@@ -6,6 +6,7 @@ val resolve :
   bindings:Sema.Function_binding_index.t ->
   ?selections:
     (Frontend.Ast.identifier -> (Sema.Reference_selection.t, string) result) ->
+  ?queries:(Frontend.Ast.expression -> (Sema.Query_selection.t, string) result) ->
   Frontend.Ast.module_ ->
   (Sema.Function_expression_binding.t, string) result
 (** Traverse ordinary function-body expressions in source order, publish locals

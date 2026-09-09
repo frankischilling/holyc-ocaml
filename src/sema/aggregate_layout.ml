@@ -31,6 +31,7 @@ type dependency_kind =
   | Aggregate_dependency
 
 type expression =
+  | Selected_query_expression of Query_selection.t
   | Integer_expression of { value : int64; origin : Symbol.origin }
   | Unsigned_integer_expression of { value : int64; origin : Symbol.origin }
   | Floating_expression of { value : float; origin : Symbol.origin }
@@ -216,6 +217,17 @@ let error_to_string error = Printf.sprintf "%s: %s" error.code error.message
 type number = Integer of int64 | Unsigned_integer of int64 | Floating of float
 
 let expression_origin = function
+  | Selected_query_expression query ->
+      let location =
+        Frontend.Ast.expression_location (Query_selection.expression query)
+      in
+      Symbol.Source_location
+        {
+          span = location.span;
+          source_segments = location.source_segments;
+          generated_from = location.generated_from;
+          defined_at = location.defined_at;
+        }
   | Integer_expression { origin; _ }
   | Unsigned_integer_expression { origin; _ }
   | Floating_expression { origin; _ }
@@ -371,6 +383,14 @@ let evaluate_eager_binary operator origin left right =
       invalid_arg "short-circuit operators are evaluated separately"
 
 let rec evaluate_number current_position = function
+  | Selected_query_expression query -> (
+      match Query_selection.constant query with
+      | Some value -> Ok (Integer value)
+      | None ->
+          Error
+            (invalid_expression
+               (expression_origin (Selected_query_expression query))
+               "selected query has no checked constant metadata"))
   | Integer_expression { value; _ } -> Ok (Integer value)
   | Unsigned_integer_expression { value; _ } -> Ok (Unsigned_integer value)
   | Floating_expression { value; _ } -> Ok (Floating value)
@@ -641,13 +661,46 @@ let validate_member table aggregate_scope seen (member : member_input) =
              "aggregate member type belongs to a different symbol table")
     | Type.Aggregate _ | Type.Primitive _ -> Ok (Int_set.add key seen)
 
+let rec validate_expression_table table expression =
+  match expression with
+  | Selected_query_expression query ->
+      if Query_selection.owns_table query table then Ok ()
+      else
+        Error
+          (invalid_input
+             ~origin:(expression_origin expression)
+             "aggregate layout query belongs to another semantic table")
+  | Unary_expression { operand; _ } -> validate_expression_table table operand
+  | Binary_expression { left; right; _ } ->
+      Result.bind (validate_expression_table table left) (fun () ->
+          validate_expression_table table right)
+  | Integer_expression _
+  | Unsigned_integer_expression _
+  | Floating_expression _
+  | Current_position_expression _
+  | Dependency_expression _
+  | Unsupported_expression _ -> Ok ()
+
+let rec validate_dimension_tables table = function
+  | [] -> Ok ()
+  | dimension :: rest ->
+      let checked =
+        match dimension.dimension_expression with
+        | None -> Ok ()
+        | Some expression -> validate_expression_table table expression
+      in
+      Result.bind checked (fun () -> validate_dimension_tables table rest)
+
 let rec validate_items table scope seen = function
   | [] -> Ok seen
-  | Empty_member _ :: rest | Offset_directive _ :: rest ->
-      validate_items table scope seen rest
+  | Empty_member _ :: rest -> validate_items table scope seen rest
+  | Offset_directive expression :: rest ->
+      Result.bind (validate_expression_table table expression) (fun () ->
+          validate_items table scope seen rest)
   | Field member :: rest ->
       Result.bind (validate_member table scope seen member) (fun seen ->
-          validate_items table scope seen rest)
+          Result.bind (validate_dimension_tables table member.member_dimensions)
+            (fun () -> validate_items table scope seen rest))
   | Anonymous_union { union_items; _ } :: rest ->
       Result.bind (validate_items table scope seen union_items) (fun seen ->
           validate_items table scope seen rest)
