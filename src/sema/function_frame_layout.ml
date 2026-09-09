@@ -50,6 +50,7 @@ type t = {
 type dimension_expression =
   | Empty_dimension
   | Closed_expression of Aggregate_layout.expression
+  | Prepared_dimension of Compiler_record.declared_dimension
   | Non_integral_expression of { detail : string; origin : Symbol.origin }
 
 type dimension_input = {
@@ -345,7 +346,7 @@ let rec closed_expression_error = function
   | Aggregate_layout.Dependency_expression _
   | Aggregate_layout.Unsupported_expression _ -> None
 
-let evaluate_dimension symbol expected_index input =
+let evaluate_dimension table symbol expected_index input =
   let semantic_dimension = input.dimension in
   let actual_index =
     Local_type_resolution.array_dimension_index semantic_dimension
@@ -367,6 +368,18 @@ let evaluate_dimension symbol expected_index input =
          "local dimension evidence has a different expression origin")
   else
     match input.expression with
+    | Prepared_dimension prepared -> (
+        match
+          Local_type_resolution.array_dimension_source semantic_dimension
+        with
+        | None ->
+            Error
+              (invalid_input ~origin
+                 "prepared local dimension lacks its original source node")
+        | Some dimension ->
+            Compiler_record.validate_dimension ~table ~dimension prepared
+            |> Result.map_error (fun message -> invalid_input ~origin message)
+            |> Result.map (fun () -> Compiler_record.dimension_count prepared))
     | Empty_dimension ->
         if expected_index <> 0 then
           Error
@@ -467,7 +480,7 @@ let evaluate_dimension symbol expected_index input =
                            (Aggregate_layout.error_message error)
                            error_origin))))
 
-let evaluate_dimensions symbol semantic_dimensions inputs =
+let evaluate_dimensions table symbol semantic_dimensions inputs =
   let rec loop index total values_rev semantic inputs =
     match (semantic, inputs) with
     | [], [] -> Ok (total, List.rev values_rev)
@@ -478,7 +491,8 @@ let evaluate_dimensions symbol semantic_dimensions inputs =
                ~origin:(Local_type_resolution.array_dimension_origin expected)
                "local dimension evidence has a different semantic identity")
         else
-          Result.bind (evaluate_dimension symbol index input) (fun value ->
+          Result.bind (evaluate_dimension table symbol index input)
+            (fun value ->
               Result.bind
                 (checked_multiply_nonnegative symbol
                    (Local_type_resolution.array_dimension_origin expected)
@@ -740,7 +754,7 @@ let local_location table aggregate_layouts ~function_item cursor binding input =
       (element_size table aggregate_layouts ~before_item:function_item origin
          declarator_shape checked_type) (fun element_size ->
         Result.bind
-          (evaluate_dimensions symbol
+          (evaluate_dimensions table symbol
              (Local_type_resolution.local_array_dimensions local)
              input.dimensions)
           (fun (element_count, dimensions) ->
@@ -752,7 +766,7 @@ let local_location table aggregate_layouts ~function_item cursor binding input =
                       Local_type_resolution.array_dimension_source_expression
                         input.dimension )
                   with
-                  | Closed_expression _, Some _ -> true
+                  | (Closed_expression _ | Prepared_dimension _), Some _ -> true
                   | _ -> false)
                 input.dimensions
             in

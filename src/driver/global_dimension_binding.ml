@@ -176,7 +176,7 @@ let query_inputs queries source =
         [] nodes
       |> Result.map (fun reversed -> Some (List.rev reversed))
 
-let dimension_input selections queries next_index index semantic
+let dimension_input selections queries prepared next_index index semantic
     (ast : Frontend.Ast.array_dimension) =
   match validate_dimension index semantic ast with
   | Error _ as error -> error
@@ -194,20 +194,27 @@ let dimension_input selections queries next_index index semantic
           let checked =
             Result.bind (query_inputs queries ast.dimension_expression)
               (fun queries ->
-                Sema.Global_dimension_binding.make_dimension ?queries
-                  ~dimension:semantic events)
+                let checked =
+                  match prepared with
+                  | None -> Ok None
+                  | Some resolve -> Result.map Option.some (resolve ast)
+                in
+                Result.bind checked (fun prepared ->
+                    Sema.Global_dimension_binding.make_dimension ?queries
+                      ?prepared ~dimension:semantic events))
           in
           match checked with
           | Error _ as error -> error
           | Ok dimension -> Ok (state.next_index, dimension)))
 
-let dimension_inputs selections queries semantic ast =
+let dimension_inputs selections queries prepared semantic ast =
   let rec pair next_index index inputs_rev semantic ast =
     match (semantic, ast) with
     | [], [] -> Ok (List.rev inputs_rev)
     | semantic :: semantic_rest, ast :: ast_rest -> (
         match
-          dimension_input selections queries next_index index semantic ast
+          dimension_input selections queries prepared next_index index semantic
+            ast
         with
         | Error _ as error -> error
         | Ok (next_index, input) ->
@@ -221,7 +228,7 @@ let dimension_inputs selections queries semantic ast =
   in
   pair 0 0 [] semantic ast
 
-let global_input selections queries table record (ast : ast_global) =
+let global_input selections queries prepared table record (ast : ast_global) =
   let global = Sema.Global_resolution.global_record_global record in
   let symbol = Sema.Global_resolution.global_record_symbol record in
   let semantic_symbol = Sema.Global_type_resolution.global_symbol global in
@@ -244,7 +251,7 @@ let global_input selections queries table record (ast : ast_global) =
     Error "global array extent record does not match the AST name origin"
   else
     match
-      dimension_inputs selections queries
+      dimension_inputs selections queries prepared
         (Sema.Global_type_resolution.global_array_dimensions global)
         ast.array_dimensions
     with
@@ -252,14 +259,14 @@ let global_input selections queries table record (ast : ast_global) =
     | Ok dimensions ->
         Sema.Global_dimension_binding.make_global ~record dimensions
 
-let inputs selections queries table globals module_ =
+let inputs selections queries prepared table globals module_ =
   let records = Sema.Global_resolution.records globals in
   let ast = ast_globals module_ in
   let rec pair inputs_rev records ast =
     match (records, ast) with
     | [], [] -> Ok (List.rev inputs_rev)
     | record :: record_rest, ast :: ast_rest -> (
-        match global_input selections queries table record ast with
+        match global_input selections queries prepared table record ast with
         | Error _ as error -> error
         | Ok input -> pair (input :: inputs_rev) record_rest ast_rest)
     | [], _ :: _ | _ :: _, [] ->
@@ -268,9 +275,9 @@ let inputs selections queries table globals module_ =
   pair [] records ast
 
 let resolve ~table ~environment ~expressions ~globals ?selections ?queries
-    module_ =
+    ?prepared module_ =
   let result =
-    match inputs selections queries table globals module_ with
+    match inputs selections queries prepared table globals module_ with
     | Error _ as error -> error
     | Ok inputs ->
         Sema.Global_dimension_binding.resolve ~table ~environment ~expressions

@@ -362,15 +362,17 @@ let failed_preparation_charges_work () =
 let larger_preparation_limit () =
   let session = Session.create () in
   let task =
-    match Task.create ~max_initializer_steps:100_001 session with
+    match Task.create ~max_initializer_steps:100_002 session with
     | Ok task -> task
     | Error message -> Alcotest.fail message
   in
   let source = "U8 Bytes[100001]=\"" ^ String.make 100_000 '*' ^ "\";" in
   ignore (run session task source |> Test_integer_program.checked);
   Alcotest.(check int)
-    "configured limit above compiler default is honored" 100_001
+    "configured task limit includes copy and dimension work" 100_002
     (Task.initializer_steps task);
+  Alcotest.(check int)
+    "task retains the separate numeric visit tally" 1 (Task.dimension_work task);
   value 42L (run session task "Bytes[99999];")
 
 let reconstructed_module_cannot_replay () =

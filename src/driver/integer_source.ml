@@ -82,6 +82,28 @@ let prepare_unit ?environment:task_environment ?declaration_command
         | Ok query -> Ok (Task_declarations.query_selection query))
       query_for
   in
+  let prepared =
+    let resolve =
+      match (declaration_command, source_command) with
+      | Some command, None ->
+          Some (Task_declarations.checked_dimension_for ~table ~ast command)
+      | None, Some command ->
+          Some
+            (Task_declarations.source_checked_dimension_for ~table ~ast command)
+      | None, None -> None
+      | Some _, Some _ -> assert false
+    in
+    Option.map
+      (fun resolve dimension ->
+        resolve dimension
+        |> Result.map_error (fun errors ->
+            String.concat "; "
+              (List.map
+                 (fun error ->
+                   error.Common.Diagnostic.code ^ ": " ^ error.message)
+                 errors)))
+      resolve
+  in
   let mode = Frontend.Preprocessor.Config.compilation_mode config in
   let checked result =
     Result.map_error
@@ -226,7 +248,8 @@ let prepare_unit ?environment:task_environment ?declaration_command
   in
   let* dimension_bindings =
     Global_dimension_binding.resolve ~table ~environment
-      ~expressions:module_expressions ~globals ?selections ?queries ast
+      ~expressions:module_expressions ~globals ?selections ?queries ?prepared
+      ast
     |> checked
   in
   let* global_layouts_ =
@@ -306,7 +329,7 @@ let prepare_unit ?environment:task_environment ?declaration_command
   in
   let* frames =
     Function_frame_layout.layout ~table ~declarations ~bindings ~function_types
-      ~local_types ~aggregate_layouts:layouts ast
+      ~local_types ~aggregate_layouts:layouts ?prepared ast
     |> checked
   in
   let* records =

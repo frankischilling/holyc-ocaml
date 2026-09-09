@@ -7,6 +7,7 @@ module Diagnostic_render = Common.Diagnostic_render
 module Session = Driver.Session
 module Integer_task = Driver.Integer_task
 module Task_declarations = Driver.Task_declarations
+module Semantic_compiler_record = Sema.Compiler_record
 module Version = Driver.Version
 module Corpus = Driver.Corpus
 module Primitive_type = Sema.Primitive_type
@@ -846,6 +847,7 @@ val compile_integer_ast :
     verified IR pipeline, without consuming or preprocessing source again. *)
 
 val compile_integer_program :
+  ?max_dimension_work:int ->
   ?max_initializer_steps:int ->
   Session.t ->
   config:Preprocessor.Config.t ->
@@ -861,6 +863,8 @@ val integer_program_initialization :
 val integer_program_initializer_preparation :
   integer_program -> Integer_initializer_preparation.t
 
+val integer_program_dimension_preparation_work : integer_program -> int
+
 val integer_program_functions :
   integer_program -> Ir_integer_interpreter.function_definition list
 
@@ -868,6 +872,7 @@ val integer_program_human : integer_program -> string
 val integer_program_runtime_calls : integer_program -> Ir_runtime_call_context.t
 
 val run_integer_program :
+  ?max_dimension_work:int ->
   ?max_initializer_steps:int ->
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->
@@ -918,6 +923,7 @@ val run_integer_program :
 type integer_program_report
 
 val run_integer_program_report :
+  ?max_dimension_work:int ->
   ?max_initializer_steps:int ->
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->
@@ -940,6 +946,7 @@ val integer_program_report_outcome :
 
 val integer_program_report_output_bytes : integer_program_report -> string
 val integer_program_report_output_work : integer_program_report -> int
+val integer_program_report_dimension_work : integer_program_report -> int
 
 val lower_integer_expression :
   Session.t ->

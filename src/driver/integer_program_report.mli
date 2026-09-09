@@ -1,6 +1,7 @@
 type t
 
 val run :
+  ?max_dimension_work:int ->
   ?max_initializer_steps:int ->
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->
@@ -22,3 +23,4 @@ val outcome :
 
 val output_bytes : t -> string
 val output_work : t -> int
+val dimension_work : t -> int

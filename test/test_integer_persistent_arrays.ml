@@ -8,6 +8,19 @@ module Globals = Ir_integer_globals
 
 let cases = Bytes.cases
 
+let declared_size_queries () =
+  cases
+    [
+      ("U8 A[3];sizeof A+39;", 42L);
+      ("U16 A[2][3];sizeof A+30;", 42L);
+      ("I64 A[1+2];sizeof A+18;", 42L);
+      ("U8 A[3],B[sizeof A];sizeof B+39;", 42L);
+      ("U8 A[3]={sizeof A,39,0};I64 F(){return A[0]+A[1];}F();", 42L);
+      ("I64 F(){U8 A[3];return sizeof A+39;}F();", 42L);
+      ("I64 F(){static U8 A[3];return sizeof A+39;}F();", 42L);
+      ("I64 F(){U8 A[sizeof U8*];return sizeof A+34;}F();", 42L);
+    ]
+
 let shapes_and_aliases () =
   cases
     [
@@ -298,6 +311,8 @@ let tests =
             G.modes))
     gates
   @ [
+      Alcotest.test_case "sizeof consumes declared array extents" `Quick
+        declared_size_queries;
       Alcotest.test_case "shapes and persistent aliases" `Quick
         shapes_and_aliases;
       Alcotest.test_case "array quotas and object bounds" `Quick

@@ -80,6 +80,24 @@ earlier successful calls survive any later execution error.
 
 ## Limits and reports
 
+Source array dimensions have an independent `--dimension-work-limit` (default
+100000), also available as `max_dimension_work` through the compile/run/report
+APIs. One visit is charged on entry to each evaluated numeric leaf or operator;
+grouping and skipped short-circuit operands add nothing. A failed expression or
+missing closing bracket retains its reached visits. Later sizeof and layout
+reads reuse the checked value without more work. The option also applies to
+`dump-ir --program` and is validated before parsing.
+
+V2 reports add `dimension_work_limit` and `dimension_preparation_work`; the latter
+is available through `integer_program_report_dimension_work` even on failure.
+V1 fields and existing initializer/runtime counts keep their meanings. Ordinary
+source initializer limits remain independent: the maintained persistent-array,
+byte-signature and narrow fixtures still need 23, 7 and 9 initializer units,
+respectively, with 4, 1 and 2 separate dimension visits. Runtime-bound task
+commands use their task's cumulative preparation allowance and retain a separate
+numeric tally through `Integer_task.dimension_work`. Callback-free AST compilation
+retains its existing layout path; checked legacy extent retention remains pending.
+
 `--output-byte-limit` and `--output-work-limit` are independent positive bounds,
 each defaulting to 1,048,576. Work charges one unit before each format or `%s`
 byte fetch, including terminators and failed fetches; one per packed-byte

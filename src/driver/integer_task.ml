@@ -51,6 +51,7 @@ let output_work task = VM.task_output_work task.state
 let generated_bytes task = VM.task_generated_bytes task.state
 let executed_steps task = VM.task_executed_steps task.state
 let initializer_steps task = VM.task_initializer_steps task.state
+let dimension_work task = Task_declarations.dimension_work task.declarations
 let begin_stream task = VM.begin_task_stream task.state
 let finish_stream task stream = VM.finish_task_stream task.state stream
 let abort_stream task stream = VM.abort_task_stream task.state stream

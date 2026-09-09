@@ -4,18 +4,26 @@ type t = {
   outcome_ : (VM.t Integer_program.checked, Common.Diagnostic.t list) result;
   output_bytes_ : string;
   output_work_ : int;
+  dimension_work_ : int;
 }
 
 let outcome report = report.outcome_
 let output_bytes report = report.output_bytes_
 let output_work report = report.output_work_
+let dimension_work report = report.dimension_work_
 
-let run ?(max_initializer_steps = 100_000) ?(max_global_bytes = 1_048_576)
-    ?(max_literal_bytes = 1_048_576) ?(max_frame_bytes = 1_048_576)
-    ?(max_call_depth = 128) ?(max_output_bytes = 1_048_576)
-    ?(max_output_work = 1_048_576) session ~config ~source ~max_steps =
-  let empty diagnostics =
-    { outcome_ = Error diagnostics; output_bytes_ = ""; output_work_ = 0 }
+let run ?max_dimension_work ?(max_initializer_steps = 100_000)
+    ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
+    ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
+    ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576) session
+    ~config ~source ~max_steps =
+  let empty ?(dimension_work_ = 0) diagnostics =
+    {
+      outcome_ = Error diagnostics;
+      output_bytes_ = "";
+      output_work_ = 0;
+      dimension_work_;
+    }
   in
   let span = Integer_source.source_span source in
   match
@@ -25,10 +33,15 @@ let run ?(max_initializer_steps = 100_000) ?(max_global_bytes = 1_048_576)
   with
   | Error diagnostics -> empty diagnostics
   | Ok () -> (
-      match
-        Integer_program.compile ~max_initializer_steps session ~config ~source
-      with
-      | Error diagnostics -> empty diagnostics
+      let compilation =
+        Integer_program.compile_report ?max_dimension_work
+          ~max_initializer_steps session ~config ~source
+      in
+      let dimension_work_ =
+        Integer_program.compilation_dimension_work compilation
+      in
+      match Integer_program.compilation_outcome compilation with
+      | Error diagnostics -> empty ~dimension_work_ diagnostics
       | Ok compiled ->
           let program = compiled.value in
           let report =
@@ -51,4 +64,5 @@ let run ?(max_initializer_steps = 100_000) ?(max_global_bytes = 1_048_576)
                   @ Integer_execution_diagnostics.of_errors ~span errors);
             output_bytes_ = VM.report_output_bytes report;
             output_work_ = VM.report_output_work report;
+            dimension_work_;
           })

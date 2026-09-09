@@ -280,10 +280,15 @@ the complete ordered receipts before semantic publication. Sealed readers reject
 foreign tables, ASTs, reconstructed dimensions, missing phases and replay.
 Nested inputs retain separate owners even when they use the same spelling.
 
-These events establish callback order and source ownership. Evaluated extents,
-their cumulative preparation charges, and their reuse by layout, sizeof and
-unbraced initializer parsing remain required. Declared sizes must remain
-separate from rounded runtime storage. The pinned PrsArrayDims assigns zero to
+The runtime-bound ledger now evaluates supported closed dimensions at preparation,
+consumes each attempt before evaluation, and retains reached work on failure.
+Completion associates the checked value with its original source node. Global
+and local sizeof and layout reuse it without evaluating or charging again.
+Numeric node visits share the task preparation allowance while remaining visible
+through `dimension_work`; ordinary source has its separate dimension allowance.
+Unbraced initializer feedback, effectful dimension evaluation and retained legacy
+array metadata remain required. Declared sizes remain separate from rounded runtime
+storage. The pinned PrsArrayDims assigns zero to
 an empty first dimension, while initializer inference branches test negative
 counts; the comments alone do not establish positive inference for that syntax.
 

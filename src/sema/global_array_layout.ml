@@ -102,21 +102,26 @@ let evaluate_dimension global index input =
                    "requires an evaluated value for bound identifier %S"
                    (Global_dimension_binding.occurrence_name occurrence))
         in
-        let expression =
-          Closed_layout_expression.of_ast
-            ?queries:(Global_dimension_binding.dimension_queries dimension)
-            expression
-        in
-        let* () = validate_closed_expression global index expression in
         let* value =
-          Aggregate_layout.evaluate_expression
-            ~context:Aggregate_layout.Array_dimension ~current_position:0L
-            expression
-          |> Result.map_error (fun error ->
-              Printf.sprintf "HCSEMA0027: global array dimension %d for %S: %s"
-                index
-                (Global_dimension_binding.global_symbol global |> Symbol.name)
-                (Aggregate_layout.error_to_string error))
+          match Global_dimension_binding.dimension_prepared dimension with
+          | Some prepared -> Ok (Compiler_record.dimension_count prepared)
+          | None ->
+              let expression =
+                Closed_layout_expression.of_ast
+                  ?queries:
+                    (Global_dimension_binding.dimension_queries dimension)
+                  expression
+              in
+              let* () = validate_closed_expression global index expression in
+              Aggregate_layout.evaluate_expression
+                ~context:Aggregate_layout.Array_dimension ~current_position:0L
+                expression
+              |> Result.map_error (fun error ->
+                  Printf.sprintf
+                    "HCSEMA0027: global array dimension %d for %S: %s" index
+                    (Global_dimension_binding.global_symbol global
+                    |> Symbol.name)
+                    (Aggregate_layout.error_to_string error))
         in
         if Int64.compare value 0L <= 0 then
           invalid_extent global index

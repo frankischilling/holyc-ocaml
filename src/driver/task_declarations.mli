@@ -4,7 +4,10 @@ type source_command
 type query
 
 val create_source :
-  Session.t -> source:Common.Source_file.t -> (t, string) result
+  ?max_dimension_work:int ->
+  Session.t ->
+  source:Common.Source_file.t ->
+  (t, string) result
 (** Create an ordinary source ledger with required query metadata. It grants no
     task-runtime authority and cannot import runtime admissions. The exact
     registered input owns the source namespace and its display-path name. *)
@@ -38,6 +41,10 @@ type reference_stage = private
   | Function_selection of
       Frontend.Parser.completed_function_header
       * Frontend.Ast.function_definition option
+
+val dimension_work : t -> int
+val command_dimension_work : command -> int
+val source_dimension_work : source_command -> int
 
 type reference_target = private
   | Selected_absent
@@ -78,6 +85,20 @@ val dimension_for :
   command ->
   Frontend.Ast.array_dimension ->
   (Frontend.Parser.completed_array_dimension, Common.Diagnostic.t list) result
+
+val checked_dimension_for :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  Frontend.Ast.array_dimension ->
+  (Sema.Compiler_record.declared_dimension, Common.Diagnostic.t list) result
+
+val source_checked_dimension_for :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  Frontend.Ast.array_dimension ->
+  (Sema.Compiler_record.declared_dimension, Common.Diagnostic.t list) result
 
 val source_dimension_for :
   table:Sema.Symbol_table.t ->

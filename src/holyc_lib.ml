@@ -7,6 +7,7 @@ module Diagnostic_render = Common.Diagnostic_render
 module Session = Driver.Session
 module Integer_task = Driver.Integer_task
 module Task_declarations = Driver.Task_declarations
+module Semantic_compiler_record = Sema.Compiler_record
 module Version = Driver.Version
 module Corpus = Driver.Corpus
 module Primitive_type = Sema.Primitive_type
@@ -487,6 +488,9 @@ let integer_program_initialization = Driver.Integer_program.initialization
 let integer_program_initializer_preparation =
   Driver.Integer_program.initializer_preparation
 
+let integer_program_dimension_preparation_work =
+  Driver.Integer_program.dimension_preparation_work
+
 let integer_program_functions = Driver.Integer_program.functions
 let integer_program_runtime_calls = Driver.Integer_program.runtime_calls
 let integer_program_human = Driver.Integer_program.human
@@ -499,6 +503,9 @@ let integer_program_report_outcome = Driver.Integer_program_report.outcome
 
 let integer_program_report_output_bytes =
   Driver.Integer_program_report.output_bytes
+
+let integer_program_report_dimension_work =
+  Driver.Integer_program_report.dimension_work
 
 let integer_program_report_output_work =
   Driver.Integer_program_report.output_work

@@ -14,6 +14,7 @@ type dimension_input = {
   dimension : Global_type_resolution.array_dimension;
   events : event list;
   queries : Query_selection.t list option;
+  prepared : Compiler_record.declared_dimension option;
 }
 
 type global_input = {
@@ -118,8 +119,8 @@ let make_selected_identifier ~selection ~name ~origin ~occurrence_index
   make_identifier ~name ~origin ~occurrence_index ~dimension_index
   |> Result.map (fun event -> { event with selection = Some selection })
 
-let make_dimension ?queries ~dimension events =
-  Ok { dimension; events; queries }
+let make_dimension ?queries ?prepared ~dimension events =
+  Ok { dimension; events; queries; prepared }
 
 let make_global ~record dimensions = Ok { record; dimensions }
 let globals result = result.globals
@@ -164,6 +165,9 @@ let dimension_closing_origin (dimension : resolved_dimension) =
 
 let dimension_occurrences (dimension : resolved_dimension) =
   dimension.occurrences
+
+let dimension_prepared (dimension : resolved_dimension) =
+  dimension.source.prepared
 
 let dimension_queries (dimension : resolved_dimension) =
   dimension.source.queries
@@ -234,6 +238,32 @@ let validate_dimensions table semantic (input : global_input) =
                 | Some queries, Some expression ->
                     Query_selection.validate_manifest ~table ~expression queries
                 | Some _, None -> Error "empty dimension has query reads"
+              in
+              let checked =
+                Result.bind checked (fun () ->
+                    match
+                      ( dimension.prepared,
+                        Global_type_resolution.array_dimension_source
+                          dimension.dimension )
+                    with
+                    | None, _ -> Ok ()
+                    | Some prepared, Some source ->
+                        Result.bind
+                          (Compiler_record.validate_dimension ~table
+                             ~dimension:source prepared) (fun () ->
+                            match dimension.queries with
+                            | Some queries ->
+                                Compiler_record.validate_dimension_queries
+                                  prepared
+                                  (List.map Query_selection.checked_read queries)
+                            | None ->
+                                Error
+                                  "checked dimension is missing its original \
+                                   query manifest")
+                    | Some _, None ->
+                        Error
+                          "checked dimension lacks its original complete \
+                           source node")
               in
               match checked with
               | Error message -> Error (invalid_input message)

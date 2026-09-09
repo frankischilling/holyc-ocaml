@@ -1758,4 +1758,119 @@ let () =
         && contains first "holyc-initializer-preparation-v1 steps=9")
         "deterministic narrow shapes publications and signature types")
     [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      let run source limit =
+        let status, output, errors =
+          invoke_raw
+            [
+              "run";
+              "--format=json";
+              "--mode=" ^ mode;
+              "--dimension-work-limit=" ^ string_of_int limit;
+              "--initializer-step-limit=3";
+              source;
+            ]
+        in
+        require (errors = "") "dimension reports stay on one stream";
+        (status, Yojson.Safe.from_string output)
+      in
+      with_file ".hc" "U8 A[1+1];I64 N=42;N;" (fun source ->
+          let status, report = run source 3 in
+          require
+            (status = Unix.WEXITED 0
+            && report |> member "dimension_work_limit" |> to_int = 3
+            && report |> member "dimension_preparation_work" |> to_int = 3
+            && report |> member "compiled_initializer_steps" |> to_int = 3)
+            "independent exact dimension and initializer allowances";
+          let status, report = run source 2 in
+          require
+            (status = Unix.WEXITED 1
+            && report |> member "dimension_preparation_work" |> to_int = 2
+            && report |> member "diagnostics" |> to_list |> List.hd
+               |> member "code" |> to_string = "HCIRVM0007")
+            "dimension limit preserves reached work";
+          List.iter
+            (fun version ->
+              let status, _, _ =
+                invoke_raw
+                  [
+                    "run";
+                    "--format=json";
+                    "--report-version=" ^ version;
+                    "--mode=" ^ mode;
+                    "--dimension-work-limit=2";
+                    source;
+                  ]
+              in
+              require (status = Unix.WEXITED 1)
+                "both report versions enforce dimension limit")
+            [ "1"; "2" ];
+          ignore
+            (success
+               [
+                 "dump-ir";
+                 "--program";
+                 "--mode=" ^ mode;
+                 "--dimension-work-limit=3";
+                 source;
+               ]);
+          let status, _, _ =
+            invoke_raw
+              [
+                "dump-ir";
+                "--program";
+                "--mode=" ^ mode;
+                "--dimension-work-limit=2";
+                source;
+              ]
+          in
+          require (status = Unix.WEXITED 1)
+            "program dump forwards dimension allowance";
+          let legacy =
+            success
+              [
+                "run";
+                "--format=json";
+                "--mode=" ^ mode;
+                "--dimension-work-limit=3";
+                source;
+              ]
+            |> Yojson.Safe.from_string
+          in
+          require
+            (legacy |> member "dimension_work_limit" = `Null
+            && legacy |> member "dimension_preparation_work" = `Null)
+            "v1 retains its existing field contract");
+      List.iter
+        (fun (contents, limit, work, code) ->
+          with_file ".hc" contents (fun source ->
+              let status, report = run source limit in
+              require
+                (status = Unix.WEXITED 1
+                && report
+                   |> member "dimension_preparation_work"
+                   |> to_int = work
+                && report |> member "diagnostics" |> to_list |> List.hd
+                   |> member "code" |> to_string = code)
+                "parse and evaluation failures retain exact numeric work"))
+        [ ("U8 A[2;", 1, 1, "HCPARSE0023"); ("U8 A[1/0;", 3, 3, "HCSEMA0004") ];
+      List.iter
+        (fun contents ->
+          with_file ".hc" contents (fun source ->
+              let status, report = run source 1 in
+              require
+                (status = Unix.WEXITED 1
+                && report |> member "dimension_preparation_work" |> to_int = 1)
+                "later semantic and runtime failures retain dimension work"))
+        [ "U8 A[2];Missing;"; "U8 A[2];1/0;" ];
+      with_file ".hc" "#exe {42;}" (fun source ->
+          let status, report = run source 0 in
+          require
+            (status = Unix.WEXITED 1
+            && report |> member "dimension_preparation_work" |> to_int = 0
+            && report |> member "command_error" |> member "code" |> to_string
+               = "HCIRVM0001")
+            "invalid dimension allowance rejects before parsing"))
+    [ "jit"; "aot" ];
   print_endline "Integer program CLI checks passed."

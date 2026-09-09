@@ -1,6 +1,10 @@
-type unary_operator = Identity | Negate | Logical_not | Bitwise_not
+type unary_operator = Closed_numeric_expression.unary_operator =
+  | Identity
+  | Negate
+  | Logical_not
+  | Bitwise_not
 
-type binary_operator =
+type binary_operator = Closed_numeric_expression.binary_operator =
   | Power
   | Shift_left
   | Shift_right
@@ -22,7 +26,7 @@ type binary_operator =
   | Logical_xor
   | Logical_or
 
-type dependency_kind =
+type dependency_kind = Closed_numeric_expression.dependency_kind =
   | Identifier_dependency
   | Sizeof_dependency
   | Offset_dependency
@@ -30,21 +34,21 @@ type dependency_kind =
   | Call_dependency
   | Aggregate_dependency
 
-type expression =
-  | Selected_query_expression of Query_selection.t
+type 'query generic_expression = 'query Closed_numeric_expression.expression =
+  | Selected_query_expression of 'query
   | Integer_expression of { value : int64; origin : Symbol.origin }
   | Unsigned_integer_expression of { value : int64; origin : Symbol.origin }
   | Floating_expression of { value : float; origin : Symbol.origin }
   | Current_position_expression of Symbol.origin
   | Unary_expression of {
       operator : unary_operator;
-      operand : expression;
+      operand : 'query generic_expression;
       origin : Symbol.origin;
     }
   | Binary_expression of {
       operator : binary_operator;
-      left : expression;
-      right : expression;
+      left : 'query generic_expression;
+      right : 'query generic_expression;
       origin : Symbol.origin;
     }
   | Dependency_expression of {
@@ -54,7 +58,11 @@ type expression =
     }
   | Unsupported_expression of { description : string; origin : Symbol.origin }
 
-type expression_context = Array_dimension | Aggregate_offset
+type expression = Query_selection.t generic_expression
+
+type expression_context = Closed_numeric_expression.expression_context =
+  | Array_dimension
+  | Aggregate_offset
 
 type dimension = {
   dimension_expression : expression option;
@@ -133,7 +141,7 @@ type t = {
   by_symbol : aggregate_layout Int_map.t;
 }
 
-type error_kind =
+type error_kind = Closed_numeric_expression.error_kind =
   | Invalid_input of string
   | Unresolved_dependency of {
       dependency_kind : dependency_kind;
@@ -147,291 +155,34 @@ type error_kind =
   | Metadata_overflow of string
   | Invalid_layout_expression of string
 
-type error = {
-  code : string;
-  kind : error_kind;
-  origin : Symbol.origin option;
-  message : string;
-}
+type error = Closed_numeric_expression.error
 
-let dependency_kind_name = function
-  | Identifier_dependency -> "identifier"
-  | Sizeof_dependency -> "sizeof"
-  | Offset_dependency -> "offset"
-  | Defined_dependency -> "defined"
-  | Call_dependency -> "function call"
-  | Aggregate_dependency -> "aggregate layout"
+let dependency_kind_name = Closed_numeric_expression.dependency_kind_name
+let invalid_input = Closed_numeric_expression.invalid_input
+let unresolved = Closed_numeric_expression.unresolved
+let invalid_dimension = Closed_numeric_expression.invalid_dimension
+let metadata_overflow = Closed_numeric_expression.metadata_overflow
+let error_code = Closed_numeric_expression.error_code
+let error_kind = Closed_numeric_expression.error_kind
+let error_origin = Closed_numeric_expression.error_origin
+let error_message = Closed_numeric_expression.error_message
+let error_to_string = Closed_numeric_expression.error_to_string
 
 let signedness_name = function
   | Signed -> "signed"
   | Unsigned -> "unsigned"
   | Not_applicable -> "not-applicable"
 
-let make_error ?origin code kind message = { code; kind; origin; message }
+let query_origin query =
+  Closed_numeric_expression.origin
+    (Frontend.Ast.expression_location (Query_selection.expression query))
 
-let invalid_input ?origin message =
-  make_error ?origin "HCSEMA0001" (Invalid_input message) message
-
-let unresolved origin dependency_kind detail =
-  make_error ~origin "HCSEMA0002"
-    (Unresolved_dependency { dependency_kind; detail })
-    (Printf.sprintf "aggregate layout needs the unresolved %s %s"
-       (dependency_kind_name dependency_kind)
-       detail)
-
-let invalid_dimension origin value =
-  make_error ~origin "HCSEMA0003" (Invalid_array_dimension value)
-    (Printf.sprintf "array dimension %Ld is negative" value)
-
-let division_by_zero origin =
-  make_error ~origin "HCSEMA0004" Division_by_zero
-    "aggregate layout expression divides by zero"
-
-let division_overflow origin =
-  make_error ~origin "HCSEMA0005" Signed_division_overflow
-    "aggregate layout expression overflows when dividing I64_MIN by -1"
-
-let non_finite origin =
-  make_error ~origin "HCSEMA0006" Non_finite_layout_value
-    "aggregate layout expression produced a non-finite floating value"
-
-let conversion_overflow origin =
-  make_error ~origin "HCSEMA0007" Numeric_conversion_overflow
-    "aggregate layout expression does not fit in a signed 64-bit value"
-
-let metadata_overflow origin detail =
-  make_error ~origin "HCSEMA0008" (Metadata_overflow detail)
-    (Printf.sprintf "aggregate layout overflows while calculating %s" detail)
-
-let invalid_expression origin description =
-  make_error ~origin "HCSEMA0009" (Invalid_layout_expression description)
-    (Printf.sprintf "%s cannot be evaluated in a closed aggregate layout"
-       description)
-
-let error_code error = error.code
-let error_kind error = error.kind
-let error_origin error = error.origin
-let error_message error = error.message
-let error_to_string error = Printf.sprintf "%s: %s" error.code error.message
-
-type number = Integer of int64 | Unsigned_integer of int64 | Floating of float
-
-let expression_origin = function
-  | Selected_query_expression query ->
-      let location =
-        Frontend.Ast.expression_location (Query_selection.expression query)
-      in
-      Symbol.Source_location
-        {
-          span = location.span;
-          source_segments = location.source_segments;
-          generated_from = location.generated_from;
-          defined_at = location.defined_at;
-        }
-  | Integer_expression { origin; _ }
-  | Unsigned_integer_expression { origin; _ }
-  | Floating_expression { origin; _ }
-  | Current_position_expression origin
-  | Unary_expression { origin; _ }
-  | Binary_expression { origin; _ }
-  | Dependency_expression { origin; _ }
-  | Unsupported_expression { origin; _ } -> origin
-
-let truthy = function
-  | Integer value | Unsigned_integer value -> not (Int64.equal value 0L)
-  | Floating value -> not (Int64.equal (Int64.bits_of_float value) 0L)
-
-let boolean value = Integer (if value then 1L else 0L)
-
-let as_float = function
-  (* OptLib.HC:125-136 converts the signed IC payload when folding a mixed
-     floating expression, including an immediate whose source class is U64. *)
-  | Integer value | Unsigned_integer value -> Int64.to_float value
-  | Floating value -> value
-
-let common left right =
-  match (left, right) with
-  | Integer left, Integer right -> `Integer (false, left, right)
-  | ( (Integer left | Unsigned_integer left),
-      (Integer right | Unsigned_integer right) ) -> `Integer (true, left, right)
-  | _ -> `Floating (as_float left, as_float right)
-
-let raw_common left right =
-  match common left right with
-  | `Integer (unsigned, left, right) -> (`Integer unsigned, left, right)
-  | `Floating (left, right) ->
-      (`Floating, Int64.bits_of_float left, Int64.bits_of_float right)
-
-let from_raw kind bits =
-  match kind with
-  | `Integer false -> Integer bits
-  | `Integer true -> Unsigned_integer bits
-  | `Floating -> Floating (Int64.float_of_bits bits)
-
-let shift_count value = Int64.logand value 63L |> Int64.to_int
-
-let evaluate_unary operator value =
-  match (operator, value) with
-  | Identity, value -> value
-  (* OptPass012.HC:180-191 changes internal U64 unary minus to I64.
-     Complement also always produces internal I64 (:153-160). *)
-  | Negate, (Integer value | Unsigned_integer value) ->
-      Integer (Int64.neg value)
-  | Negate, Floating value -> Floating (-.value)
-  | Logical_not, Integer value -> boolean (Int64.equal value 0L)
-  | Logical_not, Unsigned_integer value ->
-      Unsigned_integer (if Int64.equal value 0L then 1L else 0L)
-  | Logical_not, (Floating _ as value) ->
-      Floating (if truthy value then 0.0 else 1.0)
-  | Bitwise_not, (Integer value | Unsigned_integer value) ->
-      Integer (Int64.lognot value)
-  | Bitwise_not, Floating value ->
-      Integer (Int64.bits_of_float value |> Int64.lognot)
-
-let compare_numbers operator left right =
-  match common left right with
-  | `Integer (unsigned, left, right) -> (
-      let comparison =
-        if unsigned then Int64.unsigned_compare left right
-        else Int64.compare left right
-      in
-      match operator with
-      | Equal -> Int64.equal left right
-      | Not_equal -> not (Int64.equal left right)
-      | Less -> comparison < 0
-      | Greater -> comparison > 0
-      | Less_equal -> comparison <= 0
-      | Greater_equal -> comparison >= 0
-      | _ -> invalid_arg "expected a comparison operator")
-  | `Floating (left, right) -> (
-      match operator with
-      | Equal ->
-          Int64.equal (Int64.bits_of_float left) (Int64.bits_of_float right)
-      | Not_equal ->
-          not
-            (Int64.equal (Int64.bits_of_float left) (Int64.bits_of_float right))
-      | Less -> left < right
-      | Greater -> left > right
-      | Less_equal -> left <= right
-      | Greater_equal -> left >= right
-      | _ -> invalid_arg "expected a comparison operator")
-
-let evaluate_division ~remainder origin left right =
-  match common left right with
-  | `Integer (unsigned, left, right) ->
-      if Int64.equal right 0L then Error (division_by_zero origin)
-      else if unsigned then
-        Ok
-          (Unsigned_integer
-             (if remainder then Int64.unsigned_rem left right
-              else Int64.unsigned_div left right))
-      else if Int64.equal left Int64.min_int && Int64.equal right (-1L) then
-        Error (division_overflow origin)
-      else if remainder then Ok (Integer (Int64.rem left right))
-      else Ok (Integer (Int64.div left right))
-  | `Floating (left, right) ->
-      if remainder then Ok (Floating (mod_float left right))
-      else Ok (Floating (left /. right))
-
-let evaluate_eager_binary operator origin left right =
-  match operator with
-  | Power -> Ok (Floating (as_float left ** as_float right))
-  | Shift_left | Shift_right ->
-      let kind, left, right = raw_common left right in
-      let count = shift_count right in
-      let bits =
-        match operator with
-        | Shift_left -> Int64.shift_left left count
-        | Shift_right ->
-            if kind = `Integer true then Int64.shift_right_logical left count
-            else Int64.shift_right left count
-        | _ -> assert false
-      in
-      Ok (from_raw kind bits)
-  | Multiply -> (
-      match common left right with
-      | `Integer (unsigned, left, right) ->
-          Ok (from_raw (`Integer unsigned) (Int64.mul left right))
-      | `Floating (left, right) -> Ok (Floating (left *. right)))
-  | Divide -> evaluate_division ~remainder:false origin left right
-  | Modulo -> evaluate_division ~remainder:true origin left right
-  | Bit_and | Bit_xor | Bit_or ->
-      let kind, left, right = raw_common left right in
-      let bits =
-        match operator with
-        | Bit_and -> Int64.logand left right
-        | Bit_xor -> Int64.logxor left right
-        | Bit_or -> Int64.logor left right
-        | _ -> assert false
-      in
-      Ok (from_raw kind bits)
-  | Add | Subtract -> (
-      match common left right with
-      | `Integer (unsigned, left, right) ->
-          let bits =
-            if operator = Add then Int64.add left right
-            else Int64.sub left right
-          in
-          Ok (from_raw (`Integer unsigned) bits)
-      | `Floating (left, right) ->
-          if operator = Add then Ok (Floating (left +. right))
-          else Ok (Floating (left -. right)))
-  | Less | Greater | Less_equal | Greater_equal | Equal | Not_equal ->
-      Ok (boolean (compare_numbers operator left right))
-  | Logical_xor -> Ok (boolean (truthy left <> truthy right))
-  | Logical_and | Logical_or ->
-      invalid_arg "short-circuit operators are evaluated separately"
-
-let rec evaluate_number current_position = function
-  | Selected_query_expression query -> (
-      match Query_selection.constant query with
-      | Some value -> Ok (Integer value)
-      | None ->
-          Error
-            (invalid_expression
-               (expression_origin (Selected_query_expression query))
-               "selected query has no checked constant metadata"))
-  | Integer_expression { value; _ } -> Ok (Integer value)
-  | Unsigned_integer_expression { value; _ } -> Ok (Unsigned_integer value)
-  | Floating_expression { value; _ } -> Ok (Floating value)
-  | Current_position_expression _ -> Ok (Integer current_position)
-  | Dependency_expression { dependency_kind; detail; origin } ->
-      Error (unresolved origin dependency_kind detail)
-  | Unsupported_expression { description; origin } ->
-      Error (invalid_expression origin description)
-  | Unary_expression { operator; operand; _ } ->
-      Result.map (evaluate_unary operator)
-        (evaluate_number current_position operand)
-  | Binary_expression { operator; left; right; origin } ->
-      Result.bind (evaluate_number current_position left) (fun left ->
-          match operator with
-          | Logical_and when not (truthy left) -> Ok (boolean false)
-          | Logical_or when truthy left -> Ok (boolean true)
-          | Logical_and | Logical_or ->
-              Result.map
-                (fun right -> boolean (truthy right))
-                (evaluate_number current_position right)
-          | _ ->
-              Result.bind (evaluate_number current_position right) (fun right ->
-                  evaluate_eager_binary operator origin left right))
-
-let float_to_i64 origin value =
-  if not (Float.is_finite value) then Error (non_finite origin)
-  else
-    let lower = Int64.to_float Int64.min_int in
-    let upper = 9223372036854775808.0 in
-    if value < lower || value >= upper then Error (conversion_overflow origin)
-    else Ok (Int64.of_float value)
+let expression_origin =
+  Closed_numeric_expression.expression_origin ~query_origin
 
 let evaluate_expression ~context ~current_position expression =
-  Result.bind (evaluate_number current_position expression) (function
-    | Integer value | Unsigned_integer value -> Ok value
-    | Floating value -> (
-        match context with
-        | Array_dimension -> float_to_i64 (expression_origin expression) value
-        | Aggregate_offset ->
-            if Float.is_finite value then Ok (Int64.bits_of_float value)
-            else Error (non_finite (expression_origin expression))))
+  Closed_numeric_expression.evaluate_expression ~query_origin
+    ~query_value:Query_selection.constant ~context ~current_position expression
 
 let symbol_key symbol = Symbol.id symbol |> Symbol.Id.to_int
 

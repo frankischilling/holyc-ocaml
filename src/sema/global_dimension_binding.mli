@@ -30,6 +30,7 @@ val make_identifier :
 
 val make_dimension :
   ?queries:Query_selection.t list ->
+  ?prepared:Compiler_record.declared_dimension ->
   dimension:Global_type_resolution.array_dimension ->
   event list ->
   (dimension_input, string) result
@@ -96,3 +97,6 @@ val error_kind : error -> error_kind
 val error_origin : error -> Symbol.origin option
 val error_message : error -> string
 val error_to_string : error -> string
+
+val dimension_prepared :
+  resolved_dimension -> Compiler_record.declared_dimension option

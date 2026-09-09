@@ -100,6 +100,73 @@ facade to execute directives past a native early error.
 
 ## In-progress evidence
 
+### Checked extents after 8f53c73
+
+Continue serial implementation under the approved stateful compiler design.
+Root owns edits and executable use; independent ownership/accounting review is
+read-only. Preserve the complete compiler and all seven #635 requirements.
+
+- [x] Add source RED controls in `test_integer_persistent_arrays.ml` for global,
+  multidimensional, local and static-local declared sizeof, comma-separated
+  query dimensions and self-size initializer metadata. TYOWLXE4 fails at the
+  expected missing checked-array-extent diagnostic; other18 array groups pass.
+- [x] Extract the existing shared arithmetic and source conversion into a
+  query-independent `Closed_numeric_expression` module. Retain exact existing
+  public Aggregate_layout types, errors and behavior through aliases/adapters.
+  The generic engine accepts query projections and a bounded-work callback;
+  ordinary numeric expressions do not themselves confer source authority.
+- [x] Move opaque completed query evidence below Query_selection into
+  Compiler_record, deriving presence and size only from original parser/size
+  receipts. Query_selection wraps the same proof. Validate exact ordered query
+  manifests, including non-name defined operands.
+- [x] Add checked preparation/completion evidence in Compiler_record and the
+  owning declaration ledger. Mark attempts consumed before evaluation; failure
+  retains work but cannot be retried or completed. Check original owner, command,
+  environment, namespace, query manifest and source children before work.
+- [x] Preserve ordinary initializer limits and add independent source
+  `max_dimension_work`, forwarded before parsing through compile/run/report and
+  CLI run/dump-ir. Runtime ledgers use their owning task's cumulative preparation
+  interface. Numeric visits charge on node entry, before children; grouping and
+  skipped operands are free and empty dimensions cost zero. Keep this work
+  separate from initializer instruction evidence, including reached failures.
+- [ ] Feed exact cached values into published/global/local sizeof, global and
+  function-frame layout, and unbraced initializer grammar. Grammar receives only
+  a receipt-bound read-only numeric projection; semantic consumers require the
+  opaque preparation. Do not infer authority from raw integers or synthetic ASTs.
+- [ ] Test native error/Lex ordering, original/foreign/replayed/missing evidence,
+  empty and negative extents, overflow, nested queries, no repeated work and
+  exact/one-below shared budgets; then run required full checks and review.
+
+Effectful dimensions require a checked owning-runtime preparation service for
+original expressions. The pure engine cannot implement increments, storage reads
+or calls; do not bypass this with of_evaluated_int64 or synthetic commands.
+
+Checked source extents now feed published/global/local sizeof and global/frame
+layout. Typed descriptors retain the complete original dimension node and reject
+mixed source-expression/bracket evidence. The reviewer reproduced the A[3]/B[2]
+substitution gap before that validation; maintained global/local controls now
+reject it. Grammar feedback and retained-runtime/legacy global extent proofs
+remain unfinished. Keep the explicit callback-free layout path until its checked
+evaluation and retained storage metadata are integrated without re-evaluation.
+
+Full run OVK96TB0 exposed an accounting conflict: sharing ordinary numeric visits
+with initializer limits broke four established exact-limit groups and CLI array
+limits. The prompt requires preserving those ordinary gates. The separate source
+allowance fixes that conflict; task compilation retains its cumulative policy.
+V2 reports add dimension limit/work fields, including reached work on failure;
+v1 fields and existing initializer counters are unchanged. U6F6HC3H passes all239
+focused groups. Full unbuffered run10VR6EQB passes2255 of2269 groups in99.052s;
+only the14 existing stateful #exe groups fail. CLI checks and format/generated/
+all/install builds pass. This evidence precedes commit and wider final checks.
+
+Final CLI controls also retain numeric work after later semantic/runtime failure
+and assert v1's unchanged fields. All82 reference checksums and11 incremental
+provenance scenarios pass. Complete lexer JSON and parser JSON/normalized text
+match the existing baselines:528/528 tokenize,25 parse standalone and126 with
+the prelude. The prompt records the separate ordinary allowance and original
+extent ownership while preserving all102 fenced examples byte for byte. The
+full compiler and all seven #635 criteria remain active.
+
 ### Array preparation receipts after 59dc72b
 
 Continue the approved serial workflow. `Parser.declaration_event` will carry a

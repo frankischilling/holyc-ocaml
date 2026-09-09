@@ -1,6 +1,10 @@
-type unary_operator = Identity | Negate | Logical_not | Bitwise_not
+type unary_operator = Closed_numeric_expression.unary_operator =
+  | Identity
+  | Negate
+  | Logical_not
+  | Bitwise_not
 
-type binary_operator =
+type binary_operator = Closed_numeric_expression.binary_operator =
   | Power
   | Shift_left
   | Shift_right
@@ -22,7 +26,7 @@ type binary_operator =
   | Logical_xor
   | Logical_or
 
-type dependency_kind =
+type dependency_kind = Closed_numeric_expression.dependency_kind =
   | Identifier_dependency
   | Sizeof_dependency
   | Offset_dependency
@@ -30,21 +34,21 @@ type dependency_kind =
   | Call_dependency
   | Aggregate_dependency
 
-type expression =
-  | Selected_query_expression of Query_selection.t
+type 'query generic_expression = 'query Closed_numeric_expression.expression =
+  | Selected_query_expression of 'query
   | Integer_expression of { value : int64; origin : Symbol.origin }
   | Unsigned_integer_expression of { value : int64; origin : Symbol.origin }
   | Floating_expression of { value : float; origin : Symbol.origin }
   | Current_position_expression of Symbol.origin
   | Unary_expression of {
       operator : unary_operator;
-      operand : expression;
+      operand : 'query generic_expression;
       origin : Symbol.origin;
     }
   | Binary_expression of {
       operator : binary_operator;
-      left : expression;
-      right : expression;
+      left : 'query generic_expression;
+      right : 'query generic_expression;
       origin : Symbol.origin;
     }
   | Dependency_expression of {
@@ -58,7 +62,11 @@ type expression =
           from source literals and keeps their signedness through closed
           arithmetic evaluation. *)
 
-type expression_context = Array_dimension | Aggregate_offset
+type expression = Query_selection.t generic_expression
+
+type expression_context = Closed_numeric_expression.expression_context =
+  | Array_dimension
+  | Aggregate_offset
 
 type dimension = {
   dimension_expression : expression option;

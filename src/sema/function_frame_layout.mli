@@ -17,6 +17,7 @@ type t
 type dimension_expression =
   | Empty_dimension
   | Closed_expression of Aggregate_layout.expression
+  | Prepared_dimension of Compiler_record.declared_dimension
   | Non_integral_expression of { detail : string; origin : Symbol.origin }
 
 type dimension_input = {

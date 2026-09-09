@@ -34,7 +34,14 @@ val output_bytes : t -> string
 val output_work : t -> int
 val generated_bytes : t -> int
 val executed_steps : t -> int
+
 val initializer_steps : t -> int
+(** Cumulative task preparation, including numeric dimension visits. *)
+
+val dimension_work : t -> int
+(** Numeric dimension visits, also included in the shared task preparation
+    tally. *)
+
 val begin_stream : t -> (stream, string) result
 val finish_stream : t -> stream -> (string, string) result
 

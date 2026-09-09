@@ -1,5 +1,7 @@
 type t
 type sizeof_read
+type dimension_preparation
+type declared_dimension
 
 val seed_primitive :
   table:Symbol_table.t ->
@@ -24,13 +26,14 @@ val rebind_primitive :
     spelling lookup. *)
 
 val published_scalar :
+  ?dimensions:declared_dimension list ->
   table:Symbol_table.t ->
   namespace:Declaration_collection.namespace ->
   Declaration_collection.publication ->
   (t, string) result
 (** Read original published type children, independently of storage admission.
-    Arrays, aggregate layouts and function-pointer signatures need separate
-    checked metadata. *)
+    Arrays consume their original ordered checked dimensions. Aggregate layouts
+    and function-pointer signatures still need separate checked metadata. *)
 
 val bind_retained_scalar :
   table:Symbol_table.t ->
@@ -54,6 +57,7 @@ val complete_sizeof :
   (unit, string) result
 
 val read_local_sizeof :
+  dimensions:declared_dimension list ->
   table:Symbol_table.t ->
   namespace:Declaration_collection.namespace ->
   function_publication:Declaration_collection.publication ->
@@ -63,3 +67,73 @@ val read_local_sizeof :
 val sizeof_value : sizeof_read -> pointer:bool -> int64
 val sizeof_primitive : sizeof_read -> Primitive_type.t option
 val sizeof_is_internal : sizeof_read -> bool
+
+type query_role = Query_source.role =
+  | Sizeof_root
+  | Offset_root
+  | Defined_operand
+
+type query_read
+
+val complete_query :
+  ?sizeof_read:sizeof_read ->
+  table:Symbol_table.t ->
+  receipt:Frontend.Parser.completed_query ->
+  unit ->
+  (query_read, string) result
+(** Retain a parser-completed query for semantic event validation. The source
+    driver must first establish its original command seal and table ownership.
+    This is query-read evidence, not storage, executable or layout authority. *)
+
+val validate_query :
+  table:Symbol_table.t ->
+  role:query_role ->
+  name:string ->
+  origin:Symbol.origin ->
+  query_read ->
+  (unit, string) result
+
+val query_expression : query_read -> Frontend.Ast.expression
+val query_owns_table : query_read -> Symbol_table.t -> bool
+val query_is_local : query_read -> bool
+val query_presence : query_read -> bool option
+val query_sizeof : query_read -> (Primitive_type.t option * int64 * bool) option
+val query_constant : query_read -> int64 option
+
+val validate_query_manifest :
+  table:Symbol_table.t ->
+  expression:Frontend.Ast.expression ->
+  query_read list ->
+  (unit, string) result
+
+val prepare_dimension :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  max_work:int ->
+  preparation:Frontend.Parser.array_dimension_preparation ->
+  queries:query_read list ->
+  (dimension_preparation, string) result * int
+(** Evaluate the original closed expression once with an enforced allowance. The
+    second result retains numeric visits even on failure. The owning driver must
+    consume the attempt before calling and charge the reached work. *)
+
+val complete_dimension :
+  receipt:Frontend.Parser.completed_array_dimension ->
+  dimension_preparation ->
+  (declared_dimension, string) result
+
+val prepared_dimension_count : dimension_preparation -> int64
+val dimension_count : declared_dimension -> int64
+val dimension_work : declared_dimension -> int
+
+val dimension_receipt :
+  declared_dimension -> Frontend.Parser.completed_array_dimension
+
+val validate_dimension :
+  table:Symbol_table.t ->
+  dimension:Frontend.Ast.array_dimension ->
+  declared_dimension ->
+  (unit, string) result
+
+val validate_dimension_queries :
+  declared_dimension -> query_read list -> (unit, string) result

@@ -24,6 +24,7 @@ val compile_ast :
 *)
 
 val compile :
+  ?max_dimension_work:int ->
   ?max_initializer_steps:int ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->
@@ -49,6 +50,7 @@ val lower :
   (Ir.X87_stack.t checked, Common.Diagnostic.t list) result
 
 val run :
+  ?max_dimension_work:int ->
   ?max_initializer_steps:int ->
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->
@@ -61,3 +63,24 @@ val run :
   source:Common.Source_file.t ->
   max_steps:int ->
   (Ir.Integer_interpreter.t checked, Common.Diagnostic.t list) result
+
+val dimension_preparation_work : compiled -> int
+(** Evaluated numeric node visits in original source dimensions, separately from
+    initializer VM instructions. Ordinary source uses its own dimension-work
+    allowance; runtime-bound commands share their owning task preparation limit.
+*)
+
+type compilation_report
+
+val compile_report :
+  ?max_dimension_work:int ->
+  ?max_initializer_steps:int ->
+  Session.t ->
+  config:Frontend.Preprocessor.Config.t ->
+  source:Common.Source_file.t ->
+  compilation_report
+
+val compilation_outcome :
+  compilation_report -> (compiled checked, Common.Diagnostic.t list) result
+
+val compilation_dimension_work : compilation_report -> int

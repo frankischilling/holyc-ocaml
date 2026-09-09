@@ -39,9 +39,19 @@ module Dimensions = Hashtbl.Make (struct
   let hash = Hashtbl.hash
 end)
 
+type dimension_evaluation =
+  | Observed_dimension
+  | Failed_dimension
+  | Prepared_dimension of Sema.Compiler_record.dimension_preparation
+
+type pending_dimension = {
+  preparation : Parser.array_dimension_preparation;
+  mutable evaluation : dimension_evaluation;
+}
+
 type reading_dimensions = {
   owner : Parser.array_dimensions_owner;
-  mutable pending : Parser.array_dimension_preparation option;
+  mutable pending : pending_dimension option;
   mutable completed_rev : Parser.completed_array_dimension list;
   mutable next_index : int;
 }
@@ -108,6 +118,7 @@ type command = {
   references : selected_reference Names.t;
   queries : query Query_expressions.t;
   dimensions : Parser.completed_array_dimension Dimensions.t;
+  checked_dimensions : Sema.Compiler_record.declared_dimension Dimensions.t;
 }
 
 type source_command = Source_command of command
@@ -150,6 +161,8 @@ type t = {
   mutable views : (Ast.module_ * parsed_command list) list;
   mutable sequence_views : (Ast.module_ * Parser.completed_sequence) list;
   authority : authority;
+  max_dimension_work : int;
+  mutable dimension_work : int;
   runtime_entries : VM.admitted_publication Entries.t;
   runtime_records : (Sema.Compiler_record.t, string) result Entries.t;
   mutable admissions : VM.task_admission list;
@@ -158,6 +171,7 @@ type t = {
   queries : query Query_expressions.t;
   dimension_owners : reading_dimensions Names.t;
   dimensions : Parser.completed_array_dimension Dimensions.t;
+  checked_dimensions : Sema.Compiler_record.declared_dimension Dimensions.t;
 }
 
 exception Invalid of Common.Diagnostic.t
@@ -185,7 +199,7 @@ let origin (name : Ast.identifier) =
       defined_at = location.defined_at;
     }
 
-let create_with_authority authority session =
+let create_with_authority ?(max_dimension_work = 100_000) authority session =
   let runtime =
     match authority with
     | Task_runtime runtime -> Some runtime
@@ -221,6 +235,8 @@ let create_with_authority authority session =
           views = [];
           sequence_views = [];
           authority;
+          max_dimension_work;
+          dimension_work = 0;
           runtime_entries = Entries.create 32;
           runtime_records = Entries.create 32;
           admissions = [];
@@ -229,6 +245,7 @@ let create_with_authority authority session =
           queries = Query_expressions.create 16;
           dimension_owners = Names.create 16;
           dimensions = Dimensions.create 16;
+          checked_dimensions = Dimensions.create 16;
         })
 
 let create ?runtime session =
@@ -238,14 +255,18 @@ let create ?runtime session =
     | Some runtime -> Task_runtime runtime)
     session
 
-let create_source session ~source =
-  match
-    Common.Source_manager.find (Session.sources session)
-      (Common.Source_file.id source)
-  with
-  | Some registered when registered == source ->
-      create_with_authority (Source_compilation source) session
-  | _ -> Error "ordinary source ledger requires its exact registered input"
+let create_source ?(max_dimension_work = 100_000) session ~source =
+  if max_dimension_work <= 0 then
+    Error "source preparation limit must be positive"
+  else
+    match
+      Common.Source_manager.find (Session.sources session)
+        (Common.Source_file.id source)
+    with
+    | Some registered when registered == source ->
+        create_with_authority ~max_dimension_work (Source_compilation source)
+          session
+    | _ -> Error "ordinary source ledger requires its exact registered input"
 
 let ledger_runtime ledger =
   match ledger.authority with
@@ -256,6 +277,11 @@ let requires_query_metadata ledger =
   match ledger.authority with
   | Semantic_analysis -> false
   | _ -> true
+
+let dimension_work ledger = ledger.dimension_work
+
+let selected_dimensions ledger dimensions =
+  List.filter_map (Dimensions.find_opt ledger.checked_dimensions) dimensions
 
 let runtime_symbol = VM.admitted_source_symbol
 let retained_for ledger entry = Entries.find_opt ledger.runtime_entries entry
@@ -597,6 +623,11 @@ let read_sizeof ledger (root : Parser.query_root) target =
           match
             Sema.Compiler_record.read_local_sizeof ~table:ledger.table
               ~namespace:ledger.namespace ~function_publication ~root
+              ~dimensions:
+                (match root.query_local with
+                | Some { local_source = Parser.Local_variable local; _ } ->
+                    selected_dimensions ledger local.local_array_dimensions
+                | _ -> [])
           with
           | Ok read -> Some read
           | Error message when requires_query_metadata ledger ->
@@ -608,10 +639,14 @@ let read_sizeof ledger (root : Parser.query_root) target =
   | Parser.Sizeof_target _ -> (
       let record =
         match target with
-        | Selected_source { publication; stage = Global_selection _; _ } ->
+        | Selected_source
+            { publication; stage = Global_selection (source, _); _ } ->
             Some
               (Sema.Compiler_record.published_scalar ~table:ledger.table
-                 ~namespace:ledger.namespace publication)
+                 ~namespace:ledger.namespace
+                 ~dimensions:
+                   (selected_dimensions ledger source.global_dimensions)
+                 publication)
         | Selected_unbound entry ->
             Session.primitive_for ledger.session entry
             |> Option.map (fun binding -> Ok (Session.primitive_record binding))
@@ -835,7 +870,53 @@ let prepare_dimension ledger (preparation : Parser.array_dimension_preparation)
          (same_option ( == ) preparation.dimension_predecessor
             (List.nth_opt state.completed_rev 0))
   then fail span "array dimension preparation is repeated or out of order";
-  state.pending <- Some preparation
+  let pending = { preparation; evaluation = Failed_dimension } in
+  state.pending <- Some pending;
+  match ledger.authority with
+  | Semantic_analysis -> pending.evaluation <- Observed_dimension
+  | Source_compilation _ | Task_runtime _ -> (
+      let queries =
+        Option.fold ~none:[] ~some:Sema.Query_selection.source_queries
+          preparation.dimension_expression
+        |> List.map (fun expression ->
+            match Query_expressions.find_opt ledger.queries expression with
+            | Some query ->
+                Sema.Query_selection.checked_read query.query_selection
+            | None ->
+                fail span "array preparation is missing an original query read")
+      in
+      (* Expression lookahead can execute nested directives; take the baseline
+         only after the parser returns the original expression. *)
+      let before, limit =
+        match ledger.authority with
+        | Task_runtime task ->
+            (VM.task_initializer_steps task, VM.task_initializer_limit task)
+        | Source_compilation _ ->
+            (ledger.dimension_work, ledger.max_dimension_work)
+        | Semantic_analysis -> assert false
+      in
+      let result, work =
+        Sema.Compiler_record.prepare_dimension ~table:ledger.table
+          ~namespace:ledger.namespace ~max_work:(limit - before) ~preparation
+          ~queries
+      in
+      (match ledger.authority with
+      | Task_runtime task -> VM.record_task_preparation task ~before ~steps:work
+      | _ -> ());
+      ledger.dimension_work <- ledger.dimension_work + work;
+      match result with
+      | Ok prepared -> pending.evaluation <- Prepared_dimension prepared
+      | Error message ->
+          let code, message =
+            match String.index_opt message ':' with
+            | Some separator when String.starts_with ~prefix:"HC" message ->
+                ( String.sub message 0 separator,
+                  String.trim
+                    (String.sub message (separator + 1)
+                       (String.length message - separator - 1)) )
+            | _ -> ("HCRUN0004", message)
+          in
+          fail ~code span message)
 
 let complete_dimension ledger (receipt : Parser.completed_array_dimension) =
   let preparation = receipt.dimension_preparation in
@@ -847,7 +928,9 @@ let complete_dimension ledger (receipt : Parser.completed_array_dimension) =
     match Names.find_opt ledger.dimension_owners owner.dimensions_name with
     | Some state
       when state.owner == owner
-           && same_option ( == ) state.pending (Some preparation) -> state
+           && Option.fold ~none:false
+                ~some:(fun pending -> pending.preparation == preparation)
+                state.pending -> state
     | _ -> fail span "array dimension completion has no original preparation"
   in
   if
@@ -861,10 +944,21 @@ let complete_dimension ledger (receipt : Parser.completed_array_dimension) =
       "array dimension completion has substituted or repeated source children";
   if state.next_index = max_int then
     fail span "array dimension preparation index space is exhausted";
+  let prepared =
+    match (Option.get state.pending).evaluation with
+    | Observed_dimension -> None
+    | Failed_dimension ->
+        fail span "array dimension preparation did not succeed"
+    | Prepared_dimension prepared ->
+        Some
+          (Sema.Compiler_record.complete_dimension ~receipt prepared
+          |> checked span)
+  in
   state.pending <- None;
   state.completed_rev <- receipt :: state.completed_rev;
   state.next_index <- state.next_index + 1;
-  Dimensions.add ledger.dimensions dimension receipt
+  Dimensions.add ledger.dimensions dimension receipt;
+  Option.iter (Dimensions.add ledger.checked_dimensions dimension) prepared
 
 let validate_global_dimensions ledger (publication : Parser.global_publication)
     =
@@ -1175,6 +1269,14 @@ let seal ledger (ast : Ast.module_) =
                 references;
                 queries;
                 dimensions;
+                checked_dimensions =
+                  Dimensions.fold
+                    (fun dimension _ checked ->
+                      Option.iter
+                        (Dimensions.add checked dimension)
+                        (Dimensions.find_opt ledger.checked_dimensions dimension);
+                      checked)
+                    dimensions (Dimensions.create 16);
               }
             in
             List.iter (fun entry -> entry.sealed <- true) original_commands;
@@ -1233,6 +1335,24 @@ let dimension_for ~table ~ast (command : command)
             "array dimension has no complete parser receipt in this task \
              command")
 
+let checked_dimension_for ~table ~ast (command : command)
+    (dimension : Ast.array_dimension) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span
+          "checked dimension seal belongs to another table or source AST";
+      match Dimensions.find_opt command.checked_dimensions dimension with
+      | Some checked -> checked
+      | None ->
+          fail dimension.location.span
+            "array dimension has no checked preparation in this command")
+
+let command_dimension_work (command : command) =
+  Dimensions.fold
+    (fun _ dimension count ->
+      count + Sema.Compiler_record.dimension_work dimension)
+    command.checked_dimensions 0
+
 let seal_source ledger ast =
   match ledger.authority with
   | Source_compilation _ ->
@@ -1251,6 +1371,13 @@ let source_query_for ~table ~ast (Source_command command) expression =
 
 let source_dimension_for ~table ~ast (Source_command command) dimension =
   dimension_for ~table ~ast command dimension
+
+let source_checked_dimension_for ~table ~ast (Source_command command) dimension
+    =
+  checked_dimension_for ~table ~ast command dimension
+
+let source_dimension_work (Source_command command) =
+  command_dimension_work command
 
 let reference_resolver ~table ~ast ~task_view command =
   let module Selection = Sema.Reference_selection in

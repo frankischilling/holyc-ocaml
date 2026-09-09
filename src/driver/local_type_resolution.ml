@@ -662,6 +662,7 @@ let register_requests = Register_request.of_list
 
 let array_dimension index (dimension : Frontend.Ast.array_dimension) =
   Sema.Local_type_resolution.make_array_dimension ~index
+    ~source_dimension:dimension
     ?source_expression:dimension.dimension_expression
     ~origin:(origin dimension.location)
     ~opening_origin:(origin dimension.opening_bracket)

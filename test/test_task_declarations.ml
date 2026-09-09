@@ -2365,8 +2365,274 @@ let nested_dimension_receipts () =
         (D.dimension_for ~table ~ast command child.dimension_ast)
   | _ -> Alcotest.fail "expected two outer dimensions and one nested dimension"
 
+module Extent = Semantic_compiler_record
+
+let checked_extent_ownership () =
+  let session = Session.create () in
+  let source =
+    Session.add_source session ~path:"checked-extents.hc"
+      ~contents:"U8 A[1+2][sizeof U8*],B[][4];sizeof A;"
+  in
+  let ledger =
+    D.create_source ~max_dimension_work:5 session ~source |> checked
+  in
+  let output, events = parse_source session ledger source in
+  let ast = Test_parser.expect_ast output in
+  let table = Session.semantic_symbols session in
+  let command = D.seal_source ledger ast |> expect in
+  let receipts =
+    List.filter_map
+      (function
+        | Parser.Array_dimension_completed receipt -> Some receipt
+        | _ -> None)
+      events
+  in
+  let values =
+    List.map
+      (fun receipt ->
+        D.source_checked_dimension_for ~table ~ast command
+          receipt.Parser.dimension_ast
+        |> expect)
+      receipts
+  in
+  Alcotest.(check (list int64))
+    "retained declared counts" [ 3L; 8L; 0L; 4L ]
+    (List.map Extent.dimension_count values);
+  Alcotest.(check (list int))
+    "numeric visits remain separate" [ 3; 1; 0; 1 ]
+    (List.map Extent.dimension_work values);
+  List.iter2
+    (fun receipt value ->
+      let dimension = receipt.Parser.dimension_ast in
+      Alcotest.(check bool)
+        "retains exact completed receipt" true
+        (Extent.dimension_receipt value == receipt);
+      Alcotest.(check bool)
+        "repeated reads reuse one checked value" true
+        (D.source_checked_dimension_for ~table ~ast command dimension
+        |> expect == value);
+      let rebuilt =
+        Ast.make_array_dimension ~opening_bracket:dimension.opening_bracket
+          ~dimension_expression:dimension.dimension_expression
+          ~closing_bracket:dimension.closing_bracket
+          ~location:dimension.location
+      in
+      reject "checked extent rejects rebuilt AST child"
+        (Extent.validate_dimension ~table ~dimension:rebuilt value);
+      reject "checked extent rejects foreign table"
+        (Extent.validate_dimension
+           ~table:(Session.semantic_symbols (Session.create ()))
+           ~dimension value);
+      reject "checked reader rejects another source seal"
+        (D.source_checked_dimension_for ~table
+           ~ast:(copy_module ast ast.items)
+           command dimension))
+    receipts values;
+  Alcotest.(check int)
+    "reads and sealing do not repeat work" 5 (D.dimension_work ledger);
+  Alcotest.(check int)
+    "source seal retains numeric work" 5
+    (D.source_dimension_work command);
+  let session, semantic = setup () in
+  let parsed, events = parse session semantic "U8 A[2];" in
+  let ast = Test_parser.expect_ast parsed in
+  let command = D.seal semantic ast |> expect in
+  List.iter
+    (function
+      | Parser.Array_dimension_completed receipt ->
+          reject "semantic receipt grants no evaluated extent"
+            (D.checked_dimension_for
+               ~table:(Session.semantic_symbols session)
+               ~ast command receipt.dimension_ast)
+      | _ -> ())
+    events;
+  Alcotest.(check int)
+    "semantic collection does not execute" 0
+    (D.dimension_work semantic)
+
+let checked_extent_failures () =
+  List.iter
+    (fun (contents, limit, work, code) ->
+      let session, runtime, ledger =
+        runtime_setup ~max_initializer_steps:limit ()
+      in
+      let output, events = parse session ledger contents in
+      Alcotest.(check bool) contents true (Parser.has_errors output);
+      Alcotest.(check string)
+        "preparation precedes bracket diagnostics" code
+        (List.hd output.diagnostics).code;
+      Alcotest.(check int)
+        "reached numeric work survives failure" work (D.dimension_work ledger);
+      Alcotest.(check int)
+        "owning task retains reached work" work
+        (VM.task_initializer_steps runtime);
+      List.iter
+        (function
+          | Parser.Array_dimension_preparing _ as event ->
+              reject "failed preparation cannot replay" (D.observe ledger event)
+          | Parser.Global_declared _ ->
+              Alcotest.fail "failed extent was published"
+          | _ -> ())
+        events;
+      Alcotest.(check int)
+        "rejected replay cannot charge" work
+        (VM.task_initializer_steps runtime))
+    [
+      ("U8 A[1+1];", 2, 2, "HCIRVM0007");
+      ("U8 A[1/0;", 2, 2, "HCIRVM0007");
+      ("U8 A[1/0;", 3, 3, "HCSEMA0004");
+      ("U8 A[2;", 1, 1, "HCPARSE0023");
+      ("U8 A[1+(1/0)];", 5, 5, "HCSEMA0004");
+    ];
+  let session, runtime, ledger = runtime_setup ~max_initializer_steps:2 () in
+  let completion = ref false in
+  let observe event =
+    match event with
+    | Parser.Array_dimension_preparing _ ->
+        reject "budget failure is delivered" (D.observe ledger event);
+        reject "caught failure cannot retry" (D.observe ledger event);
+        Ok ()
+    | Parser.Array_dimension_completed _ ->
+        completion := true;
+        let result = D.observe ledger event in
+        reject "caught preparation failure cannot become a checked completion"
+          result;
+        result
+    | _ -> D.observe ledger event
+  in
+  let output, _ = parse ~observe session ledger "U8 A[1+1];" in
+  Alcotest.(check bool)
+    "composed callback reaches completion rejection" true !completion;
+  Alcotest.(check bool)
+    "caught error does not publish" true (Parser.has_errors output);
+  Alcotest.(check int)
+    "caught and replayed failure charges only reached visits" 2
+    (VM.task_initializer_steps runtime)
+
+let checked_extent_short_circuit () =
+  let session, runtime, ledger = runtime_setup ~max_initializer_steps:4 () in
+  let output, _ = parse session ledger "U8 A[0&&(1/0)],B[1||(1/0)];" in
+  let ast = Test_parser.expect_ast output in
+  let command = D.seal ledger ast |> expect in
+  Alcotest.(check int)
+    "skipped operands and groups consume no visits" 4
+    (VM.task_initializer_steps runtime);
+  Alcotest.(check int)
+    "completed source owns exact visits" 4
+    (D.command_dimension_work command)
+
+let checked_extent_source_budget () =
+  List.iter
+    (fun mode ->
+      let compile ?(dimensions = 1) limit text =
+        let session, config, source = Test_integer_program.inputs ~mode text in
+        compile_integer_program ~max_dimension_work:dimensions
+          ~max_initializer_steps:limit session ~config ~source
+      in
+      let alone = compile 1 "U8 A[2];sizeof A+40;" |> expect in
+      Alcotest.(check int)
+        "exact dimension-only allowance succeeds" 1
+        (integer_program_dimension_preparation_work alone.value);
+      let combined = compile 3 "U8 A[2];I64 N=42;N;" |> expect in
+      Alcotest.(check int)
+        "compiled numeric evidence" 1
+        (integer_program_dimension_preparation_work combined.value);
+      Alcotest.(check int)
+        "initializer instruction evidence stays separate" 3
+        (integer_program_initializer_preparation combined.value
+        |> Integer_initializer_preparation.executed_steps);
+      ignore (compile ~dimensions:3 1 "U8 A[1+1];42;" |> expect);
+      reject "dimension allowance is independent"
+        (compile ~dimensions:2 3 "U8 A[1+1];I64 N=42;N;");
+      match compile 2 "U8 A[2];I64 N=42;N;" with
+      | Error (error :: _) ->
+          Alcotest.(check string)
+            "original initializer allowance is enforced" "HCIRVM0007" error.code
+      | _ -> Alcotest.fail "initializer borrowed dimension allowance")
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let checked_extent_source_substitution () =
+  let session, ledger = setup () in
+  let output, events = parse session ledger "U8 A[3],B[2];" in
+  ignore (Test_parser.expect_ast output);
+  let dimensions =
+    List.filter_map
+      (function
+        | Parser.Array_dimension_completed receipt -> Some receipt.dimension_ast
+        | _ -> None)
+      events
+  in
+  let a = List.nth dimensions 0 and b = List.nth dimensions 1 in
+  let origin (location : Ast.location) =
+    Semantic_symbol.Source_location
+      {
+        span = location.span;
+        source_segments = location.source_segments;
+        generated_from = location.generated_from;
+        defined_at = location.defined_at;
+      }
+  in
+  let exercise make =
+    let build source =
+      make ~index:0 ~origin:(origin a.location)
+        ~opening_origin:(origin a.opening_bracket)
+        ?expression_origin:
+          (Option.map
+             (fun e -> origin (Ast.expression_location e))
+             a.dimension_expression)
+        ?source_expression:a.dimension_expression
+        ?source_dimension:(Some source)
+        ~closing_origin:(origin a.closing_bracket) ()
+    in
+    ignore (build a |> checked);
+    reject "foreign complete dimension cannot accompany original expression"
+      (build b)
+  in
+  exercise Semantic_global_type_resolution.make_array_dimension;
+  exercise Semantic_local_type_resolution.make_array_dimension
+
+let checked_extent_native_timing () =
+  List.iter
+    (fun (source, expected) ->
+      let session, runtime, ledger = runtime_setup () in
+      ignore
+        (selected_runtime_source session runtime ledger "I64 N=40;" |> expect);
+      reject "extent failure stops parser at its native point"
+        (selected_runtime_source session runtime ledger source);
+      let result =
+        selected_runtime_source session runtime ledger "N;" |> expect
+      in
+      Alcotest.(check int64)
+        "only already reached expression lookahead effects survive" expected
+        (VM.final_value result |> Option.get).bits)
+    [ ("U8 A[1/0] #exe {N=1;};", 40L); ("U8 A[2 #exe {N=1;};", 1L) ];
+  let session, runtime, ledger = runtime_setup ~max_initializer_steps:7 () in
+  ignore (selected_runtime_source session runtime ledger "I64 N=40;" |> expect);
+  reject "parent cannot borrow nested declaration preparation"
+    (selected_runtime_source session runtime ledger "U8 A[1+1 #exe {I64 M=1;}];");
+  Alcotest.(check int)
+    "baseline follows nested lookahead preparation" 7
+    (VM.task_initializer_steps runtime);
+  Alcotest.(check int)
+    "parent visits only its remaining allowance" 1 (D.dimension_work ledger)
+
 let tests =
   [
+    Alcotest.test_case "checked extents retain exact source ownership" `Quick
+      checked_extent_ownership;
+    Alcotest.test_case
+      "checked extent failures retain work and consume attempts" `Quick
+      checked_extent_failures;
+    Alcotest.test_case "checked extent short circuit counts evaluated visits"
+      `Quick checked_extent_short_circuit;
+    Alcotest.test_case
+      "source dimensions preserve independent preparation allowances" `Quick
+      checked_extent_source_budget;
+    Alcotest.test_case "typed dimensions reject substituted complete source"
+      `Quick checked_extent_source_substitution;
+    Alcotest.test_case
+      "extent preparation follows native Lex and shared task budget" `Quick
+      checked_extent_native_timing;
     Alcotest.test_case
       "nested dimension receipts retain distinct command owners" `Quick
       nested_dimension_receipts;

@@ -1,4 +1,4 @@
-type role = Sizeof_root | Offset_root | Defined_operand
+type role = Query_source.role = Sizeof_root | Offset_root | Defined_operand
 type t
 
 val make :
@@ -38,3 +38,5 @@ val validate_manifest :
   expression:Frontend.Ast.expression ->
   t list ->
   (unit, string) result
+
+val checked_read : t -> Compiler_record.query_read
