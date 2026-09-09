@@ -9,6 +9,15 @@ val seed_primitive :
   (t, string) result
 (** Establish the frontend/semantic association at primitive seeding. *)
 
+val seed_public_union :
+  table:Symbol_table.t ->
+  entry:Frontend.Symbol_visibility.entry ->
+  symbol:Symbol.t ->
+  source:Generated.Primitive_raw_types.public_union ->
+  (t, string) result
+(** Establish a public class record from its exact generated union declaration
+    and checked primitive backing, preserving the pinned declaration origin. *)
+
 val rebind_primitive :
   table:Symbol_table.t -> symbol:Symbol.t -> t -> (t, string) result
 (** Bind the known seeded record to a fork's fresh symbol without another
@@ -43,6 +52,13 @@ val complete_sizeof :
   receipt:Frontend.Parser.completed_query ->
   sizeof_read ->
   (unit, string) result
+
+val read_local_sizeof :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  function_publication:Declaration_collection.publication ->
+  root:Frontend.Parser.query_root ->
+  (sizeof_read, string) result
 
 val sizeof_value : sizeof_read -> pointer:bool -> int64
 val sizeof_primitive : sizeof_read -> Primitive_type.t option

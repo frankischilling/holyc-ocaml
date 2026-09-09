@@ -268,7 +268,7 @@ let repeated_modules_and_rejected_source () =
       Semantic_declaration_collection.scope second |> scope_id;
     ];
   Alcotest.(check (list int))
-    "declaration IDs" [ 17; 18 ]
+    "declaration IDs" [ 23; 24 ]
     [
       Semantic_declaration_collection.entries first
       |> List.hd |> Semantic_declaration_collection.entry_symbol |> symbol_id;

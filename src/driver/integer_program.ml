@@ -67,8 +67,8 @@ let fail span code message =
   raise (Invalid (Integer_source.diagnostic ~span code message))
 
 let compile_parsed_with_limit ?task_view ?initializer_progress
-    ?declaration_command ?retained_function_source ~max_initializer_steps
-    session ~config (parsed : Frontend.Parser.output) =
+    ?declaration_command ?source_command ?retained_function_source
+    ~max_initializer_steps session ~config (parsed : Frontend.Parser.output) =
   match parsed.ast with
   | None -> Error parsed.diagnostics
   | Some ast -> (
@@ -140,7 +140,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                   ]
           in
           let* prepared =
-            Integer_source.prepare_unit ?declaration_command ?selections
+            Integer_source.prepare_unit ?declaration_command ?source_command
+              ?selections
               ?environment:
                 (Option.map Ir.Integer_globals.task_environment task_view)
               ~include_global_initializers:true session ~config ~span:ast.span
@@ -892,12 +893,40 @@ let compile ?(max_initializer_steps = 100_000) session ~config ~source =
           "HCIRVM0001" "max_initializer_steps must be greater than zero";
       ]
   else
+    let* ledger =
+      Task_declarations.create_source session ~source
+      |> Result.map_error (fun message ->
+          [
+            Integer_source.diagnostic
+              ~span:(Integer_source.source_span source)
+              "HCRUN0004" message;
+          ])
+    in
+    let commands : Frontend.Parser.command_sink =
+      {
+        checkpoint = Some (Task_declarations.observe_command ledger);
+        query = Some (Task_declarations.observe_query ledger);
+        reference = None;
+        declaration = Some (Task_declarations.observe ledger);
+        command = (fun _ -> Ok ());
+        resume = (fun () -> Ok ());
+      }
+    in
     let parsed =
-      Frontend.Parser.parse ~sources:(Session.sources session)
+      Frontend.Parser.parse ~commands ~sources:(Session.sources session)
         ~definitions:(Session.definitions session)
         ~symbols:(Session.symbols session) ~config source
     in
-    compile_parsed_with_limit ~max_initializer_steps session ~config parsed
+    match parsed.ast with
+    | None -> Error parsed.diagnostics
+    | Some ast ->
+        let* source_command =
+          Task_declarations.seal_source ledger ast
+          |> Result.map_error (fun diagnostics ->
+              parsed.diagnostics @ diagnostics)
+        in
+        compile_parsed_with_limit ~source_command ~max_initializer_steps session
+          ~config parsed
 
 let lower session ~config ~source =
   let* compiled = compile session ~config ~source in

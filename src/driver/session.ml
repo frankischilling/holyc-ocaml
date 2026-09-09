@@ -111,6 +111,40 @@ let seed_semantic_symbols table primitives =
       { frontend_entry; semantic_symbol; primitive; record })
     primitives
 
+let seed_public_unions symbols table =
+  List.map
+    (fun (source : Generated.Primitive_raw_types.public_union) ->
+      let path = Generated.Primitive_raw_types.kernel_source_path in
+      let line = source.source_line in
+      let frontend_entry =
+        Symbol_visibility.Environment.add symbols ~name:source.public_spelling
+          ~kind:Symbol_visibility.Class
+          ~origin:(Symbol_visibility.Pinned_source { path; line })
+          ()
+      in
+      let semantic_symbol =
+        Sema.Symbol_table.add table
+          ~scope:(Sema.Symbol_table.root table)
+          ~name:source.public_spelling ~kind:Sema.Symbol.Aggregate_type
+          ~origin:(Sema.Symbol.Pinned_source { path; line })
+        |> function
+        | Ok symbol -> symbol
+        | Error message -> invalid_arg message
+      in
+      let record =
+        Sema.Compiler_record.seed_public_union ~table ~entry:frontend_entry
+          ~symbol:semantic_symbol ~source
+        |> function
+        | Ok record -> record
+        | Error message -> invalid_arg message
+      in
+      let primitive =
+        Common.Primitive_type.of_storage_spelling source.storage_spelling
+        |> Option.get
+      in
+      { frontend_entry; semantic_symbol; primitive; record })
+    Generated.Primitive_raw_types.public_unions
+
 let create () =
   let symbols = Symbol_visibility.Environment.create () in
   let frontend_primitives = seed_compiler_symbols symbols in
@@ -118,6 +152,7 @@ let create () =
     Sema.Symbol_table.create ~root_name:"session-task" ()
   in
   let primitives = seed_semantic_symbols semantic_symbols frontend_primitives in
+  let primitives = primitives @ seed_public_unions symbols semantic_symbols in
   {
     sources = Common.Source_manager.create ();
     definitions = Frontend.Definition.Environment.create ();
@@ -138,7 +173,7 @@ let fork_frontend session =
             Sema.Symbol_table.add semantic_symbols
               ~scope:(Sema.Symbol_table.root semantic_symbols)
               ~name:(Sema.Symbol.name binding.semantic_symbol)
-              ~kind:Sema.Symbol.Internal_type
+              ~kind:(Sema.Symbol.kind binding.semantic_symbol)
               ~origin:(Sema.Symbol.origin binding.semantic_symbol)
           with
           | Ok symbol -> symbol

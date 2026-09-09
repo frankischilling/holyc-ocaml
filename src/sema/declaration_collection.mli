@@ -71,6 +71,14 @@ val publish_global :
 val publication_source_global :
   publication -> Frontend.Parser.global_publication option
 
+val publish_function :
+  namespace ->
+  Frontend.Parser.function_publication ->
+  (publication, string) result
+
+val publication_source_function :
+  publication -> Frontend.Parser.function_publication option
+
 val namespace_owns_publication : namespace -> publication -> bool
 val namespace_owns_table : namespace -> Symbol_table.t -> bool
 

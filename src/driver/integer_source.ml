@@ -43,13 +43,34 @@ let message_diagnostic ~span message =
               (String.length message - separator - 1)))
   | _ -> diagnostic ~span "HCEVAL0003" message
 
-let prepare_unit ?environment:task_environment ?declaration_command ?selections
-    ?(include_global_initializers = false) session ~config ~span ast =
+let prepare_unit ?environment:task_environment ?declaration_command
+    ?source_command ?selections ?(include_global_initializers = false) session
+    ~config ~span ast =
   let table = Session.semantic_symbols session in
+  let* () =
+    match (declaration_command, source_command, task_environment) with
+    | Some _, Some _, _ | _, Some _, Some _ ->
+        Error
+          [
+            diagnostic ~span "HCRUN0004"
+              "ordinary source and task compilation authorities cannot be \
+               combined";
+          ]
+    | _ -> Ok ()
+  in
+  let query_for =
+    match (declaration_command, source_command) with
+    | Some command, None ->
+        Some (Task_declarations.query_for ~table ~ast command)
+    | None, Some command ->
+        Some (Task_declarations.source_query_for ~table ~ast command)
+    | None, None -> None
+    | Some _, Some _ -> assert false
+  in
   let queries =
     Option.map
-      (fun command expression ->
-        match Task_declarations.query_for ~table ~ast command expression with
+      (fun query_for expression ->
+        match query_for expression with
         | Error diagnostics ->
             Error
               (String.concat "; "
@@ -59,7 +80,7 @@ let prepare_unit ?environment:task_environment ?declaration_command ?selections
                       ^ diagnostic.message)
                     diagnostics))
         | Ok query -> Ok (Task_declarations.query_selection query))
-      declaration_command
+      query_for
   in
   let mode = Frontend.Preprocessor.Config.compilation_mode config in
   let checked result =
@@ -68,12 +89,15 @@ let prepare_unit ?environment:task_environment ?declaration_command ?selections
       result
   in
   let* declarations =
-    match declaration_command with
-    | Some command -> Task_declarations.collection ~table ~ast command
-    | None ->
+    match (declaration_command, source_command) with
+    | Some command, None -> Task_declarations.collection ~table ~ast command
+    | None, Some command ->
+        Task_declarations.source_collection ~table ~ast command
+    | None, None ->
         Semantic_collection.collect ~sources:(Session.sources session) ~table
           ast
         |> checked
+    | Some _, Some _ -> assert false
   in
   let* aggregates =
     Aggregate_resolution.resolve ~table ~declarations ast |> checked

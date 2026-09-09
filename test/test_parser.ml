@@ -4758,6 +4758,11 @@ let pinned_kernel_inheritance_chains () =
     ]
 
 let aggregate_inheritance_failures_recover () =
+  let _, _, output = parse_string "class Derived:I64 {I64 value;};" in
+  (match (expect_ast output).items with
+  | [ Ast.Aggregate_definition definition ] ->
+      ignore (expect_aggregate_base "I64" definition)
+  | _ -> Alcotest.fail "public union must remain a valid native class base");
   List.iter
     (fun (description, source, expected_code) ->
       let session, _, output = parse_string source in
@@ -4788,8 +4793,8 @@ let aggregate_inheritance_failures_recover () =
       ( "unknown base",
         "class Bad:Missing { I64 value; }; I64 after;",
         "HCPARSE0121" );
-      ( "primitive base",
-        "class Bad:I64 { I64 value; }; I64 after;",
+      ( "primitive internal base",
+        "class Bad:U8 { I64 value; }; I64 after;",
         "HCPARSE0121" );
       ( "internal base",
         "class Bad:I64i { I64 value; }; I64 after;",

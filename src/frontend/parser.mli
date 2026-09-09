@@ -79,6 +79,25 @@ val selected_lookup : reference_selection -> Symbol_visibility.lookup
 
 val selected_command : reference_selection -> command_start
 
+type local_source = private
+  | Local_parameter of Ast.function_parameter
+  | Local_variable of {
+      local_type_specifier : Ast.type_specifier;
+      local_name : Ast.identifier;
+      local_pointer_layers : Ast.pointer_layer list;
+      local_array_dimensions : Ast.array_dimension list;
+      local_function_pointer : Ast.function_pointer_declarator option;
+    }
+  | Variadic_count of Ast.variadic_marker
+  | Variadic_vector of Ast.variadic_marker
+
+type local_publication = private {
+  local_environment : Symbol_visibility.Environment.t;
+  local_command : command_start;
+  local_spelling : string;
+  local_source : local_source;
+}
+
 type query_node =
   | Sizeof_target of Ast.identifier
   | Offset_target of Ast.identifier
@@ -89,6 +108,7 @@ type query_root = private {
   query_location : Ast.location;
   query_environment : Symbol_visibility.Environment.t;
   query_lookup : Symbol_visibility.lookup;
+  query_local : local_publication option;
   query_present : bool;
   query_command : command_start;
 }

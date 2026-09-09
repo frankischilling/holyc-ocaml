@@ -33,6 +33,7 @@ type publication = {
   owner : unit ref;
   symbol : Symbol.t;
   source_global : Frontend.Parser.global_publication option;
+  source_function : Frontend.Parser.function_publication option;
 }
 
 let scope (collection : t) = collection.scope
@@ -111,6 +112,7 @@ let create_namespace ~table ?module_name () =
 let namespace_scope (namespace : namespace) = namespace.scope
 let publication_symbol (publication : publication) = publication.symbol
 let publication_source_global publication = publication.source_global
+let publication_source_function publication = publication.source_function
 
 let namespace_owns_publication (namespace : namespace) publication =
   publication.owner == namespace.owner
@@ -125,7 +127,12 @@ let publish (namespace : namespace) ~name ~kind ~origin =
       Symbol_table.add namespace.table ~scope:namespace.scope ~name ~kind
         ~origin
       |> Result.map (fun symbol ->
-          { owner = namespace.owner; symbol; source_global = None })
+          {
+            owner = namespace.owner;
+            symbol;
+            source_global = None;
+            source_function = None;
+          })
   | _ ->
       Error
         "semantic declaration publication needs a top-level declaration kind"
@@ -145,6 +152,22 @@ let publish_global namespace (source : Frontend.Parser.global_publication) =
     ~kind:Symbol.Global_variable ~origin
   |> Result.map (fun publication ->
       { publication with source_global = Some source })
+
+let publish_function namespace (source : Frontend.Parser.function_publication) =
+  let location = source.function_name.location in
+  let origin =
+    Symbol.Source_location
+      {
+        span = location.span;
+        source_segments = location.source_segments;
+        generated_from = location.generated_from;
+        defined_at = location.defined_at;
+      }
+  in
+  publish namespace ~name:source.function_name.spelling ~kind:Symbol.Function
+    ~origin
+  |> Result.map (fun publication ->
+      { publication with source_function = Some source })
 
 let view (namespace : namespace) publications =
   let rec validate previous seen entries_rev = function

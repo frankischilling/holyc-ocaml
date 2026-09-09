@@ -1,3 +1,7 @@
+val pointer_depth : Frontend.Ast.pointer_layer list -> (int, string) result
+(** Validate consecutive original pointer children and the native depth limit.
+*)
+
 val builtin :
   Frontend.Ast.type_specifier ->
   Frontend.Ast.pointer_layer list ->

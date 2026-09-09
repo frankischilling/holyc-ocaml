@@ -1,5 +1,31 @@
 type t
 type command
+type source_command
+type query
+
+val create_source :
+  Session.t -> source:Common.Source_file.t -> (t, string) result
+(** Create an ordinary source ledger with required query metadata. It grants no
+    task-runtime authority and cannot import runtime admissions. The exact
+    registered input owns the source namespace and its display-path name. *)
+
+val seal_source :
+  t -> Frontend.Ast.module_ -> (source_command, Common.Diagnostic.t list) result
+(** Seal original source callbacks from a source-compilation ledger. Analysis
+    and runtime ledgers cannot be converted into this authority. *)
+
+val source_collection :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  (Sema.Declaration_collection.t, Common.Diagnostic.t list) result
+
+val source_query_for :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  Frontend.Ast.expression ->
+  (query, Common.Diagnostic.t list) result
 
 val owns_runtime : Ir.Integer_interpreter.task_state -> command -> bool
 (** A runtime-bound ledger's command retains that exact runtime owner. A
@@ -23,8 +49,6 @@ type reference_target = private
       admitted : Ir.Integer_interpreter.admitted_publication option;
     }
   | Selected_runtime of Ir.Integer_interpreter.admitted_publication
-
-type query
 
 val observe_query :
   t -> Frontend.Parser.query_event -> (unit, Common.Diagnostic.t list) result

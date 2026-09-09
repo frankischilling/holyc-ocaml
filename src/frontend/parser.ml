@@ -65,6 +65,25 @@ let selected_environment selection = selection.environment
 let selected_lookup selection = selection.lookup
 let selected_command selection = selection.selected_command
 
+type local_source =
+  | Local_parameter of Ast.function_parameter
+  | Local_variable of {
+      local_type_specifier : Ast.type_specifier;
+      local_name : Ast.identifier;
+      local_pointer_layers : Ast.pointer_layer list;
+      local_array_dimensions : Ast.array_dimension list;
+      local_function_pointer : Ast.function_pointer_declarator option;
+    }
+  | Variadic_count of Ast.variadic_marker
+  | Variadic_vector of Ast.variadic_marker
+
+type local_publication = {
+  local_environment : Symbol_visibility.Environment.t;
+  local_command : command_start;
+  local_spelling : string;
+  local_source : local_source;
+}
+
 type query_node =
   | Sizeof_target of Ast.identifier
   | Offset_target of Ast.identifier
@@ -75,6 +94,7 @@ type query_root = {
   query_location : Ast.location;
   query_environment : Symbol_visibility.Environment.t;
   query_lookup : Symbol_visibility.lookup;
+  query_local : local_publication option;
   query_present : bool;
   query_command : command_start;
 }
@@ -180,6 +200,7 @@ type located_token = {
   context : Preprocessor.diagnostic_context;
   selection :
     (Symbol_visibility.Environment.t * Symbol_visibility.lookup) option;
+  local_selection : local_publication option;
 }
 
 module Identifier_table = Hashtbl.Make (struct
@@ -207,6 +228,7 @@ type cursor = {
   mutable lookahead : located_token list;
   mutable diagnostics_rev : Common.Diagnostic.t list;
   mutable local_context : Symbol_visibility.Environment.local_context option;
+  mutable local_publications : local_publication list;
 }
 
 type parsed_declarator = { node : Ast.global_declarator; tokens : Token.t list }
@@ -541,10 +563,19 @@ let rec pull cursor =
                 token.raw )
         else None
       in
+      let local_selection =
+        match selection with
+        | Some (_, Symbol_visibility.Shadowed_by_local) ->
+            List.find_opt
+              (fun publication -> publication.local_spelling = token.raw)
+              cursor.local_publications
+        | _ -> None
+      in
       {
         token;
         context = Preprocessor.diagnostic_context cursor.stream;
         selection;
+        local_selection;
       }
 
 let rec ensure_lookahead cursor count =
@@ -777,6 +808,7 @@ let start_query cursor keyword item query_node =
           query_location = token_location keyword.token;
           query_environment;
           query_lookup;
+          query_local = item.local_selection;
           query_present;
           query_command = Option.get cursor.current_command;
         }
@@ -1233,15 +1265,26 @@ let complete_function_header cursor at publication
       completed)
     publication
 
-let publish_local cursor (name : Ast.identifier) =
+let publish_local cursor ~spelling source =
   match cursor.local_context with
   | None -> invalid_arg "local declaration parsed outside a function context"
   | Some context -> (
       match
         Symbol_visibility.Environment.add_local cursor.symbols context
-          ~name:name.spelling
+          ~name:spelling
       with
-      | Ok () -> ()
+      | Ok () ->
+          Option.iter
+            (fun local_command ->
+              cursor.local_publications <-
+                {
+                  local_environment = cursor.symbols;
+                  local_command;
+                  local_spelling = spelling;
+                  local_source = source;
+                }
+                :: cursor.local_publications)
+            cursor.current_command
       | Error message -> invalid_arg message)
 
 let with_function_local_context cursor parameters variadic run =
@@ -1253,23 +1296,20 @@ let with_function_local_context cursor parameters variadic run =
   cursor.local_context <- Some context;
   List.iter
     (fun (parameter : Ast.function_parameter) ->
-      Option.iter (publish_local cursor) parameter.name)
+      Option.iter
+        (fun (name : Ast.identifier) ->
+          publish_local cursor ~spelling:name.spelling
+            (Local_parameter parameter))
+        parameter.name)
     parameters;
   Option.iter
-    (fun _ ->
-      let add_generated_name spelling =
-        match
-          Symbol_visibility.Environment.add_local cursor.symbols context
-            ~name:spelling
-        with
-        | Ok () -> ()
-        | Error message -> invalid_arg message
-      in
-      add_generated_name "argc";
-      add_generated_name "argv")
+    (fun marker ->
+      publish_local cursor ~spelling:"argc" (Variadic_count marker);
+      publish_local cursor ~spelling:"argv" (Variadic_vector marker))
     variadic;
   Fun.protect run ~finally:(fun () ->
       cursor.local_context <- None;
+      cursor.local_publications <- [];
       match
         Symbol_visibility.Environment.end_local_context cursor.symbols context
       with
@@ -5099,7 +5139,8 @@ let rec take_static_local_modifiers cursor nodes_rev tokens_rev =
   | _ -> (List.rev nodes_rev, List.rev tokens_rev)
 
 let parse_local_declarator cursor ~boundary ~storage ~base_spelling
-    ~register_qualifiers ~qualifier_tokens : parsed_local_declarator option =
+    ~type_specifier ~register_qualifiers ~qualifier_tokens :
+    parsed_local_declarator option =
   match
     parse_pointer_layers_with_recovery cursor
       ~recover:(fun cursor -> recover_statement cursor ~boundary)
@@ -5145,7 +5186,15 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
           match parse_array_dimensions cursor 0 [] [] with
           | None -> None
           | Some (array_dimensions, array_tokens) ->
-              publish_local cursor name;
+              publish_local cursor ~spelling:name.spelling
+                (Local_variable
+                   {
+                     local_type_specifier = type_specifier;
+                     local_name = name;
+                     local_pointer_layers = pointer_layers;
+                     local_array_dimensions = array_dimensions;
+                     local_function_pointer = function_pointer;
+                   });
               let equals_item = peek cursor in
               let parsed_initializer =
                 if equals_item.token.kind <> Token_kind.Punctuation '=' then
@@ -5282,7 +5331,8 @@ let parse_local_declaration cursor ~boundary : parsed_statement option =
         else
           match
             parse_local_declarator cursor ~boundary ~storage
-              ~base_spelling:spelling ~register_qualifiers:qualifiers.nodes
+              ~base_spelling:spelling ~type_specifier
+              ~register_qualifiers:qualifiers.nodes
               ~qualifier_tokens:qualifiers.tokens
           with
           | None -> None
@@ -7442,6 +7492,7 @@ let make_cursor ?reference ?query ?declaration ~command_stack ~stream ~sources
     lookahead = [];
     diagnostics_rev = [];
     local_context = None;
+    local_publications = [];
   }
 
 let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config

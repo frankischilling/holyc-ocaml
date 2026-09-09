@@ -80,7 +80,7 @@ type query = {
 
 type reading_query = {
   target : reference_target;
-  sizeof_read : Sema.Compiler_record.sizeof_read option;
+  mutable sizeof_read : Sema.Compiler_record.sizeof_read option;
   mutable member_start : Parser.query_member_start option;
   mutable members_rev : Parser.query_member list;
   mutable completed : bool;
@@ -94,6 +94,13 @@ type command = {
   references : selected_reference Names.t;
   queries : query Query_expressions.t;
 }
+
+type source_command = Source_command of command
+
+type authority =
+  | Semantic_analysis
+  | Source_compilation of Common.Source_file.t
+  | Task_runtime of VM.task_state
 
 type command_phase =
   | Ready
@@ -127,7 +134,7 @@ type t = {
   mutable active : command_sequence list;
   mutable views : (Ast.module_ * parsed_command list) list;
   mutable sequence_views : (Ast.module_ * Parser.completed_sequence) list;
-  runtime : VM.task_state option;
+  authority : authority;
   runtime_entries : VM.admitted_publication Entries.t;
   runtime_records : (Sema.Compiler_record.t, string) result Entries.t;
   mutable admissions : VM.task_admission list;
@@ -161,7 +168,12 @@ let origin (name : Ast.identifier) =
       defined_at = location.defined_at;
     }
 
-let create ?runtime session =
+let create_with_authority authority session =
+  let runtime =
+    match authority with
+    | Task_runtime runtime -> Some runtime
+    | _ -> None
+  in
   let table = Session.semantic_symbols session in
   if
     Option.fold ~none:false
@@ -169,7 +181,13 @@ let create ?runtime session =
       runtime
   then Error "task declaration runtime belongs to another semantic table"
   else
-    Collection.create_namespace ~table ()
+    let module_name =
+      match authority with
+      | Source_compilation source ->
+          Some (Common.Source_file.display_path source)
+      | _ -> None
+    in
+    Collection.create_namespace ~table ?module_name ()
     |> Result.map (fun namespace ->
         {
           session;
@@ -185,7 +203,7 @@ let create ?runtime session =
           active = [];
           views = [];
           sequence_views = [];
-          runtime;
+          authority;
           runtime_entries = Entries.create 32;
           runtime_records = Entries.create 32;
           admissions = [];
@@ -193,6 +211,32 @@ let create ?runtime session =
           query_roots = Query_roots.create 16;
           queries = Query_expressions.create 16;
         })
+
+let create ?runtime session =
+  create_with_authority
+    (match runtime with
+    | None -> Semantic_analysis
+    | Some runtime -> Task_runtime runtime)
+    session
+
+let create_source session ~source =
+  match
+    Common.Source_manager.find (Session.sources session)
+      (Common.Source_file.id source)
+  with
+  | Some registered when registered == source ->
+      create_with_authority (Source_compilation source) session
+  | _ -> Error "ordinary source ledger requires its exact registered input"
+
+let ledger_runtime ledger =
+  match ledger.authority with
+  | Task_runtime runtime -> Some runtime
+  | _ -> None
+
+let requires_query_metadata ledger =
+  match ledger.authority with
+  | Semantic_analysis -> false
+  | _ -> true
 
 let runtime_symbol = VM.admitted_source_symbol
 let retained_for ledger entry = Entries.find_opt ledger.runtime_entries entry
@@ -222,7 +266,7 @@ let observe_admission ledger receipt =
     not
       (Option.fold ~none:false
          ~some:(fun runtime -> VM.owns_task_admission runtime receipt)
-         ledger.runtime)
+         (ledger_runtime ledger))
   then Error "runtime admission belongs to another task"
   else if List.exists (fun saved -> saved == receipt) ledger.admissions then
     Error "runtime admission was already published to the frontend"
@@ -233,7 +277,7 @@ let observe_admission ledger receipt =
            Option.fold ~none:false
              ~some:(fun current -> current == receipt)
              (VM.latest_task_admission runtime))
-         ledger.runtime)
+         (ledger_runtime ledger))
   then Error "runtime admission is no longer the current publication boundary"
   else if
     List.exists
@@ -335,6 +379,10 @@ let observe_command ledger event =
           then
             fail span
               "parser command context has a foreign source or environment";
+          (match (ledger.authority, Parser.context_parent context) with
+          | Source_compilation original, None when original != source ->
+              fail span "ordinary source context belongs to another input"
+          | _ -> ());
           if
             List.exists
               (fun sequence -> sequence.context == context)
@@ -478,7 +526,7 @@ let selection_target ledger span = function
                   "selected function entry has no original header witness"
           in
           let admitted =
-            Option.bind ledger.runtime (fun runtime ->
+            Option.bind (ledger_runtime ledger) (fun runtime ->
                 VM.admitted_publication_for_symbol runtime
                   (Collection.publication_symbol assigned.publication))
           in
@@ -514,6 +562,30 @@ let observe_reference ledger selection =
 let read_sizeof ledger (root : Parser.query_root) target =
   match root.query_node with
   | Parser.Defined_target _ | Parser.Offset_target _ -> None
+  | Parser.Sizeof_target _ when target = Selected_local -> (
+      let function_publication =
+        Entries.fold
+          (fun _ assigned found ->
+            match assigned.source with
+            | Function state
+              when state.publication.function_header.declaration_command
+                   == root.query_command -> Some assigned.publication
+            | _ -> found)
+          ledger.entries None
+      in
+      match function_publication with
+      | Some function_publication -> (
+          match
+            Sema.Compiler_record.read_local_sizeof ~table:ledger.table
+              ~namespace:ledger.namespace ~function_publication ~root
+          with
+          | Ok read -> Some read
+          | Error message when requires_query_metadata ledger ->
+              fail root.query_location.span message
+          | Error _ -> None)
+      | None ->
+          fail root.query_location.span
+            "local sizeof has no original function publication")
   | Parser.Sizeof_target _ -> (
       let record =
         match target with
@@ -536,9 +608,9 @@ let read_sizeof ledger (root : Parser.query_root) target =
           Some
             (Sema.Compiler_record.read_sizeof ~table:ledger.table ~root record
             |> checked root.query_location.span)
-      | Some (Error message) when Option.is_some ledger.runtime ->
+      | Some (Error message) when requires_query_metadata ledger ->
           fail root.query_location.span message
-      | None when Option.is_some ledger.runtime ->
+      | None when requires_query_metadata ledger ->
           fail root.query_location.span
             "sizeof target has no selected compiler size metadata"
       | Some (Error _) | None -> None)
@@ -597,6 +669,7 @@ let observe_query ledger event =
           then
             fail start.member_start_dot.span
               "sizeof internal type cannot select a member";
+          if not (requires_query_metadata ledger) then state.sizeof_read <- None;
           state.member_start <- Some start
       | Parser.Query_member member ->
           let state =
@@ -623,7 +696,7 @@ let observe_query ledger event =
           | _ -> fail span "query member lacks its original observed dot");
           if Option.is_some state.sizeof_read then
             fail span
-              "sizeof requires the selected global's checked member layout";
+              "sizeof requires the selected class's checked member layout";
           state.member_start <- None;
           state.members_rev <- member :: state.members_rev
       | Parser.Query_completed receipt ->
@@ -682,11 +755,12 @@ let assign ledger (name : Ast.identifier) kind source entry =
     (match source with
       | Global state ->
           Collection.publish_global ledger.namespace state.publication
-      | Function _ ->
-          Collection.publish ledger.namespace ~name:name.spelling ~kind
-            ~origin:(origin name))
+      | Function state ->
+          Collection.publish_function ledger.namespace state.publication)
     |> checked name.location.span
   in
+  if Sema.Symbol.kind (Collection.publication_symbol publication) <> kind then
+    fail name.location.span "parser publication has the wrong declaration kind";
   let assigned =
     { publication; source; ordinal = ledger.next_ordinal; claimed = false }
   in
@@ -971,7 +1045,7 @@ let seal ledger (ast : Ast.module_) =
             let command =
               {
                 table = ledger.table;
-                runtime = ledger.runtime;
+                runtime = ledger_runtime ledger;
                 ast;
                 declarations;
                 references;
@@ -1020,6 +1094,22 @@ let query_for ~table ~ast (command : command) expression =
       | None ->
           fail (Ast.expression_location expression).span
             "query has no complete parser receipt in this task command")
+
+let seal_source ledger ast =
+  match ledger.authority with
+  | Source_compilation _ ->
+      Result.map (fun command -> Source_command command) (seal ledger ast)
+  | Semantic_analysis | Task_runtime _ ->
+      protect (fun () ->
+          fail ast.Ast.span
+            "ordinary source seal requires its original source-compilation \
+             ledger")
+
+let source_collection ~table ~ast (Source_command command) =
+  collection ~table ~ast command
+
+let source_query_for ~table ~ast (Source_command command) expression =
+  query_for ~table ~ast command expression
 
 let reference_resolver ~table ~ast ~task_view command =
   let module Selection = Sema.Reference_selection in

@@ -7,16 +7,20 @@ let origin (location : Frontend.Ast.location) =
       defined_at = location.defined_at;
     }
 
-let builtin type_specifier pointer_layers =
-  let ( let* ) = Result.bind in
-  let rec pointer_depth expected = function
-    | [] -> Ok (expected - 1)
+let pointer_depth pointer_layers =
+  let rec collect expected = function
+    | [] when expected - 1 <= Type.max_pointer_depth -> Ok (expected - 1)
+    | [] -> Error "semantic source type exceeds the native pointer depth"
     | (layer : Frontend.Ast.pointer_layer) :: rest ->
         if layer.depth <> expected || layer.spelling <> "*" then
           Error "semantic source type has inconsistent pointer children"
-        else pointer_depth (expected + 1) rest
+        else collect (expected + 1) rest
   in
-  let* pointer_depth = pointer_depth 1 pointer_layers in
+  collect 1 pointer_layers
+
+let builtin type_specifier pointer_layers =
+  let ( let* ) = Result.bind in
+  let* pointer_depth = pointer_depth pointer_layers in
   let* resolved_type =
     match type_specifier with
     | Frontend.Ast.Primitive_type_specifier primitive ->

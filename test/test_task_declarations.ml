@@ -1884,8 +1884,288 @@ let aggregate_query_table_ownership () =
     [ false; false; false; false; false ]
     (List.map (accepts foreign) shapes)
 
+let selected_local_sizeof () =
+  List.iter
+    (fun source ->
+      let session, runtime, ledger = runtime_setup () in
+      let result =
+        selected_runtime_source session runtime ledger source |> expect
+      in
+      Alcotest.(check int64)
+        "selected scalar local uses its original declared size" 42L
+        (VM.final_value result |> Option.get).bits)
+    [
+      "I64 F(){I64 N;return sizeof N+34;}F();";
+      "I64 F(U8 N){return sizeof N+41;}F(0);";
+      "I64 F(){I64 N=sizeof N;return N+34;}F();";
+      "I64 F(){U8 *P;return sizeof P+34;}F();";
+      "I64 F(){U8 N;return sizeof N #exe {I64 N=7;}+41;}F();";
+    ]
+
+let seeded_public_sizeof () =
+  List.iter
+    (fun (spelling, size, line) ->
+      let original = Session.create () in
+      List.iter
+        (fun session ->
+          let symbols = Session.symbols session in
+          let entry =
+            match
+              Symbol_visibility.Environment.find_preprocessor symbols spelling
+            with
+            | Symbol_visibility.Present entry -> entry
+            | _ -> Alcotest.fail "public union is missing"
+          in
+          Alcotest.(check bool)
+            "public primitive is a class with its original union origin" true
+            (Symbol_visibility.kind entry = Symbol_visibility.Class
+            && Symbol_visibility.origin entry
+               = Symbol_visibility.Pinned_source
+                   { path = "Kernel/KernelA.HH"; line });
+          let binding = Session.primitive_for session entry |> Option.get in
+          let symbol = Session.primitive_symbol binding in
+          Alcotest.(check bool)
+            "exact seeded symbol belongs to this semantic table" true
+            (Semantic_symbol.kind symbol = Semantic_symbol.Aggregate_type
+            && Semantic_symbol_table.owns_symbol
+                 (Session.semantic_symbols session)
+                 symbol);
+          let ledger = D.create session |> checked in
+          let output, _ = parse session ledger ("sizeof " ^ spelling ^ ";") in
+          let ast = Test_parser.expect_ast output in
+          let command = D.seal ledger ast |> expect in
+          let expression =
+            match ast.items with
+            | [ Ast.Top_level_statement (Ast.Expression_statement item) ] ->
+                item.expression_statement_expression
+            | _ -> Alcotest.fail "expected sizeof expression"
+          in
+          let query =
+            D.query_for
+              ~table:(Session.semantic_symbols session)
+              ~ast command expression
+            |> expect
+          in
+          Alcotest.(check (option int64))
+            "public union size comes from its seeded record" (Some size)
+            (D.query_selection query |> Semantic_query_selection.constant))
+        [
+          original;
+          Session.fork_frontend original;
+          Session.task_frontend original;
+        ])
+    [
+      ("U16", 2L, 67);
+      ("I16", 2L, 73);
+      ("U32", 4L, 79);
+      ("I32", 4L, 87);
+      ("U64", 8L, 95);
+      ("I64", 8L, 105);
+    ]
+
+let local_query_source_children () =
+  let session, ledger = setup () in
+  let receipts = ref [] in
+  let query event =
+    Result.map
+      (fun () ->
+        match event with
+        | Parser.Query_completed receipt -> receipts := receipt :: !receipts
+        | _ -> ())
+      (D.observe_query ledger event)
+  in
+  let output, _ =
+    parse ~query session ledger
+      "I64 F(U8 P){I64 N=sizeof N;sizeof P;defined N;}I64 V(...){sizeof \
+       argc;sizeof argv;sizeof argv*;}"
+  in
+  let ast = Test_parser.expect_ast output in
+  let command = D.seal ledger ast |> expect in
+  let table = Session.semantic_symbols session in
+  let definitions =
+    List.filter_map
+      (function
+        | Ast.Function_definition definition -> Some definition
+        | _ -> None)
+      ast.items
+  in
+  let function_ = List.hd definitions in
+  let rec find_local = function
+    | Ast.Local_declaration_statement declaration -> Some declaration
+    | Ast.Block_statement body -> List.find_map find_local body.block_statements
+    | Ast.Sequence_statement sequence ->
+        List.find_map
+          (fun (element : Ast.statement_sequence_element) ->
+            find_local element.sequence_statement)
+          sequence.sequence_elements
+    | _ -> None
+  in
+  let declaration = Option.bind function_.body find_local |> Option.get in
+  let local = List.hd declaration.local_declarators in
+  let receipts = List.rev !receipts in
+  let sources =
+    List.map
+      (fun (receipt : Parser.completed_query) ->
+        let source = receipt.query_root.query_local |> Option.get in
+        Alcotest.(check bool)
+          "local publication owns the query command and environment" true
+          (source.local_command == receipt.query_root.query_command
+          && source.local_environment == receipt.query_root.query_environment);
+        source.local_source)
+      receipts
+  in
+  (match (List.nth sources 0, List.nth sources 1, List.nth sources 2) with
+  | ( Parser.Local_variable first,
+      Parser.Local_parameter parameter,
+      Parser.Local_variable again ) ->
+      Alcotest.(check bool)
+        "local metadata preserves exact completed source children" true
+        (first.local_name == local.local_name
+        && first.local_type_specifier == declaration.local_type_specifier
+        && first.local_pointer_layers == local.local_pointer_layers
+        && first.local_array_dimensions == local.local_array_dimensions
+        && parameter == List.hd function_.parameters
+        && first.local_name == again.local_name
+        && List.nth sources 0 == List.nth sources 2)
+  | _ -> Alcotest.fail "expected original local and parameter sources");
+  let variadic = (List.nth definitions 1).variadic |> Option.get in
+  (match (List.nth sources 3, List.nth sources 4) with
+  | Parser.Variadic_count count, Parser.Variadic_vector vector ->
+      Alcotest.(check bool)
+        "implicit locals retain the actual variadic marker" true
+        (count == variadic && vector == variadic)
+  | _ -> Alcotest.fail "expected original variadic sources");
+  Alcotest.(check (list (option int64)))
+    "original local sizes and presence remain available after scope exit"
+    [ Some 8L; Some 1L; Some 1L; Some 8L; Some 1016L; Some 8L ]
+    (List.map
+       (fun (receipt : Parser.completed_query) ->
+         D.query_for ~table ~ast command receipt.query_expression
+         |> expect |> D.query_selection |> Semantic_query_selection.constant)
+       receipts)
+
+let local_query_dot_boundary () =
+  List.iter
+    (fun (declaration, expected) ->
+      let session, runtime, ledger = runtime_setup () in
+      ignore
+        (selected_runtime_source session runtime ledger "I64 N=40;" |> expect);
+      reject "local member lookup requires checked member metadata"
+        (selected_runtime_source session runtime ledger
+           ("I64 F(){" ^ declaration
+          ^ ";return sizeof Local. #exe {N=1;} member;}"));
+      let result =
+        selected_runtime_source session runtime ledger "N;" |> expect
+      in
+      Alcotest.(check int64)
+        "declared class kind controls member-token effects" expected
+        (VM.final_value result |> Option.get).bits)
+    [
+      ("I64i Local", 40L);
+      ("U8 Local", 40L);
+      ("I64 Local", 1L);
+      ("U8 *Local", 1L);
+      ("I64 (*Local)()", 1L);
+    ]
+
+let source_command_ownership () =
+  let session, runtime, runtime_ledger = runtime_setup () in
+  let source =
+    Session.add_source session ~path:"declarations.hc"
+      ~contents:"I64 N=sizeof N;"
+  in
+  let foreign_source =
+    Session.add_source (Session.create ()) ~path:"declarations.hc"
+      ~contents:"I64 N=sizeof N;"
+  in
+  let scope_count =
+    Session.semantic_symbols session
+    |> Semantic_symbol_table.all_scopes |> List.length
+  in
+  reject "source factory rejects equal input from another source manager"
+    (D.create_source session ~source:foreign_source);
+  Alcotest.(check int)
+    "rejected source does not allocate a namespace" scope_count
+    (Session.semantic_symbols session
+    |> Semantic_symbol_table.all_scopes |> List.length);
+  let ledger = D.create_source session ~source |> checked in
+  let output, _ = parse_source session ledger source in
+  let ast = Test_parser.expect_ast output in
+  let command = D.seal_source ledger ast |> expect in
+  let table = Session.semantic_symbols session in
+  let original = D.source_collection ~table ~ast command |> expect in
+  Alcotest.(check (option string))
+    "ordinary source retains its module scope name" (Some "declarations.hc")
+    (C.scope original |> Semantic_symbol_table.scope_name);
+  let task_command = D.seal ledger ast |> expect in
+  Alcotest.(check bool)
+    "source collection preserves original publications" true
+    (D.collection ~table ~ast task_command |> expect == original);
+  reject "ordinary source grants no task execution authority"
+    (Program.compile_task_ast ~task:runtime ~declaration_command:task_command
+       session ~config:(config ()) ast);
+  let copied = copy_module ast ast.items in
+  reject "source collection rejects rebuilt module"
+    (D.source_collection ~table ~ast:copied command);
+  reject "source collection rejects foreign table"
+    (D.source_collection
+       ~table:(Session.semantic_symbols (Session.create ()))
+       ~ast command);
+  reject "source seal rejects rebuilt module" (D.seal_source ledger copied);
+  let expression =
+    match ast.items with
+    | [ Ast.Global_declaration declaration ] -> (
+        match
+          Option.map
+            (fun (initial : Ast.global_initializer) ->
+              initial.global_initializer_value)
+            (List.hd declaration.declarators).global_initial_value
+        with
+        | Some (Ast.Scalar_initializer expression) -> expression
+        | _ -> Alcotest.fail "expected expression initializer")
+    | _ -> Alcotest.fail "expected original declaration"
+  in
+  ignore (D.source_query_for ~table ~ast command expression |> expect);
+  reject "source query rejects a foreign AST"
+    (D.source_query_for ~table ~ast:copied command expression);
+  reject "source query rejects a foreign table"
+    (D.source_query_for
+       ~table:(Session.semantic_symbols (Session.create ()))
+       ~ast command expression);
+  let copied_expression =
+    match expression with
+    | Ast.Sizeof_expression sizeof -> Ast.Sizeof_expression sizeof
+    | _ -> Alcotest.fail "expected sizeof query"
+  in
+  reject "source query rejects a reconstructed occurrence"
+    (D.source_query_for ~table ~ast command copied_expression);
+  let other_source =
+    Session.add_source session ~path:"other.hc" ~contents:"42;"
+  in
+  let output, _ = parse_source session ledger other_source in
+  Alcotest.(check bool)
+    "source ledger rejects another root input" true
+    (Option.is_none output.ast);
+  List.iter
+    (fun other ->
+      let output, _ = parse session other "42;" in
+      let ast = Test_parser.expect_ast output in
+      reject "analysis and runtime ledgers cannot acquire ordinary source seals"
+        (D.seal_source other ast))
+    [ D.create session |> checked; runtime_ledger ]
+
 let tests =
   [
+    Alcotest.test_case "ordinary source seals retain distinct ownership" `Quick
+      source_command_ownership;
+    Alcotest.test_case "public union sizeof owns exact seeded metadata" `Quick
+      seeded_public_sizeof;
+    Alcotest.test_case "local query metadata owns original source children"
+      `Quick local_query_source_children;
+    Alcotest.test_case "local query dot precedes member-token effects" `Quick
+      local_query_dot_boundary;
+    Alcotest.test_case "local sizeof retains selected source metadata" `Quick
+      selected_local_sizeof;
     Alcotest.test_case "query seals own original reads and AST children" `Quick
       selected_query_ownership;
     Alcotest.test_case "query seals require root, members and completion" `Quick

@@ -151,16 +151,40 @@ and non-name operands. Later declarations cannot fill a saved absence. Local
 queries retain the original local binding and its warning-analysis use count.
 
 Scalar `sizeof` reads checked metadata from the exact seeded primitive,
-published source global or admitted retained record before following lookahead.
+published source global, original scalar local/parameter or admitted retained
+record before following lookahead. Local publications preserve their original
+type, pointer, dimension and function-pointer children under the owning function
+command. Selection is captured when the token is produced, including local
+self-initializers and suspended outer parsing.
 Metadata is separate from storage admission: `I64 N=sizeof N;` can read its own
-published type. Pointer suffixes remain part of the original query. Arrays,
-aggregate/member/local layouts and function debug extents still require their
-own checked metadata. Unsupported reads report an explicit diagnostic.
+published type. Pointer suffixes remain part of the original query. The six
+public primitive unions are seeded as classes with their pinned KernelA.HH
+origins and checked primitive backing; internal storage spellings remain internal
+types. Local function-pointer queries use their original declarator's pointer
+companion width, without changing VM storage support. Implicit `argc` has size
+8; `argv` has the native 127-element extent and size 1016, independently of its
+eight-byte frame slot. Arrays, aggregate/member layouts and function debug
+extents still require their own checked metadata. Unsupported reads report an
+explicit diagnostic.
 
 Member queries have a distinct dot boundary before the member token. An
-internal-type member rejects there; a scalar global can reach member-token
-lookahead before rejecting unavailable member layout. Original dot and member
-receipts prevent a later walk from moving either boundary.
+internal-type member rejects there. Public unions, local pointer companions and
+scalar globals reach member-token lookahead before rejecting unavailable member
+layout. Original dot and member receipts prevent a later walk from moving either
+boundary. Analysis-only ledgers can retain incomplete member receipts; ordinary
+source and runtime compilation require size metadata at their native read points.
+
+Ordinary `Integer_program.compile` also captures these original query and
+declaration callbacks. Its opaque source seal is distinct from task-runtime
+authority. The source factory requires the exact registered input before
+allocating a namespace and preserves its display-path module name. Analysis and
+runtime ledgers cannot be converted into source seals; source seals cannot
+authorize task compilation. Semantic preparation reuses original declarations
+and queries for locals, function bodies, initializers and dimensions. Thus
+`sizeof I64i*`, a global's self-size, query-based dimensions and keyword `defined`
+operands work through the source API. Query errors stop before later directives
+at the corresponding root, dot or member boundary. Ordinary non-query references
+and the callback-free `compile_ast` path retain their existing binding paths.
 
 Global dimensions and initializers retain ordered query manifests. Dimensions
 bind before their owner is published; initializers bind through that publication.

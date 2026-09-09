@@ -3,7 +3,7 @@
   "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
   "aggregates": [
     {
-      "symbol_id": 17,
+      "symbol_id": 23,
       "name": "Byte",
       "kind": "class",
       "item_index": 0,
@@ -90,9 +90,9 @@
       },
       "members": [
         {
-          "symbol_id": 18,
+          "symbol_id": 24,
           "name": "value",
-          "declaring_aggregate_id": 17,
+          "declaring_aggregate_id": 23,
           "path": [ 0 ],
           "declarator_index": 0,
           "type": {

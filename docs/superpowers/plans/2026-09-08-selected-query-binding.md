@@ -256,3 +256,80 @@ history, VM predecessor admission, source orchestration and result/artifact
 projection remain required. Preserve ordinary no-#exe resource counts, the early
 AOT task namespace split, limits before parsing, reached output on compile errors
 and the full numeric/runtime/native/BIN/loader/bootstrap objective.
+
+### Ordinary source query integration
+
+Continue the existing source integration design from pushed b080359. The ordinary
+Integer_program.compile path invokes Parser.parse without query callbacks; its
+task counterpart supplies the query ledger. Add original source evidence without
+granting an ordinary compilation task runtime authority or weakening existing
+runtime seal checks. Preserve limits-before-parse and current diagnostic origins.
+
+Compatibility audit at b080359 confirms sizeof on scalar locals, parameters,
+global scalars inside functions and I64 works in ordinary compilation. Local and
+global array sizeof still fail HCRUN0003; defined return incorrectly yields zero.
+The current runtime query ledger lacks local size metadata. Capture the actual
+local/parameter publication and type children when its token is selected before
+moving ordinary source compilation to that ledger. Do not regress supported
+local sizeof or substitute a late name lookup. Investigate seeded I64 lookup
+against native hash-mask rules before changing the ordinary primitive behavior.
+
+- [x] Add maintained ordinary source controls for internal aliases, self-sizeof,
+  sizeof dimensions, keyword presence and early error versus later definitions.
+- [x] Retain original scalar local/parameter source publications and selected
+  token associations in Parser, including self-initializer reads and restoration
+  around nested parsing. Bind scalar metadata to those exact receipts and tables;
+  preserve local warning uses. Arrays/member/signature preparation stay explicit.
+- [x] Add an opaque ordinary source command seal distinct from task runtime
+  authority. Reuse original declaration collection/query receipts in
+  Integer_source/Integer_program without recapturing names after parsing.
+- [x] Audit native seeded type lookup and protect currently supported source
+  programs, exact resources, diagnostic order and source ownership.
+- [x] Review source/foreign/replayed/late-effect controls, then verify the full
+  suite, relevant CLI/corpus/reference checks and accurate remaining scope.
+
+The parser retains private local/parameter publications at token production,
+including the actual function owner and original type/declarator children. Local
+metadata controls passed after correcting the native class distinction: public
+unions and positive pointer companions reach member-token Lex; internal base
+records reject at the dot. Native argv uses internal I64 with extent127 and
+sizeof1016, while its frame slot remains8. O666G3RF reproduced both mistakes;
+F6BMFC2A passed all three local groups after the fixes.
+
+Session seeds the six generated public unions as exact Class/Aggregate_type
+associations with KernelA.HH origins. Forks bind those known entries to fresh
+semantic symbols. E7IS3IZ5 reproduced missing class metadata. The source ledger
+now has a separate authority constructor and opaque seal, with exact registered
+input validation before namespace allocation and the original display-path
+scope name. Native PrsStmt45-51 also accepts those unions as class bases; the
+parser control now tests I64 acceptance and U8 internal-base rejection. Five CLI
+snapshots change only their IDs after the six added seeds.
+
+Independent read-only review identified module-name loss and local function-
+pointer compilation regression. N4OTA1A6 reproduced both. The saved b080359
+binary confirms local and parameter function-pointer queries compile, while
+function-pointer frame execution fails HCIRVM0011. Original local declarators
+now provide native RT_PTR companion width/class metadata and preserve that VM
+preflight boundary. Global function-pointer compilation was already outside the
+integer domain and remains pending. 5CWUD73P passed all82 focused groups after
+the compatibility fixes. Final read-only review found no remaining blocker in
+the source-owner or local metadata changes; full verification follows.
+
+Full unbuffered verification JR2O15B6 passed2238 of2252 groups in66.498s;
+exactly the fourteen pending stateful #exe groups fail. The separate CLI tests
+and updated deterministic snapshots pass. The full lexer JSON and parser
+JSON/normalized text remain identical to their existing baselines:528/528 lex,
+25 standalone parses and126 with the prelude. The external prompt now records
+ordinary source authority, exact local source ownership, public-union class
+seeding, pointer member timing, argv's declared extent and function-pointer
+compile/preflight boundaries, preserving all102 original fenced examples.
+
+All82 reference checksums and eleven build-provenance scenarios pass. Working-
+tree CLI verification covers46 JSON reports and four function-pointer IR
+artifacts across JIT/AOT:28 successful query results,16 still-pending #exe
+diagnostics and two preserved function-pointer preflight failures. Twenty
+successful-query reports exactly match the saved b080359 binary's resource and
+result fields. These runs precede the new checkpoint commit; repeat their
+identity checks on the rebuilt committed executable. Ordinary source query
+integration is verified within this scope; all wider compiler and #635 work
+listed above remains required.
