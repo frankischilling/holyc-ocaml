@@ -88,3 +88,5 @@ val compilation_outcome :
   compilation_report -> (compiled checked, Common.Diagnostic.t list) result
 
 val compilation_dimension_work : compilation_report -> int
+val compilation_progress : compilation_report -> Integer_task.progress option
+val compilation_task_units : compilation_report -> Integer_unit.compiled list

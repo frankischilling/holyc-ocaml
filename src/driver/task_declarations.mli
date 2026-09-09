@@ -149,6 +149,16 @@ val observe_execution_reference :
     Current-command source references remain subject to ordinary semantic/IR
     checks; this adds no partial declaration or executable authority. *)
 
+val validate_source_reference :
+  t ->
+  Frontend.Parser.reference_selection ->
+  (unit, Common.Diagnostic.t list) result
+(** Check an exact previously observed ordinary-source read before allowing
+    directive execution. Absence and unbound frontend entries fail; source
+    publications still require their ordinary semantic checks. This read-only
+    validation neither grants runtime authority nor changes the source ledger.
+*)
+
 val reference_for :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->

@@ -940,9 +940,10 @@ val run_integer_program_report :
   source:Source_file.t ->
   max_steps:int ->
   integer_program_report
-(** Execute with fresh captured bytes and formatting work, including on failure.
-    Configuration and preflight failures have empty capture. Output/work limits
-    are positive and default independently to 1,048,576. *)
+(** Execute with fresh invocation capture and formatting work, including on
+    failure. Invalid limits fail before parsing. Later AOT compilation or
+    preflight failures retain effects from already reached stream commands.
+    Output/work limits are positive and default independently to 1,048,576. *)
 
 val integer_program_report_outcome :
   integer_program_report ->
@@ -951,6 +952,23 @@ val integer_program_report_outcome :
 val integer_program_report_output_bytes : integer_program_report -> string
 val integer_program_report_output_work : integer_program_report -> int
 val integer_program_report_dimension_work : integer_program_report -> int
+
+val integer_program_report_progress :
+  integer_program_report -> Integer_task.progress option
+(** Immutable cumulative invocation observations when AOT parsing reached a
+    stream directive, including effects before later compilation/runtime errors.
+    No directive means [None] and retains the ordinary isolated-unit path. *)
+
+val integer_program_report_program :
+  integer_program_report -> integer_program option
+(** The complete isolated outer unit, if compilation succeeded. Execution can
+    still fail; this projection grants no retained task bindings. *)
+
+val integer_program_report_task_units :
+  integer_program_report -> integer_program list
+(** Checked task units in compilation order, including provider setup and units
+    whose execution failed. They are distinct from the complete outer artifact.
+*)
 
 val lower_integer_expression :
   Session.t ->

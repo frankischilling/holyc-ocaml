@@ -27,10 +27,49 @@ or executable artifacts. Retained implicit providers still need their original
 source-read authority; the supported implicit output path uses a same-unit header.
 
 The internal `Integer_unit` module owns checked AST compilation and compiled-unit
-inspection. `Integer_program` owns source parsing and the public isolated-unit
-entry points; `Integer_task` depends on the core. This permits source orchestration
-above both without a dependency cycle. Ordinary compilation still lowers one
-unit and keeps its existing resource counts and public types.
+inspection. `Integer_source_execution` owns public source parsing and execution
+above that core and `Integer_task`; both public run APIs use the same path.
+Valid source without an active directive still lowers one isolated unit with its
+existing resource counts and public types.
+
+Public AOT source execution now runs supported `#exe` commands in a task whose
+frontend was forked before outer declarations. At the first actual stream entry,
+the driver installs missing checked StreamPrint/Print/PutChars headers once.
+Their real setup work is charged. Comments, strings and skipped directives do not
+activate a task. Generated text returns to the ordinary outer parser, including
+joined tokens, expressions, function bodies and initializer operands. The final
+outer unit executes in a fresh isolated image with no task namespace access.
+
+Streams and the outer image share cumulative instruction, initializer, global,
+literal, output and formatting allowances. Preparation uses an invocation-owned
+ticket that binds charged work to the exact compiled bundle before execution.
+Foreign or undercharged preparation and replay fail before effects. Failed
+preflight leaves the image available; a reached fault consumes it. Outer AOT
+dimension work has its own limit, while stream dimensions count as task
+preparation; the report includes both dimension totals.
+
+`integer_program_report_progress` freezes reached invocation observations even
+after parsing, compilation or execution fails. `integer_program_report_program`
+returns the complete isolated outer artifact when compilation succeeded.
+`integer_program_report_task_units` lists separately checked task units in compile
+order, including provider setup and units whose execution failed. Re-executing
+the isolated artifact starts fresh and does not replay directive effects.
+
+The maintained [AOT example](../examples/stateful-exe-aot.hc) returns 42 and
+captures `AB` under `holyc run --mode=aot`. It uses 37 runtime instructions,
+10 preparation steps, 16 global bytes, eight literal bytes, three generated
+bytes, 13 formatting-work units and two ordinary output bytes. Exact and
+one-below limits are covered. AOT unavailable reads are checked at identifier
+consumption, so source without `#exe` can now report an earlier `HCRUN0003`
+instead of a later semantic error. The native statement-start label probe keeps
+its earlier lookahead.
+
+This is scoped AOT support. Shared outer JIT execution, partial declaration and
+initializer publication inside directives, partial array leaves, implicit
+provider/default/later-call reads, cross-command extern joins and broader
+metadata remain required for #635. In particular, a nested directive cannot yet
+read the earlier declarator in `I64 A=40,B=#exe {...};`. Completed task commands
+must not be substituted for those native partial publication boundaries.
 
 Each task retains a frontend view available through `Integer_task.frontend`.
 Independent tasks sharing a session see baseline registrations and their own
@@ -55,9 +94,10 @@ Create the task from a frontend fork taken before outer declarations when using
 this adapter with a distinct outer namespace. Register checked provider headers
 through the task API first. The adapter observes stream commands only: it does
 not execute the outer AST, install runtime providers, or supply shared outer JIT
-publication/initializer timing. The public whole-source run facade remains
-unfinished. Tests compile the real generated outer AST separately in both modes;
-that is adapter coverage, not completion of the public #exe gates.
+publication/initializer timing. The public AOT source driver supplies provider
+setup and isolated outer execution. Separate adapter tests also compile the real
+generated outer AST in both modes; those do not establish shared outer JIT
+execution or completion of the full public #exe gates.
 
 Every callback that advances compilation or execution requires the executor's
 original context and exact active buffer. Its exact source-abort notification

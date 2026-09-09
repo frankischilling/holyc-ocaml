@@ -407,7 +407,13 @@ The TempleOS checkout is a read-only submodule at `third_party/TempleOS`. Run `t
 
 HolyC `#exe` runs code during compilation. This build does not execute arbitrary `#exe` input. Future general support will use a deterministic VM with bounded steps and memory by default. Native compile-time execution will require an explicit unsafe option. See [SECURITY.md](SECURITY.md).
 
-The `eval` and `run --target=ir` commands use the shared bounded integer interpreter. Stateful compile-time execution has not yet connected that engine to `#exe` or `StreamPrint`; the existing source execution examples do not establish those capabilities.
+The `eval` and `run --target=ir` commands use the shared bounded integer interpreter.
+`run --mode=aot` now connects supported `#exe` task commands and `StreamPrint` to
+the live parser, then executes the complete outer unit in an isolated image.
+Try [stateful-exe-aot.hc](examples/stateful-exe-aot.hc), which returns 42 and
+captures `AB`. [Task execution notes](docs/integer-task.md) describe the shared
+invocation limits and current boundaries. Shared outer JIT execution and partial
+declaration/initializer publication remain unfinished in #635.
 
 ## License and attribution
 

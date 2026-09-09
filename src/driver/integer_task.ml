@@ -60,6 +60,21 @@ let progress task =
     dimension_work = dimension_work task;
   }
 
+let compiled_units task =
+  List.rev_map (fun (_, command) -> command.program) task.commands
+
+let compile_isolated task ~source_command session ~config parsed =
+  Integer_unit.compile_source_in_task_budget ~task:task.state ~source_command
+    session ~config parsed
+
+let execute_isolated task program =
+  VM.execute_isolated_program_in_task task.state
+    ~runtime_calls:(Integer_unit.runtime_calls program)
+    ~globals:(Integer_unit.globals program)
+    ~initialization:(Integer_unit.initialization program)
+    ~functions:(Integer_unit.functions program)
+    (Integer_unit.entry program)
+
 let begin_stream task = VM.begin_task_stream task.state
 let finish_stream task stream = VM.finish_task_stream task.state stream
 let abort_stream task stream = VM.abort_task_stream task.state stream

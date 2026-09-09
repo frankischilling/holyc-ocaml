@@ -12,6 +12,25 @@ val progress : t -> progress
     effects reached before a later parse, compile or execution failure. This is
     neither a successful program outcome nor an executable artifact. *)
 
+val compiled_units : t -> Integer_unit.compiled list
+(** Immutable collection in compilation order, including checked units whose
+    later execution failed. The collection is not one isolated program. *)
+
+val compile_isolated :
+  t ->
+  source_command:Task_declarations.source_command ->
+  Session.t ->
+  config:Frontend.Preprocessor.Config.t ->
+  Frontend.Parser.output ->
+  (Integer_unit.compiled Integer_unit.checked, Common.Diagnostic.t list) result
+
+val execute_isolated :
+  t ->
+  Integer_unit.compiled ->
+  (Ir.Integer_interpreter.t, Ir.Integer_interpreter.error list) result
+(** Isolated output compilation/execution shares remaining invocation allowances
+    without importing or publishing retained task bindings. *)
+
 (** Incremental JIT execution with retained globals and functions. Calls
     preserve each body's original storage, literals and callees. [run] retains
     assigned declaration symbols across parsing and compilation; partial runtime

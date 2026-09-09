@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Connected public AOT source compilation and execution to retained #exe tasks.
+  Real generated text continues through the outer parser, while an early frontend
+  fork keeps task and outer namespaces separate. Streams and the isolated outer
+  image share invocation budgets and reached output. Reports retain immutable
+  progress and expose the complete outer artifact separately from task units.
+  Exact preparation ownership and replay checks protect isolated admission.
+  Unavailable AOT reads now fail at consumption with HCRUN0003, including source
+  without directives. Shared outer JIT and partial publication remain open in
+  #635; this does not complete general #exe support.
+
 - Connected the parser stream-execution callback to retained task compilation
   and VM execution. Real StreamPrint output now feeds generated ASTs through the
   adapter, with exact context/buffer ownership, resume timing, nested cleanup and

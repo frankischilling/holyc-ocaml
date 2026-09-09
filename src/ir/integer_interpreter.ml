@@ -299,6 +299,12 @@ type task_source_program = {
   source_bodies : function_definition list;
 }
 
+type isolated_preparation = {
+  preparation_catalog : Integer_globals.task_catalog;
+  mutable preparation_steps : int;
+  mutable preparation_closed : bool;
+}
+
 type task_state = {
   catalog : Integer_globals.task_catalog;
   mutable arenas : (Integer_globals.t * runtime_storage) list;
@@ -322,6 +328,7 @@ type task_state = {
   mutable streams : task_stream list;
   mutable admissions : task_admission list;
   mutable source_programs : task_source_program list;
+  mutable isolated_programs : task_source_program list;
 }
 
 let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
@@ -378,6 +385,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         streams = [];
         admissions = [];
         source_programs = [];
+        isolated_programs = [];
       }
 
 let begin_task_stream task =
@@ -526,6 +534,65 @@ let record_task_preparation task ~before ~steps =
     invalid_arg
       "task preparation progress is inconsistent with its cumulative budget";
   task.initializer_steps <- before + steps
+
+let begin_isolated_preparation task =
+  {
+    preparation_catalog = task.catalog;
+    preparation_steps = 0;
+    preparation_closed = false;
+  }
+
+let record_isolated_preparation task preparation ~steps =
+  if
+    preparation.preparation_catalog != task.catalog
+    || preparation.preparation_closed
+    || steps < preparation.preparation_steps
+    || steps - preparation.preparation_steps
+       > task.max_initializer_steps - task.initializer_steps
+  then invalid_arg "isolated preparation does not match its owning allowance";
+  task.initializer_steps <-
+    task.initializer_steps + steps - preparation.preparation_steps;
+  preparation.preparation_steps <- steps
+
+let abort_isolated_preparation task preparation =
+  if preparation.preparation_catalog != task.catalog then
+    invalid_arg "isolated preparation belongs to another invocation";
+  preparation.preparation_closed <- true
+
+let finish_isolated_preparation task preparation ~runtime_calls ~globals
+    ~initialization ~functions checked =
+  if
+    preparation.preparation_catalog != task.catalog
+    || preparation.preparation_closed
+  then Error "isolated preparation is foreign or already closed"
+  else if
+    preparation.preparation_steps
+    <> Global_initialization.prepared_steps initialization
+  then Error "isolated initializer work lacks its exact charged preparation"
+  else if
+    Integer_globals.is_task_command globals
+    || (not
+          (Global_initialization.matches initialization ~globals ~entry:checked))
+    || not
+         (Runtime.matches runtime_calls ~entry:checked
+            ~initialization:(Some initialization)
+            ~functions:
+              (List.map
+                 (fun (definition : function_definition) -> definition.body)
+                 functions))
+  then Error "isolated preparation requires its exact ordinary compiled bundle"
+  else (
+    preparation.preparation_closed <- true;
+    task.isolated_programs <-
+      {
+        source_entry = checked;
+        source_storage = globals;
+        source_initialization = initialization;
+        source_calls = runtime_calls;
+        source_bodies = functions;
+      }
+      :: task.isolated_programs;
+    Ok ())
 
 type call_phase = Collecting of int | Needs_cleanup | Needs_end
 
@@ -3390,11 +3457,17 @@ let execute_function ?(max_literal_bytes = 1_048_576) ~max_steps
             execute_prepared ~literal_image ~max_steps
               { program with owner = Some (function_id, function_name) })
 
-let execute_program_with_output ?task ?runtime_calls ~output ?globals
-    ?initialization ?(max_global_bytes = 1_048_576)
+let execute_program_with_output ?task ?isolated_budget ?runtime_calls ~output
+    ?globals ?initialization ?(max_global_bytes = 1_048_576)
     ?(max_literal_bytes = 1_048_576) ~max_steps ~max_frame_bytes ~max_call_depth
     ~functions checked =
   let ( let* ) = Result.bind in
+  let accounting =
+    match (task, isolated_budget) with
+    | Some task, None | None, Some task -> Some task
+    | None, None -> None
+    | Some _, Some _ -> invalid_arg "execution has two accounting owners"
+  in
   if
     max_steps <= 0 || max_frame_bytes <= 0 || max_call_depth <= 0
     || max_global_bytes <= 0 || max_literal_bytes <= 0
@@ -3424,7 +3497,11 @@ let execute_program_with_output ?task ?runtime_calls ~output ?globals
   else if
     Option.fold ~none:false
       ~some:(fun globals ->
-        Integer_globals.byte_size globals > max_global_bytes)
+        Integer_globals.byte_size globals
+        > max_global_bytes
+          - Option.fold ~none:0
+              ~some:(fun task -> task.global_bytes)
+              isolated_budget)
       globals
   then
     Error
@@ -3669,7 +3746,7 @@ let execute_program_with_output ?task ?runtime_calls ~output ?globals
     let literal_image = fresh_literal_image () in
     let max_literal_bytes =
       max_literal_bytes
-      - Option.fold ~none:0 ~some:(fun task -> task.literal_bytes) task
+      - Option.fold ~none:0 ~some:(fun task -> task.literal_bytes) accounting
     in
     let rec bodies rev = function
       | [] -> Ok (Array.of_list (List.rev rev))
@@ -3779,10 +3856,6 @@ let execute_program_with_output ?task ?runtime_calls ~output ?globals
                       }))
           in
           task.functions <- executable_publications @ task.functions;
-          task.global_bytes <-
-            task.global_bytes + Integer_globals.byte_size globals;
-          task.literal_bytes <-
-            task.literal_bytes + literal_image.literal_byte_count;
           let publications =
             Integer_globals.publish_task task.catalog globals
           in
@@ -3805,6 +3878,19 @@ let execute_program_with_output ?task ?runtime_calls ~output ?globals
             :: task.admissions)
         task
     in
+    let admit =
+      Option.map
+        (fun account storage owner ->
+          Option.iter (fun retain -> retain storage owner) admit;
+          if Option.is_some isolated_budget then
+            account.started <- checked :: account.started;
+          account.global_bytes <-
+            account.global_bytes
+            + Option.fold ~none:0 ~some:Integer_globals.byte_size globals;
+          account.literal_bytes <-
+            account.literal_bytes + literal_image.literal_byte_count)
+        accounting
+    in
     let outcome =
       let stream_output =
         Option.bind task (fun task ->
@@ -3812,9 +3898,11 @@ let execute_program_with_output ?task ?runtime_calls ~output ?globals
             | active :: _ -> Some active.stream_output
             | [] -> None)
       in
-      let generation_output = Option.map (fun task -> task.generated) task in
+      let generation_output =
+        Option.map (fun task -> task.generated) accounting
+      in
       let on_capture =
-        Option.bind task (fun task ->
+        Option.bind accounting (fun task ->
             if task.streams = [] then
               Some (fun value -> task.outer_value <- value)
             else None)
@@ -3835,7 +3923,7 @@ let execute_program_with_output ?task ?runtime_calls ~output ?globals
                 0 errors
         in
         task.steps <- task.steps + steps)
-      task;
+      accounting;
     outcome
 
 let execute_task_program task ~runtime_calls ~globals ~initialization ~functions
@@ -3853,6 +3941,48 @@ let execute_task_program task ~runtime_calls ~globals ~initialization ~functions
       ~max_steps:(task.max_steps - task.steps)
       ~max_frame_bytes:task.max_frame_bytes ~max_call_depth:task.max_call_depth
       ~functions checked
+
+let execute_isolated_program_in_task task ~runtime_calls ~globals
+    ~initialization ~functions checked =
+  let invalid code message =
+    Error
+      [ make_error ~stage:Preflight ~executed_steps:task.steps code message ]
+  in
+  if
+    not
+      (List.exists
+         (fun program ->
+           matches_source_program program ~runtime_calls ~globals
+             ~initialization ~functions checked)
+         task.isolated_programs)
+  then
+    invalid "HCIRVM0026"
+      "isolated output lacks its owning preparation and compiled bundle"
+  else if task.streams <> [] then
+    invalid "HCIRVM0027"
+      "isolated output cannot execute inside an active stream"
+  else if List.exists (fun entry -> entry == checked) task.started then
+    invalid "HCIRVM0026"
+      "isolated output has already started in this invocation"
+  else if task.steps >= task.max_steps then
+    invalid "HCIRVM0007" "the invocation execution step limit was exhausted"
+  else
+    let before = task.steps in
+    execute_program_with_output ~isolated_budget:task ~runtime_calls
+      ~output:task.output ~globals ~initialization
+      ~max_global_bytes:task.max_global_bytes
+      ~max_literal_bytes:task.max_literal_bytes
+      ~max_steps:(task.max_steps - before) ~max_frame_bytes:task.max_frame_bytes
+      ~max_call_depth:task.max_call_depth ~functions checked
+    |> Result.map (fun result ->
+        {
+          result with
+          executed_steps_ = task.steps;
+          compiled_initializer_steps_ = task.initializer_steps;
+        })
+    |> Result.map_error
+         (List.map (fun (error : error) ->
+              { error with executed_steps = before + error.executed_steps }))
 
 let execute_program_report ?runtime_calls ?globals ?initialization
     ?max_global_bytes ?max_literal_bytes ?(max_output_bytes = 1_048_576)

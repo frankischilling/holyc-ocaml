@@ -290,6 +290,45 @@ val report_outcome : report -> (t, error list) result
 val report_output_bytes : report -> string
 val report_output_work : report -> int
 
+val execute_isolated_program_in_task :
+  task_state ->
+  runtime_calls:Runtime_call_context.t ->
+  globals:Integer_globals.t ->
+  initialization:Global_initialization.t ->
+  functions:function_definition list ->
+  X87_stack.t ->
+  (t, error list) result
+(** Execute a fresh isolated output image using the invocation's remaining
+    instruction, storage, literal and output/work allowances. It receives no
+    retained task bindings and publishes none. Preflight preserves earlier task
+    effects; reached execution charges its allocations and instructions once.
+    Success reports cumulative instructions/preparation and the actual outer
+    result. Active streams and replayed output images reject before effects. *)
+
+type isolated_preparation
+
+val begin_isolated_preparation : task_state -> isolated_preparation
+
+val record_isolated_preparation :
+  task_state -> isolated_preparation -> steps:int -> unit
+
+val abort_isolated_preparation : task_state -> isolated_preparation -> unit
+
+val finish_isolated_preparation :
+  task_state ->
+  isolated_preparation ->
+  runtime_calls:Runtime_call_context.t ->
+  globals:Integer_globals.t ->
+  initialization:Global_initialization.t ->
+  functions:function_definition list ->
+  X87_stack.t ->
+  (unit, string) result
+(** Account preparation through this exact invocation-owned ticket, then seal
+    its actual ordinary entry/storage/initializer/call/body bundle. The charged
+    work must equal the bundle's checked preparation. Abort retains charges;
+    foreign, closed or undercharged tickets cannot authorize isolated execution.
+*)
+
 val final_value : t -> word option
 (** Last reached top-level expression value from [execute_program], separate
     from stream termination and function return values. A last U0 expression has

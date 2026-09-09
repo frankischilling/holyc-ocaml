@@ -118,6 +118,7 @@ let () =
       ("task stream output", Test_task_stream.tests);
       ("task progress", Test_task_progress.tests);
       ("task parser executor", Test_task_parser_executor.tests);
+      ("AOT source execution", Test_aot_source_execution.tests);
       ("task declarations", Test_task_declarations.tests);
       ("stream parser", Test_stream_parser.tests);
       ("source integer statics", Test_integer_statics.tests);

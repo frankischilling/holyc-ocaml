@@ -24,3 +24,6 @@ val outcome :
 val output_bytes : t -> string
 val output_work : t -> int
 val dimension_work : t -> int
+val progress : t -> Integer_task.progress option
+val program : t -> Integer_unit.compiled option
+val task_units : t -> Integer_unit.compiled list

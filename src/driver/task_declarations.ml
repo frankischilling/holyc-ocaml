@@ -641,6 +641,29 @@ let observe_reference ledger selection =
       in
       Names.add ledger.references identifier { selection; target })
 
+let validate_source_reference ledger selection =
+  let identifier = Parser.selected_identifier selection in
+  let span = identifier.location.span in
+  protect (fun () ->
+      (match ledger.authority with
+      | Source_compilation _ -> ()
+      | _ ->
+          fail span
+            "source reference validation requires its original source ledger");
+      let reference =
+        match Names.find_opt ledger.references identifier with
+        | Some reference when reference.selection == selection -> reference
+        | _ -> fail span "source read lacks its exact observed selection"
+      in
+      match reference.target with
+      | Selected_absent ->
+          fail ~code:"HCRUN0003" span
+            "source expression identifier is absent at its source read"
+      | Selected_unbound _ ->
+          fail ~code:"HCRUN0003" span
+            "source expression entry has no checked source publication"
+      | Selected_local | Selected_source _ | Selected_runtime _ -> ())
+
 let observe_execution_reference ledger selection =
   let identifier = Parser.selected_identifier selection in
   let span = identifier.location.span in

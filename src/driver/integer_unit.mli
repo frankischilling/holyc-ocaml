@@ -21,6 +21,18 @@ val compile_task_ast :
   Frontend.Ast.module_ ->
   (compiled checked, Common.Diagnostic.t list) result
 
+val compile_source_in_task_budget :
+  task:Ir.Integer_interpreter.task_state ->
+  source_command:Task_declarations.source_command ->
+  Session.t ->
+  config:Frontend.Preprocessor.Config.t ->
+  Frontend.Parser.output ->
+  (compiled checked, Common.Diagnostic.t list) result
+(** Compile the exact isolated source unit with the invocation's remaining
+    initializer allowance. Source dimensions keep their separate source budget;
+    this grants no retained task namespace or storage authority. Reached
+    initializer preparation is retained on failure. *)
+
 val compile_ast :
   ?max_initializer_steps:int ->
   Session.t ->

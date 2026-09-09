@@ -71,7 +71,8 @@ let fail span code message =
 
 let compile_parsed_with_limit ?task_view ?initializer_progress
     ?declaration_command ?source_command ?retained_function_source
-    ~max_initializer_steps session ~config (parsed : Frontend.Parser.output) =
+    ?(allow_zero_initializer_budget = false) ~max_initializer_steps session
+    ~config (parsed : Frontend.Parser.output) =
   match parsed.ast with
   | None -> Error parsed.diagnostics
   | Some ast -> (
@@ -662,7 +663,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
           let* preparation_ =
             Integer_initializers.prepare ~max_steps:max_initializer_steps
               ?retained_function_source
-              ~allow_zero_budget:(Option.is_some task_view)
+              ~allow_zero_budget:
+                (allow_zero_initializer_budget || Option.is_some task_view)
               ?on_progress:initializer_progress
               ~function_calls:(List.rev !all_function_calls)
               ~span:ast.span ~globals:globals_ ~top_calls ~functions:definitions
@@ -861,6 +863,41 @@ let compile_source_output ~source_command ~max_initializer_steps session ~config
     parsed =
   compile_parsed_with_limit ~source_command ~max_initializer_steps session
     ~config parsed
+
+let compile_source_in_task_budget ~task ~source_command session ~config parsed =
+  let module VM = Ir.Integer_interpreter in
+  let before = VM.task_initializer_steps task in
+  let preparation = VM.begin_isolated_preparation task in
+  let compiled =
+    compile_parsed_with_limit ~source_command
+      ~allow_zero_initializer_budget:true
+      ~max_initializer_steps:(VM.task_initializer_limit task - before)
+      ~initializer_progress:(fun steps ->
+        VM.record_isolated_preparation task preparation ~steps)
+      session ~config parsed
+  in
+  match compiled with
+  | Error _ ->
+      VM.abort_isolated_preparation task preparation;
+      compiled
+  | Ok checked -> (
+      let program = checked.value in
+      match
+        VM.finish_isolated_preparation task preparation
+          ~runtime_calls:program.runtime_calls_ ~globals:program.globals_
+          ~initialization:program.initialization_ ~functions:program.functions_
+          program.entry_
+      with
+      | Ok () -> compiled
+      | Error message ->
+          VM.abort_isolated_preparation task preparation;
+          Error
+            (checked.diagnostics
+            @ [
+                Integer_source.diagnostic
+                  ~span:(Option.get parsed.Frontend.Parser.ast).span "HCRUN0004"
+                  message;
+              ]))
 
 let compile_task_ast ~task ?declaration_command session ~config
     (ast : Ast.module_) =

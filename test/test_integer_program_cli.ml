@@ -1910,4 +1910,74 @@ let () =
                = "HCIRVM0001")
             "invalid dimension allowance rejects before parsing"))
     [ "jit"; "aot" ];
+  with_file ".hc"
+    {|#exe {I64 N=20+20;Print("A");StreamPrint("%d;",N+2);}extern U0 Print(U8 *fmt,...);Print("B");I64 G=1+1;G+40;|}
+    (fun source ->
+      let run version limits =
+        invoke_raw
+          ([
+             "run"; "--format=json"; "--mode=aot"; "--report-version=" ^ version;
+           ]
+          @ limits @ [ source ])
+      in
+      List.iter
+        (fun version ->
+          let status, output, errors =
+            run version
+              [
+                "--step-limit=37";
+                "--initializer-step-limit=10";
+                "--global-byte-limit=16";
+                "--literal-byte-limit=8";
+                "--output-byte-limit=2";
+                "--output-work-limit=13";
+              ]
+          in
+          require (errors = "") "successful AOT JSON has no stderr";
+          let report = Yojson.Safe.from_string output in
+          require
+            (status = Unix.WEXITED 0
+            && report |> member "final_value" |> member "value" |> to_string
+               = "42"
+            && report |> member "executed_steps" |> to_int = 37
+            && report |> member "compiled_initializer_steps" |> to_int = 10)
+            "AOT source reports cumulative stream and isolated work";
+          require
+            (if version = "1" then
+               report |> member "output_hex" = `Null
+               && report |> member "output_work" = `Null
+             else
+               report |> member "output_hex" |> to_string = "4142"
+               && report |> member "output_work" |> to_int = 13)
+            "AOT success preserves each report version's field contract";
+          List.iter
+            (fun (limit, code, output) ->
+              let status, stdout, stderr = run version [ limit ] in
+              if version = "1" then
+                require
+                  (status = Unix.WEXITED 1 && stdout = ""
+                 && contains stderr code)
+                  "legacy AOT failures remain diagnostics on stderr"
+              else (
+                require (stderr = "") "v2 AOT failures remain JSON on stdout";
+                let report = Yojson.Safe.from_string stdout in
+                require
+                  (status = Unix.WEXITED 1
+                  && report |> member "diagnostics" |> to_list |> List.hd
+                     |> member "code" |> to_string = code
+                  && report |> member "output_hex" |> to_string = output
+                  && report |> member "executed_steps" |> to_int > 0
+                  && report |> member "compiled_initializer_steps" |> to_int > 0
+                  )
+                  "AOT source failures retain reached cumulative work"))
+            [
+              ("--step-limit=36", "HCIRVM0007", "4142");
+              ("--initializer-step-limit=9", "HCIRVM0007", "41");
+              ("--global-byte-limit=15", "HCIRVM0016", "41");
+              ("--literal-byte-limit=7", "HCIRVM0021", "41");
+              ("--output-byte-limit=1", "HCIRVM0022", "41");
+              ("--output-work-limit=12", "HCIRVM0023", "41");
+            ])
+        [ "1"; "2" ];
+      ignore (success [ "dump-ir"; "--program"; "--mode=aot"; source ]));
   print_endline "Integer program CLI checks passed."

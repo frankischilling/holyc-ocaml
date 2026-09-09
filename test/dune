@@ -68,6 +68,7 @@
   test_task_stream
   test_task_progress
   test_task_parser_executor
+  test_aot_source_execution
   test_task_declarations
   test_task_command_order
   test_stream_parser

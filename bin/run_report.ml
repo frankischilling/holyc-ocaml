@@ -62,9 +62,13 @@ let render ~human ~session ~limits ?command_error ?report () =
       result
   in
   let executed_steps =
-    match result with
-    | Some result -> Some (VM.executed_steps result)
-    | None ->
+    let progress =
+      Option.bind report Holyc_lib.integer_program_report_progress
+    in
+    match (progress, result) with
+    | Some progress, _ -> Some progress.runtime.executed_steps
+    | None, Some result -> Some (VM.executed_steps result)
+    | None, None ->
         diagnostics
         |> List.concat_map (fun (diagnostic : Holyc_lib.Diagnostic.t) ->
             diagnostic.notes)
@@ -76,7 +80,11 @@ let render ~human ~session ~limits ?command_error ?report () =
                    (String.length note - String.length prefix))
             else None)
   in
-  let preparation = Option.map VM.compiled_initializer_steps result in
+  let preparation =
+    match Option.bind report Holyc_lib.integer_program_report_progress with
+    | Some progress -> Some progress.runtime.initializer_steps
+    | None -> Option.map VM.compiled_initializer_steps result
+  in
   let dimension_work =
     Option.fold ~none:0 ~some:Holyc_lib.integer_program_report_dimension_work
       report

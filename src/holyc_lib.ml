@@ -509,3 +509,7 @@ let integer_program_report_dimension_work =
 
 let integer_program_report_output_work =
   Driver.Integer_program_report.output_work
+
+let integer_program_report_progress = Driver.Integer_program_report.progress
+let integer_program_report_program = Driver.Integer_program_report.program
+let integer_program_report_task_units = Driver.Integer_program_report.task_units
