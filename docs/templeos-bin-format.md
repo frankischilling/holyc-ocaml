@@ -107,7 +107,7 @@ Regenerate the checked module with:
 dune exec tools/bin_record_gen.exe -- --reference-root third_party/TempleOS --manifest reference/manifest.json --output-ml src/generated/bin_records.ml --output-mli src/generated/bin_records.mli
 ```
 
-`tools/bin_record_source.ml` verifies all 13 source checksums, parses the constant tables and header, checks the writer and loader formulas, scans consumers outside comments and literals, and rejects unknown `IET_*` or `AAT_*` names. `dune build @generated-check` fails when either generated file is stale.
+`tools/bin_record_source.ml` verifies all 13 source checksums, parses the constant tables and header, checks the writer and loader formulas, scans consumers outside comments and literals, and rejects unknown `IET_*` or `AAT_*` names. `dune build '@generated-check'` fails when either generated file is stale.
 
 The public API is `Holyc_lib.Templeos_bin_spec`. It provides typed entry and adjustment identities, safe name and number lookups, reserved-code decoding, record shapes, loader-pass actions, source status, checksums, and source references.
 

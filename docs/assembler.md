@@ -88,7 +88,7 @@ The session appends these records after the earlier seed groups so existing stab
 
 ```text
 dune exec tools/opcode_table_gen.exe -- --source third_party/TempleOS/Compiler/OpCodes.DD --manifest reference/manifest.json --output src/generated/opcode_keywords.ml
-dune build @generated-check
+dune build '@generated-check'
 ```
 
 The output records the reference commit, source path, SHA-256, and source line for every generated name and instruction form.

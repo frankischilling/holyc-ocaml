@@ -174,7 +174,7 @@ Regenerate the audited language and assembler directive records with:
 dune exec tools/opcode_table_gen.exe -- --source third_party/TempleOS/Compiler/OpCodes.DD --manifest reference/manifest.json --output src/generated/opcode_keywords.ml
 ```
 
-`dune build @generated-check` compares the checked-in file with a fresh deterministic rendering. The generator parses all four ordered statement groups used by `AsmHashLoad` and retains 106 registers, 73 keyword records, 325 canonical opcodes, 49 aliases, and 924 instruction forms. It rejects unfamiliar syntax rather than producing a partial table. The generator reverses Git's CRLF checkout conversion before checking the pinned blob checksum, so Windows and Unix checkouts validate the same source object. It uses `digestif` for SHA-256 because OCaml's standard `Digest` module only supplies MD5.
+`dune build '@generated-check'` compares the checked-in file with a fresh deterministic rendering. The generator parses all four ordered statement groups used by `AsmHashLoad` and retains 106 registers, 73 keyword records, 325 canonical opcodes, 49 aliases, and 924 instruction forms. It rejects unfamiliar syntax rather than producing a partial table. The generator reverses Git's CRLF checkout conversion before checking the pinned blob checksum, so Windows and Unix checkouts validate the same source object. It uses `digestif` for SHA-256 because OCaml's standard `Digest` module only supplies MD5.
 
 ## Generated primitive type data
 
@@ -194,7 +194,7 @@ Regenerate token recognition, precedence, and binary operator records with:
 dune exec tools/operator_table_gen.exe -- --kernel third_party/TempleOS/Kernel/KernelA.HH --compiler third_party/TempleOS/Compiler/CompilerA.HH --cinit third_party/TempleOS/Compiler/CInit.HC --lex third_party/TempleOS/Compiler/Lex.HC --manifest reference/manifest.json --output src/generated/operator_tables.ml
 ```
 
-This generator checks all four source files before parsing them. It preserves the three `dual_U16_tokens` arrays, comment openers, lexer-only shift and dot forms, precedence and association constants, and every `cmp.binary_ops` record. `dune build @generated-check` rejects stale operator output alongside the other generated tables.
+This generator checks all four source files before parsing them. It preserves the three `dual_U16_tokens` arrays, comment openers, lexer-only shift and dot forms, precedence and association constants, and every `cmp.binary_ops` record. `dune build '@generated-check'` rejects stale operator output alongside the other generated tables.
 
 ## Generated compiler option data
 
@@ -218,7 +218,7 @@ dune exec tools/intermediate_code_gen.exe -- --compiler third_party/TempleOS/Com
 
 The generator verifies both source tables before parsing them. It requires 185 contiguous `IC_*` definitions, the `IC_ICS_NUM` value `0xB9`, the audited `CIntermediateStruct` layout, and one metadata record for each numeric code. Unknown argument shapes, structural types, Boolean values, padding, or extra fields stop generation.
 
-Constant names and display names remain separate. The source contains 13 real differences, including `IC_SWAP_I64` versus `SWAP_U64`; the generator does not rewrite either spelling. `dune build @generated-check` compares both generated files with a fresh rendering.
+Constant names and display names remain separate. The source contains 13 real differences, including `IC_SWAP_I64` versus `SWAP_U64`; the generator does not rewrite either spelling. `dune build '@generated-check'` compares both generated files with a fresh rendering.
 
 ## Generated function-flag data
 
@@ -230,7 +230,7 @@ dune exec tools/function_flag_gen.exe -- --reference-root third_party/TempleOS -
 
 The generator checks nine pinned files before parsing them. It keeps the inherited `CHashClass.flags` bits, function-only `Ff_*` bits, temporary `FSF_*` parser masks, and `FSG_FUN_FLAGS*` groups separate. It also verifies the declaration-modifier assignments and the source conditions governing `RET1`, varargs, caller cleanup, interrupt returns, and internal functions.
 
-The generated helpers describe those source rules without implementing function parsing or machine-code emission. `dune build @generated-check` rejects stale implementation or interface output.
+The generated helpers describe those source rules without implementing function parsing or machine-code emission. `dune build '@generated-check'` rejects stale implementation or interface output.
 
 ## Generated BIN record data
 
