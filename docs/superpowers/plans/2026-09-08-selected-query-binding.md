@@ -100,6 +100,50 @@ facade to execute directives past a native early error.
 
 ## In-progress evidence
 
+### Array preparation receipts after 59dc72b
+
+Continue the approved serial workflow. `Parser.declaration_event` will carry a
+private prospective array owner (original name, command and environment), an
+expression-preparation receipt, and an exact completed-dimension receipt.
+Preparation occurs after expression lookahead but before validating `]`;
+completion precedes Lex beyond `]`. Each receipt retains its original opening,
+expression, index and predecessor. Empty first dimensions retain `None`, since
+the pin assigns zero and does not establish negative-sentinel inference.
+
+- [x] Add real parser RED controls in `test/test_stream_parser.ml`: two callbacks
+  before the directive following each `]`, one preparation on a missing `]`, and
+  callback rejection before following directives. Use the existing declaration
+  sink so RED measures missing behavior rather than a missing API.
+- [x] Extend `src/frontend/parser.ml/.mli` and all three dimension readers
+  (global, local, aggregate member) with exact prospective owners. Publish the
+  expression receipt before bracket validation and completion before subsequent
+  lookahead. Argument arrays remain rejected at `[` without preparing a value.
+- [x] Extend `src/driver/task_declarations.ml/.mli` to validate active command,
+  environment, original owner, predecessor, once-only preparation/completion,
+  and publication association. Sealed readers require the original table, AST
+  and dimension. Add replay, omitted phase, cross-owner, aborted-command and
+  nested-input controls in `test/test_task_declarations.ml`.
+- [x] Check the focused parser/declaration suites and original corpus outputs;
+  run the full suite and required build checks once the implementation settles.
+
+These receipts do not themselves claim evaluated dimensions or runtime effects.
+The following implementation must consume one checked preparation result for
+layout, sizeof and unbraced initializer parsing, including task budget ownership.
+The latter needs a receipt-bound result returned to the parser's extent-driven
+element consumption; a unit observer alone does not supply that result.
+It must not add a dependency
+from Compiler_record to Aggregate_layout/Query_selection, re-evaluate at a query,
+or treat VM-padded storage as declared extent. The full #635 gates remain open.
+
+Receipt verification: the initial three behavioral controls failed in 2QZKPVDR
+before implementation. The expanded parser/declaration suite ORBJOYDO passed all
+97 groups in0.201s. Full unbuffered run3EYQZMJQ passed2248 of2262 in75.172s;
+every failure is one of the same fourteen stateful #exe groups. Quoted Dune
+format/generated/all/install targets, all82 checksums and eleven provenance
+scenarios pass. Complete lexer JSON and parser JSON/normalized text match the
+existing baselines. Independent read-only review found no receipt blocker.
+Evaluated metadata, runtime preparation and all wider compiler work remain open.
+
 The query work is uncommitted and extends 33f3b31. Initial runtime controls
 WQ87H89R had four failures among 87 focused groups: published-but-unadmitted
 `defined` returned zero, selected absence rebound after a nested publication,

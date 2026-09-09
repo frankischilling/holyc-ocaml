@@ -72,6 +72,23 @@ val query_selection : query -> Sema.Query_selection.t
 val query_target : query -> reference_target
 val query_presence : query -> bool
 
+val dimension_for :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  Frontend.Ast.array_dimension ->
+  (Frontend.Parser.completed_array_dimension, Common.Diagnostic.t list) result
+
+val source_dimension_for :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  Frontend.Ast.array_dimension ->
+  (Frontend.Parser.completed_array_dimension, Common.Diagnostic.t list) result
+(** Read original ordered preparation and completion witnesses in the exact
+    sealed command. These receipts establish source ownership and callback
+    order, independently of evaluated extent values or runtime admission. *)
+
 val observe_reference :
   t ->
   Frontend.Parser.reference_selection ->

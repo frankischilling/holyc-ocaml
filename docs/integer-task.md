@@ -270,6 +270,23 @@ and terminating lookahead. Assigned symbols now survive completion; consumers
 still need partial type/storage/header publication, initializer execution and
 executable installation at these points.
 
+Array suffixes expose separate expression-preparation and completed-dimension
+events. Preparation follows the expression's terminating lookahead and precedes
+closing-bracket validation; completion precedes reading beyond that bracket.
+The prospective owner retains the original declarator name, command and
+environment before publication. Each dimension keeps the same opening and
+expression children, its index and its original predecessor. Globals require
+the complete ordered receipts before semantic publication. Sealed readers reject
+foreign tables, ASTs, reconstructed dimensions, missing phases and replay.
+Nested inputs retain separate owners even when they use the same spelling.
+
+These events establish callback order and source ownership. Evaluated extents,
+their cumulative preparation charges, and their reuse by layout, sizeof and
+unbraced initializer parsing remain required. Declared sizes must remain
+separate from rounded runtime storage. The pinned PrsArrayDims assigns zero to
+an empty first dimension, while initializer inference branches test negative
+counts; the comments alone do not establish positive inference for that syntax.
+
 Parser command receipts now prove whole-command membership and parser order.
 Each source context retains its exact input/environment and suspended parent
 phase; starts retain the exact completed predecessor. Declarations and expression

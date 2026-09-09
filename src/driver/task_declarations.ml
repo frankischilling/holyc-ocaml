@@ -32,6 +32,20 @@ module Query_expressions = Hashtbl.Make (struct
   let hash = Hashtbl.hash
 end)
 
+module Dimensions = Hashtbl.Make (struct
+  type t = Ast.array_dimension
+
+  let equal left right = left == right
+  let hash = Hashtbl.hash
+end)
+
+type reading_dimensions = {
+  owner : Parser.array_dimensions_owner;
+  mutable pending : Parser.array_dimension_preparation option;
+  mutable completed_rev : Parser.completed_array_dimension list;
+  mutable next_index : int;
+}
+
 type source =
   | Global of {
       publication : Parser.global_publication;
@@ -93,6 +107,7 @@ type command = {
   declarations : Collection.t;
   references : selected_reference Names.t;
   queries : query Query_expressions.t;
+  dimensions : Parser.completed_array_dimension Dimensions.t;
 }
 
 type source_command = Source_command of command
@@ -141,6 +156,8 @@ type t = {
   references : selected_reference Names.t;
   query_roots : reading_query Query_roots.t;
   queries : query Query_expressions.t;
+  dimension_owners : reading_dimensions Names.t;
+  dimensions : Parser.completed_array_dimension Dimensions.t;
 }
 
 exception Invalid of Common.Diagnostic.t
@@ -210,6 +227,8 @@ let create_with_authority authority session =
           references = Names.create 32;
           query_roots = Query_roots.create 16;
           queries = Query_expressions.create 16;
+          dimension_owners = Names.create 16;
+          dimensions = Dimensions.create 16;
         })
 
 let create ?runtime session =
@@ -778,12 +797,105 @@ let find ledger (name : Ast.identifier) =
       fail name.location.span
         "source declaration has no assigned parser publication"
 
+let validate_dimension_owner ledger (owner : Parser.array_dimensions_owner) =
+  let start = owner.dimensions_command in
+  let span = owner.dimensions_name.location.span in
+  let sequence = active_sequence ledger start.command_context in
+  (match sequence.phase with
+  | Reading saved when saved == start -> ()
+  | _ ->
+      fail span "array dimension does not belong to the active parser command");
+  if owner.dimensions_environment != ledger.symbols then
+    fail span "array dimension belongs to another frontend environment"
+
+let prepare_dimension ledger (preparation : Parser.array_dimension_preparation)
+    =
+  let owner = preparation.dimension_owner in
+  validate_dimension_owner ledger owner;
+  let span = preparation.dimension_opening.span in
+  let state =
+    match Names.find_opt ledger.dimension_owners owner.dimensions_name with
+    | Some state when state.owner == owner -> state
+    | Some _ -> fail span "array dimension has a different prospective owner"
+    | None ->
+        if
+          preparation.dimension_index <> 0
+          || Option.is_some preparation.dimension_predecessor
+        then fail span "array dimension preparation is missing its predecessor";
+        let state =
+          { owner; pending = None; completed_rev = []; next_index = 0 }
+        in
+        Names.add ledger.dimension_owners owner.dimensions_name state;
+        state
+  in
+  if
+    Option.is_some state.pending
+    || preparation.dimension_index <> state.next_index
+    || not
+         (same_option ( == ) preparation.dimension_predecessor
+            (List.nth_opt state.completed_rev 0))
+  then fail span "array dimension preparation is repeated or out of order";
+  state.pending <- Some preparation
+
+let complete_dimension ledger (receipt : Parser.completed_array_dimension) =
+  let preparation = receipt.dimension_preparation in
+  let owner = preparation.dimension_owner in
+  validate_dimension_owner ledger owner;
+  let dimension = receipt.dimension_ast in
+  let span = dimension.location.span in
+  let state =
+    match Names.find_opt ledger.dimension_owners owner.dimensions_name with
+    | Some state
+      when state.owner == owner
+           && same_option ( == ) state.pending (Some preparation) -> state
+    | _ -> fail span "array dimension completion has no original preparation"
+  in
+  if
+    dimension.opening_bracket != preparation.dimension_opening
+    || (not
+          (same_option ( == ) dimension.dimension_expression
+             preparation.dimension_expression))
+    || Dimensions.mem ledger.dimensions dimension
+  then
+    fail span
+      "array dimension completion has substituted or repeated source children";
+  if state.next_index = max_int then
+    fail span "array dimension preparation index space is exhausted";
+  state.pending <- None;
+  state.completed_rev <- receipt :: state.completed_rev;
+  state.next_index <- state.next_index + 1;
+  Dimensions.add ledger.dimensions dimension receipt
+
+let validate_global_dimensions ledger (publication : Parser.global_publication)
+    =
+  let dimensions = publication.global_dimensions in
+  match Names.find_opt ledger.dimension_owners publication.global_name with
+  | None when dimensions = [] -> ()
+  | Some state
+    when state.owner.dimensions_command
+         == publication.global_header.declaration_command
+         && Option.is_none state.pending
+         && List.length dimensions = List.length state.completed_rev
+         && List.for_all2
+              (fun dimension receipt ->
+                dimension == receipt.Parser.dimension_ast)
+              dimensions
+              (List.rev state.completed_rev) -> ()
+  | _ ->
+      fail publication.global_name.location.span
+        "global publication is missing its original completed array dimensions"
+
 let observe ledger event =
   protect (fun () ->
       match event with
+      | Parser.Array_dimension_preparing preparation ->
+          prepare_dimension ledger preparation
+      | Parser.Array_dimension_completed receipt ->
+          complete_dimension ledger receipt
       | Parser.Global_declared publication ->
           validate_source ledger publication.global_environment
             publication.global_header publication.global_name;
+          validate_global_dimensions ledger publication;
           assign ledger publication.global_name Sema.Symbol.Global_variable
             (Global { publication; completed = None })
             publication.global_entry
@@ -1042,6 +1154,18 @@ let seal ledger (ast : Ast.module_) =
                     original_commands
                 then Query_expressions.add queries expression query)
               ledger.queries;
+            let dimensions = Dimensions.create 16 in
+            Dimensions.iter
+              (fun dimension receipt ->
+                if
+                  List.exists
+                    (fun entry ->
+                      entry.receipt.command_start
+                      == receipt.Parser.dimension_preparation.dimension_owner
+                           .dimensions_command)
+                    original_commands
+                then Dimensions.add dimensions dimension receipt)
+              ledger.dimensions;
             let command =
               {
                 table = ledger.table;
@@ -1050,6 +1174,7 @@ let seal ledger (ast : Ast.module_) =
                 declarations;
                 references;
                 queries;
+                dimensions;
               }
             in
             List.iter (fun entry -> entry.sealed <- true) original_commands;
@@ -1095,6 +1220,19 @@ let query_for ~table ~ast (command : command) expression =
           fail (Ast.expression_location expression).span
             "query has no complete parser receipt in this task command")
 
+let dimension_for ~table ~ast (command : command)
+    (dimension : Ast.array_dimension) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span
+          "task dimension seal belongs to another table or source AST";
+      match Dimensions.find_opt command.dimensions dimension with
+      | Some receipt -> receipt
+      | None ->
+          fail dimension.location.span
+            "array dimension has no complete parser receipt in this task \
+             command")
+
 let seal_source ledger ast =
   match ledger.authority with
   | Source_compilation _ ->
@@ -1110,6 +1248,9 @@ let source_collection ~table ~ast (Source_command command) =
 
 let source_query_for ~table ~ast (Source_command command) expression =
   query_for ~table ~ast command expression
+
+let source_dimension_for ~table ~ast (Source_command command) dimension =
+  dimension_for ~table ~ast command dimension
 
 let reference_resolver ~table ~ast ~task_view command =
   let module Selection = Sema.Reference_selection in

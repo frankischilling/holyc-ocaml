@@ -1305,8 +1305,153 @@ let query_rejection_order () =
         "failed read stops following directive" false !reached)
     [ false; true ]
 
+let dimension_preparation_boundaries () =
+  let events = ref 0 in
+  let reached = ref [] in
+  let commands =
+    declaration_sink (fun _ ->
+        incr events;
+        Ok ())
+  in
+  let _, _, output, _, _, _ =
+    parse ~commands
+      ~on_enter:(fun () -> reached := !events :: !reached)
+      "U8 A[2] #exe {} [3] #exe {};"
+  in
+  ignore (P.expect_ast output);
+  Alcotest.(check (list int))
+    "each dimension prepares and completes before following Lex" [ 2; 4 ]
+    (List.rev !reached);
+  Alcotest.(check int) "global publication follows all dimensions" 6 !events
+
+let dimension_preparation_before_invalid_close () =
+  let events = ref 0 in
+  let commands =
+    declaration_sink (fun _ ->
+        incr events;
+        Ok ())
+  in
+  parse ~commands "U8 A[2;" |> error "HCPARSE0023";
+  Alcotest.(check int)
+    "expression preparation survives missing closing bracket" 1 !events
+
+let dimension_preparation_rejection () =
+  let reached = ref false in
+  let commands = declaration_sink (fun _ -> Error []) in
+  parse ~commands ~on_enter:(fun () -> reached := true) "U8 A[2] #exe {};"
+  |> error "HCPARSE0161";
+  Alcotest.(check bool)
+    "dimension rejection precedes following directive" false !reached
+
+let dimension_expression_lookahead () =
+  let events = ref 0 in
+  let reached = ref [] in
+  let commands =
+    declaration_sink (fun _ ->
+        incr events;
+        Ok ())
+  in
+  let _, _, output, _, _, _ =
+    parse ~commands
+      ~on_enter:(fun () -> reached := !events :: !reached)
+      "U8 A[2 #exe {} ] #exe {};"
+  in
+  ignore (P.expect_ast output);
+  Alcotest.(check (list int))
+    "expression lookahead precedes preparation; closing lookahead follows it"
+    [ 0; 2 ] (List.rev !reached)
+
+let dimension_argument_rejection () =
+  List.iter
+    (fun source ->
+      let preparations = ref 0 in
+      let reached = ref false in
+      let commands =
+        declaration_sink (function
+          | Parser.Array_dimension_preparing _ ->
+              incr preparations;
+              Ok ()
+          | _ -> Ok ())
+      in
+      parse ~commands ~on_enter:(fun () -> reached := true) source
+      |> error "HCPARSE0011";
+      Alcotest.(check int)
+        "argument array does not prepare an extent" 0 !preparations;
+      Alcotest.(check bool)
+        "argument array rejects before extent Lex" false !reached)
+    [ "I64 F(U8 A[ #exe {} 2]);"; "I64 F(I64 (*cb)(U8 A[ #exe {} 2]));" ]
+
+let dimension_member_and_local_children () =
+  let receipts = ref [] in
+  let commands =
+    declaration_sink (function
+      | Parser.Array_dimension_completed receipt ->
+          receipts := receipt :: !receipts;
+          Ok ()
+      | _ -> Ok ())
+  in
+  let _, _, output, _, _, _ =
+    parse ~commands "class C {U8 M[3];}; I64 F(){U8 L[4]; static U8 S[5];}"
+  in
+  let ast = P.expect_ast output in
+  let rec locals = function
+    | Ast.Block_statement block -> List.concat_map locals block.block_statements
+    | Ast.Sequence_statement sequence ->
+        List.concat_map
+          (fun (element : Ast.statement_sequence_element) ->
+            locals element.sequence_statement)
+          sequence.sequence_elements
+    | Ast.Local_declaration_statement declaration ->
+        List.map
+          (fun (declarator : Ast.local_declarator) ->
+            (declarator.local_name, declarator.local_array_dimensions))
+          declaration.local_declarators
+    | _ -> []
+  in
+  let children =
+    List.concat_map
+      (function
+        | Ast.Aggregate_definition definition ->
+            List.concat_map
+              (function
+                | Ast.Aggregate_member_declaration declaration ->
+                    List.map
+                      (fun (declarator : Ast.aggregate_member_declarator) ->
+                        ( declarator.member_name,
+                          declarator.member_array_dimensions ))
+                      declaration.member_declarators
+                | _ -> [])
+              definition.members
+        | Ast.Function_definition definition ->
+            Option.fold ~none:[] ~some:locals definition.body
+        | _ -> [])
+      ast.items
+  in
+  Alcotest.(check int)
+    "member, local and static local dimensions" 3 (List.length !receipts);
+  Alcotest.(check int) "three original AST declarators" 3 (List.length children);
+  List.iter2
+    (fun (name, dimensions) (receipt : Parser.completed_array_dimension) ->
+      Alcotest.(check bool)
+        "original prospective name and completed dimension" true
+        (name == receipt.dimension_preparation.dimension_owner.dimensions_name
+        && List.hd dimensions == receipt.dimension_ast))
+    children (List.rev !receipts)
+
 let tests =
   [
+    Alcotest.test_case "dimension expression retains terminating lookahead"
+      `Quick dimension_expression_lookahead;
+    Alcotest.test_case "argument array rejects before extent lookahead" `Quick
+      dimension_argument_rejection;
+    Alcotest.test_case "member and local dimensions own original children"
+      `Quick dimension_member_and_local_children;
+    Alcotest.test_case "dimension preparation precedes following Lex" `Quick
+      dimension_preparation_boundaries;
+    Alcotest.test_case "dimension preparation precedes bracket validation"
+      `Quick dimension_preparation_before_invalid_close;
+    Alcotest.test_case "dimension rejection stops following directives" `Quick
+      dimension_preparation_rejection;
     Alcotest.test_case "query receipts retain native consumption order" `Quick
       query_consumption_order;
     Alcotest.test_case "query rejection stops later directives" `Quick

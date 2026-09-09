@@ -167,7 +167,28 @@ type completed_function_header = {
   closing_parenthesis : Ast.location;
 }
 
+type array_dimensions_owner = {
+  dimensions_command : command_start;
+  dimensions_environment : Symbol_visibility.Environment.t;
+  dimensions_name : Ast.identifier;
+}
+
+type array_dimension_preparation = {
+  dimension_owner : array_dimensions_owner;
+  dimension_index : int;
+  dimension_predecessor : completed_array_dimension option;
+  dimension_opening : Ast.location;
+  dimension_expression : Ast.expression option;
+}
+
+and completed_array_dimension = {
+  dimension_preparation : array_dimension_preparation;
+  dimension_ast : Ast.array_dimension;
+}
+
 type declaration_event =
+  | Array_dimension_preparing of array_dimension_preparation
+  | Array_dimension_completed of completed_array_dimension
   | Global_declared of global_publication
   | Global_completed of global_publication * Ast.global_declarator
   | Function_declared of function_publication
@@ -2884,21 +2905,49 @@ let parse_binding cursor =
             Parsed_binding
               { node; keyword; tokens = [ keyword.token; target_item.token ] })
 
-let parse_array_dimension cursor ~index =
+let parse_array_dimension cursor ~owner ~predecessor ~index =
   let opening = take cursor in
+  let opening_bracket = token_location opening.token in
+  let prepare dimension_expression =
+    Option.map
+      (fun dimension_owner ->
+        let preparation =
+          {
+            dimension_owner;
+            dimension_index = index;
+            dimension_predecessor = predecessor;
+            dimension_opening = opening_bracket;
+            dimension_expression;
+          }
+        in
+        publish_declaration cursor opening
+          (Array_dimension_preparing preparation);
+        preparation)
+      owner
+  in
+  let complete preparation closing tokens dimension_expression =
+    let node =
+      Ast.make_array_dimension ~opening_bracket ~dimension_expression
+        ~closing_bracket:(token_location closing.token)
+        ~location:(location_from_expression_tokens tokens)
+    in
+    let completed =
+      Option.map
+        (fun dimension_preparation ->
+          let receipt = { dimension_preparation; dimension_ast = node } in
+          publish_declaration cursor closing (Array_dimension_completed receipt);
+          receipt)
+        preparation
+    in
+    Some (({ node; tokens } : parsed_array_dimension), completed)
+  in
   let next_item = peek cursor in
   if next_item.token.kind = Token_kind.Punctuation ']' then
     if index = 0 then
+      let preparation = prepare None in
       let closing = take cursor in
       let tokens = [ opening.token; closing.token ] in
-      let node =
-        Ast.make_array_dimension
-          ~opening_bracket:(token_location opening.token)
-          ~dimension_expression:None
-          ~closing_bracket:(token_location closing.token)
-          ~location:(location_from_expression_tokens tokens)
-      in
-      Some ({ node; tokens } : parsed_array_dimension)
+      complete preparation closing tokens None
     else
       expression_failure cursor next_item ~code:"HCPARSE0022"
         ~message:"only the first array dimension may be empty"
@@ -2909,6 +2958,7 @@ let parse_array_dimension cursor ~index =
     with
     | None -> None
     | Some (expression : parsed_expression) ->
+        let preparation = prepare (Some expression.node) in
         let closing = peek cursor in
         if closing.token.kind <> Token_kind.Punctuation ']' then
           expression_failure cursor closing ~code:"HCPARSE0023"
@@ -2921,26 +2971,32 @@ let parse_array_dimension cursor ~index =
           let tokens =
             (opening.token :: expression.tokens) @ [ closing.token ]
           in
-          let node =
-            Ast.make_array_dimension
-              ~opening_bracket:(token_location opening.token)
-              ~dimension_expression:(Some expression.node)
-              ~closing_bracket:(token_location closing.token)
-              ~location:(location_from_expression_tokens tokens)
-          in
-          Some ({ node; tokens } : parsed_array_dimension)
+          complete preparation closing tokens (Some expression.node)
 
-let rec parse_array_dimensions cursor index dimensions_rev token_groups_rev =
-  let item = peek cursor in
-  if item.token.kind <> Token_kind.Punctuation '[' then
-    Some (List.rev dimensions_rev, token_groups_rev |> List.rev |> List.concat)
-  else
-    match parse_array_dimension cursor ~index with
-    | None -> None
-    | Some dimension ->
-        parse_array_dimensions cursor (index + 1)
-          (dimension.node :: dimensions_rev)
-          (dimension.tokens :: token_groups_rev)
+let parse_array_dimensions cursor ~name =
+  let owner =
+    Option.map
+      (fun _ ->
+        {
+          dimensions_command = Option.get cursor.current_command;
+          dimensions_environment = cursor.symbols;
+          dimensions_name = name;
+        })
+      cursor.declaration
+  in
+  let rec loop predecessor index dimensions_rev token_groups_rev =
+    let item = peek cursor in
+    if item.token.kind <> Token_kind.Punctuation '[' then
+      Some (List.rev dimensions_rev, token_groups_rev |> List.rev |> List.concat)
+    else
+      match parse_array_dimension cursor ~owner ~predecessor ~index with
+      | None -> None
+      | Some (dimension, completed) ->
+          loop completed (index + 1)
+            (dimension.node :: dimensions_rev)
+            (dimension.tokens :: token_groups_rev)
+  in
+  loop None 0 [] []
 
 let initializer_failure ?(secondary = []) ?(local_open_braces = 0) cursor
     ~declarator_context item ~global_code ~local_code ~global_message
@@ -3215,7 +3271,7 @@ let parse_global_initializer cursor ~array_dimensions =
 
 let parse_variable_declarator_suffix ?header cursor
     (prefix : parsed_declarator_prefix) =
-  match parse_array_dimensions cursor 0 [] [] with
+  match parse_array_dimensions cursor ~name:prefix.name with
   | None -> None
   | Some (array_dimensions, array_tokens) ->
       let publication =
@@ -3572,7 +3628,7 @@ and parse_aggregate_member_declarator cursor ~base_spelling ~recovery_depth
       match parsed_core with
       | None -> Error { recovery_depth }
       | Some (name, function_pointer, core_tokens) -> (
-          match parse_array_dimensions cursor 0 [] [] with
+          match parse_array_dimensions cursor ~name with
           | None -> Error { recovery_depth }
           | Some (array_dimensions, array_tokens) -> (
               match parse_aggregate_member_metadata cursor ~recovery_depth with
@@ -5183,7 +5239,7 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
       in
       Option.bind parsed_name
         (fun (name, function_pointer, declarator_tokens) ->
-          match parse_array_dimensions cursor 0 [] [] with
+          match parse_array_dimensions cursor ~name with
           | None -> None
           | Some (array_dimensions, array_tokens) ->
               publish_local cursor ~spelling:name.spelling

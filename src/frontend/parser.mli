@@ -191,21 +191,50 @@ type completed_function_header = private {
   closing_parenthesis : Ast.location;
 }
 
+type array_dimensions_owner = private {
+  dimensions_command : command_start;
+  dimensions_environment : Symbol_visibility.Environment.t;
+  dimensions_name : Ast.identifier;
+}
+
+type array_dimension_preparation = private {
+  dimension_owner : array_dimensions_owner;
+  dimension_index : int;
+  dimension_predecessor : completed_array_dimension option;
+  dimension_opening : Ast.location;
+  dimension_expression : Ast.expression option;
+}
+
+and completed_array_dimension = private {
+  dimension_preparation : array_dimension_preparation;
+  dimension_ast : Ast.array_dimension;
+}
+
 type declaration_event = private
+  | Array_dimension_preparing of array_dimension_preparation
+  | Array_dimension_completed of completed_array_dimension
   | Global_declared of global_publication
   | Global_completed of global_publication * Ast.global_declarator
   | Function_declared of function_publication
   | Function_header_completed of completed_function_header
   | Function_body_completed of
       completed_function_header * Ast.function_definition
-      (** Parser-owned source witnesses. A global is declared after its
-          dimensions, before its initializer; completion precedes lookahead past
-          its delimiter. A function is provisional before parameter parsing.
-          Header completion follows the first lookahead past ')'; body
-          completion follows body parsing and its terminating lookahead,
-          including a native empty body at EOF. Completion records reuse exact
-          source nodes and their declaration witness. Runtime validation,
-          installation and replay admission remain the consumer's work. *)
+      (** Parser-owned source witnesses. Array preparation follows expression
+          lookahead and precedes closing-bracket validation. Completion reuses
+          the original opening and expression children and precedes Lex beyond
+          the closing bracket. The prospective owner retains the actual
+          declarator name before publication. Empty first dimensions retain
+          [None]; these witnesses do not establish evaluated values or
+          initializer inference.
+
+          A global is declared after its dimensions, before its initializer;
+          completion precedes lookahead past its delimiter. A function is
+          provisional before parameter parsing. Header completion follows the
+          first lookahead past ')'; body completion follows body parsing and its
+          terminating lookahead, including a native empty body at EOF.
+          Completion records reuse exact source nodes and their declaration
+          witness. Runtime validation, installation and replay admission remain
+          the consumer's work. *)
 
 type command_sink = {
   checkpoint :

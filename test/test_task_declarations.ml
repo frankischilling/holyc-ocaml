@@ -2154,8 +2154,228 @@ let source_command_ownership () =
         (D.seal_source other ast))
     [ D.create session |> checked; runtime_ledger ]
 
+let dimension_receipt_ownership () =
+  let session, ledger = setup () in
+  let _, foreign = setup () in
+  let observe event =
+    let result = D.observe ledger event in
+    (match event with
+    | Parser.Array_dimension_preparing _ | Parser.Array_dimension_completed _ ->
+        ignore (result |> expect);
+        reject "dimension event cannot replay" (D.observe ledger event);
+        reject "dimension event rejects foreign ledger"
+          (D.observe foreign event)
+    | _ -> ());
+    result
+  in
+  let output, events = parse ~observe session ledger "U8 A[2][3],B[][4];" in
+  let ast = Test_parser.expect_ast output in
+  let table = Session.semantic_symbols session in
+  let command = D.seal ledger ast |> expect in
+  let copied = copy_module ast ast.items in
+  let declarations =
+    match ast.items with
+    | [ Ast.Global_declaration declaration ] -> declaration.declarators
+    | _ -> Alcotest.fail "expected array declarations"
+  in
+  List.iter
+    (fun (declarator : Ast.global_declarator) ->
+      let previous = ref None in
+      List.iteri
+        (fun index (dimension : Ast.array_dimension) ->
+          let receipt =
+            D.dimension_for ~table ~ast command dimension |> expect
+          in
+          let preparation = receipt.dimension_preparation in
+          Alcotest.(check bool)
+            "receipt owns original name, opening and expression" true
+            (preparation.dimension_owner.dimensions_name == declarator.name
+            && preparation.dimension_opening == dimension.opening_bracket
+            &&
+            match
+              (preparation.dimension_expression, dimension.dimension_expression)
+            with
+            | None, None -> true
+            | Some a, Some b -> a == b
+            | _ -> false);
+          Alcotest.(check int)
+            "dimension index resets per declarator" index
+            preparation.dimension_index;
+          Alcotest.(check bool)
+            "original predecessor belongs to this declarator" true
+            (match (!previous, preparation.dimension_predecessor) with
+            | None, None -> true
+            | Some a, Some b -> a == b
+            | _ -> false);
+          previous := Some receipt;
+          reject "dimension rejects another AST"
+            (D.dimension_for ~table ~ast:copied command dimension);
+          reject "dimension rejects another table"
+            (D.dimension_for
+               ~table:(Session.semantic_symbols (Session.create ()))
+               ~ast command dimension);
+          let rebuilt =
+            Ast.make_array_dimension ~opening_bracket:dimension.opening_bracket
+              ~dimension_expression:dimension.dimension_expression
+              ~closing_bracket:dimension.closing_bracket
+              ~location:dimension.location
+          in
+          reject "equal rebuilt dimension cannot borrow preparation"
+            (D.dimension_for ~table ~ast command rebuilt))
+        declarator.array_dimensions)
+    declarations;
+  List.iter
+    (function
+      | (Parser.Array_dimension_preparing _ | Parser.Array_dimension_completed _)
+        as event ->
+          reject "closed dimension event cannot replay" (D.observe ledger event)
+      | _ -> ())
+    events
+
+let missing_dimension_phases () =
+  List.iter
+    (fun mode ->
+      let session, ledger = setup () in
+      let observe event =
+        match event with
+        | Parser.Array_dimension_preparing preparation
+          when mode = 0 || (mode = 2 && preparation.dimension_index = 0) ->
+            Ok ()
+        | Parser.Array_dimension_completed receipt
+          when mode = 1
+               || (mode = 2 && receipt.dimension_preparation.dimension_index = 0)
+          -> Ok ()
+        | _ -> D.observe ledger event
+      in
+      let output, _ = parse ~observe session ledger "U8 A[2][3];" in
+      Alcotest.(check bool)
+        "missing preparation, completion or predecessor rejects publication"
+        true (Parser.has_errors output))
+    [ 0; 1; 2 ]
+
+let aborted_dimension_preparation () =
+  let session, ledger = setup () in
+  let output, events = parse session ledger "U8 A[2;" in
+  Alcotest.(check bool)
+    "missing bracket aborts command" true (Parser.has_errors output);
+  let preparation =
+    match events with
+    | [ (Parser.Array_dimension_preparing _ as event) ] -> event
+    | _ -> Alcotest.fail "expected only an uncompleted preparation"
+  in
+  let output, _ = parse session ledger "U8 B[2];" in
+  let ast = Test_parser.expect_ast output in
+  ignore (D.seal ledger ast |> expect);
+  reject "aborted preparation cannot enter a later command"
+    (D.observe ledger preparation)
+
+let nested_dimension_receipts () =
+  let session, ledger = setup () in
+  let table = Session.semantic_symbols session in
+  let source =
+    Session.add_source session ~path:"nested-dimensions.hc"
+      ~contents:"U8 A[2] #exe {U8 A[5];}[3];"
+  in
+  let outer_event = ref None in
+  let receipts = ref [] in
+  let nested = ref None in
+  let observe event =
+    (match event with
+    | Parser.Array_dimension_completed receipt ->
+        receipts := receipt :: !receipts;
+        if Option.is_none !outer_event then outer_event := Some event
+    | Parser.Array_dimension_preparing preparation ->
+        if
+          Option.is_some
+            (Parser.context_parent
+               preparation.dimension_owner.dimensions_command.command_context)
+        then
+          reject "suspended parent dimension cannot be replayed in child"
+            (D.observe ledger (Option.get !outer_event))
+    | _ -> ());
+    D.observe ledger event
+  in
+  let sink checkpoint : Parser.command_sink =
+    {
+      checkpoint =
+        Some
+          (fun event ->
+            Result.bind (D.observe_command ledger event) (fun () ->
+                checkpoint event));
+      reference = None;
+      query = None;
+      declaration = Some observe;
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let execute_stream _ =
+    Ok
+      Parser.
+        {
+          definitions = Session.definitions session;
+          symbols = Session.symbols session;
+          commands =
+            sink (function
+              | Parser.Command_completed receipt ->
+                  D.seal ledger receipt.command_ast
+                  |> Result.map (fun command ->
+                      nested := Some (receipt.command_ast, command))
+              | _ -> Ok ());
+          finish = (fun () -> Ok "");
+          abort = (fun () -> ());
+        }
+  in
+  let output =
+    Parser.parse
+      ~commands:(sink (fun _ -> Ok ()))
+      ~execute_stream ~sources:(Session.sources session)
+      ~symbols:(Session.symbols session)
+      ~definitions:(Session.definitions session)
+      ~config:(config ()) source
+  in
+  let ast = Test_parser.expect_ast output in
+  let command = D.seal ledger ast |> expect in
+  let nested_ast, nested_command = Option.get !nested in
+  match List.rev !receipts with
+  | [ first; child; last ] ->
+      Alcotest.(check bool)
+        "parent dimensions retain one owner across child parsing" true
+        (first.dimension_preparation.dimension_owner
+         == last.dimension_preparation.dimension_owner
+        && first.dimension_preparation.dimension_owner
+           != child.dimension_preparation.dimension_owner
+        && Option.get last.dimension_preparation.dimension_predecessor == first
+        );
+      List.iter
+        (fun receipt ->
+          Alcotest.(check bool)
+            "outer seal retains exact dimension" true
+            (D.dimension_for ~table ~ast command receipt.Parser.dimension_ast
+            |> expect == receipt);
+          reject "child seal cannot borrow parent dimension"
+            (D.dimension_for ~table ~ast:nested_ast nested_command
+               receipt.dimension_ast))
+        [ first; last ];
+      ignore
+        (D.dimension_for ~table ~ast:nested_ast nested_command
+           child.dimension_ast
+        |> expect);
+      reject "parent seal does not include nested dimension"
+        (D.dimension_for ~table ~ast command child.dimension_ast)
+  | _ -> Alcotest.fail "expected two outer dimensions and one nested dimension"
+
 let tests =
   [
+    Alcotest.test_case
+      "nested dimension receipts retain distinct command owners" `Quick
+      nested_dimension_receipts;
+    Alcotest.test_case "dimension receipts own original ordered source children"
+      `Quick dimension_receipt_ownership;
+    Alcotest.test_case "dimension publication requires every original phase"
+      `Quick missing_dimension_phases;
+    Alcotest.test_case "aborted dimension preparation cannot resume later"
+      `Quick aborted_dimension_preparation;
     Alcotest.test_case "ordinary source seals retain distinct ownership" `Quick
       source_command_ownership;
     Alcotest.test_case "public union sizeof owns exact seeded metadata" `Quick
