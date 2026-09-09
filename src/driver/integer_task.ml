@@ -164,6 +164,183 @@ let execute task command =
     | Error errors, Error publication_errors ->
         Error (errors @ publication_errors)
 
+let stream_diagnostics span message =
+  let code, detail =
+    match String.index_opt message ':' with
+    | Some separator ->
+        ( String.sub message 0 separator,
+          String.sub message (separator + 1)
+            (String.length message - separator - 1)
+          |> String.trim )
+    | None -> ("HCIRVM0027", message)
+  in
+  [ Integer_source.diagnostic ~span code detail ]
+
+let stream_executor task span =
+  let ( let* ) = Result.bind in
+  let* stream =
+    begin_stream task |> Result.map_error (stream_diagnostics span)
+  in
+  let context = ref None in
+  let sequence = ref None in
+  let aborted = ref false in
+  let closed = ref false in
+  let invalid () =
+    Error
+      (stream_diagnostics span
+         "HCIRVM0027: parser executor does not own the active stream context")
+  in
+  let active () =
+    if !closed || !aborted || not (VM.task_stream_is_active task.state stream)
+    then invalid ()
+    else Ok ()
+  in
+  let owns candidate =
+    match !context with
+    | Some owner -> owner == candidate
+    | None -> false
+  in
+  let reading candidate =
+    let* () = active () in
+    if owns candidate && Option.is_none !sequence then Ok () else invalid ()
+  in
+  let command_context (start : Frontend.Parser.command_start) =
+    start.command_context
+  in
+  let reference selection =
+    let* () =
+      reading (Frontend.Parser.selected_command selection |> command_context)
+    in
+    Task_declarations.observe_execution_reference task.declarations selection
+  in
+  let query event =
+    let open Frontend.Parser in
+    let root =
+      match event with
+      | Query_root root -> root
+      | Query_member_started start -> start.member_start_root
+      | Query_member member -> member.query_member_root
+      | Query_completed completed -> completed.query_root
+    in
+    let* () = reading root.query_command.command_context in
+    Task_declarations.observe_query task.declarations event
+  in
+  let declaration event =
+    let open Frontend.Parser in
+    let start =
+      match event with
+      | Array_dimension_preparing preparation ->
+          preparation.dimension_owner.dimensions_command
+      | Array_dimension_completed completed ->
+          completed.dimension_preparation.dimension_owner.dimensions_command
+      | Global_declared publication | Global_completed (publication, _) ->
+          publication.global_header.declaration_command
+      | Function_declared publication ->
+          publication.function_header.declaration_command
+      | Function_header_completed header | Function_body_completed (header, _)
+        -> header.function_publication.function_header.declaration_command
+    in
+    let* () = reading start.command_context in
+    Task_declarations.observe task.declarations event
+  in
+  let dimension_count (completed : Frontend.Parser.completed_array_dimension) =
+    let* () =
+      reading
+        completed.dimension_preparation.dimension_owner.dimensions_command
+          .command_context
+    in
+    Task_declarations.grammar_dimension_count task.declarations completed
+  in
+  let commands : Frontend.Parser.command_sink =
+    {
+      checkpoint =
+        Some
+          (fun event ->
+            let open Frontend.Parser in
+            let candidate =
+              match event with
+              | Sequence_started candidate | Sequence_aborted candidate ->
+                  candidate
+              | Command_started start -> start.command_context
+              | Command_completed completed | Command_resumed completed ->
+                  completed.command_start.command_context
+              | Sequence_completed completed -> completed.sequence_context
+            in
+            let* () =
+              match event with
+              | Sequence_aborted _ when owns candidate && not !aborted ->
+                  (* Source cleanup must survive an earlier explicit buffer
+                     abort. It grants no compilation or execution progress. *)
+                  Ok ()
+              | _ -> active ()
+            in
+            let* () =
+              match event with
+              | Sequence_started _ when Option.is_none !context ->
+                  context := Some candidate;
+                  Ok ()
+              | Sequence_started _ -> invalid ()
+              | Sequence_aborted _ when owns candidate -> Ok ()
+              | _ -> reading candidate
+            in
+            let* () =
+              Task_declarations.observe_command task.declarations event
+            in
+            match event with
+            | Frontend.Parser.Command_resumed completed ->
+                let ast = completed.command_ast in
+                let* declaration_command =
+                  Task_declarations.seal task.declarations ast
+                in
+                let* command =
+                  compile_ast_internal ~declaration_command task ast
+                in
+                execute task command |> Result.map ignore
+            | Frontend.Parser.Sequence_completed completed ->
+                sequence := Some completed;
+                Ok ()
+            | Frontend.Parser.Sequence_aborted _ ->
+                aborted := true;
+                Ok ()
+            | _ -> Ok ());
+      query = Some query;
+      reference = Some reference;
+      declaration = Some declaration;
+      dimension_count = Some dimension_count;
+      command = (fun _ -> active ());
+      resume = active;
+    }
+  in
+  Ok
+    Frontend.Parser.
+      {
+        definitions = Session.definitions task.session;
+        symbols = Session.symbols task.session;
+        commands;
+        finish =
+          (fun () ->
+            let* () = active () in
+            match !sequence with
+            | Some completed
+              when owns completed.sequence_context
+                   && sequence_accepted completed ->
+                let* generated =
+                  finish_stream task stream
+                  |> Result.map_error (stream_diagnostics span)
+                in
+                closed := true;
+                Ok generated
+            | _ ->
+                Error
+                  (stream_diagnostics span
+                     "HCIRVM0027: stream sequence has not been accepted"));
+        abort =
+          (fun () ->
+            match abort_stream task stream with
+            | Ok () -> closed := true
+            | Error _ -> ());
+      }
+
 let run task ~source =
   let ( let* ) = Result.bind in
   let* () =

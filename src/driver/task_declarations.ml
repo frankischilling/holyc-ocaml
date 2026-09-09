@@ -641,6 +641,42 @@ let observe_reference ledger selection =
       in
       Names.add ledger.references identifier { selection; target })
 
+let observe_execution_reference ledger selection =
+  let identifier = Parser.selected_identifier selection in
+  let span = identifier.location.span in
+  let validate =
+    protect (fun () ->
+        if Option.is_none (ledger_runtime ledger) then
+          fail span "execution reference observation requires an owning runtime")
+  in
+  Result.bind validate (fun () ->
+      Result.bind (observe_reference ledger selection) (fun () ->
+          protect (fun () ->
+              let unavailable message = fail ~code:"HCRUN0003" span message in
+              match (Names.find ledger.references identifier).target with
+              | Selected_absent ->
+                  unavailable
+                    "task expression identifier is absent at its source read"
+              | Selected_unbound _ ->
+                  unavailable
+                    "task expression entry has no checked runtime publication"
+              | Selected_source { stage; admitted = None; _ } ->
+                  let start =
+                    match stage with
+                    | Global_selection (publication, _) ->
+                        publication.global_header.declaration_command
+                    | Provisional_function_selection publication ->
+                        publication.function_header.declaration_command
+                    | Function_selection (header, _) ->
+                        header.function_publication.function_header
+                          .declaration_command
+                  in
+                  if start != Parser.selected_command selection then
+                    unavailable
+                      "partial source publication has not reached runtime \
+                       admission"
+              | Selected_local | Selected_runtime _ | Selected_source _ -> ())))
+
 let read_sizeof ledger (root : Parser.query_root) target =
   match root.query_node with
   | Parser.Defined_target _ | Parser.Offset_target _ -> None

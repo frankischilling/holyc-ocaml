@@ -85,3 +85,17 @@ val run :
     using those assigned symbols in the task's shared module scope. Reached
     semantic publications survive parse errors; failed declarations have no
     runtime binding. [compile_ast] retains its callback-free collection path. *)
+
+val stream_executor :
+  t ->
+  Common.Span.t ->
+  (Frontend.Parser.stream_execution, Common.Diagnostic.t list) result
+(** Retained task adapter for [Parser.parse ~execute_stream]. It executes each
+    stream command at its original resume boundary and returns the accepted
+    block's generated buffer. Earlier ordinary effects and resource charges
+    survive faults; abort injects no partial buffer.
+
+    The task must already own checked provider declarations. Its ledger observes
+    only stream commands; an unobserved outer parser must use a distinct
+    frontend environment. This does not execute the outer unit or provide shared
+    outer JIT declaration/initializer timing or a whole-invocation report. *)

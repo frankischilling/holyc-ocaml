@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Connected the parser stream-execution callback to retained task compilation
+  and VM execution. Real StreamPrint output now feeds generated ASTs through the
+  adapter, with exact context/buffer ownership, resume timing, nested cleanup and
+  early unavailable-read diagnostics. The adapter requires checked providers and
+  a distinct outer environment; public #exe orchestration and partial outer JIT
+  declaration/initializer admission remain unfinished in #635.
+
 - Added immutable task progress snapshots for reached output, cumulative work
   and storage, and the outer expression value. Later declarations, nested stream
   commands and failures preserve the appropriate earlier observations. Extracted

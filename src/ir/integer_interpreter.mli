@@ -76,6 +76,10 @@ val create_task_state :
   (task_state, string) result
 
 val begin_task_stream : task_state -> (task_stream, string) result
+
+val task_stream_is_active : task_state -> task_stream -> bool
+(** Read-only exact top-buffer ownership check for parser callback admission. *)
+
 val finish_task_stream : task_state -> task_stream -> (string, string) result
 
 val abort_task_stream : task_state -> task_stream -> (unit, string) result

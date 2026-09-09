@@ -388,6 +388,11 @@ let begin_task_stream task =
     task.streams <- stream :: task.streams;
     Ok stream
 
+let task_stream_is_active task stream =
+  match task.streams with
+  | active :: _ -> active == stream
+  | [] -> false
+
 let finish_task_stream task stream =
   match task.streams with
   | active :: rest when active == stream ->

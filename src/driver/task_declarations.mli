@@ -139,6 +139,16 @@ val observe_reference :
     publication while its original parser command is active. Later completion or
     admission cannot upgrade the saved selection. Observation rejects replay. *)
 
+val observe_execution_reference :
+  t ->
+  Frontend.Parser.reference_selection ->
+  (unit, Common.Diagnostic.t list) result
+(** Runtime-bound stream observation. Freeze the same original reference, then
+    reject absent/unbound entries and source publications from other commands
+    that have not reached runtime admission, before subsequent lexer reads.
+    Current-command source references remain subject to ordinary semantic/IR
+    checks; this adds no partial declaration or executable authority. *)
+
 val reference_for :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->
