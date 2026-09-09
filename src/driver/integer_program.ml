@@ -879,6 +879,15 @@ let compile_task_ast ~task ?declaration_command session ~config
         Integer_source.diagnostic ~span:ast.span "HCRUN0004"
           "parser command belongs to another runtime or a semantic-only ledger";
       ]
+  else if
+    Option.is_none declaration_command
+    && Sema.Task_command_order.has_source_syntax (VM.task_source_order task) ast
+  then
+    Error
+      [
+        Integer_source.diagnostic ~span:ast.span "HCRUN0004"
+          "source-owned task syntax requires its original declaration receipt";
+      ]
   else
     let* task_view =
       VM.task_snapshot task

@@ -15,6 +15,11 @@ val seal_sequence :
 
 val owns : t -> ast:Frontend.Ast.module_ -> command -> bool
 
+val has_source_syntax : t -> Frontend.Ast.module_ -> bool
+(** Detect exact observed ASTs and borrowed original items. This is a denial
+    check for unmarked legacy compilation, not a way to construct authority.
+    Fresh callback-free syntax is independent even for the same input file. *)
+
 val check : t -> admitted:command list -> command -> (unit, string) result
 (** Readiness, original predecessor admission and replay checks are read-only.
     The owning VM commits a proof only after all preflight checks succeed. *)

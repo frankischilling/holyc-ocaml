@@ -137,6 +137,32 @@ let owns order ~ast command =
   && command.owner.table == order.table
   && command.ast == ast
 
+let same_item left right =
+  let open Frontend.Ast in
+  match (left, right) with
+  | Aggregate_forward_declaration left, Aggregate_forward_declaration right ->
+      left == right
+  | Aggregate_definition left, Aggregate_definition right -> left == right
+  | Global_variable left, Global_variable right -> left == right
+  | Global_declaration left, Global_declaration right -> left == right
+  | Function_prototype left, Function_prototype right -> left == right
+  | Function_definition left, Function_definition right -> left == right
+  | Top_level_statement left, Top_level_statement right ->
+      statement_location left == statement_location right
+  | _ -> false
+
+let has_source_syntax (order : t) (ast : Frontend.Ast.module_) =
+  let overlaps (saved : Frontend.Ast.module_) =
+    saved == ast
+    || List.exists
+         (fun item -> List.exists (same_item item) saved.items)
+         ast.items
+  in
+  List.exists (fun node -> overlaps node.receipt.command_ast) order.nodes
+  || List.exists
+       (fun (receipt, _) -> overlaps receipt.Parser.sequence_ast)
+       order.sequences
+
 let same_identity left right =
   match (left, right) with
   | Single left, Single right -> left == right

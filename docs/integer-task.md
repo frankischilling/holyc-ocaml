@@ -140,8 +140,10 @@ same catalog remain valid. Semantic-only ledgers grant no runtime authority.
 These owner checks precede the source resume-order admission checks.
 This unit compiler does not provide `Integer_task`'s AST cache or overlap checks.
 For parser-aware compilation, original receipt replay checks also reject a newly
-compiled copy of already admitted syntax. Callback-free units retain their
-separate graph-level replay contract.
+compiled copy of already admitted syntax. Omitting a seal cannot downgrade an
+observed AST or a wrapper borrowing its original items to legacy compilation.
+That rejection precedes semantic collection and preparation. A fresh callback-free
+parse remains independent even when it reads the same registered input file.
 
 ## Query reads
 

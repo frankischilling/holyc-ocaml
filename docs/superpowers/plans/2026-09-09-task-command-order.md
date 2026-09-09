@@ -37,9 +37,9 @@ metadata and source-read phases, extern joins and production source orchestratio
 remain required. The complete compiler, native/BIN/loader and bootstrap objective
 also remains active.
 
-Working-source verification passes 2,277 of 2,291 groups in 60.471 seconds;
+Working-source verification passes 2,278 of 2,292 groups in 47.984 seconds;
 only the fourteen existing stateful #exe groups fail. The complete CLI checks
-pass. Nine new order groups and the existing task/parser controls pass.
+pass. Ten new order groups and all 198 focused task/parser controls pass.
 Formatting, generated source, all/install builds, 82 reference checksums and
 eleven incremental provenance scenarios pass. Full lexer/parser JSON and
 normalized serialized parser output match the existing baselines: 528/528
@@ -50,3 +50,9 @@ blocker. Initial controls reproduced reversed admission, early execution and
 source replay before implementation. Existing nested-execution test plumbing
 now executes at the original resume event. Final-source identities and hosted
 checks are recorded in issue #635 and the external prompt after pushing.
+
+A final API audit reproduced receipt omission through legacy compilation. The
+compiler now rejects already observed source ASTs and wrappers borrowing their
+original items before collection or preparation when the seal is missing. The
+same registered input can still be parsed afresh through the callback-free API.
+Independent re-review found no remaining blocker after this regression and fix.

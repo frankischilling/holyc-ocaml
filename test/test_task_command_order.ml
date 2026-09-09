@@ -352,6 +352,70 @@ let substituted_bundle () =
     (VM.task_executed_steps runtime);
   T.execute_runtime_ok runtime program
 
+let source_cannot_drop_its_receipt () =
+  List.iter
+    (fun text ->
+      let session, runtime, ledger = T.runtime_setup () in
+      let whole, commands = parse session ledger text in
+      let last =
+        Option.value (List.nth_opt (List.rev commands) 0) ~default:whole
+      in
+      let wrapper =
+        Ast.make_module ~source:last.source ~span:last.span ~items:last.items
+      in
+      let check ast =
+        let count =
+          List.length
+            (Semantic_symbol_table.all_symbols
+               (Session.semantic_symbols session))
+        in
+        let preparation = VM.task_initializer_steps runtime in
+        (match
+           compile_integer_task_ast ~task:runtime session ~config:(T.config ())
+             ast
+         with
+        | Error (diagnostic :: _) ->
+            Alcotest.(check string)
+              "source-owned AST requires its declaration receipt" "HCRUN0004"
+              diagnostic.code
+        | _ ->
+            Alcotest.fail
+              "source-owned syntax was downgraded to a legacy command");
+        Alcotest.(check int)
+          "rejection precedes semantic collection" count
+          (List.length
+             (Semantic_symbol_table.all_symbols
+                (Session.semantic_symbols session)));
+        Alcotest.(check int)
+          "rejection precedes preparation" preparation
+          (VM.task_initializer_steps runtime)
+      in
+      check whole;
+      check last;
+      if last.items <> [] then check wrapper;
+      let program = compile session runtime ledger whole in
+      T.execute_runtime_ok runtime program;
+      check whole;
+      if last.items <> [] then check wrapper;
+      let source =
+        Source_manager.find (Session.sources session) whole.source |> Option.get
+      in
+      let fresh =
+        Parser.parse ~sources:(Session.sources session)
+          ~symbols:(Session.symbols session)
+          ~definitions:(Session.definitions session)
+          ~config:(T.config ()) source
+        |> Test_parser.expect_ast
+      in
+      let fresh =
+        (compile_integer_task_ast ~task:runtime session ~config:(T.config ())
+           fresh
+        |> T.expect)
+          .value
+      in
+      T.execute_runtime_ok runtime fresh)
+    [ "40;42;"; "" ]
+
 let tests =
   [
     Alcotest.test_case "source siblings require actual predecessor admission"
@@ -372,4 +436,6 @@ let tests =
       original_mode;
     Alcotest.test_case "source order requires the exact compiled bundle" `Quick
       substituted_bundle;
+    Alcotest.test_case "source-owned syntax cannot omit its declaration receipt"
+      `Quick source_cannot_drop_its_receipt;
   ]
