@@ -34,6 +34,14 @@ val owns_runtime : Ir.Integer_interpreter.task_state -> command -> bool
 (** A runtime-bound ledger's command retains that exact runtime owner. A
     semantic-only ledger grants no runtime compilation authority. *)
 
+val command_order :
+  runtime:Ir.Integer_interpreter.task_state ->
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  (Sema.Task_command_order.command, Common.Diagnostic.t list) result
+(** Internal source-order projection for the exact compilation owners. *)
+
 type reference_stage = private
   | Global_selection of
       Frontend.Parser.global_publication * Frontend.Ast.global_declarator option
@@ -175,7 +183,8 @@ val observe_command :
 (** Consume the parser's context/command lifecycle before declaration events.
     Reject foreign ownership, suspended-parent mismatch, replay and phase
     errors. Completed commands retain whole source views even if later parsing
-    aborts; they grant no runtime execution or predecessor admission. *)
+    aborts. Runtime ledgers also retain readiness and original predecessor order
+    from resume events, without admitting or executing those commands. *)
 
 val observe :
   t ->

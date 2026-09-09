@@ -11486,6 +11486,21 @@ excluded = ["other primitive and aggregate storage", "pointer returns and genera
 native_oracle_status = "pinned-source audit and hosted execution; no new native TempleOS capture"
 
 [[feature]]
+id = "HC-TASK-COMMAND-ORDER"
+description = "Task source commands retain parser resume order and exact compiled-program association through VM admission."
+sources = ["Kernel/KTask.HC:337-344", "Compiler/PrsStmt.HC:805-841,1209-1211"]
+implementation = ["src/sema/task_command_order.ml", "src/driver/task_declarations.ml", "src/driver/integer_program.ml", "src/ir/integer_globals.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_task_command_order.ml", "test/test_task_declarations.ml", "test/test_integer_task.ml"]
+documentation = ["docs/integer-task.md", "docs/superpowers/plans/2026-09-09-task-command-order.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 635
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+semantics = "Exact resume events order commands within their parser-root family; nested task contexts precede suspended commands, foreign AOT parents require no task admission, and independent roots remain separate."
+admission = "Original source identities and exact compiled bundles are checked before effects. Admission consumes identities on success and reached faults; failed preflight remains retryable."
+excluded = ["partial declaration and initializer execution", "effectful dimensions", "remaining source-read phases and metadata", "extern joins", "production #exe orchestration", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted execution; no new native TempleOS capture"
+
+[[feature]]
 id = "HC-NARROW-INTEGER-EXECUTION"
 description = "I8/I16/U16/I32/U32 share generated storage descriptors, full register signatures, canonical updates and native computation/range evidence."
 sources = ["Kernel/KernelA.HH:1566-1571", "Compiler/BackLib.HC:281-309,509-534,550-572", "Compiler/OptPass789A.HC:710-717,779-782,1026-1030", "Compiler/PrsVar.HC:132-134,314", "Compiler/PrsExp.HC:116,149-161,586", "Compiler/OptLib.HC:9-14,101-122,196-202", "Compiler/OptPass012.HC:151-191", "Compiler/BackA.HC:373-423,447-453,604-658", "Compiler/BackB.HC:304-380", "Compiler/BackC.HC:539-600", "Compiler/OptPass3.HC:29-35,524-610", "Compiler/OptPass4.HC:389-397"]

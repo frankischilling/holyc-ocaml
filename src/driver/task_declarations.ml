@@ -119,6 +119,7 @@ type command = {
   queries : query Query_expressions.t;
   dimensions : Parser.completed_array_dimension Dimensions.t;
   checked_dimensions : Sema.Compiler_record.declared_dimension Dimensions.t;
+  source_order : Sema.Task_command_order.command option;
 }
 
 type source_command = Source_command of command
@@ -423,7 +424,7 @@ let same_option equal left right =
   | Some left, Some right -> equal left right
   | _ -> false
 
-let observe_command ledger event =
+let observe_command_source ledger event =
   protect (fun () ->
       match event with
       | Parser.Sequence_started context ->
@@ -556,6 +557,26 @@ let observe_command ledger event =
               let sequence = active_sequence ledger context in
               sequence.phase <- Aborted;
               ledger.active <- List.tl ledger.active))
+
+let observe_command ledger event =
+  Result.bind (observe_command_source ledger event) (fun () ->
+      match ledger_runtime ledger with
+      | None -> Ok ()
+      | Some runtime ->
+          let context =
+            match event with
+            | Parser.Sequence_started context | Parser.Sequence_aborted context
+              -> context
+            | Parser.Command_started start -> start.command_context
+            | Parser.Command_completed receipt | Parser.Command_resumed receipt
+              -> receipt.command_start.command_context
+            | Parser.Sequence_completed receipt -> receipt.sequence_context
+          in
+          protect (fun () ->
+              Sema.Task_command_order.observe
+                (VM.task_source_order runtime)
+                event
+              |> checked (context_span context)))
 
 let validate_command ledger (header : Parser.declaration_header) =
   let start = header.declaration_command in
@@ -1308,6 +1329,28 @@ let seal ledger (ast : Ast.module_) =
                 table = ledger.table;
                 runtime = ledger_runtime ledger;
                 ast;
+                source_order =
+                  Option.map
+                    (fun runtime ->
+                      let order = VM.task_source_order runtime in
+                      (match
+                         List.find_opt
+                           (fun (view, _) -> view == ast)
+                           ledger.sequence_views
+                       with
+                        | Some (_, receipt) ->
+                            Sema.Task_command_order.seal_sequence order receipt
+                        | None -> (
+                            match original_commands with
+                            | [ entry ] ->
+                                Sema.Task_command_order.seal_command order
+                                  entry.receipt
+                            | _ ->
+                                Error
+                                  "task command lacks its original \
+                                   source-order view"))
+                      |> checked ast.span)
+                    (ledger_runtime ledger);
                 declarations;
                 references;
                 queries;
@@ -1329,6 +1372,18 @@ let seal ledger (ast : Ast.module_) =
 
 let owns_runtime runtime (command : command) =
   Option.fold ~none:false ~some:(fun owner -> owner == runtime) command.runtime
+
+let command_order ~runtime ~table ~ast (command : command) =
+  protect (fun () ->
+      if
+        (not (owns_runtime runtime command))
+        || command.table != table || command.ast != ast
+      then
+        fail ast.Ast.span
+          "source order belongs to another runtime, table or AST";
+      match command.source_order with
+      | Some order -> order
+      | None -> fail ast.span "task command has no original source order")
 
 let collection ~table ~ast (command : command) =
   protect (fun () ->

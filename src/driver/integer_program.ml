@@ -887,11 +887,39 @@ let compile_task_ast ~task ?declaration_command session ~config
     in
     let before = VM.task_initializer_steps task in
     let max_initializer_steps = VM.task_initializer_limit task - before in
-    compile_ast_internal ~task_view ~max_initializer_steps ?declaration_command
-      ~retained_function_source:(VM.task_function_source task)
-      ~initializer_progress:(fun steps ->
-        VM.record_task_preparation task ~before ~steps)
-      session ~config ast
+    let* task_view =
+      match declaration_command with
+      | None -> Ok task_view
+      | Some command ->
+          let* order =
+            Task_declarations.command_order ~runtime:task
+              ~table:(Session.semantic_symbols session)
+              ~ast command
+          in
+          Ir.Integer_globals.with_source_command task_view ~ast order
+          |> Result.map_error (fun message ->
+              [ Integer_source.diagnostic ~span:ast.span "HCRUN0004" message ])
+    in
+    let* compiled =
+      compile_ast_internal ~task_view ~max_initializer_steps
+        ?declaration_command
+        ~retained_function_source:(VM.task_function_source task)
+        ~initializer_progress:(fun steps ->
+          VM.record_task_preparation task ~before ~steps)
+        session ~config ast
+    in
+    let program = compiled.value in
+    let* () =
+      match declaration_command with
+      | None -> Ok ()
+      | Some _ ->
+          VM.bind_task_source_program task ~runtime_calls:program.runtime_calls_
+            ~globals:program.globals_ ~initialization:program.initialization_
+            ~functions:program.functions_ program.entry_
+          |> Result.map_error (fun message ->
+              [ Integer_source.diagnostic ~span:ast.span "HCRUN0004" message ])
+    in
+    Ok compiled
 
 type compilation_report = {
   compilation_outcome_ : (compiled checked, Common.Diagnostic.t list) result;

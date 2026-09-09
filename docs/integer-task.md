@@ -61,8 +61,8 @@ may contain identical text.
 
 A pending command keeps its selected object or function header even if another admitted command
 shadows that name. Thus an earlier compiled `N+=2;` still updates the earlier N,
-while a newly compiled `N;` selects the newer declaration. Parser-aware pending
-and predecessor receipts are still needed before connecting this API to #exe.
+while a newly compiled `N;` selects the newer declaration. Parser-aware source
+commands also retain the resume-order checks described below.
 
 ## Parser-assigned declarations
 
@@ -102,7 +102,7 @@ its runtime's current receipt, once. It links fresh frontend entries to those
 retained publications and their original function declarations, without matching
 discarded parser entries by name or location. Parser-aware `run` keeps its early
 declaration publication path. These receipts record actual legacy admission;
-VM predecessor checks remain separate.
+source resume-order proofs remain distinct from those publication receipts.
 
 `run` also observes exact parser-selected identifiers. A sealed command retains
 the original occurrence and command start, explicit local/absent selection,
@@ -137,10 +137,11 @@ Parser-aware command seals retain their exact runtime owner. A sibling task
 sharing the semantic table cannot compile the seal; the public reference
 resolver also checks its snapshot's catalog owner. Different snapshots of the
 same catalog remain valid. Semantic-only ledgers grant no runtime authority.
-These owner checks are separate from pending predecessor admission checks.
+These owner checks precede the source resume-order admission checks.
 This unit compiler does not provide `Integer_task`'s AST cache or overlap checks.
-VM replay rejection belongs to each compiled entry; parser/source command
-admission requires the higher-level orchestration.
+For parser-aware compilation, original receipt replay checks also reject a newly
+compiled copy of already admitted syntax. Callback-free units retain their
+separate graph-level replay contract.
 
 ## Query reads
 
@@ -256,7 +257,7 @@ controls include a configured limit above 100,000.
 StreamPrint is not yet connected to parser generation. Cross-command extern
 joins, partial type/storage/header publication and initializer execution,
 remaining query metadata, default/provider and later call-phase receipts,
-VM pending-command authority and the fourteen
+production parser/VM orchestration and the fourteen
 maintained #exe execution groups remain part of issue #635. The existing integer
 function domain remains unchanged, including its pointer-return boundary.
 
@@ -302,7 +303,21 @@ phase; starts retain the exact completed predecessor. Declarations and expressio
 selections own their command start. The ledger accepts only original complete
 command views or the parser's successful sequence AST, rejecting reconstructed
 modules, subsets, reordered events and overlapping statement/declaration views.
-This records parser order without granting VM admission or execution.
+Runtime ledgers carry those exact source views into the task storage catalog.
+The original resume event, after terminating lookahead, makes a command ready
+and records its predecessor within that parser-root family. Nested task contexts
+share this order, including separate blocks under a foreign AOT parent. The AOT
+parent itself needs no task admission. Independent parse roots and callback-free
+legacy commands retain their separate ordering contracts.
+
+Compilation binds source order to the exact final storage, entry, initialization,
+runtime-call context, frames and function bodies. Preflight rejects early commands,
+unadmitted predecessors, substituted compilation bundles and source replay through
+freshly compiled graphs. Whole sequences must account for intervening nested work;
+empty sequences retain their own replay identity. Preflight rejection changes no
+admission, work or output state. Actual admission consumes source identities even
+if execution later faults. Partial declaration/initializer execution remains a
+separate phase and is not authorized by these whole-command receipts.
 
 Sequence sealing waits until its completion callback returns successfully.
 Rejected or exceptional completion cannot leave a sealable sequence, and abort

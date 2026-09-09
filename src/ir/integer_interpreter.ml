@@ -280,6 +280,14 @@ type task_admission = {
   admission_publications : admitted_publication list;
 }
 
+type task_source_program = {
+  source_entry : X87.t;
+  source_storage : Integer_globals.t;
+  source_initialization : Global_initialization.t;
+  source_calls : Runtime.t;
+  source_bodies : function_definition list;
+}
+
 type task_state = {
   catalog : Integer_globals.task_catalog;
   mutable arenas : (Integer_globals.t * runtime_storage) list;
@@ -301,6 +309,7 @@ type task_state = {
   max_stream_depth : int;
   mutable streams : task_stream list;
   mutable admissions : task_admission list;
+  mutable source_programs : task_source_program list;
 }
 
 let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
@@ -355,6 +364,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         max_stream_depth;
         streams = [];
         admissions = [];
+        source_programs = [];
       }
 
 let begin_task_stream task =
@@ -381,6 +391,51 @@ let abort_task_stream task stream =
   | _ -> Error "HCIRVM0027: generation buffer is not active in this task"
 
 let task_snapshot task = Integer_globals.snapshot_task task.catalog
+let task_source_order task = Integer_globals.task_source_order task.catalog
+
+let matches_source_program program ~runtime_calls ~globals ~initialization
+    ~functions entry =
+  program.source_entry == entry
+  && program.source_storage == globals
+  && program.source_initialization == initialization
+  && program.source_calls == runtime_calls
+  && List.length program.source_bodies = List.length functions
+  && List.for_all2
+       (fun (left : function_definition) (right : function_definition) ->
+         left.frame == right.frame && left.body == right.body)
+       program.source_bodies functions
+
+let bind_task_source_program task ~runtime_calls ~globals ~initialization
+    ~functions entry =
+  if
+    (not (Integer_globals.owns_task_storage task.catalog globals))
+    || not (Integer_globals.has_source_command globals)
+  then Error "source program requires its owning task and source storage proof"
+  else
+    match
+      List.find_opt
+        (fun program -> program.source_storage == globals)
+        task.source_programs
+    with
+    | Some program ->
+        if
+          matches_source_program program ~runtime_calls ~globals ~initialization
+            ~functions entry
+        then Ok ()
+        else
+          Error
+            "task source storage is already bound to another compiled program"
+    | None ->
+        task.source_programs <-
+          {
+            source_entry = entry;
+            source_storage = globals;
+            source_initialization = initialization;
+            source_calls = runtime_calls;
+            source_bodies = functions;
+          }
+          :: task.source_programs;
+        Ok ()
 
 let task_owns_snapshot task view =
   Integer_globals.task_catalog_owns_view task.catalog view
@@ -3369,7 +3424,21 @@ let execute_program_with_output ?task ?runtime_calls ~output ?globals
       | Some _, None ->
           invalid "HCIRVM0026" "task command has no checked storage context"
       | Some task, Some globals -> (
-          if List.exists (fun entry -> entry == checked) task.started then
+          if
+            Integer_globals.has_source_command globals
+            && not
+                 (match (runtime_calls, initialization) with
+                 | Some runtime_calls, Some initialization ->
+                     List.exists
+                       (fun program ->
+                         matches_source_program program ~runtime_calls ~globals
+                           ~initialization ~functions checked)
+                       task.source_programs
+                 | _ -> false)
+          then
+            invalid "HCIRVM0026"
+              "task source order requires its exact compiled program"
+          else if List.exists (fun entry -> entry == checked) task.started then
             invalid "HCIRVM0026" "task command has already started"
           else if
             Integer_globals.byte_size globals

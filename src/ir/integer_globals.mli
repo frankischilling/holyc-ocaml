@@ -11,6 +11,16 @@ type task_publication = private
 
 val create_task_catalog : table:Sema.Symbol_table.t -> task_catalog
 val task_catalog_owns_table : task_catalog -> Sema.Symbol_table.t -> bool
+val task_source_order : task_catalog -> Sema.Task_command_order.t
+
+val with_source_command :
+  task_view ->
+  ast:Frontend.Ast.module_ ->
+  Sema.Task_command_order.command ->
+  (task_view, string) result
+
+val has_source_command : t -> bool
+val owns_task_storage : task_catalog -> t -> bool
 val snapshot_task : task_catalog -> (task_view, string) result
 val task_environment : task_view -> Sema.Outer_environment.t
 val task_catalog_owns_view : task_catalog -> task_view -> bool

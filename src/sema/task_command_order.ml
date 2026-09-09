@@ -1,0 +1,173 @@
+module Parser = Frontend.Parser
+
+type node = {
+  receipt : Parser.completed_command;
+  mutable predecessor : node option option;
+}
+
+type family = {
+  root : Parser.command_context;
+  mutable last_resumed : node option;
+}
+
+type t = {
+  table : Symbol_table.t;
+  mutable families : family list;
+  mutable contexts : (Parser.command_context * family) list;
+  mutable nodes : node list;
+  mutable sequences : (Parser.completed_sequence * node option) list;
+}
+
+type identity =
+  | Single of Parser.completed_command
+  | Sequence of Parser.completed_sequence
+
+type command = {
+  owner : t;
+  ast : Frontend.Ast.module_;
+  identity : identity;
+  nodes : node list;
+  last_resumed : node option;
+}
+
+let create ~table =
+  { table; families = []; contexts = []; nodes = []; sequences = [] }
+
+let rec root context =
+  match Parser.context_parent context with
+  | None -> context
+  | Some (Parser.Before_first_command parent) -> root parent
+  | Some (Parser.Reading_command start) -> root start.command_context
+  | Some (Parser.Awaiting_resume command) ->
+      root command.command_start.command_context
+
+let context_family order context =
+  List.find_map
+    (fun (saved, family) -> if saved == context then Some family else None)
+    order.contexts
+
+let find_node (order : t) receipt =
+  List.find_opt (fun node -> node.receipt == receipt) order.nodes
+
+let observe order event =
+  match event with
+  | Parser.Sequence_started context ->
+      if Parser.context_mode context <> Frontend.Preprocessor.Jit then
+        Error "task source commands require their original parser JIT mode"
+      else if Option.is_some (context_family order context) then
+        Error "task source context was already registered"
+      else
+        let root = root context in
+        let family =
+          match
+            List.find_opt (fun family -> family.root == root) order.families
+          with
+          | Some family -> family
+          | None ->
+              let family = { root; last_resumed = None } in
+              order.families <- family :: order.families;
+              family
+        in
+        order.contexts <- (context, family) :: order.contexts;
+        Ok ()
+  | Parser.Command_completed receipt ->
+      if
+        Option.is_none
+          (context_family order receipt.command_start.command_context)
+        || Option.is_some (find_node order receipt)
+      then Error "task source completion is foreign or repeated"
+      else (
+        order.nodes <- { receipt; predecessor = None } :: order.nodes;
+        Ok ())
+  | Parser.Command_resumed receipt -> (
+      match
+        ( find_node order receipt,
+          context_family order receipt.command_start.command_context )
+      with
+      | Some node, Some family when Option.is_none node.predecessor ->
+          node.predecessor <- Some family.last_resumed;
+          family.last_resumed <- Some node;
+          Ok ()
+      | _ -> Error "task source resume is foreign, repeated or incomplete")
+  | Parser.Sequence_completed receipt -> (
+      match context_family order receipt.sequence_context with
+      | Some family ->
+          order.sequences <- (receipt, family.last_resumed) :: order.sequences;
+          Ok ()
+      | None -> Error "task source sequence has no original context")
+  | Parser.Command_started _ | Parser.Sequence_aborted _ -> Ok ()
+
+let seal_command order receipt =
+  match find_node order receipt with
+  | None -> Error "task source command has no original completion"
+  | Some node ->
+      Ok
+        {
+          owner = order;
+          ast = receipt.command_ast;
+          identity = Single receipt;
+          nodes = [ node ];
+          last_resumed = None;
+        }
+
+let seal_sequence order receipt =
+  match List.find_opt (fun (saved, _) -> saved == receipt) order.sequences with
+  | Some (_, last_resumed) when Parser.sequence_accepted receipt ->
+      let rec collect rev = function
+        | [] -> Ok (List.rev rev)
+        | receipt :: rest -> (
+            match find_node order receipt with
+            | Some node -> collect (node :: rev) rest
+            | None -> Error "task source sequence lacks an original command")
+      in
+      Result.map
+        (fun nodes ->
+          {
+            owner = order;
+            ast = receipt.sequence_ast;
+            identity = Sequence receipt;
+            nodes;
+            last_resumed;
+          })
+        (collect [] receipt.sequence_commands)
+  | _ -> Error "task source sequence lacks accepted original completion"
+
+let owns order ~ast command =
+  command.owner == order
+  && command.owner.table == order.table
+  && command.ast == ast
+
+let same_identity left right =
+  match (left, right) with
+  | Single left, Single right -> left == right
+  | Sequence left, Sequence right -> left == right
+  | _ -> false
+
+let contains node nodes = List.exists (fun saved -> saved == node) nodes
+
+let check order ~admitted command =
+  if command.owner != order then Error "source order belongs to another task"
+  else if
+    List.exists
+      (fun prior -> same_identity command.identity prior.identity)
+      admitted
+  then Error "task source command or sequence has already been admitted"
+  else
+    let prior_nodes = List.concat_map (fun prior -> prior.nodes) admitted in
+    if List.exists (fun node -> contains node prior_nodes) command.nodes then
+      Error "task source syntax has already been admitted"
+    else
+      let rec check_nodes available = function
+        | [] -> (
+            match command.last_resumed with
+            | Some node when not (contains node available) ->
+                Error "task source sequence has pending nested commands"
+            | _ -> Ok ())
+        | node :: rest -> (
+            match node.predecessor with
+            | None -> Error "task source command has not reached parser resume"
+            | Some (Some previous) when not (contains previous available) ->
+                Error "task source predecessor has not been admitted"
+            | Some _ -> check_nodes (node :: available) rest)
+      in
+      check_nodes prior_nodes command.nodes

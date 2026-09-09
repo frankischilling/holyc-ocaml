@@ -835,8 +835,11 @@ val compile_integer_task_ast :
     program still requires its owning task runtime for execution; compiling it
     does not admit storage, publish frontend entries or run source effects.
     Unlike [Integer_task.compile_ast], this low-level unit compiler does not
-    cache or reject overlapping ASTs. VM replay checks own each compiled entry;
-    parser command and source replay admission remain the caller's concern. *)
+    cache overlapping ASTs. Parser-aware compilation carries original resume
+    order and binds the complete compiled program before returning. VM admission
+    rejects early execution, unadmitted predecessors and recompiled source
+    replay. Callback-free compilation retains its separate graph-level contract.
+*)
 
 val compile_integer_ast :
   ?max_initializer_steps:int ->

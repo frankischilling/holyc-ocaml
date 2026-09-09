@@ -58,7 +58,8 @@ val compile_ast :
 (** Compile only this syntax through the ordinary pipeline. Reusing the same
     parsed command returns its existing receipt; overlapping command items are
     rejected. Pending commands retain earlier bindings across later shadow
-    publications. Parser-aware predecessor authority remains separate work. *)
+    publications. This callback-free interface retains its separate admission
+    contract; parser-aware source commands carry resume-order authority. *)
 
 val execute :
   t -> command -> (Ir.Integer_interpreter.t, Common.Diagnostic.t list) result

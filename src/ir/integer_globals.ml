@@ -35,6 +35,8 @@ type task_publication =
 type task_catalog = {
   table : Sema.Symbol_table.t;
   mutable published : task_publication list;
+  source_order : Sema.Task_command_order.t;
+  mutable admitted_commands : Sema.Task_command_order.command list;
 }
 
 type task_view = {
@@ -43,6 +45,7 @@ type task_view = {
   task_table : Sema.Outer_environment.table;
   entries : (Sema.Outer_environment.entry * Retained_global.t * slot) list;
   function_entries : (Sema.Outer_environment.entry * Retained_function.t) list;
+  source_command : Sema.Task_command_order.command option;
 }
 
 type t = {
@@ -525,8 +528,31 @@ let create ?initializers ~span records = create_impl ?initializers ~span records
 let create_with_layout ~layout ?initializers ~span records =
   create_impl ~layout ?initializers ~span records
 
-let create_task_catalog ~table = { table; published = [] }
+let create_task_catalog ~table =
+  {
+    table;
+    published = [];
+    source_order = Sema.Task_command_order.create ~table;
+    admitted_commands = [];
+  }
+
 let task_catalog_owns_table catalog table = catalog.table == table
+let task_source_order catalog = catalog.source_order
+
+let with_source_command view ~ast command =
+  if Sema.Task_command_order.owns view.catalog.source_order ~ast command then
+    Ok { view with source_command = Some command }
+  else Error "task source order belongs to another runtime or AST"
+
+let has_source_command globals =
+  Option.fold ~none:false
+    ~some:(fun view -> Option.is_some view.source_command)
+    globals.task_view
+
+let owns_task_storage catalog globals =
+  Option.fold ~none:false
+    ~some:(fun view -> view.catalog == catalog)
+    globals.task_view
 
 let publication_symbol = function
   | Global_publication (_, slot) -> slot.symbol
@@ -632,7 +658,15 @@ let snapshot_task catalog =
       [ task_table; assembler ]
     |> checked
   in
-  Ok { catalog; environment; task_table; entries; function_entries }
+  Ok
+    {
+      catalog;
+      environment;
+      task_table;
+      entries;
+      function_entries;
+      source_command = None;
+    }
 
 let task_environment view = view.environment
 let task_catalog_owns_view catalog view = view.catalog == catalog
@@ -776,14 +810,28 @@ let check_task_command catalog globals =
           globals.function_publications_
       then Error "task function declaration is foreign or already admitted"
       else
-        List.fold_left
-          (fun result slot ->
-            Result.bind result (fun () ->
-                validate_slot_extent ~table:catalog.table slot))
-          (Ok ())
-          (globals.slots_ @ List.map (fun (_, _, slot) -> slot) view.entries)
+        Result.bind
+          (Option.fold ~none:(Ok ())
+             ~some:
+               (Sema.Task_command_order.check catalog.source_order
+                  ~admitted:catalog.admitted_commands)
+             view.source_command)
+          (fun () ->
+            List.fold_left
+              (fun result slot ->
+                Result.bind result (fun () ->
+                    validate_slot_extent ~table:catalog.table slot))
+              (Ok ())
+              (globals.slots_ @ List.map (fun (_, _, slot) -> slot) view.entries))
 
 let publish_task catalog globals =
+  Option.iter
+    (fun view ->
+      Option.iter
+        (fun command ->
+          catalog.admitted_commands <- command :: catalog.admitted_commands)
+        view.source_command)
+    globals.task_view;
   let order = function
     | Global_publication (_, slot) ->
         let source =

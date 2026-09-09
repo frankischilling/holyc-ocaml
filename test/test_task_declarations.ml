@@ -962,7 +962,7 @@ let selected_runtime_source session runtime ledger contents =
           (fun event ->
             Result.bind (D.observe_command ledger event) (fun () ->
                 match event with
-                | Parser.Command_completed receipt when run ->
+                | Parser.Command_resumed receipt when run ->
                     execute receipt.command_ast |> Result.map ignore
                 | _ -> Ok ()));
       query = Some (D.observe_query ledger);

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Task source commands now retain original parser resume order through VM
+  admission. Nested lookahead runs before its suspended command; source replay,
+  missing predecessors and substituted compilation bundles fail before effects.
+  Reached faults consume source identities, while failed preflight leaves them
+  pending. Production #exe orchestration and partial initializer timing remain
+  unfinished in #635.
+
 - Added checked StreamPrint execution into opaque nested task buffers. Ordinary
   and generated output share formatting work, with separate generated-byte
   limits and exact buffer ownership. Retained functions keep their provider and

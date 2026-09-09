@@ -67,6 +67,7 @@
   test_integer_task
   test_task_stream
   test_task_declarations
+  test_task_command_order
   test_stream_parser
   test_integer_statics
   test_integer_static_initializers

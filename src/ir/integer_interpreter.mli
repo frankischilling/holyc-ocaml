@@ -67,6 +67,19 @@ val abort_task_stream : task_state -> task_stream -> (unit, string) result
 *)
 
 val task_snapshot : task_state -> (Integer_globals.task_view, string) result
+val task_source_order : task_state -> Sema.Task_command_order.t
+
+val bind_task_source_program :
+  task_state ->
+  runtime_calls:Runtime_call_context.t ->
+  globals:Integer_globals.t ->
+  initialization:Global_initialization.t ->
+  functions:function_definition list ->
+  X87_stack.t ->
+  (unit, string) result
+(** Internal compiler join. Bind source order to the exact final compilation
+    bundle before exposing it. Registration admits no runtime effects. *)
+
 val task_owns_snapshot : task_state -> Integer_globals.task_view -> bool
 val task_owns_table : task_state -> Sema.Symbol_table.t -> bool
 
