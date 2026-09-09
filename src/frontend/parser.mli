@@ -177,6 +177,28 @@ type global_publication = private {
   global_dimensions : Ast.array_dimension list;
 }
 
+type initializer_activity
+
+type global_initializer_start = private {
+  initializer_owner : global_publication;
+  initializer_equals : Ast.location;
+  initializer_activity : initializer_activity;
+}
+
+type completed_initializer_leaf = private {
+  leaf_initializer : global_initializer_start;
+  leaf_index : int;
+  leaf_predecessor : completed_initializer_leaf option;
+  leaf_path : int list;
+  leaf_value : Ast.initial_value;
+}
+
+val initializer_start_is_current : global_initializer_start -> bool
+
+val initializer_leaf_is_current : completed_initializer_leaf -> bool
+(** True only during the original synchronous declaration callback. Remembered
+    events cannot be observed later, even while their command remains open. *)
+
 type function_publication = private {
   function_header : declaration_header;
   function_environment : Symbol_visibility.Environment.t;
@@ -219,6 +241,8 @@ type declaration_event = private
   | Array_dimension_preparing of array_dimension_preparation
   | Array_dimension_completed of completed_array_dimension
   | Global_declared of global_publication
+  | Global_initializer_started of global_initializer_start
+  | Global_initializer_leaf_completed of completed_initializer_leaf
   | Global_completed of global_publication * Ast.global_declarator
   | Function_declared of function_publication
   | Function_header_completed of completed_function_header
@@ -232,14 +256,20 @@ type declaration_event = private
           [None]; these witnesses do not establish evaluated values or
           initializer inference.
 
-          A global is declared after its dimensions, before its initializer;
-          completion precedes lookahead past its delimiter. A function is
-          provisional before parameter parsing. Header completion follows the
-          first lookahead past ')'; body completion follows body parsing and its
-          terminating lookahead, including a native empty body at EOF.
-          Completion records reuse exact source nodes and their declaration
-          witness. Runtime validation, installation and replay admission remain
-          the consumer's work. *)
+          A global is declared after its dimensions, before its initializer.
+          Initializer start precedes reading the first value. Each leaf retains
+          its original scalar node after expression lookahead and before parent
+          delimiter validation or the next leaf's lexer reads. Adjacent strings
+          remain one expression and one leaf. Paths describe the original syntax
+          tree, not checked destination indices or byte offsets. These callbacks
+          also describe unsupported initializer shapes; they grant no layout or
+          execution authority. Global completion precedes lookahead past its
+          delimiter. A function is provisional before parameter parsing. Header
+          completion follows the first lookahead past ')'; body completion
+          follows body parsing and its terminating lookahead, including a native
+          empty body at EOF. Completion records reuse exact source nodes and
+          their declaration witness. Runtime validation, installation and replay
+          admission remain the consumer's work. *)
 
 type command_sink = {
   checkpoint :

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added original parser receipts for global initializer starts and scalar/copy
+  leaves at the native lookahead boundary. Source and task compilation reuse the
+  same semantic leaves through typed IR and initializer publications, including
+  promotion midway through an initializer. Missing, delayed and foreign receipts
+  cannot complete a source manifest. Partial storage admission and shared outer
+  JIT execution remain unfinished in #635.
+
 - Added live JIT source-ledger promotion into retained tasks. Promotion preserves
   original symbols, parser command order, frozen selections and checked array
   dimensions, and transfers reached dimension work once. Parser lifetime and

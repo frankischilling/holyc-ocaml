@@ -504,12 +504,28 @@ let array_dimension_facts dimensions =
   in
   collect 0 [] dimensions
 
-let initializer_fact (initial_value : Frontend.Ast.global_initializer) =
-  Sema.Global_type_resolution.make_source_initializer
-    ~origin:(origin initial_value.global_initializer_location)
-    ~equals_origin:(origin initial_value.global_initializer_equals)
-    ~source:
-      (Sema.Initializer_source.create initial_value.global_initializer_value)
+let initializer_fact ?initializers name
+    (initial_value : Frontend.Ast.global_initializer) =
+  let source =
+    match initializers with
+    | None ->
+        Ok
+          (Sema.Initializer_source.create initial_value.global_initializer_value)
+    | Some resolve -> resolve name initial_value
+  in
+  Result.bind source (fun source ->
+      if
+        not
+          (Sema.Initializer_source.matches_ast source
+             initial_value.global_initializer_value)
+      then
+        Error "global initializer manifest substituted its original source tree"
+      else
+        Ok
+          (Sema.Global_type_resolution.make_source_initializer
+             ~origin:(origin initial_value.global_initializer_location)
+             ~equals_origin:(origin initial_value.global_initializer_equals)
+             ~source))
 
 let delimiter_fact kind origin =
   let kind =
@@ -519,7 +535,7 @@ let delimiter_fact kind origin =
   in
   Sema.Global_type_resolution.make_delimiter ~kind ~origin
 
-let global_fact visible (event : global_event) =
+let global_fact ?initializers visible (event : global_event) =
   let ast = event.ast in
   match make_type_reference visible ast.type_source ast.pointer_layers with
   | Error _ as error -> error
@@ -530,20 +546,27 @@ let global_fact visible (event : global_event) =
           match array_dimension_facts ast.array_dimensions with
           | Error _ as error -> error
           | Ok array_dimensions ->
-              Sema.Global_type_resolution.make_global ~symbol:event.symbol
-                ~item_index:ast.item_index
-                ?declarator_index:ast.declarator_index
-                ~declarator_origin:ast.declarator_origin ~type_reference
-                ~declarator_kind ~array_dimensions
-                ~initial_value:(Option.map initializer_fact ast.initial_value)
-                ~delimiter:
-                  (delimiter_fact ast.delimiter_kind ast.delimiter_origin)
-                ()))
+              let initial_value =
+                match ast.initial_value with
+                | None -> Ok None
+                | Some value ->
+                    Result.map Option.some
+                      (initializer_fact ?initializers ast.name value)
+              in
+              Result.bind initial_value (fun initial_value ->
+                  Sema.Global_type_resolution.make_global ~symbol:event.symbol
+                    ~item_index:ast.item_index
+                    ?declarator_index:ast.declarator_index
+                    ~declarator_origin:ast.declarator_origin ~type_reference
+                    ~declarator_kind ~array_dimensions ~initial_value
+                    ~delimiter:
+                      (delimiter_fact ast.delimiter_kind ast.delimiter_origin)
+                    ())))
 
 let publish visible (aggregate : aggregate_event) =
   String_map.add aggregate.name aggregate.identity visible
 
-let resolve_events ~table ~scope aggregates globals =
+let resolve_events ?initializers ~table ~scope aggregates globals =
   let rec resolve visible facts_rev aggregates globals =
     match (aggregates, globals) with
     | [], [] ->
@@ -552,7 +575,7 @@ let resolve_events ~table ~scope aggregates globals =
     | aggregate :: aggregate_rest, [] ->
         resolve (publish visible aggregate) facts_rev aggregate_rest []
     | [], global :: global_rest -> (
-        match global_fact visible global with
+        match global_fact ?initializers visible global with
         | Error _ as error -> error
         | Ok fact -> resolve visible (fact :: facts_rev) [] global_rest)
     | aggregate :: aggregate_rest, global :: global_rest -> (
@@ -568,19 +591,19 @@ let resolve_events ~table ~scope aggregates globals =
             Error "only aggregate-attached globals can share an aggregate item"
           else
             let visible = publish visible aggregate in
-            match global_fact visible global with
+            match global_fact ?initializers visible global with
             | Error _ as error -> error
             | Ok fact ->
                 resolve visible (fact :: facts_rev) aggregate_rest global_rest
         else
-          match global_fact visible global with
+          match global_fact ?initializers visible global with
           | Error _ as error -> error
           | Ok fact ->
               resolve visible (fact :: facts_rev) aggregates global_rest)
   in
   resolve String_map.empty [] aggregates globals
 
-let resolve ~table ~declarations ~aggregates module_ =
+let resolve ?initializers ~table ~declarations ~aggregates module_ =
   let scope = Sema.Declaration_collection.scope declarations in
   if not (Sema.Symbol_table.owns_scope table scope) then
     Error "semantic global type module belongs to a different symbol table"
@@ -592,4 +615,5 @@ let resolve ~table ~declarations ~aggregates module_ =
     | Ok aggregates -> (
         match global_events ~table ~declarations module_ with
         | Error _ as error -> error
-        | Ok globals -> resolve_events ~table ~scope aggregates globals)
+        | Ok globals ->
+            resolve_events ?initializers ~table ~scope aggregates globals)

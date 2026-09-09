@@ -1,5 +1,15 @@
 # Testing holyc-ocaml
 
+The twelve `live initializer leaves` groups cover original native lookahead
+boundaries, nested and flattened braces, unbraced rows, adjacent generated strings,
+copied rows and exact source nodes. Promotion during an initializer preserves
+semantic leaf identity through typed roots and actual IR publication offsets;
+the resulting programs execute to 42. Missing, replayed, delayed and cross-owner
+events reject, including equal source literals. Malformed separators retain
+reached leaves without completing the declaration. Callback rejection and
+exceptions stop later directives and revoke receipt lifetime. Existing source
+resource checks remain applicable; public shared JIT execution is still pending.
+
 The thirteen `source promotion` groups cover live JIT ledger adoption, exact
 source/frontend ownership, original predecessor and pending-resume checks,
 retained symbols, frozen unadmitted reads, checked dimensions and selected sizeof
@@ -743,8 +753,8 @@ Run the focused library suite with
 `opam exec -- dune exec test/test_main.exe -- test "source integer expression"`.
 Run all CLI golden rules with `opam exec -- dune runtest`. Check changed OCaml
 files directly with `opam exec -- ocamlformat --check FILE...` as well as the
-normal build and generated-source checks; the Windows Dune formatting alias can
-omit checks that run in Linux CI. Review new golden output before accepting it.
+normal build and generated-source checks. Quote Dune aliases in PowerShell so
+the shell passes them as arguments. Review new golden output before accepting it.
 
 ## Integer division and remainder
 

@@ -188,7 +188,12 @@ let unfinished_cannot_seal () =
   Alcotest.(check bool)
     "source has syntax error" true (Parser.has_errors output);
   match events with
-  | [ Parser.Global_declared publication ] ->
+  | [
+   Parser.Global_declared publication; Parser.Global_initializer_started start;
+  ] ->
+      Alcotest.(check bool)
+        "unfinished initializer owns original declaration" true
+        (start.initializer_owner == publication);
       let name = publication.global_name in
       let variable =
         Ast.make_global_variable ~modifiers:publication.global_header.modifiers
@@ -204,7 +209,8 @@ let unfinished_cannot_seal () =
       in
       reject "incomplete initialized global cannot become uninitialized storage"
         (D.seal ledger ast)
-  | _ -> Alcotest.fail "expected only provisional global"
+  | _ ->
+      Alcotest.fail "expected a declared global and its unfinished initializer"
 
 let foreign_source_owners () =
   let session, ledger = setup () in

@@ -2,6 +2,7 @@ type leaf = {
   index : int;
   path : int list;
   expression : Frontend.Ast.expression;
+  receipt : Frontend.Parser.completed_initializer_leaf option;
 }
 
 type tree = Scalar of leaf | Braced of tree list | Unbraced of tree list
@@ -24,7 +25,7 @@ let origin_of_location (location : Frontend.Ast.location) =
 let create source =
   let rec build index path = function
     | Frontend.Ast.Scalar_initializer expression ->
-        let leaf = { index; path; expression } in
+        let leaf = { index; path; expression; receipt = None } in
         (index + 1, Scalar leaf, [ leaf ])
     | Frontend.Ast.Braced_initializer group ->
         let next, children, leaves =
@@ -54,6 +55,118 @@ let create source =
   let _, tree_, leaves_ = build 0 [] source in
   { source; tree_; leaves_ }
 
+type pending = {
+  start : Frontend.Parser.global_initializer_start;
+  mutable leaves_rev : leaf list;
+  mutable finished : bool;
+}
+
+let begin_parser start =
+  if not (Frontend.Parser.initializer_start_is_current start) then
+    Error "initializer start is outside its original parser callback"
+  else Ok { start; leaves_rev = []; finished = false }
+
+let observe_parser_leaf pending
+    (receipt : Frontend.Parser.completed_initializer_leaf) =
+  let index, predecessor =
+    match pending.leaves_rev with
+    | [] -> (0, None)
+    | previous :: _ -> (previous.index + 1, previous.receipt)
+  in
+  let same_predecessor =
+    match (predecessor, receipt.leaf_predecessor) with
+    | None, None -> true
+    | Some left, Some right -> left == right
+    | _ -> false
+  in
+  if
+    pending.finished
+    || (not (Frontend.Parser.initializer_leaf_is_current receipt))
+    || receipt.leaf_initializer != pending.start
+    || receipt.leaf_index <> index
+    || not same_predecessor
+  then Error "initializer leaf is foreign, repeated, delayed or out of order"
+  else
+    match receipt.leaf_value with
+    | Frontend.Ast.Scalar_initializer expression ->
+        let leaf =
+          {
+            index;
+            path = receipt.leaf_path;
+            expression;
+            receipt = Some receipt;
+          }
+        in
+        pending.leaves_rev <- leaf :: pending.leaves_rev;
+        Ok leaf
+    | _ -> Error "initializer leaf is not an original scalar expression"
+
+let parser_leaf pending receipt =
+  match
+    List.find_opt
+      (fun leaf ->
+        Option.fold ~none:false
+          ~some:(fun saved -> saved == receipt)
+          leaf.receipt)
+      pending.leaves_rev
+  with
+  | Some leaf -> Ok leaf
+  | None -> Error "initializer leaf has no original observed receipt"
+
+let complete_parser pending event =
+  let ( let* ) = Result.bind in
+  let* initial =
+    match event with
+    | Frontend.Parser.Global_completed (owner, completed)
+      when (not pending.finished) && owner == pending.start.initializer_owner
+      -> (
+        match completed.global_initial_value with
+        | Some initial
+          when initial.global_initializer_equals
+               == pending.start.initializer_equals -> Ok initial
+        | _ ->
+            Error
+              "initializer completion substituted its original equals location")
+    | _ -> Error "initializer completion is foreign, repeated or out of order"
+  in
+  let rec build path value leaves =
+    match value with
+    | Frontend.Ast.Scalar_initializer expression -> (
+        match leaves with
+        | ({ receipt = Some receipt; _ } as leaf) :: rest
+          when receipt.leaf_value == value
+               && leaf.expression == expression
+               && leaf.path = path -> Ok (Scalar leaf, rest)
+        | _ ->
+            Error
+              "initializer completion substituted or omitted an original leaf")
+    | Frontend.Ast.Braced_initializer group ->
+        let* children, rest = elements path group.initializer_elements leaves in
+        Ok (Braced children, rest)
+    | Frontend.Ast.Unbraced_array_initializer group ->
+        let* children, rest =
+          elements path group.unbraced_initializer_elements leaves
+        in
+        Ok (Unbraced children, rest)
+  and elements path values leaves =
+    let rec loop index children leaves = function
+      | [] -> Ok (List.rev children, leaves)
+      | (value : Frontend.Ast.initializer_element) :: rest ->
+          let* child, leaves =
+            build (path @ [ index ]) value.initializer_element_value leaves
+          in
+          loop (index + 1) (child :: children) leaves rest
+    in
+    loop 0 [] leaves values
+  in
+  let leaves_ = List.rev pending.leaves_rev in
+  let source = initial.global_initializer_value in
+  let* tree_, rest = build [] source leaves_ in
+  if rest <> [] then Error "initializer completion omitted reached leaves"
+  else (
+    pending.finished <- true;
+    Ok { source; tree_; leaves_ })
+
 let source_ast source = source.source
 let tree source = source.tree_
 let leaves source = source.leaves_
@@ -66,6 +179,7 @@ let owns_leaf source leaf = List.exists (( == ) leaf) source.leaves_
 let leaf_index leaf = leaf.index
 let leaf_path leaf = leaf.path
 let leaf_expression_ast leaf = leaf.expression
+let leaf_parser_receipt leaf = leaf.receipt
 
 let leaf_origin leaf =
   leaf.expression |> Frontend.Ast.expression_location |> origin_of_location

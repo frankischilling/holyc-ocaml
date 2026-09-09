@@ -66,6 +66,32 @@ val dimension_work : t -> int
 val command_dimension_work : command -> int
 val source_dimension_work : source_command -> int
 
+val initializer_leaf_for :
+  t ->
+  Frontend.Parser.completed_initializer_leaf ->
+  (Sema.Initializer_source.leaf, Common.Diagnostic.t list) result
+(** Read the exact already observed leaf, including while its original global
+    remains incomplete. Grants no compilation, storage or execution authority.
+*)
+
+val initializer_for :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  Frontend.Ast.identifier ->
+  Frontend.Ast.global_initializer ->
+  (Sema.Initializer_source.t, Common.Diagnostic.t list) result
+
+val source_initializer_for :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  Frontend.Ast.identifier ->
+  Frontend.Ast.global_initializer ->
+  (Sema.Initializer_source.t, Common.Diagnostic.t list) result
+(** Complete original source manifests in the exact sealed command. Missing or
+    rebuilt children cannot fall back to newly created semantic leaves. *)
+
 val grammar_dimension_count :
   t ->
   Frontend.Parser.completed_array_dimension ->

@@ -495,7 +495,10 @@ let global_publication_timing () =
   let at_directive = ref [] in
   let commands =
     declaration_sink (fun event ->
-        events := event :: !events;
+        (match event with
+        | Parser.Global_initializer_started _
+        | Parser.Global_initializer_leaf_completed _ -> ()
+        | _ -> events := event :: !events);
         Ok ())
   in
   let _, _, output, _, _, _ =

@@ -1,5 +1,23 @@
 # Incremental integer task execution
 
+Global initializer callbacks retain the original `=` location, scalar expression,
+syntax path, ordinal and predecessor. Start occurs before reading the first value;
+leaf completion follows expression lookahead and precedes parent separator
+validation. A directive before the separator therefore runs before the leaf
+callback, while a directive after the comma runs after it. Adjacent strings stay
+one expression and one source leaf. Paths describe syntax; checked array layout
+separately determines scalar destinations and copied rows.
+
+The declaration ledger mints each semantic leaf during its original callback.
+Completing the declarator checks the entire original tree and ordered transcript;
+later checked compilation reuses those leaf objects through binding, typed roots
+and initializer publications. Promotion preserves leaves already observed in the
+open initializer. Missing, foreign, repeated and delayed phases reject. Callback
+failure revokes its synchronous authority and stops later lexer effects; a parse
+failure retains reached leaves without producing a complete manifest. These are
+source witnesses. Partial storage allocation and initializer execution still
+require their own checked admission path.
+
 `Holyc_lib.Integer_task` compiles separate JIT commands against retained global
 objects and functions. For example, running `I64 N=40;`, then `N+=2;`, then `N;` in one task
 returns 42 from the last two commands. The initializer runs once. Fixed arrays,

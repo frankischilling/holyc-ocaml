@@ -170,7 +170,31 @@ let prepare_unit ?environment:task_environment ?declaration_command
     |> checked
   in
   let* global_types =
-    Global_type_resolution.resolve ~table ~declarations ~aggregates ast
+    let initializers =
+      match (declaration_command, source_command) with
+      | Some command, None ->
+          Some (Task_declarations.initializer_for ~table ~ast command)
+      | None, Some command ->
+          Some (Task_declarations.source_initializer_for ~table ~ast command)
+      | None, None -> None
+      | Some _, Some _ -> assert false
+    in
+    let initializers =
+      Option.map
+        (fun resolve name initial ->
+          Result.map_error
+            (fun diagnostics ->
+              String.concat "; "
+                (List.map
+                   (fun diagnostic ->
+                     diagnostic.Common.Diagnostic.code ^ ": "
+                     ^ diagnostic.message)
+                   diagnostics))
+            (resolve name initial))
+        initializers
+    in
+    Global_type_resolution.resolve ?initializers ~table ~declarations
+      ~aggregates ast
     |> checked
   in
   let* functions =

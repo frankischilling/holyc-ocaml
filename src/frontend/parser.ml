@@ -153,6 +153,34 @@ type global_publication = {
   global_dimensions : Ast.array_dimension list;
 }
 
+type initializer_activity = { mutable initializer_phase : int option }
+
+type global_initializer_start = {
+  initializer_owner : global_publication;
+  initializer_equals : Ast.location;
+  initializer_activity : initializer_activity;
+}
+
+type completed_initializer_leaf = {
+  leaf_initializer : global_initializer_start;
+  leaf_index : int;
+  leaf_predecessor : completed_initializer_leaf option;
+  leaf_path : int list;
+  leaf_value : Ast.initial_value;
+}
+
+let initializer_start_is_current start =
+  start.initializer_activity.initializer_phase = Some (-1)
+  && start.initializer_owner.global_header.declaration_command.command_context
+       .context_active
+
+let initializer_leaf_is_current leaf =
+  leaf.leaf_initializer.initializer_activity.initializer_phase
+  = Some leaf.leaf_index
+  && leaf.leaf_initializer.initializer_owner.global_header.declaration_command
+       .command_context
+       .context_active
+
 type function_publication = {
   function_header : declaration_header;
   function_environment : Symbol_visibility.Environment.t;
@@ -195,6 +223,8 @@ type declaration_event =
   | Array_dimension_preparing of array_dimension_preparation
   | Array_dimension_completed of completed_array_dimension
   | Global_declared of global_publication
+  | Global_initializer_started of global_initializer_start
+  | Global_initializer_leaf_completed of completed_initializer_leaf
   | Global_completed of global_publication * Ast.global_declarator
   | Function_declared of function_publication
   | Function_header_completed of completed_function_header
@@ -3057,7 +3087,43 @@ let initializer_failure ?(secondary = []) ?(local_open_braces = 0) cursor
       recover_static_initializer cursor ~boundary ~open_braces:local_open_braces;
       None
 
-let rec parse_initializer_value cursor ~declarator_context ~depth :
+type live_initializer = {
+  start : global_initializer_start;
+  mutable previous_leaf : completed_initializer_leaf option;
+}
+
+let publish_initializer_phase cursor at start phase event =
+  start.initializer_activity.initializer_phase <- Some phase;
+  Fun.protect
+    ~finally:(fun () -> start.initializer_activity.initializer_phase <- None)
+    (fun () -> publish_declaration cursor at event)
+
+let publish_initializer_leaf cursor live node =
+  Option.iter
+    (fun (state, path_rev) ->
+      let leaf_index =
+        match state.previous_leaf with
+        | None -> 0
+        | Some previous -> previous.leaf_index + 1
+      in
+      let leaf =
+        {
+          leaf_initializer = state.start;
+          leaf_index;
+          leaf_predecessor = state.previous_leaf;
+          leaf_path = List.rev path_rev;
+          leaf_value = node;
+        }
+      in
+      publish_initializer_phase cursor (peek cursor) state.start leaf_index
+        (Global_initializer_leaf_completed leaf);
+      state.previous_leaf <- Some leaf)
+    live
+
+let initializer_child live index =
+  Option.map (fun (state, path_rev) -> (state, index :: path_rev)) live
+
+let rec parse_initializer_value ?live cursor ~declarator_context ~depth :
     parsed_initializer option =
   let item = peek cursor in
   if depth >= max_initializer_depth then
@@ -3074,7 +3140,7 @@ let rec parse_initializer_value cursor ~declarator_context ~depth :
   else
     match item.token.kind with
     | Token_kind.Punctuation '{' ->
-        parse_braced_initializer cursor ~declarator_context ~depth
+        parse_braced_initializer ?live cursor ~declarator_context ~depth
     | Token_kind.Punctuation (';' | ',' | '}') | Token_kind.Eof ->
         initializer_failure cursor ~declarator_context item
           ~local_open_braces:depth ~global_code:"HCPARSE0127"
@@ -3099,17 +3165,15 @@ let rec parse_initializer_value cursor ~declarator_context ~depth :
         with
         | None -> None
         | Some expression ->
-            Some
-              {
-                node = Ast.Scalar_initializer expression.node;
-                tokens = expression.tokens;
-              })
+            let node = Ast.Scalar_initializer expression.node in
+            publish_initializer_leaf cursor live node;
+            Some { node; tokens = expression.tokens })
 
-and parse_braced_initializer cursor ~declarator_context ~depth :
+and parse_braced_initializer ?live cursor ~declarator_context ~depth :
     parsed_initializer option =
   let opening_item = take cursor in
   let opening_brace = token_location opening_item.token in
-  let rec parse_elements elements_rev token_groups_rev :
+  let rec parse_elements index elements_rev token_groups_rev :
       parsed_initializer option =
     let item = peek cursor in
     match item.token.kind with
@@ -3144,7 +3208,9 @@ and parse_braced_initializer cursor ~declarator_context ~depth :
             "expected '}' to close the static local initializer list"
     | _ -> (
         match
-          parse_initializer_value cursor ~declarator_context ~depth:(depth + 1)
+          parse_initializer_value
+            ?live:(initializer_child live index)
+            cursor ~declarator_context ~depth:(depth + 1)
         with
         | None -> None
         | Some value ->
@@ -3177,12 +3243,12 @@ and parse_braced_initializer cursor ~declarator_context ~depth :
                 Ast.make_initializer_element ~value:value.node ~comma
                   ~location:(location_from_expression_tokens element_tokens)
               in
-              parse_elements (element :: elements_rev)
+              parse_elements (index + 1) (element :: elements_rev)
                 (element_tokens :: token_groups_rev))
   in
-  parse_elements [] []
+  parse_elements 0 [] []
 
-and parse_unbraced_array_initializer cursor ~declarator_context ~depth
+and parse_unbraced_array_initializer ?live cursor ~declarator_context ~depth
     ~allow_closing_brace ~dimensions : parsed_initializer option =
   let item = peek cursor in
   let count =
@@ -3252,18 +3318,20 @@ and parse_unbraced_array_initializer cursor ~declarator_context ~depth
           Some ({ node; tokens } : parsed_initializer)
         else
           let parsed_value =
+            let live = initializer_child live index in
             match remaining_dimensions with
             | [] ->
-                parse_initializer_value cursor ~declarator_context
+                parse_initializer_value ?live cursor ~declarator_context
                   ~depth:(depth + 1)
             | dimensions ->
                 let next_item = peek cursor in
                 if next_item.token.kind = Token_kind.Punctuation '{' then
-                  parse_braced_initializer cursor ~declarator_context
+                  parse_braced_initializer ?live cursor ~declarator_context
                     ~depth:(depth + 1)
                 else
-                  parse_unbraced_array_initializer cursor ~declarator_context
-                    ~depth:(depth + 1) ~allow_closing_brace:false ~dimensions
+                  parse_unbraced_array_initializer ?live cursor
+                    ~declarator_context ~depth:(depth + 1)
+                    ~allow_closing_brace:false ~dimensions
           in
           match parsed_value with
           | None -> None
@@ -3302,11 +3370,27 @@ and parse_unbraced_array_initializer cursor ~declarator_context ~depth
       in
       parse_elements 0 [] []
 
-let parse_global_initializer cursor ~array_dimensions =
+let parse_global_initializer ?publication cursor ~array_dimensions =
   let equals_item = peek cursor in
   if equals_item.token.kind <> Token_kind.Punctuation '=' then Some (None, [])
   else
     let equals_item = take cursor in
+    let equals = token_location equals_item.token in
+    let live =
+      Option.map
+        (fun initializer_owner ->
+          let start =
+            {
+              initializer_owner;
+              initializer_equals = equals;
+              initializer_activity = { initializer_phase = None };
+            }
+          in
+          publish_initializer_phase cursor equals_item start (-1)
+            (Global_initializer_started start);
+          ({ start; previous_leaf = None }, []))
+        publication
+    in
     let value =
       let first_item = peek cursor in
       if
@@ -3314,11 +3398,11 @@ let parse_global_initializer cursor ~array_dimensions =
         && first_item.token.kind <> Token_kind.Punctuation '{'
         && first_item.token.kind <> Token_kind.String
       then
-        parse_unbraced_array_initializer cursor
+        parse_unbraced_array_initializer ?live cursor
           ~declarator_context:Global_initializer_declarator ~depth:0
           ~allow_closing_brace:true ~dimensions:array_dimensions
       else
-        parse_initializer_value cursor
+        parse_initializer_value ?live cursor
           ~declarator_context:Global_initializer_declarator ~depth:0
     in
     match value with
@@ -3326,9 +3410,7 @@ let parse_global_initializer cursor ~array_dimensions =
     | Some value ->
         let tokens = equals_item.token :: value.tokens in
         let initial_value =
-          Ast.make_global_initializer
-            ~equals:(token_location equals_item.token)
-            ~value:value.node
+          Ast.make_global_initializer ~equals ~value:value.node
             ~location:(location_from_expression_tokens tokens)
         in
         Some (Some initial_value, tokens)
@@ -3367,7 +3449,8 @@ let parse_variable_declarator_suffix ?header cursor
               publication)
             header
       in
-      Option.bind (parse_global_initializer cursor ~array_dimensions)
+      Option.bind
+        (parse_global_initializer ?publication cursor ~array_dimensions)
         (fun (initial_value, initializer_tokens) ->
           let delimiter_item = peek cursor in
           match delimiter_kind delimiter_item.token with

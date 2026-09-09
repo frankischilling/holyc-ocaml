@@ -121,6 +121,7 @@ let () =
       ("AOT source execution", Test_aot_source_execution.tests);
       ("task declarations", Test_task_declarations.tests);
       ("source promotion", Test_source_promotion.tests);
+      ("live initializer leaves", Test_live_initializer_leaves.tests);
       ("stream parser", Test_stream_parser.tests);
       ("source integer statics", Test_integer_statics.tests);
       ("source static initializers", Test_integer_static_initializers.tests);

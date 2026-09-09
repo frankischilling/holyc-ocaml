@@ -60,6 +60,7 @@ type source =
   | Global of {
       publication : Parser.global_publication;
       mutable completed : Ast.global_declarator option;
+      mutable initializing : Sema.Initializer_source.pending option;
     }
   | Function of {
       publication : Parser.function_publication;
@@ -119,6 +120,7 @@ type command = {
   queries : query Query_expressions.t;
   dimensions : Parser.completed_array_dimension Dimensions.t;
   checked_dimensions : Sema.Compiler_record.declared_dimension Dimensions.t;
+  initializers : (Ast.global_initializer * Sema.Initializer_source.t) Names.t;
   source_order : Sema.Task_command_order.command option;
 }
 
@@ -174,6 +176,7 @@ type t = {
   dimension_owners : reading_dimensions Names.t;
   dimensions : Parser.completed_array_dimension Dimensions.t;
   checked_dimensions : Sema.Compiler_record.declared_dimension Dimensions.t;
+  initializers : (Ast.global_initializer * Sema.Initializer_source.t) Names.t;
 }
 
 exception Invalid of Common.Diagnostic.t
@@ -249,6 +252,7 @@ let create_with_authority ?(max_dimension_work = 100_000) authority session =
           dimension_owners = Names.create 16;
           dimensions = Dimensions.create 16;
           checked_dimensions = Dimensions.create 16;
+          initializers = Names.create 16;
         })
 
 let create ?runtime session =
@@ -1145,12 +1149,46 @@ let observe ledger event =
           prepare_dimension ledger preparation
       | Parser.Array_dimension_completed receipt ->
           complete_dimension ledger receipt
+      | Parser.Global_initializer_started start -> (
+          let publication = start.initializer_owner in
+          validate_command ledger publication.global_header;
+          match (find ledger publication.global_name).source with
+          | Global state
+            when state.publication == publication
+                 && Option.is_none state.completed
+                 && Option.is_none state.initializing ->
+              let pending =
+                Sema.Initializer_source.begin_parser start
+                |> checked start.initializer_equals.span
+              in
+              state.initializing <- Some pending
+          | _ ->
+              fail start.initializer_equals.span
+                "initializer start is foreign, repeated or out of order")
+      | Parser.Global_initializer_leaf_completed leaf -> (
+          let start = leaf.leaf_initializer in
+          let publication = start.initializer_owner in
+          validate_command ledger publication.global_header;
+          match (find ledger publication.global_name).source with
+          | Global
+              {
+                publication = original;
+                completed = None;
+                initializing = Some pending;
+              }
+            when original == publication ->
+              ignore
+                (Sema.Initializer_source.observe_parser_leaf pending leaf
+                |> checked start.initializer_equals.span)
+          | _ ->
+              fail start.initializer_equals.span
+                "initializer leaf has no active original initializer")
       | Parser.Global_declared publication ->
           validate_source ledger publication.global_environment
             publication.global_header publication.global_name;
           validate_global_dimensions ledger publication;
           assign ledger publication.global_name Sema.Symbol.Global_variable
-            (Global { publication; completed = None })
+            (Global { publication; completed = None; initializing = None })
             publication.global_entry
       | Parser.Function_declared publication ->
           validate_source ledger publication.function_environment
@@ -1165,6 +1203,18 @@ let observe ledger event =
           | Global state
             when state.publication == publication
                  && Option.is_none state.completed ->
+              (match (state.initializing, completed.global_initial_value) with
+              | None, None -> ()
+              | Some pending, Some initial ->
+                  let source =
+                    Sema.Initializer_source.complete_parser pending event
+                    |> checked completed.location.span
+                  in
+                  Names.add ledger.initializers completed.name (initial, source)
+              | _ ->
+                  fail completed.location.span
+                    "global completion is missing its original initializer \
+                     transcript");
               state.completed <- Some completed
           | _ ->
               fail publication.global_name.location.span
@@ -1288,7 +1338,7 @@ let seal ledger (ast : Ast.module_) =
                 | Ast.Global_variable variable -> (
                     let assigned = find ledger variable.name in
                     match assigned.source with
-                    | Global { publication; completed = Some completed } ->
+                    | Global { publication; completed = Some completed; _ } ->
                         check_global_header variable.name
                           publication.global_header variable.modifiers
                           variable.binding variable.type_specifier;
@@ -1317,7 +1367,7 @@ let seal ledger (ast : Ast.module_) =
                          ->
                         let assigned = find ledger declarator.name in
                         match assigned.source with
-                        | Global { publication; completed = Some completed }
+                        | Global { publication; completed = Some completed; _ }
                           when completed == declarator ->
                             check_global_header declarator.name
                               publication.global_header declaration.modifiers
@@ -1450,6 +1500,19 @@ let seal ledger (ast : Ast.module_) =
                 references;
                 queries;
                 dimensions;
+                initializers =
+                  (let initializers = Names.create 16 in
+                   List.iter
+                     (fun assigned ->
+                       match assigned.source with
+                       | Global state ->
+                           let name = state.publication.global_name in
+                           Option.iter
+                             (Names.add initializers name)
+                             (Names.find_opt ledger.initializers name)
+                       | Function _ -> ())
+                     !claimed;
+                   initializers);
                 checked_dimensions =
                   Dimensions.fold
                     (fun dimension _ checked ->
@@ -1467,6 +1530,34 @@ let seal ledger (ast : Ast.module_) =
 
 let owns_runtime runtime (command : command) =
   Option.fold ~none:false ~some:(fun owner -> owner == runtime) command.runtime
+
+let initializer_leaf_for ledger (receipt : Parser.completed_initializer_leaf) =
+  protect (fun () ->
+      let publication = receipt.leaf_initializer.initializer_owner in
+      let span = publication.global_name.location.span in
+      match Names.find_opt ledger.names publication.global_name with
+      | Some
+          {
+            source =
+              Global { publication = original; initializing = Some pending; _ };
+            _;
+          }
+        when original == publication ->
+          Sema.Initializer_source.parser_leaf pending receipt |> checked span
+      | _ -> fail span "initializer leaf belongs to another source declaration")
+
+let initializer_for ~table ~ast (command : command) name initial =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span "initializer source belongs to another table or AST";
+      match Names.find_opt command.initializers name with
+      | Some (original, source) when original == initial -> source
+      | _ ->
+          fail ast.span
+            "initializer source lacks its original completed transcript")
+
+let source_initializer_for ~table ~ast (Source_command command) name initial =
+  initializer_for ~table ~ast command name initial
 
 let command_order ~runtime ~table ~ast (command : command) =
   protect (fun () ->
