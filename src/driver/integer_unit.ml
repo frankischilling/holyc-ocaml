@@ -932,6 +932,7 @@ let compile_task_ast ~task ?declaration_command session ~config
           "source-owned task syntax requires its original declaration receipt";
       ]
   else
+    let () = VM.start_task_compilation task in
     let* task_view =
       VM.task_snapshot task
       |> Result.map_error (fun message ->

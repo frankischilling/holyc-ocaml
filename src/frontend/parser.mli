@@ -56,6 +56,11 @@ val context_parent : command_context -> command_position option
     phase at nested entry. Contexts from distinct parse calls remain distinct.
 *)
 
+val context_is_current : command_context -> observed_events:int -> bool
+(** The parser still owns this live context and has issued exactly this many
+    command checkpoints. A delayed or incomplete observer cannot use remembered
+    lifecycle state to activate execution after parsing advances or ends. *)
+
 val sequence_accepted : completed_sequence -> bool
 (** Becomes true only after the sequence completion callback returns
     successfully. Rejected or exceptional completion never accepts the sequence.

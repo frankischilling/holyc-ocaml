@@ -120,6 +120,7 @@ let () =
       ("task parser executor", Test_task_parser_executor.tests);
       ("AOT source execution", Test_aot_source_execution.tests);
       ("task declarations", Test_task_declarations.tests);
+      ("source promotion", Test_source_promotion.tests);
       ("stream parser", Test_stream_parser.tests);
       ("source integer statics", Test_integer_statics.tests);
       ("source static initializers", Test_integer_static_initializers.tests);

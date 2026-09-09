@@ -59,6 +59,32 @@ val frontend : t -> Session.t
     Sources and semantic table are shared with the caller session; declarations,
     definitions and local contexts have this task's visibility owner. *)
 
+val adopt_source :
+  ?max_steps:int ->
+  ?max_initializer_steps:int ->
+  ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
+  ?max_frame_bytes:int ->
+  ?max_call_depth:int ->
+  ?max_output_bytes:int ->
+  ?max_output_work:int ->
+  ?max_generated_bytes:int ->
+  ?max_stream_depth:int ->
+  Session.t ->
+  source:Common.Source_file.t ->
+  ledger:Task_declarations.t ->
+  (t, string) result
+(** Adopt the exact frontend and active source ledger without taking another
+    task view. Requires its original unsealed JIT input. Earlier source
+    dimensions enter this task's preparation allowance once; failed adoption
+    leaves the ledger unchanged. No source commands execute during adoption. *)
+
+val compile_source_ast :
+  t -> Frontend.Ast.module_ -> (command, Common.Diagnostic.t list) result
+(** Compile this ledger's exact completed parser command or accepted sequence.
+    Its original resume/predecessor evidence still controls runtime admission;
+    incomplete or reconstructed syntax cannot obtain a command. *)
+
 val output_bytes : t -> string
 val output_work : t -> int
 val generated_bytes : t -> int

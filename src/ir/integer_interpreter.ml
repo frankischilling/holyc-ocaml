@@ -306,6 +306,7 @@ type isolated_preparation = {
 }
 
 type task_state = {
+  mutable source_promotion_open : bool;
   catalog : Integer_globals.task_catalog;
   mutable arenas : (Integer_globals.t * runtime_storage) list;
   mutable literal_arenas : runtime_storage list;
@@ -362,6 +363,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
     let output = Output.create ~max_output_bytes ~max_output_work in
     Ok
       {
+        source_promotion_open = true;
         catalog = Integer_globals.create_task_catalog ~table;
         arenas = [];
         literal_arenas = [];
@@ -389,6 +391,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
       }
 
 let begin_task_stream task =
+  task.source_promotion_open <- false;
   if List.length task.streams >= task.max_stream_depth then
     Error "HCIRVM0029: the task generation nesting limit was exhausted"
   else
@@ -418,6 +421,18 @@ let abort_task_stream task stream =
 
 let task_snapshot task = Integer_globals.snapshot_task task.catalog
 let task_source_order task = Integer_globals.task_source_order task.catalog
+let start_task_compilation task = task.source_promotion_open <- false
+
+let promote_task_source task ~events ~dimension_steps =
+  if not task.source_promotion_open then
+    Error "source promotion requires a fresh task runtime"
+  else if dimension_steps < 0 || dimension_steps > task.max_initializer_steps
+  then Error "source dimension work exceeds the task preparation allowance"
+  else
+    Sema.Task_command_order.import_source_events (task_source_order task) events
+    |> Result.map (fun () ->
+        task.initializer_steps <- dimension_steps;
+        task.source_promotion_open <- false)
 
 let matches_source_program program ~runtime_calls ~globals ~initialization
     ~functions entry =
@@ -433,6 +448,7 @@ let matches_source_program program ~runtime_calls ~globals ~initialization
 
 let bind_task_source_program task ~runtime_calls ~globals ~initialization
     ~functions entry =
+  task.source_promotion_open <- false;
   if
     (not (Integer_globals.owns_task_storage task.catalog globals))
     || not (Integer_globals.has_source_command globals)
@@ -533,9 +549,11 @@ let record_task_preparation task ~before ~steps =
   then
     invalid_arg
       "task preparation progress is inconsistent with its cumulative budget";
+  task.source_promotion_open <- false;
   task.initializer_steps <- before + steps
 
 let begin_isolated_preparation task =
+  task.source_promotion_open <- false;
   {
     preparation_catalog = task.catalog;
     preparation_steps = 0;
@@ -3928,6 +3946,7 @@ let execute_program_with_output ?task ?isolated_budget ?runtime_calls ~output
 
 let execute_task_program task ~runtime_calls ~globals ~initialization ~functions
     checked =
+  task.source_promotion_open <- false;
   if task.steps >= task.max_steps then
     Error
       [
@@ -3944,6 +3963,7 @@ let execute_task_program task ~runtime_calls ~globals ~initialization ~functions
 
 let execute_isolated_program_in_task task ~runtime_calls ~globals
     ~initialization ~functions checked =
+  task.source_promotion_open <- false;
   let invalid code message =
     Error
       [ make_error ~stage:Preflight ~executed_steps:task.steps code message ]

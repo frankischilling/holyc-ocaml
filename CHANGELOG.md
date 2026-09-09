@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added live JIT source-ledger promotion into retained tasks. Promotion preserves
+  original symbols, parser command order, frozen selections and checked array
+  dimensions, and transfers reached dimension work once. Parser lifetime and
+  checkpoint checks reject stale observers; used runtimes cannot receive source
+  authority even when their counters are zero. Shared outer JIT orchestration
+  and native partial publication remain unfinished in #635.
+
 - Expanded provenance checks to built executable consumers after Git or release
   override changes, including normal build/install aliases and both cache modes.
   Quoted Dune aliases in local command examples so PowerShell passes the requested

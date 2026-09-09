@@ -97,6 +97,27 @@ let observe order event =
       | None -> Error "task source sequence has no original context")
   | Parser.Command_started _ | Parser.Sequence_aborted _ -> Ok ()
 
+let import_source_events order events =
+  if
+    order.contexts <> [] || order.families <> [] || order.nodes <> []
+    || order.sequences <> []
+  then Error "source promotion requires an empty task command order"
+  else
+    let pending = create ~table:order.table in
+    let result =
+      List.fold_left
+        (fun result event ->
+          Result.bind result (fun () -> observe pending event))
+        (Ok ()) events
+    in
+    Result.map
+      (fun () ->
+        order.families <- pending.families;
+        order.contexts <- pending.contexts;
+        order.nodes <- pending.nodes;
+        order.sequences <- pending.sequences)
+      result
+
 let seal_command order receipt =
   match find_node order receipt with
   | None -> Error "task source command has no original completion"

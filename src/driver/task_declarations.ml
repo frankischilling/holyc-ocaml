@@ -161,7 +161,8 @@ type t = {
   mutable active : command_sequence list;
   mutable views : (Ast.module_ * parsed_command list) list;
   mutable sequence_views : (Ast.module_ * Parser.completed_sequence) list;
-  authority : authority;
+  mutable authority : authority;
+  mutable source_events_rev : Parser.command_event list;
   max_dimension_work : int;
   mutable dimension_work : int;
   runtime_entries : VM.admitted_publication Entries.t;
@@ -236,6 +237,7 @@ let create_with_authority ?(max_dimension_work = 100_000) authority session =
           views = [];
           sequence_views = [];
           authority;
+          source_events_rev = [];
           max_dimension_work;
           dimension_work = 0;
           runtime_entries = Entries.create 32;
@@ -268,6 +270,35 @@ let create_source ?(max_dimension_work = 100_000) session ~source =
         create_with_authority ~max_dimension_work (Source_compilation source)
           session
     | _ -> Error "ordinary source ledger requires its exact registered input"
+
+let promote_source ledger ~runtime session ~source =
+  if
+    ledger.session != session
+    || ledger.sources != Session.sources session
+    || ledger.symbols != Session.symbols session
+    || ledger.table != Session.semantic_symbols session
+    || not (VM.task_owns_table runtime ledger.table)
+  then Error "source promotion requires its exact frontend and semantic table"
+  else
+    match (ledger.authority, ledger.active, ledger.sequences) with
+    | Source_compilation original, [ active ], [ sequence ]
+      when original == source && active == sequence
+           && Parser.context_is_current active.context
+                ~observed_events:(List.length ledger.source_events_rev)
+           && Parser.context_source active.context == source
+           && Parser.context_mode active.context = Frontend.Preprocessor.Jit
+           && Option.is_none (Parser.context_parent active.context)
+           && (match active.phase with
+             | Ready | Reading _ | Pending _ -> true
+             | Closed | Aborted -> false)
+           && ledger.commands = [] ->
+        VM.promote_task_source runtime
+          ~events:(List.rev ledger.source_events_rev)
+          ~dimension_steps:ledger.dimension_work
+        |> Result.map (fun () ->
+            ledger.authority <- Task_runtime runtime;
+            ledger.source_events_rev <- [])
+    | _ -> Error "source promotion requires its original live unsealed JIT root"
 
 let ledger_runtime ledger =
   match ledger.authority with
@@ -561,7 +592,12 @@ let observe_command_source ledger event =
 let observe_command ledger event =
   Result.bind (observe_command_source ledger event) (fun () ->
       match ledger_runtime ledger with
-      | None -> Ok ()
+      | None ->
+          (match ledger.authority with
+          | Source_compilation _ ->
+              ledger.source_events_rev <- event :: ledger.source_events_rev
+          | Semantic_analysis | Task_runtime _ -> ());
+          Ok ()
       | Some runtime ->
           let context =
             match event with

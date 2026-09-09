@@ -9,6 +9,8 @@ type command_context = {
   context_environment : Symbol_visibility.Environment.t;
   context_mode : Preprocessor.compilation_mode;
   context_parent : command_position option;
+  mutable context_active : bool;
+  mutable context_event_count : int;
   mutable context_accepted_ast : Ast.module_ option;
 }
 
@@ -47,6 +49,9 @@ let context_source context = context.context_source
 let context_environment context = context.context_environment
 let context_mode context = context.context_mode
 let context_parent context = context.context_parent
+
+let context_is_current context ~observed_events =
+  context.context_active && observed_events = context.context_event_count
 
 let sequence_accepted sequence =
   match sequence.sequence_context.context_accepted_ast with
@@ -7471,12 +7476,11 @@ let read_commands ?commands ?stream_opener cursor =
             :: cursor.diagnostics_rev;
         false
   in
-  let checkpoint event =
+  let consume_checkpoint event =
     match Option.bind commands (fun sink -> sink.checkpoint) with
     | None -> true
     | Some consume -> accept (consume event)
   in
-  let notify event = if not (checkpoint event) then raise Stop_command in
   let saved_stack = !(cursor.command_stack) in
   let context =
     {
@@ -7489,13 +7493,21 @@ let read_commands ?commands ?stream_opener cursor =
         | [] -> None
         | parent :: _ -> Some !parent);
       context_accepted_ast = None;
+      context_active = true;
+      context_event_count = 0;
     }
   in
+  let checkpoint event =
+    context.context_event_count <- context.context_event_count + 1;
+    consume_checkpoint event
+  in
+  let notify event = if not (checkpoint event) then raise Stop_command in
   let position = ref (Before_first_command context) in
   cursor.command_stack := position :: saved_stack;
   let succeeded = ref false in
   Fun.protect
     ~finally:(fun () ->
+      context.context_active <- false;
       cursor.current_command <- None;
       cursor.command_stack := saved_stack;
       if not !succeeded then ignore (checkpoint (Sequence_aborted context)))

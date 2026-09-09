@@ -82,6 +82,28 @@ state; `Session.task_frontend` shares source files and semantic table identity.
 
 ## Ownership and timing
 
+`Integer_task.adopt_source session ~source ~ledger` attaches a live ordinary JIT
+source ledger to a fresh task. It retains the exact frontend, source namespace,
+symbols, reference/query selections, checked dimensions and parser command
+receipts. The parser must still own the live root, and the ledger must have
+consumed its current checkpoint. Source seals, AOT or analysis ledgers, delayed
+events, foreign inputs and repeated promotion are rejected before mutation.
+
+Earlier source dimension work enters the task's preparation allowance once;
+later dimensions use its remaining allowance. Failed promotion can be retried
+with a suitable fresh runtime. A runtime that has begun compilation, preparation,
+stream processing or execution is ineligible, including when its counters remain
+zero. Promotion performs no source compilation or runtime admission and leaves
+frozen unadmitted selections unchanged.
+
+`compile_source_ast` accepts the ledger's original complete command or accepted
+sequence. The original resume and predecessor receipts still govern execution.
+Checked providers for a suspended source root must be parsed in a detached
+frontend, then compiled and admitted through the existing callback-free task
+path. `run` starts a new parser root and cannot be used inside that suspension.
+These APIs prepare shared JIT orchestration; native partial declarations and
+initializer leaves still need their own publication and admission boundaries.
+
 `Integer_task.stream_executor task` implements the real
 `Parser.parse ~execute_stream` callback. It observes original parser receipts,
 compiles each completed task command and executes it at its resume event, after
@@ -351,10 +373,9 @@ controls include a configured limit above 100,000.
 
 ## Remaining #635 work
 
-StreamPrint is not yet connected to parser generation. Cross-command extern
-joins, partial type/storage/header publication and initializer execution,
-remaining query metadata, default/provider and later call-phase receipts,
-production parser/VM orchestration and the fourteen
+Cross-command extern joins, partial type/storage/header publication and
+initializer execution, remaining query metadata, default/provider and later
+call-phase receipts, shared outer JIT orchestration and the fourteen
 maintained #exe execution groups remain part of issue #635. The existing integer
 function domain remains unchanged, including its pointer-return boundary.
 

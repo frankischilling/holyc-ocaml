@@ -1,5 +1,15 @@
 # Testing holyc-ocaml
 
+The thirteen `source promotion` groups cover live JIT ledger adoption, exact
+source/frontend ownership, original predecessor and pending-resume checks,
+retained symbols, frozen unadmitted reads, checked dimensions and selected sizeof
+metadata. Exact and one-below preparation limits cover transfer and subsequent
+dimension work. Used runtimes with zero counters, sealed/AOT/analysis ledgers,
+finished parsers and out-of-date live observers cannot gain source authority.
+Real parser/StreamPrint integration covers nested buffers, generated function
+bodies and initializer operands. These internal task tests support the unfinished
+shared outer JIT connection; the fourteen public stateful-exe groups remain red.
+
 The `source narrow integers` groups cover #633's eight gates, all five width/
 signedness families, fourteen update opcodes, signed string copies, ABI slots,
 native read/range/bit proofs and forged checked IR. Bare expression and folding

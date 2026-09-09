@@ -92,6 +92,19 @@ val abort_task_stream : task_state -> task_stream -> (unit, string) result
 val task_snapshot : task_state -> (Integer_globals.task_view, string) result
 val task_source_order : task_state -> Sema.Task_command_order.t
 
+val start_task_compilation : task_state -> unit
+(** Close the fresh-runtime source-promotion boundary before compiling a task
+    unit, including a unit with no preparation work or runtime effects. *)
+
+val promote_task_source :
+  task_state ->
+  events:Frontend.Parser.command_event list ->
+  dimension_steps:int ->
+  (unit, string) result
+(** Internal source-ledger join. A fresh runtime imports already validated
+    command receipts and their reached dimension work atomically. Failed
+    preflight leaves the runtime unchanged; success consumes promotion once. *)
+
 val bind_task_source_program :
   task_state ->
   runtime_calls:Runtime_call_context.t ->

@@ -7,6 +7,12 @@ val observe : t -> Frontend.Parser.command_event -> (unit, string) result
 (** Internal projection of successfully validated parser lifecycle events.
     Resume events order commands within their exact parser-root family. *)
 
+val import_source_events :
+  t -> Frontend.Parser.command_event list -> (unit, string) result
+(** Atomically project a source ledger's previously validated lifecycle into an
+    empty order. The original receipts retain their readiness and predecessors;
+    this operation does not run parser callbacks or admit any command. *)
+
 val seal_command :
   t -> Frontend.Parser.completed_command -> (command, string) result
 

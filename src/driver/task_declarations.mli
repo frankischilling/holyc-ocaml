@@ -12,6 +12,18 @@ val create_source :
     task-runtime authority and cannot import runtime admissions. The exact
     registered input owns the source namespace and its display-path name. *)
 
+val promote_source :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Session.t ->
+  source:Common.Source_file.t ->
+  (unit, string) result
+(** Attach the original active, unsealed JIT source ledger to one fresh runtime.
+    Preserve its namespace, declarations, selections, checked dimensions and
+    lifecycle receipts. Transfer earlier dimension work once. Failure leaves
+    both owners unchanged; promotion does not upgrade unadmitted selections or
+    compile, publish or execute source declarations. *)
+
 val seal_source :
   t -> Frontend.Ast.module_ -> (source_command, Common.Diagnostic.t list) result
 (** Seal original source callbacks from a source-compilation ledger. Analysis

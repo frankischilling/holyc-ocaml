@@ -47,6 +47,33 @@ let create ?max_steps ?max_initializer_steps ?max_global_bytes
           }))
 
 let frontend task = task.session
+
+let adopt_source ?max_steps ?max_initializer_steps ?max_global_bytes
+    ?max_literal_bytes ?max_frame_bytes ?max_call_depth ?max_output_bytes
+    ?max_output_work ?max_generated_bytes ?max_stream_depth session ~source
+    ~ledger =
+  let ( let* ) = Result.bind in
+  let* config = Frontend.Preprocessor.Config.create ~compilation_mode:Jit () in
+  let* state =
+    VM.create_task_state ?max_steps ?max_initializer_steps ?max_global_bytes
+      ?max_literal_bytes ?max_frame_bytes ?max_call_depth ?max_output_bytes
+      ?max_output_work ?max_generated_bytes ?max_stream_depth
+      ~table:(Session.semantic_symbols session)
+      ()
+  in
+  let* () =
+    Task_declarations.promote_source ledger ~runtime:state session ~source
+  in
+  Ok
+    {
+      session;
+      config;
+      state;
+      declarations = ledger;
+      identity = ref ();
+      commands = [];
+    }
+
 let output_bytes task = VM.task_output_bytes task.state
 let output_work task = VM.task_output_work task.state
 let generated_bytes task = VM.task_generated_bytes task.state
@@ -135,6 +162,11 @@ let compile_ast_internal ?declaration_command task (ast : Frontend.Ast.module_)
       Ok command
 
 let compile_ast task ast = compile_ast_internal task ast
+
+let compile_source_ast task ast =
+  Result.bind (Task_declarations.seal task.declarations ast)
+    (fun declaration_command ->
+      compile_ast_internal ~declaration_command task ast)
 
 let execute task command =
   let program = command.program in
@@ -304,12 +336,7 @@ let stream_executor task span =
             match event with
             | Frontend.Parser.Command_resumed completed ->
                 let ast = completed.command_ast in
-                let* declaration_command =
-                  Task_declarations.seal task.declarations ast
-                in
-                let* command =
-                  compile_ast_internal ~declaration_command task ast
-                in
+                let* command = compile_source_ast task ast in
                 execute task command |> Result.map ignore
             | Frontend.Parser.Sequence_completed completed ->
                 sequence := Some completed;
