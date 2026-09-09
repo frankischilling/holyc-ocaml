@@ -192,23 +192,32 @@ contract and boundaries are in [integer programs](integer-programs.md).
 Run the local checks with:
 
 ```text
-dune build @fmt
-dune build @generated-check
-dune build
+dune build '@fmt'
+dune build '@generated-check'
+dune build '@all' '@install'
 dune runtest
 powershell -File tools/verify-reference.ps1
 ```
+
+Quote Dune aliases in PowerShell: unquoted `@fmt`, `@all` and `@install` are
+variable splats, so a successful command may not have requested those checks.
+Quoted aliases work in both PowerShell and POSIX shells.
 
 The integer-division group also replays 13 raw-value and four fault projections from the native fixture in `test/oracle/integer-division.json`. Those projections compare captured native output with verified integer IR execution; they do not claim source optimizer or native exception-delivery compatibility.
 
 CI also runs `opam exec -- pwsh -NoProfile -File tools/test-version-metadata.ps1`.
 On Windows PowerShell, use `opam exec -- powershell -NoProfile -File
 tools/test-version-metadata.ps1` (or the shell's full path). The probe copies
-the production metadata rule and generator into temporary projects, changes
-synthetic loose/packed refs and detached HEADs, exercises a linked-worktree
-gitfile and release overrides, and rebuilds without cleaning. It checks actual
-generated metadata, restores process environment variables, and verifies the
-temporary directory before removing it. The fixture refs are test identities,
+the production metadata rule, generator and version module into temporary
+projects with a linked executable consumer. Thirteen scenarios cover synthetic
+loose/packed refs, branch switches, detached HEADs, a linked-worktree gitfile,
+release overrides and the source-archive unknown fallback. Each runs through the explicit metadata
+target, executable target, `@all` and `@install`, with caching disabled and enabled
+(104 checks). Consumer assertions invoke the already-built executable directly,
+compare it with the externally expected revision, and verify that its identity
+stays unchanged before rebuilding. Install-target scenarios also check the
+staged public executable. The probe restores process environment variables and
+verifies the temporary directory before removing it. The fixture refs are test identities,
 not compatibility results or commits in the implementation repository.
 
 Unit tests cover source positions, spans, token construction, literal decoding, comments, diagnostic rendering, include and generated-value frames, predefined values, primitive, internal, and named declaration types, declaration modifiers and bindings, comma-separated groups, pointer layers, strict extraction of the complete opcode database, operator tables, primitive type metadata, compiler options, function flags, member-list flags, global record flags, the complete intermediate-code table, and the TempleOS BIN specification. The generated-table tests reject malformed statements, duplicate records, missing or reordered entries, changed aliases, unknown opcode arguments, excess instruction bytes or forms, unknown operator tokens or ICs, precedence drift, unavailable-type drift, option default drift, function-flag expression or transition drift, member-list flag or consumer drift, global-record flag or consumer drift, BIN record or loader-formula drift, API contract drift, and source checksum mismatches. The option, function-flag, member-list flag, global-record flag, and BIN scanners also prove that comments and literals do not create false consumers; the option tests separately confirm that `_BEQU` retains its previous-state result.

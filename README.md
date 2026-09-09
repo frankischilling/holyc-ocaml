@@ -334,12 +334,18 @@ dune install
 The main local checks are:
 
 ```text
-dune build @fmt
-dune build @generated-check
-dune build @all
+dune build '@fmt'
+dune build '@generated-check'
+dune build '@all' '@install'
 dune runtest
 powershell -File tools/verify-reference.ps1
 ```
+
+Keep the quotes around Dune aliases in PowerShell. Bare `@fmt`, `@all` and
+`@install` are variable splats and can disappear from the command without an
+error. The same quoted commands also work in POSIX shells. The provenance probe
+in [testing](docs/testing.md) verifies both generated metadata and built
+executables after Git or release-override changes.
 
 ## Use the current commands
 

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Expanded provenance checks to built executable consumers after Git or release
+  override changes, including normal build/install aliases and both cache modes.
+  Quoted Dune aliases in local command examples so PowerShell passes the requested
+  targets instead of treating them as variable splats. The existing metadata
+  generator and Dune rule are unchanged.
+
 - Connected public AOT source compilation and execution to retained #exe tasks.
   Real generated text continues through the outer parser, while an early frontend
   fork keeps task and outer namespaces separate. Streams and the isolated outer
