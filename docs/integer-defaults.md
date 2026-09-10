@@ -38,9 +38,11 @@ native TempleOS execution capture.
 General default support remains unfinished: floating conversion, pointer and
 owned string defaults, `lastclass` materialization, defaults nested inside
 callback declarators, cross-command extern joins, partial-header calls, and
-ordinary outer JIT/AOT declaration preparation still need integration. The new
-execution path operates in live parser tasks, including AOT `#exe` bodies.
-Outer JIT directives still have fourteen failing HCPP0008 acceptance groups.
+ordinary outer AOT and directive-free JIT declaration preparation still need
+integration. The execution path operates in live parser tasks, including AOT
+`#exe` bodies and activated outer JIT source. Outer JIT activation consumes
+earlier original default receipts once before entering the first directive;
+later defaults use their live parser callbacks.
 Issue #635 and draft #636 remain open, together with the full compiler, native
 backend, BIN/loader and bootstrap requirements.
 

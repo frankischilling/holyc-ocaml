@@ -483,6 +483,27 @@ let lower_integer_program = Driver.Integer_program.lower
 
 type integer_program = Driver.Integer_program.compiled
 
+type integer_program_compilation = Driver.Integer_program.compilation =
+  | Isolated of integer_program
+  | Stateful of Ir_integer_interpreter.t
+
+type integer_program_compilation_report =
+  Driver.Integer_program.compilation_report
+
+let compile_integer_program_report = Driver.Integer_program.compile_report
+
+let integer_program_compilation_result =
+  Driver.Integer_program.compilation_result
+
+let integer_program_compilation_units =
+  Driver.Integer_program.compilation_task_units
+
+let integer_program_compilation_progress =
+  Driver.Integer_program.compilation_progress
+
+let integer_program_compilation_dimension_work =
+  Driver.Integer_program.compilation_dimension_work
+
 let compile_integer_program = Driver.Integer_program.compile
 let compile_integer_ast = Driver.Integer_program.compile_ast
 let compile_integer_task_ast = Driver.Integer_program.compile_task_ast

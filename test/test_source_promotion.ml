@@ -563,8 +563,208 @@ let stale_live_checkpoint () =
   in
   ignore (parse ~checkpoint session source ledger |> Test_parser.expect_ast)
 
+let revoked_activation_admission () =
+  let session, source, ledger = inputs "I64 A;#exe {}" in
+  let publication = ref None in
+  let declaration event =
+    Result.map
+      (fun () ->
+        match event with
+        | Parser.Global_declared p -> publication := Some p
+        | _ -> ())
+      (D.observe ledger event)
+  in
+  let enter span =
+    let runtime =
+      VM.create_task_state ~table:(Session.semantic_symbols session) ()
+      |> checked
+    in
+    D.promote_source ledger ~runtime session ~source |> checked;
+    let errors =
+      [
+        Diagnostic.make ~code:"TEST" ~severity:Diagnostic.Error ~primary:span
+          ~message:"stop activation" ();
+      ]
+    in
+    let result =
+      D.activate_source ledger ~runtime ~span
+        ~declaration:(fun _ -> Error errors)
+        ~command:(fun _ -> Ok ())
+    in
+    reject "activation stopped before global admission" result;
+    reject "revoked declaration cannot allocate storage"
+      (D.admit_global ledger ~runtime (Option.get !publication));
+    Alcotest.(check int)
+      "revocation has no storage effect" 0
+      (VM.task_progress runtime).global_bytes;
+    Error errors
+  in
+  let output = parse ~declaration ~execute_stream:enter session source ledger in
+  Alcotest.(check bool)
+    "activation failure remains fatal" true (Parser.has_errors output)
+
+let revoked_activation_command () =
+  let session, source, ledger = inputs "40;2;#exe {}" in
+  let first = ref None in
+  let checkpoint event =
+    Result.map
+      (fun () ->
+        match event with
+        | Parser.Command_resumed command
+          when command.command_start.command_ordinal = 0 ->
+            first := Some command
+        | _ -> ())
+      (D.observe_command ledger event)
+  in
+  let enter span =
+    let runtime =
+      VM.create_task_state ~table:(Session.semantic_symbols session) ()
+      |> checked
+    in
+    D.promote_source ledger ~runtime session ~source |> checked;
+    let errors =
+      [
+        Diagnostic.make ~code:"TEST" ~severity:Diagnostic.Error ~primary:span
+          ~message:"stop activation" ();
+      ]
+    in
+    reject "activation stopped before command execution"
+      (D.activate_source ledger ~runtime ~span
+         ~declaration:(fun _ -> Ok ())
+         ~command:(fun _ -> Error errors));
+    let ast = (Option.get !first).Parser.command_ast in
+    let declaration_command = D.seal ledger ast |> expect in
+    let config =
+      Preprocessor.Config.create ~compilation_mode:Jit () |> checked
+    in
+    let program =
+      compile_integer_task_ast ~task:runtime ~declaration_command session
+        ~config ast
+      |> expect
+    in
+    reject "revoked command cannot execute"
+      (Test_task_declarations.execute_runtime runtime program.value);
+    Alcotest.(check int)
+      "revocation has no instruction effect" 0
+      (VM.task_progress runtime).executed_steps;
+    Error errors
+  in
+  let output = parse ~checkpoint ~execute_stream:enter session source ledger in
+  Alcotest.(check bool)
+    "activation failure remains fatal" true (Parser.has_errors output)
+
+let result_requires_accepted_execution () =
+  List.iter
+    (fun text ->
+      let session, source, ledger = inputs text in
+      let runtime =
+        VM.create_task_state ~table:(Session.semantic_symbols session) ()
+        |> checked
+      in
+      let sequence = ref None in
+      let checkpoint event =
+        Result.map
+          (fun () ->
+            match event with
+            | Parser.Sequence_started _ ->
+                D.promote_source ledger ~runtime session ~source |> checked
+            | Parser.Command_resumed receipt ->
+                let ast = receipt.command_ast in
+                let declaration_command = D.seal ledger ast |> expect in
+                let config =
+                  Preprocessor.Config.create ~compilation_mode:Jit () |> checked
+                in
+                let program =
+                  compile_integer_task_ast ~task:runtime ~declaration_command
+                    session ~config ast
+                  |> expect
+                in
+                ignore
+                  (Test_task_declarations.execute_runtime runtime program.value)
+            | Parser.Sequence_completed receipt ->
+                sequence := Some receipt;
+                reject "completion event cannot be replayed within its callback"
+                  (VM.observe_task_source_event runtime event);
+                reject "callback has not yet accepted source completion"
+                  (VM.task_result runtime ~sequence:receipt)
+            | _ -> ())
+          (D.observe_command ledger event)
+      in
+      ignore (parse ~checkpoint session source ledger |> Test_parser.expect_ast);
+      let receipt = Option.get !sequence in
+      let foreign =
+        VM.create_task_state ~table:(Session.semantic_symbols session) ()
+        |> checked
+      in
+      reject "another runtime cannot claim accepted source"
+        (VM.task_result foreign ~sequence:receipt);
+      (match VM.task_result runtime ~sequence:receipt with
+      | Ok result ->
+          Alcotest.(check string)
+            "only successful execution projects a result" "42;" text;
+          Alcotest.(check (option int64))
+            "original result" (Some 42L)
+            (Option.map (fun word -> word.VM.bits) (VM.final_value result))
+      | Error _ ->
+          Alcotest.(check string)
+            "ignored execution failure is not success" "1/0;" text);
+      if text = "42;" then
+        let later =
+          Session.add_source session ~path:"later-root.hc" ~contents:"99;"
+        in
+        let checkpoint event =
+          Result.map
+            (fun () ->
+              match event with
+              | Parser.Command_started _ ->
+                  reject "an older root cannot certify pending source"
+                    (VM.task_result runtime ~sequence:receipt)
+              | _ -> ())
+            (D.observe_command ledger event)
+        in
+        ignore (parse ~checkpoint session later ledger |> Test_parser.expect_ast))
+    [ "42;"; "1/0;" ]
+
+let late_admission_cannot_certify_completion () =
+  let session, source, ledger = inputs "42;" in
+  let runtime =
+    VM.create_task_state ~table:(Session.semantic_symbols session) () |> checked
+  in
+  let sequence = ref None in
+  let checkpoint event =
+    Result.map
+      (fun () ->
+        match event with
+        | Parser.Sequence_started _ ->
+            D.promote_source ledger ~runtime session ~source |> checked
+        | Parser.Sequence_completed receipt -> sequence := Some receipt
+        | _ -> ())
+      (D.observe_command ledger event)
+  in
+  let ast = parse ~checkpoint session source ledger |> Test_parser.expect_ast in
+  let declaration_command = D.seal ledger ast |> expect in
+  let config = Preprocessor.Config.create ~compilation_mode:Jit () |> checked in
+  let program =
+    compile_integer_task_ast ~task:runtime ~declaration_command session ~config
+      ast
+    |> expect
+  in
+  (match Test_task_declarations.execute_runtime runtime program.value with
+  | Ok _ -> ()
+  | Error _ -> Alcotest.fail "late command execution failed");
+  reject "post-parse admission cannot certify an earlier completion snapshot"
+    (VM.task_result runtime ~sequence:(Option.get !sequence))
+
 let tests =
   [
+    Alcotest.test_case "source completion requires admission at that boundary"
+      `Quick late_admission_cannot_certify_completion;
+    Alcotest.test_case "source result requires accepted successful execution"
+      `Quick result_requires_accepted_execution;
+    Alcotest.test_case "revoked activation cannot admit a saved global" `Quick
+      revoked_activation_admission;
+    Alcotest.test_case "revoked activation cannot execute a saved command"
+      `Quick revoked_activation_command;
     Alcotest.test_case "promotion retains original predecessor readiness" `Quick
       preserves_order;
     Alcotest.test_case "promotion retains original array preparation" `Quick

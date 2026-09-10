@@ -836,6 +836,36 @@ val lower_integer_program :
 
 type integer_program
 
+type integer_program_compilation =
+  | Isolated of integer_program
+  | Stateful of Ir_integer_interpreter.t
+
+type integer_program_compilation_report
+
+val compile_integer_program_report :
+  ?max_dimension_work:int ->
+  ?max_initializer_steps:int ->
+  Session.t ->
+  config:Preprocessor.Config.t ->
+  source:Source_file.t ->
+  integer_program_compilation_report
+
+val integer_program_compilation_result :
+  integer_program_compilation_report ->
+  (integer_program_compilation integer_program_result, Diagnostic.t list) result
+
+val integer_program_compilation_units :
+  integer_program_compilation_report -> integer_program list
+
+val integer_program_compilation_progress :
+  integer_program_compilation_report -> Integer_task.progress option
+
+val integer_program_compilation_dimension_work :
+  integer_program_compilation_report -> int
+(** Ordinary and AOT output have an isolated artifact. An activated JIT source
+    reports its completed cumulative task result and individually inspectable
+    task units; it has no single isolated executable graph. *)
+
 val compile_integer_task_ast :
   task:Ir_integer_interpreter.task_state ->
   ?declaration_command:Task_declarations.command ->

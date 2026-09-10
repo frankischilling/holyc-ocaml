@@ -547,10 +547,22 @@ let integer_expression_file ?(max_dimension_work = 100_000)
             let output =
               if dump then
                 (if program then
-                   Holyc_lib.compile_integer_program ~max_dimension_work
-                     ~max_initializer_steps session ~config ~source
+                   let report =
+                     Holyc_lib.compile_integer_program_report
+                       ~max_dimension_work ~max_initializer_steps session
+                       ~config ~source
+                   in
+                   Holyc_lib.integer_program_compilation_result report
                    |> Result.map program_value
-                   |> Result.map Holyc_lib.integer_program_human
+                   |> Result.map (function
+                     | Holyc_lib.Isolated program ->
+                         Holyc_lib.integer_program_human program
+                     | Holyc_lib.Stateful _ ->
+                         Holyc_lib.integer_program_compilation_units report
+                         |> List.mapi (fun index program ->
+                             Printf.sprintf "task unit %d\n%s" index
+                               (Holyc_lib.integer_program_human program))
+                         |> String.concat "\n")
                  else
                    Holyc_lib.lower_integer_expression session ~config ~source
                    |> Result.map (fun graph ->

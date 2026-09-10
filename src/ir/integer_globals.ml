@@ -748,6 +748,14 @@ let has_source_command globals =
     ~some:(fun view -> Option.is_some view.source_command)
     globals.task_view
 
+let source_command_receipts globals =
+  Option.bind globals.task_view (fun view -> view.source_command)
+  |> Option.fold ~none:[] ~some:Sema.Task_command_order.command_receipts
+
+let check_source_completion ?require_accepted catalog receipt =
+  Sema.Task_command_order.check_completion ?require_accepted
+    catalog.source_order ~admitted:catalog.admitted_commands receipt
+
 let owns_task_storage catalog globals =
   Option.fold ~none:false
     ~some:(fun view -> view.catalog == catalog)

@@ -429,6 +429,20 @@ let stream_diagnostics span message =
   in
   [ Integer_source.diagnostic ~span code detail ]
 
+let activate_source task ~span =
+  Task_declarations.activate_source task.declarations ~runtime:task.state ~span
+    ~declaration:(observe_initializer task) ~command:(fun ast ->
+      Result.bind (compile_source_ast task ast) (fun command ->
+          execute task command |> Result.map ignore))
+
+let result task ~sequence =
+  VM.task_result task.state ~sequence
+  |> Result.map_error (fun message ->
+      [
+        Integer_source.diagnostic
+          ~span:sequence.Frontend.Parser.sequence_ast.span "HCRUN0004" message;
+      ])
+
 let stream_executor task span =
   let ( let* ) = Result.bind in
   let* stream =

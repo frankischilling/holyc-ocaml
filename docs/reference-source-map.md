@@ -1,5 +1,13 @@
 # Reference source map
 
+[Outer JIT activation](integer-task.md) preserves the statement lookahead order
+in `Kernel/KTask.HC:337-344` and `Compiler/PrsStmt.HC:1209-1211`. Its original
+initializer/default receipts follow the declaration-time paths below. The first
+actual directive activates the source journal, and later source callbacks use
+the same retained task. Journaling, single-use authority, quota checks and
+separate compiled-unit inspection are hosted implementation controls. They do
+not establish native execution equivalence beyond the audited source behavior.
+
 [Partial task storage](integer-task.md) follows the pinned
 `Compiler/PrsStmt.HC:334-435` allocation and publication path. Global storage
 exists before initializer parsing, and the same address remains attached to the

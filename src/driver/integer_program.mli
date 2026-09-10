@@ -75,6 +75,10 @@ val dimension_preparation_work : compiled -> int
 *)
 
 type compilation_report
+type compilation = Isolated of compiled | Stateful of Ir.Integer_interpreter.t
+
+val compilation_result :
+  compilation_report -> (compilation checked, Common.Diagnostic.t list) result
 
 val compile_report :
   ?max_dimension_work:int ->

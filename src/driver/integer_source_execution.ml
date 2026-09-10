@@ -13,9 +13,12 @@ type limits = {
   output_work : int;
 }
 
+type compilation = Isolated of Unit.compiled | Stateful of VM.t
+
 type compilation_report = {
   compilation_outcome_ :
-    (Unit.compiled Unit.checked, Common.Diagnostic.t list) result;
+    (compilation Unit.checked, Common.Diagnostic.t list) result;
+  source_span : Common.Span.t;
   source_dimension_work : int;
   task : Task.t option;
   compilation_progress_ : Task.progress option;
@@ -33,7 +36,21 @@ type report = {
   task_units_ : Unit.compiled list;
 }
 
-let compilation_outcome report = report.compilation_outcome_
+let compilation_result report = report.compilation_outcome_
+
+let compilation_outcome report =
+  Result.bind report.compilation_outcome_ (fun checked ->
+      match checked.Unit.value with
+      | Isolated value -> Ok { checked with value }
+      | Stateful _ ->
+          Error
+            (checked.diagnostics
+            @ [
+                Integer_source.diagnostic ~span:report.source_span "HCRUN0001"
+                  "stateful JIT source has separate task units; use \
+                   compilation_result or the source execution report";
+              ]))
+
 let compilation_progress report = report.compilation_progress_
 let compilation_task_units (report : compilation_report) = report.task_units_
 
@@ -52,7 +69,7 @@ let program report = report.program_
 let task_units (report : report) = report.task_units_
 let ( let* ) = Result.bind
 
-let install_providers task =
+let install_providers ?(suspended = false) task =
   let session = Task.frontend task in
   let symbols = Session.symbols session in
   let headers =
@@ -75,7 +92,28 @@ let install_providers task =
       Session.add_source session ~path:"<hosted-task-providers>"
         ~contents:headers
     in
-    Task.run task ~source |> Result.map ignore
+    if not suspended then Task.run task ~source |> Result.map ignore
+    else
+      let detached = Session.fork_frontend session in
+      let* config =
+        Frontend.Preprocessor.Config.create ~compilation_mode:Jit ()
+        |> Result.map_error (fun message ->
+            [
+              Integer_source.diagnostic
+                ~span:(Integer_source.source_span source)
+                "HCIRVM0001" message;
+            ])
+      in
+      let parsed =
+        Parser.parse ~sources:(Session.sources detached)
+          ~definitions:(Session.definitions detached)
+          ~symbols:(Session.symbols detached) ~config source
+      in
+      match parsed.ast with
+      | None -> Error parsed.diagnostics
+      | Some ast ->
+          let* command = Task.compile_ast task ast in
+          Task.execute task command |> Result.map ignore
 
 let compile_report ?(max_dimension_work = 100_000)
     ?(max_initializer_steps = 100_000) ?(max_steps = 100_000)
@@ -95,6 +133,7 @@ let compile_report ?(max_dimension_work = 100_000)
     }
   in
   let task = ref None in
+  let completed_sequence = ref None in
   let source_dimension_work = ref 0 in
   let span = Integer_source.source_span source in
   let compilation_outcome_ =
@@ -122,46 +161,91 @@ let compile_report ?(max_dimension_work = 100_000)
           Some (Session.fork_frontend session)
         else None
       in
+      let is_jit = Option.is_none task_session in
       let execute_stream =
-        Option.map
-          (fun task_session directive ->
-            let* retained =
-              match !task with
-              | Some task -> Ok task
-              | None ->
-                  let* retained =
-                    Task.create ~max_steps ~max_initializer_steps
-                      ~max_global_bytes ~max_literal_bytes ~max_frame_bytes
-                      ~max_call_depth ~max_output_bytes ~max_output_work
-                      ~max_generated_bytes:
-                        (Frontend.Preprocessor.Config.max_generated_bytes config)
-                      task_session
-                    |> Result.map_error (fun message ->
-                        [
-                          Integer_source.diagnostic ~span:directive "HCIRVM0001"
-                            message;
-                        ])
-                  in
-                  task := Some retained;
-                  let* () = install_providers retained in
-                  Ok retained
-            in
-            Task.stream_executor retained directive)
-          task_session
+       fun directive ->
+        let* retained =
+          match !task with
+          | Some task -> Ok task
+          | None ->
+              let create =
+                match task_session with
+                | Some task_session ->
+                    fun () ->
+                      Task.create ~max_steps ~max_initializer_steps
+                        ~max_global_bytes ~max_literal_bytes ~max_frame_bytes
+                        ~max_call_depth ~max_output_bytes ~max_output_work
+                        ~max_generated_bytes:
+                          (Frontend.Preprocessor.Config.max_generated_bytes
+                             config)
+                        task_session
+                | None ->
+                    fun () ->
+                      Task.adopt_source ~max_steps ~max_initializer_steps
+                        ~max_global_bytes ~max_literal_bytes ~max_frame_bytes
+                        ~max_call_depth ~max_output_bytes ~max_output_work
+                        ~max_generated_bytes:
+                          (Frontend.Preprocessor.Config.max_generated_bytes
+                             config)
+                        session ~source ~ledger
+              in
+              let* retained =
+                create ()
+                |> Result.map_error (fun message ->
+                    [
+                      Integer_source.diagnostic ~span:directive "HCIRVM0001"
+                        message;
+                    ])
+              in
+              task := Some retained;
+              let* () =
+                if is_jit then Task.activate_source retained ~span:directive
+                else Ok ()
+              in
+              let* () = install_providers ~suspended:is_jit retained in
+              Ok retained
+        in
+        Task.stream_executor retained directive
       in
       let commands : Parser.command_sink =
         {
-          checkpoint = Some (Task_declarations.observe_command ledger);
+          checkpoint =
+            Some
+              (fun event ->
+                let* () = Task_declarations.observe_command ledger event in
+                match (is_jit, !task, event) with
+                | true, Some task, Parser.Command_resumed receipt ->
+                    let* command =
+                      Task.compile_source_ast task receipt.command_ast
+                    in
+                    Task.execute task command |> Result.map ignore
+                | true, Some _, Parser.Sequence_completed receipt ->
+                    completed_sequence := Some receipt;
+                    Ok ()
+                | _ -> Ok ());
           query = Some (Task_declarations.observe_query ledger);
           reference =
-            Option.map
-              (fun _ selection ->
-                let* () =
-                  Task_declarations.observe_reference ledger selection
-                in
-                Task_declarations.validate_source_reference ledger selection)
-              task_session;
-          declaration = Some (Task_declarations.observe ledger);
+            Some
+              (fun selection ->
+                match (is_jit, !task) with
+                | true, Some _ ->
+                    Task_declarations.observe_execution_reference ledger
+                      selection
+                | _ ->
+                    let* () =
+                      Task_declarations.observe_reference ledger selection
+                    in
+                    if is_jit then Ok ()
+                    else
+                      Task_declarations.validate_source_reference ledger
+                        selection);
+          declaration =
+            Some
+              (fun event ->
+                let* () = Task_declarations.observe ledger event in
+                match (is_jit, !task) with
+                | true, Some task -> Task.observe_initializer task event
+                | _ -> Ok ());
           dimension_count =
             Some (Task_declarations.grammar_dimension_count ledger);
           command = (fun _ -> Ok ());
@@ -169,28 +253,40 @@ let compile_report ?(max_dimension_work = 100_000)
         }
       in
       let parsed =
-        Parser.parse ?execute_stream ~commands
+        Parser.parse ~execute_stream ~commands
           ~sources:(Session.sources session)
           ~definitions:(Session.definitions session)
           ~symbols:(Session.symbols session) ~config source
       in
-      source_dimension_work := Task_declarations.dimension_work ledger;
+      source_dimension_work :=
+        if is_jit && Option.is_some !task then 0
+        else Task_declarations.dimension_work ledger;
       match parsed.ast with
       | None -> Error parsed.diagnostics
-      | Some ast -> (
+      | Some _ when is_jit && Option.is_some !task ->
+          let* result =
+            Task.result (Option.get !task)
+              ~sequence:(Option.get !completed_sequence)
+          in
+          Ok { Unit.value = Stateful result; diagnostics = parsed.diagnostics }
+      | Some ast ->
           let* source_command =
             Task_declarations.seal_source ledger ast
             |> Result.map_error (fun errors -> parsed.diagnostics @ errors)
           in
-          match !task with
-          | None ->
-              Unit.compile_source_output ~source_command ~max_initializer_steps
-                session ~config parsed
-          | Some task ->
-              Task.compile_isolated task ~source_command session ~config parsed)
+          (match !task with
+            | None ->
+                Unit.compile_source_output ~source_command
+                  ~max_initializer_steps session ~config parsed
+            | Some task ->
+                Task.compile_isolated task ~source_command session ~config
+                  parsed)
+          |> Result.map (fun checked ->
+              { checked with Unit.value = Isolated checked.Unit.value })
   in
   {
     compilation_outcome_;
+    source_span = span;
     source_dimension_work = !source_dimension_work;
     task = !task;
     compilation_progress_ = Option.map Task.progress !task;
@@ -209,40 +305,43 @@ let run ?max_dimension_work ?max_initializer_steps ?max_global_bytes
   let span = Integer_source.source_span source in
   let program_ =
     match compilation.compilation_outcome_ with
-    | Ok checked -> Some checked.value
+    | Ok { value = Isolated program; _ } -> Some program
+    | Ok { value = Stateful _; _ } -> None
     | Error _ -> None
   in
   let ordinary_report = ref None in
   let outcome_ =
     let* checked = compilation.compilation_outcome_ in
-    let compiled = checked.value in
-    let execution =
-      match compilation.task with
-      | Some task -> Task.execute_isolated task compiled
-      | None ->
-          let limits = compilation.limits in
-          let report =
-            VM.execute_program_report
-              ~runtime_calls:(Unit.runtime_calls compiled)
-              ~globals:(Unit.globals compiled)
-              ~initialization:(Unit.initialization compiled)
-              ~max_global_bytes:limits.global_bytes
-              ~max_literal_bytes:limits.literal_bytes ~max_steps:limits.steps
-              ~max_frame_bytes:limits.frame_bytes
-              ~max_call_depth:limits.call_depth
-              ~max_output_bytes:limits.output_bytes
-              ~max_output_work:limits.output_work
-              ~functions:(Unit.functions compiled) (Unit.entry compiled)
-          in
-          ordinary_report := Some report;
-          VM.report_outcome report
-    in
-    execution
-    |> Result.map (fun value ->
-        { Unit.value; diagnostics = checked.diagnostics })
-    |> Result.map_error (fun errors ->
-        checked.diagnostics
-        @ Integer_execution_diagnostics.of_errors ~span errors)
+    match checked.value with
+    | Stateful value -> Ok { checked with Unit.value }
+    | Isolated compiled ->
+        let execution =
+          match compilation.task with
+          | Some task -> Task.execute_isolated task compiled
+          | None ->
+              let limits = compilation.limits in
+              let report =
+                VM.execute_program_report
+                  ~runtime_calls:(Unit.runtime_calls compiled)
+                  ~globals:(Unit.globals compiled)
+                  ~initialization:(Unit.initialization compiled)
+                  ~max_global_bytes:limits.global_bytes
+                  ~max_literal_bytes:limits.literal_bytes
+                  ~max_steps:limits.steps ~max_frame_bytes:limits.frame_bytes
+                  ~max_call_depth:limits.call_depth
+                  ~max_output_bytes:limits.output_bytes
+                  ~max_output_work:limits.output_work
+                  ~functions:(Unit.functions compiled) (Unit.entry compiled)
+              in
+              ordinary_report := Some report;
+              VM.report_outcome report
+        in
+        execution
+        |> Result.map (fun value ->
+            { Unit.value; diagnostics = checked.diagnostics })
+        |> Result.map_error (fun errors ->
+            checked.diagnostics
+            @ Integer_execution_diagnostics.of_errors ~span errors)
   in
   let progress_ = Option.map Task.progress compilation.task in
   let output_bytes_, output_work_ =

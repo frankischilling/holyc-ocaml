@@ -1,5 +1,15 @@
 type t
 
+val activate_source :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  span:Common.Span.t ->
+  declaration:
+    (Frontend.Parser.declaration_event ->
+    (unit, Common.Diagnostic.t list) result) ->
+  command:(Frontend.Ast.module_ -> (unit, Common.Diagnostic.t list) result) ->
+  (unit, Common.Diagnostic.t list) result
+
 val begin_default_attempt :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->

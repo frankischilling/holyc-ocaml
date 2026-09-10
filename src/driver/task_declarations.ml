@@ -176,6 +176,8 @@ type t = {
   mutable sequence_views : (Ast.module_ * Parser.completed_sequence) list;
   mutable authority : authority;
   mutable source_events_rev : Parser.command_event list;
+  mutable activation_events_rev : Sema.Source_activation.event list;
+  mutable activation : Sema.Source_activation.t option;
   max_dimension_work : int;
   mutable dimension_work : int;
   runtime_entries : VM.admitted_publication Entries.t;
@@ -261,6 +263,8 @@ let create_with_authority ?(max_dimension_work = 100_000) authority session =
               sequence_views = [];
               authority;
               source_events_rev = [];
+              activation_events_rev = [];
+              activation = None;
               max_dimension_work;
               dimension_work = 0;
               runtime_entries = Entries.create 32;
@@ -618,6 +622,12 @@ let observe_command_source ledger event =
               sequence.phase <- Aborted;
               ledger.active <- List.tl ledger.active))
 
+let record_activation_event ledger event =
+  match ledger.authority with
+  | Source_compilation _ ->
+      ledger.activation_events_rev <- event :: ledger.activation_events_rev
+  | _ -> ()
+
 let observe_command ledger event =
   let result =
     Result.bind (observe_command_source ledger event) (fun () ->
@@ -635,9 +645,7 @@ let observe_command ledger event =
               | Parser.Sequence_completed receipt -> receipt.sequence_context
             in
             protect (fun () ->
-                Sema.Task_command_order.observe
-                  (VM.task_source_order runtime)
-                  event
+                VM.observe_task_source_event runtime event
                 |> checked (context_span context)))
   in
   Result.map
@@ -651,6 +659,12 @@ let rec source_root context =
   | Some (Parser.Reading_command start) -> source_root start.command_context
   | Some (Parser.Awaiting_resume completed) ->
       source_root completed.command_start.command_context
+
+let observe_command ledger event =
+  Result.map
+    (fun () ->
+      record_activation_event ledger (Sema.Source_activation.Command event))
+    (observe_command ledger event)
 
 let validate_command ledger (header : Parser.declaration_header) =
   let start = header.declaration_command in
@@ -715,6 +729,13 @@ let observe_reference ledger selection =
       in
       Names.add ledger.references identifier { selection; target })
 
+let observe_reference ledger selection =
+  Result.map
+    (fun () ->
+      record_activation_event ledger
+        (Sema.Source_activation.Reference selection))
+    (observe_reference ledger selection)
+
 let validate_source_reference ledger selection =
   let identifier = Parser.selected_identifier selection in
   let span = identifier.location.span in
@@ -738,41 +759,45 @@ let validate_source_reference ledger selection =
             "source expression entry has no checked source publication"
       | Selected_local | Selected_source _ | Selected_runtime _ -> ())
 
+let validate_execution_target selection target =
+  let span = (Parser.selected_identifier selection).location.span in
+  let unavailable message = fail ~code:"HCRUN0003" span message in
+  match target with
+  | Selected_absent ->
+      unavailable "task expression identifier is absent at its source read"
+  | Selected_unbound _ ->
+      unavailable "task expression entry has no checked runtime publication"
+  | Selected_source
+      { stage = Provisional_function_selection _; admitted = None; _ } ->
+      unavailable "function header is unfinished at its source read"
+  | Selected_source { stage; admitted = None; _ } ->
+      let start =
+        match stage with
+        | Global_selection (publication, _) ->
+            publication.global_header.declaration_command
+        | Provisional_function_selection publication ->
+            publication.function_header.declaration_command
+        | Function_selection (header, _) ->
+            header.function_publication.function_header.declaration_command
+      in
+      if start != Parser.selected_command selection then
+        unavailable
+          "partial source publication has not reached runtime admission"
+  | Selected_local | Selected_runtime _ | Selected_source _ -> ()
+
 let observe_execution_reference ledger selection =
   let identifier = Parser.selected_identifier selection in
-  let span = identifier.location.span in
   let validate =
     protect (fun () ->
         if Option.is_none (ledger_runtime ledger) then
-          fail span "execution reference observation requires an owning runtime")
+          fail identifier.location.span
+            "execution reference observation requires an owning runtime")
   in
   Result.bind validate (fun () ->
       Result.bind (observe_reference ledger selection) (fun () ->
           protect (fun () ->
-              let unavailable message = fail ~code:"HCRUN0003" span message in
-              match (Names.find ledger.references identifier).target with
-              | Selected_absent ->
-                  unavailable
-                    "task expression identifier is absent at its source read"
-              | Selected_unbound _ ->
-                  unavailable
-                    "task expression entry has no checked runtime publication"
-              | Selected_source { stage; admitted = None; _ } ->
-                  let start =
-                    match stage with
-                    | Global_selection (publication, _) ->
-                        publication.global_header.declaration_command
-                    | Provisional_function_selection publication ->
-                        publication.function_header.declaration_command
-                    | Function_selection (header, _) ->
-                        header.function_publication.function_header
-                          .declaration_command
-                  in
-                  if start != Parser.selected_command selection then
-                    unavailable
-                      "partial source publication has not reached runtime \
-                       admission"
-              | Selected_local | Selected_runtime _ | Selected_source _ -> ())))
+              validate_execution_target selection
+                (Names.find ledger.references identifier).target)))
 
 let read_sizeof ledger (root : Parser.query_root) target =
   match root.query_node with
@@ -1401,9 +1426,21 @@ let observe ledger event =
               fail publication.function_name.location.span
                 "function body completion is foreign, repeated or out of order"))
 
+let observe ledger event =
+  Result.map
+    (fun () ->
+      record_activation_event ledger (Sema.Source_activation.Declaration event))
+    (observe ledger event)
+
 let admit_global ledger ~runtime (publication : Parser.global_publication) =
   protect (fun () ->
       let span = publication.global_name.location.span in
+      if
+        not
+          (Sema.Source_activation.global_admission ledger.activation publication)
+      then
+        fail span
+          "deferred storage admission is outside its original activation event";
       if
         not
           (Option.fold ~none:false ~some:(( == ) runtime)
@@ -1457,11 +1494,13 @@ let admit_global ledger ~runtime (publication : Parser.global_publication) =
                 assigned.publication
               |> checked span
             in
-            Option.iter
-              (fun event ->
-                Sema.Compiler_record.complete_declared_global declaration event
-                |> checked span)
-              boundary.storage_completion;
+            if Option.is_none ledger.activation then
+              Option.iter
+                (fun event ->
+                  Sema.Compiler_record.complete_declared_global declaration
+                    event
+                  |> checked span)
+                boundary.storage_completion;
             boundary.storage_declaration <- Some declaration;
             declaration
       in
@@ -1766,13 +1805,16 @@ let initializer_declaration ledger (start : Parser.global_initializer_start) =
   protect (fun () ->
       let publication = start.initializer_owner in
       let span = start.initializer_equals.span in
-      if not (Parser.initializer_start_is_current start) then
+      let deferred =
+        Sema.Source_activation.initializer_start ledger.activation start
+      in
+      if not (Parser.initializer_start_is_current start || deferred) then
         fail span "initializer layout is outside its original start callback";
-      validate_command ledger publication.global_header;
+      if not deferred then validate_command ledger publication.global_header;
       (match (find ledger publication.global_name).source with
-      | Global
-          { publication = original; completed = None; initializing = Some _ }
-        when original == publication -> ()
+      | Global { publication = original; completed; initializing = Some _ }
+        when original == publication && (Option.is_none completed || deferred)
+        -> ()
       | _ -> fail span "initializer layout has no observed original start");
       let declaration =
         match
@@ -1860,7 +1902,11 @@ let initializer_fragment ledger ~runtime ~task_view
       let module Globals = Ir.Integer_globals in
       let publication = receipt.leaf_initializer.initializer_owner in
       let span = publication.global_name.location.span in
-      if not (Parser.initializer_leaf_is_current receipt) then
+      if
+        not
+          (Parser.initializer_leaf_is_current receipt
+          || Sema.Source_activation.initializer_leaf ledger.activation receipt)
+      then
         fail span "initializer fragment is outside its original leaf callback";
       if
         (not
@@ -1903,7 +1949,8 @@ let initializer_fragment_authority ledger ~runtime ~task_view receipt =
   let ( let* ) = Result.bind in
   let* fragment = initializer_fragment ledger ~runtime ~task_view receipt in
   protect (fun () ->
-      Sema.Initializer_fragment.authorize ~namespace:ledger.namespace fragment
+      Sema.Initializer_fragment.authorize ?activation:ledger.activation
+        ~namespace:ledger.namespace fragment
       |> checked receipt.Parser.leaf_initializer.initializer_equals.span)
 
 let require_initializer_runtime ledger runtime span =
@@ -1933,9 +1980,12 @@ let begin_default_attempt ledger ~runtime receipt =
       (match assigned.source with
       | Function state
         when state.publication == receipt.default_function
-             && Option.is_none state.header
-             && Option.fold ~none:false ~some:(( == ) receipt)
-                  (List.nth_opt state.defaults_rev 0) -> ()
+             && (Option.is_none state.header
+                 && Option.fold ~none:false ~some:(( == ) receipt)
+                      (List.nth_opt state.defaults_rev 0)
+                || Sema.Source_activation.parameter_default ledger.activation
+                     receipt
+                   && List.exists (( == ) receipt) state.defaults_rev) -> ()
       | _ ->
           fail span
             "default execution lacks its original observed function boundary");
@@ -1949,15 +1999,21 @@ let default_fragment_authority ledger ~runtime ~task_view receipt =
       require_initializer_runtime ledger runtime span;
       if
         (not (VM.task_owns_snapshot runtime task_view))
-        || not (Parser.parameter_default_is_current receipt)
+        || not
+             (Parser.parameter_default_is_current receipt
+             || Sema.Source_activation.parameter_default ledger.activation
+                  receipt)
       then fail span "default fragment has another task snapshot or callback";
       let assigned = find ledger receipt.default_function.function_name in
       (match assigned.source with
       | Function state
         when state.publication == receipt.default_function
-             && Option.is_none state.header
-             && Option.fold ~none:false ~some:(( == ) receipt)
-                  (List.nth_opt state.defaults_rev 0) -> ()
+             && (Option.is_none state.header
+                 && Option.fold ~none:false ~some:(( == ) receipt)
+                      (List.nth_opt state.defaults_rev 0)
+                || Sema.Source_activation.parameter_default ledger.activation
+                     receipt
+                   && List.exists (( == ) receipt) state.defaults_rev) -> ()
       | _ ->
           fail span
             "default fragment lacks its original observed function boundary");
@@ -1976,7 +2032,8 @@ let default_fragment_authority ledger ~runtime ~task_view receipt =
           ~queries
         |> checked span
       in
-      Sema.Default_fragment.authorize ~namespace:ledger.namespace fragment
+      Sema.Default_fragment.authorize ?activation:ledger.activation
+        ~namespace:ledger.namespace fragment
       |> checked span)
 
 let begin_initializer_runtime ledger ~runtime start =
@@ -2042,6 +2099,92 @@ let complete_initializer_runtime ledger ~runtime event =
       | _ ->
           invalid_arg
             "initializer completion requires its original global boundary")
+
+let activate_source ledger ~runtime ~span ~declaration ~command =
+  let ( let* ) = Result.bind in
+  let* activation =
+    protect (fun () ->
+        let context =
+          match (ledger.active, ledger.sequences) with
+          | [ active ], [ sequence ] when active == sequence -> active.context
+          | _ -> fail span "source activation requires its original root"
+        in
+        let span = context_span context in
+        require_initializer_runtime ledger runtime span;
+        if Option.is_some ledger.activation || ledger.commands <> [] then
+          fail span
+            "source activation has already started or source commands were \
+             sealed";
+        let activation =
+          Sema.Source_activation.create ~namespace:ledger.namespace ~context
+            ~observed_events:(List.length ledger.source_events_rev)
+            (List.rev ledger.activation_events_rev)
+          |> checked span
+        in
+        VM.bind_source_activation runtime ~namespace:ledger.namespace activation
+        |> checked span;
+        ledger.activation <- Some activation;
+        activation)
+  in
+  let invalid =
+    [
+      Common.Diagnostic.make ~primary:span ~severity:Common.Diagnostic.Error
+        ~code:"HCRUN0004"
+        ~message:
+          "source activation is no longer current or was already consumed"
+        ();
+    ]
+  in
+  Sema.Source_activation.run activation ~invalid (function
+    | Sema.Source_activation.Reference selection ->
+        protect (fun () ->
+            let identifier = Parser.selected_identifier selection in
+            if
+              not (Sema.Source_activation.reference ledger.activation selection)
+            then
+              fail identifier.location.span
+                "source read is outside its activation event";
+            let original =
+              match Names.find_opt ledger.references identifier with
+              | Some original when original.selection == selection -> original
+              | _ ->
+                  fail identifier.location.span
+                    "source activation lacks its original read"
+            in
+            let target =
+              match original.target with
+              | Selected_source selected ->
+                  let admitted =
+                    match selected.stage with
+                    | Provisional_function_selection _ -> None
+                    | _ ->
+                        VM.admitted_publication_for_symbol runtime
+                          (Collection.publication_symbol selected.publication)
+                  in
+                  Selected_source { selected with admitted }
+              | target -> target
+            in
+            Names.replace ledger.references identifier { original with target };
+            validate_execution_target selection target)
+    | Sema.Source_activation.Declaration event ->
+        let* () =
+          protect (fun () ->
+              match event with
+              | Parser.Global_completed (publication, completed) ->
+                  let boundary =
+                    Names.find ledger.storage_boundaries publication.global_name
+                  in
+                  Option.iter
+                    (fun record ->
+                      Sema.Compiler_record.complete_declared_global record event
+                      |> checked completed.location.span)
+                    boundary.storage_declaration
+              | _ -> ())
+        in
+        declaration event
+    | Sema.Source_activation.Command (Parser.Command_resumed receipt) ->
+        command receipt.command_ast
+    | Sema.Source_activation.Command _ -> Ok ())
 
 let initializer_scope ledger = Collection.namespace_scope ledger.namespace
 

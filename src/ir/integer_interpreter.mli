@@ -167,6 +167,12 @@ val bind_task_namespace :
 
 val task_source_order : task_state -> Sema.Task_command_order.t
 
+val observe_task_source_event :
+  task_state -> Frontend.Parser.command_event -> (unit, string) result
+(** Observe original source order and retain immutable result counters at a root
+    completion boundary. Result projection still requires parser acceptance,
+    completed runtime admission and successful execution. *)
+
 val start_task_compilation : task_state -> unit
 (** Close the fresh-runtime source-promotion boundary before compiling a task
     unit, including a unit with no preparation work or runtime effects. *)
@@ -476,3 +482,17 @@ val compiled_initializer_steps : t -> int
 
 val human : t -> string
 (** Render the versioned, deterministic execution result. *)
+
+val bind_source_activation :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Sema.Source_activation.t ->
+  (unit, string) result
+
+val task_result :
+  task_state ->
+  sequence:Frontend.Parser.completed_sequence ->
+  (t, string) result
+(** Cumulative outer result for the exact accepted and admitted root sequence.
+    Failed execution, active streams and unfinished initializer/default work
+    cannot produce a successful result. *)

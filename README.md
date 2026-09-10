@@ -425,8 +425,11 @@ Try [stateful-exe-aot.hc](examples/stateful-exe-aot.hc), which returns 42 and
 captures `AB`. [Task execution notes](docs/integer-task.md) describe the shared
 invocation limits and current boundaries. Live tasks now allocate original global
 storage and execute initializer leaves and integer parameter defaults at parser
-boundaries. Shared outer JIT execution and partial function headers remain
-unfinished in #635.
+boundaries. `run --mode=jit` shares that task with the original outer source;
+[stateful-exe-jit.hc](examples/stateful-exe-jit.hc) returns 42 and captures `AB`
+using a saved default prepared before its source global changes. Inputs without
+an active directive retain their isolated execution path. General defaults,
+partial function headers and the remaining #635 requirements are still open.
 
 ## License and attribution
 

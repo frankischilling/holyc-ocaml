@@ -2,6 +2,14 @@ type t
 type command
 type stream
 
+val activate_source :
+  t -> span:Common.Span.t -> (unit, Common.Diagnostic.t list) result
+
+val result :
+  t ->
+  sequence:Frontend.Parser.completed_sequence ->
+  (Ir.Integer_interpreter.t, Common.Diagnostic.t list) result
+
 type progress = private {
   runtime : Ir.Integer_interpreter.task_progress;
   dimension_work : int;
@@ -35,7 +43,7 @@ val execute_isolated :
     preserve each body's original storage, literals and callees. [run] retains
     assigned declaration symbols across parsing and compilation. The synchronous
     initializer adapter publishes partial storage and executes original leaves;
-    the public outer JIT invocation still requires separate integration. *)
+    the public source driver activates and resumes outer JIT commands. *)
 
 val create :
   ?max_steps:int ->

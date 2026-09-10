@@ -4,6 +4,11 @@ let ( let* ) = Result.bind
 
 type compilation_report = Integer_source_execution.compilation_report
 
+type compilation = Integer_source_execution.compilation =
+  | Isolated of Integer_unit.compiled
+  | Stateful of Ir.Integer_interpreter.t
+
+let compilation_result = Integer_source_execution.compilation_result
 let compilation_outcome = Integer_source_execution.compilation_outcome
 
 let compilation_dimension_work =

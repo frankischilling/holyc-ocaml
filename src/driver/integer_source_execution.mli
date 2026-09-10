@@ -1,4 +1,13 @@
 type compilation_report
+
+type compilation =
+  | Isolated of Integer_unit.compiled
+  | Stateful of Ir.Integer_interpreter.t
+
+val compilation_result :
+  compilation_report ->
+  (compilation Integer_unit.checked, Common.Diagnostic.t list) result
+
 type report
 
 val compile_report :

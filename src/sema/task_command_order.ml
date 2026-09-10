@@ -43,6 +43,35 @@ let create ~table =
     sequences = [];
   }
 
+let command_receipts (command : command) =
+  List.map (fun node -> node.receipt) command.nodes
+
+let check_completion ?(require_accepted = true) order ~admitted receipt =
+  if
+    (require_accepted && not (Parser.sequence_accepted receipt))
+    || (match order.events with
+      | Parser.Sequence_completed latest :: _ -> latest != receipt
+      | _ -> true)
+    || Option.is_some (Parser.context_parent receipt.Parser.sequence_context)
+    || (not
+          (List.exists
+             (fun (original, _) -> original == receipt)
+             order.sequences))
+    || not
+         (List.for_all
+            (fun completed ->
+              List.exists
+                (fun command ->
+                  command.owner == order
+                  && List.exists
+                       (fun node -> node.receipt == completed)
+                       command.nodes)
+                admitted)
+            receipt.sequence_commands)
+  then
+    Error "task result requires its exact accepted and admitted root sequence"
+  else Ok ()
+
 let rec root context =
   match Parser.context_parent context with
   | None -> context
@@ -101,6 +130,11 @@ let observe_impl order event =
       | _ -> Error "task source resume is foreign, repeated or incomplete")
   | Parser.Sequence_completed receipt -> (
       match context_family order receipt.sequence_context with
+      | Some _
+        when List.exists
+               (fun (original, _) -> original == receipt)
+               order.sequences ->
+          Error "task source completion has already been observed"
       | Some family ->
           order.sequences <- (receipt, family.last_resumed) :: order.sequences;
           Ok ()

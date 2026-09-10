@@ -32,6 +32,14 @@ val with_source_command :
   (task_view, string) result
 
 val has_source_command : t -> bool
+val source_command_receipts : t -> Frontend.Parser.completed_command list
+
+val check_source_completion :
+  ?require_accepted:bool ->
+  task_catalog ->
+  Frontend.Parser.completed_sequence ->
+  (unit, string) result
+
 val owns_task_storage : task_catalog -> t -> bool
 val snapshot_task : task_catalog -> (task_view, string) result
 val task_environment : task_view -> Sema.Outer_environment.t

@@ -2,7 +2,10 @@ type t
 type authority
 
 val authorize :
-  namespace:Declaration_collection.namespace -> t -> (authority, string) result
+  ?activation:Source_activation.t ->
+  namespace:Declaration_collection.namespace ->
+  t ->
+  (authority, string) result
 (** Internal source-ledger authority. The opaque namespace must own the exact
     declared object and the original leaf callback must still be current. *)
 

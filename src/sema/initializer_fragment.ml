@@ -16,7 +16,7 @@ let queries fragment = fragment.queries_
 
 type authority = { authorized_fragment : t }
 
-let authorize ~namespace fragment =
+let authorize ?activation ~namespace fragment =
   if
     not
       (Compiler_record.declared_global_owns_namespace fragment.declaration_
@@ -25,7 +25,12 @@ let authorize ~namespace fragment =
     Error "initializer execution authority belongs to another source namespace"
   else
     match Initializer_source.leaf_parser_receipt fragment.leaf_ with
-    | Some receipt when Frontend.Parser.initializer_leaf_is_current receipt ->
+    | Some receipt
+      when Frontend.Parser.initializer_leaf_is_current receipt
+           || Option.fold ~none:false
+                ~some:(fun a -> Source_activation.owns_namespace a namespace)
+                activation
+              && Source_activation.initializer_leaf activation receipt ->
         Ok { authorized_fragment = fragment }
     | _ ->
         Error

@@ -18,8 +18,9 @@ activate from its retained original publication boundary after the callback ends
 
 Supported integer defaults also execute at their original parameter boundary and
 retain their values for later omitted arguments. [Integer defaults](integer-defaults.md)
-describes the source and runtime checks. The public JIT source facade, remaining
-default value types and partial function publication remain open in #635.
+describes the source and runtime checks. Activated outer JIT source uses the
+same runtime. Remaining default value types and partial function publication
+remain open in #635.
 
 Global initializer callbacks retain the original `=` location, scalar expression,
 syntax path, ordinal and predecessor. Start occurs before reading the first value;
@@ -51,7 +52,7 @@ Create a task with `Integer_task.create session`. Add each source to that sessio
 and call `Integer_task.run task ~source`, or pass a parsed module to `compile_ast`
 and execute the resulting opaque command. `output_bytes`, `output_work`,
 `generated_bytes`, `executed_steps` and `initializer_steps` expose cumulative task results. The
-existing complete-program APIs still allocate fresh execution images.
+isolated complete-program artifacts still allocate fresh execution images.
 
 `Integer_task.progress task` freezes the cumulative runtime and preparation
 counts, admitted global/static and literal allocations, ordinary output, shared
@@ -71,6 +72,27 @@ above that core and `Integer_task`; both public run APIs use the same path.
 Valid source without an active directive still lowers one isolated unit with its
 existing resource counts and public types.
 
+Public JIT source execution activates the original source ledger at the first
+actual `#exe`. Its journal retains declarations, expression reads and command
+resumptions in original order. Activation allocates original objects, evaluates
+their initializer leaves and integer defaults once, binds reads to the originally
+selected publications, and executes only commands whose lookahead has resumed.
+Pending statements execute after the directive returns. Later source callbacks
+and nested blocks use the same task. No source prefix is reparsed.
+
+Each deferred operation requires its exact active journal event. Failure or
+exception revokes that authority, including saved storage and command admission;
+source promotion alone remains inert. The final result requires the exact
+accepted root, completed execution and admitted source commands. An earlier
+accepted root cannot certify a later pending source.
+
+`compile_integer_program_report` exposes either `Isolated program` or
+`Stateful result` through `integer_program_compilation_result`.
+`integer_program_compilation_units` retains each separately compiled task unit.
+`dump-ir --program --mode=jit` prints those units with individual labels.
+The existing single-program compilation getter diagnoses stateful input rather
+than presenting the last command as the complete program.
+
 Public AOT source execution now runs supported `#exe` commands in a task whose
 frontend was forked before outer declarations. At the first actual stream entry,
 the driver installs missing checked StreamPrint/Print/PutChars headers once.
@@ -89,7 +111,8 @@ preparation; the report includes both dimension totals.
 
 `integer_program_report_progress` freezes reached invocation observations even
 after parsing, compilation or execution fails. `integer_program_report_program`
-returns the complete isolated outer artifact when compilation succeeded.
+returns the complete isolated outer artifact when available; activated JIT
+source has no isolated outer artifact and returns `None`.
 `integer_program_report_task_units` lists separately checked task units in compile
 order, including provider setup and units whose execution failed. Re-executing
 the isolated artifact starts fresh and does not replay directive effects.
@@ -103,9 +126,8 @@ consumption, so source without `#exe` can now report an earlier `HCRUN0003`
 instead of a later semantic error. The native statement-start label probe keeps
 its earlier lookahead.
 
-This is scoped AOT support. Live task globals and partial array leaves now use
-their original publication and execution boundaries. Shared outer JIT execution,
-partial function headers, remaining provider/default/later-call reads,
+Live task globals and partial array leaves use their original publication and
+execution boundaries in both modes. Partial function headers, remaining provider/default/later-call reads,
 cross-command extern joins and broader metadata remain required for #635.
 
 Each task retains a frontend view available through `Integer_task.frontend`.
@@ -138,7 +160,7 @@ sequence. The original resume and predecessor receipts still govern execution.
 Checked providers for a suspended source root must be parsed in a detached
 frontend, then compiled and admitted through the existing callback-free task
 path. `run` starts a new parser root and cannot be used inside that suspension.
-These APIs prepare shared JIT orchestration; partial global declarations,
+The public source driver composes these APIs for shared JIT execution; partial global declarations,
 initializer leaves and integer defaults use separate original runtime receipts.
 
 `Integer_task.stream_executor task` implements the real
@@ -152,11 +174,10 @@ blocks retain globals, functions, statics and mutated literal sites.
 Create the task from a frontend fork taken before outer declarations when using
 this adapter with a distinct outer namespace. Register checked provider headers
 through the task API first. The adapter observes stream commands only: it does
-not execute the outer AST, install runtime providers, or supply shared outer JIT
-publication/initializer timing. The public AOT source driver supplies provider
-setup and isolated outer execution. Separate adapter tests also compile the real
-generated outer AST in both modes; those do not establish shared outer JIT
-execution or completion of the full public #exe gates.
+not execute the outer AST or install runtime providers. The public source driver
+supplies provider setup, shared JIT activation, and isolated outer AOT execution.
+The maintained public gates exercise both modes, including generated function
+bodies, arrays and partial initializer operands.
 
 Every callback that advances compilation or execution requires the executor's
 original context and exact active buffer. Its exact source-abort notification
@@ -413,9 +434,17 @@ controls include a configured limit above 100,000.
 
 Cross-command extern joins, partial type/header publication, remaining query
 metadata, general default/provider and later
-call-phase receipts, shared outer JIT orchestration and the fourteen
-maintained #exe execution groups remain part of issue #635. The existing integer
+call-phase receipts, effectful dimensions, and remaining ordinary default
+preparation remain part of issue #635. The existing integer
 function domain remains unchanged, including its pointer-return boundary.
+
+Closed dimension work observed before activation is still charged together at
+source promotion. With a preparation allowance smaller than that accumulated
+work, promotion rejects before earlier deferred output runs. For example,
+`extern U0 Print(U8 *fmt,...);Print("A");I64 Values[1+1];#exe {}` with a two-step
+preparation allowance currently reports HCIRVM0001 with empty output. Charging
+that work at its original dimension event, preserving the earlier `A`, remains
+required. Successful activation reports include the dimension work once.
 
 The streaming parser now exposes private declaration events for provisional
 globals and functions, completed global declarators, function headers and bodies.

@@ -44,4 +44,21 @@ let tests =
       Alcotest.test_case "directive precedes pending statement execution" `Quick
         (expect ~modes:[ Preprocessor.Jit ] 0L
            {|I64 N=0;N=1;#exe {StreamPrint("%d;",N);}|});
+      Alcotest.test_case "outer defaults retain their original result" `Quick
+        (expect ~modes:[ Preprocessor.Jit ] 42L
+           {|I64 N=20;I64 Next(){return ++N;};I64 Saved(I64 n=Next()){return n;};N=0;#exe {StreamPrint("%d;",Saved()+Saved());}|});
+      Alcotest.test_case "activation during an outer initializer" `Quick
+        (expect ~modes:[ Preprocessor.Jit ] 42L
+           {|I64 N=40;I64 A[2]={++N,#exe {StreamPrint("%d",N+1);}};A[1];|});
+      Alcotest.test_case "activation during a later outer default" `Quick
+        (expect ~modes:[ Preprocessor.Jit ] 42L
+           {|I64 N=40;I64 F(I64 a=++N,I64 b=#exe {StreamPrint("%d",N+1);}){return b;};F();|});
+      Alcotest.test_case "generated declarations share outer task storage"
+        `Quick
+        (expect ~modes:[ Preprocessor.Jit ] 42L
+           {|I64 N=40;#exe {StreamPrint("I64 Add(){return N+2;};");}Add();|});
+      Alcotest.test_case "initializer effects precede pending outer stores"
+        `Quick
+        (expect ~modes:[ Preprocessor.Jit ] 41L
+           {|I64 N=40;I64 A=++N;N=0;#exe {StreamPrint("%d;",A);}|});
     ]

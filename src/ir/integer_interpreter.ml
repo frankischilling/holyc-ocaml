@@ -347,6 +347,9 @@ type task_state = {
   mutable initializers : task_initializer list;
   mutable declared_admissions : admitted_publication list;
   mutable source_promotion_open : bool;
+  mutable source_activation : Sema.Source_activation.t option;
+  mutable source_execution_failed : bool;
+  mutable source_result : (Frontend.Parser.completed_sequence * t) option;
   catalog : Integer_globals.task_catalog;
   mutable arenas : (Integer_globals.t * runtime_storage) list;
   mutable literal_arenas : runtime_storage list;
@@ -407,6 +410,9 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         initializers = [];
         declared_admissions = [];
         source_promotion_open = true;
+        source_activation = None;
+        source_execution_failed = false;
+        source_result = None;
         catalog = Integer_globals.create_task_catalog ~table;
         arenas = [];
         literal_arenas = [];
@@ -464,6 +470,30 @@ let abort_task_stream task stream =
 
 let task_snapshot task = Integer_globals.snapshot_task task.catalog
 let task_source_order task = Integer_globals.task_source_order task.catalog
+
+let observe_task_source_event task event =
+  Result.map
+    (fun () ->
+      match event with
+      | Frontend.Parser.Sequence_completed sequence
+        when Option.is_none
+               (Frontend.Parser.context_parent sequence.sequence_context)
+             && (not (Frontend.Parser.sequence_accepted sequence))
+             && Result.is_ok
+                  (Integer_globals.check_source_completion
+                     ~require_accepted:false task.catalog sequence) ->
+          task.source_result <-
+            Some
+              ( sequence,
+                {
+                  termination_ = Stream_end;
+                  executed_steps_ = task.steps;
+                  compiled_initializer_steps_ = task.initializer_steps;
+                  final_value_ = task.outer_value;
+                } )
+      | _ -> ())
+    (Sema.Task_command_order.observe (task_source_order task) event)
+
 let start_task_compilation task = task.source_promotion_open <- false
 
 let bind_task_namespace task namespace =
@@ -484,6 +514,16 @@ let promote_task_source task ~namespace ~events ~dimension_steps =
     |> Result.map (fun () ->
         task.initializer_steps <- dimension_steps;
         task.source_promotion_open <- false)
+
+let bind_source_activation task ~namespace activation =
+  if
+    Option.is_some task.source_activation
+    || (not (Sema.Source_activation.owns_namespace activation namespace))
+    || not (Integer_globals.task_catalog_owns_namespace task.catalog namespace)
+  then Error "source activation belongs to another or already activated task"
+  else (
+    task.source_activation <- Some activation;
+    Ok ())
 
 let matches_source_program program ~runtime_calls ~globals ~initialization
     ~functions entry =
@@ -576,6 +616,15 @@ let admitted_publication_for_symbol task symbol =
 
 let admit_declared_global task declaration =
   let ( let* ) = Result.bind in
+  let* () =
+    if
+      Sema.Source_activation.global_admission task.source_activation
+        (Sema.Compiler_record.declared_global_source declaration)
+    then Ok ()
+    else
+      Error
+        "deferred storage admission is outside its original activation event"
+  in
   let* globals, slot =
     Integer_globals.prepare_declared task.catalog declaration
   in
@@ -625,7 +674,10 @@ let begin_task_default task ~namespace ~publication receipt =
               task.defaults)
   in
   if
-    (not (Frontend.Parser.parameter_default_is_current receipt))
+    (not
+       (Frontend.Parser.parameter_default_is_current receipt
+       || Sema.Source_activation.parameter_default task.source_activation
+            receipt))
     || (not (predecessor receipt.default_predecessor))
     || (not
           (Sema.Declaration_collection.namespace_owns_publication namespace
@@ -680,6 +732,13 @@ let task_default_bits task receipt =
 let complete_task_defaults task ~namespace header =
   let ( let* ) = Result.bind in
   let* () = require_initializer_namespace task namespace in
+  let* () =
+    if Sema.Source_activation.default_completion task.source_activation header
+    then Ok ()
+    else
+      Error
+        "deferred defaults completion is outside its original activation event"
+  in
   let expected =
     List.mapi
       (fun index (parameter : Frontend.Ast.function_parameter) ->
@@ -736,7 +795,10 @@ let begin_task_initializer task ~namespace declaration start =
     | _ -> Error "initializer start has no original admitted task object"
   in
   if
-    (not (Frontend.Parser.initializer_start_is_current start))
+    (not
+       (Frontend.Parser.initializer_start_is_current start
+       || Sema.Source_activation.initializer_start task.source_activation start
+       ))
     || start.initializer_owner
        != Sema.Compiler_record.declared_global_source declaration
     || List.exists
@@ -787,7 +849,10 @@ let observe_task_initializer_delimiter task ~namespace receipt =
     find_task_initializer task receipt.Frontend.Parser.delimiter_initializer
   in
   if
-    (not (Frontend.Parser.initializer_delimiter_is_current receipt))
+    (not
+       (Frontend.Parser.initializer_delimiter_is_current receipt
+       || Sema.Source_activation.initializer_delimiter task.source_activation
+            receipt))
     || not (initializer_is_idle state)
   then
     Error "initializer delimiter is delayed or precedes completion of its leaf"
@@ -804,8 +869,10 @@ let begin_task_initializer_leaf task ~namespace leaf =
   let* () = require_initializer_namespace task namespace in
   let* receipt =
     match Sema.Initializer_source.leaf_parser_receipt leaf with
-    | Some receipt when Frontend.Parser.initializer_leaf_is_current receipt ->
-        Ok receipt
+    | Some receipt
+      when Frontend.Parser.initializer_leaf_is_current receipt
+           || Sema.Source_activation.initializer_leaf task.source_activation
+                receipt -> Ok receipt
     | _ -> Error "initializer attempt requires its original current leaf"
   in
   let* state = find_task_initializer task receipt.leaf_initializer in
@@ -854,6 +921,15 @@ let fail_task_initializer_attempt task attempt =
 let complete_task_initializer task ~namespace start source =
   let ( let* ) = Result.bind in
   let* () = require_initializer_namespace task namespace in
+  let* () =
+    if
+      Sema.Source_activation.initializer_completion task.source_activation start
+    then Ok ()
+    else
+      Error
+        "deferred initializer completion is outside its original activation \
+         event"
+  in
   let* state = find_task_initializer task start in
   if not (initializer_is_idle state) then
     Error "initializer completion has an unfinished leaf"
@@ -866,6 +942,28 @@ let complete_task_initializer task ~namespace start source =
     in
     state.initializer_complete <- true;
     Ok ()
+
+let task_result task ~sequence =
+  if
+    task.streams <> [] || task.source_execution_failed
+    || (not (Sema.Source_activation.finished task.source_activation))
+    || (not
+          (Sema.Source_activation.owns_context task.source_activation
+             sequence.Frontend.Parser.sequence_context))
+    || List.exists
+         (fun state -> not state.initializer_complete)
+         task.initializers
+    || List.exists
+         (fun attempt -> attempt.default_state <> Successful_initializer)
+         task.defaults
+  then Error "task result requires completed source execution"
+  else
+    match task.source_result with
+    | Some (original, result) when original == sequence ->
+        Result.map
+          (fun () -> result)
+          (Integer_globals.check_source_completion task.catalog sequence)
+    | _ -> Error "task result has no original execution completion"
 
 let task_function_source task link =
   List.find_opt
@@ -4349,7 +4447,9 @@ let execute_task_initializer task attempt execution =
             (Option.fold ~none:false ~some:(( == ) attempt)
                state.initializer_attempt))
       || (not
-            (Frontend.Parser.initializer_leaf_is_current attempt.attempt_receipt))
+            (Frontend.Parser.initializer_leaf_is_current attempt.attempt_receipt
+            || Sema.Source_activation.initializer_leaf task.source_activation
+                 attempt.attempt_receipt))
       || Destination.layout destination != attempt.attempt_destination
       || Sema.Initializer_fragment.leaf (Destination.fragment destination)
          != attempt.attempt_leaf
@@ -4457,7 +4557,9 @@ let execute_task_default task attempt execution =
       || attempt.default_state <> Preparing_initializer
       || (not
             (Frontend.Parser.parameter_default_is_current
-               attempt.default_receipt))
+               attempt.default_receipt
+            || Sema.Source_activation.parameter_default task.source_activation
+                 attempt.default_receipt))
       || Sema.Default_fragment.receipt fragment != attempt.default_receipt
       || Sema.Default_fragment.publication fragment
          != attempt.default_publication
@@ -4520,37 +4622,53 @@ let execute_task_default task attempt execution =
 let execute_task_program task ~runtime_calls ~globals ~initialization ~functions
     checked =
   task.source_promotion_open <- false;
-  if
-    List.exists
-      (fun state ->
-        (not (initializer_is_idle state))
-        && not
-             (Integer_globals.declared_initializer_failed state.initializer_slot))
-      task.initializers
-    || List.exists
-         (fun attempt ->
-           attempt.default_state = Preparing_initializer
-           || attempt.default_state = Executing_initializer)
-         task.defaults
-  then
-    Error
-      [
-        make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0026"
-          "ordinary command cannot interleave an active initializer attempt";
-      ]
-  else if task.steps >= task.max_steps then
-    Error
-      [
-        make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0007"
-          "the task cumulative execution step limit was exhausted";
-      ]
-  else
-    execute_program_with_output ~task ~runtime_calls ~output:task.output
-      ~globals ~initialization ~max_global_bytes:task.max_global_bytes
-      ~max_literal_bytes:task.max_literal_bytes
-      ~max_steps:(task.max_steps - task.steps)
-      ~max_frame_bytes:task.max_frame_bytes ~max_call_depth:task.max_call_depth
-      ~functions checked
+  let result =
+    if
+      not
+        (List.for_all
+           (Sema.Source_activation.command_admission task.source_activation)
+           (Integer_globals.source_command_receipts globals))
+    then
+      Error
+        [
+          make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0026"
+            "deferred source command is outside its original activation event";
+        ]
+    else if
+      List.exists
+        (fun state ->
+          (not (initializer_is_idle state))
+          && not
+               (Integer_globals.declared_initializer_failed
+                  state.initializer_slot))
+        task.initializers
+      || List.exists
+           (fun attempt ->
+             attempt.default_state = Preparing_initializer
+             || attempt.default_state = Executing_initializer)
+           task.defaults
+    then
+      Error
+        [
+          make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0026"
+            "ordinary command cannot interleave an active initializer attempt";
+        ]
+    else if task.steps >= task.max_steps then
+      Error
+        [
+          make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0007"
+            "the task cumulative execution step limit was exhausted";
+        ]
+    else
+      execute_program_with_output ~task ~runtime_calls ~output:task.output
+        ~globals ~initialization ~max_global_bytes:task.max_global_bytes
+        ~max_literal_bytes:task.max_literal_bytes
+        ~max_steps:(task.max_steps - task.steps)
+        ~max_frame_bytes:task.max_frame_bytes
+        ~max_call_depth:task.max_call_depth ~functions checked
+  in
+  if Result.is_error result then task.source_execution_failed <- true;
+  result
 
 let execute_isolated_program_in_task task ~runtime_calls ~globals
     ~initialization ~functions checked =

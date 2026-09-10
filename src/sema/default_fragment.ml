@@ -24,12 +24,18 @@ let references fragment = fragment.references_
 let queries fragment = fragment.queries_
 let authorized_fragment authority = authority.authorized_fragment
 
-let authorize ~namespace fragment =
+let authorize ?activation ~namespace fragment =
   if
     (not
        (Declaration_collection.namespace_owns_publication namespace
           fragment.publication_))
-    || not (Frontend.Parser.parameter_default_is_current fragment.receipt_)
+    || not
+         (Frontend.Parser.parameter_default_is_current fragment.receipt_
+         || Option.fold ~none:false
+              ~some:(fun a -> Source_activation.owns_namespace a namespace)
+              activation
+            && Source_activation.parameter_default activation fragment.receipt_
+         )
   then
     Error
       "default execution authority requires its original namespace and current \

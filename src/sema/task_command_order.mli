@@ -1,6 +1,15 @@
 type t
 type command
 
+val command_receipts : command -> Frontend.Parser.completed_command list
+
+val check_completion :
+  ?require_accepted:bool ->
+  t ->
+  admitted:command list ->
+  Frontend.Parser.completed_sequence ->
+  (unit, string) result
+
 val check_declaration :
   t ->
   admitted:command list ->

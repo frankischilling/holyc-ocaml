@@ -29,6 +29,9 @@ val query_for :
   t -> Frontend.Ast.expression -> (Query_selection.t, string) result
 
 val authorize :
-  namespace:Declaration_collection.namespace -> t -> (authority, string) result
+  ?activation:Source_activation.t ->
+  namespace:Declaration_collection.namespace ->
+  t ->
+  (authority, string) result
 
 val authorized_fragment : authority -> t

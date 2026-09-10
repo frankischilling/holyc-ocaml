@@ -1,4 +1,11 @@
 (test
+ (name test_stateful_exe_cli)
+ (modules test_stateful_exe_cli)
+ (libraries unix yojson)
+ (action
+  (run %{test} %{exe:../bin/holyc.exe})))
+
+(test
  (name test_integer_program_cli)
  (modules test_integer_program_cli)
  (libraries holyc_lib unix yojson)
@@ -69,6 +76,7 @@
   test_task_progress
   test_task_parser_executor
   test_aot_source_execution
+  test_jit_source_execution
   test_task_declarations
   test_source_promotion
   test_live_initializer_leaves
