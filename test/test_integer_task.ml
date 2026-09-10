@@ -1058,6 +1058,54 @@ let source_input_values () =
   fault "HCIRVM0009" (run session task "I64 Bad=1/0;");
   value 42L (run session task "N+41;")
 
+let retained_implicit_output () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task
+       {|extern U0 Print(U8 *fmt,...);extern U0 PutChars(U64 chars);|}
+    |> Test_integer_program.checked);
+  ignore (run session task {|"%d",42;'!';|} |> Test_integer_program.checked);
+  Alcotest.(check string)
+    "separate input uses retained implicit providers" "42!"
+    (Task.output_bytes task);
+  ignore
+    (run session task {|U0 Say(){"%d",7;'?';}Say;|}
+    |> Test_integer_program.checked);
+  Alcotest.(check string)
+    "function body retains its implicit providers" "42!7?"
+    (Task.output_bytes task)
+
+let retained_implicit_shadow () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task {|I64 N=0;U0 Print(U8 *s){N=42;}U0 Saved(){"old";}|}
+    |> Test_integer_program.checked);
+  value 42L (run session task {|N=0;"old" #exe {U0 Print(U8 *s){N=7;}};N;|});
+  value 7L (run session task {|"new";N;|});
+  value 42L (run session task {|Saved;N;|});
+  Alcotest.(check string)
+    "source definitions are called without substituting providers" ""
+    (Task.output_bytes task)
+
+let retained_implicit_absence_and_mask () =
+  let session = Session.create () in
+  let task = create session in
+  ignore (run session task "I64 N=0;" |> Test_integer_program.checked);
+  (match run session task {|"" (++N);|} with
+  | Error (diagnostic :: _) ->
+      Alcotest.(check string)
+        "missing implicit header precedes arguments" "HCRUN0003"
+        diagnostic.Diagnostic.code
+  | _ -> Alcotest.fail "missing implicit header was accepted");
+  value 0L (run session task "N;");
+  ignore
+    (run session task {|extern U0 Print(U8 *fmt,...);I64 Print=7;"A";|}
+    |> Test_integer_program.checked);
+  Alcotest.(check string)
+    "function lookup ignores global shadow" "A" (Task.output_bytes task)
+
 let tests =
   [
     Alcotest.test_case
@@ -1203,4 +1251,11 @@ let tests =
       source_command_timing;
     Alcotest.test_case "task input results are local and recover after failures"
       `Quick source_input_values;
+    Alcotest.test_case "task inputs retain original implicit output providers"
+      `Quick retained_implicit_output;
+    Alcotest.test_case
+      "implicit targets survive lookahead and function shadowing" `Quick
+      retained_implicit_shadow;
+    Alcotest.test_case "implicit target absence and function-kind filtering"
+      `Quick retained_implicit_absence_and_mask;
   ]

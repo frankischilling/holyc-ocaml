@@ -73,6 +73,17 @@ val make_fragment_root :
   calls:call list ->
   (root, error) result
 
+val bind_implicit_root_source :
+  source:Frontend.Ast.implicit_output_statement ->
+  calls:call list ->
+  root ->
+  (root, error) result
+
+val root_implicit_statement :
+  root -> Frontend.Ast.implicit_output_statement option
+(** Original source attached after expression and call validation. Statement
+    construction checks complete argument groups and exact call membership. *)
+
 val make_dimension_root :
   index:int ->
   fragment:Dimension_fragment.t ->

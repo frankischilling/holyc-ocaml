@@ -4,6 +4,7 @@ type event =
   | Command of Parser.command_event
   | Declaration of Parser.declaration_event
   | Reference of Parser.reference_selection
+  | Implicit_output of Parser.implicit_output_selection
 
 type t = {
   namespace : Declaration_collection.namespace;
@@ -60,6 +61,7 @@ let event_context = function
     -> receipt.command_start.command_context
   | Command (Parser.Sequence_completed receipt) -> receipt.sequence_context
   | Reference receipt -> (Parser.selected_command receipt).command_context
+  | Implicit_output receipt -> (Parser.implicit_command receipt).command_context
   | Declaration event ->
       let start =
         match event with
@@ -184,6 +186,11 @@ let dimension_completed activation receipt =
 let reference activation receipt =
   allows activation (function
     | Reference original -> original == receipt
+    | _ -> false)
+
+let implicit_output activation receipt =
+  allows activation (function
+    | Implicit_output original -> original == receipt
     | _ -> false)
 
 let finished activation =

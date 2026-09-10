@@ -230,6 +230,17 @@ let compile_report ?(max_dimension_work = 100_000)
                     Ok ()
                 | _ -> Ok ());
           query = Some (Task_declarations.observe_query ledger);
+          implicit_output =
+            Some
+              (fun selection ->
+                let* () =
+                  Task_declarations.observe_implicit_output ledger selection
+                in
+                match (is_jit, !task) with
+                | true, None -> Ok ()
+                | _ ->
+                    Task_declarations.validate_implicit_output ledger selection
+                      ~execution:is_jit);
           reference =
             Some
               (fun selection ->

@@ -67,6 +67,7 @@ let parse ?(mode = Preprocessor.Jit) ?max_generated_bytes ?max_definition_depth
                commands =
                  {
                    query = None;
+                   implicit_output = None;
                    reference = None;
                    declaration = None;
                    dimension_count = None;
@@ -252,6 +253,7 @@ let selected_occurrence () =
   let commands : Parser.command_sink =
     {
       query = None;
+      implicit_output = None;
       reference =
         Some
           (fun receipt ->
@@ -431,6 +433,7 @@ let pending_command_order () =
   let commands : Parser.command_sink =
     {
       query = None;
+      implicit_output = None;
       reference = None;
       declaration = None;
       dimension_count = None;
@@ -482,6 +485,7 @@ let declaration_sink consume =
   Parser.
     {
       query = None;
+      implicit_output = None;
       reference = None;
       declaration = Some consume;
       dimension_count = None;
@@ -728,6 +732,7 @@ let buffered_function_header_selection () =
       let commands =
         {
           (declaration_sink consume) with
+          implicit_output = None;
           reference =
             Some
               (fun selection ->
@@ -806,6 +811,7 @@ let buffered_selection_preserves_newer_function () =
             Ok ()
         | _ -> Ok ()))
       with
+      implicit_output = None;
       reference =
         Some
           (fun selection ->
@@ -931,6 +937,7 @@ let command_receipt_ownership () =
            Ok ()))
       with
       Parser.checkpoint = Some checkpoint;
+      implicit_output = None;
       reference =
         Some
           (fun selection ->
@@ -1124,6 +1131,7 @@ let query_consumption_order () =
   let commands : Parser.command_sink =
     {
       checkpoint = None;
+      implicit_output = None;
       reference = None;
       query = Some query;
       declaration = None;
@@ -1254,6 +1262,7 @@ let query_native_presence () =
   let commands : Parser.command_sink =
     {
       checkpoint = None;
+      implicit_output = None;
       reference = None;
       query = Some query;
       declaration = None;
@@ -1287,6 +1296,7 @@ let query_rejection_order () =
       let commands : Parser.command_sink =
         {
           checkpoint = None;
+          implicit_output = None;
           reference = None;
           declaration = None;
           dimension_count = None;
@@ -1600,8 +1610,73 @@ let dimension_count_grammar_boundaries () =
         | _ -> true))
     dimensions (List.rev !receipts)
 
+let implicit_target_before_lookahead () =
+  let selected = ref None in
+  let replacement = ref None in
+  let commands : Parser.command_sink =
+    {
+      checkpoint = None;
+      reference = None;
+      implicit_output =
+        Some
+          (fun selection ->
+            Alcotest.(check bool)
+              "original callback is current" true
+              (Parser.implicit_selection_is_current selection);
+            Alcotest.(check bool)
+              "statement has not finished" true
+              (Option.is_none (Parser.implicit_statement selection));
+            selected := Some selection;
+            Ok ());
+      query = None;
+      declaration = None;
+      dimension_count = None;
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let on_enter () =
+    let selection = Option.get !selected in
+    Alcotest.(check bool)
+      "selection precedes directive lookahead" false
+      (Parser.implicit_selection_is_current selection);
+    replacement :=
+      Some
+        (Symbol_visibility.Environment.add
+           (Parser.implicit_environment selection)
+           ~name:"Print" ~kind:Function ())
+  in
+  let _, _, parsed, _, _, _ =
+    parse ~same_task:true ~commands ~on_enter
+      {|extern U0 Print(U8 *fmt,...);I64 Print;"A" #exe {} "B";|}
+  in
+  let ast = P.expect_ast parsed in
+  let selection = Option.get !selected in
+  let entry = Option.get (Parser.implicit_lookup selection) in
+  Alcotest.(check bool)
+    "function mask ignores the global" true
+    (Symbol_visibility.kind entry = Function);
+  Alcotest.(check bool)
+    "lookahead cannot replace selection" true
+    (entry != Option.get !replacement);
+  let statement = Option.get (Parser.implicit_statement selection) in
+  Alcotest.(check bool)
+    "completion retains exact original statement" true
+    (List.exists
+       (function
+         | Ast.Top_level_statement (Ast.Implicit_output_statement original) ->
+             original == statement
+         | _ -> false)
+       ast.items);
+  Alcotest.(check bool)
+    "callback cannot be reused after parsing" false
+    (Parser.implicit_selection_is_current selection)
+
 let tests =
   [
+    Alcotest.test_case
+      "implicit target precedes lookahead and filters function kind" `Quick
+      implicit_target_before_lookahead;
     Alcotest.test_case
       "array count service failures precede following lexer effects" `Quick
       dimension_count_service_failures;

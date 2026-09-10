@@ -10,8 +10,9 @@ let reject message result =
 
 let config () = Preprocessor.Config.create () |> checked
 
-let parse_source ?sources ?symbols ?observe ?checkpoint ?reference ?query
-    ?dimension_count ?execute_stream session ledger source =
+let parse_source ?sources ?symbols ?observe ?checkpoint ?reference
+    ?implicit_output ?query ?dimension_count ?execute_stream session ledger
+    source =
   let sources = Option.value sources ~default:(Session.sources session) in
   let symbols = Option.value symbols ~default:(Session.symbols session) in
   let events = ref [] in
@@ -26,6 +27,7 @@ let parse_source ?sources ?symbols ?observe ?checkpoint ?reference ?query
       checkpoint =
         Some (Option.value checkpoint ~default:(D.observe_command ledger));
       reference;
+      implicit_output;
       query = Some (Option.value query ~default:(D.observe_query ledger));
       declaration = Some consume;
       dimension_count =
@@ -325,6 +327,7 @@ let nested_publication_views () =
             Result.bind (D.observe_command ledger event) (fun () ->
                 checkpoint event));
       query = None;
+      implicit_output = None;
       reference = None;
       declaration = Some consume;
       dimension_count = Some (D.grammar_dimension_count ledger);
@@ -609,6 +612,7 @@ let nested_receipt_views () =
         {
           checkpoint = Some checkpoint;
           query = None;
+          implicit_output = None;
           reference = None;
           declaration = Some (D.observe ledger);
           dimension_count = Some (D.grammar_dimension_count ledger);
@@ -979,6 +983,7 @@ let selected_runtime_source session runtime ledger contents =
                     execute receipt.command_ast |> Result.map ignore
                 | _ -> Ok ()));
       query = Some (D.observe_query ledger);
+      implicit_output = None;
       reference = Some (D.observe_reference ledger);
       declaration = Some (D.observe ledger);
       dimension_count = Some (D.grammar_dimension_count ledger);
@@ -2324,6 +2329,7 @@ let nested_dimension_receipts () =
           (fun event ->
             Result.bind (D.observe_command ledger event) (fun () ->
                 checkpoint event));
+      implicit_output = None;
       reference = None;
       query = None;
       declaration = Some observe;
@@ -2944,6 +2950,7 @@ let nested_grammar_dimensions () =
       let commands : Parser.command_sink =
         {
           checkpoint = Some (D.observe_command ledger);
+          implicit_output = None;
           reference = None;
           query = Some (D.observe_query ledger);
           declaration = Some (D.observe ledger);
@@ -2988,6 +2995,42 @@ let nested_grammar_dimensions () =
       "U8 A[1+1 #exe {U8 A[1+2]=10,20,12;}]=40,2,B[sizeof A]=20,22;";
       "U8 A[1+1]=#exe {U8 A[1+2]=10,20,12;}40,2,B[sizeof A]=10,20,12;";
     ]
+
+let implicit_selection_ownership () =
+  let session, runtime, ledger = runtime_setup () in
+  let receipt = ref None in
+  let source =
+    Session.add_source session ~path:"implicit-selection.hc"
+      ~contents:{|"%d",42;|}
+  in
+  let parsed, _ =
+    parse_source session ledger source ~implicit_output:(fun selection ->
+        receipt := Some selection;
+        D.observe_implicit_output ledger selection)
+  in
+  let ast = Test_parser.expect_ast parsed in
+  let command = D.seal ledger ast |> expect in
+  let task_view = VM.task_snapshot runtime |> checked in
+  let resolve =
+    D.implicit_output_resolver
+      ~table:(Session.semantic_symbols session)
+      ~ast ~task_view command
+    |> expect
+  in
+  let receipt = Option.get !receipt in
+  let statement = Option.get (Parser.implicit_statement receipt) in
+  ignore (resolve statement |> checked);
+  let copied =
+    Ast.make_implicit_output_statement ~target:statement.target
+      ~marker:statement.marker ~fixed_argument:statement.fixed_argument
+      ~arguments:statement.arguments ~semicolon:statement.semicolon
+      ~location:statement.location
+  in
+  reject "same source locations cannot replace original implicit AST"
+    (resolve copied);
+  reject "original implicit callback cannot be replayed"
+    (D.observe_implicit_output ledger receipt);
+  ignore (resolve statement |> checked)
 
 let tests =
   [
@@ -3122,4 +3165,6 @@ let tests =
       foreign_source_owners;
     Alcotest.test_case "completion phase and replay checks" `Quick
       phase_order_and_replay;
+    Alcotest.test_case "implicit selection requires original statement identity"
+      `Quick implicit_selection_ownership;
   ]

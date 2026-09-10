@@ -41,7 +41,16 @@ type root_role =
     }
   | Return_value of { return_index : int }
 
+type call = {
+  source : Function_call_resolution.call;
+  callee : Top_level_outer_expression_binding.occurrence;
+  callee_expression : Function_call_resolution.argument_expression;
+  result_expression : Function_call_resolution.argument_expression;
+}
+
 type root = {
+  implicit_statement_ : Frontend.Ast.implicit_output_statement option;
+  implicit_calls_ : call list;
   index : int;
   role : root_role;
   expression : Function_call_resolution.argument_expression;
@@ -62,13 +71,6 @@ type switch_case = {
   keyword_origin : Symbol.origin;
   pattern : switch_case_pattern;
   origin : Symbol.origin;
-}
-
-type call = {
-  source : Function_call_resolution.call;
-  callee : Top_level_outer_expression_binding.occurrence;
-  callee_expression : Function_call_resolution.argument_expression;
-  result_expression : Function_call_resolution.argument_expression;
 }
 
 type statement = {
@@ -241,6 +243,8 @@ let make_root ~index ~role ~expression ~origin =
   else
     Ok
       {
+        implicit_statement_ = None;
+        implicit_calls_ = [];
         index;
         role;
         expression;
@@ -251,6 +255,61 @@ let make_root ~index ~role ~expression ~origin =
         initializer_calls_ = [];
         initializer_call_trees_ = [];
       }
+
+let root_implicit_statement root = root.implicit_statement_
+
+let bind_implicit_root_source ~source ~calls root =
+  let module Ast = Frontend.Ast in
+  let fixed, fixed_source =
+    match source.Ast.fixed_argument with
+    | Ast.Marker_fixed_argument value ->
+        (value, Function_call_resolution.Marker_fixed_output)
+    | Ast.Expression_fixed_argument value ->
+        (value, Function_call_resolution.Following_expression_output)
+  in
+  let target =
+    match source.target with
+    | Ast.Print_target -> Function_call_resolution.Print_output
+    | Ast.Put_chars_target -> Function_call_resolution.Put_chars_output
+  in
+  let selected_expression =
+    match root.role with
+    | Implicit_output_fixed selected ->
+        if
+          selected.target = target
+          && selected.source = fixed_source
+          && selected.marker_origin
+             = Initializer_source.origin_of_location
+                 source.marker.literal_location
+        then Some fixed
+        else None
+    | Implicit_output_argument { argument_index; _ } ->
+        Option.map
+          (fun (argument : Ast.implicit_output_argument) -> argument.value)
+          (List.nth_opt source.arguments argument_index)
+    | _ -> None
+  in
+  if
+    Option.is_none selected_expression
+    || Option.is_some root.implicit_statement_
+  then Error (invalid_input "implicit root has another source statement")
+  else
+    Function_call_resolution.validate_source_expression
+      ~source:(Option.get selected_expression)
+      ~expression:root.expression
+      ~calls:(List.map (fun (call : call) -> call.source) calls)
+      ~callee_expressions:
+        (List.map
+           (fun (call : call) -> (call.source, call.callee_expression))
+           calls)
+      ~call_expressions:
+        (List.map
+           (fun (call : call) -> (call.source, call.result_expression))
+           calls)
+      ()
+    |> Result.map_error (fun message -> invalid_input message)
+    |> Result.map (fun () ->
+        { root with implicit_statement_ = Some source; implicit_calls_ = calls })
 
 let make_leaf_root ~index ~role ~leaf ~expression ~calls ~origin =
   if origin <> Initializer_source.leaf_origin leaf then
@@ -443,7 +502,44 @@ let indexes_increase accessor values =
   in
   loop None values
 
+let unique_implicit_sources roots =
+  let rec loop seen = function
+    | [] -> true
+    | root :: rest -> (
+        match (root.role, root.implicit_statement_) with
+        | Implicit_output_fixed _, Some source ->
+            (not (List.exists (( == ) source) seen))
+            && loop (source :: seen) rest
+        | _ -> loop seen rest)
+  in
+  loop [] roots
+
 let make_statement ~source ~roots ~calls ~switch_cases =
+  let implicit_groups_match =
+    List.for_all
+      (fun root ->
+        match (root.role, root.implicit_statement_) with
+        | Implicit_output_fixed { output_index; _ }, Some statement ->
+            let arguments =
+              List.filter_map
+                (fun argument ->
+                  match argument.role with
+                  | Implicit_output_argument selected
+                    when selected.output_index = output_index ->
+                      Some (selected.argument_index, argument)
+                  | _ -> None)
+                roots
+            in
+            List.length arguments = List.length statement.Frontend.Ast.arguments
+            && List.for_all
+                 (fun (expected, (actual, argument)) ->
+                   expected = actual
+                   && Option.fold ~none:false ~some:(( == ) statement)
+                        argument.implicit_statement_)
+                 (List.mapi (fun index argument -> (index, argument)) arguments)
+        | _ -> true)
+      roots
+  in
   let initializer_matches =
     let default =
       source |> Top_level_outer_expression_binding.statement_source
@@ -639,7 +735,25 @@ let make_statement ~source ~roots ~calls ~switch_cases =
             | None -> false)
         | Some _, _ -> false)
   in
-  if not initializer_matches then
+  if not (unique_implicit_sources roots) then
+    Error (invalid_input "implicit source statement appears twice in statement")
+  else if not implicit_groups_match then
+    Error
+      (invalid_input
+         "implicit arguments do not own their complete original statement")
+  else if
+    not
+      (List.for_all
+         (fun root ->
+           List.for_all
+             (fun call -> List.exists (( == ) call) calls)
+             root.implicit_calls_)
+         roots)
+  then
+    Error
+      (invalid_input
+         "implicit root calls do not belong to the exact statement batch")
+  else if not initializer_matches then
     Error
       (invalid_input
          ~origin:(Top_level_outer_expression_binding.statement_origin source)
@@ -1011,7 +1125,12 @@ let validate_global_indexes statements =
   else Ok (roots, calls, switch_cases)
 
 let create ~table ~source statements =
-  if not (Top_level_outer_expression_binding.owns_table source table) then
+  if not (unique_implicit_sources (List.concat_map statement_roots statements))
+  then
+    Error
+      (invalid_input
+         "implicit source statement appears twice in top-level batch")
+  else if not (Top_level_outer_expression_binding.owns_table source table) then
     Error
       (invalid_input
          "top-level expression bindings belong to another symbol table")

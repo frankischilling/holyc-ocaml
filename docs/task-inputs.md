@@ -36,12 +36,12 @@ completion receipts cannot certify a new result. Retained identifiers in local
 initializer expressions preserve their original function occurrence; matching
 names and locations alone do not establish ownership.
 
-Implicit string output through a retained `Print` or `PutChars` declaration
-still requires original target-selection support. An inline provider header
-followed by implicit output is now separate commands in `Integer_task.run`
-and reports HCRUN0003. The callback-free `compile_ast` batch path retains its
-existing local-header behavior. Explicit supported provider calls require
-checked declarations already installed in the task.
+Implicit string and character output use the original function-only selection
+of `Print` or `PutChars`, captured before argument parsing and lookahead.
+Checked declarations can come from earlier inputs, earlier commands or a
+retained function body. A later definition cannot replace a pending statement's
+target. See [retained implicit output](task-implicit-output.md) for timing,
+ownership and the remaining argument-lowering limits.
 
 This entry point executes the checked integer subset. It does not complete
 ordinary AOT dynamic defaults or bounds, general default values, native extern

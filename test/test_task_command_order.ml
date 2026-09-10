@@ -115,6 +115,7 @@ let nested ?(aot = false) session ledger text =
                     resumed := receipt.command_ast :: !resumed
                 | _ -> ())
               (D.observe_command ledger event));
+      implicit_output = None;
       reference = Some (D.observe_reference ledger);
       query = Some (D.observe_query ledger);
       declaration = Some (D.observe ledger);
@@ -278,6 +279,7 @@ let original_mode () =
     {
       checkpoint = Some (D.observe_command ledger);
       declaration = Some (D.observe ledger);
+      implicit_output = None;
       reference = None;
       query = None;
       dimension_count = None;

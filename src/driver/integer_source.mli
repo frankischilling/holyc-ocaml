@@ -10,6 +10,9 @@ val prepare_unit :
   ?source_command:Task_declarations.source_command ->
   ?selections:
     (Frontend.Ast.identifier -> (Sema.Reference_selection.t, string) result) ->
+  ?implicit_selections:
+    (Frontend.Ast.implicit_output_statement ->
+    (Sema.Reference_selection.t, string) result) ->
   ?include_global_initializers:bool ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->

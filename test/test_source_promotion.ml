@@ -22,6 +22,7 @@ let parse ?(mode = Preprocessor.Jit) ?checkpoint ?reference ?query ?declaration
     {
       checkpoint =
         Some (Option.value checkpoint ~default:(D.observe_command ledger));
+      implicit_output = None;
       reference =
         Some (Option.value reference ~default:(D.observe_reference ledger));
       declaration = Some (Option.value declaration ~default:(D.observe ledger));

@@ -191,7 +191,8 @@ let validate_module_function_publications headers declarations
   in
   loop (Module_expression_binding.publications module_expressions)
 
-let resolve_output environment headers declarations visible source_output =
+let resolve_unselected_output environment headers declarations visible
+    source_output =
   let target_name = target_name source_output in
   match String_map.find_opt target_name visible with
   | Some publication -> (
@@ -207,12 +208,51 @@ let resolve_output environment headers declarations visible source_output =
           Ok { source_output; target_name; binding = Outer_function binding }
       | None -> Error (missing_header target_name source_output))
 
-let resolve_outputs environment headers declarations visible source_function =
+let resolve_output selections table publications environment headers
+    declarations visible source_output =
+  match selections with
+  | None ->
+      resolve_unselected_output environment headers declarations visible
+        source_output
+  | Some select ->
+      let ( let* ) = Result.bind in
+      let target_name = target_name source_output in
+      let* source =
+        match
+          source_output
+          |> Function_call_expression_result.implicit_output_source
+          |> Function_call_resolution.implicit_output_statement
+        with
+        | Some source -> Ok source
+        | None ->
+            Error
+              (invalid_input
+                 "selected implicit output has no original source statement")
+      in
+      let* selection = select source |> Result.map_error invalid_input in
+      let* selected =
+        Implicit_output_selection.resolve ~table ~environment ~publications
+          ~name:target_name selection
+        |> Result.map_error invalid_input
+      in
+      let* binding =
+        match selected with
+        | Implicit_output_selection.Module publication ->
+            resolve_module_target headers declarations publication
+        | Implicit_output_selection.Outer binding -> Ok (Outer_function binding)
+        | Implicit_output_selection.Unavailable ->
+            Error (missing_header target_name source_output)
+      in
+      Ok { source_output; target_name; binding }
+
+let resolve_outputs selections table publications environment headers
+    declarations visible source_function =
   let rec loop rev = function
     | [] -> Ok (List.rev rev)
     | output :: rest -> (
         match
-          resolve_output environment headers declarations visible output
+          resolve_output selections table publications environment headers
+            declarations visible output
         with
         | Error _ as error -> error
         | Ok output -> loop (output :: rev) rest)
@@ -234,8 +274,8 @@ let validate_function_pair expected source =
     Error (invalid_input "implicit output function item positions do not match")
   else Ok ()
 
-let resolve_functions environment headers declarations module_expressions
-    expressions =
+let resolve_functions selections table environment headers declarations
+    module_expressions expressions =
   let rec loop visible publications rev by_symbol expected sources =
     match (expected, sources) with
     | [], [] -> Ok (List.rev rev, by_symbol)
@@ -251,8 +291,9 @@ let resolve_functions environment headers declarations module_expressions
               publish_through item_index visible publications
             in
             match
-              resolve_outputs environment headers declarations visible
-                source_function
+              resolve_outputs selections table
+                (Module_expression_binding.publications module_expressions)
+                environment headers declarations visible source_function
             with
             | Error _ as error -> error
             | Ok outputs ->
@@ -275,8 +316,8 @@ let resolve_functions environment headers declarations module_expressions
     (Module_expression_binding.functions module_expressions)
     (Function_call_expression_result.functions expressions)
 
-let resolve ~table ~environment ~module_expressions ~function_types ~functions
-    ~expressions =
+let resolve_with_selections selections ~table ~environment ~module_expressions
+    ~function_types ~functions ~expressions =
   let mode = Function_resolution.compilation_mode functions in
   if not (Outer_environment.owns_table environment table) then
     Error
@@ -320,8 +361,8 @@ let resolve ~table ~environment ~module_expressions ~function_types ~functions
             | Error _ as error -> error
             | Ok () -> (
                 match
-                  resolve_functions environment headers declarations
-                    module_expressions expressions
+                  resolve_functions selections table environment headers
+                    declarations module_expressions expressions
                 with
                 | Error _ as error -> error
                 | Ok (functions_, by_symbol) ->
@@ -334,3 +375,6 @@ let resolve ~table ~environment ~module_expressions ~function_types ~functions
                         functions_;
                         by_symbol;
                       })))
+
+let resolve = resolve_with_selections None
+let resolve_selected ~selections = resolve_with_selections (Some selections)

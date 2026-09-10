@@ -191,7 +191,7 @@ let rec publish_before item_index visible = function
 let target_name target =
   Function_call_resolution.implicit_output_target_name target
 
-let resolve_output environment headers declarations visible source =
+let resolve_unselected_output environment headers declarations visible source =
   let name = target_name source.source_target in
   match String_map.find_opt name visible with
   | Some publication -> (
@@ -229,6 +229,72 @@ let resolve_output environment headers declarations visible source =
               binding = Outer_function binding;
             }
       | None -> Error (missing_header source name))
+
+let resolve_output selections table publications environment headers
+    declarations visible source =
+  match selections with
+  | None ->
+      resolve_unselected_output environment headers declarations visible source
+  | Some select ->
+      let ( let* ) = Result.bind in
+      let name = target_name source.source_target in
+      let* statement =
+        match
+          source.source_fixed_value
+          |> Function_call_expression_result.top_level_root_source
+          |> Top_level_expression_tree.root_implicit_statement
+        with
+        | Some statement -> Ok statement
+        | None ->
+            Error
+              (invalid_input
+                 "selected implicit root has no original source statement")
+      in
+      let* () =
+        if
+          List.length statement.Frontend.Ast.arguments
+          <> List.length source.source_arguments
+          || not
+               (List.for_all
+                  (fun root ->
+                    Option.fold ~none:false ~some:(( == ) statement)
+                      (root
+                     |> Function_call_expression_result.top_level_root_source
+                     |> Top_level_expression_tree.root_implicit_statement))
+                  source.source_arguments)
+        then
+          Error
+            (invalid_input
+               "selected implicit arguments do not own their complete source \
+                statement")
+        else Ok ()
+      in
+      let* selection = select statement |> Result.map_error invalid_input in
+      let* selected =
+        Implicit_output_selection.resolve ~table ~environment ~publications
+          ~name selection
+        |> Result.map_error invalid_input
+      in
+      let* binding =
+        match selected with
+        | Implicit_output_selection.Module publication ->
+            resolve_module_target headers declarations publication
+        | Implicit_output_selection.Outer binding -> Ok (Outer_function binding)
+        | Implicit_output_selection.Unavailable ->
+            Error (missing_header source name)
+      in
+      Ok
+        {
+          index = source.source_index;
+          statement = source.source_statement;
+          target = source.source_target;
+          fixed_source = source.source_fixed_source;
+          marker_origin = source.source_marker_origin;
+          fixed_value = source.source_fixed_value;
+          arguments = source.source_arguments;
+          target_name = name;
+          binding;
+        }
 
 let root_role root =
   root |> Function_call_expression_result.top_level_root_source
@@ -302,8 +368,8 @@ let collect_statement_outputs expected_output statement =
   statement |> Function_call_expression_result.top_level_statement_roots
   |> loop expected_output []
 
-let resolve_statements environment headers declarations module_expressions
-    expressions =
+let resolve_statements selections table environment headers declarations
+    module_expressions expressions =
   let rec loop visible publications next_output rev = function
     | [] -> Ok (List.rev rev)
     | statement :: rest -> (
@@ -323,8 +389,9 @@ let resolve_statements environment headers declarations module_expressions
               | [] -> Ok rev
               | source :: rest -> (
                   match
-                    resolve_output environment headers declarations visible
-                      source
+                    resolve_output selections table
+                      (Module_expression_binding.publications module_expressions)
+                      environment headers declarations visible source
                   with
                   | Error _ as error -> error
                   | Ok output -> resolve_outputs (output :: rev) rest)
@@ -348,7 +415,7 @@ let source_context expressions =
   in
   (environment, module_expressions)
 
-let resolve ~table ~function_types ~functions expressions =
+let resolve ?selections ~table ~function_types ~functions expressions =
   let environment, module_expressions = source_context expressions in
   let mode = Function_resolution.compilation_mode functions in
   if
@@ -397,8 +464,8 @@ let resolve ~table ~function_types ~functions expressions =
             | Error _ as error -> error
             | Ok () -> (
                 match
-                  resolve_statements environment headers declarations
-                    module_expressions expressions
+                  resolve_statements selections table environment headers
+                    declarations module_expressions expressions
                 with
                 | Error _ as error -> error
                 | Ok outputs_ ->

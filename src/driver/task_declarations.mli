@@ -1,5 +1,18 @@
 type t
 
+val observe_implicit_output :
+  t ->
+  Frontend.Parser.implicit_output_selection ->
+  (unit, Common.Diagnostic.t list) result
+(** Records only the original live parser callback in its exact command and
+    environment. Replayed callbacks cannot add another selection. *)
+
+val validate_implicit_output :
+  t ->
+  Frontend.Parser.implicit_output_selection ->
+  execution:bool ->
+  (unit, Common.Diagnostic.t list) result
+
 val dimension_requires_runtime :
   Frontend.Parser.array_dimension_preparation -> bool
 
@@ -109,6 +122,21 @@ val complete_initializer_runtime :
   (unit, Common.Diagnostic.t list) result
 
 type command
+
+val implicit_output_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  task_view:Ir.Integer_globals.task_view ->
+  command ->
+  ( Frontend.Ast.implicit_output_statement ->
+    (Sema.Reference_selection.t, string) result,
+    Common.Diagnostic.t list )
+  result
+
+(** Resolves only the original implicit statements in this sealed command and
+    task view. A copied AST with equal locations cannot acquire its selection.
+*)
+
 type source_command
 
 val begin_source_default :

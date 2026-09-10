@@ -111,6 +111,11 @@ type selected_reference = {
   target : reference_target;
 }
 
+type selected_implicit_output = {
+  implicit_selection : Parser.implicit_output_selection;
+  implicit_target : reference_target;
+}
+
 type query = {
   query_receipt : Parser.completed_query;
   query_target : reference_target;
@@ -126,6 +131,7 @@ type reading_query = {
 }
 
 type command = {
+  implicit_outputs : selected_implicit_output list;
   source_defaults : Ir.Prepared_parameter_default.t list;
   table : Sema.Symbol_table.t;
   runtime : VM.task_state option;
@@ -165,6 +171,7 @@ type command_sequence = {
 }
 
 type t = {
+  mutable implicit_outputs : selected_implicit_output list;
   mutable source_default_attempts :
     (Parser.completed_parameter_default
     * Sema.Default_fragment.authority
@@ -291,6 +298,7 @@ let create_with_authority ?(max_dimension_work = 100_000) authority session =
               runtime_records = Entries.create 32;
               admissions = [];
               references = Names.create 32;
+              implicit_outputs = [];
               query_roots = Query_roots.create 16;
               queries = Query_expressions.create 16;
               dimension_owners = Names.create 16;
@@ -810,8 +818,7 @@ let validate_source_reference ledger selection =
             "source expression entry has no checked source publication"
       | Selected_local | Selected_source _ | Selected_runtime _ -> ())
 
-let validate_execution_target selection target =
-  let span = (Parser.selected_identifier selection).location.span in
+let validate_execution_target_at span command target =
   let unavailable message = fail ~code:"HCRUN0003" span message in
   match target with
   | Selected_absent ->
@@ -831,10 +838,16 @@ let validate_execution_target selection target =
         | Function_selection (header, _) ->
             header.function_publication.function_header.declaration_command
       in
-      if start != Parser.selected_command selection then
+      if start != command then
         unavailable
           "partial source publication has not reached runtime admission"
   | Selected_local | Selected_runtime _ | Selected_source _ -> ()
+
+let validate_execution_target selection target =
+  validate_execution_target_at
+    (Parser.selected_identifier selection).location.span
+    (Parser.selected_command selection)
+    target
 
 let observe_execution_reference ledger selection =
   let identifier = Parser.selected_identifier selection in
@@ -849,6 +862,62 @@ let observe_execution_reference ledger selection =
           protect (fun () ->
               validate_execution_target selection
                 (Names.find ledger.references identifier).target)))
+
+let observe_implicit_output ledger selection =
+  let span = (Parser.implicit_marker selection).span in
+  Result.map
+    (fun () ->
+      record_activation_event ledger
+        (Sema.Source_activation.Implicit_output selection))
+    (protect (fun () ->
+         let start = Parser.implicit_command selection in
+         if not (Parser.implicit_selection_is_current selection) then
+           fail span "implicit target is outside its original parser callback";
+         let sequence = active_sequence ledger start.command_context in
+         (match sequence.phase with
+         | Reading saved when saved == start -> ()
+         | _ -> fail span "implicit target belongs to another parser command");
+         if Parser.implicit_environment selection != ledger.symbols then
+           fail span "implicit target has another frontend environment";
+         if
+           List.exists
+             (fun original -> original.implicit_selection == selection)
+             ledger.implicit_outputs
+         then fail span "implicit target selection was already observed";
+         let target =
+           selection_target ledger span
+             (match Parser.implicit_lookup selection with
+             | None -> Visibility.Absent
+             | Some entry -> Visibility.Present entry)
+         in
+         ledger.implicit_outputs <-
+           { implicit_selection = selection; implicit_target = target }
+           :: ledger.implicit_outputs))
+
+let validate_implicit_output ledger selection ~execution =
+  let span = (Parser.implicit_marker selection).span in
+  protect (fun () ->
+      let original =
+        List.find_opt
+          (fun original -> original.implicit_selection == selection)
+          ledger.implicit_outputs
+        |> function
+        | Some original -> original
+        | None -> fail span "implicit output has no exact original selection"
+      in
+      if execution then (
+        if Option.is_none (ledger_runtime ledger) then
+          fail span "implicit execution selection has no owning runtime";
+        validate_execution_target_at span
+          (Parser.implicit_command selection)
+          original.implicit_target)
+      else
+        match original.implicit_target with
+        | Selected_absent | Selected_unbound _ ->
+            fail ~code:"HCRUN0003" span
+              "implicit output has no checked function header at its source \
+               read"
+        | _ -> ())
 
 let read_sizeof ledger (root : Parser.query_root) target =
   match root.query_node with
@@ -1841,6 +1910,15 @@ let seal ledger (ast : Ast.module_) =
               ledger.dimensions;
             let command =
               {
+                implicit_outputs =
+                  List.filter
+                    (fun original ->
+                      List.exists
+                        (fun entry ->
+                          entry.receipt.command_start
+                          == Parser.implicit_command original.implicit_selection)
+                        original_commands)
+                    ledger.implicit_outputs;
                 source_defaults =
                   List.filter
                     (fun value ->
@@ -2537,6 +2615,42 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
     ]
   in
   Sema.Source_activation.run activation ~invalid (function
+    | Sema.Source_activation.Implicit_output selection ->
+        let* () =
+          protect (fun () ->
+              let span = (Parser.implicit_marker selection).span in
+              if
+                not
+                  (Sema.Source_activation.implicit_output ledger.activation
+                     selection)
+              then fail span "implicit target is outside its activation event";
+              let found = ref false in
+              ledger.implicit_outputs <-
+                List.map
+                  (fun original ->
+                    if original.implicit_selection != selection then original
+                    else (
+                      found := true;
+                      let target =
+                        match original.implicit_target with
+                        | Selected_source selected ->
+                            let admitted =
+                              match selected.stage with
+                              | Provisional_function_selection _ -> None
+                              | _ ->
+                                  VM.admitted_publication_for_symbol runtime
+                                    (Collection.publication_symbol
+                                       selected.publication)
+                            in
+                            Selected_source { selected with admitted }
+                        | target -> target
+                      in
+                      { original with implicit_target = target }))
+                  ledger.implicit_outputs;
+              if not !found then
+                fail span "source activation lacks its original implicit target")
+        in
+        validate_implicit_output ledger selection ~execution:true
     | Sema.Source_activation.Reference selection ->
         protect (fun () ->
             let identifier = Parser.selected_identifier selection in
@@ -2814,3 +2928,74 @@ let reference_resolver ~table ~ast ~task_view command =
             let result = resolve identifier in
             Names.add cache identifier result;
             result)
+
+let implicit_output_resolver ~table ~ast ~task_view (command : command) =
+  let module Selection = Sema.Reference_selection in
+  let module Globals = Ir.Integer_globals in
+  let ( let* ) = Result.bind in
+  let* declarations = collection ~table ~ast command in
+  let environment = Globals.task_environment task_view in
+  if
+    not
+      (Option.fold ~none:false
+         ~some:(fun runtime -> VM.task_owns_snapshot runtime task_view)
+         command.runtime)
+  then
+    protect (fun () ->
+        fail ast.Ast.span "implicit output has another task snapshot")
+  else
+    let retained name publication =
+      match publication with
+      | VM.Admitted_function reference -> (
+          match Globals.task_function_binding task_view reference with
+          | Some binding -> Selection.outer ~table ~name ~environment ~binding
+          | None -> Error "implicit target has no exact retained snapshot entry"
+          )
+      | _ -> Error "implicit output selected a nonfunction publication"
+    in
+    Ok
+      (fun source_statement ->
+        let matches =
+          List.filter
+            (fun original ->
+              Option.fold ~none:false
+                ~some:(fun (statement : Ast.implicit_output_statement) ->
+                  statement == source_statement)
+                (Parser.implicit_statement original.implicit_selection))
+            command.implicit_outputs
+        in
+        match matches with
+        | [ original ] -> (
+            let name =
+              match Parser.implicit_target original.implicit_selection with
+              | Ast.Print_target -> "Print"
+              | Ast.Put_chars_target -> "PutChars"
+            in
+            match original.implicit_target with
+            | Selected_absent -> Selection.absent ~table ~name
+            | Selected_local | Selected_unbound _ ->
+                Selection.unavailable ~table ~name
+            | Selected_runtime publication -> retained name publication
+            | Selected_source { publication; stage; admitted } -> (
+                let symbol = Collection.publication_symbol publication in
+                if
+                  List.exists
+                    (fun entry -> Collection.entry_symbol entry == symbol)
+                    (Collection.entries declarations)
+                then
+                  let stage =
+                    match stage with
+                    | Provisional_function_selection _ ->
+                        Selection.Function_declared
+                    | Function_selection (_, None) ->
+                        Selection.Function_header_completed
+                    | Function_selection (_, Some _) ->
+                        Selection.Function_body_completed
+                    | _ -> Selection.Global_declared
+                  in
+                  Selection.source ~table ~name ~symbol ~stage
+                else
+                  match admitted with
+                  | Some publication -> retained name publication
+                  | None -> Selection.unavailable ~table ~name))
+        | _ -> Error "implicit output lacks one exact observed source marker")

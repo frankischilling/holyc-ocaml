@@ -70,6 +70,24 @@ let selected_environment selection = selection.environment
 let selected_lookup selection = selection.lookup
 let selected_command selection = selection.selected_command
 
+type implicit_output_selection = {
+  output_target : Ast.implicit_output_target;
+  output_marker : Ast.location;
+  output_environment : Symbol_visibility.Environment.t;
+  output_lookup : Symbol_visibility.entry option;
+  output_command : command_start;
+  mutable output_active : bool;
+  mutable output_statement : Ast.implicit_output_statement option;
+}
+
+let implicit_target selection = selection.output_target
+let implicit_marker selection = selection.output_marker
+let implicit_environment selection = selection.output_environment
+let implicit_lookup selection = selection.output_lookup
+let implicit_command selection = selection.output_command
+let implicit_statement selection = selection.output_statement
+let implicit_selection_is_current selection = selection.output_active
+
 type local_source =
   | Local_parameter of Ast.function_parameter
   | Local_variable of {
@@ -314,6 +332,9 @@ type command_sink = {
     (command_event -> (unit, Common.Diagnostic.t list) result) option;
   reference :
     (reference_selection -> (unit, Common.Diagnostic.t list) result) option;
+  implicit_output :
+    (implicit_output_selection -> (unit, Common.Diagnostic.t list) result)
+    option;
   query : (query_event -> (unit, Common.Diagnostic.t list) result) option;
   declaration :
     (declaration_event -> (unit, Common.Diagnostic.t list) result) option;
@@ -369,6 +390,9 @@ type cursor = {
   reference :
     (reference_selection -> (unit, Common.Diagnostic.t list) result) option;
   references : reference_selection Identifier_table.t;
+  implicit_output :
+    (implicit_output_selection -> (unit, Common.Diagnostic.t list) result)
+    option;
   query : (query_event -> (unit, Common.Diagnostic.t list) result) option;
   declaration :
     (declaration_event -> (unit, Common.Diagnostic.t list) result) option;
@@ -4977,6 +5001,38 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
     | Token_kind.Character, Token.Int64 _ -> Ast.Put_chars_target
     | _ -> invalid_arg "an implicit output statement needs a literal marker"
   in
+  let selection =
+    {
+      output_target = target;
+      output_marker = token_location marker_item.token;
+      output_environment = cursor.symbols;
+      output_lookup =
+        Symbol_visibility.Environment.find_function cursor.symbols
+          (match target with
+          | Ast.Print_target -> "Print"
+          | Ast.Put_chars_target -> "PutChars");
+      output_command = Option.get cursor.current_command;
+      output_active = true;
+      output_statement = None;
+    }
+  in
+  Fun.protect
+    ~finally:(fun () -> selection.output_active <- false)
+    (fun () ->
+      Option.iter
+        (fun observe ->
+          match observe selection with
+          | Ok () -> ()
+          | Error diagnostics ->
+              cursor.diagnostics_rev <-
+                List.rev_append diagnostics cursor.diagnostics_rev;
+              if not (has_error diagnostics) then
+                report cursor marker_item ~code:"HCPARSE0161"
+                  ~message:
+                    "implicit output consumer failed without an error \
+                     diagnostic";
+              raise Stop_command)
+        cursor.implicit_output);
   let marker_expression =
     match (marker_item.token.Token.kind, marker_item.token.value) with
     | Token_kind.String, Token.Bytes _ -> take_string_literal_sequence cursor
@@ -5116,6 +5172,7 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
                   ~fixed_argument ~arguments ~semicolon
                   ~location:(location_from_expression_tokens tokens)
               in
+              selection.output_statement <- Some statement;
               Some { node = Ast.Implicit_output_statement statement; tokens }))
 
 let rec take_statement_commas cursor items_rev =
@@ -7861,8 +7918,9 @@ let read_commands ?commands ?stream_opener cursor =
         succeeded := true);
       ast)
 
-let make_cursor ?reference ?query ?declaration ?dimension_count ~command_stack
-    ~stream ~sources ~source ~symbols ~compilation_mode ~stop_on_error () =
+let make_cursor ?reference ?implicit_output ?query ?declaration ?dimension_count
+    ~command_stack ~stream ~sources ~source ~symbols ~compilation_mode
+    ~stop_on_error () =
   if Option.is_some dimension_count && Option.is_none declaration then
     invalid_arg "an array count reader requires a declaration observer";
   {
@@ -7875,6 +7933,7 @@ let make_cursor ?reference ?query ?declaration ?dimension_count ~command_stack
     compilation_mode;
     stop_on_error;
     reference;
+    implicit_output;
     references = Identifier_table.create 32;
     query;
     declaration;
@@ -7924,6 +7983,8 @@ let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
                             make_cursor ~command_stack ~stream ~sources ~source
                               ~symbols:execution.symbols
                               ?reference:execution.commands.reference
+                              ?implicit_output:
+                                execution.commands.implicit_output
                               ?query:execution.commands.query
                               ?declaration:execution.commands.declaration
                               ?dimension_count:
@@ -7958,6 +8019,9 @@ let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
       ?reference:
         (Option.bind commands (fun (commands : command_sink) ->
              commands.reference))
+      ?implicit_output:
+        (Option.bind commands (fun (commands : command_sink) ->
+             commands.implicit_output))
       ?query:
         (Option.bind commands (fun (commands : command_sink) -> commands.query))
       ?declaration:

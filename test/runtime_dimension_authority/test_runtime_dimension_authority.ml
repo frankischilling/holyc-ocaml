@@ -37,6 +37,7 @@ let with_dimensions callback =
           (fun event ->
             VM.observe_task_source_event owner event |> checked;
             Ok ());
+      implicit_output = None;
       reference = None;
       declaration =
         Some

@@ -3290,6 +3290,76 @@ let literal_constructors_retain_typed_payloads () =
          = origin)
        expressions)
 
+let implicit_output_call_ownership () =
+  let module Call = Semantic_function_call_resolution in
+  let module Binding = Semantic_module_expression_binding in
+  let prepared =
+    prepare ~path:"implicit-call-owner.HC"
+      {|extern U0 Print(U8 *fmt,...);extern I64 Next(I64 n);U0 Caller(){"%d",Next(42);}|}
+  in
+  let resolved = resolve prepared |> checked in
+  let caller =
+    Call.functions resolved
+    |> List.find (fun function_ ->
+        Semantic_symbol.name (Call.function_symbol function_) = "Caller")
+  in
+  let output = List.hd (Call.function_implicit_outputs caller) in
+  let original_call = only_direct resolved "Caller" |> Call.direct_source in
+  let copy_call =
+    Call.make_call
+      ~index:(Call.call_index original_call)
+      ~callee_occurrence_index:(Call.call_callee_occurrence_index original_call)
+      ~callee_name:(Call.call_callee_name original_call)
+      ~callee_origin:(Call.call_callee_origin original_call)
+      ~origin:(Call.call_origin original_call)
+      ~syntax:(Call.call_syntax original_call)
+      (Call.call_arguments original_call)
+    |> checked
+  in
+  let rebuild ?(outputs = [ output ]) call =
+    let inputs =
+      Binding.functions prepared.module_expressions
+      |> List.map (fun function_ ->
+          let symbol = Binding.function_symbol function_ in
+          let is_caller = Semantic_symbol.name symbol = "Caller" in
+          Call.make_function ~symbol
+            ~scope:(Binding.function_scope function_)
+            ~item_index:(Binding.function_item_index function_)
+            ~implicit_outputs:(if is_caller then outputs else [])
+            (if is_caller then [ call ] else [])
+          |> checked)
+    in
+    Call.resolve
+      ~table:(Session.semantic_symbols prepared.session)
+      ~parent:(Semantic_declaration_collection.scope prepared.declarations)
+      ~function_types:prepared.function_types ~functions:prepared.functions
+      ~expressions:prepared.module_expressions inputs
+  in
+  Alcotest.(check bool)
+    "original implicit call batch remains valid" true
+    (Result.is_ok (rebuild original_call));
+  Alcotest.(check bool)
+    "equal reconstructed call cannot replace original implicit call" true
+    (Result.is_error (rebuild copy_call));
+  let duplicate =
+    Call.make_implicit_output ~index:1
+      ~target:(Call.implicit_output_target output)
+      ~marker_origin:(Call.implicit_output_marker_origin output)
+      ~fixed_source:(Call.implicit_output_fixed_source output)
+      ~fixed_expression:(Call.implicit_output_fixed_expression output)
+      ~arguments:(Call.implicit_output_arguments output)
+      ~origin:(Call.implicit_output_origin output)
+    |> checked
+    |> fun copy ->
+    Call.bind_implicit_output_source
+      ~source:(Option.get (Call.implicit_output_statement output))
+      ~calls:[ original_call ] copy
+    |> checked
+  in
+  Alcotest.(check bool)
+    "one original implicit statement cannot appear twice" true
+    (Result.is_error (rebuild ~outputs:[ output; duplicate ] original_call))
+
 let tests =
   [
     Alcotest.test_case "fixed defaults and sparse slots" `Quick
@@ -3356,4 +3426,6 @@ let tests =
       switch_case_constructors_validate_patterns_and_origins;
     Alcotest.test_case "typed literal constructor payloads" `Quick
       literal_constructors_retain_typed_payloads;
+    Alcotest.test_case "implicit output retains exact function call batch"
+      `Quick implicit_output_call_ownership;
   ]

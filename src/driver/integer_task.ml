@@ -676,6 +676,19 @@ let execution_commands task span ~active =
                 Ok ()
             | _ -> Ok ());
       query = Some query;
+      implicit_output =
+        Some
+          (fun selection ->
+            let* () =
+              reading
+                (Frontend.Parser.implicit_command selection).command_context
+            in
+            let* () =
+              Task_declarations.observe_implicit_output task.declarations
+                selection
+            in
+            Task_declarations.validate_implicit_output task.declarations
+              selection ~execution:true);
       reference = Some reference;
       declaration = Some declaration;
       dimension_count = Some dimension_count;

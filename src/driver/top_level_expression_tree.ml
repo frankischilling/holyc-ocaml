@@ -704,7 +704,8 @@ and call_arguments state arguments =
   in
   loop 0 state [] arguments
 
-let add_root state role source =
+let add_root ?implicit_source state role source =
+  let first_call = state.next_call in
   match expression state source with
   | Error _ as error -> error
   | Ok (state, expression) -> (
@@ -715,6 +716,28 @@ let add_root state role source =
             Sema.Top_level_expression_tree.make_root ~index:state.next_root
               ~role ~expression
               ~origin:(origin (Frontend.Ast.expression_location source))
+            |> fun result ->
+            Result.bind result (fun root ->
+                match implicit_source with
+                | None -> Ok root
+                | Some source ->
+                    Sema.Top_level_expression_tree.bind_implicit_root_source
+                      ~source
+                      ~calls:
+                        (state.calls_rev
+                        |> List.filter (fun call ->
+                            call |> Sema.Top_level_expression_tree.call_source
+                            |> Sema.Function_call_resolution.call_index
+                            >= first_call)
+                        |> List.sort (fun left right ->
+                            Int.compare
+                              (left
+                             |> Sema.Top_level_expression_tree.call_source
+                             |> Sema.Function_call_resolution.call_index)
+                              (right
+                             |> Sema.Top_level_expression_tree.call_source
+                             |> Sema.Function_call_resolution.call_index)))
+                      root)
           with
           | Error error ->
               Error (Sema.Top_level_expression_tree.error_to_string error)
@@ -805,7 +828,7 @@ let record_output state (output : Frontend.Ast.implicit_output_statement) =
   | Error _ as error -> error
   | Ok next_output -> (
       match
-        add_root { state with next_output }
+        add_root ~implicit_source:output { state with next_output }
           (Sema.Top_level_expression_tree.Implicit_output_fixed
              {
                output_index;
@@ -824,7 +847,7 @@ let record_output state (output : Frontend.Ast.implicit_output_statement) =
                (fun state
                     ( argument_index,
                       (argument : Frontend.Ast.implicit_output_argument) ) ->
-                 add_root state
+                 add_root ~implicit_source:output state
                    (Sema.Top_level_expression_tree.Implicit_output_argument
                       { output_index; argument_index })
                    argument.value)

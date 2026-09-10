@@ -30,6 +30,27 @@ let tests =
     (fun (name, source) -> Alcotest.test_case name `Quick (expect 42L source))
     gates
   @ [
+      Alcotest.test_case "implicit output in directive tasks" `Quick (fun () ->
+          List.iter
+            (fun mode ->
+              ignore
+                (Output.run ~mode {|#exe {"A";'B';StreamPrint("42;");}|}
+                |> Output.expect ~value:(Some 42L) "AB"))
+            G.modes);
+      Alcotest.test_case
+        "pending implicit output resumes after directive output" `Quick
+        (fun () ->
+          List.iter
+            (fun mode ->
+              ignore
+                (Output.run ~mode
+                   {|extern U0 Print(U8 *fmt,...);"A";#exe {'B';StreamPrint("42;");}|}
+                |> Output.expect ~value:(Some 42L) "BA"))
+            G.modes);
+      Alcotest.test_case
+        "directive implicit calls preserve selected definitions" `Quick
+        (expect 42L
+           {|#exe {I64 N=0;U0 Print(U8 *s){N=42;}U0 Saved(){"old";}"old" #exe {U0 Print(U8 *s){N=7;}};I64 Before=N;"new";I64 After=N;Saved;StreamPrint("%d;",Before+N-After-35);}|});
       Alcotest.test_case "replaced directive headers save each default once"
         `Quick
         (expect 42L

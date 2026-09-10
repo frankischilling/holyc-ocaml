@@ -264,12 +264,19 @@ let shape ~globals records description =
         require ?span
           (Typed.implicit_output_result_use typed = Typed.Result_not_used)
           "implicit output lost its checked discarded-result intent";
-        let target =
+        let declaration, symbol =
           match Target.output_binding source with
-          | Target.Module_function target -> target
-          | Target.Outer_function _ ->
-              fail ?span
-                "outer output target has no checked runtime declaration"
+          | Target.Module_function target ->
+              ( Target.module_declaration target,
+                Target.module_target_symbol target )
+          | Target.Outer_function binding -> (
+              let entry = Sema.Outer_environment.binding_entry binding in
+              match Sema.Outer_environment.entry_function_metadata entry with
+              | Some metadata ->
+                  ( Sema.Outer_environment.function_declaration metadata,
+                    Sema.Outer_environment.entry_symbol entry )
+              | None ->
+                  fail ?span "outer output has no selected runtime declaration")
         in
         let fixed =
           List.map
@@ -289,9 +296,9 @@ let shape ~globals records description =
               (Bound.fixed_parameter slot, Provided value))
             (Bound.bound_fixed_slots output)
         in
-        ( Target.module_declaration target,
+        ( declaration,
           Bound.bound_header output,
-          Target.module_target_symbol target,
+          symbol,
           fixed,
           Bound.bound_variadic_values output,
           None,
@@ -313,12 +320,19 @@ let shape ~globals records description =
               { output_index; _ } -> output_index = Target.output_index source
           | _ -> false)
           "top-level output does not retain its checked implicit root role";
-        let target =
+        let declaration, symbol =
           match Target.output_binding source with
-          | Target.Module_function target -> target
-          | Target.Outer_function _ ->
-              fail ?span
-                "outer output target has no checked runtime declaration"
+          | Target.Module_function target ->
+              ( Target.module_declaration target,
+                Target.module_target_symbol target )
+          | Target.Outer_function binding -> (
+              let entry = Sema.Outer_environment.binding_entry binding in
+              match Sema.Outer_environment.entry_function_metadata entry with
+              | Some metadata ->
+                  ( Sema.Outer_environment.function_declaration metadata,
+                    Sema.Outer_environment.entry_symbol entry )
+              | None ->
+                  fail ?span "outer output has no selected runtime declaration")
         in
         let fixed =
           List.map
@@ -338,9 +352,9 @@ let shape ~globals records description =
               (Bound.fixed_parameter slot, Provided value))
             (Bound.bound_fixed_slots output)
         in
-        ( Target.module_declaration target,
+        ( declaration,
           Bound.bound_header output,
-          Target.module_target_symbol target,
+          symbol,
           fixed,
           List.map Typed.top_level_root_value
             (Bound.bound_variadic_roots output),
@@ -360,7 +374,22 @@ let shape ~globals records description =
     | Top_level_call target ->
         Sema.Top_level_function_call_target_classification.source target
         |> Typed.top_level_direct_outer_binding
-    | Function_output _ | Top_level_output _ -> None
+    | Function_output output -> (
+        match
+          Sema.Implicit_output_target_resolution.output_binding
+            (Sema.Implicit_output_argument_binding.bound_source output)
+        with
+        | Sema.Implicit_output_target_resolution.Outer_function binding ->
+            Some binding
+        | _ -> None)
+    | Top_level_output output -> (
+        match
+          Sema.Top_level_implicit_output_target_resolution.output_binding
+            (Sema.Top_level_implicit_output_argument_binding.bound_source output)
+        with
+        | Sema.Top_level_implicit_output_target_resolution.Outer_function
+            binding -> Some binding
+        | _ -> None)
   in
   let retained_function =
     Option.map

@@ -75,6 +75,7 @@ let preparation_budget ?(publish = true) () =
   let commands : Parser.command_sink =
     {
       checkpoint = Some (D.observe_command ledger);
+      implicit_output = None;
       reference = Some (D.observe_reference ledger);
       declaration = Some declaration;
       query = Some (D.observe_query ledger);
@@ -107,6 +108,7 @@ let missing_preparation () =
       let commands : Parser.command_sink =
         {
           checkpoint = Some (D.observe_command ledger);
+          implicit_output = None;
           reference = Some (D.observe_reference ledger);
           declaration = Some (D.observe ledger);
           query = Some (D.observe_query ledger);

@@ -1471,6 +1471,7 @@ let local_declaration state (declaration : Frontend.Ast.local_declaration) =
 
 let record_implicit_output state
     (output : Frontend.Ast.implicit_output_statement) =
+  let first_call = state.next_call in
   let first_occurrence = state.next_occurrence in
   let member_index = state.member_index in
   let before_item_index = state.before_item_index in
@@ -1551,6 +1552,21 @@ let record_implicit_output state
                       ~marker_origin:(origin output.marker.literal_location)
                       ~fixed_source ~fixed_expression ~arguments
                       ~origin:(origin output.location)
+                    |> fun result ->
+                    Result.bind result (fun prepared ->
+                        Sema.Function_call_resolution
+                        .bind_implicit_output_source ~source:output
+                          ~calls:
+                            (state.calls_rev
+                            |> List.filter (fun call ->
+                                Sema.Function_call_resolution.call_index call
+                                >= first_call)
+                            |> List.sort (fun left right ->
+                                Int.compare
+                                  (Sema.Function_call_resolution.call_index left)
+                                  (Sema.Function_call_resolution.call_index
+                                     right)))
+                          prepared)
                   with
                   | Error _ as error -> error
                   | Ok prepared ->

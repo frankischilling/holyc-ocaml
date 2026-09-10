@@ -279,6 +279,8 @@ type implicit_output_argument = {
 }
 
 type implicit_output_input = {
+  source_statement : Frontend.Ast.implicit_output_statement option;
+  implicit_source_calls : call list;
   index : int;
   target : implicit_output_target;
   marker_origin : Symbol.origin;
@@ -1771,7 +1773,7 @@ let make_return ~index ~keyword_origin ~expression ~origin =
     Error "function return statement has an invalid source origin"
   else Ok { index; keyword_origin; expression; origin }
 
-let validate_source_expression ~source ~expression ~calls
+let validate_source_expressions ~sources ~expressions ~calls
     ?(callee_expressions = []) ?(call_expressions = []) () =
   let module Ast = Frontend.Ast in
   let origin = Initializer_source.origin_of_location in
@@ -2021,10 +2023,16 @@ let validate_source_expression ~source ~expression ~calls
       (fun (call, _) -> List.exists (( == ) call) calls)
       (callee_expressions @ call_expressions)
   in
-  if pairs_are_owned && matches source expression && !remaining = [] then Ok ()
+  if pairs_are_owned && same_list matches sources expressions && !remaining = []
+  then Ok ()
   else
     Error
       "initializer expression or calls do not match its retained source leaf"
+
+let validate_source_expression ~source ~expression ~calls ?callee_expressions
+    ?call_expressions () =
+  validate_source_expressions ~sources:[ source ] ~expressions:[ expression ]
+    ~calls ?callee_expressions ?call_expressions ()
 
 let validate_initializer_expression ~leaf ~expression ~calls ?callee_expressions
     ?call_expressions () =
@@ -2143,6 +2151,8 @@ let make_implicit_output ~index ~target ~marker_origin ~fixed_source
     | Ok () ->
         Ok
           {
+            source_statement = None;
+            implicit_source_calls = [];
             index;
             target;
             marker_origin;
@@ -2151,6 +2161,58 @@ let make_implicit_output ~index ~target ~marker_origin ~fixed_source
             arguments;
             origin;
           }
+
+let implicit_output_statement (output : implicit_output_input) =
+  output.source_statement
+
+let bind_implicit_output_source ~source ~calls (output : implicit_output_input)
+    =
+  let module Ast = Frontend.Ast in
+  let fixed, fixed_source =
+    match source.Ast.fixed_argument with
+    | Ast.Marker_fixed_argument value -> (value, Marker_fixed_output)
+    | Ast.Expression_fixed_argument value -> (value, Following_expression_output)
+  in
+  let target =
+    match source.target with
+    | Ast.Print_target -> Print_output
+    | Ast.Put_chars_target -> Put_chars_output
+  in
+  let origin = Initializer_source.origin_of_location in
+  if
+    output.source_statement <> None
+    || output.target <> target
+    || output.marker_origin <> origin source.marker.literal_location
+    || output.origin <> origin source.location
+    || output.fixed_source <> fixed_source
+    || List.length output.arguments <> List.length source.arguments
+    || not
+         (List.for_all2
+            (fun (actual : implicit_output_argument)
+                 (expected : Ast.implicit_output_argument) ->
+              actual.leading_comma_origin = origin expected.leading_comma
+              && actual.origin = origin expected.location)
+            output.arguments source.arguments)
+  then Error "implicit output does not match its original statement"
+  else
+    validate_source_expressions
+      ~sources:
+        (fixed
+        :: List.map
+             (fun (argument : Ast.implicit_output_argument) -> argument.value)
+             source.arguments)
+      ~expressions:
+        (output.fixed_expression
+        :: List.map
+             (fun (argument : implicit_output_argument) -> argument.expression)
+             output.arguments)
+      ~calls ()
+    |> Result.map (fun () ->
+        {
+          output with
+          source_statement = Some source;
+          implicit_source_calls = calls;
+        })
 
 let make_ranged_case_pattern ~start_expression ~ellipsis_origin ~end_expression
     =
@@ -3140,7 +3202,7 @@ let validate_expression_statements table parent visible declarations
   loop 0 statements
 
 let validate_implicit_outputs table parent visible declarations compilation_mode
-    outputs occurrences queries =
+    outputs occurrences queries calls =
   let occurrence_by_index = occurrence_map occurrences in
   let query_by_index = query_map queries in
   let validate_expression expression =
@@ -3166,7 +3228,16 @@ let validate_implicit_outputs table parent visible declarations compilation_mode
   let rec loop expected = function
     | [] -> Ok ()
     | (output : implicit_output_input) :: rest -> (
-        if output.index <> expected then
+        if
+          not
+            (List.for_all
+               (fun call -> List.exists (( == ) call) calls)
+               output.implicit_source_calls)
+        then
+          Error
+            (invalid_input
+               "implicit output calls do not belong to the exact function batch")
+        else if output.index <> expected then
           Error
             (invalid_input "function implicit output indexes are not contiguous")
         else if output.target = Put_chars_output && output.arguments <> [] then
@@ -3356,7 +3427,7 @@ let validate_function_input table parent visible declarations compilation_mode
                         match
                           validate_implicit_outputs table parent visible
                             declarations compilation_mode input.implicit_outputs
-                            occurrences queries
+                            occurrences queries input.calls
                         with
                         | Error _ as error -> error
                         | Ok () -> (
@@ -3388,6 +3459,20 @@ let validate_function_input table parent visible declarations compilation_mode
 
 let validate_function_inputs table parent expressions declarations
     compilation_mode outer inputs =
+  let rec unique seen = function
+    | [] -> true
+    | (output : implicit_output_input) :: rest -> (
+        match output.source_statement with
+        | None -> unique seen rest
+        | Some source ->
+            (not (List.exists (( == ) source) seen))
+            && unique (source :: seen) rest)
+  in
+  let unique_sources =
+    inputs
+    |> List.concat_map (fun (input : function_input) -> input.implicit_outputs)
+    |> unique []
+  in
   let rec pair visible publications expected inputs =
     match (expected, inputs) with
     | [], [] -> Ok ()
@@ -3430,10 +3515,14 @@ let validate_function_inputs table parent expressions declarations
           (invalid_input
              "function call inputs do not match module expression functions")
   in
-  pair String_map.empty
-    (Module_expression_binding.publications expressions)
-    (Module_expression_binding.functions expressions)
-    inputs
+  if not unique_sources then
+    Error
+      (invalid_input "implicit source statement appears twice in function batch")
+  else
+    pair String_map.empty
+      (Module_expression_binding.publications expressions)
+      (Module_expression_binding.functions expressions)
+      inputs
 
 let provided_or_default (call : call)
     (parameter : Function_type_resolution.parameter)

@@ -84,6 +84,29 @@ val selected_lookup : reference_selection -> Symbol_visibility.lookup
 
 val selected_command : reference_selection -> command_start
 
+type implicit_output_selection
+
+val implicit_target : implicit_output_selection -> Ast.implicit_output_target
+val implicit_marker : implicit_output_selection -> Ast.location
+
+val implicit_environment :
+  implicit_output_selection -> Symbol_visibility.Environment.t
+
+val implicit_lookup :
+  implicit_output_selection -> Symbol_visibility.entry option
+
+val implicit_command : implicit_output_selection -> command_start
+
+val implicit_statement :
+  implicit_output_selection -> Ast.implicit_output_statement option
+
+val implicit_selection_is_current : implicit_output_selection -> bool
+(** The function-only target lookup occurs at the original literal marker,
+    before argument parsing or subsequent lookahead. The callback is current
+    only while its original observer runs. A successful parse later attaches the
+    exact completed statement to the same receipt. No ordinary identifier or
+    call is synthesized. *)
+
 type local_source = private
   | Local_parameter of Ast.function_parameter
   | Local_variable of {
@@ -332,6 +355,9 @@ type command_sink = {
     (command_event -> (unit, Common.Diagnostic.t list) result) option;
   reference :
     (reference_selection -> (unit, Common.Diagnostic.t list) result) option;
+  implicit_output :
+    (implicit_output_selection -> (unit, Common.Diagnostic.t list) result)
+    option;
   query : (query_event -> (unit, Common.Diagnostic.t list) result) option;
   declaration :
     (declaration_event -> (unit, Common.Diagnostic.t list) result) option;

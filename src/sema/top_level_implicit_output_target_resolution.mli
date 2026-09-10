@@ -14,6 +14,9 @@ type error_kind =
 type error
 
 val resolve :
+  ?selections:
+    (Frontend.Ast.implicit_output_statement ->
+    (Reference_selection.t, string) result) ->
   table:Symbol_table.t ->
   function_types:Function_type_resolution.t ->
   functions:Function_resolution.t ->

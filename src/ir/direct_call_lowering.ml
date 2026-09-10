@@ -531,16 +531,35 @@ let lower_top_level ?frame ?globals ?lower_call ~instruction_id ~value_id
                       ~variadic_count_type ~variadic_count ~variadic_arguments
                       ~call_opcode result_type)))
 
-let lower_output ?frame ?globals ?lower_call ~records ~instruction_id ~value_id
-    ~source ~origin ~header ~declaration ~symbol ~arguments ~variadic_arguments
-    () =
+let lower_output ?frame ?globals ?lower_call ?outer_binding ~records
+    ~instruction_id ~value_id ~source ~origin ~header ~declaration ~symbol
+    ~arguments ~variadic_arguments () =
   match span_of_origin origin with
   | Error error -> Error [ error ]
   | Ok span -> (
       let classified =
-        Records.declarations records
-        |> List.find_opt (fun candidate ->
-            Records.classified_declaration_source candidate == declaration)
+        match outer_binding with
+        | Some binding ->
+            Option.bind globals (fun globals ->
+                Option.bind
+                  (Integer_globals.retained_function_binding globals binding)
+                  (fun reference ->
+                    let metadata = Retained_function.metadata reference in
+                    if
+                      Sema.Outer_environment.function_declaration metadata
+                      == declaration
+                      && Option.fold ~none:false ~some:(( == ) metadata)
+                           (Sema.Outer_environment.entry_function_metadata
+                              (Sema.Outer_environment.binding_entry binding))
+                    then
+                      Some
+                        (Sema.Outer_environment.function_classified_declaration
+                           metadata)
+                    else None))
+        | None ->
+            Records.declarations records
+            |> List.find_opt (fun candidate ->
+                Records.classified_declaration_source candidate == declaration)
       in
       match classified with
       | None ->
@@ -621,14 +640,32 @@ let lower_output ?frame ?globals ?lower_call ~records ~instruction_id ~value_id
                         (Int64.of_int (List.length variadic_arguments))
                       ~variadic_arguments ~call_opcode result_type))
 
+let outer_output_identity binding =
+  let entry = Sema.Outer_environment.binding_entry binding in
+  Option.map
+    (fun metadata ->
+      ( Sema.Outer_environment.function_declaration metadata,
+        Sema.Outer_environment.entry_symbol entry,
+        Some binding ))
+    (Sema.Outer_environment.entry_function_metadata entry)
+
 let lower_implicit_output ?frame ?globals ?lower_call ~records ~instruction_id
     ~value_id output =
   let module Bound = Sema.Implicit_output_argument_binding in
   let module Target = Sema.Implicit_output_target_resolution in
   let target = Bound.bound_source output in
-  match Target.output_binding target with
-  | Target.Outer_function _ -> Ok Unsupported_call
-  | Target.Module_function target ->
+  let identity =
+    match Target.output_binding target with
+    | Target.Outer_function binding -> outer_output_identity binding
+    | Target.Module_function target ->
+        Some
+          ( Target.module_declaration target,
+            Target.module_target_symbol target,
+            None )
+  in
+  match identity with
+  | None -> Ok Unsupported_call
+  | Some (declaration, symbol, outer_binding) ->
       let rec fixed rev = function
         | [] -> Some (List.rev rev)
         | slot :: rest -> (
@@ -649,14 +686,14 @@ let lower_implicit_output ?frame ?globals ?lower_call ~records ~instruction_id
               "implicit output has no checked discarded-result intent";
           ]
       else
-        lower_output ?frame ?globals ?lower_call ~records ~instruction_id
-          ~value_id ~source:(Runtime_call_context.Function_output output)
+        lower_output ?frame ?globals ?lower_call ?outer_binding ~records
+          ~instruction_id ~value_id
+          ~source:(Runtime_call_context.Function_output output)
           ~origin:
             (typed |> Result.implicit_output_source
            |> Resolution.implicit_output_origin)
           ~header:(Bound.bound_header output)
-          ~declaration:(Target.module_declaration target)
-          ~symbol:(Target.module_target_symbol target)
+          ~declaration ~symbol
           ~arguments:(fixed [] (Bound.bound_fixed_slots output))
           ~variadic_arguments:(Bound.bound_variadic_values output)
           ()
@@ -666,9 +703,18 @@ let lower_top_level_implicit_output ?frame ?globals ?lower_call ~records
   let module Bound = Sema.Top_level_implicit_output_argument_binding in
   let module Target = Sema.Top_level_implicit_output_target_resolution in
   let source = Bound.bound_source output in
-  match Target.output_binding source with
-  | Target.Outer_function _ -> Ok Unsupported_call
-  | Target.Module_function target ->
+  let identity =
+    match Target.output_binding source with
+    | Target.Outer_function binding -> outer_output_identity binding
+    | Target.Module_function target ->
+        Some
+          ( Target.module_declaration target,
+            Target.module_target_symbol target,
+            None )
+  in
+  match identity with
+  | None -> Ok Unsupported_call
+  | Some (declaration, symbol, outer_binding) ->
       let rec fixed rev = function
         | [] -> Some (List.rev rev)
         | slot :: rest -> (
@@ -681,12 +727,12 @@ let lower_top_level_implicit_output ?frame ?globals ?lower_call ~records
                   rest
             | _ -> None)
       in
-      lower_output ?frame ?globals ?lower_call ~records ~instruction_id
-        ~value_id ~source:(Runtime_call_context.Top_level_output output)
+      lower_output ?frame ?globals ?lower_call ?outer_binding ~records
+        ~instruction_id ~value_id
+        ~source:(Runtime_call_context.Top_level_output output)
         ~origin:(Target.output_marker_origin source)
         ~header:(Bound.bound_header output)
-        ~declaration:(Target.module_declaration target)
-        ~symbol:(Target.module_target_symbol target)
+        ~declaration ~symbol
         ~arguments:(fixed [] (Bound.bound_fixed_slots output))
         ~variadic_arguments:
           (List.map Result.top_level_root_value

@@ -2,8 +2,12 @@ type event =
   | Command of Frontend.Parser.command_event
   | Declaration of Frontend.Parser.declaration_event
   | Reference of Frontend.Parser.reference_selection
+  | Implicit_output of Frontend.Parser.implicit_output_selection
 
 type t
+
+val implicit_output :
+  t option -> Frontend.Parser.implicit_output_selection -> bool
 
 val create :
   namespace:Declaration_collection.namespace ->

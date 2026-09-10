@@ -306,7 +306,18 @@ let bind_output policies mode outer_headers output =
         |> Outer_environment.entry_symbol
       in
       match
-        Implicit_output_argument_rules.find_outer_header outer_headers symbol
+        match
+          Outer_environment.entry_function_metadata
+            (Outer_environment.binding_entry binding)
+        with
+        | Some metadata ->
+            Some
+              (metadata |> Outer_environment.function_declaration
+             |> Function_resolution.resolved_declaration_site
+             |> Function_resolution.declaration_site_function)
+        | None ->
+            Implicit_output_argument_rules.find_outer_header outer_headers
+              symbol
       with
       | Some header ->
           bind_header policies mode ~before_item_index output header

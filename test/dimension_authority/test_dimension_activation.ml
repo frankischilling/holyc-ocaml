@@ -45,6 +45,7 @@ let activation_lifetime () =
       let commands : Parser.command_sink =
         {
           checkpoint = Some checkpoint;
+          implicit_output = None;
           reference = None;
           declaration = None;
           query = None;

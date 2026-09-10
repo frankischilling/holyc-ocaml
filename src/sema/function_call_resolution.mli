@@ -425,6 +425,17 @@ val make_implicit_output :
   origin:Symbol.origin ->
   (implicit_output_input, string) result
 
+val bind_implicit_output_source :
+  source:Frontend.Ast.implicit_output_statement ->
+  calls:call list ->
+  implicit_output_input ->
+  (implicit_output_input, string) result
+(** Checks every expression against the exact implicit source and retains the
+    original call objects for final function-batch validation. *)
+
+val implicit_output_statement :
+  implicit_output_input -> Frontend.Ast.implicit_output_statement option
+
 val make_ranged_case_pattern :
   start_expression:argument_expression ->
   ellipsis_origin:Symbol.origin ->

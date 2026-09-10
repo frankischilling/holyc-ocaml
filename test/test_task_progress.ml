@@ -21,22 +21,21 @@ let outer_latch () =
   value (Some 42L) (snapshot task);
   run session task "I64 N=20;";
   value (Some 42L) (snapshot task);
-  (* Retained implicit providers still need their source-read authority. Keep
-     that existing boundary explicit, then exercise the supported local header. *)
-  T.fault "HCRUN0003" (T.run session task {|"A";|});
+  run session task {|"A";|};
   value (Some 42L) (snapshot task);
-  T.fault "HCRUN0003" (T.run session task {|extern U0 Print(U8 *fmt,...);"A";|});
+  run session task {|extern U0 Print(U8 *fmt,...);"C";|};
   let local =
     T.compile
       (Session.fork_frontend session)
-      task {|extern U0 Print(U8 *fmt,...);"A";|}
+      task {|extern U0 Print(U8 *fmt,...);"D";|}
   in
   ignore (Task.execute task local |> Test_integer_program.checked);
   value (Some 42L) (snapshot task);
   run session task {|Print("B");|};
   value None (snapshot task);
   Alcotest.(check string)
-    "both output paths reached" "AB" (snapshot task).output_bytes
+    "retained and batch output paths reached" "ACDB"
+    (snapshot task).output_bytes
 
 let immutable_fault_snapshot () =
   let session, task = Stream.create () in

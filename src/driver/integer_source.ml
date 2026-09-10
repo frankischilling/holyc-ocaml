@@ -44,8 +44,8 @@ let message_diagnostic ~span message =
   | _ -> diagnostic ~span "HCEVAL0003" message
 
 let prepare_unit ?environment:task_environment ?declaration_command
-    ?source_command ?selections ?(include_global_initializers = false) session
-    ~config ~span ast =
+    ?source_command ?selections ?implicit_selections
+    ?(include_global_initializers = false) session ~config ~span ast =
   let table = Session.semantic_symbols session in
   let* () =
     match (declaration_command, source_command, task_environment) with
@@ -370,8 +370,11 @@ let prepare_unit ?environment:task_environment ?declaration_command
     |> checked
   in
   let* function_output_targets =
-    Sema.Implicit_output_target_resolution.resolve ~table ~environment
-      ~module_expressions ~function_types ~functions
+    (match implicit_selections with
+    | None -> Sema.Implicit_output_target_resolution.resolve
+    | Some selections ->
+        Sema.Implicit_output_target_resolution.resolve_selected ~selections)
+      ~table ~environment ~module_expressions ~function_types ~functions
       ~expressions:function_results
     |> Result.map_error Sema.Implicit_output_target_resolution.error_to_string
     |> checked
@@ -384,7 +387,7 @@ let prepare_unit ?environment:task_environment ?declaration_command
   in
   let* top_level_output_targets =
     Sema.Top_level_implicit_output_target_resolution.resolve ~table
-      ~function_types ~functions typed
+      ?selections:implicit_selections ~function_types ~functions typed
     |> Result.map_error
          Sema.Top_level_implicit_output_target_resolution.error_to_string
     |> checked
