@@ -78,6 +78,8 @@ type function_declaration = {
   function_signature_ : signature;
   function_parameter_bindings_ : parameter_binding list;
   function_variadic_bindings_ : variadic_bindings option;
+  function_completed_header_ : Frontend.Parser.completed_function_header option;
+  mutable function_header_reused_ : bool;
 }
 
 type resolved_function = function_declaration
@@ -94,6 +96,7 @@ let function_parameter_bindings function_ =
   function_.function_parameter_bindings_
 
 let function_variadic_bindings function_ = function_.function_variadic_bindings_
+let function_completed_header function_ = function_.function_completed_header_
 let signature_opening_origin signature = signature.signature_opening_origin_
 let signature_parameters signature = signature.signature_parameters_
 let signature_variadic_origin signature = signature.signature_variadic_origin_
@@ -452,8 +455,8 @@ let validate_variadic_bindings signature bindings =
   | None, Some _ | Some _, None ->
       Error "semantic variadic bindings do not match the signature"
 
-let make_function ~symbol ~scope ~item_index ~return_type ~signature
-    ~parameter_bindings ~variadic_bindings =
+let make_function_record completed_header ~symbol ~scope ~item_index
+    ~return_type ~signature ~parameter_bindings ~variadic_bindings =
   if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Function) then
     Error "semantic function type owner must be a function symbol"
   else if Symbol_table.scope_kind scope <> Symbol_table.Function then
@@ -476,7 +479,19 @@ let make_function ~symbol ~scope ~item_index ~return_type ~signature
                 function_signature_ = signature;
                 function_parameter_bindings_ = parameter_bindings;
                 function_variadic_bindings_ = variadic_bindings;
+                function_completed_header_ = completed_header;
+                function_header_reused_ = false;
               })
+
+let make_function ~symbol ~scope ~item_index ~return_type ~signature
+    ~parameter_bindings ~variadic_bindings =
+  make_function_record None ~symbol ~scope ~item_index ~return_type ~signature
+    ~parameter_bindings ~variadic_bindings
+
+let make_function_with_completed_header completed_header ~symbol ~scope
+    ~item_index ~return_type ~signature ~parameter_bindings ~variadic_bindings =
+  make_function_record (Some completed_header) ~symbol ~scope ~item_index
+    ~return_type ~signature ~parameter_bindings ~variadic_bindings
 
 let same_scope left right =
   Symbol.Scope_id.equal
@@ -626,14 +641,197 @@ let validate_function ~table ~parent previous_item seen_symbols seen_scopes
                         Int_set.add symbol_number seen_symbols,
                         Int_set.add scope_number seen_scopes ))))
 
-let resolve ~table ~parent function_declarations =
+let same_type_reference left right =
+  String.equal (Type_reference.spelling left) (Type_reference.spelling right)
+  && Type_reference.spelling_origin left = Type_reference.spelling_origin right
+  && Type_reference.pointer_origins left = Type_reference.pointer_origins right
+  && Type.equal
+       (Type_reference.resolved_type left)
+       (Type_reference.resolved_type right)
+
+let same_source left right =
+  match (left, right) with
+  | Some left, Some right -> left == right
+  | None, None -> true
+  | Some _, None | None, Some _ -> false
+
+let rec same_signature left right =
+  left.signature_opening_origin_ = right.signature_opening_origin_
+  && left.signature_variadic_origin_ = right.signature_variadic_origin_
+  && List.equal Register_request.equal
+       left.signature_variadic_register_requests_
+       right.signature_variadic_register_requests_
+  && left.signature_closing_origin_ = right.signature_closing_origin_
+  && List.equal same_parameter left.signature_parameters_
+       right.signature_parameters_
+
+and same_parameter left right =
+  same_source left.parameter_source_ right.parameter_source_
+  && left.parameter_index_ = right.parameter_index_
+  && left.parameter_origin_ = right.parameter_origin_
+  && List.equal Register_request.equal left.parameter_register_requests_
+       right.parameter_register_requests_
+  && left.parameter_name_ = right.parameter_name_
+  && left.parameter_name_origin_ = right.parameter_name_origin_
+  && same_type_reference left.parameter_type_reference_
+       right.parameter_type_reference_
+  && same_declarator_kind left.parameter_declarator_kind_
+       right.parameter_declarator_kind_
+  && left.parameter_default_ = right.parameter_default_
+  && left.parameter_flag_mask_ = right.parameter_flag_mask_
+  && left.parameter_delimiter_origin_ = right.parameter_delimiter_origin_
+
+and same_declarator_kind left right =
+  match (left, right) with
+  | Object, Object -> true
+  | Function_pointer left, Function_pointer right ->
+      left.pointer_origin = right.pointer_origin
+      && left.pointer_opening_origin = right.pointer_opening_origin
+      && left.pointer_indirection_origins = right.pointer_indirection_origins
+      && left.pointer_closing_origin = right.pointer_closing_origin
+      && same_signature left.pointer_signature right.pointer_signature
+  | Object, Function_pointer _ | Function_pointer _, Object -> false
+
+let same_parameter_binding left right =
+  left.binding_parameter_index = right.binding_parameter_index
+  && left.binding_symbol == right.binding_symbol
+
+let same_synthetic_shape left right =
+  match (left, right) with
+  | Scalar, Scalar -> true
+  | ( Array
+        {
+          source_extent = left_source;
+          compiler_placeholder_extent = left_placeholder;
+        },
+      Array
+        {
+          source_extent = right_source;
+          compiler_placeholder_extent = right_placeholder;
+        } ) ->
+      left_source = right_source && left_placeholder = right_placeholder
+  | Scalar, Array _ | Array _, Scalar -> false
+
+let same_synthetic_binding left right =
+  left.synthetic_kind = right.synthetic_kind
+  && left.synthetic_symbol == right.synthetic_symbol
+  && left.synthetic_parameter_index = right.synthetic_parameter_index
+  && Type.equal left.synthetic_type right.synthetic_type
+  && same_synthetic_shape left.synthetic_shape right.synthetic_shape
+  && List.equal Register_request.equal left.synthetic_register_requests
+       right.synthetic_register_requests
+  && left.synthetic_flag_mask = right.synthetic_flag_mask
+
+let same_variadic_bindings left right =
+  match (left, right) with
+  | None, None -> true
+  | Some left, Some right ->
+      left.variadic_marker_origin_ = right.variadic_marker_origin_
+      && same_synthetic_binding left.variadic_argc_ right.variadic_argc_
+      && same_synthetic_binding left.variadic_argv_ right.variadic_argv_
+  | None, Some _ | Some _, None -> false
+
+let same_completed_header left right =
+  match (left, right) with
+  | Some left, Some right -> left == right
+  | None, None -> true
+  | Some _, None | None, Some _ -> false
+
+let validate_retained_header ~table ~parent retained function_ =
+  if retained.function_header_reused_ then
+    Error "semantic retained function type was already completed"
+  else if Option.is_none retained.function_completed_header_ then
+    Error "semantic retained function type is not a completed header"
+  else if
+    not
+      (same_completed_header retained.function_completed_header_
+         function_.function_completed_header_)
+  then Error "semantic retained function type has different source evidence"
+  else if retained.function_symbol_ != function_.function_symbol_ then
+    Error "semantic retained function type has the wrong function symbol"
+  else if retained.function_scope_ != function_.function_scope_ then
+    Error "semantic retained function type has the wrong function scope"
+  else if retained.function_item_index_ <> function_.function_item_index_ then
+    Error "semantic retained function type has the wrong item order"
+  else if
+    not
+      (same_type_reference retained.function_return_type_
+         function_.function_return_type_)
+  then Error "semantic retained function type has a different return type"
+  else if
+    not
+      (same_signature retained.function_signature_ function_.function_signature_)
+  then Error "semantic retained function type has a different signature"
+  else if
+    not
+      (List.equal same_parameter_binding retained.function_parameter_bindings_
+         function_.function_parameter_bindings_)
+  then Error "semantic retained function type has different parameter bindings"
+  else if
+    not
+      (same_variadic_bindings retained.function_variadic_bindings_
+         function_.function_variadic_bindings_)
+  then Error "semantic retained function type has different variadic bindings"
+  else
+    match
+      validate_function ~table ~parent (-1) Int_set.empty Int_set.empty retained
+    with
+    | Error _ as error -> error
+    | Ok _ -> Ok ()
+
+let find_retained retained_headers function_ =
+  List.filter
+    (fun retained -> retained.function_symbol_ == function_.function_symbol_)
+    retained_headers
+  |> function
+  | [] -> Ok None
+  | [ retained ] -> Ok (Some retained)
+  | _ -> Error "semantic retained function type repeats a function symbol"
+
+let substitute_retained ~table ~parent retained_headers function_declarations =
+  let rec substitute functions_rev used_rev = function
+    | [] ->
+        if
+          List.length used_rev = List.length retained_headers
+          && List.for_all
+               (fun retained -> List.memq retained used_rev)
+               retained_headers
+        then Ok (List.rev functions_rev, used_rev)
+        else Error "semantic retained function type was not consumed"
+    | function_ :: rest -> (
+        match find_retained retained_headers function_ with
+        | Error _ as error -> error
+        | Ok None -> substitute (function_ :: functions_rev) used_rev rest
+        | Ok (Some retained) -> (
+            match
+              validate_retained_header ~table ~parent retained function_
+            with
+            | Error _ as error -> error
+            | Ok () ->
+                substitute
+                  (retained :: functions_rev)
+                  (retained :: used_rev) rest))
+  in
+  substitute [] [] function_declarations
+
+let resolve ?(retained_headers = []) ~table ~parent function_declarations =
   if not (Symbol_table.owns_scope table parent) then
     Error "semantic function type parent belongs to a different symbol table"
   else if Symbol_table.scope_kind parent <> Symbol_table.Module then
     Error "semantic function types require a module scope"
   else
     let rec validate previous_item seen_symbols seen_scopes = function
-      | [] -> Ok { functions = function_declarations }
+      | [] -> (
+          match
+            substitute_retained ~table ~parent retained_headers
+              function_declarations
+          with
+          | Error _ as error -> error
+          | Ok (functions, reused) ->
+              List.iter
+                (fun function_ -> function_.function_header_reused_ <- true)
+                reused;
+              Ok { functions })
       | function_ :: rest -> (
           match
             validate_function ~table ~parent previous_item seen_symbols

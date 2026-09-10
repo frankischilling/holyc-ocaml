@@ -154,6 +154,9 @@
   test_function_default_binding
   test_function_resolution
   test_completed_function_header
+  test_pending_function_header
+  test_pending_function_resolution
+  test_retained_header_typing
   test_function_header_analysis
   test_function_call_resolution
   test_function_call_conversion_policy

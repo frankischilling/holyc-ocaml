@@ -1,4 +1,5 @@
 val resolve :
+  ?retained_headers:Sema.Function_type_resolution.resolved_function list ->
   table:Sema.Symbol_table.t ->
   declarations:Sema.Declaration_collection.t ->
   aggregates:Sema.Aggregate_resolution.t ->
@@ -16,3 +17,14 @@ val resolve_completed_header :
     a parameter-only function scope with item index zero, without constructing a
     module, body, command seal, executable frame or runtime admission. Named
     aggregate types reject until selected source-type evidence exists. *)
+
+val resolve_completed_header_with_collection :
+  table:Sema.Symbol_table.t ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Sema.Compiler_record.declared_function ->
+  ( Sema.Function_collection.collected_function
+    * Sema.Function_type_resolution.resolved_function,
+    string )
+  result
+(** Resolve one completed header while retaining the exact parameter collection
+    needed by eventual body completion. *)

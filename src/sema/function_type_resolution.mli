@@ -89,7 +89,19 @@ val make_function :
   variadic_bindings:variadic_bindings option ->
   (function_declaration, string) result
 
+val make_function_with_completed_header :
+  Frontend.Parser.completed_function_header ->
+  symbol:Symbol.t ->
+  scope:Symbol_table.scope ->
+  item_index:int ->
+  return_type:Type_reference.t ->
+  signature:signature ->
+  parameter_bindings:parameter_binding list ->
+  variadic_bindings:variadic_bindings option ->
+  (function_declaration, string) result
+
 val resolve :
+  ?retained_headers:resolved_function list ->
   table:Symbol_table.t ->
   parent:Symbol_table.scope ->
   function_declaration list ->
@@ -105,6 +117,10 @@ val function_return_type : resolved_function -> Type_reference.t
 val function_signature : resolved_function -> signature
 val function_parameter_bindings : resolved_function -> parameter_binding list
 val function_variadic_bindings : resolved_function -> variadic_bindings option
+
+val function_completed_header :
+  resolved_function -> Frontend.Parser.completed_function_header option
+
 val signature_opening_origin : signature -> Symbol.origin
 val signature_parameters : signature -> parameter list
 val signature_variadic_origin : signature -> Symbol.origin option

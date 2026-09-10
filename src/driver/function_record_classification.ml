@@ -135,3 +135,44 @@ let classify ?previous ?compiler_option_mask ~resolution module_ =
           "function record classification does not match the AST declarations"
   in
   pair [] declarations ast
+
+let classify_completed_header ?previous ~resolution source =
+  let header = Sema.Compiler_record.declared_function_source source in
+  let publication = header.function_publication in
+  match Sema.Function_resolution.declarations resolution with
+  | [ declaration ] ->
+      let site =
+        Sema.Function_resolution.resolved_declaration_site declaration
+      in
+      let loader_name, underscore_target =
+        match publication.function_header.binding with
+        | None -> (None, false)
+        | Some binding -> (
+            match binding.target with
+            | Frontend.Ast.No_binding_target ->
+                (Some publication.function_name.spelling, false)
+            | Frontend.Ast.Symbol_binding_target target ->
+                (Some target.spelling, starts_with_underscore target.spelling)
+            | Frontend.Ast.Expression_binding_target _ -> (None, false))
+      in
+      let ast =
+        {
+          item_index =
+            Sema.Function_type_resolution.function_item_index
+              (Sema.Function_resolution.declaration_site_function site);
+          name = publication.function_name;
+          modifiers = publication.function_header.modifiers;
+          source_kind =
+            Sema.Function_resolution.declaration_site_source_kind site;
+          loader_name;
+          underscore_target;
+        }
+      in
+      Result.bind (validate_pair declaration ast)
+        (fun (staging_mask, import_name, compiler_option_mask) ->
+          Sema.Function_record_classification.classify ?previous resolution
+            [
+              Sema.Function_record_classification.make_declaration_state
+                ~staging_mask ~compiler_option_mask ?import_name ();
+            ])
+  | _ -> Error "completed header classification requires its single declaration"

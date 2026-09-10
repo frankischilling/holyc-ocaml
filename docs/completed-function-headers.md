@@ -7,10 +7,12 @@ original function symbol, parameter AST nodes, defaults, register requests,
 recursive function-pointer signatures and variadic bindings. It creates a
 parameter scope under the original namespace, with no locals or body.
 
-This is a prerequisite for runtime admission of a pending definition. A typed
-header alone does not publish an executable, admit a task command or create a
-runtime provider. Calls selected from an incomplete source publication still
-report HCRUN0003. The ordinary complete-function path remains available.
+A retained JIT task admits this header at its original completed-header event,
+after preparing its defaults and admitting its predecessors. Calls can then be
+checked before a body exists. A reached call evaluates its arguments and reports
+HCIRVM0030 if it has no executable or approved provider. A skipped call remains
+unexecuted. Provisional parameter lists still report HCRUN0003. Ordinary AOT
+image compilation and its separate JIT directive task retain distinct phases.
 
 ## Source ownership
 
@@ -34,8 +36,63 @@ signature converters. Named aggregate types currently lack retained source
 visibility in this API and return an explicit error before allocating a
 function scope or parameter symbols. A caller that needs repeated access must
 retain its typed result: each successful resolution creates a new parameter
-scope. Runtime admission and eventual body completion will need to share one
-retained typed header and preserve its source ancestry.
+scope. The task ledger retains one collected and typed header. Body completion
+extends its original parameter scope with locals, keeps the same typed header
+and signature, and completes its exact pending declaration once. Retained
+adapters check original modifiers and prototype bindings as well as names,
+types and parameter children before allocating locals or consuming the header.
+
+## Pending calls and completion
+
+Pending state is distinct from declaration kind. A pending definition retains
+extern call access without becoming an extern AST or an approved provider.
+Calls keep their original header, defaults and argument protocol. Once the
+original body is published, an earlier retained caller reaches that body through
+its exact declaration ancestry. A later independent JIT shadow cannot redirect
+the caller. Providers captured through a prior extern remain available until
+compatible source publication, following the existing extern rules.
+
+Reached failures preserve earlier writes, output and retained commands. The
+native extern flag remains set until successful body publication: after a
+pending definition fails, a later definition can join that unresolved function.
+After successful publication, another same-name JIT definition creates a shadow.
+This distinction follows PrsFunJoin and the final Cf_EXTERN clear in PrsFun.
+
+Nested replacement of the same function header before the outer body completes
+remains unsupported. For example,
+`#exe {I64 F(I64 n){return n;}#exe {I64 F(I64 n){return 99;}}StreamPrint("%d;",F(42));}`
+reports HCEVAL0003. This is an open #635 execution requirement, not a compatible
+native result. PrsStreamBlk shares the hash table while saving/restoring the
+compiler context. The inner PrsFunJoin replaces the same native record's header;
+the outer PrsFun later writes its executable address without restoring its old
+header. Supporting this requires distinct current-header and executable-body
+versions. Accepting a resolved predecessor while restoring the outer header
+would lose the inner defaults and argument metadata.
+
+The next implementation must distinguish header selection, body source and
+record lineage. Source-derived acceptance cases use an outer default of 40 and
+body `return n+2;`, then a nested default of 99 and body `return 7;`. A caller
+compiled against the original pending header must later return 42; a direct
+call compiled after the nested body must keep returning 7; a new defaulted call
+after outer completion must return 101. An additional resolved shadow must stay
+the current name binding while outer completion updates only its original
+hidden record. These expectations follow PrsExp.HC, lines 560-569, and need
+execution coverage. Incompatible header changes also affect native optimizer
+and return cleanup behavior and remain separate work. No native capture is
+claimed for these cases.
+
+Run the retained pending-call example in either outer mode:
+
+```powershell
+opam exec -- dune exec holyc -- run --mode=jit examples/stateful-exe-pending-header.hc
+opam exec -- dune exec holyc -- run --mode=aot examples/stateful-exe-pending-header.hc
+```
+
+The nested directive defines `Saved` while `F` has a completed header and no
+published body. After `F` completes, `Saved` uses its saved default and variadic
+tail to return 42. The directive inserts `42;` into the outer stream. Ordinary
+output is empty. The source tests exercise exact runtime/preparation, frame and
+depth limits, plus one-below failures, without changing the CLI report contracts.
 
 ## Native phase evidence
 
@@ -76,5 +133,8 @@ Neither state may be relabeled as a completed header.
 identity, recursive type parity, ownership, callback lifetime, journal replay,
 ledger retention, unsupported aggregate visibility and directive lookahead.
 These are hosted tests and pinned source evidence; no native execution capture
-is claimed. Runtime pending-header admission, provisional parameter records,
-native extern slots, linking and the complete compiler remain unfinished.
+is claimed. [Runtime tests](../test/test_pending_function_header.ml) also cover
+argument faults, skipped calls, retained defaults, variadics, shadows, recovery,
+provider timing, expired admission and resource limits. Provisional parameter
+records, named aggregate visibility, native extern slots, linking and the
+complete compiler remain unfinished.

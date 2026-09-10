@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added runtime admission of original completed function headers before body
+  publication. Pending calls evaluate arguments before UndefinedExtern; retained
+  callers acquire the joined body while preserving saved defaults, variadic
+  arguments and source identity. Completion reuses the original parameter scope
+  and typed signature. Source checks reject changed modifiers or bindings before
+  consuming a retained header. Provisional parameters, named aggregate headers
+  and native extern address slots remain unfinished in #635.
+
 - Added parenthesis-free PutChars fixed arguments with adjacent expression
   boundaries. Defaults leave the original token untouched, including when the
   marker supplies a later formal after an initial default. Original optional

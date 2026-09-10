@@ -102,6 +102,13 @@ let extern_source =
  StreamPrint("%d;",Use());
 }|}
 
+let pending_header_source =
+  {|#exe {
+ I64 F(I64 n=40,...){I64 value=n+argc+argv[0];return value;}
+ #exe {I64 Saved(){return F(,1);}}
+ StreamPrint("%d;",Saved());
+}|}
+
 let () =
   let executable = Sys.argv.(1) in
   List.iter
@@ -225,6 +232,8 @@ let () =
       (variadic_source, "aot", 108, 6);
       (extern_source, "jit", 50, 6);
       (extern_source, "aot", 52, 6);
+      (pending_header_source, "jit", 58, 3);
+      (pending_header_source, "aot", 60, 3);
     ];
   List.iter
     (fun source ->

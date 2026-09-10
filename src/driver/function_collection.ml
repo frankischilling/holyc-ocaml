@@ -210,7 +210,92 @@ let function_header = function
         definition.variadic,
         definition.body )
 
-let function_fact entry (item_index, function_ast) =
+let rec same_physical_list left right =
+  match (left, right) with
+  | [], [] -> true
+  | left :: left_rest, right :: right_rest ->
+      left == right && same_physical_list left_rest right_rest
+  | [], _ :: _ | _ :: _, [] -> false
+
+let same_physical_option left right =
+  match (left, right) with
+  | None, None -> true
+  | Some left, Some right -> left == right
+  | None, Some _ | Some _, None -> false
+
+let retained_source_matches function_ast retained =
+  match Sema.Function_collection.function_completed_header retained with
+  | None -> false
+  | Some header ->
+      let publication = header.function_publication in
+      let source_kind =
+        match publication.function_header.binding with
+        | None -> Sema.Declaration_collection.Function_definition
+        | Some _ -> Sema.Declaration_collection.Function_prototype
+      in
+      let ( ast_kind,
+            modifiers,
+            binding,
+            name,
+            return_type,
+            return_pointers,
+            opening,
+            parameters,
+            empty_parameter_entries,
+            variadic,
+            closing ) =
+        match function_ast with
+        | Prototype prototype ->
+            ( Sema.Declaration_collection.Function_prototype,
+              prototype.modifiers,
+              Some prototype.binding,
+              prototype.name,
+              prototype.return_type,
+              prototype.return_pointer_layers,
+              prototype.opening_parenthesis,
+              prototype.parameters,
+              prototype.empty_parameter_entries,
+              prototype.variadic,
+              prototype.closing_parenthesis )
+        | Definition definition ->
+            ( Sema.Declaration_collection.Function_definition,
+              definition.modifiers,
+              None,
+              definition.name,
+              definition.return_type,
+              definition.return_pointer_layers,
+              definition.opening_parenthesis,
+              definition.parameters,
+              definition.empty_parameter_entries,
+              definition.variadic,
+              definition.closing_parenthesis )
+      in
+      source_kind = ast_kind
+      && same_physical_list publication.function_header.modifiers modifiers
+      && same_physical_option publication.function_header.binding binding
+      && publication.function_name == name
+      && publication.function_header.type_specifier == return_type
+      && same_physical_list publication.function_pointer_layers return_pointers
+      && publication.function_opening_parenthesis == opening
+      && same_physical_list header.parameters parameters
+      && same_physical_list header.empty_parameter_entries
+           empty_parameter_entries
+      && same_physical_option header.variadic variadic
+      && header.closing_parenthesis == closing
+
+let same_symbol left right = left == right
+
+let find_retained retained_headers symbol =
+  List.filter
+    (fun retained ->
+      same_symbol (Sema.Function_collection.function_symbol retained) symbol)
+    retained_headers
+  |> function
+  | [] -> Ok None
+  | [ retained ] -> Ok (Some retained)
+  | _ -> Error "semantic retained function collection repeats a function symbol"
+
+let function_fact ?retained entry (item_index, function_ast) =
   let entry_item_index = Sema.Declaration_collection.entry_item_index entry in
   let entry_kind = Sema.Declaration_collection.entry_kind entry in
   let symbol = Sema.Declaration_collection.entry_symbol entry in
@@ -225,6 +310,14 @@ let function_fact entry (item_index, function_ast) =
     Error "semantic function declaration does not match the AST name"
   else if Sema.Symbol.origin symbol <> origin name then
     Error "semantic function declaration does not match the AST origin"
+  else if
+    Option.fold ~none:false
+      ~some:(fun retained ->
+        not (retained_source_matches function_ast retained))
+      retained
+  then
+    Error
+      "semantic retained function collection does not match the original AST"
   else
     match parameters fixed_parameters variadic with
     | Error _ as error -> error
@@ -237,29 +330,42 @@ let function_fact entry (item_index, function_ast) =
         match locals with
         | Error _ as error -> error
         | Ok (locals, _) ->
-            Sema.Function_collection.make_function ~symbol ~item_index
-              (parameters @ locals))
+            Sema.Function_collection.make_function
+              ?completed_header:
+                (Option.bind retained
+                   Sema.Function_collection.function_completed_header)
+              ~symbol ~item_index (parameters @ locals))
 
-let function_facts declarations module_ =
+let function_facts retained_headers declarations module_ =
   let entries = function_entries declarations in
   let functions = functions module_ in
-  let rec pair facts_rev entries functions =
+  let rec pair facts_rev retained_count entries functions =
     match (entries, functions) with
-    | [], [] -> Ok (List.rev facts_rev)
+    | [], [] ->
+        if retained_count = List.length retained_headers then
+          Ok (List.rev facts_rev)
+        else Error "semantic retained function collection was not consumed"
     | entry :: entry_rest, function_ :: function_rest -> (
-        match function_fact entry function_ with
+        let symbol = Sema.Declaration_collection.entry_symbol entry in
+        match find_retained retained_headers symbol with
         | Error _ as error -> error
-        | Ok fact -> pair (fact :: facts_rev) entry_rest function_rest)
+        | Ok retained -> (
+            match function_fact ?retained entry function_ with
+            | Error _ as error -> error
+            | Ok fact ->
+                pair (fact :: facts_rev)
+                  (retained_count + if Option.is_some retained then 1 else 0)
+                  entry_rest function_rest))
     | [], _ :: _ | _ :: _, [] ->
         Error "semantic function declarations do not match the AST"
   in
-  pair [] entries functions
+  pair [] 0 entries functions
 
-let collect ~table ~declarations module_ =
-  match function_facts declarations module_ with
+let collect ?(retained_headers = []) ~table ~declarations module_ =
+  match function_facts retained_headers declarations module_ with
   | Error _ as error -> error
   | Ok facts ->
-      Sema.Function_collection.collect ~table
+      Sema.Function_collection.collect ~retained_headers ~table
         ~parent:(Sema.Declaration_collection.scope declarations)
         facts
 
@@ -276,8 +382,8 @@ let collect_completed_header ~table ~namespace declaration =
     let symbol = Sema.Compiler_record.declared_function_symbol declaration in
     Result.bind (parameters header.parameters header.variadic) (fun bindings ->
         Result.bind
-          (Sema.Function_collection.make_function ~symbol ~item_index:0 bindings)
-          (fun function_ ->
+          (Sema.Function_collection.make_function ~completed_header:header
+             ~symbol ~item_index:0 bindings) (fun function_ ->
             Result.bind
               (Sema.Function_collection.collect ~table
                  ~parent:(Sema.Declaration_collection.namespace_scope namespace)

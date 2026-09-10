@@ -238,50 +238,52 @@ let apply_header declaration (state : declaration_state) (record : record) =
 let apply_binding compilation_mode declaration (state : declaration_state)
     (record : record) =
   let site = Function_resolution.resolved_declaration_site declaration in
-  match Function_resolution.declaration_site_kind site with
-  | Function_resolution.Extern -> record
-  | Function_resolution.Bound_extern ->
-      {
-        record with
-        shared_flag_mask =
-          Shared_flag.clear ~mask:record.shared_flag_mask Shared_flag.Extern;
-        stored_flag_mask =
-          Stored_flag.set ~mask:record.stored_flag_mask
-            Stored_flag.Underscore_extern;
-        hash_flag_mask =
-          add_hash
-            (compilation_mode = Function_resolution.Aot)
-            Hash_flag.Resolve record.hash_flag_mask;
-      }
-  | Function_resolution.Import ->
-      {
-        record with
-        hash_flag_mask =
-          Hash_flag.set ~mask:record.hash_flag_mask Hash_flag.Import;
-        import_name = state.import_name;
-      }
-  | Function_resolution.Intern ->
-      {
-        record with
-        shared_flag_mask =
-          Shared_flag.clear ~mask:record.shared_flag_mask Shared_flag.Extern;
-        stored_flag_mask =
-          Stored_flag.set ~mask:record.stored_flag_mask Stored_flag.Internal;
-      }
-  | Function_resolution.Definition ->
-      {
-        record with
-        shared_flag_mask =
-          Shared_flag.clear ~mask:record.shared_flag_mask Shared_flag.Extern;
-        hash_flag_mask =
-          record.hash_flag_mask
-          |> add_hash
-               (compilation_mode = Function_resolution.Aot)
-               Hash_flag.Export
-          |> add_hash
-               (compilation_mode = Function_resolution.Aot)
-               Hash_flag.Resolve;
-      }
+  if Function_resolution.declaration_site_is_pending site then record
+  else
+    match Function_resolution.declaration_site_kind site with
+    | Function_resolution.Extern -> record
+    | Function_resolution.Bound_extern ->
+        {
+          record with
+          shared_flag_mask =
+            Shared_flag.clear ~mask:record.shared_flag_mask Shared_flag.Extern;
+          stored_flag_mask =
+            Stored_flag.set ~mask:record.stored_flag_mask
+              Stored_flag.Underscore_extern;
+          hash_flag_mask =
+            add_hash
+              (compilation_mode = Function_resolution.Aot)
+              Hash_flag.Resolve record.hash_flag_mask;
+        }
+    | Function_resolution.Import ->
+        {
+          record with
+          hash_flag_mask =
+            Hash_flag.set ~mask:record.hash_flag_mask Hash_flag.Import;
+          import_name = state.import_name;
+        }
+    | Function_resolution.Intern ->
+        {
+          record with
+          shared_flag_mask =
+            Shared_flag.clear ~mask:record.shared_flag_mask Shared_flag.Extern;
+          stored_flag_mask =
+            Stored_flag.set ~mask:record.stored_flag_mask Stored_flag.Internal;
+        }
+    | Function_resolution.Definition ->
+        {
+          record with
+          shared_flag_mask =
+            Shared_flag.clear ~mask:record.shared_flag_mask Shared_flag.Extern;
+          hash_flag_mask =
+            record.hash_flag_mask
+            |> add_hash
+                 (compilation_mode = Function_resolution.Aot)
+                 Hash_flag.Export
+            |> add_hash
+                 (compilation_mode = Function_resolution.Aot)
+                 Hash_flag.Resolve;
+        }
 
 let call_access_for compilation_mode record =
   if is_internal record then Internal_operation
@@ -353,6 +355,40 @@ let known_staging_mask =
        (fun mask flag -> Int64.logor mask (Function_flag.Staging.to_mask flag))
        0L
 
+let source_staging_mask (header : Frontend.Parser.completed_function_header) =
+  let flag = function
+    | Frontend.Ast.Public -> Function_flag.Modifier.Public
+    | Frontend.Ast.Static -> Function_flag.Modifier.Static
+    | Frontend.Ast.Interrupt -> Function_flag.Modifier.Interrupt
+    | Frontend.Ast.Has_error_code -> Function_flag.Modifier.Has_error_code
+    | Frontend.Ast.Argument_pop -> Function_flag.Modifier.Argument_pop
+    | Frontend.Ast.No_argument_pop -> Function_flag.Modifier.No_argument_pop
+  in
+  let declaration = header.function_publication.function_header in
+  let mask =
+    List.fold_left
+      (fun mask (modifier : Frontend.Ast.declaration_modifier) ->
+        Function_flag.apply_modifier ~mask (flag modifier.kind))
+      0L declaration.modifiers
+  in
+  match declaration.binding with
+  | Some { target = Frontend.Ast.Symbol_binding_target target; _ }
+    when String.length target.spelling > 0 && target.spelling.[0] = '_' ->
+      Function_flag.apply_modifier ~mask Function_flag.Modifier.Underscore_name
+  | _ -> mask
+
+let source_import_name kind (header : Frontend.Parser.completed_function_header)
+    =
+  if kind <> Function_resolution.Import then None
+  else
+    let publication = header.function_publication in
+    match publication.function_header.binding with
+    | Some { target = Frontend.Ast.Symbol_binding_target target; _ } ->
+        Some target.spelling
+    | Some { target = Frontend.Ast.No_binding_target; _ } ->
+        Some publication.function_name.spelling
+    | _ -> None
+
 let validate_state declaration (state : declaration_state) =
   let unknown_staging =
     Int64.logand state.staging_mask (Int64.lognot known_staging_mask)
@@ -368,8 +404,22 @@ let validate_state declaration (state : declaration_state) =
     Compiler_option.is_enabled ~mask:state.compiler_option_mask
       Compiler_option.Externs_to_imports
   in
+  let source_state_matches =
+    match Function_resolution.declaration_site_header_source site with
+    | None -> true
+    | Some source ->
+        let header = Compiler_record.declared_function_source source in
+        state.compiler_option_mask
+        = Function_resolution.declaration_site_compiler_option_mask site
+        && state.staging_mask = source_staging_mask header
+        && state.import_name = source_import_name kind header
+  in
   if not (Int64.equal unknown_staging 0L) then
     Error "function record classification received unknown parser staging bits"
+  else if not source_state_matches then
+    Error
+      "function record classification differs from its original pending header \
+       state"
   else if resolution_externs_to_imports <> state_externs_to_imports then
     Error
       "function record classification has a different extern-to-imports state \

@@ -379,8 +379,11 @@ let observe_initializer task event =
             execute_parameter_default task receipt
         | Frontend.Ast.Lastclass_default _ -> Ok ())
     | Frontend.Parser.Function_header_completed header ->
-        Task_declarations.complete_defaults_runtime task.declarations
-          ~runtime:task.state header
+        Result.bind
+          (Task_declarations.complete_defaults_runtime task.declarations
+             ~runtime:task.state header) (fun () ->
+            Task_declarations.admit_function_header task.declarations
+              ~runtime:task.state header)
     | Frontend.Parser.Global_completed (_, completed)
       when Option.is_some completed.global_initial_value ->
         Task_declarations.complete_initializer_runtime task.declarations

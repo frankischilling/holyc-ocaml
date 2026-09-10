@@ -384,10 +384,12 @@ let original_read_timing () =
   ignore
     (run {|I64 F(){return 42;};#exe {StreamPrint("%d;",F());}|}
     |> Output.expect "");
+  ignore
+    (run {|I64 F(){return 42;}#exe {StreamPrint("%d;",F());}|}
+    |> Output.fault "HCIRVM0030");
   List.iter
     (fun source -> ignore (run source |> Output.fault "HCRUN0003"))
     [
-      {|I64 F(){return 42;}#exe {StreamPrint("%d;",F());}|};
       {|I64 F(){return Future;}#exe {Print("late");I64 Future=42;}F();|};
       {|I64 N=0;I64 F(I64 x=F(#exe {N=42;Print("late");StreamPrint("1");})){return x;};|};
       {|I64 F(){I64 N=40;#exe {StreamPrint("%d;",N+2);}return 42;};F();|};

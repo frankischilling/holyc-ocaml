@@ -1,5 +1,11 @@
 type t
 
+val admit_function_header :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.completed_function_header ->
+  (unit, Common.Diagnostic.t list) result
+
 val declared_function_header :
   t ->
   Frontend.Parser.completed_function_header ->
@@ -130,6 +136,18 @@ val complete_initializer_runtime :
   (unit, Common.Diagnostic.t list) result
 
 type command
+
+val retained_function_headers :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  ( Sema.Declaration_collection.namespace
+    * (Sema.Compiler_record.declared_function
+      * Sema.Function_collection.collected_function
+      * Sema.Function_type_resolution.resolved_function)
+      list,
+    Common.Diagnostic.t list )
+  result
 
 val implicit_output_resolver :
   table:Sema.Symbol_table.t ->

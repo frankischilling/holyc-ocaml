@@ -72,6 +72,10 @@ type source =
       mutable defaults_rev : Parser.completed_parameter_default list;
       mutable header : Parser.completed_function_header option;
       mutable declared_header : Sema.Compiler_record.declared_function option;
+      mutable typed_header :
+        (Sema.Function_collection.collected_function
+        * Sema.Function_type_resolution.resolved_function)
+        option;
       mutable body : Ast.function_definition option;
     }
 
@@ -132,6 +136,12 @@ type reading_query = {
 }
 
 type command = {
+  namespace : Collection.namespace;
+  function_headers :
+    (Sema.Compiler_record.declared_function
+    * Sema.Function_collection.collected_function
+    * Sema.Function_type_resolution.resolved_function)
+    list;
   implicit_outputs : selected_implicit_output list;
   source_defaults : Ir.Prepared_parameter_default.t list;
   table : Sema.Symbol_table.t;
@@ -1456,6 +1466,7 @@ let observe ledger event =
                  defaults_rev = [];
                  header = None;
                  declared_header = None;
+                 typed_header = None;
                  body = None;
                })
             publication.function_entry
@@ -1926,6 +1937,19 @@ let seal ledger (ast : Ast.module_) =
               ledger.dimensions;
             let command =
               {
+                namespace = ledger.namespace;
+                function_headers =
+                  List.filter_map
+                    (fun assigned ->
+                      match assigned.source with
+                      | Function
+                          {
+                            declared_header = Some source;
+                            typed_header = Some (collected, typed);
+                            _;
+                          } -> Some (source, collected, typed)
+                      | _ -> None)
+                    !claimed;
                 implicit_outputs =
                   List.filter
                     (fun original ->
@@ -2286,6 +2310,89 @@ let complete_defaults_runtime ledger ~runtime header =
         when Option.fold ~none:false ~some:(( == ) header) state.header -> ()
       | _ -> fail span "default completion lacks its original observed header");
       VM.complete_task_defaults runtime ~namespace:ledger.namespace header
+      |> checked span)
+
+let retained_function_headers ~table ~ast (command : command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span "retained headers belong to another source command";
+      (command.namespace, command.function_headers))
+
+let admit_function_header ledger ~runtime header =
+  let ( let* ) = Result.bind in
+  let* source = declared_function_header ledger header in
+  protect (fun () ->
+      let span =
+        header.Parser.function_publication.function_name.location.span
+      in
+      require_initializer_runtime ledger runtime span;
+      VM.check_function_header_source runtime ~namespace:ledger.namespace source
+      |> checked span;
+      let assigned = find ledger header.function_publication.function_name in
+      let function_ =
+        match assigned.source with
+        | Function state -> (
+            match state.typed_header with
+            | Some (_, typed) -> typed
+            | None ->
+                let pair =
+                  Function_type_resolution
+                  .resolve_completed_header_with_collection ~table:ledger.table
+                    ~namespace:ledger.namespace source
+                  |> checked span
+                in
+                state.typed_header <- Some pair;
+                snd pair)
+        | _ -> fail span "completed header has another declaration kind"
+      in
+      let view = VM.task_snapshot runtime |> checked span in
+      let module Outer = Sema.Outer_environment in
+      let previous =
+        match Outer.tables (Ir.Integer_globals.task_environment view) with
+        | current :: _ ->
+            List.find_map
+              (fun entry ->
+                if
+                  Sema.Symbol.name (Outer.entry_symbol entry)
+                  = Sema.Symbol.name
+                      (Sema.Compiler_record.declared_function_symbol source)
+                  && Sema.Symbol.Scope_id.equal
+                       (Sema.Symbol.scope_id (Outer.entry_symbol entry))
+                       (Sema.Symbol_table.scope_id
+                          (Collection.namespace_scope ledger.namespace))
+                then
+                  Option.map Outer.function_classified_declaration
+                    (Outer.entry_function_metadata entry)
+                else None)
+              (List.rev (Outer.table_entries current))
+            |> Option.to_list
+        | [] -> []
+      in
+      let fact =
+        Sema.Function_resolution.make_pending_declaration ~table:ledger.table
+          ~namespace:ledger.namespace
+          ~compiler_option_mask:Sema.Compiler_option.initial_mask ~source
+          ~function_
+        |> checked span
+      in
+      let resolution =
+        Sema.Function_resolution.resolve
+          ~previous:
+            (List.map
+               Sema.Function_record_classification.classified_declaration_source
+               previous)
+          ~table:ledger.table
+          ~parent:(Collection.namespace_scope ledger.namespace)
+          ~compilation_mode:Sema.Function_resolution.Jit [ fact ]
+        |> checked span
+      in
+      let records =
+        Function_record_classification.classify_completed_header ~previous
+          ~resolution source
+        |> checked span
+      in
+      VM.admit_function_header runtime ~namespace:ledger.namespace ~source
+        ~records
       |> checked span)
 
 let begin_default_attempt ledger ~runtime receipt =

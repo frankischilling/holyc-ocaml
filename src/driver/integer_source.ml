@@ -145,12 +145,25 @@ let prepare_unit ?environment:task_environment ?declaration_command
     Aggregate_member_index.build ~table ~declarations ~headers ~members ~layouts
     |> checked
   in
+  let* function_namespace, retained_headers =
+    match declaration_command with
+    | None -> Ok (None, [])
+    | Some command ->
+        Result.map
+          (fun (namespace, headers) -> (Some namespace, headers))
+          (Task_declarations.retained_function_headers ~table ~ast command)
+  in
   let* collected_functions =
-    Function_collection.collect ~table ~declarations ast |> checked
+    Function_collection.collect
+      ~retained_headers:
+        (List.map (fun (_, collected, _) -> collected) retained_headers)
+      ~table ~declarations ast
+    |> checked
   in
   let* function_types =
-    Function_type_resolution.resolve ~table ~declarations ~aggregates
-      ~functions:collected_functions ast
+    Function_type_resolution.resolve
+      ~retained_headers:(List.map (fun (_, _, typed) -> typed) retained_headers)
+      ~table ~declarations ~aggregates ~functions:collected_functions ast
     |> checked
   in
   let* local_types =
@@ -239,7 +252,7 @@ let prepare_unit ?environment:task_environment ?declaration_command
     | Some _ -> Ok []
   in
   let* functions =
-    Function_resolution.resolve
+    Function_resolution.resolve ?namespace:function_namespace
       ~previous:
         (List.map
            Sema.Function_record_classification.classified_declaration_source

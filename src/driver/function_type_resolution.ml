@@ -219,12 +219,15 @@ let aggregate_events ~table ~declarations ~aggregates module_ =
 
 type function_ast = {
   function_declaration_kind : Sema.Declaration_collection.declaration_kind;
+  function_modifiers : Frontend.Ast.declaration_modifier list;
+  function_binding : Frontend.Ast.declaration_binding option;
   function_item_index : int;
   function_name : Frontend.Ast.identifier;
   function_return_type : Frontend.Ast.type_specifier;
   function_return_pointers : Frontend.Ast.pointer_layer list;
   function_opening : Frontend.Ast.location;
   function_parameters : Frontend.Ast.function_parameter list;
+  function_empty_parameter_entries : Frontend.Ast.empty_parameter_entry list;
   function_variadic : Frontend.Ast.variadic_marker option;
   function_closing : Frontend.Ast.location;
 }
@@ -234,6 +237,7 @@ type function_event = {
   function_symbol : Sema.Symbol.t;
   function_scope : Sema.Symbol_table.scope;
   function_entries : Sema.Function_collection.entry list;
+  function_completed_header : Frontend.Parser.completed_function_header option;
 }
 
 let function_ast (module_ : Frontend.Ast.module_) =
@@ -245,12 +249,15 @@ let function_ast (module_ : Frontend.Ast.module_) =
           {
             function_declaration_kind =
               Sema.Declaration_collection.Function_prototype;
+            function_modifiers = prototype.modifiers;
+            function_binding = Some prototype.binding;
             function_item_index = item_index;
             function_name = prototype.name;
             function_return_type = prototype.return_type;
             function_return_pointers = prototype.return_pointer_layers;
             function_opening = prototype.opening_parenthesis;
             function_parameters = prototype.parameters;
+            function_empty_parameter_entries = prototype.empty_parameter_entries;
             function_variadic = prototype.variadic;
             function_closing = prototype.closing_parenthesis;
           }
@@ -259,12 +266,16 @@ let function_ast (module_ : Frontend.Ast.module_) =
           {
             function_declaration_kind =
               Sema.Declaration_collection.Function_definition;
+            function_modifiers = definition.modifiers;
+            function_binding = None;
             function_item_index = item_index;
             function_name = definition.name;
             function_return_type = definition.return_type;
             function_return_pointers = definition.return_pointer_layers;
             function_opening = definition.opening_parenthesis;
             function_parameters = definition.parameters;
+            function_empty_parameter_entries =
+              definition.empty_parameter_entries;
             function_variadic = definition.variadic;
             function_closing = definition.closing_parenthesis;
           }
@@ -281,7 +292,56 @@ let function_entries declarations =
       | Sema.Declaration_collection.Aggregate_attached_global
       | Sema.Declaration_collection.Global_variable -> false)
 
-let validate_function_event ~table ~scope declaration collected ast =
+let rec same_physical_list left right =
+  match (left, right) with
+  | [], [] -> true
+  | left :: left_rest, right :: right_rest ->
+      left == right && same_physical_list left_rest right_rest
+  | [], _ :: _ | _ :: _, [] -> false
+
+let same_physical_option left right =
+  match (left, right) with
+  | None, None -> true
+  | Some left, Some right -> left == right
+  | None, Some _ | Some _, None -> false
+
+let retained_source_matches ast retained =
+  match Sema.Function_type_resolution.function_completed_header retained with
+  | None -> false
+  | Some header ->
+      let publication = header.function_publication in
+      let source_kind =
+        match publication.function_header.binding with
+        | None -> Sema.Declaration_collection.Function_definition
+        | Some _ -> Sema.Declaration_collection.Function_prototype
+      in
+      source_kind = ast.function_declaration_kind
+      && same_physical_list publication.function_header.modifiers
+           ast.function_modifiers
+      && same_physical_option publication.function_header.binding
+           ast.function_binding
+      && publication.function_name == ast.function_name
+      && publication.function_header.type_specifier == ast.function_return_type
+      && same_physical_list publication.function_pointer_layers
+           ast.function_return_pointers
+      && publication.function_opening_parenthesis == ast.function_opening
+      && same_physical_list header.parameters ast.function_parameters
+      && same_physical_list header.empty_parameter_entries
+           ast.function_empty_parameter_entries
+      && same_physical_option header.variadic ast.function_variadic
+      && header.closing_parenthesis == ast.function_closing
+
+let find_retained retained_headers symbol =
+  List.filter
+    (fun retained ->
+      Sema.Function_type_resolution.function_symbol retained == symbol)
+    retained_headers
+  |> function
+  | [] -> Ok None
+  | [ retained ] -> Ok (Some retained)
+  | _ -> Error "semantic retained function type repeats a function symbol"
+
+let validate_function_event ?retained ~table ~scope declaration collected ast =
   let symbol = Sema.Declaration_collection.entry_symbol declaration in
   let collected_symbol = Sema.Function_collection.function_symbol collected in
   let collected_scope = Sema.Function_collection.function_scope collected in
@@ -320,6 +380,11 @@ let validate_function_event ~table ~scope declaration collected ast =
     | Some parent -> not (same_scope parent scope)
     | None -> true
   then Error "semantic function collection does not belong to the module"
+  else if
+    Option.fold ~none:false
+      ~some:(fun retained -> not (retained_source_matches ast retained))
+      retained
+  then Error "semantic retained function type does not match the original AST"
   else
     Ok
       {
@@ -327,29 +392,42 @@ let validate_function_event ~table ~scope declaration collected ast =
         function_symbol = symbol;
         function_scope = collected_scope;
         function_entries = Sema.Function_collection.function_entries collected;
+        function_completed_header =
+          Option.bind retained
+            Sema.Function_type_resolution.function_completed_header;
       }
 
-let function_events ~table ~declarations ~functions module_ =
+let function_events ~retained_headers ~table ~declarations ~functions module_ =
   let scope = Sema.Declaration_collection.scope declarations in
   let declarations = function_entries declarations in
   let collected = Sema.Function_collection.functions functions in
   let ast = function_ast module_ in
-  let rec pair events_rev declarations collected ast =
+  let rec pair events_rev retained_count declarations collected ast =
     match (declarations, collected, ast) with
-    | [], [], [] -> Ok (List.rev events_rev)
+    | [], [], [] ->
+        if retained_count = List.length retained_headers then
+          Ok (List.rev events_rev)
+        else Error "semantic retained function type was not consumed"
     | ( declaration :: declaration_rest,
         collected :: collected_rest,
         ast :: ast_rest ) -> (
-        match
-          validate_function_event ~table ~scope declaration collected ast
-        with
+        let symbol = Sema.Declaration_collection.entry_symbol declaration in
+        match find_retained retained_headers symbol with
         | Error _ as error -> error
-        | Ok event ->
-            pair (event :: events_rev) declaration_rest collected_rest ast_rest)
+        | Ok retained -> (
+            match
+              validate_function_event ?retained ~table ~scope declaration
+                collected ast
+            with
+            | Error _ as error -> error
+            | Ok event ->
+                pair (event :: events_rev)
+                  (retained_count + if Option.is_some retained then 1 else 0)
+                  declaration_rest collected_rest ast_rest))
     | [], _, _ | _, [], _ | _, _, [] ->
         Error "semantic function types do not match the function declarations"
   in
-  pair [] declarations collected ast
+  pair [] 0 declarations collected ast
 
 let default_fact (default : Frontend.Ast.parameter_default) =
   let default_origin = origin default.location in
@@ -551,8 +629,14 @@ let function_fact_with_types event ~return_type ~signature =
       match variadic_bindings event.function_ast argc argv with
       | Error _ as error -> error
       | Ok variadic_bindings ->
-          Sema.Function_type_resolution.make_function
-            ~symbol:event.function_symbol ~scope:event.function_scope
+          let make =
+            match event.function_completed_header with
+            | None -> Sema.Function_type_resolution.make_function
+            | Some header ->
+                Sema.Function_type_resolution
+                .make_function_with_completed_header header
+          in
+          make ~symbol:event.function_symbol ~scope:event.function_scope
             ~item_index:event.function_ast.function_item_index ~return_type
             ~signature ~parameter_bindings ~variadic_bindings)
 
@@ -572,12 +656,12 @@ let function_fact visible event =
       | Error _ as error -> error
       | Ok signature -> function_fact_with_types event ~return_type ~signature)
 
-let resolve_events ~table ~scope aggregates functions =
+let resolve_events ~retained_headers ~table ~scope aggregates functions =
   let rec resolve visible facts_rev aggregates functions =
     match (aggregates, functions) with
     | [], [] ->
-        Sema.Function_type_resolution.resolve ~table ~parent:scope
-          (List.rev facts_rev)
+        Sema.Function_type_resolution.resolve ~retained_headers ~table
+          ~parent:scope (List.rev facts_rev)
     | aggregate :: aggregate_rest, [] ->
         let visible =
           String_map.add aggregate.aggregate_name aggregate.aggregate_identity
@@ -610,7 +694,8 @@ let resolve_events ~table ~scope aggregates functions =
   in
   resolve String_map.empty [] aggregates functions
 
-let resolve ~table ~declarations ~aggregates ~functions module_ =
+let resolve ?(retained_headers = []) ~table ~declarations ~aggregates ~functions
+    module_ =
   let scope = Sema.Declaration_collection.scope declarations in
   if not (Sema.Symbol_table.owns_scope table scope) then
     Error "semantic function type module belongs to a different symbol table"
@@ -620,11 +705,15 @@ let resolve ~table ~declarations ~aggregates ~functions module_ =
     match aggregate_events ~table ~declarations ~aggregates module_ with
     | Error _ as error -> error
     | Ok aggregates -> (
-        match function_events ~table ~declarations ~functions module_ with
+        match
+          function_events ~retained_headers ~table ~declarations ~functions
+            module_
+        with
         | Error _ as error -> error
-        | Ok functions -> resolve_events ~table ~scope aggregates functions)
+        | Ok functions ->
+            resolve_events ~retained_headers ~table ~scope aggregates functions)
 
-let resolve_completed_header ~table ~namespace declaration =
+let resolve_completed_header_with_collection ~table ~namespace declaration =
   if not (Sema.Compiler_record.declared_function_owns_table declaration table)
   then Error "completed function header belongs to a different symbol table"
   else if
@@ -641,12 +730,15 @@ let resolve_completed_header ~table ~namespace declaration =
           (match publication.function_header.binding with
           | None -> Sema.Declaration_collection.Function_definition
           | Some _ -> Sema.Declaration_collection.Function_prototype);
+        function_modifiers = publication.function_header.modifiers;
+        function_binding = publication.function_header.binding;
         function_item_index = 0;
         function_name = publication.function_name;
         function_return_type = publication.function_header.type_specifier;
         function_return_pointers = publication.function_pointer_layers;
         function_opening = publication.function_opening_parenthesis;
         function_parameters = header.parameters;
+        function_empty_parameter_entries = header.empty_parameter_entries;
         function_variadic = header.variadic;
         function_closing = header.closing_parenthesis;
       }
@@ -673,6 +765,7 @@ let resolve_completed_header ~table ~namespace declaration =
                       Sema.Function_collection.function_scope collected;
                     function_entries =
                       Sema.Function_collection.function_entries collected;
+                    function_completed_header = Some header;
                   }
                 in
                 Result.bind
@@ -688,8 +781,12 @@ let resolve_completed_header ~table ~namespace declaration =
                         match
                           Sema.Function_type_resolution.functions resolution
                         with
-                        | [ function_ ] -> Ok function_
+                        | [ function_ ] -> Ok (collected, function_)
                         | _ ->
                             Error
                               "completed function header did not produce one \
                                resolved signature")))))
+
+let resolve_completed_header ~table ~namespace declaration =
+  Result.map snd
+    (resolve_completed_header_with_collection ~table ~namespace declaration)

@@ -22,6 +22,37 @@ val make_declaration_with_options :
     option snapshot converts extern forms to their effective import kind while
     retaining their source kind. *)
 
+val make_pending_declaration :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  compiler_option_mask:int64 ->
+  source:Compiler_record.declared_function ->
+  function_:Function_type_resolution.resolved_function ->
+  (declaration, string) result
+(** Preserve the original completed source header and its checked parameter
+    children. Binding kind is derived from source; pending state is independent
+    of that kind and does not publish an executable. *)
+
+val make_completion_declaration :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  pending:resolved_declaration ->
+  function_:Function_type_resolution.resolved_function ->
+  (declaration, string) result
+(** Complete the exact retained typed header. [resolve] must receive this exact
+    pending declaration in [previous], with no intervening same-name
+    declaration. Successful resolution consumes completion once. This fact
+    carries source ancestry; executable publication still requires independent
+    body evidence. *)
+
+val complete_pending :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  pending:resolved_declaration ->
+  function_:Function_type_resolution.resolved_function ->
+  (t, string) result
+(** Resolve one explicit completion against its original pending predecessor. *)
+
 val resolve :
   ?previous:resolved_declaration list ->
   table:Symbol_table.t ->
@@ -55,6 +86,18 @@ val declaration_site_kind : declaration_site -> declaration_kind
 
 val declaration_site_compiler_option_mask : declaration_site -> int64
 val declaration_site_state : declaration_site -> state
+val declaration_site_is_pending : declaration_site -> bool
+
+val declaration_site_pending_source :
+  declaration_site -> Compiler_record.declared_function option
+(** The original source proof, only while the site represents a pending header.
+*)
+
+val declaration_site_header_source :
+  declaration_site -> Compiler_record.declared_function option
+(** The original source proof for pending headers and their exact completions.
+*)
+
 val resolved_declaration_site : resolved_declaration -> declaration_site
 
 val resolved_declaration_compilation_mode :

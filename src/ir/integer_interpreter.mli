@@ -196,6 +196,19 @@ val task_snapshot : task_state -> (Integer_globals.task_view, string) result
 val admit_declared_global :
   task_state -> Sema.Compiler_record.declared_global -> (unit, string) result
 
+val admit_function_header :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  source:Sema.Compiler_record.declared_function ->
+  records:Sema.Function_record_classification.t ->
+  (unit, string) result
+
+val check_function_header_source :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Sema.Compiler_record.declared_function ->
+  (unit, string) result
+
 val bind_task_namespace :
   task_state -> Sema.Declaration_collection.namespace -> (unit, string) result
 (** Internal single-assignment ledger binding. Driver-owned namespaces remain

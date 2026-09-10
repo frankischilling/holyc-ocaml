@@ -34,7 +34,20 @@ val check_task_namespace :
 val bind_task_namespace :
   task_catalog -> Sema.Declaration_collection.namespace -> (unit, string) result
 
+val publish_function_header :
+  task_catalog ->
+  namespace:Sema.Declaration_collection.namespace ->
+  source:Sema.Compiler_record.declared_function ->
+  records:Sema.Function_record_classification.t ->
+  (Retained_function.t, string) result
+
 val task_source_order : task_catalog -> Sema.Task_command_order.t
+
+val check_function_header_source :
+  task_catalog ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Sema.Compiler_record.declared_function ->
+  (unit, string) result
 
 val check_dimension_source :
   ?require_admitted:bool ->

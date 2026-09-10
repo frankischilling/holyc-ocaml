@@ -55,7 +55,10 @@ val classify :
 (** Replay [PrsFunJoin] and the binding-specific mutations in source order. The
     state list must correspond one-for-one with the resolved declarations.
     [previous] supplies each retained predecessor's classified record. Its exact
-    identity is retained for runtime publication validation. *)
+    identity is retained for runtime publication validation. Pending source
+    headers retain their binding kind but defer binding mutations until exact
+    completion; their state must match original source modifiers, loader names
+    and the complete compiler-option snapshot. *)
 
 val compilation_mode : t -> Function_resolution.compilation_mode
 val declarations : t -> classified_declaration list

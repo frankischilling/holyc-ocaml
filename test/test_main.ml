@@ -59,6 +59,9 @@ let () =
       ("semantic function default binding", Test_function_default_binding.tests);
       ("semantic function identity resolution", Test_function_resolution.tests);
       ("completed function header", Test_completed_function_header.tests);
+      ("pending function header", Test_pending_function_header.tests);
+      ("pending function resolution", Test_pending_function_resolution.tests);
+      ("retained header typing", Test_retained_header_typing.tests);
       ("semantic function header analysis", Test_function_header_analysis.tests);
       ("semantic function call resolution", Test_function_call_resolution.tests);
       ( "semantic function call conversion policy",

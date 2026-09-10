@@ -1,6 +1,12 @@
 type t
 type command
 
+val check_function_header :
+  t ->
+  admitted:command list ->
+  Frontend.Parser.completed_function_header ->
+  (unit, string) result
+
 val check_dimension :
   ?require_admitted:bool ->
   t ->

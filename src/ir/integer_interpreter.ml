@@ -846,19 +846,48 @@ let admitted_source_symbol = function
       |> Sema.Function_type_resolution.function_symbol
 
 let admitted_publication_for_symbol task symbol =
+  let completed () =
+    List.find_map
+      (fun receipt ->
+        List.find_opt
+          (fun publication -> admitted_source_symbol publication == symbol)
+          receipt.admission_publications)
+      task.admissions
+  in
   match
     List.find_opt
       (fun publication -> admitted_source_symbol publication == symbol)
       task.declared_admissions
   with
+  | Some (Admitted_function _ as pending) -> (
+      match completed () with
+      | Some _ as current -> current
+      | None -> Some pending)
   | Some publication -> Some publication
-  | None ->
-      List.find_map
-        (fun receipt ->
-          List.find_opt
-            (fun publication -> admitted_source_symbol publication == symbol)
-            receipt.admission_publications)
-        task.admissions
+  | None -> completed ()
+
+let check_function_header_source task ~namespace source =
+  let header = Sema.Compiler_record.declared_function_source source in
+  if
+    (not (source_dimensions_ready task))
+    || not
+         (Frontend.Parser.function_header_is_current header
+         || Sema.Source_activation.function_header task.source_activation header
+         )
+  then
+    Error
+      "pending header admission is outside its original live or active event"
+  else
+    Integer_globals.check_function_header_source task.catalog ~namespace source
+
+let admit_function_header task ~namespace ~source ~records =
+  Result.bind (check_function_header_source task ~namespace source) (fun () ->
+      Result.map
+        (fun reference ->
+          task.declared_admissions <-
+            Admitted_function reference :: task.declared_admissions)
+        (Integer_globals.publish_function_header task.catalog ~namespace ~source
+           ~records))
 
 let validate_dimension_dependencies task dependencies =
   let module Record = Sema.Compiler_record in

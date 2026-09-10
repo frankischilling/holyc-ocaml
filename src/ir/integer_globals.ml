@@ -803,6 +803,18 @@ let bind_task_namespace catalog namespace =
 
 let task_source_order catalog = catalog.source_order
 
+let check_function_header_source catalog ~namespace source =
+  let module Source = Sema.Compiler_record in
+  if
+    (not (task_catalog_owns_namespace catalog namespace))
+    || (not (Source.declared_function_owns_namespace source namespace))
+    || not (Source.declared_function_owns_table source catalog.table)
+  then Error "pending header has another task source namespace"
+  else
+    Sema.Task_command_order.check_function_header catalog.source_order
+      ~admitted:catalog.admitted_commands
+      (Source.declared_function_source source)
+
 let check_dimension_source ?require_admitted catalog receipt =
   Sema.Task_command_order.check_dimension ?require_admitted catalog.source_order
     ~admitted:catalog.admitted_commands receipt
@@ -1256,6 +1268,70 @@ let function_publication_is_fresh catalog reference =
                (Functions.resolved_declaration_site predecessor)
              = Functions.Unresolved_extern
       | None -> false)
+
+let publish_function_header catalog ~namespace ~source ~records =
+  let module Functions = Sema.Function_resolution in
+  let module Types = Sema.Function_type_resolution in
+  let module Records = Sema.Function_record_classification in
+  let module Source = Sema.Compiler_record in
+  let ( let* ) = Result.bind in
+  let* classified =
+    match Records.declarations records with
+    | [ classified ] -> Ok classified
+    | _ -> Error "pending header admission requires one exact declaration"
+  in
+  let declaration = Records.classified_declaration_source classified in
+  let site = Functions.resolved_declaration_site declaration in
+  let header =
+    Types.function_signature (Functions.declaration_site_function site)
+  in
+  let* () =
+    if
+      (not (task_catalog_owns_namespace catalog namespace))
+      || (not (Source.declared_function_owns_namespace source namespace))
+      || (not (Source.declared_function_owns_table source catalog.table))
+      || Functions.resolved_declaration_compilation_mode declaration
+         <> Functions.Jit
+      || not
+           (Option.fold ~none:false ~some:(( == ) source)
+              (Functions.declaration_site_pending_source site))
+    then Error "pending header admission has another task, source or phase"
+    else Ok ()
+  in
+  let* () =
+    Sema.Task_command_order.check_function_header catalog.source_order
+      ~admitted:catalog.admitted_commands
+      (Source.declared_function_source source)
+  in
+  let* () =
+    if
+      List.for_all
+        (fun parameter ->
+          match Types.parameter_default parameter with
+          | Some (Types.Expression_default _) ->
+              List.exists
+                (fun value ->
+                  Prepared_parameter_default.matches value
+                    ~header:(Functions.declaration_site_function site)
+                    ~parameter)
+                catalog.defaults
+          | _ -> true)
+        (Types.signature_parameters header)
+    then Ok ()
+    else
+      Error "pending header requires its successful original parameter defaults"
+  in
+  let* metadata =
+    Sema.Outer_environment.make_function_metadata ~records ~declaration
+    |> Result.map_error Sema.Outer_environment.error_to_string
+  in
+  let reference = Retained_function.create metadata in
+  if not (function_publication_is_fresh catalog reference) then
+    Error
+      "pending header predecessor is stale or its source was already admitted"
+  else (
+    catalog.published <- catalog.published @ [ Function_publication reference ];
+    Ok reference)
 
 let check_task_command catalog globals =
   if Option.is_some globals.fragment_kind_ then

@@ -2,19 +2,14 @@ type compilation_mode = Jit | Aot
 type declaration_kind = Extern | Bound_extern | Import | Intern | Definition
 type state = Unresolved_extern | Imported | Resolved
 
-type declaration = {
-  function_ : Function_type_resolution.resolved_function;
-  source_kind : declaration_kind;
-  kind : declaration_kind;
-  compiler_option_mask : int64;
-}
-
 type declaration_site = {
   function_ : Function_type_resolution.resolved_function;
   source_kind : declaration_kind;
   kind : declaration_kind;
   compiler_option_mask : int64;
   state : state;
+  header_source : Compiler_record.declared_function option;
+  pending_header : bool;
 }
 
 type identity = {
@@ -32,6 +27,17 @@ type resolved_declaration = {
   replaced_header : declaration_site option;
   retained_predecessor : resolved_declaration option;
   joined_predecessor : resolved_declaration option;
+  mutable completed : bool;
+}
+
+type declaration = {
+  function_ : Function_type_resolution.resolved_function;
+  source_kind : declaration_kind;
+  kind : declaration_kind;
+  compiler_option_mask : int64;
+  header_source : Compiler_record.declared_function option;
+  pending_header : bool;
+  completion_predecessor : resolved_declaration option;
 }
 
 type t = {
@@ -55,6 +61,13 @@ let declaration_site_compiler_option_mask (site : declaration_site) =
   site.compiler_option_mask
 
 let declaration_site_state (site : declaration_site) = site.state
+let declaration_site_is_pending (site : declaration_site) = site.pending_header
+
+let declaration_site_header_source (site : declaration_site) =
+  site.header_source
+
+let declaration_site_pending_source (site : declaration_site) =
+  if site.pending_header then site.header_source else None
 
 let resolved_declaration_site (declaration : resolved_declaration) =
   declaration.site
@@ -119,11 +132,208 @@ let make_declaration_with_options ~compiler_option_mask ~function_ ~kind =
         source_kind = kind;
         kind = effective_kind compiler_option_mask kind;
         compiler_option_mask;
+        header_source = None;
+        pending_header = false;
+        completion_predecessor = None;
       }
 
 let make_declaration ~function_ ~kind =
   make_declaration_with_options
     ~compiler_option_mask:Compiler_option.initial_mask ~function_ ~kind
+
+let source_origin (location : Frontend.Ast.location) =
+  Symbol.Source_location
+    {
+      span = location.span;
+      source_segments = location.source_segments;
+      generated_from = location.generated_from;
+      defined_at = location.defined_at;
+    }
+
+let source_kind (source : Frontend.Parser.completed_function_header) =
+  match source.function_publication.function_header.binding with
+  | None -> Ok Definition
+  | Some binding -> (
+      match (binding.kind, binding.spelling, binding.target) with
+      | Frontend.Ast.Extern, "extern", Frontend.Ast.No_binding_target ->
+          Ok Extern
+      | Frontend.Ast.Extern, "_extern", Frontend.Ast.Symbol_binding_target _ ->
+          Ok Bound_extern
+      | Frontend.Ast.Import, "import", Frontend.Ast.No_binding_target
+      | Frontend.Ast.Import, "_import", Frontend.Ast.Symbol_binding_target _ ->
+          Ok Import
+      | Frontend.Ast.Intern, "_intern", Frontend.Ast.Expression_binding_target _
+        -> Ok Intern
+      | _ -> Error "pending function header has an inconsistent source binding")
+
+let source_registers_match sources requests =
+  List.length sources = List.length requests
+  && List.for_all2
+       (fun (source : Frontend.Ast.register_qualifier) request ->
+         source_origin source.location = Register_request.origin request
+         && source.spelling = Register_request.spelling request
+         && (match (source.kind, Register_request.kind request) with
+           | Frontend.Ast.Reg, Register_request.Allocate
+           | Frontend.Ast.Noreg, Register_request.Disable -> true
+           | _ -> false)
+         && (match (source.position, Register_request.position request) with
+           | Frontend.Ast.Before_type, Register_request.Before_type
+           | Frontend.Ast.After_type, Register_request.After_type -> true
+           | _ -> false)
+         &&
+         match
+           (source.explicit_register, Register_request.explicit_register request)
+         with
+         | None, None -> true
+         | Some source, Some request ->
+             source.spelling
+             = Register_request.explicit_register_spelling request
+             && source_origin source.location
+                = Register_request.explicit_register_origin request
+         | _ -> false)
+       sources requests
+
+let rec source_signature_matches ~opening ~parameters ~variadic ~closing
+    signature =
+  let module H = Function_type_resolution in
+  H.signature_opening_origin signature = source_origin opening
+  && H.signature_closing_origin signature = source_origin closing
+  && H.signature_variadic_origin signature
+     = Option.map
+         (fun (marker : Frontend.Ast.variadic_marker) ->
+           source_origin marker.location)
+         variadic
+  && source_registers_match
+       (Option.fold ~none:[]
+          ~some:(fun (marker : Frontend.Ast.variadic_marker) ->
+            marker.register_qualifiers)
+          variadic)
+       (H.signature_variadic_register_requests signature)
+  && List.length parameters = List.length (H.signature_parameters signature)
+  && List.for_all2
+       (fun (source : Frontend.Ast.function_parameter) parameter ->
+         Option.fold ~none:false ~some:(( == ) source)
+           (H.parameter_source parameter)
+         && source_registers_match source.register_qualifiers
+              (H.parameter_register_requests parameter)
+         && H.parameter_delimiter_origin parameter
+            = Option.map
+                (fun (delimiter : Frontend.Ast.declaration_delimiter) ->
+                  source_origin delimiter.location)
+                source.delimiter
+         &&
+         match
+           (source.function_pointer, H.parameter_declarator_kind parameter)
+         with
+         | None, H.Object -> true
+         | Some source, H.Function_pointer pointer ->
+             H.function_pointer_origin pointer
+             = source_origin source.function_pointer_location
+             && H.function_pointer_opening_origin pointer
+                = source_origin source.declarator_opening_parenthesis
+             && H.function_pointer_closing_origin pointer
+                = source_origin source.declarator_closing_parenthesis
+             && H.function_pointer_indirection_origins pointer
+                = List.map
+                    (fun (layer : Frontend.Ast.pointer_layer) ->
+                      source_origin layer.location)
+                    source.indirection_layers
+             && source_signature_matches
+                  ~opening:source.signature_opening_parenthesis
+                  ~parameters:source.signature_parameters
+                  ~variadic:source.signature_variadic
+                  ~closing:source.signature_closing_parenthesis
+                  (H.function_pointer_signature pointer)
+         | _ -> false)
+       parameters
+       (H.signature_parameters signature)
+
+let validate_header_source ~table ~namespace ~source ~function_ =
+  let module H = Function_type_resolution in
+  let header = Compiler_record.declared_function_source source in
+  let publication = header.function_publication in
+  let parent = Declaration_collection.namespace_scope namespace in
+  let scope = H.function_scope function_ in
+  let return_type = H.function_return_type function_ in
+  if
+    (not (Compiler_record.declared_function_owns_table source table))
+    || (not (Compiler_record.declared_function_owns_namespace source namespace))
+    || (not (Symbol_table.owns_scope table parent))
+    || (not (Symbol_table.owns_scope table scope))
+    || H.function_symbol function_
+       != Compiler_record.declared_function_symbol source
+    || (not
+          (Option.fold ~none:false ~some:(( == ) header)
+             (H.function_completed_header function_)))
+    || (not (Symbol_table.owns_symbol table (H.function_symbol function_)))
+    || (not
+          (Option.fold ~none:false ~some:(( == ) parent)
+             (Symbol_table.parent scope)))
+    || Symbol_table.scope_kind scope <> Symbol_table.Function
+    || H.function_item_index function_ <> 0
+  then
+    Error
+      "pending function header requires its original symbol, namespace and \
+       scope"
+  else if
+    Type_reference.spelling return_type
+    <> Frontend.Ast.type_specifier_spelling
+         publication.function_header.type_specifier
+    || Type_reference.spelling_origin return_type
+       <> source_origin
+            (Frontend.Ast.type_specifier_location
+               publication.function_header.type_specifier)
+    || Type_reference.pointer_origins return_type
+       <> List.map
+            (fun (layer : Frontend.Ast.pointer_layer) ->
+              source_origin layer.location)
+            publication.function_pointer_layers
+    || not
+         (source_signature_matches
+            ~opening:publication.function_opening_parenthesis
+            ~parameters:header.parameters ~variadic:header.variadic
+            ~closing:header.closing_parenthesis
+            (H.function_signature function_))
+  then
+    Error
+      "pending function header requires its original checked source children"
+  else Ok ()
+
+let make_pending_declaration ~table ~namespace ~compiler_option_mask ~source
+    ~function_ =
+  let ( let* ) = Result.bind in
+  let* () = validate_header_source ~table ~namespace ~source ~function_ in
+  if
+    Int64.logand compiler_option_mask (Int64.lognot Compiler_option.known_mask)
+    <> 0L
+  then Error "pending function header has unknown compiler options"
+  else
+    let* kind = source_kind (Compiler_record.declared_function_source source) in
+    let* declaration =
+      make_declaration_with_options ~compiler_option_mask ~function_ ~kind
+    in
+    Ok { declaration with header_source = Some source; pending_header = true }
+
+let make_completion_declaration ~table ~namespace
+    ~(pending : resolved_declaration) ~function_ =
+  let ( let* ) = Result.bind in
+  match pending.site.header_source with
+  | Some source when pending.site.pending_header && not pending.completed ->
+      if function_ != pending.site.function_ then
+        Error "function completion requires its exact retained typed header"
+      else
+        let* () = validate_header_source ~table ~namespace ~source ~function_ in
+        Ok
+          {
+            function_;
+            source_kind = pending.site.source_kind;
+            kind = pending.site.kind;
+            compiler_option_mask = pending.site.compiler_option_mask;
+            header_source = Some source;
+            pending_header = false;
+            completion_predecessor = Some pending;
+          }
+  | _ -> Error "function completion requires an uncompleted pending declaration"
 
 module Int_set = Set.Make (Int)
 module String_map = Map.Make (String)
@@ -225,10 +435,15 @@ let resolve_validated ~previous compilation_mode
       source_kind = declaration.source_kind;
       kind = declaration.kind;
       compiler_option_mask = declaration.compiler_option_mask;
-      state = state_after declaration.kind;
+      state =
+        (if declaration.pending_header then Unresolved_extern
+         else state_after declaration.kind);
+      header_source = declaration.header_source;
+      pending_header = declaration.pending_header;
     }
   in
-  let add_identity ?predecessor site =
+  let add_identity ?predecessor ?(completion = false) (site : declaration_site)
+      =
     let identity_index = !identity_count in
     let symbol =
       match predecessor with
@@ -247,18 +462,17 @@ let resolve_validated ~previous compilation_mode
           first_item_index;
           retained_predecessor = predecessor;
           source_history =
-            site.function_
-            ::
             (match predecessor with
-            | Some prior -> prior.source_history
-            | None -> []);
+            | Some prior when completion -> prior.source_history
+            | Some prior -> site.function_ :: prior.source_history
+            | None -> [ site.function_ ]);
         };
     identity_count := identity_index + 1;
     latest_by_name :=
       String_map.add (Symbol.name symbol) identity_index !latest_by_name;
     identity_index
   in
-  let join_or_add site =
+  let join_or_add (site : declaration_site) =
     let symbol = Function_type_resolution.function_symbol site.function_ in
     match String_map.find_opt (Symbol.name symbol) !latest_by_name with
     | None -> (
@@ -290,7 +504,13 @@ let resolve_validated ~previous compilation_mode
   List.iteri
     (fun declaration_index declaration ->
       let site = site_of declaration in
-      let identity_index, replaced_header = join_or_add site in
+      let identity_index, replaced_header =
+        match declaration.completion_predecessor with
+        | Some predecessor ->
+            ( add_identity ~predecessor ~completion:true site,
+              Some predecessor.site )
+        | None -> join_or_add site
+      in
       sites.(declaration_index) <- Some site;
       declaration_identity.(declaration_index) <- identity_index;
       declaration_replaced_header.(declaration_index) <- replaced_header;
@@ -342,6 +562,7 @@ let resolve_validated ~previous compilation_mode
             replaced_header = declaration_replaced_header.(declaration_index);
             retained_predecessor;
             joined_predecessor;
+            completed = false;
           }
         in
         latest_declaration_by_identity.(identity_index) <- Some declaration;
@@ -352,6 +573,39 @@ let resolve_validated ~previous compilation_mode
 let resolve ?(previous = []) ~table ~parent ~compilation_mode declarations =
   let ( let* ) = Result.bind in
   let* () = validate ~table ~parent ~compilation_mode declarations in
+  let exact_completion (declaration : declaration) prior =
+    match declaration.completion_predecessor with
+    | Some pending ->
+        pending == prior && declaration.function_ == prior.site.function_
+    | None -> false
+  in
+  let rec validate_completions earlier_names = function
+    | [] -> Ok ()
+    | (declaration : declaration) :: rest ->
+        let name =
+          Symbol.name
+            (Function_type_resolution.function_symbol declaration.function_)
+        in
+        let* () =
+          match declaration.completion_predecessor with
+          | None -> Ok ()
+          | Some pending ->
+              if
+                pending.completed
+                || (not pending.site.pending_header)
+                || pending.compilation_mode <> compilation_mode
+                || declaration.function_ != pending.site.function_
+                || List.mem name earlier_names
+                || not (List.exists (( == ) pending) previous)
+              then
+                Error
+                  "function completion requires its exact current pending \
+                   predecessor"
+              else Ok ()
+        in
+        validate_completions (name :: earlier_names) rest
+  in
+  let* () = validate_completions [] declarations in
   let rec validate_previous names = function
     | [] -> Ok ()
     | prior :: rest ->
@@ -363,18 +617,23 @@ let resolve ?(previous = []) ~table ~parent ~compilation_mode declarations =
           List.exists
             (fun (declaration : declaration) ->
               let current = declaration.function_ in
-              List.exists
-                (fun previous ->
-                  Function_type_resolution.function_symbol current
-                  == Function_type_resolution.function_symbol previous
-                  || Function_type_resolution.function_scope current
-                     == Function_type_resolution.function_scope previous)
-                prior.source_history)
+              (not (exact_completion declaration prior))
+              && List.exists
+                   (fun previous ->
+                     Function_type_resolution.function_symbol current
+                     == Function_type_resolution.function_symbol previous
+                     || Function_type_resolution.function_scope current
+                        == Function_type_resolution.function_scope previous)
+                   prior.source_history)
             declarations
         in
         if
           compilation_mode <> Jit
-          || prior.compilation_mode <> Jit
+          && not
+               (List.exists
+                  (fun declaration -> exact_completion declaration prior)
+                  declarations)
+          || prior.compilation_mode <> compilation_mode
           || repeated_source
           || (not (Symbol_table.owns_symbol table symbol))
           || (not (Symbol_table.owns_symbol table source))
@@ -393,4 +652,19 @@ let resolve ?(previous = []) ~table ~parent ~compilation_mode declarations =
         else validate_previous (Symbol.name symbol :: names) rest
   in
   let* () = validate_previous [] previous in
-  Ok (resolve_validated ~previous compilation_mode declarations)
+  let resolution = resolve_validated ~previous compilation_mode declarations in
+  List.iter
+    (fun (declaration : declaration) ->
+      Option.iter
+        (fun pending -> pending.completed <- true)
+        declaration.completion_predecessor)
+    declarations;
+  Ok resolution
+
+let complete_pending ~table ~namespace ~pending ~function_ =
+  Result.bind
+    (make_completion_declaration ~table ~namespace ~pending ~function_)
+    (fun declaration ->
+      resolve ~previous:[ pending ] ~table
+        ~parent:(Declaration_collection.namespace_scope namespace)
+        ~compilation_mode:pending.compilation_mode [ declaration ])
