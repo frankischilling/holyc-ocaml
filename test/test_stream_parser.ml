@@ -1672,8 +1672,38 @@ let implicit_target_before_lookahead () =
     "callback cannot be reused after parsing" false
     (Parser.implicit_selection_is_current selection)
 
+let implicit_defaults_do_not_consume_supplied_values () =
+  List.iter
+    (fun source ->
+      let entered = ref 0 in
+      let parsed = parse ~on_enter:(fun () -> incr entered) source in
+      error "HCPARSE0164" parsed;
+      Alcotest.(check int)
+        "unconsumed default argument does not reach later directive" 0 !entered)
+    [
+      {|extern U0 Print(U8 *s,I64 n=7);"text",42 #exe {};|};
+      {|extern U0 Print(U8 *s,I64 n=7,...);"text",42 #exe {};|};
+      {|extern U0 Print(U8 *s=0);"text" #exe {};|};
+      {|extern U0 PutChars(U64 ch=7);'A' #exe {};|};
+      {|extern U0 Print(U8 *s=0);"" value #exe {};|};
+      {|extern U0 Print(U8 *s=0);"" "value" #exe {};|};
+    ]
+
 let tests =
   [
+    Alcotest.test_case "implicit missing required slot precedes later lookahead"
+      `Quick (fun () ->
+        let entered = ref 0 in
+        let parsed =
+          parse
+            ~on_enter:(fun () -> incr entered)
+            {|extern U0 Print(U8 *s,I64 n=7,I64 required);"text";#exe {}42;|}
+        in
+        error "HCPARSE0165" parsed;
+        Alcotest.(check int)
+          "missing required slot stops before directive" 0 !entered);
+    Alcotest.test_case "implicit defaults leave supplied tokens unconsumed"
+      `Quick implicit_defaults_do_not_consume_supplied_values;
     Alcotest.test_case
       "implicit target precedes lookahead and filters function kind" `Quick
       implicit_target_before_lookahead;

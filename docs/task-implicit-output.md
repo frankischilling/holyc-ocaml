@@ -38,9 +38,34 @@ that limit. Tests cover selection before literal
 concatenation, nested directives, generated source, retained function bodies,
 absent targets before argument effects, and function-kind filtering.
 
-This extends the checked integer subset. Implicit calls still require provided
-arguments whose lowering needs no conversion. Materializing omitted defaults
-or general argument conversions for custom output headers remains unsupported.
-It does not provide native extern linkage, general format/runtime parity, a
+Implicit calls also use saved integer defaults for trailing omitted parameters.
+The remaining fixed parameters must all have defaults. Each value comes from
+the original completed parameter in the selected header and task snapshot;
+calling again does not repeat declaration-time evaluation. Function bodies and
+pending calls keep their saved values after replacement. Ordinary AOT calls
+can use closed integer defaults, while JIT task defaults can read and update
+live storage. Narrow integer parameters still apply their normal entry store.
+
+For example, `U0 Print(U8 *s,I64 n=++N){Out=n;}` saves the incremented value
+when its header is parsed. A later `"saved";` assigns that value to `Out`
+without changing `N`. The [defaults example](../examples/stateful-exe-implicit-defaults.hc)
+also exercises replacement during lookahead and an earlier compiled body.
+It returns 42 with empty output using 111 runtime / 9 preparation instructions
+in JIT and 113 / 9 in AOT. Exact limits succeed; a limit one instruction lower
+stops at that boundary.
+
+Native `PrsFunCall` chooses available defaults without consuming expressions
+in parenthesis-free calls (`Compiler/PrsExp.HC:455-470`). Source parsing uses the
+original selected header shape to reject a supplied value at such a defaulted
+slot before later lexer effects. This includes an empty marker followed by an
+adjacent string. A required parameter after the omitted defaults also stops
+before command lookahead. HCPARSE0164 identifies the unconsumed-argument
+boundary; HCPARSE0165 identifies the missing required parameter.
+
+The checked subset still excludes separator-only implicit omissions, general
+parenthesized multi-argument implicit forms, general default values and argument
+conversions. Some excluded omission forms are valid native syntax; these
+diagnostics do not establish complete native parser parity. It does not
+provide native extern linkage, general format/runtime parity, a
 native backend, BIN loading or bootstrap. The pinned source comparison is
 static evidence; no native execution capture is claimed.

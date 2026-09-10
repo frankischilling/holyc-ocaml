@@ -633,9 +633,7 @@ let lower_output ?frame ?globals ?lower_call ?outer_binding ~records
                     in
                     lower_supported ?frame ?globals ?lower_call ~span
                       ~instruction_id ~value_id ~source ~symbol ~record
-                      ~arguments:
-                        (List.map (fun (_, value) -> Provided value) arguments)
-                      ~variadic_count_type
+                      ~arguments:(List.map snd arguments) ~variadic_count_type
                       ~variadic_count:
                         (Int64.of_int (List.length variadic_arguments))
                       ~variadic_arguments ~call_opcode result_type))
@@ -673,9 +671,23 @@ let lower_implicit_output ?frame ?globals ?lower_call ~records ~instruction_id
             | Bound.Provided_path provided
               when Bound.provided_conversion provided = Bound.No_conversion ->
                 fixed
-                  ((Bound.fixed_parameter slot, Bound.provided_result provided)
+                  (( Bound.fixed_parameter slot,
+                     Provided (Bound.provided_result provided) )
                   :: rev)
                   rest
+            | Bound.Defaulted_path default
+              when Bound.default_materialization default
+                   = Bound.Immediate_default -> (
+                let parameter = Bound.fixed_parameter slot in
+                match
+                  Option.bind globals (fun globals ->
+                      Integer_globals.prepared_parameter_default globals
+                        ~header:(Bound.bound_header output)
+                        ~parameter)
+                with
+                | Some prepared ->
+                    fixed ((parameter, Prepared_default prepared) :: rev) rest
+                | None -> None)
             | _ -> None)
       in
       let typed = Bound.bound_source output |> Target.output_source in
@@ -722,9 +734,23 @@ let lower_top_level_implicit_output ?frame ?globals ?lower_call ~records
             | Bound.Provided_path provided
               when Bound.provided_conversion provided = Bound.No_conversion ->
                 fixed
-                  ((Bound.fixed_parameter slot, Bound.provided_result provided)
+                  (( Bound.fixed_parameter slot,
+                     Provided (Bound.provided_result provided) )
                   :: rev)
                   rest
+            | Bound.Defaulted_path default
+              when Bound.default_materialization default
+                   = Bound.Immediate_default -> (
+                let parameter = Bound.fixed_parameter slot in
+                match
+                  Option.bind globals (fun globals ->
+                      Integer_globals.prepared_parameter_default globals
+                        ~header:(Bound.bound_header output)
+                        ~parameter)
+                with
+                | Some prepared ->
+                    fixed ((parameter, Prepared_default prepared) :: rev) rest
+                | None -> None)
             | _ -> None)
       in
       lower_output ?frame ?globals ?lower_call ?outer_binding ~records

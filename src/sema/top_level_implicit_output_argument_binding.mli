@@ -55,8 +55,8 @@ val bind :
   Top_level_implicit_output_target_resolution.t ->
   (t, error) result
 (** Bind executable top-level output values against the selected header. An
-    outer target remains explicit until the caller supplies a checked header for
-    that exact symbol. *)
+    outer target uses its exact retained declaration metadata or a supplied
+    checked header for that exact symbol; otherwise it remains deferred. *)
 
 val owns_table : t -> Symbol_table.t -> bool
 val policies : t -> Function_call_conversion_policy.t

@@ -172,16 +172,18 @@ let parameter_type parameter =
   parameter |> Headers.parameter_type_reference
   |> Sema.Type_reference.resolved_type
 
+let prepared_default ~globals ~header ~parameter ?span () =
+  match
+    Integer_globals.prepared_parameter_default globals ~header ~parameter
+  with
+  | Some prepared -> Prepared_default prepared
+  | None ->
+      fail ?span "runtime call has no original prepared default in its snapshot"
+
 let provided ~globals ~header ~parameter ?span = function
   | Typed.Provided_result result -> Provided result
-  | Typed.Declared_default_result _ -> (
-      match
-        Integer_globals.prepared_parameter_default globals ~header ~parameter
-      with
-      | Some prepared -> Prepared_default prepared
-      | None ->
-          fail ?span
-            "runtime call has no original prepared default in its snapshot")
+  | Typed.Declared_default_result _ ->
+      prepared_default ~globals ~header ~parameter ?span ()
 
 let shape ~globals records description =
   let declaration, header, symbol, fixed, variadic, count, origin, implicit =
@@ -288,12 +290,19 @@ let shape ~globals records description =
                       (Bound.provided_conversion value = Bound.No_conversion)
                       "implicit output requires an unsupported argument \
                        conversion";
-                    Bound.provided_result value
-                | Bound.Defaulted_path _ ->
-                    fail ?span
-                      "implicit output default materialization is unsupported"
+                    Provided (Bound.provided_result value)
+                | Bound.Defaulted_path default ->
+                    require ?span
+                      (Bound.default_materialization default
+                      = Bound.Immediate_default)
+                      "implicit output requires unsupported default \
+                       materialization";
+                    prepared_default ~globals
+                      ~header:(Bound.bound_header output)
+                      ~parameter:(Bound.fixed_parameter slot)
+                      ?span ()
               in
-              (Bound.fixed_parameter slot, Provided value))
+              (Bound.fixed_parameter slot, value))
             (Bound.bound_fixed_slots output)
         in
         ( declaration,
@@ -344,12 +353,19 @@ let shape ~globals records description =
                       (Bound.provided_conversion value = Bound.No_conversion)
                       "implicit output requires an unsupported argument \
                        conversion";
-                    Bound.provided_result value
-                | Bound.Defaulted_path _ ->
-                    fail ?span
-                      "implicit output default materialization is unsupported"
+                    Provided (Bound.provided_result value)
+                | Bound.Defaulted_path default ->
+                    require ?span
+                      (Bound.default_materialization default
+                      = Bound.Immediate_default)
+                      "implicit output requires unsupported default \
+                       materialization";
+                    prepared_default ~globals
+                      ~header:(Bound.bound_header output)
+                      ~parameter:(Bound.fixed_parameter slot)
+                      ?span ()
               in
-              (Bound.fixed_parameter slot, Provided value))
+              (Bound.fixed_parameter slot, value))
             (Bound.bound_fixed_slots output)
         in
         ( declaration,

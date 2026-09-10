@@ -5033,8 +5033,43 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
                      diagnostic";
               raise Stop_command)
         cursor.implicit_output);
-  let marker_expression =
+  let selected_default index =
+    let shape =
+      Option.bind selection.output_lookup Symbol_visibility.function_call_shape
+    in
+    Option.bind shape (fun shape ->
+        List.nth_opt shape.Symbol_visibility.parameters index)
+    |> Option.fold ~none:false ~some:(fun parameter ->
+        parameter.Symbol_visibility.has_default)
+  in
+  let reject_unconsumed_default item =
+    report cursor item ~code:"HCPARSE0164"
+      ~message:"implicit output default leaves this argument unconsumed";
+    raise Stop_command
+  in
+  let marker_empty =
+    match marker_item.token.value with
+    | Token.Bytes value ->
+        String.length value = 0 || Char.equal value.[0] '\000'
+    | Token.Int64 value -> Int64.equal value 0L
+    | _ -> false
+  in
+  if (not marker_empty) && selected_default 0 then
+    reject_unconsumed_default marker_item;
+  let marker_expression : parsed_expression =
     match (marker_item.token.Token.kind, marker_item.token.value) with
+    | Token_kind.String, Token.Bytes value
+      when marker_empty && selected_default 0 ->
+        let item = take cursor in
+        let next_item = peek cursor in
+        if next_item.token.kind <> Token_kind.Punctuation '(' then
+          reject_unconsumed_default next_item;
+        {
+          node =
+            make_literal item.token (Ast.Bytes_value value) (fun literal ->
+                Ast.String_literal literal);
+          tokens = [ item.token ];
+        }
     | Token_kind.String, Token.Bytes _ -> take_string_literal_sequence cursor
     | Token_kind.Character, Token.Int64 value ->
         let item = take cursor in
@@ -5059,8 +5094,11 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
     | Ast.Float_value _ -> false
   in
   let fixed_argument =
-    if empty_marker then
+    if empty_marker then (
       let next_item = peek cursor in
+      if
+        selected_default 0 && next_item.token.kind <> Token_kind.Punctuation '('
+      then reject_unconsumed_default next_item;
       match next_item.token.kind with
       | Token_kind.Punctuation (';' | ',') | Token_kind.Eof ->
           let target_name =
@@ -5080,7 +5118,7 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
             ~depth:0 ~minimum_binding_power:0
           |> Option.map (fun (expression : parsed_expression) ->
               ( Ast.Expression_fixed_argument expression.node,
-                marker_expression.tokens @ expression.tokens ))
+                marker_expression.tokens @ expression.tokens )))
     else
       parse_expression_tail cursor ~context:Implicit_output_argument_expression
         ~depth:0 ~minimum_binding_power:0 ~allow_parenthesis_free_call:true
@@ -5099,6 +5137,8 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
         | Token_kind.Punctuation ',' -> (
             let comma_item = take cursor in
             let argument_item = peek cursor in
+            if selected_default (List.length arguments_rev + 1) then
+              reject_unconsumed_default argument_item;
             match argument_item.token.kind with
             | Token_kind.Punctuation (';' | ',') | Token_kind.Eof ->
                 report cursor argument_item ~code:"HCPARSE0044"
@@ -5140,6 +5180,31 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
           None
       | Some (arguments, argument_tokens) -> (
           let terminator_item = peek cursor in
+          Option.iter
+            (fun shape ->
+              let remaining =
+                shape.Symbol_visibility.parameters
+                |> List.mapi (fun index parameter -> (index, parameter))
+                |> List.filter_map (fun (index, parameter) ->
+                    if index > List.length arguments then Some parameter
+                    else None)
+              in
+              if
+                List.exists
+                  (fun parameter -> parameter.Symbol_visibility.has_default)
+                  remaining
+                && List.exists
+                     (fun parameter ->
+                       not parameter.Symbol_visibility.has_default)
+                     remaining
+              then (
+                report cursor terminator_item ~code:"HCPARSE0165"
+                  ~message:
+                    "implicit output has an omitted required parameter after \
+                     its defaults";
+                raise Stop_command))
+            (Option.bind selection.output_lookup
+               Symbol_visibility.function_call_shape);
           let terminator =
             match (boundary, terminator_item.token.kind) with
             | For_update_boundary _, _ -> Some (None, [])

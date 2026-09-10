@@ -30,6 +30,13 @@ let tests =
     (fun (name, source) -> Alcotest.test_case name `Quick (expect 42L source))
     gates
   @ [
+      Alcotest.test_case "implicit defaults are saved in directive tasks" `Quick
+        (expect 42L
+           {|#exe {I64 N=40;I64 Out=0;U0 Print(U8 *s,I64 n=++N){Out=n;}N=0;"saved";U0 Saved(){"saved";}Out=0;Saved;StreamPrint("%d;",Out+N+1);}|});
+      Alcotest.test_case "ordinary implicit calls use closed saved defaults"
+        `Quick
+        (expect 42L
+           {|I64 Out=0;U0 Print(U8 *s,I64 n=40+2){Out=n;}"top";U0 Saved(){"body";}Out=0;Saved;Out;|});
       Alcotest.test_case "implicit output in directive tasks" `Quick (fun () ->
           List.iter
             (fun mode ->

@@ -1106,6 +1106,52 @@ let retained_implicit_absence_and_mask () =
   Alcotest.(check string)
     "function lookup ignores global shadow" "A" (Task.output_bytes task)
 
+let retained_implicit_defaults () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task {|I64 N=40;I64 Out=0;U0 Print(U8 *s,I64 n=++N){Out=n;}|}
+    |> Test_integer_program.checked);
+  value 41L (run session task "N;");
+  value 42L (run session task {|N=0;"saved";Out+1;|});
+  value 0L (run session task "N;");
+  ignore
+    (run session task {|U0 Saved(){"saved";}Out=0;Saved;|}
+    |> Test_integer_program.checked);
+  value 42L (run session task "Out+1;");
+  value 0L (run session task "N;");
+  value 42L
+    (run session task
+       {|"pending" #exe {U0 Print(U8 *s,I64 n=7){Out=n;}};Out+1;|});
+  value 7L (run session task {|"new";Out;|});
+  value 42L (run session task "Saved;Out+1;");
+  ignore
+    (run session task {|U0 PutChars(U64 ch,U8 n=298){Out=n;}'A';|}
+    |> Test_integer_program.checked);
+  value 42L (run session task "Out;");
+  ignore
+    (run session task {|U0 Print(U8 *s,I64 n){Out=n;}|}
+    |> Test_integer_program.checked);
+  value 42L
+    (run session task
+       {|"provided",42 #exe {U0 Print(U8 *s,I64 n=7){Out=n;}};Out;|});
+  value 7L (run session task {|"defaulted";Out;|});
+  Alcotest.(check string)
+    "custom output defaults do not invoke a provider" ""
+    (Task.output_bytes task)
+
+let retained_implicit_joined_defaults () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task {|I64 N=40;I64 Out=0;extern U0 Print(U8 *s,I64 n=++N);|}
+    |> Test_integer_program.checked);
+  ignore
+    (run session task {|U0 Print(U8 *text,I64 value=++N){Out=value;}|}
+    |> Test_integer_program.checked);
+  value 42L (run session task {|N=0;"joined";Out;|});
+  value 0L (run session task "N;")
+
 let tests =
   [
     Alcotest.test_case
@@ -1258,4 +1304,8 @@ let tests =
       retained_implicit_shadow;
     Alcotest.test_case "implicit target absence and function-kind filtering"
       `Quick retained_implicit_absence_and_mask;
+    Alcotest.test_case "implicit output uses the selected saved defaults" `Quick
+      retained_implicit_defaults;
+    Alcotest.test_case "implicit output uses joined definition defaults" `Quick
+      retained_implicit_joined_defaults;
   ]

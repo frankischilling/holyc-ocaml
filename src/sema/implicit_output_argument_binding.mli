@@ -57,9 +57,9 @@ val bind :
   Implicit_output_target_resolution.t ->
   (t, error) result
 (** Bind implicit output values against each selected source-visible header. A
-    module target always has a checked header. An outer target is bound only
-    when [outer_headers] contains a checked header for the exact resolved outer
-    symbol; otherwise the result remains explicitly deferred. *)
+    module target always has a checked header. An outer target uses its exact
+    retained declaration metadata, or a checked header from [outer_headers] for
+    its resolved symbol. Without either, it remains explicitly deferred. *)
 
 val owns_table : t -> Symbol_table.t -> bool
 val policies : t -> Function_call_conversion_policy.t
