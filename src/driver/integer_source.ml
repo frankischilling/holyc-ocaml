@@ -210,10 +210,10 @@ let prepare_unit ?environment:task_environment ?declaration_command
       ~aggregates ast
     |> checked
   in
-  let* previous_function_records =
+  let* previous_function_records, function_record_heads =
     let module Outer = Sema.Outer_environment in
     match task_environment with
-    | None -> Ok []
+    | None -> Ok ([], [])
     | Some environment when mode = Frontend.Preprocessor.Jit -> (
         if
           (not (Outer.owns_table environment table))
@@ -225,6 +225,18 @@ let prepare_unit ?environment:task_environment ?declaration_command
           match Outer.tables environment with
           | current :: _ when Outer.table_kind current = Outer.Jit_task 0 ->
               let parent = Sema.Declaration_collection.scope declarations in
+              let heads =
+                Outer.table_entries current
+                |> List.filter_map (fun entry ->
+                    if
+                      Sema.Symbol.Scope_id.equal
+                        (Sema.Symbol.scope_id (Outer.entry_symbol entry))
+                        (Sema.Symbol_table.scope_id parent)
+                    then
+                      Option.map Outer.function_classified_declaration
+                        (Outer.entry_function_metadata entry)
+                    else None)
+              in
               let _, records =
                 List.fold_left
                   (fun (names, records) entry ->
@@ -246,13 +258,17 @@ let prepare_unit ?environment:task_environment ?declaration_command
                   ([], [])
                   (List.rev (Outer.table_entries current))
               in
-              Ok records
+              Ok (records, heads)
           | _ -> checked (Error "function joins require the current task table")
         )
-    | Some _ -> Ok []
+    | Some _ -> Ok ([], [])
   in
   let* functions =
     Function_resolution.resolve ?namespace:function_namespace
+      ~record_heads:
+        (List.map
+           Sema.Function_record_classification.classified_declaration_source
+           function_record_heads)
       ~previous:
         (List.map
            Sema.Function_record_classification.classified_declaration_source
@@ -418,7 +434,7 @@ let prepare_unit ?environment:task_environment ?declaration_command
     |> checked
   in
   let* records =
-    Function_record_classification.classify ~previous:previous_function_records
+    Function_record_classification.classify ~previous:function_record_heads
       ~resolution:functions ast
     |> checked
   in

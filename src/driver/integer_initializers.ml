@@ -10,6 +10,7 @@ module Updates = Integer_update_initializers
 module Destination = Ir.Initializer_fragment_destination
 module Default = Ir.Default_fragment_destination
 module Dimension = Ir.Dimension_fragment_destination
+module Runtime = Ir.Runtime_call_context
 
 type classification = Prepared_constant of int64 | Scheduled
 
@@ -318,9 +319,9 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
                   ((root_, Arrays.Bytes bytes, steps) :: updates)
                   reversed rest
           | Some Layout.Scalar_store | None -> (
-              let* value_graph_ =
-                Ir.Integer_program_lowering.lower ?frame ~globals ~top_calls
-                  ~function_calls ~span:at
+              let* value_lowered =
+                Ir.Integer_program_lowering.lower_complete ?frame ~globals
+                  ~top_calls ~function_calls ~span:at
                   [ Ir.Integer_program_lowering.Expression value ]
                 |> Result.map_error (fun errors ->
                     match root_ with
@@ -338,6 +339,9 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
                                 ~primary:at ~notes ()
                             else error)
                           errors)
+              in
+              let value_graph_ =
+                Ir.Integer_program_lowering.graph value_lowered
               in
               let value_code = value_instructions value_graph_ in
               let constant =
@@ -431,27 +435,44 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
                 guard_updates ~globals ~frame ~compiler_options ~terminal
                   (Ir.X87_stack.graph value_graph_)
               in
-              let called globals functions code =
+              let called globals functions runtime code =
                 List.filter_map
                   (fun (item : Seq.description) ->
-                    match (item.opcode, item.payload) with
-                    | ( (Ir.Opcode.Ic_call | Ic_call_indirect2 | Ic_call_extern),
-                        Some (Seq.Symbol symbol) ) ->
-                        Some
-                          ( globals,
-                            functions,
-                            symbol,
-                            item.opcode <> Ir.Opcode.Ic_call )
-                    | _ -> None)
+                    match runtime with
+                    | Some (context, owner) ->
+                        Runtime.find_start context ~owner item.instruction_id
+                        |> Option.map (fun call ->
+                            ( globals,
+                              functions,
+                              runtime,
+                              Runtime.symbol call,
+                              Runtime.call_opcode call <> Ir.Opcode.Ic_call,
+                              Runtime.retained_function call ))
+                    | None -> (
+                        match (item.opcode, item.payload) with
+                        | ( ( Ir.Opcode.Ic_call
+                            | Ic_call_indirect2
+                            | Ic_call_extern ),
+                            Some (Seq.Symbol symbol) ) ->
+                            Some
+                              ( globals,
+                                functions,
+                                runtime,
+                                symbol,
+                                item.opcode <> Ir.Opcode.Ic_call,
+                                None )
+                        | _ -> None))
                   code
               in
               let rec guard_callees visited = function
                 | [] -> Ok ()
-                | (_, _, symbol, _) :: rest
-                  when List.exists (fun other -> other == symbol) visited ->
-                    guard_callees visited rest
-                | (owner_globals, owner_functions, symbol, external_) :: rest
-                  -> (
+                | ( owner_globals,
+                    owner_functions,
+                    runtime,
+                    symbol,
+                    external_,
+                    reference )
+                  :: rest -> (
                     let before =
                       match root_ with
                       | Global (slot, _) ->
@@ -495,7 +516,11 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
                                   before))
                         source_functions
                       |> Option.map (fun function_ ->
-                          (source_globals, source_functions, function_))
+                          ( source_globals,
+                            source_functions,
+                            (if source_globals == owner_globals then runtime
+                             else None),
+                            function_ ))
                     in
                     let source =
                       match
@@ -504,26 +529,41 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
                       | Some _ as source -> source
                       | None -> find owner_globals owner_functions
                     in
+                    let retained reference =
+                      Option.map
+                        (fun (source : VM.task_function_source) ->
+                          ( source.source_globals,
+                            source.source_functions,
+                            Some
+                              ( source.source_runtime_calls,
+                                Runtime.Function source.source_definition.body
+                              ),
+                            source.source_definition ))
+                        (retained_function_source reference)
+                    in
                     let source =
-                      match source with
-                      | Some _ -> source
-                      | None ->
-                          Option.bind
-                            (Globals.retained_function_symbol owner_globals
-                               symbol) (fun reference ->
-                              Option.map
-                                (fun (source : VM.task_function_source) ->
-                                  ( source.source_globals,
-                                    source.source_functions,
-                                    source.source_definition ))
-                                (retained_function_source reference))
+                      match reference with
+                      | Some reference -> retained reference
+                      | None -> (
+                          match source with
+                          | Some _ -> source
+                          | None ->
+                              Option.bind
+                                (Globals.retained_function_symbol owner_globals
+                                   symbol)
+                                retained)
                     in
                     match source with
                     | None when external_ -> guard_callees visited rest
                     | None ->
                         invalid ~at ~notes "HCRUN0006"
                           "initializer call has no checked source definition"
-                    | Some (owner_globals, owner_functions, function_) ->
+                    | Some (_, _, _, function_)
+                      when List.exists
+                             (fun body -> body == function_.body)
+                             visited -> guard_callees visited rest
+                    | Some (owner_globals, owner_functions, runtime, function_)
+                      ->
                         let code =
                           instructions (Ir.Function_body.body function_.body)
                         in
@@ -536,11 +576,66 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
                             ~terminal:None
                             (Ir.Function_body.body function_.body)
                         in
-                        guard_callees (symbol :: visited)
-                          (called owner_globals owner_functions code @ rest))
+                        let runtime =
+                          Option.map
+                            (fun (context, _) ->
+                              (context, Runtime.Function function_.body))
+                            runtime
+                        in
+                        guard_callees
+                          (function_.body :: visited)
+                          (called owner_globals owner_functions runtime code
+                          @ rest))
               in
               let* () =
-                guard_callees [] (called globals functions value_code)
+                let value_calls =
+                  Ir.Integer_program_lowering.runtime_calls value_lowered
+                  |> List.filter_map (fun (description : Runtime.description) ->
+                      let selected =
+                        match description.source with
+                        | Runtime.Function_call target ->
+                            let source =
+                              Sema.Function_call_target_classification.source
+                                target
+                            in
+                            Some
+                              ( source |> Typed.direct_source
+                                |> Sema.Function_call_conversion_policy
+                                   .direct_source
+                                |> Sema.Function_call_resolution
+                                   .direct_target_symbol,
+                                Sema.Function_call_target_classification
+                                .call_access target,
+                                Typed.direct_outer_binding source )
+                        | Runtime.Top_level_call target ->
+                            let source =
+                              Sema.Top_level_function_call_target_classification
+                              .source target
+                            in
+                            Some
+                              ( Typed.top_level_direct_target_symbol source,
+                                Sema
+                                .Top_level_function_call_target_classification
+                                .call_access target,
+                                Typed.top_level_direct_outer_binding source )
+                        (* An expression cannot contain an implicit output statement. *)
+                        | Runtime.Function_output _ | Runtime.Top_level_output _
+                          -> None
+                      in
+                      Option.map
+                        (fun (symbol, access, binding) ->
+                          ( globals,
+                            functions,
+                            None,
+                            symbol,
+                            access
+                            <> Sema.Function_record_classification
+                               .Direct_executable_call,
+                            Option.bind binding
+                              (Globals.retained_function_binding globals) ))
+                        selected)
+                in
+                guard_callees [] value_calls
               in
               if
                 Option.is_some frame

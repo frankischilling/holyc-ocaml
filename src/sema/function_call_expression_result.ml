@@ -2947,8 +2947,7 @@ and type_top_level_direct_call table members policies ~before_item_index
   else if Option.is_some (Function_call_resolution.call_callable source_call)
   then invalid "top-level direct call unexpectedly carries a callback header"
   else
-    let site = Function_resolution.resolved_declaration_site declaration in
-    let header = Function_resolution.declaration_site_function site in
+    let header = Function_resolution.resolved_declaration_header declaration in
     match Function_call_resolution.bind_direct_arguments source_call header with
     | Error error ->
         Error

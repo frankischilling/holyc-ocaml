@@ -485,57 +485,81 @@ let observe_admission ledger receipt =
     List.iter
       (fun publication ->
         let symbol = runtime_symbol publication in
-        let kind, function_call_shape =
+        let visible =
           match publication with
-          | VM.Admitted_global _ | VM.Admitted_declared_global _ ->
-              (Visibility.Global_variable, None)
-          | VM.Admitted_function reference ->
-              let module Function = Sema.Function_type_resolution in
-              let signature =
+          | VM.Admitted_function reference -> (
+              let declaration =
                 Ir.Retained_function.metadata reference
                 |> Sema.Outer_environment.function_declaration
-                |> Sema.Function_resolution.resolved_declaration_site
-                |> Sema.Function_resolution.declaration_site_function
-                |> Function.function_signature
               in
-              let shape : Visibility.function_call_shape =
-                {
-                  parameters =
-                    List.map
-                      (fun parameter ->
-                        Visibility.
-                          {
-                            parameter_name = Function.parameter_name parameter;
-                            has_default =
-                              Option.is_some
-                                (Function.parameter_default parameter);
-                          })
-                      (Function.signature_parameters signature);
-                  variadic =
-                    Option.is_some
-                      (Function.signature_variadic_origin signature);
-                }
+              if
+                Option.is_none
+                  (Sema.Function_resolution
+                   .resolved_declaration_completion_source declaration)
+              then true
+              else
+                match
+                  Visibility.Environment.find_function ledger.symbols
+                    (Sema.Symbol.name symbol)
+                with
+                | Some entry -> (
+                    match symbol_for ledger entry with
+                    | Some current -> current == symbol
+                    | None -> true)
+                | None -> true)
+          | _ -> true
+        in
+        if visible then (
+          let kind, function_call_shape =
+            match publication with
+            | VM.Admitted_global _ | VM.Admitted_declared_global _ ->
+                (Visibility.Global_variable, None)
+            | VM.Admitted_function reference ->
+                let module Function = Sema.Function_type_resolution in
+                let signature =
+                  Ir.Retained_function.metadata reference
+                  |> Sema.Outer_environment.function_declaration
+                  |> Sema.Function_resolution.resolved_declaration_header
+                  |> Function.function_signature
+                in
+                let shape : Visibility.function_call_shape =
+                  {
+                    parameters =
+                      List.map
+                        (fun parameter ->
+                          Visibility.
+                            {
+                              parameter_name = Function.parameter_name parameter;
+                              has_default =
+                                Option.is_some
+                                  (Function.parameter_default parameter);
+                            })
+                        (Function.signature_parameters signature);
+                    variadic =
+                      Option.is_some
+                        (Function.signature_variadic_origin signature);
+                  }
+                in
+                (Visibility.Function, Some shape)
+          in
+          let entry =
+            Visibility.Environment.add ledger.symbols
+              ~name:(Sema.Symbol.name symbol) ~kind
+              ~origin:(frontend_origin symbol) ?function_call_shape ()
+          in
+          Entries.add ledger.runtime_entries entry publication;
+          match publication with
+          | VM.Admitted_declared_global _ -> assert false
+          | VM.Admitted_function _ -> ()
+          | VM.Admitted_global (_, slot) ->
+              let record =
+                Ir.Integer_globals.slot_record slot
+                |> Sema.Global_record_classification.classified_record_source
               in
-              (Visibility.Function, Some shape)
-        in
-        let entry =
-          Visibility.Environment.add ledger.symbols
-            ~name:(Sema.Symbol.name symbol) ~kind
-            ~origin:(frontend_origin symbol) ?function_call_shape ()
-        in
-        Entries.add ledger.runtime_entries entry publication;
-        match publication with
-        | VM.Admitted_declared_global _ -> assert false
-        | VM.Admitted_function _ -> ()
-        | VM.Admitted_global (_, slot) ->
-            let record =
-              Ir.Integer_globals.slot_record slot
-              |> Sema.Global_record_classification.classified_record_source
-            in
-            Entries.add ledger.runtime_records entry
-              (Sema.Compiler_record.bind_retained_global ~table:ledger.table
-                 ~entry ~record
-                 ~extent:(Ir.Integer_globals.slot_extent slot)))
+              Entries.add ledger.runtime_records entry
+                (Sema.Compiler_record.bind_retained_global ~table:ledger.table
+                   ~entry ~record
+                   ~extent:(Ir.Integer_globals.slot_extent slot))))
       publications;
     ledger.admissions <- receipt :: ledger.admissions;
     Ok ()
@@ -3036,6 +3060,9 @@ let reference_resolver ~table ~ast ~task_view command =
       | Selected_unbound _ -> Selection.unavailable ~table ~name
       | Selected_local -> Selection.local ~table ~name
       | Selected_runtime publication -> retained name publication
+      | Selected_source
+          { admitted = Some (VM.Admitted_function _ as publication); _ } ->
+          retained name publication
       | Selected_source { publication; stage; admitted } -> (
           let symbol = Collection.publication_symbol publication in
           if
@@ -3115,6 +3142,9 @@ let implicit_output_resolver ~table ~ast ~task_view (command : command) =
             | Selected_local | Selected_unbound _ ->
                 Selection.unavailable ~table ~name
             | Selected_runtime publication -> retained name publication
+            | Selected_source
+                { admitted = Some (VM.Admitted_function _ as publication); _ }
+              -> retained name publication
             | Selected_source { publication; stage; admitted } -> (
                 let symbol = Collection.publication_symbol publication in
                 if

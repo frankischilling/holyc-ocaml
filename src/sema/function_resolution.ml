@@ -23,10 +23,12 @@ type resolved_declaration = {
   compilation_mode : compilation_mode;
   source_history : Function_type_resolution.resolved_function list;
   site : declaration_site;
+  header : Function_type_resolution.resolved_function;
   identity_symbol : Symbol.t;
   replaced_header : declaration_site option;
   retained_predecessor : resolved_declaration option;
   joined_predecessor : resolved_declaration option;
+  completion_source : resolved_declaration option;
   mutable completed : bool;
 }
 
@@ -38,6 +40,7 @@ type declaration = {
   header_source : Compiler_record.declared_function option;
   pending_header : bool;
   completion_predecessor : resolved_declaration option;
+  completion_current : resolved_declaration option;
 }
 
 type t = {
@@ -72,6 +75,11 @@ let declaration_site_pending_source (site : declaration_site) =
 let resolved_declaration_site (declaration : resolved_declaration) =
   declaration.site
 
+let resolved_declaration_header declaration = declaration.header
+
+let resolved_declaration_completion_source declaration =
+  declaration.completion_source
+
 let resolved_declaration_compilation_mode (declaration : resolved_declaration) =
   declaration.compilation_mode
 
@@ -89,6 +97,13 @@ let rec is_joined_successor ~earlier ~later =
   | None -> false
   | Some predecessor ->
       predecessor == earlier || is_joined_successor ~earlier ~later:predecessor
+
+let rec find_pending_source ~current ~function_ =
+  if current.site.pending_header && current.site.function_ == function_ then
+    Some current
+  else
+    Option.bind current.joined_predecessor (fun current ->
+        find_pending_source ~current ~function_)
 
 let compilation_mode_name = function
   | Jit -> "jit"
@@ -135,6 +150,7 @@ let make_declaration_with_options ~compiler_option_mask ~function_ ~kind =
         header_source = None;
         pending_header = false;
         completion_predecessor = None;
+        completion_current = None;
       }
 
 let make_declaration ~function_ ~kind =
@@ -314,13 +330,21 @@ let make_pending_declaration ~table ~namespace ~compiler_option_mask ~source
     in
     Ok { declaration with header_source = Some source; pending_header = true }
 
-let make_completion_declaration ~table ~namespace
-    ~(pending : resolved_declaration) ~function_ =
+let make_completion_declaration_against ~table ~namespace
+    ~(pending : resolved_declaration) ~(current : resolved_declaration)
+    ~function_ =
   let ( let* ) = Result.bind in
   match pending.site.header_source with
   | Some source when pending.site.pending_header && not pending.completed ->
       if function_ != pending.site.function_ then
         Error "function completion requires its exact retained typed header"
+      else if
+        current.compilation_mode <> pending.compilation_mode
+        || current.identity_symbol != pending.identity_symbol
+        || not
+             (current == pending
+             || is_joined_successor ~earlier:pending ~later:current)
+      then Error "function completion requires its exact current record lineage"
       else
         let* () = validate_header_source ~table ~namespace ~source ~function_ in
         Ok
@@ -332,8 +356,13 @@ let make_completion_declaration ~table ~namespace
             header_source = Some source;
             pending_header = false;
             completion_predecessor = Some pending;
+            completion_current = Some current;
           }
   | _ -> Error "function completion requires an uncompleted pending declaration"
+
+let make_completion_declaration ~table ~namespace ~pending ~function_ =
+  make_completion_declaration_against ~table ~namespace ~pending
+    ~current:pending ~function_
 
 module Int_set = Set.Make (Int)
 module String_map = Map.Make (String)
@@ -442,8 +471,8 @@ let resolve_validated ~previous compilation_mode
       pending_header = declaration.pending_header;
     }
   in
-  let add_identity ?predecessor ?(completion = false) (site : declaration_site)
-      =
+  let add_identity ?predecessor ?(completion = false) ?(update_name = true)
+      (site : declaration_site) =
     let identity_index = !identity_count in
     let symbol =
       match predecessor with
@@ -468,8 +497,9 @@ let resolve_validated ~previous compilation_mode
             | None -> [ site.function_ ]);
         };
     identity_count := identity_index + 1;
-    latest_by_name :=
-      String_map.add (Symbol.name symbol) identity_index !latest_by_name;
+    if update_name then
+      latest_by_name :=
+        String_map.add (Symbol.name symbol) identity_index !latest_by_name;
     identity_index
   in
   let join_or_add (site : declaration_site) =
@@ -505,10 +535,12 @@ let resolve_validated ~previous compilation_mode
     (fun declaration_index declaration ->
       let site = site_of declaration in
       let identity_index, replaced_header =
-        match declaration.completion_predecessor with
+        match declaration.completion_current with
         | Some predecessor ->
-            ( add_identity ~predecessor ~completion:true site,
-              Some predecessor.site )
+            ( add_identity ~predecessor ~completion:true
+                ~update_name:(List.memq predecessor previous)
+                site,
+              None )
         | None -> join_or_add site
       in
       sites.(declaration_index) <- Some site;
@@ -554,14 +586,20 @@ let resolve_validated ~previous compilation_mode
           | None -> retained_predecessor
         in
         let declaration =
+          let source = List.nth declarations declaration_index in
           {
             site;
+            header =
+              (match source.completion_current with
+              | Some current -> current.header
+              | None -> site.function_);
             compilation_mode;
             source_history = declaration_history.(declaration_index);
             identity_symbol = identity.symbol;
             replaced_header = declaration_replaced_header.(declaration_index);
             retained_predecessor;
             joined_predecessor;
+            completion_source = source.completion_predecessor;
             completed = false;
           }
         in
@@ -570,14 +608,20 @@ let resolve_validated ~previous compilation_mode
   in
   { compilation_mode; identities; declarations }
 
-let resolve ?(previous = []) ~table ~parent ~compilation_mode declarations =
+let resolve ?(previous = []) ?(record_heads = []) ~table ~parent
+    ~compilation_mode declarations =
   let ( let* ) = Result.bind in
   let* () = validate ~table ~parent ~compilation_mode declarations in
   let exact_completion (declaration : declaration) prior =
-    match declaration.completion_predecessor with
-    | Some pending ->
-        pending == prior && declaration.function_ == prior.site.function_
-    | None -> false
+    match
+      (declaration.completion_predecessor, declaration.completion_current)
+    with
+    | Some pending, Some current ->
+        current == prior
+        && declaration.function_ == pending.site.function_
+        && (current == pending
+           || is_joined_successor ~earlier:pending ~later:current)
+    | _ -> false
   in
   let rec validate_completions earlier_names = function
     | [] -> Ok ()
@@ -587,21 +631,25 @@ let resolve ?(previous = []) ~table ~parent ~compilation_mode declarations =
             (Function_type_resolution.function_symbol declaration.function_)
         in
         let* () =
-          match declaration.completion_predecessor with
-          | None -> Ok ()
-          | Some pending ->
+          match
+            (declaration.completion_predecessor, declaration.completion_current)
+          with
+          | None, None -> Ok ()
+          | Some pending, Some current ->
               if
                 pending.completed
                 || (not pending.site.pending_header)
                 || pending.compilation_mode <> compilation_mode
                 || declaration.function_ != pending.site.function_
                 || List.mem name earlier_names
-                || not (List.exists (( == ) pending) previous)
+                || (not (exact_completion declaration current))
+                || not (List.exists (( == ) current) (previous @ record_heads))
               then
                 Error
                   "function completion requires its exact current pending \
-                   predecessor"
+                   predecessor lineage"
               else Ok ()
+          | _ -> Error "function completion has incomplete source authority"
         in
         validate_completions (name :: earlier_names) rest
   in
@@ -652,6 +700,22 @@ let resolve ?(previous = []) ~table ~parent ~compilation_mode declarations =
         else validate_previous (Symbol.name symbol :: names) rest
   in
   let* () = validate_previous [] previous in
+  let rec validate_heads identities = function
+    | [] -> Ok ()
+    | head :: rest ->
+        let symbol = head.identity_symbol in
+        if
+          List.exists (fun prior -> prior.identity_symbol == symbol) identities
+          || List.exists
+               (fun prior -> prior.identity_symbol == symbol && prior != head)
+               previous
+        then
+          Error "function record heads repeat or substitute a current identity"
+        else
+          let* () = validate_previous [] [ head ] in
+          validate_heads (head :: identities) rest
+  in
+  let* () = validate_heads [] record_heads in
   let resolution = resolve_validated ~previous compilation_mode declarations in
   List.iter
     (fun (declaration : declaration) ->

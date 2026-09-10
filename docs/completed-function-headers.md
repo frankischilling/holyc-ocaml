@@ -59,27 +59,42 @@ After successful publication, another same-name JIT definition creates a shadow.
 This distinction follows PrsFunJoin and the final Cf_EXTERN clear in PrsFun.
 
 Nested replacement of the same function header before the outer body completes
-remains unsupported. For example,
+preserves separate header and executable versions. For example,
 `#exe {I64 F(I64 n){return n;}#exe {I64 F(I64 n){return 99;}}StreamPrint("%d;",F(42));}`
-reports HCEVAL0003. This is an open #635 execution requirement, not a compatible
-native result. PrsStreamBlk shares the hash table while saving/restoring the
+now returns 42. PrsStreamBlk shares the hash table while saving/restoring the
 compiler context. The inner PrsFunJoin replaces the same native record's header;
 the outer PrsFun later writes its executable address without restoring its old
-header. Supporting this requires distinct current-header and executable-body
-versions. Accepting a resolved predecessor while restoring the outer header
-would lose the inner defaults and argument metadata.
+header. The semantic declaration retains its original body source and the
+current lookup header separately. Completion requires the original pending
+source and the latest version of that exact record, even when a newer record
+hides it by name. Historical entries retain exact declaration and classification
+ownership; they provide captured bindings without becoming name-lookup entries.
 
-The next implementation must distinguish header selection, body source and
-record lineage. Source-derived acceptance cases use an outer default of 40 and
+Source-derived acceptance cases use an outer default of 40 and
 body `return n+2;`, then a nested default of 99 and body `return 7;`. A caller
-compiled against the original pending header must later return 42; a direct
-call compiled after the nested body must keep returning 7; a new defaulted call
-after outer completion must return 101. An additional resolved shadow must stay
+compiled against the original pending header later returns 42; a direct
+call compiled after the nested body keeps returning 7; a new defaulted call
+after outer completion returns 101. An additional resolved shadow stays
 the current name binding while outer completion updates only its original
-hidden record. These expectations follow PrsExp.HC, lines 560-569, and need
-execution coverage. Incompatible header changes also affect native optimizer
-and return cleanup behavior and remain separate work. No native capture is
+hidden record. These expectations follow PrsExp.HC, lines 560-569, and pass
+hosted tests in both outer modes. Incompatible header changes also affect native
+optimizer and return cleanup behavior and remain separate work. No native capture is
 claimed for these cases.
+
+A self-call parsed while the header remains pending keeps its mutable extern
+target, including when executing a captured older body. Ordinary and implicit
+calls parsed in the outer body retain their exact historical header. Initializer
+checks follow selected call bindings and visit executable bodies separately;
+static roots and transitive recursive calls cannot bypass optimizer checks by
+sharing a function symbol with another body.
+
+`examples/stateful-exe-function-versions.hc` combines the three results as
+`42+7+101-108`, returning I64 42 with empty ordinary output in JIT and AOT outer
+modes. The tests also retain variadic cleanup and exact/one-below step,
+preparation, frame and call-depth limits.
+The example uses 71 runtime instructions in JIT outer mode and 73 in AOT, with
+six preparation instructions in each; the CLI tests enforce those exact limits
+and their one-below failures.
 
 Run the retained pending-call example in either outer mode:
 

@@ -58,7 +58,9 @@ val classify :
     identity is retained for runtime publication validation. Pending source
     headers retain their binding kind but defer binding mutations until exact
     completion; their state must match original source modifiers, loader names
-    and the complete compiler-option snapshot. *)
+    and the complete compiler-option snapshot. Completion inherits the current
+    predecessor record without reapplying the original header's modifiers or
+    argument flags, then applies the original binding/body publication. *)
 
 val compilation_mode : t -> Function_resolution.compilation_mode
 val declarations : t -> classified_declaration list

@@ -109,6 +109,17 @@ let pending_header_source =
  StreamPrint("%d;",Saved());
 }|}
 
+let function_versions_source =
+  {|#exe {
+ I64 F(I64 n=40){return n+2;}
+ #exe {
+   I64 SavedBefore(){return F();}
+   I64 F(I64 n=99){return 7;}
+   I64 SavedInner(){return F();}
+ }
+ StreamPrint("%d;",SavedBefore()+SavedInner()+F()-108);
+}|}
+
 let () =
   let executable = Sys.argv.(1) in
   List.iter
@@ -234,6 +245,8 @@ let () =
       (extern_source, "aot", 52, 6);
       (pending_header_source, "jit", 58, 3);
       (pending_header_source, "aot", 60, 3);
+      (function_versions_source, "jit", 71, 6);
+      (function_versions_source, "aot", 73, 6);
     ];
   List.iter
     (fun source ->

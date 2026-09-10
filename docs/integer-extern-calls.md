@@ -88,9 +88,10 @@ source audit and hosted regression tests; there is no new native capture.
 
 [Completed function headers](completed-function-headers.md) can be typed from
 their original source evidence before a body exists. Runtime admission of such
-pending definitions remains open. In particular, a directive reached while
-looking past the body's closing brace must not acquire that body's executable
-before native publication.
+pending definitions preserves argument evaluation before a reached undefined
+call. A directive reached while looking past the body's closing brace cannot
+acquire that body's executable before publication. Nested replacements retain
+separate selected headers and executable versions.
 
 [Extern regression tests](../test/test_integer_extern_calls.ml) cover forward
 and retained calls, publication order, saved defaults, variadic bodies,

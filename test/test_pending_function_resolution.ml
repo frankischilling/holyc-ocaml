@@ -319,6 +319,145 @@ let converted_import () =
     (F.make_pending_declaration ~table ~namespace
        ~compiler_option_mask:Int64.min_int ~source ~function_)
 
+let nested_completion_case hidden =
+  let session, namespace, headers =
+    Test_completed_function_header.parse
+      "I64 F(I64 n=40){return n+2;}public I64 F(I64 n=99){return 7;}I64 F(I64 \
+       n=77){return n;}"
+  in
+  let table = Session.semantic_symbols session in
+  let parent = C.namespace_scope namespace in
+  let pending ?(previous = []) index =
+    let _, _, source, function_ = List.nth headers index in
+    let fact =
+      F.make_pending_declaration ~table ~namespace ~compiler_option_mask:initial
+        ~source ~function_
+      |> checked
+    in
+    ( source,
+      function_,
+      F.resolve ~previous ~table ~parent ~compilation_mode:F.Jit [ fact ]
+      |> checked )
+  in
+  let classify_source previous resolution source =
+    Holyc_lib__Driver__Function_record_classification.classify_completed_header
+      ~previous ~resolution source
+    |> checked |> K.declarations |> List.hd
+  in
+  let outer_source, outer, outer_resolution = pending 0 in
+  let outer_pending = single outer_resolution in
+  let outer_record = classify_source [] outer_resolution outer_source in
+  let inner_source, inner, inner_resolution =
+    pending ~previous:[ outer_pending ] 1
+  in
+  let inner_pending = single inner_resolution in
+  let inner_record =
+    classify_source [ outer_record ] inner_resolution inner_source
+  in
+  let inner_completed_resolution =
+    F.complete_pending ~table ~namespace ~pending:inner_pending ~function_:inner
+    |> checked
+  in
+  let inner_completed = single inner_completed_resolution in
+  let inner_completed_record =
+    classify_source [ inner_record ] inner_completed_resolution inner_source
+  in
+  let _, _, copy_resolution = pending 0 in
+  rejected "a reconstructed pending node cannot act as the current record"
+    (F.make_completion_declaration_against ~table ~namespace
+       ~pending:outer_pending ~current:(single copy_resolution) ~function_:outer);
+  rejected "current header cannot substitute for original body source"
+    (F.make_completion_declaration_against ~table ~namespace
+       ~pending:outer_pending ~current:inner_completed ~function_:inner);
+  let previous =
+    if hidden then (
+      let _, shadow, shadow_resolution =
+        pending ~previous:[ inner_completed ] 2
+      in
+      let shadow_pending = single shadow_resolution in
+      let shadow_completed =
+        F.complete_pending ~table ~namespace ~pending:shadow_pending
+          ~function_:shadow
+        |> checked |> single
+      in
+      rejected "same-name shadow is not a successor in the original record"
+        (F.make_completion_declaration_against ~table ~namespace
+           ~pending:outer_pending ~current:shadow_completed ~function_:outer);
+      [ shadow_completed ])
+    else [ inner_completed ]
+  in
+  let completion =
+    F.make_completion_declaration_against ~table ~namespace
+      ~pending:outer_pending ~current:inner_completed ~function_:outer
+    |> checked
+  in
+  rejected "a different current record cannot authorize completion"
+    (F.resolve
+       ~previous:[ single copy_resolution ]
+       ~table ~parent ~compilation_mode:F.Jit [ completion ]);
+  rejected "record head pool cannot contain repeated identities"
+    (F.resolve ~previous
+       ~record_heads:[ inner_completed; inner_completed ]
+       ~table ~parent ~compilation_mode:F.Jit [ completion ]);
+  let completed_resolution =
+    F.resolve ~previous ~record_heads:[ inner_completed ] ~table ~parent
+      ~compilation_mode:F.Jit [ completion ]
+    |> checked
+  in
+  let completed = single completed_resolution in
+  Alcotest.(check bool)
+    "outer completion retains exact original body source" true
+    (F.declaration_site_function (site completed) == outer);
+  Alcotest.(check bool)
+    "outer completion follows the nested executable" true
+    (F.is_joined_successor ~earlier:inner_completed ~later:completed);
+  Alcotest.(check bool)
+    "completion preserves the current inner header and defaults" true
+    (F.resolved_declaration_header completed == inner);
+  Alcotest.(check bool)
+    "completion records its exact original pending authority" true
+    (Option.get (F.resolved_declaration_completion_source completed)
+    == outer_pending);
+  Alcotest.(check bool)
+    "original source remains discoverable through exact ancestry" true
+    (Option.get (F.find_pending_source ~current:completed ~function_:outer)
+    == outer_pending);
+  Alcotest.(check bool)
+    "body publication does not replace a header" true
+    (Option.is_none (F.resolved_declaration_replaced_header completed));
+  let completed_record =
+    classify_source [ inner_completed_record ] completed_resolution outer_source
+  in
+  Alcotest.(check bool)
+    "outer publication preserves inner public header flag" true
+    (K.is_public (K.classified_declaration_record completed_record));
+  Alcotest.(check bool)
+    "body publication is resolved" true
+    (K.call_access (K.classified_declaration_record completed_record)
+    = K.Direct_executable_call);
+  rejected "original source cannot complete a second time against its new head"
+    (F.make_completion_declaration_against ~table ~namespace
+       ~pending:outer_pending ~current:completed ~function_:outer);
+  rejected "an already-made body publication cannot be replayed"
+    (F.resolve ~previous ~record_heads:[ inner_completed ] ~table ~parent
+       ~compilation_mode:F.Jit [ completion ]);
+  if hidden then (
+    let shadow = List.hd previous in
+    Alcotest.(check bool)
+      "hidden completion retains original identity" true
+      (F.resolved_declaration_identity_symbol completed
+      == F.resolved_declaration_identity_symbol outer_pending);
+    Alcotest.(check bool)
+      "visible shadow remains another record" true
+      (F.resolved_declaration_identity_symbol completed
+      != F.resolved_declaration_identity_symbol shadow);
+    Alcotest.(check bool)
+      "hidden completion does not join the visible shadow" false
+      (F.is_joined_successor ~earlier:shadow ~later:completed))
+
+let nested_completion () = nested_completion_case false
+let hidden_completion () = nested_completion_case true
+
 let tests =
   [
     Alcotest.test_case "pending definition completes exact retained header"
@@ -333,4 +472,9 @@ let tests =
       copied_parameter_source;
     Alcotest.test_case "pending AOT import completes with source options" `Quick
       converted_import;
+    Alcotest.test_case "outer completion follows nested header and body" `Quick
+      nested_completion;
+    Alcotest.test_case
+      "outer completion updates hidden record under resolved shadow" `Quick
+      hidden_completion;
   ]

@@ -841,8 +841,7 @@ let admitted_source_symbol = function
   | Admitted_function reference ->
       Retained_function.metadata reference
       |> Sema.Outer_environment.function_declaration
-      |> Sema.Function_resolution.resolved_declaration_site
-      |> Sema.Function_resolution.declaration_site_function
+      |> Sema.Function_resolution.resolved_declaration_header
       |> Sema.Function_type_resolution.function_symbol
 
 let admitted_publication_for_symbol task symbol =
@@ -1428,11 +1427,19 @@ let task_input_result task ~sequence =
   | _ -> Error "task input has no original execution completion"
 
 let task_function_source task link =
+  let module Records = Sema.Function_record_classification in
+  let dynamic =
+    link |> Retained_function.metadata
+    |> Sema.Outer_environment.function_classified_declaration
+    |> Records.classified_declaration_record |> Records.call_access
+    |> fun access -> access = Records.Jit_extern_address_slot_call
+  in
   List.find_opt
     (fun executable ->
       Retained_function.same executable.function_link link
-      || Retained_function.symbol link
-         == executable.function_callee.callee_symbol
+      || dynamic
+         && Retained_function.symbol link
+            == executable.function_callee.callee_symbol
          && Option.fold ~none:false
               ~some:(fun later ->
                 Sema.Function_resolution.is_joined_successor

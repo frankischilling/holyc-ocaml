@@ -39,11 +39,22 @@ val make_completion_declaration :
   pending:resolved_declaration ->
   function_:Function_type_resolution.resolved_function ->
   (declaration, string) result
-(** Complete the exact retained typed header. [resolve] must receive this exact
-    pending declaration in [previous], with no intervening same-name
-    declaration. Successful resolution consumes completion once. This fact
-    carries source ancestry; executable publication still requires independent
-    body evidence. *)
+(** Complete the exact retained typed header against its unchanged pending
+    record. Successful resolution consumes completion once. Executable
+    publication still requires independent body evidence. *)
+
+val make_completion_declaration_against :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  pending:resolved_declaration ->
+  current:resolved_declaration ->
+  function_:Function_type_resolution.resolved_function ->
+  (declaration, string) result
+(** Complete [pending]'s original source against [current], which must be that
+    exact pending declaration or an exact joined successor in the same record.
+    The original body source stays distinct from the current header. [resolve]
+    requires [current] in its visible predecessors or completion record heads.
+*)
 
 val complete_pending :
   table:Symbol_table.t ->
@@ -55,6 +66,7 @@ val complete_pending :
 
 val resolve :
   ?previous:resolved_declaration list ->
+  ?record_heads:resolved_declaration list ->
   table:Symbol_table.t ->
   parent:Symbol_table.scope ->
   compilation_mode:compilation_mode ->
@@ -64,8 +76,11 @@ val resolve :
     unresolved extern; AOT joins the newest identity unless it is imported.
     [previous] supplies at most one newest JIT declaration per name from the
     same module namespace. New declarations require distinct source headers.
-    Runtime publication separately checks that each predecessor is still
-    current. *)
+    [record_heads] supplies additional exact current records for completion,
+    including hidden records with the same name as a visible shadow. It does not
+    participate in ordinary name joins. Each identity has one head; a head
+    repeated across the two pools must be the same object. Runtime publication
+    independently checks these supplied heads against its actual catalog. *)
 
 val compilation_mode : t -> compilation_mode
 val identities : t -> identity list
@@ -99,6 +114,25 @@ val declaration_site_header_source :
 *)
 
 val resolved_declaration_site : resolved_declaration -> declaration_site
+(** Original source declaration, also the body owner on completion. *)
+
+val resolved_declaration_header :
+  resolved_declaration -> Function_type_resolution.resolved_function
+(** Header selected by new calls. Completion retains the current record's
+    header, which may differ from its original body/source declaration. *)
+
+val resolved_declaration_completion_source :
+  resolved_declaration -> resolved_declaration option
+(** Exact original pending declaration consumed by this completion. This is
+    distinct from its current retained/joined predecessor. *)
+
+val find_pending_source :
+  current:resolved_declaration ->
+  function_:Function_type_resolution.resolved_function ->
+  resolved_declaration option
+(** Find an exact typed pending source in [current]'s joined ancestry, including
+    [current]. The result grants no fresh completion authority: the constructor
+    independently rejects an already consumed source. *)
 
 val resolved_declaration_compilation_mode :
   resolved_declaration -> compilation_mode

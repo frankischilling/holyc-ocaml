@@ -161,10 +161,13 @@ let resolve_module_target headers declarations publication =
   match
     (Int_map.find_opt number headers, Int_map.find_opt number declarations)
   with
-  | Some header, Some declaration
+  | Some _, Some declaration
     when same_symbol
            (Function_resolution.resolved_declaration_identity_symbol declaration)
            target_symbol ->
+      let header =
+        Function_resolution.resolved_declaration_header declaration
+      in
       Ok (Module_function { publication; header; declaration; target_symbol })
   | Some _, Some _ ->
       Error

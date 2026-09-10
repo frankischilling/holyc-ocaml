@@ -152,14 +152,37 @@ let failure_recovery () =
   T.value 99L (T.run session task "Saved();");
   T.value 42L (T.run session task "N;")
 
-let nested_header_replacement_boundary () =
+let nested_header_replacement () =
   List.iter
     (fun mode ->
       ignore
         (O.run ~mode
            "#exe {PutChars('A');I64 F(I64 n){return n;}#exe {I64 F(I64 \
             n){return 99;}}StreamPrint(\"%d;\",F(42));}"
-        |> O.fault ~output:"A" "HCEVAL0003"))
+        |> O.expect "A"))
+    Test_integer_globals.modes
+
+let publication_version_matrix () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun shadow ->
+          List.iter
+            (fun (expression, expected) ->
+              let source =
+                "#exe {I64 F(I64 n=40){return n+2;}#exe {"
+                ^ "I64 SavedBefore(){return F();}I64 F(I64 n=99){return 7;}"
+                ^ "I64 SavedInner(){return F();}PutChars(SavedBefore()+48);"
+                ^ (if shadow then "I64 F(I64 n=8){return 11;}" else "")
+                ^ "}StreamPrint(\"%d;\"," ^ expression ^ ");}"
+              in
+              ignore (O.run ~mode source |> O.expect ~value:(Some expected) "7"))
+            [
+              ("SavedBefore()", 42L);
+              ("SavedInner()", 7L);
+              ("F()", if shadow then 11L else 101L);
+            ])
+        [ false; true ])
     Test_integer_globals.modes
 
 let resource_limits () =
@@ -191,6 +214,111 @@ let resource_limits () =
       ignore (O.run ~mode ~max_call_depth:1 source |> O.fault "HCIRVM0015"))
     Test_integer_globals.modes
 
+let version_initializers () =
+  List.iter
+    (fun mode ->
+      ignore
+        (O.run ~mode
+           "#exe {I64 F(I64 n=40){return n+2;}#exe {I64 SavedBefore(){return \
+            F();}I64 F(I64 n=99){return 7;}I64 SavedInner(){return F();}}I64 \
+            A=SavedBefore();I64 B=SavedInner();I64 \
+            C=F();StreamPrint(\"%d;\",A+B+C-108);}"
+        |> O.expect "");
+      ignore
+        (O.run ~mode
+           "#exe {I64 F(I64 n=126){return n/3;}#exe {I64 F(I64 n=99){return \
+            42;}I64 SavedInner(){return F();}}I64 \
+            A=SavedInner();StreamPrint(\"%d;\",A);}"
+        |> O.expect "");
+      ignore
+        (O.run ~mode
+           "#exe {I64 F(I64 n=126){return n/3;}#exe {I64 SavedBefore(){return \
+            F();}I64 F(I64 n=99){return 42;}}I64 \
+            A=SavedBefore();StreamPrint(\"%d;\",A);}"
+        |> O.fault "HCRUN0006"))
+    Test_integer_globals.modes
+
+let captured_body_recursive_slot () =
+  List.iter
+    (fun mode ->
+      ignore
+        (O.run ~mode
+           "#exe {I64 F(I64 n){return n+40;}#exe {I64 F(I64 n){if(n)return \
+            F(n-1);return 7;}I64 SavedInner(){return \
+            F(2);}PutChars(SavedInner()+48);}StreamPrint(\"%d;\",SavedInner()+1);}"
+        |> O.expect "7"))
+    Test_integer_globals.modes
+
+let initializer_recursive_slot () =
+  List.iter
+    (fun mode ->
+      ignore
+        (O.run ~mode
+           "#exe {I64 F(I64 n){#exe {I64 F(I64 n){return 42;}}static I64 \
+            A=F(126);return n/3+A;}StreamPrint(\"%d;\",F(0));}"
+        |> O.expect "");
+      ignore
+        (O.run ~mode
+           "#exe {I64 F(I64 n){#exe {I64 F(I64 n){return n/3;}}static I64 \
+            A=F(126);return A;}StreamPrint(\"%d;\",F(0));}"
+        |> O.fault "HCRUN0006");
+      ignore
+        (O.run ~mode
+           "#exe {I64 F(I64 n){return n/3;}#exe {I64 F(I64 n){if(n)return \
+            F(n-1);return 42;}I64 SavedInner(){return F(127);}}I64 \
+            A=SavedInner();StreamPrint(\"%d;\",A);}"
+        |> O.fault "HCRUN0006"))
+    Test_integer_globals.modes
+
+let version_variadics () =
+  let source =
+    "#exe {I64 F(I64 n=40,...){I64 v=n+argc+argv[0];return v;}#exe {I64 \
+     SavedBefore(){return F(,1);}I64 F(I64 n=99,...){return 7;}I64 \
+     SavedInner(){return \
+     F(,100);}}StreamPrint(\"%d;\",SavedBefore()+SavedInner()+F(,1)-108);}"
+  in
+  List.iter
+    (fun mode ->
+      let report = O.run ~mode source in
+      ignore (O.expect "" report);
+      let measured =
+        (Option.get (integer_program_report_progress report)).runtime
+      in
+      ignore
+        (O.run ~mode ~max_steps:measured.executed_steps
+           ~max_initializer_steps:measured.initializer_steps ~max_frame_bytes:32
+           ~max_call_depth:2 source
+        |> O.expect "");
+      List.iter
+        (fun (code, report) -> ignore (O.fault code report))
+        [
+          ( "HCIRVM0007",
+            O.run ~mode ~max_steps:(measured.executed_steps - 1) source );
+          ( "HCIRVM0007",
+            O.run ~mode
+              ~max_initializer_steps:(measured.initializer_steps - 1)
+              source );
+          ("HCIRVM0011", O.run ~mode ~max_frame_bytes:31 source);
+          ("HCIRVM0015", O.run ~mode ~max_call_depth:1 source);
+        ])
+    Test_integer_globals.modes
+
+let original_body_historical_calls () =
+  List.iter
+    (fun mode ->
+      ignore
+        (O.run ~mode
+           "#exe {I64 F(I64 n=40){if(n<0)return 2;return F(-1)+n;}#exe {I64 \
+            SavedBefore(){return F();}I64 F(I64 n=99){return \
+            7;}}StreamPrint(\"%d;\",SavedBefore());}"
+        |> O.expect "");
+      ignore
+        (O.run ~mode
+           "#exe {I64 Out=0;U0 Print(I64 n){Out+=n;if(n>0)\"\"(-1);}#exe {U0 \
+            Print(I64 n){Out=7;}}Print(42);StreamPrint(\"%d;\",Out+1);}"
+        |> O.expect ""))
+    Test_integer_globals.modes
+
 let tests =
   [
     Alcotest.test_case "pending call evaluates arguments before UndefinedExtern"
@@ -214,8 +342,21 @@ let tests =
     Alcotest.test_case
       "reached pending faults preserve state and source lineage" `Quick
       failure_recovery;
-    Alcotest.test_case "nested header replacement remains an explicit boundary"
-      `Quick nested_header_replacement_boundary;
+    Alcotest.test_case "nested header replacement preserves outer body" `Quick
+      nested_header_replacement;
+    Alcotest.test_case "headers, direct bodies and hidden lineage stay separate"
+      `Quick publication_version_matrix;
     Alcotest.test_case "pending completion preserves exact resource limits"
       `Quick resource_limits;
+    Alcotest.test_case "initializers inspect the selected executable version"
+      `Quick version_initializers;
+    Alcotest.test_case "captured body preserves recursive extern slot" `Quick
+      captured_body_recursive_slot;
+    Alcotest.test_case "initializer follows recursive slot to current body"
+      `Quick initializer_recursive_slot;
+    Alcotest.test_case "versioned variadic bodies preserve resource limits"
+      `Quick version_variadics;
+    Alcotest.test_case
+      "original body retains historical ordinary and implicit calls" `Quick
+      original_body_historical_calls;
   ]

@@ -849,16 +849,27 @@ let publication_symbol = function
   | Function_publication reference -> Retained_function.symbol reference
 
 let newest_publications publications =
-  List.fold_right
-    (fun publication selected ->
-      if
-        List.exists
-          (fun prior ->
-            publication_symbol prior == publication_symbol publication)
+  List.fold_left
+    (fun selected publication ->
+      let same prior =
+        publication_symbol prior == publication_symbol publication
+      in
+      let completion =
+        match publication with
+        | Function_publication reference ->
+            reference |> Retained_function.metadata
+            |> Sema.Outer_environment.function_declaration
+            |> Sema.Function_resolution.resolved_declaration_completion_source
+            |> Option.is_some
+        | _ -> false
+      in
+      if completion && List.exists same selected then
+        List.map
+          (fun prior -> if same prior then publication else prior)
           selected
-      then selected
-      else publication :: selected)
-    publications []
+      else
+        List.filter (fun prior -> not (same prior)) selected @ [ publication ])
+    [] publications
 
 let function_publications globals = globals.function_publications_
 
@@ -956,6 +967,24 @@ let snapshot_task catalog =
     Outer.create ~table:catalog.table ~compilation_mode:Outer.Jit
       [ task_table; assembler ]
     |> checked
+  in
+  let historical =
+    catalog.published
+    |> List.filter_map (function
+      | Function_publication reference
+        when not
+               (List.exists
+                  (fun (_, current) -> Retained_function.same current reference)
+                  function_entries) -> Some reference
+      | _ -> None)
+  in
+  let* environment, historical_entries =
+    Outer.with_function_versions environment ~table:task_table
+      (List.map Retained_function.metadata historical)
+    |> checked
+  in
+  let function_entries =
+    function_entries @ List.combine historical_entries historical
   in
   Ok
     {
@@ -1233,6 +1262,9 @@ let function_publication_is_fresh catalog reference =
     Retained_function.metadata reference |> Outer.function_declaration
   in
   let symbol = Retained_function.symbol reference in
+  let completion =
+    Functions.resolved_declaration_completion_source declaration
+  in
   match Functions.resolved_declaration_retained_predecessor declaration with
   | None ->
       not
@@ -1244,12 +1276,15 @@ let function_publication_is_fresh catalog reference =
         List.find_map
           (function
             | Function_publication prior
-              when Sema.Symbol.name (Retained_function.symbol prior)
-                   = Sema.Symbol.name symbol -> Some prior
+              when if Option.is_some completion then
+                     Retained_function.symbol prior == symbol
+                   else
+                     Sema.Symbol.name (Retained_function.symbol prior)
+                     = Sema.Symbol.name symbol -> Some prior
             | _ -> None)
           (List.rev catalog.published)
       with
-      | Some prior ->
+      | Some prior -> (
           Retained_function.symbol prior == symbol
           && Outer.function_declaration (Retained_function.metadata prior)
              == predecessor
@@ -1264,9 +1299,24 @@ let function_publication_is_fresh catalog reference =
                 == Outer.function_classified_declaration
                      (Retained_function.metadata prior)
             | None -> false)
-          && Functions.declaration_site_state
-               (Functions.resolved_declaration_site predecessor)
-             = Functions.Unresolved_extern
+          &&
+          match completion with
+          | None ->
+              Functions.declaration_site_state
+                (Functions.resolved_declaration_site predecessor)
+              = Functions.Unresolved_extern
+          | Some pending ->
+              (pending == predecessor
+              || Functions.is_joined_successor ~earlier:pending
+                   ~later:predecessor)
+              && List.exists
+                   (function
+                     | Function_publication source ->
+                         source |> Retained_function.metadata
+                         |> Outer.function_declaration
+                         |> fun declaration -> declaration == pending
+                     | _ -> false)
+                   catalog.published)
       | None -> false)
 
 let publish_function_header catalog ~namespace ~source ~records =

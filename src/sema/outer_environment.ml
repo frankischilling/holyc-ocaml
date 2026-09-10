@@ -47,6 +47,7 @@ type t = {
   symbol_table : Symbol_table.t;
   compilation_mode : compilation_mode;
   tables : table list;
+  function_versions : binding list;
 }
 
 type error_kind = Invalid_input of string
@@ -260,16 +261,9 @@ let global_metadata_is_owned symbol_table metadata =
   | Object_global -> true
   | Function_pointer_global pointer -> pointer_is_owned symbol_table pointer
 
-let function_metadata_is_owned symbol_table metadata =
-  let declaration = metadata.declaration in
-  let header =
-    declaration |> Function_resolution.resolved_declaration_site
-    |> Function_resolution.declaration_site_function
-  in
+let function_header_is_owned symbol_table header =
   Symbol_table.owns_symbol symbol_table
-    (Function_resolution.resolved_declaration_identity_symbol declaration)
-  && Symbol_table.owns_symbol symbol_table
-       (Function_type_resolution.function_symbol header)
+    (Function_type_resolution.function_symbol header)
   && Symbol_table.owns_scope symbol_table
        (Function_type_resolution.function_scope header)
   && reference_is_owned symbol_table
@@ -294,6 +288,18 @@ let function_metadata_is_owned symbol_table metadata =
              Function_type_resolution.variadic_argv bindings;
            ])
        (Function_type_resolution.function_variadic_bindings header)
+
+let function_metadata_is_owned symbol_table metadata =
+  let declaration = metadata.declaration in
+  let source =
+    declaration |> Function_resolution.resolved_declaration_site
+    |> Function_resolution.declaration_site_function
+  in
+  let header = Function_resolution.resolved_declaration_header declaration in
+  Symbol_table.owns_symbol symbol_table
+    (Function_resolution.resolved_declaration_identity_symbol declaration)
+  && function_header_is_owned symbol_table source
+  && (source == header || function_header_is_owned symbol_table header)
 
 let validate_symbols symbol_table compilation_mode table_chain =
   let rec entries seen = function
@@ -361,7 +367,111 @@ let create ~table:symbol_table ~compilation_mode tables =
       | Ok () -> (
           match validate_symbols symbol_table compilation_mode tables with
           | Error _ as error -> error
-          | Ok () -> Ok { symbol_table; compilation_mode; tables }))
+          | Ok () ->
+              Ok
+                {
+                  symbol_table;
+                  compilation_mode;
+                  tables;
+                  function_versions = [];
+                }))
+
+let with_function_versions environment ~table metadata =
+  let existing =
+    List.filter
+      (fun binding -> binding.table == table)
+      environment.function_versions
+  in
+  let same_declaration left right = left.declaration == right.declaration in
+  let seen =
+    List.filter_map (fun binding -> binding.entry.function_metadata) existing
+  in
+  let primary_count = List.length table.entries in
+  let existing_count = List.length existing in
+  let classified_ancestor metadata current =
+    let versions =
+      Function_record_classification.declarations metadata.records
+    in
+    let rec follows current =
+      (* A retained record can be the last of several declarations classified
+         together. Exact membership proves ownership of that entire snapshot;
+         declaration ancestry below still limits which version is selected. *)
+      List.exists (fun original -> original == current) versions
+      || Option.fold ~none:false ~some:follows
+           (Function_record_classification
+            .classified_declaration_retained_predecessor current)
+    in
+    follows current.classified_declaration
+  in
+  let rec extend next_index seen versions_rev = function
+    | [] ->
+        let versions = List.rev versions_rev in
+        Ok
+          ( {
+              environment with
+              function_versions = environment.function_versions @ versions;
+            },
+            List.map (fun binding -> binding.entry) versions )
+    | metadata :: rest -> (
+        let declaration = metadata.declaration in
+        let symbol =
+          Function_resolution.resolved_declaration_identity_symbol declaration
+        in
+        let current =
+          List.find_map
+            (fun entry ->
+              if entry.symbol == symbol then entry.function_metadata else None)
+            table.entries
+        in
+        if not (function_metadata_is_owned environment.symbol_table metadata)
+        then
+          Error
+            (invalid_input
+               "historical function header belongs to another symbol table")
+        else if
+          Function_record_classification.compilation_mode metadata.records
+          <> environment.compilation_mode
+        then
+          Error
+            (invalid_input
+               "historical function metadata uses another compilation mode")
+        else if List.exists (same_declaration metadata) seen then
+          Error (invalid_input "historical function declaration is repeated")
+        else if
+          not
+            (Option.fold ~none:false
+               ~some:(fun current ->
+                 (current.declaration == declaration
+                 || Function_resolution.is_joined_successor ~earlier:declaration
+                      ~later:current.declaration)
+                 && classified_ancestor metadata current)
+               current)
+        then
+          Error
+            (invalid_input
+               "historical function declaration is not an ancestor of its \
+                current record")
+        else if next_index = max_int then
+          Error
+            (invalid_input "historical function entry index space is exhausted")
+        else
+          match
+            make_function_entry ~entry_index:next_index
+              ~function_metadata:metadata
+          with
+          | Error _ as error -> error
+          | Ok entry ->
+              extend (next_index + 1) (metadata :: seen)
+                ({ table; entry } :: versions_rev)
+                rest)
+  in
+  if not (List.exists (fun current -> current == table) environment.tables) then
+    Error
+      (invalid_input
+         "historical function versions require an exact existing table")
+  else if existing_count > max_int - primary_count then
+    Error (invalid_input "historical function entry index space is exhausted")
+  else extend (primary_count + existing_count) seen [] metadata
 
 let compilation_mode environment = environment.compilation_mode
 let tables environment = environment.tables
@@ -383,19 +493,24 @@ let binding_table binding = binding.table
 let binding_entry binding = binding.entry
 
 let binding_for_entry environment entry =
-  List.find_map
-    (fun table ->
-      if List.exists (fun owned -> owned == entry) table.entries then
-        Some { table; entry }
-      else None)
-    environment.tables
+  match
+    List.find_map
+      (fun table ->
+        if List.exists (fun owned -> owned == entry) table.entries then
+          Some { table; entry }
+        else None)
+      environment.tables
+  with
+  | Some _ as binding -> binding
+  | None ->
+      List.find_opt
+        (fun binding -> binding.entry == entry)
+        environment.function_versions
 
 let owns_binding environment binding =
-  List.exists
-    (fun table ->
-      table == binding.table
-      && List.exists (fun entry -> entry == binding.entry) table.entries)
-    environment.tables
+  match binding_for_entry environment binding.entry with
+  | Some original -> original.table == binding.table
+  | None -> false
 
 let find environment name =
   let rec find_table = function

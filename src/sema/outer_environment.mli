@@ -79,6 +79,17 @@ val find_record : t -> name:string -> record_kind:record_kind -> binding option
 (** Find the newest matching name and record kind across the table chain. This
     mirrors the type-mask filtering performed by TempleOS [HashFind]. *)
 
+val with_function_versions :
+  t -> table:table -> function_metadata list -> (t * entry list, error) result
+(** Extend an immutable environment with exact current or joined-ancestor
+    versions of function records in the supplied existing table. The returned
+    entries are available only through exact binding membership, never name
+    lookup or [table_entries]. Each declaration can appear in history once;
+    indexes follow the table's primary entries and any existing history. The
+    version must belong to the original classification snapshot reached through
+    the current record's exact retained predecessor chain. Reconstructed tables
+    or classifications, unrelated declarations and foreign metadata fail. *)
+
 val find : t -> string -> binding option
 val compilation_mode : t -> compilation_mode
 val tables : t -> table list

@@ -491,7 +491,12 @@ let classify ?(previous = []) resolution states =
                     | Some prior -> Ok prior.record)
               in
               let record =
-                record |> apply_header source state
+                (if
+                   Option.is_some
+                     (Function_resolution.resolved_declaration_completion_source
+                        source)
+                 then record
+                 else apply_header source state record)
                 |> apply_binding compilation_mode source state
                 |> classify_consumers compilation_mode
               in

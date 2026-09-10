@@ -4113,8 +4113,7 @@ let resolve_call ?members ?outer ~before_item_index types declarations
         | Some (binding, metadata) -> (
             let declaration = Outer_environment.function_declaration metadata in
             let active_header =
-              declaration |> Function_resolution.resolved_declaration_site
-              |> Function_resolution.declaration_site_function
+              Function_resolution.resolved_declaration_header declaration
             in
             match bind_direct_arguments call active_header with
             | Error _ as error -> error
@@ -4160,8 +4159,11 @@ let resolve_call ?members ?outer ~before_item_index types declarations
                 ( Int_map.find_opt number types,
                   Int_map.find_opt number declarations )
               with
-              | Some active_header, Some declaration
+              | Some _, Some declaration
                 when same_publication_target publication declaration -> (
+                  let active_header =
+                    Function_resolution.resolved_declaration_header declaration
+                  in
                   match bind_direct_arguments call active_header with
                   | Error _ as error -> error
                   | Ok (fixed_arguments, variadic_arguments, variadic_count) ->

@@ -1,11 +1,12 @@
 # holyc-ocaml
 
-Calls can retain a completed function header before its body is published.
-`holyc run --mode=jit examples/stateful-exe-pending-header.hc` returns 42 through
-such a retained call, including a saved default and variadic argument. The AOT
-outer mode runs the same directive in its separate JIT task.
-[Completed function headers](docs/completed-function-headers.md) explains pending
-calls, argument effects, body publication and source identity.
+Nested function replacement preserves separately selected headers and bodies.
+`holyc run --mode=jit examples/stateful-exe-function-versions.hc` returns 42
+by combining an earlier pending call, a captured inner body and a fresh call
+using the inner default with the outer body. The AOT outer mode runs the same
+directive in its separate JIT task.
+[Completed function headers](docs/completed-function-headers.md) explains the
+42/7/101 results, hidden shadows and initializer checks.
 
 Separate `#exe` commands can replace an extern header and define its function
 while retaining one callable identity. [Task function joins](docs/task-function-joins.md)

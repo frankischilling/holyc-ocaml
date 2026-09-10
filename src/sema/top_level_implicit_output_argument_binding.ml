@@ -330,8 +330,7 @@ let bind_output policies mode outer_headers output =
         | Some metadata ->
             Some
               (metadata |> Outer_environment.function_declaration
-             |> Function_resolution.resolved_declaration_site
-             |> Function_resolution.declaration_site_function)
+             |> Function_resolution.resolved_declaration_header)
         | None ->
             Implicit_output_argument_rules.find_outer_header outer_headers
               symbol

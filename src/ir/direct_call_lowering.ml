@@ -571,8 +571,7 @@ let lower_output ?frame ?globals ?lower_call ?outer_binding ~records
             ]
       | Some classified -> (
           let selected_header =
-            declaration |> Sema.Function_resolution.resolved_declaration_site
-            |> Sema.Function_resolution.declaration_site_function
+            Sema.Function_resolution.resolved_declaration_header declaration
           in
           if
             selected_header != header

@@ -503,9 +503,8 @@ let shape ~globals records description =
           "call declaration does not belong to the supplied record snapshots"
   in
   require ?span
-    ( declaration |> Functions.resolved_declaration_site
-      |> Functions.declaration_site_function
-    |> fun expected -> expected == header )
+    ( declaration |> Functions.resolved_declaration_header |> fun expected ->
+      expected == header )
     "call header is not its selected declaration header";
   require ?span
     (Functions.resolved_declaration_identity_symbol declaration == symbol)
