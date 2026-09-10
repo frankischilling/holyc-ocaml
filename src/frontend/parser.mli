@@ -250,7 +250,10 @@ val initializer_delimiter_is_current : completed_initializer_delimiter -> bool
 (** Original delimiter callback, before requesting the following token. Both
     predecessor chains retain ordering with leaves and other delimiters. *)
 
+type function_activity
+
 type function_publication = private {
+  function_activity : function_activity;
   function_header : declaration_header;
   function_environment : Symbol_visibility.Environment.t;
   function_entry : Symbol_visibility.entry;
@@ -260,10 +263,64 @@ type function_publication = private {
   function_opening_parenthesis : Ast.location;
 }
 
+val function_publication_is_current : function_publication -> bool
+(** True only during the original function-declaration callback. *)
+
+type function_parameter_activity
+type parameter_completion_activity
+
+type function_parameter_publication = private {
+  parameter_function : function_publication;
+  parameter_index : int;
+  parameter_predecessor : completed_function_parameter option;
+  parameter_register_qualifiers : Ast.register_qualifier list;
+  parameter_type_specifier : Ast.type_specifier;
+  parameter_pointer_layers : Ast.pointer_layer list;
+  parameter_name : Ast.identifier option;
+  parameter_function_pointer : Ast.function_pointer_declarator option;
+  parameter_activity : function_parameter_activity;
+}
+
+and completed_function_parameter = private {
+  parameter_publication : function_parameter_publication;
+  parameter_ast : Ast.function_parameter;
+  parameter_completion_activity : parameter_completion_activity;
+}
+
+val function_parameter_is_current : function_parameter_publication -> bool
+(** Original named-function member head, after type lookahead and before default
+    input. The predecessor is the exact preceding accepted parameter completion.
+    Recursive callback signature children remain attached to the original head.
+*)
+
+val function_parameter_completion_is_current :
+  completed_function_parameter -> bool
+(** Exact completed parameter, including its original default and delimiter,
+    before lookahead beyond the parameter delimiter or closing parenthesis. *)
+
+type function_variadic_activity
+
+type function_variadic_publication = private {
+  variadic_function : function_publication;
+  variadic_marker : Ast.variadic_marker;
+  variadic_parameter_predecessor : completed_function_parameter option;
+  variadic_activity : function_variadic_activity;
+}
+
+val function_variadic_start_is_current : function_variadic_publication -> bool
+
+val function_variadic_completion_is_current :
+  function_variadic_publication -> bool
+(** The same original ellipsis receipt first publishes the native flag before
+    lookahead past the marker, then synthetic-member availability after that
+    lookahead and before consuming an actual closing parenthesis. Each predicate
+    is true only during its original synchronous callback. *)
+
 type parameter_default_activity
 
 type completed_parameter_default = private {
   default_function : function_publication;
+  default_parameter : function_parameter_publication;
   default_parameter_index : int;
   default_predecessor : completed_parameter_default option;
   default_register_qualifiers : Ast.register_qualifier list;
@@ -286,8 +343,10 @@ type completed_function_header = private {
   function_publication : function_publication;
   completed_entry : Symbol_visibility.entry;
   parameters : Ast.function_parameter list;
+  parameter_completions : completed_function_parameter list;
   empty_parameter_entries : Ast.empty_parameter_entry list;
   variadic : Ast.variadic_marker option;
+  variadic_publication : function_variadic_publication option;
   closing_parenthesis : Ast.location option;
   header_activity : function_header_activity;
 }
@@ -330,7 +389,11 @@ type declaration_event = private
   | Global_initializer_delimiter_completed of completed_initializer_delimiter
   | Global_completed of global_publication * Ast.global_declarator
   | Function_declared of function_publication
+  | Function_parameter_declared of function_parameter_publication
   | Parameter_default_completed of completed_parameter_default
+  | Function_parameter_completed of completed_function_parameter
+  | Function_variadic_started of function_variadic_publication
+  | Function_variadic_completed of function_variadic_publication
   | Function_header_completed of completed_function_header
   | Function_body_completed of
       completed_function_header * Ast.function_definition

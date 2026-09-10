@@ -4,11 +4,11 @@ module P = Test_parser
 (* This executor supplies text to the real streaming parser. Runtime #exe
    coverage belongs to Test_stateful_exe; these tests isolate grammar, source
    ownership, lookup restoration and callback ordering. *)
-let parse ?(mode = Preprocessor.Jit) ?max_generated_bytes ?max_definition_depth
-    ?working_directory ?(same_task = false) ?fail_command ?enter_failure
-    ?commands ?(on_enter = fun () -> ())
-    ?(configure = fun _ execution -> execution) contents =
-  let session = Session.create () in
+let parse ?(session = Session.create ()) ?(mode = Preprocessor.Jit)
+    ?max_generated_bytes ?max_definition_depth ?working_directory
+    ?(same_task = false) ?fail_command ?enter_failure ?commands
+    ?(on_enter = fun () -> ()) ?(configure = fun _ execution -> execution)
+    contents =
   let task = if same_task then session else Session.create () in
   let source = Session.add_source session ~path:"stream.HC" ~contents in
   let config =
@@ -576,7 +576,9 @@ let function_publication_timing () =
   | ( Ast.Function_definition definition :: _,
       [
         Parser.Function_declared provisional;
+        Parser.Function_parameter_declared member;
         Parser.Parameter_default_completed default;
+        Parser.Function_parameter_completed completed;
         Parser.Function_header_completed header;
         Parser.Function_body_completed (same_header, same_definition);
       ] ) ->
@@ -586,6 +588,9 @@ let function_publication_timing () =
       Alcotest.(check bool)
         "default precedes completed header" true
         (default.default_function == provisional
+        && default.default_parameter == member
+        && completed.parameter_publication == member
+        && completed.parameter_ast == List.hd header.parameters
         && Option.get (List.hd header.parameters).default == default.default_ast
         );
       Alcotest.(check bool)
@@ -621,12 +626,17 @@ let function_completion_preserves_shadow () =
   ignore (P.expect_ast output);
   match List.rev !events with
   | Parser.Function_declared provisional
+    :: Parser.Function_parameter_declared member
     :: Parser.Parameter_default_completed default
+    :: Parser.Function_parameter_completed completed
     :: Parser.Function_header_completed header
     :: _ ->
       Alcotest.(check bool)
         "default retains the original shadowed owner" true
-        (default.default_function == provisional);
+        (default.default_function == provisional
+        && default.default_parameter == member
+        && completed.parameter_publication == member
+        && completed.parameter_ast == List.hd header.parameters);
       let entries =
         Symbol_visibility.Environment.all (Session.symbols session)
         |> List.filter (fun entry -> Symbol_visibility.name entry = "F")

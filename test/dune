@@ -86,6 +86,8 @@
   test_live_initializer_layout
   test_live_initializer_lowering
   test_parameter_default_boundaries
+  test_provisional_function_parser
+  test_provisional_function_source
   test_parameter_default_execution
   test_task_command_order
   test_stream_parser

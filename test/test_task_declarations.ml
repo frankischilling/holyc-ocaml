@@ -156,7 +156,11 @@ let function_phases () =
       let events =
         List.filter
           (function
-            | Parser.Parameter_default_completed _ -> false
+            | Parser.Parameter_default_completed _
+            | Parser.Function_parameter_declared _
+            | Parser.Function_parameter_completed _
+            | Parser.Function_variadic_started _
+            | Parser.Function_variadic_completed _ -> false
             | _ -> true)
           events
       in

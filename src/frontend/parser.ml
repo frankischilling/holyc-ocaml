@@ -237,7 +237,10 @@ let initializer_delimiter_is_current delimiter =
        .command_context
        .context_active
 
+type function_activity = { mutable function_active : bool }
+
 type function_publication = {
+  function_activity : function_activity;
   function_header : declaration_header;
   function_environment : Symbol_visibility.Environment.t;
   function_entry : Symbol_visibility.entry;
@@ -247,10 +250,76 @@ type function_publication = {
   function_opening_parenthesis : Ast.location;
 }
 
+let function_publication_is_current receipt =
+  receipt.function_activity.function_active
+  && receipt.function_header.declaration_command.command_context.context_active
+
+type function_parameter_activity = { mutable function_parameter_active : bool }
+
+type parameter_completion_activity = {
+  mutable parameter_completion_active : bool;
+}
+
+type function_parameter_publication = {
+  parameter_function : function_publication;
+  parameter_index : int;
+  parameter_predecessor : completed_function_parameter option;
+  parameter_register_qualifiers : Ast.register_qualifier list;
+  parameter_type_specifier : Ast.type_specifier;
+  parameter_pointer_layers : Ast.pointer_layer list;
+  parameter_name : Ast.identifier option;
+  parameter_function_pointer : Ast.function_pointer_declarator option;
+  parameter_activity : function_parameter_activity;
+}
+
+and completed_function_parameter = {
+  parameter_publication : function_parameter_publication;
+  parameter_ast : Ast.function_parameter;
+  parameter_completion_activity : parameter_completion_activity;
+}
+
+let function_parameter_is_current receipt =
+  receipt.parameter_activity.function_parameter_active
+  && receipt.parameter_function.function_header.declaration_command
+       .command_context
+       .context_active
+
+let function_parameter_completion_is_current receipt =
+  receipt.parameter_completion_activity.parameter_completion_active
+  && receipt.parameter_publication.parameter_function.function_header
+       .declaration_command
+       .command_context
+       .context_active
+
+type function_variadic_activity = {
+  mutable function_variadic_start_active : bool;
+  mutable function_variadic_completion_active : bool;
+}
+
+type function_variadic_publication = {
+  variadic_function : function_publication;
+  variadic_marker : Ast.variadic_marker;
+  variadic_parameter_predecessor : completed_function_parameter option;
+  variadic_activity : function_variadic_activity;
+}
+
+let function_variadic_start_is_current receipt =
+  receipt.variadic_activity.function_variadic_start_active
+  && receipt.variadic_function.function_header.declaration_command
+       .command_context
+       .context_active
+
+let function_variadic_completion_is_current receipt =
+  receipt.variadic_activity.function_variadic_completion_active
+  && receipt.variadic_function.function_header.declaration_command
+       .command_context
+       .context_active
+
 type parameter_default_activity = { mutable parameter_default_active : bool }
 
 type completed_parameter_default = {
   default_function : function_publication;
+  default_parameter : function_parameter_publication;
   default_parameter_index : int;
   default_predecessor : completed_parameter_default option;
   default_register_qualifiers : Ast.register_qualifier list;
@@ -274,8 +343,10 @@ type completed_function_header = {
   function_publication : function_publication;
   completed_entry : Symbol_visibility.entry;
   parameters : Ast.function_parameter list;
+  parameter_completions : completed_function_parameter list;
   empty_parameter_entries : Ast.empty_parameter_entry list;
   variadic : Ast.variadic_marker option;
+  variadic_publication : function_variadic_publication option;
   closing_parenthesis : Ast.location option;
   header_activity : function_header_activity;
 }
@@ -331,7 +402,11 @@ type declaration_event =
   | Global_initializer_delimiter_completed of completed_initializer_delimiter
   | Global_completed of global_publication * Ast.global_declarator
   | Function_declared of function_publication
+  | Function_parameter_declared of function_parameter_publication
   | Parameter_default_completed of completed_parameter_default
+  | Function_parameter_completed of completed_function_parameter
+  | Function_variadic_started of function_variadic_publication
+  | Function_variadic_completed of function_variadic_publication
   | Function_header_completed of completed_function_header
   | Function_body_completed of
       completed_function_header * Ast.function_definition
@@ -574,8 +649,10 @@ type parsed_register_qualifiers = {
 
 type parsed_parameter_list = {
   parameters : Ast.function_parameter list;
+  parameter_completions : completed_function_parameter list;
   empty_parameter_entries : Ast.empty_parameter_entry list;
   variadic : Ast.variadic_marker option;
+  variadic_publication : function_variadic_publication option;
   tokens : Token.t list;
   closing_parenthesis : Ast.location option;
 }
@@ -1417,6 +1494,7 @@ let declare_function cursor header (prefix : parsed_declarator_prefix) opening =
     in
     let publication =
       {
+        function_activity = { function_active = true };
         function_header = header;
         function_environment = cursor.symbols;
         function_entry;
@@ -1426,7 +1504,11 @@ let declare_function cursor header (prefix : parsed_declarator_prefix) opening =
         function_opening_parenthesis = token_location opening.token;
       }
     in
-    publish_declaration cursor opening (Function_declared publication);
+    Fun.protect
+      ~finally:(fun () ->
+        publication.function_activity.function_active <- false)
+      (fun () ->
+        publish_declaration cursor opening (Function_declared publication));
     Some publication
 
 let complete_function_header cursor at publication
@@ -1465,8 +1547,10 @@ let complete_function_header cursor at publication
           function_publication;
           completed_entry;
           parameters = parsed.parameters;
+          parameter_completions = parsed.parameter_completions;
           empty_parameter_entries = parsed.empty_parameter_entries;
           variadic = parsed.variadic;
+          variadic_publication = parsed.variadic_publication;
           closing_parenthesis = parsed.closing_parenthesis;
           header_activity = { function_header_active = true };
         }
@@ -4205,18 +4289,47 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
 
 let finish_function_parameter ?default_context cursor ~register_qualifiers
     ~type_specifier ~pointer_layers ~name ~function_pointer ~tokens =
+  (* PrsType leaves the following token current. Native MemberAdd precedes
+     default input, including any directive reached by Lex beyond '='. *)
+  let following_head = peek cursor in
+  let publication =
+    Option.map
+      (fun (parameter_function, parameter_index, _, completions) ->
+        let publication =
+          {
+            parameter_function;
+            parameter_index;
+            parameter_predecessor = List.nth_opt !completions 0;
+            parameter_register_qualifiers = register_qualifiers;
+            parameter_type_specifier = type_specifier;
+            parameter_pointer_layers = pointer_layers;
+            parameter_name = name;
+            parameter_function_pointer = function_pointer;
+            parameter_activity = { function_parameter_active = true };
+          }
+        in
+        Fun.protect
+          ~finally:(fun () ->
+            publication.parameter_activity.function_parameter_active <- false)
+          (fun () ->
+            publish_declaration cursor following_head
+              (Function_parameter_declared publication));
+        publication)
+      default_context
+  in
   let parsed_default =
-    let item = peek cursor in
-    if item.token.kind = Token_kind.Punctuation '=' then
+    if following_head.token.kind = Token_kind.Punctuation '=' then
       Option.map (fun parsed -> Some parsed) (parse_parameter_default cursor)
     else Some None
   in
-  (match (default_context, parsed_default) with
-  | ( Some (default_function, default_parameter_index, previous),
+  (match (default_context, publication, parsed_default) with
+  | ( Some (default_function, default_parameter_index, previous, _),
+      Some default_parameter,
       Some (Some parsed) ) ->
       let receipt =
         {
           default_function;
+          default_parameter;
           default_parameter_index;
           default_predecessor = !previous;
           default_register_qualifiers = register_qualifiers;
@@ -4298,6 +4411,25 @@ let finish_function_parameter ?default_context cursor ~register_qualifiers
               ~delimiter
               ~location:(location_from_tokens tokens)
           in
+          (match (publication, default_context) with
+          | Some parameter_publication, Some (_, _, _, completions) ->
+              let completed =
+                {
+                  parameter_publication;
+                  parameter_ast = node;
+                  parameter_completion_activity =
+                    { parameter_completion_active = true };
+                }
+              in
+              Fun.protect
+                ~finally:(fun () ->
+                  completed.parameter_completion_activity.parameter_completion_active <-
+                    false)
+                (fun () ->
+                  publish_declaration cursor following_item
+                    (Function_parameter_completed completed));
+              completions := completed :: !completions
+          | _ -> ());
           Some ({ node; tokens } : parsed_parameter)
       | _ -> fail_special_form ())
 
@@ -4540,6 +4672,11 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
 and parse_function_parameters ?default_owner cursor parameters_rev
     empty_entries_rev tokens_rev ~function_pointer_depth :
     parsed_parameter_list option =
+  let parameter_completions () =
+    match default_owner with
+    | None -> []
+    | Some (_, _, completions) -> List.rev !completions
+  in
   let prefix =
     parse_register_qualifiers cursor ~position:Ast.Before_type [] []
   in
@@ -4550,22 +4687,64 @@ and parse_function_parameters ?default_owner cursor parameters_rev
       Some
         {
           parameters = List.rev parameters_rev;
+          parameter_completions = parameter_completions ();
           empty_parameter_entries = List.rev empty_entries_rev;
           variadic = None;
+          variadic_publication = None;
           tokens = List.rev (closing.token :: tokens_rev);
           closing_parenthesis = Some (token_location closing.token);
         }
   | Token_kind.Operator Operator.Ellipsis ->
       let ellipsis = take cursor in
-      let closing =
-        if (peek cursor).token.kind = Token_kind.Punctuation ')' then
-          Some (take cursor)
-        else None
-      in
       let variadic =
         Ast.make_variadic_marker ~register_qualifiers:prefix.nodes
           ~spelling:ellipsis.token.raw
           ~location:(location_from_tokens (prefix.tokens @ [ ellipsis.token ]))
+      in
+      let variadic_publication =
+        Option.map
+          (fun (variadic_function, _, completions) ->
+            let publication =
+              {
+                variadic_function;
+                variadic_marker = variadic;
+                variadic_parameter_predecessor = List.nth_opt !completions 0;
+                variadic_activity =
+                  {
+                    function_variadic_start_active = true;
+                    function_variadic_completion_active = false;
+                  };
+              }
+            in
+            Fun.protect
+              ~finally:(fun () ->
+                publication.variadic_activity.function_variadic_start_active <-
+                  false)
+              (fun () ->
+                publish_declaration cursor ellipsis
+                  (Function_variadic_started publication));
+            publication)
+          default_owner
+      in
+      (* PrsDotDotDot sets its flag before Lex, then adds argc and argv before
+         the optional ')' triggers another Lex. *)
+      let following = peek cursor in
+      Option.iter
+        (fun publication ->
+          publication.variadic_activity.function_variadic_completion_active <-
+            true;
+          Fun.protect
+            ~finally:(fun () ->
+              publication.variadic_activity.function_variadic_completion_active <-
+                false)
+            (fun () ->
+              publish_declaration cursor following
+                (Function_variadic_completed publication)))
+        variadic_publication;
+      let closing =
+        if following.token.kind = Token_kind.Punctuation ')' then
+          Some (take cursor)
+        else None
       in
       let tokens_rev =
         ellipsis.token :: List.rev_append prefix.tokens tokens_rev
@@ -4578,8 +4757,10 @@ and parse_function_parameters ?default_owner cursor parameters_rev
       Some
         {
           parameters = List.rev parameters_rev;
+          parameter_completions = parameter_completions ();
           empty_parameter_entries = List.rev empty_entries_rev;
           variadic = Some variadic;
+          variadic_publication;
           tokens = List.rev tokens_rev;
           closing_parenthesis =
             Option.map (fun closing -> token_location closing.token) closing;
@@ -4610,8 +4791,8 @@ and parse_function_parameters ?default_owner cursor parameters_rev
         parse_function_parameter
           ?default_context:
             (Option.map
-               (fun (owner, previous) ->
-                 (owner, List.length parameters_rev, previous))
+               (fun (owner, previous, completions) ->
+                 (owner, List.length parameters_rev, previous, completions))
                default_owner)
           cursor ~prefix_qualifiers:prefix.nodes ~prefix_tokens:prefix.tokens
           ~function_pointer_depth
@@ -4639,7 +4820,8 @@ let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
   in
   match
     parse_function_parameters
-      ?default_owner:(Option.map (fun owner -> (owner, ref None)) provisional)
+      ?default_owner:
+        (Option.map (fun owner -> (owner, ref None, ref [])) provisional)
       cursor [] [] [] ~function_pointer_depth:0
   with
   | None -> None
@@ -8056,7 +8238,8 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
   in
   match
     parse_function_parameters
-      ?default_owner:(Option.map (fun owner -> (owner, ref None)) provisional)
+      ?default_owner:
+        (Option.map (fun owner -> (owner, ref None, ref [])) provisional)
       cursor [] [] [] ~function_pointer_depth:0
   with
   | None -> None

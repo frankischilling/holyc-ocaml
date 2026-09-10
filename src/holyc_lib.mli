@@ -8,6 +8,7 @@ module Session = Driver.Session
 module Integer_task = Driver.Integer_task
 module Task_declarations = Driver.Task_declarations
 module Semantic_compiler_record = Sema.Compiler_record
+module Semantic_provisional_function = Sema.Provisional_function
 module Version = Driver.Version
 module Corpus = Driver.Corpus
 module Primitive_type = Sema.Primitive_type

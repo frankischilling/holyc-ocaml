@@ -136,6 +136,8 @@ let () =
       ("live initializer layout", Test_live_initializer_layout.tests);
       ("live initializer lowering", Test_live_initializer_lowering.tests);
       ("parameter default boundaries", Test_parameter_default_boundaries.tests);
+      ("provisional function parser", Test_provisional_function_parser.tests);
+      ("provisional function source", Test_provisional_function_source.tests);
       ("parameter default execution", Test_parameter_default_execution.tests);
       ("stream parser", Test_stream_parser.tests);
       ("source integer statics", Test_integer_statics.tests);

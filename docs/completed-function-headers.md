@@ -139,9 +139,12 @@ The parser regressions preserve these distinct boundaries:
 Moving body publication earlier would erase an observable native phase. A
 fresh provisional header also differs from an extern record whose parameters
 are being replaced. [PrsLib.HC](../third_party/TempleOS/Compiler/PrsLib.HC),
-lines 62–76, zero-allocates a new record; PrsStmt.HC, lines 90–94, replaces a
-reused record's member list while retaining its previous argument count until
-the final assignment at lines 114–115.
+lines 62–76, zero-allocates a new record. PrsStmt.HC, lines 90–94, saves a reused
+record's previous count for header comparison, then replaces its member list.
+`ClassMemberLstDel` in LexLib.HC, lines 209–218, resets both member and argument
+counts to zero. The final assignment at PrsStmt.HC:115 uses the current member
+count. Nested declarations can modify that same record before the outer parser
+resumes.
 Neither state may be relabeled as a completed header.
 
 [Parameter delimiters](function-parameter-delimiters.md) retain trailing comma
@@ -155,5 +158,9 @@ These are hosted tests and pinned source evidence; no native execution capture
 is claimed. [Runtime tests](../test/test_pending_function_header.ml) also cover
 argument faults, skipped calls, retained defaults, variadics, shadows, recovery,
 provider timing, expired admission and resource limits. Provisional parameter
-records, named aggregate visibility, native extern slots, linking and the
+runtime records, named aggregate visibility, native extern slots, linking and the
 complete compiler remain unfinished.
+
+The [provisional source transcript](provisional-function-members.md) now retains
+original member phases before header completion. It does not yet admit runtime
+calls against those partial headers.

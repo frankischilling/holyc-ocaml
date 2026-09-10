@@ -80,6 +80,14 @@ let event_context = function
             p.delimiter_initializer.initializer_owner.global_header
               .declaration_command
         | Parser.Function_declared p -> p.function_header.declaration_command
+        | Parser.Function_parameter_declared p ->
+            p.parameter_function.function_header.declaration_command
+        | Parser.Function_parameter_completed p ->
+            p.parameter_publication.parameter_function.function_header
+              .declaration_command
+        | Parser.Function_variadic_started p
+        | Parser.Function_variadic_completed p ->
+            p.variadic_function.function_header.declaration_command
         | Parser.Parameter_default_completed p ->
             p.default_function.function_header.declaration_command
         | Parser.Function_header_completed p
@@ -146,6 +154,11 @@ let function_header activation header =
   allows activation (function
     | Declaration (Parser.Function_header_completed original) ->
         original == header
+    | _ -> false)
+
+let function_declaration activation publication =
+  allows activation (function
+    | Declaration (Parser.Function_declared original) -> original == publication
     | _ -> false)
 
 let initializer_start activation receipt =

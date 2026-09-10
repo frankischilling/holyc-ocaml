@@ -69,6 +69,7 @@ type source =
     }
   | Function of {
       publication : Parser.function_publication;
+      mutable provisional_source : Sema.Provisional_function.t option;
       mutable defaults_rev : Parser.completed_parameter_default list;
       mutable header : Parser.completed_function_header option;
       mutable declared_header : Sema.Compiler_record.declared_function option;
@@ -1165,6 +1166,15 @@ let assign ledger (name : Ast.identifier) kind source entry =
   in
   if Sema.Symbol.kind (Collection.publication_symbol publication) <> kind then
     fail name.location.span "parser publication has the wrong declaration kind";
+  (match source with
+  | Function state when Parser.function_publication_is_current state.publication
+    ->
+      state.provisional_source <-
+        Some
+          (Sema.Provisional_function.create ~table:ledger.table
+             ~namespace:ledger.namespace publication state.publication
+          |> checked name.location.span)
+  | _ -> ());
   let assigned =
     { publication; source; ordinal = ledger.next_ordinal; claimed = false }
   in
@@ -1487,6 +1497,7 @@ let observe ledger event =
             (Function
                {
                  publication;
+                 provisional_source = None;
                  defaults_rev = [];
                  header = None;
                  declared_header = None;
@@ -1494,6 +1505,31 @@ let observe ledger event =
                  body = None;
                })
             publication.function_entry
+      | ( Parser.Function_parameter_declared _
+        | Parser.Function_parameter_completed _
+        | Parser.Function_variadic_started _
+        | Parser.Function_variadic_completed _ ) as event -> (
+          let publication =
+            match event with
+            | Parser.Function_parameter_declared p -> p.parameter_function
+            | Parser.Function_parameter_completed p ->
+                p.parameter_publication.parameter_function
+            | Parser.Function_variadic_started p
+            | Parser.Function_variadic_completed p -> p.variadic_function
+            | _ -> assert false
+          in
+          validate_command ledger publication.function_header;
+          let span = publication.function_name.location.span in
+          match (find ledger publication.function_name).source with
+          | Function state when state.publication == publication -> (
+              match state.provisional_source with
+              | Some source ->
+                  Sema.Provisional_function.observe source event |> checked span
+              | None ->
+                  fail span
+                    "provisional member lacks its original declaration callback"
+              )
+          | _ -> fail span "provisional member belongs to another function")
       | Parser.Parameter_default_completed receipt -> (
           let publication = receipt.default_function in
           let span = receipt.default_ast.location.span in
@@ -1516,6 +1552,12 @@ let observe ledger event =
               then
                 fail span
                   "parameter default is skipped, repeated or out of order";
+              (match state.provisional_source with
+              | Some source ->
+                  Sema.Provisional_function.observe source event |> checked span
+              | None ->
+                  fail span
+                    "parameter default lacks its original provisional member");
               state.defaults_rev <- receipt :: state.defaults_rev
           | _ ->
               fail span
@@ -1606,6 +1648,11 @@ let observe ledger event =
                     |> checked publication.function_name.location.span)
                 else None
               in
+              Option.iter
+                (fun source ->
+                  Sema.Provisional_function.observe source event
+                  |> checked publication.function_name.location.span)
+                state.provisional_source;
               state.declared_header <- declared_header;
               state.header <- Some header;
               Entries.add ledger.entries header.completed_entry assigned

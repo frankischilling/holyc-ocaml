@@ -614,6 +614,13 @@ let execution_commands task span ~active =
             .declaration_command
       | Function_declared publication ->
           publication.function_header.declaration_command
+      | Function_parameter_declared p ->
+          p.parameter_function.function_header.declaration_command
+      | Function_parameter_completed p ->
+          p.parameter_publication.parameter_function.function_header
+            .declaration_command
+      | Function_variadic_started p | Function_variadic_completed p ->
+          p.variadic_function.function_header.declaration_command
       | Parameter_default_completed receipt ->
           receipt.default_function.function_header.declaration_command
       | Function_header_completed header | Function_body_completed (header, _)

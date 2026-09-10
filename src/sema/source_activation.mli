@@ -6,6 +6,9 @@ type event =
 
 type t
 
+val function_declaration :
+  t option -> Frontend.Parser.function_publication -> bool
+
 val function_header :
   t option -> Frontend.Parser.completed_function_header -> bool
 (** Only the exact currently active header event may create header evidence. An
