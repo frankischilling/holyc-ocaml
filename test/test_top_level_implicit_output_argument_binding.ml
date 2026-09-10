@@ -177,8 +177,8 @@ let defaults_keep_mode_and_generated_provenance () =
 
 let missing_and_extra_values_have_stable_diagnostics () =
   let missing =
-    prepare ~path:"top-level-output-missing-fixed.HC"
-      "extern U0 Print(U8 *fmt,I64 value);\"value\";"
+    Test_implicit_output_argument_binding.prepare_legacy_missing
+      ~path:"top-level-output-missing-fixed" ~body:"\"value\";"
     |> analyze
   in
   (match bind missing with
@@ -351,6 +351,45 @@ let shared_rules_preserve_function_binding () =
 
 let tests =
   [
+    Alcotest.test_case "omission cannot refer beyond the selected header" `Quick
+      (fun () ->
+        let source =
+          prepare ~path:"out-of-range-omission.HC"
+            {|extern U0 Print(U8 *s,I64 a=42);"x";|}
+        in
+        let items =
+          List.map
+            (function
+              | Ast.Top_level_statement (Ast.Implicit_output_statement output)
+                ->
+                  let omission =
+                    Ast.make_implicit_output_omission ~parameter_index:2
+                      ~leading_comma:None
+                      ~lookahead:(Option.get output.semicolon)
+                  in
+                  Ast.Top_level_statement
+                    (Ast.Implicit_output_statement
+                       (Ast.make_implicit_output_statement_with_omissions
+                          ~target:output.target ~marker:output.marker
+                          ~fixed_argument:output.fixed_argument
+                          ~arguments:output.arguments ~omissions:[ omission ]
+                          ~semicolon:output.semicolon ~location:output.location))
+              | item -> item)
+            source.ast.items
+        in
+        let ast =
+          Ast.make_module ~source:source.ast.source ~span:source.ast.span ~items
+        in
+        let input =
+          Test_function_call_conversion_policy.finish_prepare Preprocessor.Jit
+            source.session ast
+          |> analyze
+        in
+        match bind input with
+        | Ok _ -> Alcotest.fail "out-of-range omission was accepted"
+        | Error error ->
+            Alcotest.(check string)
+              "invalid source evidence" "HCSEMA0060" (Binding.error_code error));
     Alcotest.test_case "selected headers and variadic tail" `Quick
       standard_bindings_follow_selected_headers;
     Alcotest.test_case "defaults and generated provenance" `Quick

@@ -1210,6 +1210,17 @@ and print_implicit_output_statement buffer sources ~indent
       print_expression buffer sources ~indent:(child_indent ^ "  ")
         argument.value)
     statement.arguments;
+  List.iter
+    (fun (omission : Ast.implicit_output_omission) ->
+      Printf.bprintf buffer "%somission parameter=%d lookahead=%s\n"
+        child_indent omission.parameter_index
+        (location_text sources omission.lookahead);
+      Option.iter
+        (fun comma ->
+          Printf.bprintf buffer "%s  comma span=%s\n" child_indent
+            (location_text sources comma))
+        omission.leading_comma)
+    statement.omissions;
   match statement.semicolon with
   | None -> Printf.bprintf buffer "%ssemicolon omitted\n" child_indent
   | Some semicolon ->
@@ -2203,22 +2214,41 @@ let implicit_output_statement_to_yojson sources
           ]
   in
   `Assoc
-    [
-      ("kind", `String "implicit_output_statement");
-      ("target", `String (implicit_output_target_name statement.target));
-      ("marker", literal_to_yojson sources ~kind:marker_kind statement.marker);
-      ("fixed_argument", fixed_argument);
-      ( "arguments",
-        `List
-          (List.map
-             (implicit_output_argument_to_yojson sources)
-             statement.arguments) );
-      ( "semicolon",
-        match statement.semicolon with
-        | None -> `Null
-        | Some semicolon -> location_to_yojson sources semicolon );
-      ("location", location_to_yojson sources statement.location);
-    ]
+    ([
+       ("kind", `String "implicit_output_statement");
+       ("target", `String (implicit_output_target_name statement.target));
+       ("marker", literal_to_yojson sources ~kind:marker_kind statement.marker);
+       ("fixed_argument", fixed_argument);
+       ( "arguments",
+         `List
+           (List.map
+              (implicit_output_argument_to_yojson sources)
+              statement.arguments) );
+       ( "semicolon",
+         match statement.semicolon with
+         | None -> `Null
+         | Some semicolon -> location_to_yojson sources semicolon );
+       ("location", location_to_yojson sources statement.location);
+     ]
+    @
+    if statement.omissions = [] then []
+    else
+      [
+        ( "omissions",
+          `List
+            (List.map
+               (fun (omission : Ast.implicit_output_omission) ->
+                 `Assoc
+                   [
+                     ("parameter_index", `Int omission.parameter_index);
+                     ( "comma",
+                       match omission.leading_comma with
+                       | None -> `Null
+                       | Some comma -> location_to_yojson sources comma );
+                     ("lookahead", location_to_yojson sources omission.lookahead);
+                   ])
+               statement.omissions) );
+      ])
 
 let assembly_token_to_yojson sources (token : Ast.assembly_token) =
   let source = token.assembly_source_token in

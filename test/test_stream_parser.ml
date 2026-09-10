@@ -1691,6 +1691,62 @@ let implicit_defaults_do_not_consume_supplied_values () =
 
 let tests =
   [
+    Alcotest.test_case "implicit omissions retain original separators" `Quick
+      (fun () ->
+        let contents =
+          {|extern U0 Print(U8 *s,I64 a=1,I64 b,I64 c=3,I64 d=4);"x",,42,,;|}
+        in
+        let session, _, parsed, _, _, _ = parse contents in
+        let ast = P.expect_ast parsed in
+        let output =
+          match List.rev ast.items with
+          | Ast.Top_level_statement (Ast.Implicit_output_statement output) :: _
+            -> output
+          | _ -> Alcotest.fail "expected original implicit statement"
+        in
+        Alcotest.(check (list int))
+          "formal positions" [ 1; 3; 4 ]
+          (List.map
+             (fun (o : Ast.implicit_output_omission) -> o.parameter_index)
+             output.omissions);
+        let text (location : Ast.location) =
+          String.sub contents location.span.start
+            (location.span.stop - location.span.start)
+        in
+        Alcotest.(check (list string))
+          "consumed commas" [ ","; ","; "," ]
+          (List.map
+             (fun (o : Ast.implicit_output_omission) ->
+               text (Option.get o.leading_comma))
+             output.omissions);
+        Alcotest.(check (list string))
+          "unconsumed lookahead" [ ","; ","; ";" ]
+          (List.map
+             (fun (o : Ast.implicit_output_omission) -> text o.lookahead)
+             output.omissions);
+        Alcotest.(check int)
+          "one supplied trailing value" 1
+          (List.length output.arguments);
+        let dump =
+          Ast_dump.to_yojson (Session.sources session) ast
+          |> Yojson.Safe.to_string
+        in
+        Alcotest.(check bool)
+          "dump retains omissions" true
+          (Test_parser.contains dump "\"omissions\""));
+    Alcotest.test_case "implicit required slots fail before later directives"
+      `Quick (fun () ->
+        List.iter
+          (fun contents ->
+            let entered = ref 0 in
+            error "HCPARSE0165"
+              (parse ~on_enter:(fun () -> incr entered) contents);
+            Alcotest.(check int) "later directive was not reached" 0 !entered)
+          [
+            {|extern U0 Print(U8 *s,I64 n);"x";#exe {}|};
+            {|extern U0 Print(U8 *s,I64 n=1,I64 r);"x",,;#exe {}|};
+            {|extern U0 Print(U8 *s,I64 n=1,I64 r);U0 F(){"x",,;#exe {}}|};
+          ]);
     Alcotest.test_case "implicit missing required slot precedes later lookahead"
       `Quick (fun () ->
         let entered = ref 0 in

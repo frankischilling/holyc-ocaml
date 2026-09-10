@@ -29,6 +29,7 @@ type outer_headers = Function_type_resolution.resolved_function Int_map.t
 type outer_header_error = Foreign_header | Duplicate_header
 
 type 'value error =
+  | Invalid_omission of int
   | Missing_required_parameter of {
       parameter : Function_type_resolution.parameter;
       position : int;
@@ -69,29 +70,39 @@ let find_outer_header headers symbol =
       Some header
   | Some _ | None -> None
 
-let plan header values =
+let plan ?(omissions = []) header values =
   let signature = Function_type_resolution.function_signature header in
   let parameters = Function_type_resolution.signature_parameters signature in
   let fixed_count = List.length parameters in
+  let rec invalid_omission previous = function
+    | [] -> None
+    | position :: rest ->
+        if position <= previous || position >= fixed_count then Some position
+        else invalid_omission position rest
+  in
   let rec fixed position rev parameters values =
     match parameters with
     | parameter :: parameter_rest -> (
-        match values with
-        | value :: value_rest ->
+        match (List.mem position omissions, values) with
+        | false, value :: value_rest ->
             fixed (position + 1)
               ({ parameter; path = Provided { value; position } } :: rev)
               parameter_rest value_rest
-        | [] -> (
+        | true, _ | false, [] -> (
             match Function_type_resolution.parameter_default parameter with
             | Some source ->
                 fixed (position + 1)
                   ({ parameter; path = Defaulted { source; position } } :: rev)
-                  parameter_rest []
+                  parameter_rest values
             | None -> Error (Missing_required_parameter { parameter; position })
             ))
     | [] -> Ok (List.rev rev, values)
   in
-  match fixed 0 [] parameters values with
+  match
+    match invalid_omission 0 omissions with
+    | Some position -> Error (Invalid_omission position)
+    | None -> fixed 0 [] parameters values
+  with
   | Error _ as error -> error
   | Ok (fixed_slots, extras) -> (
       let variadic =

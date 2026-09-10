@@ -271,7 +271,20 @@ let make_default policies mode ~before_item_index output position parameter
 
 let bind_header policies mode ~before_item_index output header =
   let values = provided_values output in
-  match Implicit_output_argument_rules.plan header values with
+  let omissions =
+    output |> Implicit_output_target_resolution.output_source
+    |> Function_call_expression_result.implicit_output_source
+    |> Function_call_resolution.implicit_output_statement
+    |> Option.fold ~none:[] ~some:(fun source ->
+        List.map
+          (fun (omission : Frontend.Ast.implicit_output_omission) ->
+            omission.parameter_index)
+          source.Frontend.Ast.omissions)
+  in
+  match Implicit_output_argument_rules.plan ~omissions header values with
+  | Error (Implicit_output_argument_rules.Invalid_omission _) ->
+      Error
+        (invalid_input "implicit output omission has no ordered fixed parameter")
   | Error
       (Implicit_output_argument_rules.Missing_required_parameter
          { parameter; position }) ->

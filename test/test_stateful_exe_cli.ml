@@ -44,6 +44,9 @@ let with_source contents run =
 
 let require condition message = if not condition then failwith message
 
+let omission_source =
+  {|#exe {I64 N=38;I64 Out=0;U0 Print(U8 *s,I64 saved=++N,I64 required,I64 tail=1){Out=saved+required+tail;}N=0;"top",,2,;I64 Top=Out;U0 Saved(){"body",,2,;}Out=0;Saved;StreamPrint("%d;",Top+Out+N-42);}|}
+
 let () =
   let executable = Sys.argv.(1) in
   List.iter
@@ -71,6 +74,12 @@ let () =
     [
       ("jit", {|#exe {StreamPrint("42;");}|});
       ("aot", {|#exe {StreamPrint("42;");}|});
+      ( "jit",
+        {|#exe {I64 Out=0;U0 Print(U8 *s,I64 a=40,I64 b,I64 c=1){Out=a+b+c;}"x",,1,;StreamPrint("%d;",Out);}|}
+      );
+      ( "aot",
+        {|#exe {I64 Out=0;U0 Print(U8 *s,I64 a=40,I64 b,I64 c=1){Out=a+b+c;}"x",,1,;StreamPrint("%d;",Out);}|}
+      );
       ("jit", {|I64 N=40;#exe {StreamPrint("%d;",N+2);}|});
       ("jit", {|I64 F(I64 n=42){return n;};F();|});
       ("aot", {|I64 F(I64 n=42){return n;};F();|});
@@ -84,6 +93,68 @@ let () =
         {|I64 N=20;I64 Next(){return ++N;};I64 Saved(I64 n=Next()){return n;};N=0;#exe {StreamPrint("%d;",Saved()+Saved());}|}
       );
     ];
+  List.iter
+    (fun (mode, steps) ->
+      with_source omission_source (fun path ->
+          List.iter
+            (fun (limits, expected_status, expected_steps, preparation) ->
+              let status, output, errors =
+                capture executable
+                  ([
+                     "run";
+                     "--format=json";
+                     "--report-version=2";
+                     "--mode=" ^ mode;
+                   ]
+                  @ limits @ [ path ])
+              in
+              require
+                (status = Unix.WEXITED expected_status && errors = "")
+                ("implicit omission limit status: " ^ output ^ errors);
+              let open Yojson.Basic.Util in
+              let report = Yojson.Basic.from_string output in
+              require
+                (report |> member "output_hex" |> to_string = "")
+                "implicit omission capture";
+              require
+                (report
+                |> member "compiled_initializer_steps"
+                |> to_int = preparation)
+                "implicit omission preparation accounting";
+              Option.iter
+                (fun expected ->
+                  require
+                    (report |> member "executed_steps" |> to_int = expected)
+                    "implicit omission runtime accounting")
+                expected_steps;
+              if expected_status = 0 then (
+                require
+                  (report |> member "final_value" |> member "value" |> to_string
+                 = "42")
+                  "implicit omission exact-limit result";
+                require
+                  (report |> member "diagnostics" |> to_list = [])
+                  "implicit omission exact-limit diagnostics")
+              else
+                require
+                  (report |> member "diagnostics" |> to_list |> List.hd
+                 |> member "code" |> to_string = "HCIRVM0007")
+                  "implicit omission one-below diagnostic")
+            [
+              ( [
+                  "--step-limit=" ^ string_of_int steps;
+                  "--initializer-step-limit=9";
+                ],
+                0,
+                Some steps,
+                9 );
+              ( [ "--step-limit=" ^ string_of_int (steps - 1) ],
+                1,
+                Some (steps - 1),
+                9 );
+              ([ "--initializer-step-limit=8" ], 1, None, 8);
+            ]))
+    [ ("jit", 112); ("aot", 114) ];
   List.iter
     (fun source ->
       with_source source (fun path ->

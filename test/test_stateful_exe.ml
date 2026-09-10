@@ -30,6 +30,16 @@ let tests =
     (fun (name, source) -> Alcotest.test_case name `Quick (expect 42L source))
     gates
   @ [
+      Alcotest.test_case "implicit separators select saved defaults" `Quick
+        (expect 42L
+           {|#exe {I64 N=40;I64 Out=0;U0 Print(U8 *s,I64 a=++N,I64 b=1){Out=a+b;}N=0;"top",,;I64 Top=Out;U0 Saved(){"body",,;}Out=0;Saved;StreamPrint("%d;",Top+Out+N-42);}|});
+      Alcotest.test_case "implicit defaults precede supplied required slots"
+        `Quick
+        (expect 42L
+           {|I64 Out=0;U0 Print(U8 *s,I64 a=40,I64 b){Out=a+b;}"top",,2;I64 Top=Out;U0 Saved(){"body",,2;}Out=0;Saved;Top+Out-42;|});
+      Alcotest.test_case "implicit trailing separator omits a default" `Quick
+        (expect 42L
+           {|I64 Out=0;U0 Print(U8 *s,I64 a=42){Out=a;}"top",;I64 Top=Out;U0 Saved(){"body",;}Out=0;Saved;Top+Out-42;|});
       Alcotest.test_case "implicit defaults are saved in directive tasks" `Quick
         (expect 42L
            {|#exe {I64 N=40;I64 Out=0;U0 Print(U8 *s,I64 n=++N){Out=n;}N=0;"saved";U0 Saved(){"saved";}Out=0;Saved;StreamPrint("%d;",Out+N+1);}|});

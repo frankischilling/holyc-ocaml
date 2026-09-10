@@ -13,6 +13,7 @@ type outer_headers
 type outer_header_error = Foreign_header | Duplicate_header
 
 type 'value error =
+  | Invalid_omission of int
   | Missing_required_parameter of {
       parameter : Function_type_resolution.parameter;
       position : int;
@@ -24,6 +25,7 @@ type 'value error =
     }
 
 val plan :
+  ?omissions:int list ->
   Function_type_resolution.resolved_function ->
   'value list ->
   ('value plan, 'value error) result

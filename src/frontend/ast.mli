@@ -512,11 +512,18 @@ type implicit_output_argument = private {
   location : location;
 }
 
+type implicit_output_omission = private {
+  parameter_index : int;
+  leading_comma : location option;
+  lookahead : location;
+}
+
 type implicit_output_statement = private {
   target : implicit_output_target;
   marker : expression_literal;
   fixed_argument : implicit_output_fixed_argument;
   arguments : implicit_output_argument list;
+  omissions : implicit_output_omission list;
   semicolon : location option;
   location : location;
 }
@@ -1292,6 +1299,22 @@ val make_implicit_output_statement :
   marker:expression_literal ->
   fixed_argument:implicit_output_fixed_argument ->
   arguments:implicit_output_argument list ->
+  semicolon:location option ->
+  location:location ->
+  implicit_output_statement
+
+val make_implicit_output_omission :
+  parameter_index:int ->
+  leading_comma:location option ->
+  lookahead:location ->
+  implicit_output_omission
+
+val make_implicit_output_statement_with_omissions :
+  target:implicit_output_target ->
+  marker:expression_literal ->
+  fixed_argument:implicit_output_fixed_argument ->
+  arguments:implicit_output_argument list ->
+  omissions:implicit_output_omission list ->
   semicolon:location option ->
   location:location ->
   implicit_output_statement

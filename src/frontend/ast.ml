@@ -507,11 +507,18 @@ type implicit_output_argument = {
   location : location;
 }
 
+type implicit_output_omission = {
+  parameter_index : int;
+  leading_comma : location option;
+  lookahead : location;
+}
+
 type implicit_output_statement = {
   target : implicit_output_target;
   marker : expression_literal;
   fixed_argument : implicit_output_fixed_argument;
   arguments : implicit_output_argument list;
+  omissions : implicit_output_omission list;
   semicolon : location option;
   location : location;
 }
@@ -1352,9 +1359,27 @@ let make_function_prototype ~modifiers ~binding ~return_type
 let make_implicit_output_argument ~leading_comma ~value ~location =
   { leading_comma; value; location }
 
+let make_implicit_output_omission ~parameter_index ~leading_comma ~lookahead =
+  if parameter_index <= 0 then
+    invalid_arg "implicit output omission must follow the initial argument";
+  { parameter_index; leading_comma; lookahead }
+
+let make_implicit_output_statement_with_omissions ~target ~marker
+    ~fixed_argument ~arguments ~omissions ~semicolon ~location =
+  let rec check previous = function
+    | [] -> ()
+    | omission :: rest ->
+        if omission.parameter_index <= previous then
+          invalid_arg "implicit output omissions must be in parameter order";
+        check omission.parameter_index rest
+  in
+  check 0 omissions;
+  { target; marker; fixed_argument; arguments; omissions; semicolon; location }
+
 let make_implicit_output_statement ~target ~marker ~fixed_argument ~arguments
     ~semicolon ~location =
-  { target; marker; fixed_argument; arguments; semicolon; location }
+  make_implicit_output_statement_with_omissions ~target ~marker ~fixed_argument
+    ~arguments ~omissions:[] ~semicolon ~location
 
 let make_empty_statement ~semicolon ~location =
   { empty_statement_semicolon = semicolon; empty_statement_location = location }

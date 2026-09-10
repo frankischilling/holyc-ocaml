@@ -38,8 +38,8 @@ that limit. Tests cover selection before literal
 concatenation, nested directives, generated source, retained function bodies,
 absent targets before argument effects, and function-kind filtering.
 
-Implicit calls also use saved integer defaults for trailing omitted parameters.
-The remaining fixed parameters must all have defaults. Each value comes from
+Implicit calls also use saved integer defaults for omitted parameters after
+the initial supplied output argument. Each value comes from
 the original completed parameter in the selected header and task snapshot;
 calling again does not repeat declaration-time evaluation. Function bodies and
 pending calls keep their saved values after replacement. Ordinary AOT calls
@@ -58,11 +58,28 @@ Native `PrsFunCall` chooses available defaults without consuming expressions
 in parenthesis-free calls (`Compiler/PrsExp.HC:455-470`). Source parsing uses the
 original selected header shape to reject a supplied value at such a defaulted
 slot before later lexer effects. This includes an empty marker followed by an
-adjacent string. A required parameter after the omitted defaults also stops
-before command lookahead. HCPARSE0164 identifies the unconsumed-argument
-boundary; HCPARSE0165 identifies the missing required parameter.
+adjacent string. Each fixed Print parameter processes its own separator.
+For `U0 Print(U8 *s,I64 saved=40,I64 required)`, the statement `"x",,2;`
+uses the saved 40 and supplies 2 to `required`. A trailing separator can omit
+a default too: `"x",;` for a header with one trailing default.
 
-The checked subset still excludes separator-only implicit omissions, general
+The AST retains each omitted formal position, consumed comma when present,
+and the unconsumed lookahead location. Semantic binding reads these from the
+same original statement used by target selection. Supplied expressions stay
+in source order and are assigned around the omitted slots. Human and JSON
+AST dumps expose the omission evidence. The
+[omissions example](../examples/stateful-exe-implicit-omissions.hc) checks
+both top-level and function-body calls and returns 42 with empty output.
+It uses 112 runtime / 9 preparation instructions in JIT and 114 / 9 in AOT.
+Exact limits succeed; each allowance one instruction lower stops with
+HCIRVM0007 and empty capture.
+
+A missing required parameter stops before command lookahead. HCPARSE0164
+identifies the unconsumed-argument boundary; HCPARSE0165 identifies the missing
+required parameter. Callback-free legacy AST inputs retain separate semantic
+arity diagnostics.
+
+The checked subset still excludes omitted initial arguments, general
 parenthesized multi-argument implicit forms, general default values and argument
 conversions. Some excluded omission forms are valid native syntax; these
 diagnostics do not establish complete native parser parity. It does not
