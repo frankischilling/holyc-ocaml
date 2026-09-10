@@ -313,7 +313,7 @@ let make_signature ~opening_origin ~parameters ?variadic_origin
           let needs_delimiter = rest <> [] || Option.is_some variadic_origin in
           if
             needs_delimiter
-            <> Option.is_some parameter.parameter_delimiter_origin_
+            && Option.is_none parameter.parameter_delimiter_origin_
           then
             Error
               "semantic function parameter delimiter does not match the \

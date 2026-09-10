@@ -144,6 +144,10 @@ reused record's member list while retaining its previous argument count until
 the final assignment at lines 114–115.
 Neither state may be relabeled as a completed header.
 
+[Parameter delimiters](function-parameter-delimiters.md) retain trailing comma
+and semicolon syntax through both completed-header typing and body completion.
+Empty entries remain source evidence and do not become signature slots.
+
 [Header tests](../test/test_completed_function_header.ml) cover original child
 identity, recursive type parity, ownership, callback lifetime, journal replay,
 ledger retention, unsupported aggregate visibility and directive lookahead.

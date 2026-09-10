@@ -851,6 +851,13 @@ let low_level_validation () =
        (Semantic_function_type_resolution.resolve ~table ~parent:module_scope
           [ function_ ]));
   Alcotest.(check bool)
+    "a fixed parameter before ellipsis still needs a delimiter" true
+    (Semantic_function_type_resolution.make_signature
+       ~opening_origin:(synthesized "open") ~parameters:[ parameter ]
+       ~variadic_origin:(synthesized "ellipsis")
+       ~closing_origin:(synthesized "close") ()
+    |> Result.is_error);
+  Alcotest.(check bool)
     "a callback needs indirection" true
     (Semantic_function_type_resolution.make_function_pointer
        ~origin:(synthesized "callback") ~opening_origin:(synthesized "open")

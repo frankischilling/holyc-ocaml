@@ -120,6 +120,9 @@ let function_versions_source =
  StreamPrint("%d;",SavedBefore()+SavedInner()+F()-108);
 }|}
 
+let parameter_delimiters_source =
+  "I64 F(;;I64 n=40,;;I64 m=2,;;){return n+m;};F();"
+
 let () =
   let executable = Sys.argv.(1) in
   List.iter
@@ -247,6 +250,8 @@ let () =
       (pending_header_source, "aot", 60, 3);
       (function_versions_source, "jit", 71, 6);
       (function_versions_source, "aot", 73, 6);
+      (parameter_delimiters_source, "jit", 22, 6);
+      (parameter_delimiters_source, "aot", 20, 6);
     ];
   List.iter
     (fun source ->

@@ -1824,8 +1824,8 @@ let empty_semicolon_function_parameter_entries () =
     [
       ("leading comma", "extern U0 Leading(,I64 value);");
       ("repeated comma", "extern U0 Repeated(I64 first,,I64 second);");
-      ( "semicolon after an empty comma slot",
-        "extern U0 AfterComma(I64 first,;I64 second);" );
+      ( "comma after empty semicolons still needs a parameter",
+        "extern U0 AfterEmpty(I64 first,;,I64 second);" );
     ]
 
 let modifier_declaration_group () =
@@ -11452,11 +11452,11 @@ let function_prototype_failures () =
         "NoClose",
         "HCPARSE0009",
         "parameter type" );
-      ( "trailing parameter comma",
-        "extern U0 Trailing(I64 value,);",
+      ( "repeated trailing parameter comma",
+        "extern U0 Trailing(I64 value,,);",
         "Trailing",
         "HCPARSE0009",
-        "after ','" );
+        "parameter type" );
       ( "nonterminal variadic marker",
         "extern U0 Nonterminal(...,I64 value);",
         "Nonterminal",
@@ -11768,7 +11768,7 @@ let function_definition_failures () =
       | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
           Alcotest.failf "expected recovered function symbol %s" name)
     [ "Broken"; "Recovered" ];
-  let rejected_session, _, rejected = parse_string "U0 Bad(I64 value,){}" in
+  let rejected_session, _, rejected = parse_string "U0 Bad(I64 value,,){}" in
   Alcotest.(check string)
     "a malformed definition parameter uses the shared diagnostic" "HCPARSE0009"
     (first_diagnostic rejected).code;

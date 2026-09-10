@@ -132,6 +132,7 @@
   test_aggregate_member_index
   test_aggregate_layout_dump
   test_function_type_resolution
+  test_function_parameter_delimiters
   test_global_type_resolution
   test_local_type_resolution
   test_function_binding_index

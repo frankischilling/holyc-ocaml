@@ -4499,7 +4499,7 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
               else
                 let signature_opening = take cursor in
                 match
-                  parse_function_parameters cursor [] [] [] ~after_comma:false
+                  parse_function_parameters cursor [] [] []
                     ~function_pointer_depth:(function_pointer_depth + 1)
                 with
                 | None -> None
@@ -4537,14 +4537,14 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
                       })
 
 and parse_function_parameters ?default_owner cursor parameters_rev
-    empty_entries_rev tokens_rev ~after_comma ~function_pointer_depth :
+    empty_entries_rev tokens_rev ~function_pointer_depth :
     parsed_parameter_list option =
   let prefix =
     parse_register_qualifiers cursor ~position:Ast.Before_type [] []
   in
   let item = peek cursor in
   match item.token.kind with
-  | Token_kind.Punctuation ')' when (not after_comma) && prefix.nodes = [] ->
+  | Token_kind.Punctuation ')' when prefix.nodes = [] ->
       let closing = take cursor in
       Some
         {
@@ -4579,7 +4579,7 @@ and parse_function_parameters ?default_owner cursor parameters_rev
             tokens = List.rev (closing.token :: ellipsis.token :: tokens_rev);
             closing_parenthesis = token_location closing.token;
           }
-  | Token_kind.Punctuation ';' when (not after_comma) && prefix.nodes = [] ->
+  | Token_kind.Punctuation ';' when prefix.nodes = [] ->
       let semicolon = take cursor in
       let delimiter =
         Ast.make_declaration_delimiter ~kind:Ast.Semicolon
@@ -4594,16 +4594,12 @@ and parse_function_parameters ?default_owner cursor parameters_rev
       parse_function_parameters ?default_owner cursor parameters_rev
         (empty_entry :: empty_entries_rev)
         (semicolon.token :: tokens_rev)
-        ~after_comma:false ~function_pointer_depth
+        ~function_pointer_depth
   | Token_kind.Punctuation ')' ->
       declaration_failure cursor item ~code:"HCPARSE0009"
         ~message:
-          (if prefix.nodes = [] then
-             "expected a primitive, class, or union parameter type after ',', \
-              but found ')'"
-           else
-             "expected a primitive, class, or union parameter type after \
-              register qualifier, but found ')'")
+          "expected a primitive, class, or union parameter type after register \
+           qualifier, but found ')'"
   | _ -> (
       match
         parse_function_parameter
@@ -4616,19 +4612,11 @@ and parse_function_parameters ?default_owner cursor parameters_rev
           ~function_pointer_depth
       with
       | None -> None
-      | Some parameter -> (
+      | Some parameter ->
           let tokens_rev = List.rev_append parameter.tokens tokens_rev in
           let parameters_rev = parameter.node :: parameters_rev in
-          match parameter.node.delimiter with
-          | Some delimiter ->
-              parse_function_parameters ?default_owner cursor parameters_rev
-                empty_entries_rev tokens_rev
-                ~after_comma:(delimiter.kind = Ast.Comma)
-                ~function_pointer_depth
-          | None ->
-              parse_function_parameters ?default_owner cursor parameters_rev
-                empty_entries_rev tokens_rev ~after_comma:false
-                ~function_pointer_depth))
+          parse_function_parameters ?default_owner cursor parameters_rev
+            empty_entries_rev tokens_rev ~function_pointer_depth)
 
 let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
     ~binding ~type_item ~return_type (prefix : parsed_declarator_prefix) =
@@ -4647,7 +4635,7 @@ let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
   match
     parse_function_parameters
       ?default_owner:(Option.map (fun owner -> (owner, ref None)) provisional)
-      cursor [] [] [] ~after_comma:false ~function_pointer_depth:0
+      cursor [] [] [] ~function_pointer_depth:0
   with
   | None -> None
   | Some parsed_parameters ->
@@ -8064,7 +8052,7 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
   match
     parse_function_parameters
       ?default_owner:(Option.map (fun owner -> (owner, ref None)) provisional)
-      cursor [] [] [] ~after_comma:false ~function_pointer_depth:0
+      cursor [] [] [] ~function_pointer_depth:0
   with
   | None -> None
   | Some parsed_parameters ->

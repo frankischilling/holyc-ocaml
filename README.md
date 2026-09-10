@@ -1,5 +1,9 @@
 # holyc-ocaml
 
+[Function parameter delimiters](docs/function-parameter-delimiters.md) now
+preserve trailing commas and empty semicolon entries without adding argument
+slots. `holyc run examples/integer-parameter-delimiters.hc` returns 42.
+
 Nested function replacement preserves separately selected headers and bodies.
 `holyc run --mode=jit examples/stateful-exe-function-versions.hc` returns 42
 by combining an earlier pending call, a captured inner body and a fresh call

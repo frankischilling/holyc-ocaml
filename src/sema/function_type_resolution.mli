@@ -59,6 +59,9 @@ val make_signature :
   closing_origin:Symbol.origin ->
   unit ->
   (signature, string) result
+(** Require consecutive concrete parameter slots and a delimiter before each
+    subsequent parameter or ellipsis. A trailing delimiter is permitted and
+    creates no additional slot. *)
 
 val make_parameter_binding :
   parameter_index:int -> symbol:Symbol.t -> (parameter_binding, string) result
