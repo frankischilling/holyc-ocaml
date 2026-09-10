@@ -1,4 +1,5 @@
 val classify :
+  ?previous:Sema.Function_record_classification.classified_declaration list ->
   ?compiler_option_mask:int64 ->
   resolution:Sema.Function_resolution.t ->
   Frontend.Ast.module_ ->

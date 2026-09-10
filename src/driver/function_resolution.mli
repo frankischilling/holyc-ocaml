@@ -1,4 +1,5 @@
 val resolve :
+  ?previous:Sema.Function_resolution.resolved_declaration list ->
   ?compiler_option_mask:int64 ->
   table:Sema.Symbol_table.t ->
   declarations:Sema.Declaration_collection.t ->

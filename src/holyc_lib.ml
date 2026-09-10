@@ -372,14 +372,14 @@ let resolve_global_types session ~declarations ~aggregates module_ =
     ~table:(Session.semantic_symbols session)
     ~declarations ~aggregates module_
 
-let resolve_function_identities ?compiler_option_mask session ~declarations
-    ~functions ~compilation_mode module_ =
-  Driver.Function_resolution.resolve ?compiler_option_mask
+let resolve_function_identities ?previous ?compiler_option_mask session
+    ~declarations ~functions ~compilation_mode module_ =
+  Driver.Function_resolution.resolve ?previous ?compiler_option_mask
     ~table:(Session.semantic_symbols session)
     ~declarations ~functions ~compilation_mode module_
 
-let analyze_function_headers session ~functions inputs =
-  Sema.Function_header_analysis.analyze
+let analyze_function_headers ?previous_inputs session ~functions inputs =
+  Sema.Function_header_analysis.analyze ?previous_inputs
     ~table:(Session.semantic_symbols session)
     ~functions inputs
 
@@ -456,9 +456,9 @@ let decide_function_call_conversions session ~policies ~expressions =
     ~table:(Session.semantic_symbols session)
     ~policies expressions
 
-let classify_function_records ?compiler_option_mask _session ~resolution module_
-    =
-  Driver.Function_record_classification.classify ?compiler_option_mask
+let classify_function_records ?previous ?compiler_option_mask _session
+    ~resolution module_ =
+  Driver.Function_record_classification.classify ?previous ?compiler_option_mask
     ~resolution module_
 
 let resolve_global_records ?compiler_option_mask session ~declarations ~globals

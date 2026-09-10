@@ -22,13 +22,15 @@ val make_function_input :
   (function_input, error) result
 
 val analyze :
+  ?previous_inputs:function_input list ->
   table:Symbol_table.t ->
   functions:Function_resolution.t ->
   function_input list ->
   (t, error) result
 (** Apply [PrsFunJoin] and [MemberLstCmp] compatibility checks to each joined
     header. The analysis is immutable and requires an input for every resolved
-    declaration. *)
+    declaration. [previous_inputs] must contain the exact retained predecessors,
+    once each in first-use order, with their already evaluated defaults. *)
 
 val source_functions : t -> Function_resolution.t
 val comparisons : t -> comparison list

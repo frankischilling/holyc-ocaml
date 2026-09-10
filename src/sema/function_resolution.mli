@@ -23,13 +23,18 @@ val make_declaration_with_options :
     retaining their source kind. *)
 
 val resolve :
+  ?previous:resolved_declaration list ->
   table:Symbol_table.t ->
   parent:Symbol_table.scope ->
   compilation_mode:compilation_mode ->
   declaration list ->
   (t, string) result
 (** Reconcile function identities in source order. JIT joins only the newest
-    unresolved extern; AOT joins the newest identity unless it is imported. *)
+    unresolved extern; AOT joins the newest identity unless it is imported.
+    [previous] supplies at most one newest JIT declaration per name from the
+    same module namespace. New declarations require distinct source headers.
+    Runtime publication separately checks that each predecessor is still
+    current. *)
 
 val compilation_mode : t -> compilation_mode
 val identities : t -> identity list
@@ -55,6 +60,9 @@ val resolved_declaration_identity_symbol : resolved_declaration -> Symbol.t
 
 val resolved_declaration_replaced_header :
   resolved_declaration -> declaration_site option
+
+val resolved_declaration_retained_predecessor :
+  resolved_declaration -> resolved_declaration option
 
 val compilation_mode_name : compilation_mode -> string
 val declaration_kind_name : declaration_kind -> string

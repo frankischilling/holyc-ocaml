@@ -573,6 +573,86 @@ let retained_joined_header_preserves_snapshot () =
         (access definition_metadata)
   | _ -> Alcotest.fail "expected extern and joined definition"
 
+let retained_variadic_prevents_new_ret1 () =
+  let prepared =
+    prepare ~path:"retained-variadic.HC"
+      "extern I64 F(...);extern I64 F(I64 n);"
+  in
+  let records =
+    resolve prepared Preprocessor.Jit
+    |> classify prepared |> declaration_records
+  in
+  let module Flags = Semantic_function_record_classification.Stored_flag in
+  List.iter
+    (fun record ->
+      let mask =
+        Semantic_function_record_classification.stored_flag_mask record
+      in
+      Alcotest.(check bool)
+        "variadic flag is retained" true
+        (Flags.is_set ~mask Flags.Variadic);
+      Alcotest.(check bool)
+        "retained variadic flag prevents Ret1" false
+        (Flags.is_set ~mask Flags.Ret1))
+    records
+
+let retained_classification_identity () =
+  let module R = Semantic_function_resolution in
+  let module C = Semantic_function_record_classification in
+  let prepared =
+    prepare ~path:"retained-classification.HC"
+      "extern I64 F(...);extern I64 F(I64 n);"
+  in
+  let table = Session.semantic_symbols prepared.session in
+  let parent = Semantic_declaration_collection.scope prepared.declarations in
+  let first, second =
+    match
+      Semantic_function_type_resolution.functions prepared.function_types
+    with
+    | [ first; second ] -> (first, second)
+    | _ -> assert false
+  in
+  let fact function_ = R.make_declaration ~kind:Extern ~function_ |> checked in
+  let prior_resolution =
+    R.resolve ~table ~parent ~compilation_mode:Jit [ fact first ] |> checked
+  in
+  let state =
+    C.make_declaration_state ~staging_mask:0L
+      ~compiler_option_mask:Compiler_option.initial_mask ()
+  in
+  let prior =
+    C.classify prior_resolution [ state ]
+    |> checked |> C.declarations |> List.hd
+  in
+  let current =
+    R.resolve
+      ~previous:[ C.classified_declaration_source prior ]
+      ~table ~parent ~compilation_mode:Jit
+      [ fact second ]
+    |> checked
+  in
+  Alcotest.(check bool)
+    "missing retained classification rejected" true
+    (C.classify current [ state ] |> Result.is_error);
+  let current_record =
+    C.classify ~previous:[ prior ] current [ state ]
+    |> checked |> C.declarations |> List.hd
+  in
+  Alcotest.(check bool)
+    "exact inherited flag record retained" true
+    (match C.classified_declaration_retained_predecessor current_record with
+    | Some original -> original == prior
+    | None -> false);
+  let mask =
+    C.classified_declaration_record current_record |> C.stored_flag_mask
+  in
+  Alcotest.(check bool)
+    "old variadic flag retained across batches" true
+    (C.Stored_flag.is_set ~mask C.Stored_flag.Variadic);
+  Alcotest.(check bool)
+    "fixed replacement does not derive Ret1" false
+    (C.Stored_flag.is_set ~mask C.Stored_flag.Ret1)
+
 let tests =
   [
     Alcotest.test_case "AOT binding matrix" `Quick aot_binding_matrix;
@@ -595,4 +675,8 @@ let tests =
       retained_metadata_environment_controls;
     Alcotest.test_case "retained joined header preserves snapshot" `Quick
       retained_joined_header_preserves_snapshot;
+    Alcotest.test_case "retained variadic header does not newly derive Ret1"
+      `Quick retained_variadic_prevents_new_ret1;
+    Alcotest.test_case "retained classification preserves exact flag record"
+      `Quick retained_classification_identity;
   ]

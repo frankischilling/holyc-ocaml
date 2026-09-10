@@ -197,9 +197,54 @@ let prepare_unit ?environment:task_environment ?declaration_command
       ~aggregates ast
     |> checked
   in
+  let* previous_function_records =
+    let module Outer = Sema.Outer_environment in
+    match task_environment with
+    | None -> Ok []
+    | Some environment when mode = Frontend.Preprocessor.Jit -> (
+        if
+          (not (Outer.owns_table environment table))
+          || Outer.compilation_mode environment <> Outer.Jit
+        then
+          checked
+            (Error "function joins require their owning JIT task environment")
+        else
+          match Outer.tables environment with
+          | current :: _ when Outer.table_kind current = Outer.Jit_task 0 ->
+              let parent = Sema.Declaration_collection.scope declarations in
+              let _, records =
+                List.fold_left
+                  (fun (names, records) entry ->
+                    match Outer.entry_function_metadata entry with
+                    | None -> (names, records)
+                    | Some metadata ->
+                        let symbol = Outer.entry_symbol entry in
+                        let name = Sema.Symbol.name symbol in
+                        if List.mem name names then (names, records)
+                        else if
+                          Sema.Symbol.Scope_id.equal
+                            (Sema.Symbol.scope_id symbol)
+                            (Sema.Symbol_table.scope_id parent)
+                        then
+                          ( name :: names,
+                            Outer.function_classified_declaration metadata
+                            :: records )
+                        else (name :: names, records))
+                  ([], [])
+                  (List.rev (Outer.table_entries current))
+              in
+              Ok records
+          | _ -> checked (Error "function joins require the current task table")
+        )
+    | Some _ -> Ok []
+  in
   let* functions =
-    Function_resolution.resolve ~table ~declarations ~functions:function_types
-      ~compilation_mode:mode ast
+    Function_resolution.resolve
+      ~previous:
+        (List.map
+           Sema.Function_record_classification.classified_declaration_source
+           previous_function_records)
+      ~table ~declarations ~functions:function_types ~compilation_mode:mode ast
     |> checked
   in
   let* globals =
@@ -357,7 +402,9 @@ let prepare_unit ?environment:task_environment ?declaration_command
     |> checked
   in
   let* records =
-    Function_record_classification.classify ~resolution:functions ast |> checked
+    Function_record_classification.classify ~previous:previous_function_records
+      ~resolution:functions ast
+    |> checked
   in
   let* global_records =
     Global_record_classification.classify ~resolution:globals ast |> checked

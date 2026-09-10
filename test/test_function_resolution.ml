@@ -381,6 +381,51 @@ let deterministic_resolution () =
     (replaced_item_indexes first)
     (replaced_item_indexes second)
 
+let retained_predecessor_ownership () =
+  let prepared =
+    prepare ~path:"retained-ownership.HC" "extern I64 F();extern I64 F();"
+  in
+  let table = Session.semantic_symbols prepared.session in
+  let parent = Semantic_declaration_collection.scope prepared.declarations in
+  let first, second =
+    match facts prepared [ Semantic_function_resolution.Extern; Extern ] with
+    | [ first; second ] -> (first, second)
+    | _ -> assert false
+  in
+  let resolve ?(previous = []) mode input =
+    Semantic_function_resolution.resolve ~previous ~table ~parent
+      ~compilation_mode:mode input
+  in
+  let previous mode =
+    resolve mode [ first ] |> checked
+    |> Semantic_function_resolution.declarations |> List.hd
+  in
+  let prior = previous Jit in
+  let reject label result =
+    Alcotest.(check bool) label true (Result.is_error result)
+  in
+  reject "AOT header cannot become JIT predecessor"
+    (resolve ~previous:[ previous Aot ] Jit [ second ]);
+  reject "original source header cannot replace itself"
+    (resolve ~previous:[ prior ] Jit [ first ]);
+  reject "duplicate prior names rejected"
+    (resolve ~previous:[ prior; prior ] Jit [ second ]);
+  reject "retained inputs require JIT"
+    (resolve ~previous:[ prior ] Aot [ second ]);
+  let joined =
+    resolve ~previous:[ prior ] Jit [ second ]
+    |> checked |> Semantic_function_resolution.declarations |> List.hd
+  in
+  reject "ancestor source cannot be reused across commands"
+    (resolve ~previous:[ joined ] Jit [ first ]);
+  let batch =
+    resolve Jit [ first; second ]
+    |> checked |> Semantic_function_resolution.declarations |> List.rev
+    |> List.hd
+  in
+  reject "ancestor source cannot be reused after a batch join"
+    (resolve ~previous:[ batch ] Jit [ first ])
+
 let tests =
   [
     Alcotest.test_case "JIT join and shadow matrix" `Quick
@@ -397,4 +442,7 @@ let tests =
       invalid_batches_do_not_mutate;
     Alcotest.test_case "deterministic resolution" `Quick
       deterministic_resolution;
+    Alcotest.test_case
+      "retained predecessors preserve mode and source ownership" `Quick
+      retained_predecessor_ownership;
   ]

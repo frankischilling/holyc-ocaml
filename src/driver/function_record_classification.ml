@@ -110,13 +110,13 @@ let validate_pair declaration ast =
         import_name,
         Sema.Function_resolution.declaration_site_compiler_option_mask site )
 
-let classify ?compiler_option_mask ~resolution module_ =
+let classify ?previous ?compiler_option_mask ~resolution module_ =
   let declarations = Sema.Function_resolution.declarations resolution in
   let ast = ast_declarations module_ in
   let rec pair states declarations ast =
     match (declarations, ast) with
     | [], [] ->
-        Sema.Function_record_classification.classify resolution
+        Sema.Function_record_classification.classify ?previous resolution
           (List.rev states)
     | declaration :: declaration_rest, ast_declaration :: ast_rest -> (
         match validate_pair declaration ast_declaration with

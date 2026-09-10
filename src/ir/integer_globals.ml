@@ -1214,6 +1214,49 @@ let join_declared view globals =
 
 let slot_reuses_declared_storage slot = Option.is_some slot.declared_owner
 
+let function_publication_is_fresh catalog reference =
+  let module Functions = Sema.Function_resolution in
+  let module Outer = Sema.Outer_environment in
+  let declaration =
+    Retained_function.metadata reference |> Outer.function_declaration
+  in
+  let symbol = Retained_function.symbol reference in
+  match Functions.resolved_declaration_retained_predecessor declaration with
+  | None ->
+      not
+        (List.exists
+           (fun prior -> publication_symbol prior == symbol)
+           catalog.published)
+  | Some predecessor -> (
+      match
+        List.find_map
+          (function
+            | Function_publication prior
+              when Sema.Symbol.name (Retained_function.symbol prior)
+                   = Sema.Symbol.name symbol -> Some prior
+            | _ -> None)
+          (List.rev catalog.published)
+      with
+      | Some prior ->
+          Retained_function.symbol prior == symbol
+          && Outer.function_declaration (Retained_function.metadata prior)
+             == predecessor
+          && (match
+                Retained_function.metadata reference
+                |> Outer.function_classified_declaration
+                |> Sema.Function_record_classification
+                   .classified_declaration_retained_predecessor
+              with
+            | Some record ->
+                record
+                == Outer.function_classified_declaration
+                     (Retained_function.metadata prior)
+            | None -> false)
+          && Functions.declaration_site_state
+               (Functions.resolved_declaration_site predecessor)
+             = Functions.Unresolved_extern
+      | None -> false)
+
 let check_task_command catalog globals =
   if Option.is_some globals.fragment_kind_ then
     Error
@@ -1322,11 +1365,7 @@ let check_task_command catalog globals =
               (not
                  (Sema.Symbol_table.owns_symbol catalog.table
                     (Retained_function.symbol reference)))
-              || List.exists
-                   (fun prior ->
-                     publication_symbol prior
-                     == Retained_function.symbol reference)
-                   catalog.published)
+              || not (function_publication_is_fresh catalog reference))
             globals.function_publications_
         then Error "task function declaration is foreign or already admitted"
         else

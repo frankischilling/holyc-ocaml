@@ -853,11 +853,73 @@ let retained_function_depth_limit () =
 let retained_unfinished_selection () =
   let session = Session.create () in
   let task = create session in
-  ignore (run session task "extern I64 F();" |> Test_integer_program.checked);
-  let pending = compile session task "F();" in
-  ignore (run session task "I64 F(){return 42;}" |> Test_integer_program.checked);
+  ignore
+    (run session task "I64 N=0;extern I64 F(I64 n);"
+    |> Test_integer_program.checked);
+  let pending = compile session task "F(++N);" in
+  ignore
+    (run session task "I64 F(I64 n){N=100;return n+2;}"
+    |> Test_integer_program.checked);
   fault "HCIRVM0014" (Task.execute task pending);
-  value 42L (run session task "F();")
+  value 0L (run session task "N;");
+  value 42L (run session task "F(40);")
+
+let retained_cross_command_join () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task "extern I64 Joined(I64 x);"
+    |> Test_integer_program.checked);
+  let original = List.hd (source_symbols session "Joined") in
+  ignore
+    (run session task "I64 Joined(I64 value){I64 local=value+2;return local;}"
+    |> Test_integer_program.checked);
+  let definitions =
+    Task.compiled_units task
+    |> List.concat_map Holyc_lib__Driver.Integer_unit.functions
+  in
+  let definition =
+    List.find
+      (fun (definition : VM.function_definition) ->
+        Semantic_symbol.name (Ir_function_body.symbol definition.body)
+        = "Joined")
+      definitions
+  in
+  Alcotest.(check bool)
+    "extern keeps its canonical callable identity" true
+    (Ir_function_body.callable_symbol definition.body == original);
+  Alcotest.(check bool)
+    "definition retains its own source and frame identity" true
+    (Ir_function_body.symbol definition.body != original);
+  value 42L (run session task "Joined(40);")
+
+let retained_join_shadow () =
+  let session = Session.create () in
+  let task = create session in
+  List.iter
+    (fun source ->
+      ignore (run session task source |> Test_integer_program.checked))
+    [
+      "extern I64 Joined();"; "extern I64 Joined();"; "I64 Joined(){return 42;}";
+    ];
+  ignore
+    (run session task "I64 Earlier(){return Joined();}"
+    |> Test_integer_program.checked);
+  ignore
+    (run session task "I64 Joined(){return 99;}" |> Test_integer_program.checked);
+  value 42L (run session task "Earlier();");
+  value 99L (run session task "Joined();");
+  ignore
+    (run session task "extern I64 Joined();" |> Test_integer_program.checked);
+  fault "HCIRVM0014" (run session task "Joined();");
+  value 42L (run session task "Earlier();")
+
+let retained_join_dimension () =
+  ignore
+    (Test_integer_output.run
+       "I64 N=1;extern I64 Extent();I64 Extent(){return ++N;}I64 \
+        A[Extent()];A[1]=24;A[1]+sizeof A+N;"
+    |> Test_integer_output.expect "")
 
 let retained_declaration_scope () =
   let session = Session.create () in
@@ -1081,4 +1143,11 @@ let tests =
     Alcotest.test_case
       "earlier extern selection cannot acquire later executable" `Quick
       retained_unfinished_selection;
+    Alcotest.test_case "separate commands join the current extern identity"
+      `Quick retained_cross_command_join;
+    Alcotest.test_case
+      "completed joined definitions shadow and freeze earlier calls" `Quick
+      retained_join_shadow;
+    Alcotest.test_case "joined function supplies one runtime dimension" `Quick
+      retained_join_dimension;
   ]

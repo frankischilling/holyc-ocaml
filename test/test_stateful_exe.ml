@@ -30,6 +30,18 @@ let tests =
     (fun (name, source) -> Alcotest.test_case name `Quick (expect 42L source))
     gates
   @ [
+      Alcotest.test_case "replaced directive headers save each default once"
+        `Quick
+        (expect 42L
+           {|#exe {I64 N=38;extern I64 Joined(I64 a=++N);} #exe {extern I64 Joined(I64 b=++N);} #exe {I64 Joined(I64 value=++N){return value+1;}} #exe {StreamPrint("%d;",Joined()+Joined()-N-1);}|});
+      Alcotest.test_case "separate directive commands join extern headers"
+        `Quick
+        (expect 42L
+           {|#exe {extern I64 Joined(I64 n);} #exe {I64 Joined(I64 value){return value+2;}} #exe {StreamPrint("%d;",Joined(40));}|});
+      Alcotest.test_case
+        "joined directive function supplies a runtime dimension" `Quick
+        (expect 42L
+           {|#exe {I64 N=1;extern I64 Extent();} #exe {I64 Extent(){return ++N;}} #exe {I64 A[Extent()];A[1]=40;StreamPrint("%d;",A[1]+N);}|});
       Alcotest.test_case "cross-frame integer token" `Quick
         (expect 42L {|#exe {StreamPrint("4");}2;|});
       Alcotest.test_case "generated function body" `Quick

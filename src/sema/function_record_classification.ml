@@ -58,6 +58,7 @@ type classified_declaration = {
   source : Function_resolution.resolved_declaration;
   state : declaration_state;
   record : record;
+  retained_predecessor : classified_declaration option;
 }
 
 type classified_identity = {
@@ -95,6 +96,9 @@ let classified_declaration_state (declaration : classified_declaration) =
 
 let classified_declaration_record (declaration : classified_declaration) =
   declaration.record
+
+let classified_declaration_retained_predecessor declaration =
+  declaration.retained_predecessor
 
 let classified_identity_source (identity : classified_identity) =
   identity.source
@@ -213,8 +217,13 @@ let new_record state =
 let apply_header declaration (state : declaration_state) (record : record) =
   let argument_count, variadic = signature_shape declaration in
   let stored_flag_mask =
-    record.stored_flag_mask
-    |> add_stored variadic Stored_flag.Variadic
+    record.stored_flag_mask |> add_stored variadic Stored_flag.Variadic
+  in
+  let variadic =
+    Stored_flag.is_set ~mask:stored_flag_mask Stored_flag.Variadic
+  in
+  let stored_flag_mask =
+    stored_flag_mask
     |> add_stored
          (Function_flag.derives_ret1 ~argument_count ~variadic)
          Stored_flag.Ret1
@@ -384,7 +393,8 @@ module Int_map = Map.Make (Int)
 
 let symbol_number symbol = Symbol.Id.to_int (Symbol.id symbol)
 
-let classify resolution states =
+let classify ?(previous = []) resolution states =
+  let ( let* ) = Result.bind in
   let sources = Function_resolution.declarations resolution in
   if List.length sources <> List.length states then
     Error
@@ -403,10 +413,32 @@ let classify resolution states =
                 Function_resolution.resolved_declaration_identity_symbol source
               in
               let key = symbol_number symbol in
-              let record =
+              let* retained_predecessor =
+                match
+                  Function_resolution.resolved_declaration_retained_predecessor
+                    source
+                with
+                | None -> Ok None
+                | Some predecessor -> (
+                    match
+                      List.find_opt
+                        (fun (prior : classified_declaration) ->
+                          prior.source == predecessor)
+                        previous
+                    with
+                    | Some prior -> Ok (Some prior)
+                    | None ->
+                        Error
+                          "function classification requires its exact retained \
+                           predecessor record")
+              in
+              let* record =
                 match Int_map.find_opt key records with
-                | Some record -> record
-                | None -> new_record state
+                | Some record -> Ok record
+                | None -> (
+                    match retained_predecessor with
+                    | None -> Ok (new_record state)
+                    | Some prior -> Ok prior.record)
               in
               let record =
                 record |> apply_header source state
@@ -415,7 +447,8 @@ let classify resolution states =
               in
               replay
                 (Int_map.add key record records)
-                ({ source; state; record } :: declarations_rev)
+                ({ source; state; record; retained_predecessor }
+                :: declarations_rev)
                 source_rest state_rest)
       | [], _ :: _ | _ :: _, [] -> assert false
     in

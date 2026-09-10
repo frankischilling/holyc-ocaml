@@ -1,5 +1,9 @@
 # holyc-ocaml
 
+Separate `#exe` commands can replace an extern header and define its function
+while retaining one callable identity. [Task function joins](docs/task-function-joins.md)
+covers saved defaults, record flags and earlier compiled calls.
+
 `holyc run --mode=jit --format=json examples/integer-runtime-dimensions.hc`
 returns 42 using an array bound evaluated once during declaration parsing.
 [Runtime dimensions](docs/integer-runtime-dimensions.md) covers calls, updates,

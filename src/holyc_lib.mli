@@ -598,6 +598,7 @@ val resolve_global_types :
     separate passes. *)
 
 val resolve_function_identities :
+  ?previous:Semantic_function_resolution.resolved_declaration list ->
   ?compiler_option_mask:int64 ->
   Session.t ->
   declarations:Semantic_declaration_collection.t ->
@@ -606,12 +607,14 @@ val resolve_function_identities :
   Ast.module_ ->
   (Semantic_function_resolution.t, string) result
 (** Reconcile parsed function declarations using the pinned JIT/AOT join rules.
+    [previous] supplies the newest declarations in the current JIT namespace.
     The optional batch snapshot applies [OPTf_EXTERNS_TO_IMPORTS]; source-
     positioned option execution remains separate. Evaluated header analysis,
     task-parent lookup, alternate target resolution, and emitted linkage remain
     separate passes. *)
 
 val analyze_function_headers :
+  ?previous_inputs:Semantic_function_header_analysis.function_input list ->
   Session.t ->
   functions:Semantic_function_resolution.t ->
   Semantic_function_header_analysis.function_input list ->
@@ -782,13 +785,15 @@ val decide_function_call_conversions :
     unresolved results. *)
 
 val classify_function_records :
+  ?previous:Semantic_function_record_classification.classified_declaration list ->
   ?compiler_option_mask:int64 ->
   Session.t ->
   resolution:Semantic_function_resolution.t ->
   Ast.module_ ->
   (Semantic_function_record_classification.t, string) result
 (** Replay source-grounded function record mutations and expose raw flags, call
-    access, lookup visibility, and AOT linkage intent. The optional option mask
+    access, lookup visibility, and AOT linkage intent. [previous] supplies the
+    exact classified records for retained predecessors. The optional option mask
     overrides the declaration snapshots retained by resolution and must agree on
     [OPTf_EXTERNS_TO_IMPORTS]. Source-positioned option execution, addresses,
     header comparison, and record emission remain separate. *)

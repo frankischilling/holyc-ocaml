@@ -25,9 +25,12 @@ type identity = {
 }
 
 type resolved_declaration = {
+  compilation_mode : compilation_mode;
+  source_history : Function_type_resolution.resolved_function list;
   site : declaration_site;
   identity_symbol : Symbol.t;
   replaced_header : declaration_site option;
+  retained_predecessor : resolved_declaration option;
 }
 
 type t = {
@@ -60,6 +63,9 @@ let resolved_declaration_identity_symbol (declaration : resolved_declaration) =
 
 let resolved_declaration_replaced_header (declaration : resolved_declaration) =
   declaration.replaced_header
+
+let resolved_declaration_retained_predecessor declaration =
+  declaration.retained_predecessor
 
 let compilation_mode_name = function
   | Jit -> "jit"
@@ -180,10 +186,12 @@ let validate ~table ~parent ~compilation_mode declarations =
     check (-1) Int_set.empty Int_set.empty declarations
 
 type pending_identity = {
+  source_history : Function_type_resolution.resolved_function list;
   symbol : Symbol.t;
   sites_rev : declaration_site list;
   state : state;
   first_item_index : int;
+  retained_predecessor : resolved_declaration option;
 }
 
 let may_join compilation_mode state =
@@ -191,11 +199,13 @@ let may_join compilation_mode state =
   | Jit -> state = Unresolved_extern
   | Aot -> state <> Imported
 
-let resolve_validated compilation_mode (declarations : declaration list) =
+let resolve_validated ~previous compilation_mode
+    (declarations : declaration list) =
   let declaration_count = List.length declarations in
   let pending = Array.make declaration_count None in
   let declaration_identity = Array.make declaration_count (-1) in
   let declaration_replaced_header = Array.make declaration_count None in
+  let declaration_history = Array.make declaration_count [] in
   let sites = Array.make declaration_count None in
   let latest_by_name = ref String_map.empty in
   let identity_count = ref 0 in
@@ -208,15 +218,31 @@ let resolve_validated compilation_mode (declarations : declaration list) =
       state = state_after declaration.kind;
     }
   in
-  let add_identity site =
+  let add_identity ?predecessor site =
     let identity_index = !identity_count in
-    let symbol = Function_type_resolution.function_symbol site.function_ in
+    let symbol =
+      match predecessor with
+      | Some prior -> prior.identity_symbol
+      | None -> Function_type_resolution.function_symbol site.function_
+    in
     let first_item_index =
       Function_type_resolution.function_item_index site.function_
     in
     pending.(identity_index) <-
       Some
-        { symbol; sites_rev = [ site ]; state = site.state; first_item_index };
+        {
+          symbol;
+          sites_rev = [ site ];
+          state = site.state;
+          first_item_index;
+          retained_predecessor = predecessor;
+          source_history =
+            site.function_
+            ::
+            (match predecessor with
+            | Some prior -> prior.source_history
+            | None -> []);
+        };
     identity_count := identity_index + 1;
     latest_by_name :=
       String_map.add (Symbol.name symbol) identity_index !latest_by_name;
@@ -225,7 +251,16 @@ let resolve_validated compilation_mode (declarations : declaration list) =
   let join_or_add site =
     let symbol = Function_type_resolution.function_symbol site.function_ in
     match String_map.find_opt (Symbol.name symbol) !latest_by_name with
-    | None -> (add_identity site, None)
+    | None -> (
+        match
+          List.find_opt
+            (fun prior ->
+              Symbol.name prior.identity_symbol = Symbol.name symbol)
+            previous
+        with
+        | Some prior when may_join compilation_mode prior.site.state ->
+            (add_identity ~predecessor:prior site, Some prior.site)
+        | _ -> (add_identity site, None))
     | Some identity_index -> (
         match pending.(identity_index) with
         | Some identity when may_join compilation_mode identity.state ->
@@ -235,6 +270,7 @@ let resolve_validated compilation_mode (declarations : declaration list) =
                 {
                   identity with
                   sites_rev = site :: identity.sites_rev;
+                  source_history = site.function_ :: identity.source_history;
                   state = site.state;
                 };
             (identity_index, Some replaced_header)
@@ -247,7 +283,11 @@ let resolve_validated compilation_mode (declarations : declaration list) =
       let identity_index, replaced_header = join_or_add site in
       sites.(declaration_index) <- Some site;
       declaration_identity.(declaration_index) <- identity_index;
-      declaration_replaced_header.(declaration_index) <- replaced_header)
+      declaration_replaced_header.(declaration_index) <- replaced_header;
+      declaration_history.(declaration_index) <-
+        (match pending.(identity_index) with
+        | Some identity -> identity.source_history
+        | None -> assert false))
     declarations;
   let identity_at index =
     match pending.(index) with
@@ -277,13 +317,59 @@ let resolve_validated compilation_mode (declarations : declaration list) =
         in
         {
           site;
+          compilation_mode;
+          source_history = declaration_history.(declaration_index);
           identity_symbol = identity.symbol;
           replaced_header = declaration_replaced_header.(declaration_index);
+          retained_predecessor =
+            (identity_at declaration_identity.(declaration_index))
+              .retained_predecessor;
         })
   in
   { compilation_mode; identities; declarations }
 
-let resolve ~table ~parent ~compilation_mode declarations =
-  Result.map
-    (fun () -> resolve_validated compilation_mode declarations)
-    (validate ~table ~parent ~compilation_mode declarations)
+let resolve ?(previous = []) ~table ~parent ~compilation_mode declarations =
+  let ( let* ) = Result.bind in
+  let* () = validate ~table ~parent ~compilation_mode declarations in
+  let rec validate_previous names = function
+    | [] -> Ok ()
+    | prior :: rest ->
+        let symbol = prior.identity_symbol in
+        let source =
+          Function_type_resolution.function_symbol prior.site.function_
+        in
+        let repeated_source =
+          List.exists
+            (fun (declaration : declaration) ->
+              let current = declaration.function_ in
+              List.exists
+                (fun previous ->
+                  Function_type_resolution.function_symbol current
+                  == Function_type_resolution.function_symbol previous
+                  || Function_type_resolution.function_scope current
+                     == Function_type_resolution.function_scope previous)
+                prior.source_history)
+            declarations
+        in
+        if
+          compilation_mode <> Jit
+          || prior.compilation_mode <> Jit
+          || repeated_source
+          || (not (Symbol_table.owns_symbol table symbol))
+          || (not (Symbol_table.owns_symbol table source))
+          || (not
+                (Symbol.Scope_id.equal (Symbol.scope_id symbol)
+                   (Symbol_table.scope_id parent)))
+          || (not
+                (Symbol.Scope_id.equal (Symbol.scope_id source)
+                   (Symbol_table.scope_id parent)))
+          || Symbol.name symbol <> Symbol.name source
+          || List.mem (Symbol.name symbol) names
+        then
+          Error
+            "retained function predecessor has another namespace, mode or \
+             duplicate name"
+        else validate_previous (Symbol.name symbol :: names) rest
+  in
+  let* () = validate_previous [] previous in
+  Ok (resolve_validated ~previous compilation_mode declarations)

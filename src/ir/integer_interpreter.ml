@@ -1637,6 +1637,28 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
          (Sema.Function_flag.Stored.to_mask Argument_pop)
          (Sema.Function_flag.Stored.to_mask No_argument_pop))
   in
+  let allowed_flags =
+    match Function.definition_declaration function_ with
+    | Some declaration ->
+        let header =
+          declaration |> Sema.Function_resolution.resolved_declaration_site
+          |> Sema.Function_resolution.declaration_site_function
+        in
+        if
+          header == Frame.function_header frame
+          && Function.definition_matches_frame function_ frame
+          && Option.is_none
+               (Sema.Function_type_resolution.function_variadic_bindings header)
+          && header |> Sema.Function_type_resolution.function_signature
+             |> Sema.Function_type_resolution.signature_variadic_origin
+             |> Option.is_none
+        then
+          (* PrsFunJoin retains this bit when a fixed header replaces a variadic
+             extern. The exact new header and frame still have only fixed slots. *)
+          Int64.logor allowed_flags (Sema.Function_flag.Stored.to_mask Variadic)
+        else allowed_flags
+    | _ -> allowed_flags
+  in
   if
     Function.symbol function_ != Frame.function_symbol frame
     || (not (Function.definition_matches_frame function_ frame))

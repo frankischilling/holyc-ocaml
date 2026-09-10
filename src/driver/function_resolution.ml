@@ -133,7 +133,8 @@ let semantic_mode = function
   | Frontend.Preprocessor.Jit -> Sema.Function_resolution.Jit
   | Frontend.Preprocessor.Aot -> Sema.Function_resolution.Aot
 
-let resolve ?(compiler_option_mask = Sema.Compiler_option.initial_mask) ~table
+let resolve ?(previous = [])
+    ?(compiler_option_mask = Sema.Compiler_option.initial_mask) ~table
     ~declarations ~functions ~compilation_mode module_ =
   let parent = Sema.Declaration_collection.scope declarations in
   if not (Sema.Symbol_table.owns_scope table parent) then
@@ -147,6 +148,6 @@ let resolve ?(compiler_option_mask = Sema.Compiler_option.initial_mask) ~table
     with
     | Error _ as error -> error
     | Ok facts ->
-        Sema.Function_resolution.resolve ~table ~parent
+        Sema.Function_resolution.resolve ~previous ~table ~parent
           ~compilation_mode:(semantic_mode compilation_mode)
           facts
