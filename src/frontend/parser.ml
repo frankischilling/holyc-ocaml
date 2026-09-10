@@ -276,7 +276,7 @@ type completed_function_header = {
   parameters : Ast.function_parameter list;
   empty_parameter_entries : Ast.empty_parameter_entry list;
   variadic : Ast.variadic_marker option;
-  closing_parenthesis : Ast.location;
+  closing_parenthesis : Ast.location option;
   header_activity : function_header_activity;
 }
 
@@ -577,7 +577,7 @@ type parsed_parameter_list = {
   empty_parameter_entries : Ast.empty_parameter_entry list;
   variadic : Ast.variadic_marker option;
   tokens : Token.t list;
-  closing_parenthesis : Ast.location;
+  closing_parenthesis : Ast.location option;
 }
 
 type function_pointer_declarator_context =
@@ -1442,7 +1442,8 @@ let complete_function_header cursor at publication
         | Ok entry -> entry
         | Error message -> invalid_arg message
       in
-      (* Native Lex retains the hash object across the lookahead after ')'.
+      (* Native Lex retains the hash object across the lookahead after ')' or
+         an unterminated variadic marker.
        Finish only this cursor's unconsumed selections of that exact object;
        already delivered references and nested cursors retain their snapshots. *)
       cursor.lookahead <-
@@ -4552,33 +4553,37 @@ and parse_function_parameters ?default_owner cursor parameters_rev
           empty_parameter_entries = List.rev empty_entries_rev;
           variadic = None;
           tokens = List.rev (closing.token :: tokens_rev);
-          closing_parenthesis = token_location closing.token;
+          closing_parenthesis = Some (token_location closing.token);
         }
   | Token_kind.Operator Operator.Ellipsis ->
       let ellipsis = take cursor in
-      let closing = peek cursor in
-      if closing.token.kind <> Token_kind.Punctuation ')' then
-        declaration_failure cursor closing ~code:"HCPARSE0015"
-          ~message:
-            (Printf.sprintf "expected ')' after variadic marker, but found %s"
-               (token_description closing.token))
-      else
-        let closing = take cursor in
-        let variadic =
-          Ast.make_variadic_marker ~register_qualifiers:prefix.nodes
-            ~spelling:ellipsis.token.raw
-            ~location:
-              (location_from_tokens (prefix.tokens @ [ ellipsis.token ]))
-        in
-        let tokens_rev = List.rev_append prefix.tokens tokens_rev in
-        Some
-          {
-            parameters = List.rev parameters_rev;
-            empty_parameter_entries = List.rev empty_entries_rev;
-            variadic = Some variadic;
-            tokens = List.rev (closing.token :: ellipsis.token :: tokens_rev);
-            closing_parenthesis = token_location closing.token;
-          }
+      let closing =
+        if (peek cursor).token.kind = Token_kind.Punctuation ')' then
+          Some (take cursor)
+        else None
+      in
+      let variadic =
+        Ast.make_variadic_marker ~register_qualifiers:prefix.nodes
+          ~spelling:ellipsis.token.raw
+          ~location:(location_from_tokens (prefix.tokens @ [ ellipsis.token ]))
+      in
+      let tokens_rev =
+        ellipsis.token :: List.rev_append prefix.tokens tokens_rev
+      in
+      let tokens_rev =
+        match closing with
+        | Some closing -> closing.token :: tokens_rev
+        | None -> tokens_rev
+      in
+      Some
+        {
+          parameters = List.rev parameters_rev;
+          empty_parameter_entries = List.rev empty_entries_rev;
+          variadic = Some variadic;
+          tokens = List.rev tokens_rev;
+          closing_parenthesis =
+            Option.map (fun closing -> token_location closing.token) closing;
+        }
   | Token_kind.Punctuation ';' when prefix.nodes = [] ->
       let semicolon = take cursor in
       let delimiter =

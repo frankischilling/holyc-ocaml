@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added native variadic signature termination without a closing parenthesis.
+  AST and semantic signatures preserve an absent token explicitly; definitions,
+  prototypes and callback declarators own the following token. Retained headers
+  still require original source children. Execution coverage includes saved
+  defaults, pending calls, nested function versions and exact resource limits.
+  General callback execution and the remaining #635 requirements stay open.
+
 - Added runtime admission of original completed function headers before body
   publication. Pending calls evaluate arguments before UndefinedExtern; retained
   callers acquire the joined body while preserving saved defaults, variadic

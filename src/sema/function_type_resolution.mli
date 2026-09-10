@@ -56,12 +56,13 @@ val make_signature :
   parameters:parameter list ->
   ?variadic_origin:Symbol.origin ->
   ?variadic_register_requests:Register_request.t list ->
-  closing_origin:Symbol.origin ->
+  ?closing_origin:Symbol.origin ->
   unit ->
   (signature, string) result
-(** Require consecutive concrete parameter slots and a delimiter before each
-    subsequent parameter or ellipsis. A trailing delimiter is permitted and
-    creates no additional slot. *)
+(** Require a closing origin unless an ellipsis is present. Require consecutive
+    concrete parameter slots and a delimiter before each subsequent parameter or
+    ellipsis. A trailing delimiter is permitted and creates no additional slot.
+*)
 
 val make_parameter_binding :
   parameter_index:int -> symbol:Symbol.t -> (parameter_binding, string) result
@@ -132,7 +133,7 @@ val signature_variadic_register_requests : signature -> Register_request.t list
 val signature_variadic_register_selection :
   signature -> Register_request.selection
 
-val signature_closing_origin : signature -> Symbol.origin
+val signature_closing_origin : signature -> Symbol.origin option
 val parameter_index : parameter -> int
 val parameter_source : parameter -> Frontend.Ast.function_parameter option
 val parameter_origin : parameter -> Symbol.origin

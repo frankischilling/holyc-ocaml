@@ -236,7 +236,7 @@ let reconstructed_declarations () =
         Headers.make_signature
           ~opening_origin:(Headers.signature_opening_origin signature)
           ~parameters:[ changed_parameter ]
-          ~closing_origin:(Headers.signature_closing_origin signature)
+          ?closing_origin:(Headers.signature_closing_origin signature)
           ()
         |> checked
       in

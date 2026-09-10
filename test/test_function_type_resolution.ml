@@ -505,7 +505,8 @@ let generated_signature_provenance () =
        #define STAR *\n\
        #define NAME generated\n\
        #define DEFAULT \"*\"\n\
-       extern TYPE STAR Generated(U8 STAR NAME=DEFAULT,...);"
+       #define CLOSE )\n\
+       extern TYPE STAR Generated(U8 STAR NAME=DEFAULT,...CLOSE;"
   in
   let function_ =
     resolve session ast |> fun results -> function_named results "Generated"
@@ -535,7 +536,18 @@ let generated_signature_provenance () =
     | None | Some (Semantic_function_type_resolution.Lastclass_default _) ->
         Alcotest.fail "expected a generated expression default"
   in
-  [ return_origin; pointer_origin; parameter_origin; default_origin ]
+  let closing_origin =
+    function_ |> Semantic_function_type_resolution.function_signature
+    |> Semantic_function_type_resolution.signature_closing_origin |> Option.get
+    |> source_origin
+  in
+  [
+    return_origin;
+    pointer_origin;
+    parameter_origin;
+    default_origin;
+    closing_origin;
+  ]
   |> List.iter (fun (provenance : Semantic_symbol.source_origin) ->
       Alcotest.(check bool)
         "generated source keeps its invocation" true
@@ -1325,8 +1337,108 @@ let register_requests_are_deterministic_but_not_header_identity () =
     "both headers remain visible to reconciliation" 2
     (Semantic_function_resolution.declarations identities |> List.length)
 
+let variadic_headers_without_closing_parentheses () =
+  List.iter
+    (fun mode ->
+      let session = Session.create () in
+      let ast =
+        parse ~mode session ~path:"variadic-termination-types.HC"
+          "extern I64 Prototype(I64 value=40, ...;\n\
+           I64 Definition(I64 value=40, ... {return value+argc;}\n\
+           extern U0 Callback(I64 (*outer)(I64 (*inner)(..., ...), ...;"
+      in
+      let results = resolve session ast in
+      let closing function_ =
+        function_ |> Semantic_function_type_resolution.function_signature
+        |> Semantic_function_type_resolution.signature_closing_origin
+      in
+      Alcotest.(check int)
+        "all terminated signatures resolve" 3
+        (Semantic_function_type_resolution.functions results.function_types
+        |> List.length);
+      List.iter
+        (fun name ->
+          let function_ = function_named results name in
+          Alcotest.(check bool)
+            "omitted close has no semantic origin" true
+            (closing function_ |> Option.is_none);
+          Alcotest.(check bool)
+            "fixed default survives omitted close" true
+            (parameter_at function_ 0
+           |> Semantic_function_type_resolution.parameter_default
+           |> Option.is_some);
+          Alcotest.(check bool)
+            "variadic bindings survive omitted close" true
+            (function_
+           |> Semantic_function_type_resolution.function_variadic_bindings
+           |> Option.is_some))
+        [ "Prototype"; "Definition" ];
+      let callback = function_named results "Callback" in
+      let nested_signature parameter =
+        match
+          Semantic_function_type_resolution.parameter_declarator_kind parameter
+        with
+        | Semantic_function_type_resolution.Function_pointer pointer ->
+            Semantic_function_type_resolution.function_pointer_signature pointer
+        | Semantic_function_type_resolution.Object ->
+            Alcotest.fail "expected callback"
+      in
+      let outer = nested_signature (parameter_at callback 0) in
+      let inner =
+        Semantic_function_type_resolution.signature_parameters outer
+        |> List.hd |> nested_signature
+      in
+      Alcotest.(check (list bool))
+        "nested signatures retain individual closes" [ false; true; false ]
+        [
+          Option.is_some (closing callback);
+          Option.is_some
+            (Semantic_function_type_resolution.signature_closing_origin outer);
+          Option.is_some
+            (Semantic_function_type_resolution.signature_closing_origin inner);
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let signature_closing_origin_validation () =
+  let opening_origin = Semantic_symbol.Synthesized "opening" in
+  let closing_origin = Semantic_symbol.Synthesized "closing" in
+  let variadic_origin = Semantic_symbol.Synthesized "ellipsis" in
+  Alcotest.(check bool)
+    "nonvariadic signature requires a close" true
+    (Semantic_function_type_resolution.make_signature ~opening_origin
+       ~parameters:[] ()
+    |> Result.is_error);
+  let omitted =
+    checked
+      (Semantic_function_type_resolution.make_signature ~opening_origin
+         ~parameters:[] ~variadic_origin ())
+  in
+  Alcotest.(check bool)
+    "ellipsis permits absent closing evidence" true
+    (Semantic_function_type_resolution.signature_closing_origin omitted
+    |> Option.is_none);
+  List.iter
+    (fun variadic_origin ->
+      let present =
+        checked
+          (Semantic_function_type_resolution.make_signature ~opening_origin
+             ~parameters:[] ?variadic_origin ~closing_origin ())
+      in
+      Alcotest.(check bool)
+        "present closing evidence retains identity" true
+        (match
+           Semantic_function_type_resolution.signature_closing_origin present
+         with
+        | Some origin -> origin == closing_origin
+        | None -> false))
+    [ None; Some variadic_origin ]
+
 let tests =
   [
+    Alcotest.test_case "signature closing origin validation" `Quick
+      signature_closing_origin_validation;
+    Alcotest.test_case "variadic headers without closing parentheses" `Quick
+      variadic_headers_without_closing_parentheses;
     Alcotest.test_case "primitive, intrinsic, pointers, and gaps" `Quick
       primitive_intrinsic_pointers_and_gaps;
     Alcotest.test_case "aggregate visibility and shadowing" `Quick

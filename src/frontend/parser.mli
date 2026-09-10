@@ -288,7 +288,7 @@ type completed_function_header = private {
   parameters : Ast.function_parameter list;
   empty_parameter_entries : Ast.empty_parameter_entry list;
   variadic : Ast.variadic_marker option;
-  closing_parenthesis : Ast.location;
+  closing_parenthesis : Ast.location option;
   header_activity : function_header_activity;
 }
 
@@ -351,11 +351,12 @@ type declaration_event = private
           also describe unsupported initializer shapes; they grant no layout or
           execution authority. Global completion precedes lookahead past its
           delimiter. A function is provisional before parameter parsing. Header
-          completion follows the first lookahead past ')'; body completion
-          follows body parsing and its terminating lookahead, including a native
-          empty body at EOF. Completion records reuse exact source nodes and
-          their declaration witness. Runtime validation, installation and replay
-          admission remain the consumer's work. *)
+          completion follows the first lookahead past ')' or an unterminated
+          variadic marker; body completion follows body parsing and its
+          terminating lookahead, including a native empty body at EOF.
+          Completion records reuse exact source nodes and their declaration
+          witness. Runtime validation, installation and replay admission remain
+          the consumer's work. *)
 
 type command_sink = {
   checkpoint :

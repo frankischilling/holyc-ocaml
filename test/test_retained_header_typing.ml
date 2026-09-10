@@ -439,6 +439,94 @@ let empty_parameter_substitutions_reject_before_allocation () =
         [ false; true ])
     [ "I64 F(;;I64 n){I64 local=n;return n;}"; "extern I64 F(;;I64 n);" ]
 
+let replace_closing fixture closing_parenthesis =
+  match fixture.ast.items with
+  | [ Ast.Function_definition definition ] ->
+      Ast.Function_definition
+        (Ast.make_function_definition ~modifiers:definition.modifiers
+           ~return_type:definition.return_type
+           ~return_pointer_layers:definition.return_pointer_layers
+           ~name:definition.name
+           ~opening_parenthesis:definition.opening_parenthesis
+           ~parameters:definition.parameters
+           ~empty_parameter_entries:definition.empty_parameter_entries
+           ~variadic:definition.variadic ~closing_parenthesis
+           ~body:definition.body ~location:definition.location)
+  | [ Ast.Function_prototype prototype ] ->
+      Ast.Function_prototype
+        (Ast.make_function_prototype ~modifiers:prototype.modifiers
+           ~binding:prototype.binding ~return_type:prototype.return_type
+           ~return_pointer_layers:prototype.return_pointer_layers
+           ~name:prototype.name
+           ~opening_parenthesis:prototype.opening_parenthesis
+           ~parameters:prototype.parameters
+           ~empty_parameter_entries:prototype.empty_parameter_entries
+           ~variadic:prototype.variadic ~closing_parenthesis
+           ~semicolon:prototype.semicolon ~location:prototype.location)
+  | _ -> Alcotest.fail "expected one function header"
+
+let closing_substitutions () =
+  List.iter
+    (fun text ->
+      List.iter
+        (fun copy ->
+          let fixture = parse_fixture text in
+          let closing =
+            match fixture.header.closing_parenthesis with
+            | None ->
+                Some
+                  fixture.header.function_publication
+                    .function_opening_parenthesis
+            | Some location ->
+                if copy then
+                  Some
+                    (Ast.make_location ?generated_from:location.generated_from
+                       ?defined_at:location.defined_at ~span:location.span
+                       ~source_segments:location.source_segments ())
+                else None
+          in
+          rejects_header_substitution fixture (replace_closing fixture closing))
+        [ false; true ])
+    [
+      "I64 F(I64 n,...){I64 local=n;return n;}";
+      "I64 F(I64 n,...{I64 local=n;return n;}";
+      "extern I64 F(I64 n,...);";
+      "extern I64 F(I64 n,...;";
+    ]
+
+let original_closing_rewrapped () =
+  List.iter
+    (fun text ->
+      let fixture = parse_fixture text in
+      let closing =
+        Option.map (fun original -> original) fixture.header.closing_parenthesis
+      in
+      let ast =
+        Ast.make_module ~source:fixture.ast.source ~span:fixture.ast.span
+          ~items:[ replace_closing fixture closing ]
+      in
+      let functions =
+        Driver_collection.collect
+          ~retained_headers:[ fixture.collected_header ]
+          ~table:fixture.table ~declarations:fixture.declarations ast
+        |> checked
+      in
+      let typed =
+        Driver_types.resolve ~retained_headers:[ fixture.typed_header ]
+          ~table:fixture.table ~declarations:fixture.declarations
+          ~aggregates:fixture.aggregates ~functions ast
+        |> checked |> typed_only
+      in
+      Alcotest.(check bool)
+        "original close or absence retains the typed header" true
+        (typed == fixture.typed_header))
+    [
+      "I64 F(I64 n,...){return n;}";
+      "extern I64 F(I64 n,...);";
+      "I64 F(I64 n,...{return n;}";
+      "extern I64 F(I64 n,...;";
+    ]
+
 let tests =
   [
     Alcotest.test_case "retained header gains locals once" `Quick
@@ -453,4 +541,9 @@ let tests =
       binding_substitutions_reject_before_allocation;
     Alcotest.test_case "empty parameter substitutions reject before allocation"
       `Quick empty_parameter_substitutions_reject_before_allocation;
+    Alcotest.test_case "closing token substitutions reject before allocation"
+      `Quick closing_substitutions;
+    Alcotest.test_case
+      "closing option wrapper does not replace original evidence" `Quick
+      original_closing_rewrapped;
   ]

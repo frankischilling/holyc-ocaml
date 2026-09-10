@@ -40,7 +40,7 @@ and signature = {
   signature_parameters_ : parameter list;
   signature_variadic_origin_ : Symbol.origin option;
   signature_variadic_register_requests_ : Register_request.t list;
-  signature_closing_origin_ : Symbol.origin;
+  signature_closing_origin_ : Symbol.origin option;
 }
 
 type parameter_binding = {
@@ -303,7 +303,7 @@ let make_function_pointer ~origin ~opening_origin ~indirection_origins
       }
 
 let make_signature ~opening_origin ~parameters ?variadic_origin
-    ?(variadic_register_requests = []) ~closing_origin () =
+    ?(variadic_register_requests = []) ?closing_origin () =
   let rec validate expected = function
     | [] -> Ok ()
     | parameter :: rest ->
@@ -320,21 +320,25 @@ let make_signature ~opening_origin ~parameters ?variadic_origin
                signature"
           else validate (expected + 1) rest
   in
-  match (variadic_origin, variadic_register_requests) with
-  | None, _ :: _ ->
-      Error "semantic variadic register requests require an ellipsis"
-  | None, [] | Some _, _ -> (
-      match validate 0 parameters with
-      | Error _ as error -> error
-      | Ok () ->
-          Ok
-            {
-              signature_opening_origin_ = opening_origin;
-              signature_parameters_ = parameters;
-              signature_variadic_origin_ = variadic_origin;
-              signature_variadic_register_requests_ = variadic_register_requests;
-              signature_closing_origin_ = closing_origin;
-            })
+  if Option.is_none closing_origin && Option.is_none variadic_origin then
+    Error "semantic nonvariadic function signature requires a closing origin"
+  else
+    match (variadic_origin, variadic_register_requests) with
+    | None, _ :: _ ->
+        Error "semantic variadic register requests require an ellipsis"
+    | None, [] | Some _, _ -> (
+        match validate 0 parameters with
+        | Error _ as error -> error
+        | Ok () ->
+            Ok
+              {
+                signature_opening_origin_ = opening_origin;
+                signature_parameters_ = parameters;
+                signature_variadic_origin_ = variadic_origin;
+                signature_variadic_register_requests_ =
+                  variadic_register_requests;
+                signature_closing_origin_ = closing_origin;
+              })
 
 let make_parameter_binding ~parameter_index ~symbol =
   if parameter_index < 0 then

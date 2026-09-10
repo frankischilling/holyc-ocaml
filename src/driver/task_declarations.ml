@@ -1861,8 +1861,9 @@ let seal ledger (ast : Ast.module_) =
                           || (not
                                 (same_option ( == ) header.variadic
                                    prototype.variadic))
-                          || header.closing_parenthesis
-                             != prototype.closing_parenthesis
+                          || not
+                               (same_option ( == ) header.closing_parenthesis
+                                  prototype.closing_parenthesis)
                         then
                           fail prototype.location.span
                             "prototype command substituted its completed header";

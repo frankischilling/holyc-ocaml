@@ -379,7 +379,7 @@ and function_pointer_declarator = private {
   signature_parameters : function_parameter list;
   signature_empty_parameter_entries : empty_parameter_entry list;
   signature_variadic : variadic_marker option;
-  signature_closing_parenthesis : location;
+  signature_closing_parenthesis : location option;
   function_pointer_location : location;
 }
 
@@ -495,7 +495,7 @@ type function_prototype = private {
   parameters : function_parameter list;
   empty_parameter_entries : empty_parameter_entry list;
   variadic : variadic_marker option;
-  closing_parenthesis : location;
+  closing_parenthesis : location option;
   semicolon : location option;
   location : location;
 }
@@ -874,7 +874,7 @@ type function_definition = private {
   parameters : function_parameter list;
   empty_parameter_entries : empty_parameter_entry list;
   variadic : variadic_marker option;
-  closing_parenthesis : location;
+  closing_parenthesis : location option;
   body : statement option;
   location : location;
 }
@@ -1265,7 +1265,7 @@ val make_function_pointer_declarator :
   signature_parameters:function_parameter list ->
   signature_empty_parameter_entries:empty_parameter_entry list ->
   signature_variadic:variadic_marker option ->
-  signature_closing_parenthesis:location ->
+  signature_closing_parenthesis:location option ->
   function_pointer_location:location ->
   function_pointer_declarator
 
@@ -1285,7 +1285,7 @@ val make_function_prototype :
   parameters:function_parameter list ->
   empty_parameter_entries:empty_parameter_entry list ->
   variadic:variadic_marker option ->
-  closing_parenthesis:location ->
+  closing_parenthesis:location option ->
   semicolon:location option ->
   location:location ->
   function_prototype
@@ -1586,7 +1586,7 @@ val make_function_definition :
   parameters:function_parameter list ->
   empty_parameter_entries:empty_parameter_entry list ->
   variadic:variadic_marker option ->
-  closing_parenthesis:location ->
+  closing_parenthesis:location option ->
   body:statement option ->
   location:location ->
   function_definition

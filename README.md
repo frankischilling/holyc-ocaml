@@ -1,5 +1,9 @@
 # holyc-ocaml
 
+[Variadic signatures](docs/variadic-header-termination.md) can omit the closing
+parenthesis after `...`, as in the pinned TempleOS parser.
+`holyc run examples/integer-variadic-termination.hc` returns 42.
+
 [Function parameter delimiters](docs/function-parameter-delimiters.md) now
 preserve trailing commas and empty semicolon entries without adding argument
 slots. `holyc run examples/integer-parameter-delimiters.hc` returns 42.

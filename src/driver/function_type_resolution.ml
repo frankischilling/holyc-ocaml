@@ -229,7 +229,7 @@ type function_ast = {
   function_parameters : Frontend.Ast.function_parameter list;
   function_empty_parameter_entries : Frontend.Ast.empty_parameter_entry list;
   function_variadic : Frontend.Ast.variadic_marker option;
-  function_closing : Frontend.Ast.location;
+  function_closing : Frontend.Ast.location option;
 }
 
 type function_event = {
@@ -329,7 +329,7 @@ let retained_source_matches ast retained =
       && same_physical_list header.empty_parameter_entries
            ast.function_empty_parameter_entries
       && same_physical_option header.variadic ast.function_variadic
-      && header.closing_parenthesis == ast.function_closing
+      && same_physical_option header.closing_parenthesis ast.function_closing
 
 let find_retained retained_headers symbol =
   List.filter
@@ -473,7 +473,9 @@ let rec signature_fact visible ~opening parameters variadic ~closing =
                  (fun (marker : Frontend.Ast.variadic_marker) ->
                    origin marker.location)
                  variadic)
-            ~variadic_register_requests ~closing_origin:(origin closing) ()))
+            ~variadic_register_requests
+            ?closing_origin:(Option.map origin closing)
+            ()))
 
 and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
   Result.bind (Register_request.of_list parameter.register_qualifiers)

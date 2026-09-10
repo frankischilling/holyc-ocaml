@@ -51,6 +51,10 @@ let location_text sources (location : Ast.location) =
   in
   primary ^ segments ^ generated_from ^ defined_at
 
+let optional_location_text sources = function
+  | Some location -> location_text sources location
+  | None -> "absent"
+
 let delimiter_kind_name = function
   | Ast.Comma -> "comma"
   | Ast.Semicolon -> "semicolon"
@@ -1512,7 +1516,8 @@ and print_function_pointer buffer sources ~indent ~name
     (print_variadic_marker buffer sources ~indent:child_indent)
     function_pointer.signature_variadic;
   Printf.bprintf buffer "%ssignature_closing_parenthesis span=%s\n" child_indent
-    (location_text sources function_pointer.signature_closing_parenthesis)
+    (optional_location_text sources
+       function_pointer.signature_closing_parenthesis)
 
 and print_variadic_marker buffer sources ~indent
     (variadic : Ast.variadic_marker) =
@@ -1669,7 +1674,7 @@ let human sources module_ =
             (print_variadic_marker buffer sources ~indent:"    ")
             prototype.variadic;
           Printf.bprintf buffer "    closing_parenthesis span=%s\n"
-            (location_text sources prototype.closing_parenthesis);
+            (optional_location_text sources prototype.closing_parenthesis);
           Option.iter
             (fun semicolon ->
               Printf.bprintf buffer "    semicolon span=%s\n"
@@ -1701,7 +1706,7 @@ let human sources module_ =
             (print_variadic_marker buffer sources ~indent:"    ")
             definition.variadic;
           Printf.bprintf buffer "    closing_parenthesis span=%s\n"
-            (location_text sources definition.closing_parenthesis);
+            (optional_location_text sources definition.closing_parenthesis);
           Option.iter
             (fun body ->
               Printf.bprintf buffer "    body span=%s\n"
@@ -3241,8 +3246,9 @@ and function_pointer_to_yojson sources ~name
       | Some variadic -> [ ("variadic", variadic_to_yojson sources variadic) ])
     @ [
         ( "signature_closing_parenthesis",
-          location_to_yojson sources
-            function_pointer.signature_closing_parenthesis );
+          match function_pointer.signature_closing_parenthesis with
+          | Some location -> location_to_yojson sources location
+          | None -> `Null );
         ( "location",
           location_to_yojson sources function_pointer.function_pointer_location
         );
@@ -3404,7 +3410,9 @@ let item_to_yojson sources = function
               [ ("variadic", variadic_to_yojson sources variadic) ])
         @ [
             ( "closing_parenthesis",
-              location_to_yojson sources prototype.closing_parenthesis );
+              match prototype.closing_parenthesis with
+              | Some location -> location_to_yojson sources location
+              | None -> `Null );
           ]
         @ (match prototype.semicolon with
           | None -> []
@@ -3441,7 +3449,9 @@ let item_to_yojson sources = function
               [ ("variadic", variadic_to_yojson sources variadic) ])
         @ [
             ( "closing_parenthesis",
-              location_to_yojson sources definition.closing_parenthesis );
+              match definition.closing_parenthesis with
+              | Some location -> location_to_yojson sources location
+              | None -> `Null );
             ( "body",
               match definition.body with
               | None -> `Null

@@ -213,7 +213,7 @@ let rec source_signature_matches ~opening ~parameters ~variadic ~closing
     signature =
   let module H = Function_type_resolution in
   H.signature_opening_origin signature = source_origin opening
-  && H.signature_closing_origin signature = source_origin closing
+  && H.signature_closing_origin signature = Option.map source_origin closing
   && H.signature_variadic_origin signature
      = Option.map
          (fun (marker : Frontend.Ast.variadic_marker) ->

@@ -26,6 +26,7 @@ let () =
       ("semantic aggregate layout dump", Test_aggregate_layout_dump.tests);
       ("semantic function type resolution", Test_function_type_resolution.tests);
       ("function parameter delimiters", Test_function_parameter_delimiters.tests);
+      ("variadic header termination", Test_variadic_header_termination.tests);
       ("semantic global type resolution", Test_global_type_resolution.tests);
       ("semantic local type resolution", Test_local_type_resolution.tests);
       ("semantic function binding index", Test_function_binding_index.tests);

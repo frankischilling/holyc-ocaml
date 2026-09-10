@@ -281,7 +281,7 @@ let retained_source_matches function_ast retained =
       && same_physical_list header.empty_parameter_entries
            empty_parameter_entries
       && same_physical_option header.variadic variadic
-      && header.closing_parenthesis == closing
+      && same_physical_option header.closing_parenthesis closing
 
 let same_symbol left right = left == right
 

@@ -240,7 +240,7 @@ let copied_parameter_source () =
     H.make_signature
       ~opening_origin:(H.signature_opening_origin signature)
       ~parameters:[ replacement ]
-      ~closing_origin:(H.signature_closing_origin signature)
+      ?closing_origin:(H.signature_closing_origin signature)
       ()
     |> checked
   in
