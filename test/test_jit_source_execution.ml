@@ -193,6 +193,70 @@ let dimensions_share_initializer_budget () =
         |> Output.fault ~output:"A" "HCIRVM0007"))
     [ "I64 N=40;"; "I64 F(I64 x=40){return x;};" ]
 
+let ordinary_declaration_defaults () =
+  List.iter
+    (fun source ->
+      let report = run source in
+      ignore (Output.expect "" report);
+      Alcotest.(check bool)
+        "ordinary defaults activate their original task" true
+        (Option.is_some (integer_program_report_progress report));
+      Alcotest.(check bool)
+        "default source exposes separate task units" true
+        (integer_program_report_program report = None))
+    [
+      {|I64 F(I64 x=42){return x;};F();|};
+      {|I64 N=20;I64 Next(){return ++N;};I64 Saved(I64 n=Next()){return n;};N=0;Saved()+Saved();|};
+      {|I64 N=41;I64 Unused(I64 x=++N){return x;};N;|};
+      {|I64 N=41;extern I64 Unused(I64 x=++N);N;|};
+      {|I64 F(I64 x=21){return x;};I64 G(){return F()+F();};G();|};
+      {|I64 F(I64 x=21){return x;};I64 G(I64 x=F()+F()){return x;};G();|};
+      {|I64 F(I64 x=42){return x;};F()+defined(Print)+defined(PutChars)+defined(StreamPrint);|};
+    ]
+
+let ordinary_default_failures () =
+  List.iter
+    (fun (code, body) ->
+      let source = {|extern U0 Print(U8 *fmt,...);Print("A");77;|} ^ body in
+      let report = run source in
+      ignore (Output.fault ~output:"A" code report);
+      let progress = Option.get (integer_program_report_progress report) in
+      Alcotest.(check (option int64))
+        "default fault retains earlier outer result" (Some 77L)
+        (Option.map (fun word -> word.VM.bits) progress.runtime.final_value))
+    [
+      ( "HCIRVM0009",
+        {|I64 Bad(I64 d){return 1/d;};I64 F(I64 x=Bad(0)){return x;};Print("late");|}
+      );
+      ("HCRUN0003", {|I64 F(I64 x=Missing){return x;};Print("late");|});
+      ( "HCRUN0006",
+        {|I64 G(U8 *s){return 42;};I64 F(I64 x=G("value")){return x;};Print("late");|}
+      );
+    ]
+
+let ordinary_default_limits () =
+  let source =
+    {|extern U0 Print(U8 *fmt,...);I64 N=20;I64 Next(){return ++N;};I64 Saved(I64 n=Next()){return n;};Print("A");N=0;Saved()+Saved();|}
+  in
+  let report = run source in
+  ignore (Output.expect "A" report);
+  let measured =
+    (Option.get (integer_program_report_progress report)).runtime
+  in
+  ignore
+    (run ~max_steps:measured.executed_steps
+       ~max_initializer_steps:measured.initializer_steps
+       ~max_global_bytes:measured.global_bytes
+       ~max_literal_bytes:measured.literal_bytes ~max_output_bytes:1
+       ~max_output_work:measured.output_work source
+    |> Output.expect "A");
+  ignore
+    (run ~max_steps:(measured.executed_steps - 1) source
+    |> Output.fault ~output:"A" "HCIRVM0007");
+  ignore
+    (run ~max_initializer_steps:(measured.initializer_steps - 1) source
+    |> Output.fault "HCIRVM0007")
+
 let original_read_timing () =
   ignore
     (run {|I64 F(){return 42;};#exe {StreamPrint("%d;",F());}|}
@@ -225,6 +289,12 @@ let tests =
       `Quick dimension_event_order;
     Alcotest.test_case "dimensions share earlier initializer and default work"
       `Quick dimensions_share_initializer_budget;
+    Alcotest.test_case "ordinary JIT defaults execute at declaration time"
+      `Quick ordinary_declaration_defaults;
+    Alcotest.test_case "ordinary default failures preserve earlier execution"
+      `Quick ordinary_default_failures;
+    Alcotest.test_case "ordinary defaults share exact task limits" `Quick
+      ordinary_default_limits;
     Alcotest.test_case "directives retain function and identifier read timing"
       `Quick original_read_timing;
   ]

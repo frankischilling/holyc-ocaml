@@ -1,5 +1,9 @@
 # holyc-ocaml
 
+`holyc run --mode=jit --format=json examples/integer-jit-defaults.hc` returns
+42 using a default evaluated once during ordinary declaration parsing, without
+a directive. Later calls reuse the saved value after its source global changes.
+
 `holyc run --mode=aot --format=json examples/stateful-exe-defaults.hc` returns
 42 using defaults evaluated once during declaration parsing inside `#exe`.
 [Integer defaults](docs/integer-defaults.md) describes saved values, nested calls,

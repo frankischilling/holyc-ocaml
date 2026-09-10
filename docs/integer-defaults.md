@@ -1,5 +1,18 @@
 # Declaration-time integer defaults
 
+`holyc run --mode=jit --format=json examples/integer-jit-defaults.hc` returns
+I64 42 without a directive. Parsing `Saved` calls `Next()` once and saves 21.
+The later assignment sets N to zero; both omitted arguments still receive 21.
+Unused function definitions and prototypes also execute their expression
+defaults at declaration time.
+
+The first expression-default boundary activates the original JIT source journal,
+including earlier commands and initializers. The triggering default executes
+once through that journal; subsequent defaults use live callbacks. Compilation
+reports expose the completed task and its separate units. Provider headers are
+installed only when execution actually enters a `#exe` block. Ordinary inputs
+without expression defaults or active directives retain their isolated path.
+
 `holyc run --mode=aot --format=json examples/stateful-exe-defaults.hc` returns
 I64 42. Inside the directive, parsing `Saved` evaluates `Next()` once and stores
 21 as its parameter default. The later write to `N` leaves that value intact;
@@ -38,10 +51,10 @@ native TempleOS execution capture.
 General default support remains unfinished: floating conversion, pointer and
 owned string defaults, `lastclass` materialization, defaults nested inside
 callback declarators, cross-command extern joins, partial-header calls, and
-ordinary outer AOT and directive-free JIT declaration preparation still need
+ordinary outer AOT declaration preparation still need
 integration. The execution path operates in live parser tasks, including AOT
 `#exe` bodies and activated outer JIT source. Outer JIT activation consumes
-earlier original default receipts once before entering the first directive;
+earlier original default receipts once at the first default or directive;
 later defaults use their live parser callbacks.
 Issue #635 and draft #636 remain open, together with the full compiler, native
 backend, BIN/loader and bootstrap requirements.

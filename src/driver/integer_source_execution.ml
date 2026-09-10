@@ -154,57 +154,62 @@ let compile_report ?(max_dimension_work = 100_000)
         |> Result.map_error (fun message ->
             [ Integer_source.diagnostic ~span "HCRUN0004" message ])
       in
-      (* Take the detached task view before any outer declaration or local scope
-         is read. Runtime/provider work remains lazy until a real directive. *)
+      (* Take the detached AOT task view before outer declarations. JIT defaults
+         and directives activate their original source task on demand. *)
       let task_session =
         if Frontend.Preprocessor.Config.compilation_mode config = Aot then
           Some (Session.fork_frontend session)
         else None
       in
       let is_jit = Option.is_none task_session in
-      let execute_stream =
-       fun directive ->
-        let* retained =
-          match !task with
-          | Some task -> Ok task
-          | None ->
-              let create =
-                match task_session with
-                | Some task_session ->
-                    fun () ->
-                      Task.create ~max_steps ~max_initializer_steps
-                        ~max_global_bytes ~max_literal_bytes ~max_frame_bytes
-                        ~max_call_depth ~max_output_bytes ~max_output_work
-                        ~max_generated_bytes:
-                          (Frontend.Preprocessor.Config.max_generated_bytes
-                             config)
-                        task_session
-                | None ->
-                    fun () ->
-                      Task.adopt_source_for_activation ~max_steps
-                        ~max_initializer_steps ~max_global_bytes
-                        ~max_literal_bytes ~max_frame_bytes ~max_call_depth
-                        ~max_output_bytes ~max_output_work
-                        ~max_generated_bytes:
-                          (Frontend.Preprocessor.Config.max_generated_bytes
-                             config)
-                        session ~source ~ledger
-              in
-              let* retained =
-                create ()
-                |> Result.map_error (fun message ->
-                    [
-                      Integer_source.diagnostic ~span:directive "HCIRVM0001"
-                        message;
-                    ])
-              in
-              task := Some retained;
-              let* () =
-                if is_jit then Task.activate_source retained ~span:directive
-                else Ok ()
-              in
-              let* () = install_providers ~suspended:is_jit retained in
-              Ok retained
+      let ensure_task directive =
+        match !task with
+        | Some task -> Ok task
+        | None ->
+            let create =
+              match task_session with
+              | Some task_session ->
+                  fun () ->
+                    Task.create ~max_steps ~max_initializer_steps
+                      ~max_global_bytes ~max_literal_bytes ~max_frame_bytes
+                      ~max_call_depth ~max_output_bytes ~max_output_work
+                      ~max_generated_bytes:
+                        (Frontend.Preprocessor.Config.max_generated_bytes config)
+                      task_session
+              | None ->
+                  fun () ->
+                    Task.adopt_source_for_activation ~max_steps
+                      ~max_initializer_steps ~max_global_bytes
+                      ~max_literal_bytes ~max_frame_bytes ~max_call_depth
+                      ~max_output_bytes ~max_output_work
+                      ~max_generated_bytes:
+                        (Frontend.Preprocessor.Config.max_generated_bytes config)
+                      session ~source ~ledger
+            in
+            let* retained =
+              create ()
+              |> Result.map_error (fun message ->
+                  [
+                    Integer_source.diagnostic ~span:directive "HCIRVM0001"
+                      message;
+                  ])
+            in
+            task := Some retained;
+            let* () =
+              if is_jit then Task.activate_source retained ~span:directive
+              else Ok ()
+            in
+            Ok retained
+      in
+      let providers_installed = ref false in
+      let execute_stream directive =
+        let* retained = ensure_task directive in
+        let* () =
+          if !providers_installed then Ok ()
+          else
+            let* () = install_providers ~suspended:is_jit retained in
+            providers_installed := true;
+            Ok ()
         in
         Task.stream_executor retained directive
       in
@@ -244,8 +249,14 @@ let compile_report ?(max_dimension_work = 100_000)
             Some
               (fun event ->
                 let* () = Task_declarations.observe ledger event in
-                match (is_jit, !task) with
-                | true, Some task -> Task.observe_initializer task event
+                match (is_jit, !task, event) with
+                | true, Some task, _ -> Task.observe_initializer task event
+                | true, None, Parser.Parameter_default_completed receipt -> (
+                    match receipt.default_ast.value with
+                    | Frontend.Ast.Expression_default _ ->
+                        ensure_task receipt.default_ast.location.span
+                        |> Result.map ignore
+                    | Frontend.Ast.Lastclass_default _ -> Ok ())
                 | _ -> Ok ());
           dimension_count =
             Some (Task_declarations.grammar_dimension_count ledger);

@@ -72,23 +72,33 @@ let () =
       ("jit", {|#exe {StreamPrint("42;");}|});
       ("aot", {|#exe {StreamPrint("42;");}|});
       ("jit", {|I64 N=40;#exe {StreamPrint("%d;",N+2);}|});
+      ("jit", {|I64 F(I64 n=42){return n;};F();|});
+      ( "jit",
+        {|I64 N=20;I64 Next(){return ++N;};I64 Saved(I64 n=Next()){return n;};N=0;Saved()+Saved();|}
+      );
       ( "jit",
         {|I64 N=20;I64 Next(){return ++N;};I64 Saved(I64 n=Next()){return n;};N=0;#exe {StreamPrint("%d;",Saved()+Saved());}|}
       );
     ];
-  with_source {|#exe {I64 N=40;StreamPrint("%d;",N+2);}|} (fun path ->
-      let status, output, errors =
-        capture executable [ "dump-ir"; "--program"; "--mode=jit"; path ]
-      in
-      require
-        (status = Unix.WEXITED 0 && errors = "")
-        ("stateful IR inspection failed: " ^ output ^ errors);
-      let units =
-        String.split_on_char '\n' output
-        |> List.filter (String.starts_with ~prefix:"task unit ")
-      in
-      require
-        (List.length units >= 3)
-        "stateful IR must identify separate task units");
+  List.iter
+    (fun source ->
+      with_source source (fun path ->
+          let status, output, errors =
+            capture executable [ "dump-ir"; "--program"; "--mode=jit"; path ]
+          in
+          require
+            (status = Unix.WEXITED 0 && errors = "")
+            ("stateful IR inspection failed: " ^ output ^ errors);
+          let units =
+            String.split_on_char '\n' output
+            |> List.filter (String.starts_with ~prefix:"task unit ")
+          in
+          require
+            (List.length units >= 3)
+            "stateful IR must identify separate task units"))
+    [
+      {|#exe {I64 N=40;StreamPrint("%d;",N+2);}|};
+      {|I64 N=20;I64 Next(){return ++N;};I64 Saved(I64 n=Next()){return n;};N=0;Saved()+Saved();|};
+    ];
   print_endline
     "Stateful JIT/AOT CLI execution and separate JIT IR units passed."

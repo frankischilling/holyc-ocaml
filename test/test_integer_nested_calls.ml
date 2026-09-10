@@ -149,10 +149,13 @@ let faults () =
 let unsupported () =
   List.iter
     (fun mode ->
+      let default = "I64 F(I64 n=1){return n;}(1+F());" in
+      (match mode with
+      | Preprocessor.Jit -> ignore (F.run ~mode default |> F.expect 2L)
+      | Preprocessor.Aot -> ignore (F.first_error (F.run ~mode default)));
       List.iter
         (fun text -> ignore (F.first_error (F.run ~mode text)))
         [
-          "I64 F(I64 n=1){return n;}(1+F());";
           "I64 F(I64 n,...){return n;}(1+F(2,3));";
           "extern I64 F();(1+F());";
           "I64 F(I64 *n){return 1;}(1+F(0));";

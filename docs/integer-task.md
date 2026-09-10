@@ -69,11 +69,11 @@ source-read authority; the supported implicit output path uses a same-unit heade
 The internal `Integer_unit` module owns checked AST compilation and compiled-unit
 inspection. `Integer_source_execution` owns public source parsing and execution
 above that core and `Integer_task`; both public run APIs use the same path.
-Valid source without an active directive still lowers one isolated unit with its
-existing resource counts and public types.
+Valid source without an expression default or active directive still lowers one
+isolated unit with its existing resource counts and public types.
 
 Public JIT source execution activates the original source ledger at the first
-actual `#exe`. Its journal retains declarations, expression reads and command
+expression default or actual `#exe`. Its journal retains declarations, expression reads and command
 resumptions in original order. Activation allocates original objects, evaluates
 their initializer leaves and integer defaults once, binds reads to the originally
 selected publications, and executes only commands whose lookahead has resumed.
@@ -443,7 +443,7 @@ controls include a configured limit above 100,000.
 
 Cross-command extern joins, partial type/header publication, remaining query
 metadata, general default/provider and later
-call-phase receipts, effectful dimensions, and remaining ordinary default
+call-phase receipts, effectful dimensions, and ordinary AOT default
 preparation remain part of issue #635. The existing integer
 function domain remains unchanged, including its pointer-return boundary.
 
