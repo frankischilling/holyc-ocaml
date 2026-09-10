@@ -32,7 +32,9 @@ including right-to-left argument evaluation, pushed producer identities,
 hidden variadic count, eight-byte slots, selected opcode and cleanup.
 `Runtime_call_context` validates these facts against the completed entry and
 exact function bodies. It retains each selected declaration/header snapshot;
-a later same-name declaration cannot change an earlier call's approval.
+a same-name declaration alone cannot change an earlier call's approval.
+An exact joined source definition can supply its executable when that call
+is reached, using the original captured header and argument protocol.
 Scheduled calls must belong to the exact retained initializer expression tree,
 including nested provided arguments. A call from a different expression cannot
 borrow its initializer region; global and static source owners remain distinct.
@@ -45,10 +47,19 @@ The initial hosted providers accept the declarations in `Kernel/KExts.HC:83-84`:
 U0 Print(U8*,...) and U0 PutChars(U64). Parameter names are immaterial. Provider
 selection requires the checked symbol, declaration, signature, flags, linkage
 and mode. JIT extern uses IC_CALL_INDIRECT2; AOT extern uses IC_CALL_EXTERN.
-Unsupported externs and imports retain explicit execution boundaries. A source
-definition named Print or PutChars executes its own body. [Joined extern/body definitions](integer-joined-definitions.md) now execute
-through exact checked associations; earlier selected providers retain their
-declaration snapshots. User-defined variadic frames remain unsupported.
+A source definition named Print or PutChars executes its own body.
+[Joined extern/body definitions](integer-joined-definitions.md) use exact
+checked predecessor ancestry. A retained provider call switches to its joined
+source body after JIT publication; AOT links source bodies before image entry.
+For `extern U0 PutChars(U64 ch);PutChars('A');U0 PutChars(U64 ch){}`,
+JIT captures A and AOT captures nothing. The provider evidence stays attached
+to the original call, but an incompatible published body reports runtime
+HCIRVM0014 without provider fallback. A reached extern with neither a published
+body nor an approved provider reports runtime HCIRVM0030; an unreached call
+does not fail merely because its extern is unresolved. Native import/linker
+execution remains a boundary. See [extern publication](integer-extern-calls.md).
+[Source-defined variadic frames](task-implicit-output.md) now execute supported
+integer tails through owned `argc` and `argv` storage.
 
 Implicit statement origins also travel in the checked context. `42;"x";`
 retains final 42; `42;Print("x");` has no final word because it ends in an
@@ -146,15 +157,18 @@ consumed arguments. Existing call-preflight, reference and resource diagnostics
 retain their codes and source/function/instruction evidence.
 
 Full HolyC formatting, arbitrary runtime linking and device behavior remain
-unfinished. Stateful compilation/#exe, optimizer parity, native backends,
+unfinished. [Stateful compilation/#exe](integer-task.md) now supports bounded
+task execution and StreamPrint generation. Machine-address reads, native imports,
+full native ABI/header-mismatch behavior, optimizer parity, native backends,
 TempleOS BIN writing and loader acceptance, broader memory and bootstrap remain
 required. This increment uses pinned-source audit and hosted tests; it claims
 no new native capture. The reference is
 `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
-## Verification
+## Historical verification
 
-Local OCaml 5.4.1 / Dune 3.24.2 verification passed all 1,856 tests in 54.260
+The following records the original #621 increment, before later source and
+extern publication work. Local OCaml 5.4.1 / Dune 3.24.2 verification passed all 1,856 tests in 54.260
 seconds, including 18 output groups, plus the program CLI checks. The initializer
 ownership regression first reproduced an accepted borrowed call, then passed
 with the exact subtree guard; nested global and static initializer calls remain

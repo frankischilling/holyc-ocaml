@@ -1089,16 +1089,16 @@ let () =
         (fun source ->
           let status, report = run source in
           require (status = Unix.WEXITED 1)
-            "unsupported provider fails preflight";
-          check_capture report "" 0 0;
+            "unresolved extern fails when reached";
+          check_capture report "41" 1 3;
           let diagnostic =
             report |> member "diagnostics" |> to_list |> List.hd
           in
           require
-            (diagnostic |> member "code" |> to_string = "HCIRVM0014"
+            (diagnostic |> member "code" |> to_string = "HCIRVM0030"
             && diagnostic |> member "notes" |> to_list
-               |> List.mem (`String "stage=preflight"))
-            "preflight failure captures no earlier output");
+               |> List.mem (`String "stage=execution"))
+            "reached extern failure retains earlier output");
       let legacy =
         success [ "run"; "--format=json"; "--mode=" ^ mode; Sys.argv.(15) ]
         |> Yojson.Safe.from_string
@@ -1158,7 +1158,7 @@ let () =
             "" );
           ( "I64 G=0;extern U0 PutChars(U64 ch);PutChars('A');U0 PutChars(U64 \
              word){G=42;}PutChars('B');G;",
-            "41" );
+            if mode = "jit" then "41" else "" );
         ];
       List.iter
         (fun (option, code) ->

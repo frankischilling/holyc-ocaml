@@ -90,6 +90,9 @@ let declaration call = call.declaration_
 let header call = call.header_
 let retained_function call = call.retained_function_
 
+let compilation_mode context =
+  Typed.top_level_compilation_mode context.typed_top_level
+
 let same_owner left right =
   match (left, right) with
   | Entry, Entry -> true
@@ -110,6 +113,41 @@ let find_graph context owner =
 let find_start context ~owner id =
   Option.bind (find_graph context owner) (fun graph ->
       Instructions.find_opt id graph.calls)
+
+let entry_item_index context call =
+  let module Tree = Sema.Top_level_expression_tree in
+  let item statement =
+    statement |> Tree.statement_source
+    |> Sema.Top_level_outer_expression_binding.statement_item_index
+  in
+  match find_start context ~owner:Entry (first call) with
+  | Some original when original == call -> (
+      match call.description.source with
+      | Top_level_call target ->
+          let source =
+            target |> Sema.Top_level_function_call_target_classification.source
+            |> Typed.top_level_direct_source
+          in
+          Typed.top_level_source context.typed_top_level
+          |> Tree.statements
+          |> List.find_map (fun statement ->
+              if List.exists (( == ) source) (Tree.statement_calls statement)
+              then Some (item statement)
+              else None)
+      | Top_level_output output ->
+          Some
+            (output
+           |> Sema.Top_level_implicit_output_argument_binding.bound_source
+           |> Sema.Top_level_implicit_output_target_resolution.output_statement
+           |> Typed.top_level_statement_source |> item)
+      | Function_call _ | Function_output _ ->
+          Option.bind
+            (Global_initialization.find_storage context.initialization
+               (first call))
+            (fun region ->
+              Option.map Sema.Function_frame_layout.function_item_index
+                (Global_initialization.storage_frame region)))
+  | _ -> None
 
 let is_prepared_default context ~owner id =
   Option.fold ~none:false

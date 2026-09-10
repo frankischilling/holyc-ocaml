@@ -94,6 +94,7 @@
   test_integer_pointers
   test_integer_arrays
   test_integer_variadic
+  test_integer_extern_calls
   test_integer_bytes
   test_integer_strings
   test_integer_u0

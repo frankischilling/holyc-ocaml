@@ -78,6 +78,12 @@ val variadic_count : call -> int64 option
 val declaration : call -> Sema.Function_resolution.resolved_declaration
 val header : call -> Sema.Function_type_resolution.resolved_function
 val retained_function : call -> Retained_function.t option
+val compilation_mode : t -> Sema.Function_resolution.compilation_mode
+
+val entry_item_index : t -> call -> int option
+(** Original containing item for an entry call, including checked static
+    initializer regions. Function-body calls inherit the invoking entry's
+    publication boundary. Foreign calls have no item in this context. *)
 
 val dimension_dependencies :
   t -> Sema.Compiler_record.runtime_dimension_proposal list

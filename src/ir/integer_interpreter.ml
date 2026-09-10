@@ -195,10 +195,10 @@ type storage_location =
   | Indexed_slot of prepared_pointer
 
 type prepared_operation =
-  | Call_start
+  | Call_start of int option
   | Call of int
   | Retained_call of Retained_function.t
-  | Runtime_call of Runtime.call * stored_type array
+  | Extern_call of Runtime.call * stored_type array
   | Call_cleanup
   | Call_end of Value_id.t * word_type
   | Call_end_void of Value_id.t
@@ -1400,7 +1400,18 @@ let task_input_result task ~sequence =
 
 let task_function_source task link =
   List.find_opt
-    (fun executable -> Retained_function.same executable.function_link link)
+    (fun executable ->
+      Retained_function.same executable.function_link link
+      || Retained_function.symbol link
+         == executable.function_callee.callee_symbol
+         && Option.fold ~none:false
+              ~some:(fun later ->
+                Sema.Function_resolution.is_joined_successor
+                  ~earlier:
+                    (link |> Retained_function.metadata
+                   |> Sema.Outer_environment.function_declaration)
+                  ~later)
+              executable.function_callee.callee_definition)
     task.functions
   |> Option.map (fun executable -> executable.function_source)
 
@@ -3119,8 +3130,12 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                   in
                   let selected =
                     match site with
-                    | Some site when Option.is_some (Runtime.provider site) ->
-                        runtime_callee site
+                    | Some site
+                      when Option.is_some (Runtime.provider site)
+                           || Runtime.call_opcode site
+                              = Opcode.Ic_call_indirect2
+                           || Runtime.call_opcode site = Opcode.Ic_call_extern
+                      -> runtime_callee site
                     | Some site when Runtime.call_opcode site <> Opcode.Ic_call
                       -> None
                     | Some site
@@ -3210,7 +3225,11 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                           phase = Collecting 0;
                         }
                         :: stack;
-                      call_instruction description Call_start
+                      call_instruction description
+                        (Call_start
+                           (Option.bind runtime_calls (fun context ->
+                                Option.bind site
+                                  (Runtime.entry_item_index context))))
                   | _ ->
                       Error
                         (call_error description
@@ -3232,8 +3251,12 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                   calls := { call with phase = Needs_cleanup } :: rest;
                   let operation =
                     match site with
-                    | Some site when Option.is_some (Runtime.provider site) ->
-                        Runtime_call (site, callee.parameter_types)
+                    | Some site
+                      when Option.is_some (Runtime.provider site)
+                           || Runtime.call_opcode site
+                              = Opcode.Ic_call_indirect2
+                           || Runtime.call_opcode site = Opcode.Ic_call_extern
+                      -> Extern_call (site, callee.parameter_types)
                     | Some site -> (
                         match Runtime.retained_function site with
                         | Some link -> Retained_call link
@@ -3511,6 +3534,7 @@ type call_completion = Pending | Completed_void | Completed_word of word
 type call_scope = {
   arguments_rev : runtime_value list;
   completion : call_completion;
+  publication_item : int option;
 }
 
 type caller = {
@@ -3522,6 +3546,7 @@ type caller = {
   saved_slots : runtime_storage;
   saved_return : word option;
   saved_calls : call_scope list;
+  saved_publication_item : int option;
 }
 
 let storage_word slot bits =
@@ -3546,11 +3571,11 @@ let publish_array_payload ~slot ~cell_offset payload write =
             (storage_word slot (Int64.of_int (Char.code byte))))
         bytes
 
-let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
-    ?(max_call_depth = Int.max_int) ?(capture_last = false) ?on_capture
-    ?initialization ?(global_words = [||]) ?literal_image ?output ?stream_output
-    ?generation_output ?admit ?(retained_regions = [])
-    ?(retained_functions = []) ~max_steps program =
+let execute_prepared ?(callees = [||]) ?(aot_linked = false)
+    ?(max_frame_bytes = Int.max_int) ?(max_call_depth = Int.max_int)
+    ?(capture_last = false) ?on_capture ?initialization ?(global_words = [||])
+    ?literal_image ?output ?stream_output ?generation_output ?admit
+    ?(retained_regions = []) ?(retained_functions = []) ~max_steps program =
   let entry_program = program in
   let current_block = ref program.entry_index in
   let current_instruction = ref 0 in
@@ -3657,6 +3682,8 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
   let owner =
     ref { owner_callees = callees; owner_literals = literal_storage }
   in
+  let entry_owner = !owner in
+  let publication_item = ref None in
   Option.iter (fun admit -> admit global_storage !owner) admit;
   let slots = ref (frame_storage program.initial_slots) in
   let program = ref program in
@@ -3820,6 +3847,71 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
         | _ -> None
     in
     fixed 0 [] arguments
+  in
+  let extern_target site visible_item =
+    let successor callee =
+      callee.callee_symbol == Runtime.symbol site
+      && Option.fold ~none:false
+           ~some:(fun later ->
+             Sema.Function_resolution.is_joined_successor
+               ~earlier:(Runtime.declaration site) ~later)
+           callee.callee_definition
+    in
+    let local =
+      Array.to_list entry_owner.owner_callees
+      |> List.find_opt (fun (callee, _) ->
+          successor callee
+          && (aot_linked
+             || Option.fold ~none:false
+                  ~some:(fun item ->
+                    Option.fold ~none:false
+                      ~some:(fun declaration ->
+                        declaration
+                        |> Sema.Function_resolution.resolved_declaration_site
+                        |> Sema.Function_resolution.declaration_site_function
+                        |> Sema.Function_type_resolution.function_item_index
+                        |> fun declared -> declared < item)
+                      callee.callee_definition)
+                  visible_item))
+    in
+    match local with
+    | Some (callee, body) -> Some (callee, body, entry_owner)
+    | None ->
+        List.find_opt
+          (fun executable -> successor executable.function_callee)
+          retained_functions
+        |> Option.map (fun executable ->
+            ( executable.function_callee,
+              executable.function_program,
+              executable.function_owner ))
+  in
+  let extern_signature_matches site callee =
+    let module Headers = Sema.Function_type_resolution in
+    let module Functions = Sema.Function_resolution in
+    match callee.callee_definition with
+    | None -> false
+    | Some declaration ->
+        let header =
+          declaration |> Functions.resolved_declaration_site
+          |> Functions.declaration_site_function
+        in
+        let parameters header =
+          header |> Headers.function_signature |> Headers.signature_parameters
+        in
+        let expected = parameters (Runtime.header site)
+        and actual = parameters header in
+        Type.equal callee.callee_return_type (Runtime.return_type site)
+        && callee.cleanup_opcode = Runtime.cleanup_opcode site
+        && callee.variadic = Option.is_some (Runtime.variadic_count site)
+        && List.length expected = List.length actual
+        && List.for_all2
+             (fun expected actual ->
+               let resolved parameter =
+                 parameter |> Headers.parameter_type_reference
+                 |> Sema.Type_reference.resolved_type
+               in
+               Type.equal (resolved expected) (resolved actual))
+             expected actual
   in
   let resolve_address block instruction location pointer_pointee =
     let root pointer_storage pointer_base pointer_count =
@@ -4064,25 +4156,19 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
           steps := !steps + 1;
           current_instruction := !current_instruction + 1;
           (match instruction.operation with
-          | Call_start ->
-              calls := { arguments_rev = []; completion = Pending } :: !calls
+          | Call_start item ->
+              calls :=
+                {
+                  arguments_rev = [];
+                  completion = Pending;
+                  publication_item =
+                    (match item with
+                    | Some _ -> item
+                    | None -> !publication_item);
+                }
+                :: !calls
           | Call_cleanup -> ()
-          | Runtime_call (site, parameter_types) -> (
-              match !calls with
-              | ({ completion = Pending; _ } as scope) :: rest -> (
-                  match
-                    invoke_output block instruction site parameter_types scope
-                  with
-                  | Ok () ->
-                      calls :=
-                        { scope with completion = Completed_void } :: rest
-                  | Error error -> failed := Some error)
-              | _ ->
-                  failed :=
-                    Some
-                      (runtime_error ~instruction block !steps "HCIRVM0008"
-                         "prepared runtime call has no pending caller scope"))
-          | (Call _ | Retained_call _) as operation -> (
+          | (Call _ | Retained_call _ | Extern_call _) as operation -> (
               let target =
                 match operation with
                 | Call index
@@ -4099,9 +4185,41 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                         ( executable.function_callee,
                           executable.function_program,
                           executable.function_owner ))
+                | Extern_call (site, _) ->
+                    let visible_item =
+                      match !calls with
+                      | scope :: _ -> scope.publication_item
+                      | [] -> None
+                    in
+                    extern_target site visible_item
                 | _ -> None
               in
               match (!calls, target) with
+              | ({ completion = Pending; _ } as scope) :: rest, None -> (
+                  match operation with
+                  | Extern_call (site, parameter_types) ->
+                      if Option.is_some (Runtime.provider site) then
+                        match
+                          invoke_output block instruction site parameter_types
+                            scope
+                        with
+                        | Ok () ->
+                            calls :=
+                              { scope with completion = Completed_void } :: rest
+                        | Error error -> failed := Some error
+                      else
+                        failed :=
+                          Some
+                            (runtime_error ~instruction block !steps
+                               "HCIRVM0030"
+                               "the reached extern function has no published \
+                                executable definition")
+                  | _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0008"
+                             "prepared direct call has no available caller \
+                              scope"))
               | ( ({ completion = Pending; _ } as scope) :: _,
                   Some (callee, body, callee_owner) ) -> (
                   let tail_count =
@@ -4111,7 +4229,18 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                       - 1
                     else 0
                   in
-                  if !depth >= max_call_depth then
+                  if
+                    match operation with
+                    | Extern_call (site, _) ->
+                        not (extern_signature_matches site callee)
+                    | _ -> false
+                  then
+                    failed :=
+                      Some
+                        (runtime_error ~instruction block !steps "HCIRVM0014"
+                           "published extern definition disagrees with the \
+                            captured call signature")
+                  else if !depth >= max_call_depth then
                     failed :=
                       Some
                         (runtime_error ~instruction block !steps "HCIRVM0015"
@@ -4153,6 +4282,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                             saved_slots = !slots;
                             saved_return = !pending_return;
                             saved_calls = !calls;
+                            saved_publication_item = !publication_item;
                           }
                           :: !callers;
                         incr depth;
@@ -4164,6 +4294,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                           (Array.length arguments);
                         program :=
                           { body with initial_frame_bytes = frame_bytes };
+                        publication_item := scope.publication_item;
                         owner := callee_owner;
                         slots := initialized;
                         values := Value_map.empty;
@@ -4495,6 +4626,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                         !live_frame_bytes - !program.initial_frame_bytes;
                       program := caller.saved_program;
                       owner := caller.saved_owner;
+                      publication_item := caller.saved_publication_item;
                       current_block := caller.saved_block;
                       current_instruction := caller.saved_instruction;
                       values := caller.saved_values;
@@ -4840,7 +4972,12 @@ let execute_program_with_output ?task ?isolated_budget
           |> List.filter_map (fun instruction ->
               let description = Sequence.description instruction in
               match (description.opcode, description.payload) with
-              | Opcode.Ic_call, Some (Sequence.Symbol symbol) ->
+              | ( (Opcode.Ic_call | Ic_call_indirect2 | Ic_call_extern),
+                  Some (Sequence.Symbol symbol) )
+                when description.opcode = Opcode.Ic_call
+                     || List.exists
+                          (fun (callee, _, _) -> callee.callee_symbol == symbol)
+                          summaries ->
                   let retained =
                     List.find_map
                       (fun (instruction_id, link) ->
@@ -4876,6 +5013,8 @@ let execute_program_with_output ?task ?isolated_budget
             when Frame.function_item_index context.layout < declaring_index ->
               available region declaring_index (symbol :: visited)
                 (calls ~caller:body (Function.body body) @ rest)
+          | _ when description.opcode <> Opcode.Ic_call ->
+              available region declaring_index visited rest
           | _ ->
               let error =
                 preflight_error block_id description "HCIRVM0017"
@@ -5103,9 +5242,14 @@ let execute_program_with_output ?task ?isolated_budget
                     globals)
             else None)
       in
-      execute_prepared ~callees:programs ~max_frame_bytes ~max_call_depth
-        ?initialization ~global_words ~literal_image ~output ?stream_output
-        ?generation_output
+      execute_prepared ~callees:programs
+        ~aot_linked:
+          (Option.fold ~none:false
+             ~some:(fun context ->
+               Runtime.compilation_mode context = Sema.Function_resolution.Aot)
+             runtime_calls)
+        ~max_frame_bytes ~max_call_depth ?initialization ~global_words
+        ~literal_image ~output ?stream_output ?generation_output
         ~capture_last:((not initializer_mode) || capture_fragment_value)
         ?on_capture ?admit ~retained_regions ~retained_functions ~max_steps
         entry

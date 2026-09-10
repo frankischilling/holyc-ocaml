@@ -400,17 +400,19 @@ let initialization_faults () =
 let source_order_boundaries () =
   List.iter
     (fun mode ->
-      List.iter
-        (fun source ->
-          let error = Output.run ~mode source |> Output.fault "HCIRVM0014" in
+      let forward = "extern I64 Id(I64 n);Id(42);I64 Id(I64 n){return n;}" in
+      (match mode with
+      | Preprocessor.Jit ->
+          let error = Output.run ~mode forward |> Output.fault "HCIRVM0030" in
           Alcotest.(check bool)
-            "earlier ordinary extern remains a preflight boundary" true
-            (List.mem "stage=preflight" error.notes))
-        [
-          "extern I64 Id(I64 n);Id(42);I64 Id(I64 n){return n;}";
-          "extern I64 Id(I64 n);I64 Caller(){return Id(42);}I64 Id(I64 \
-           n){return n;}Caller();";
-        ];
+            "unpublished JIT extern faults when reached" true
+            (List.mem "stage=execution" error.notes)
+      | Preprocessor.Aot -> ignore (Output.run ~mode forward |> Output.expect ""));
+      ignore
+        (Output.run ~mode
+           "extern I64 Id(I64 n);I64 Caller(){return Id(42);}I64 Id(I64 \
+            n){return n;}Caller();"
+        |> Output.expect "");
       let compiled =
         G.compile ~mode
           "I64 G=0;extern U0 PutChars(U64 ch);PutChars('A');U0 PutChars(U64 \
@@ -432,7 +434,7 @@ let source_order_boundaries () =
          == Ir_runtime_call_context.symbol second
         && Ir_runtime_call_context.symbol second == Body.callable_symbol body);
       Alcotest.(check bool)
-        "earlier selected extern remains hosted" true
+        "earlier extern retains its original provider evidence" true
         (Ir_runtime_call_context.provider first
         = Some Ir_runtime_call_context.Put_chars);
       Alcotest.(check bool)
@@ -696,6 +698,7 @@ let tests =
       Alcotest.test_case name `Quick (fun () ->
           List.iter
             (fun mode ->
+              let output = if mode = Preprocessor.Aot then "" else output in
               ignore (Output.run ~mode source |> Output.expect output))
             G.modes))
     gates

@@ -19,7 +19,10 @@ absence, and original marker. Only the live callback can enter this selection
 in the task journal. Successful parsing attaches the exact completed implicit
 statement. Source activation retains that journal entry and checks the exact
 admitted header; it does not repeat name lookup in the later environment.
-Missing or unfinished targets do not acquire a function from a later command.
+Missing selections cannot acquire a function from a later command. A selected
+unresolved extern can reach its exact joined definition after publication,
+while keeping its captured header and arguments; see
+[extern call publication](integer-extern-calls.md).
 
 Semantic resolution requires the original statement from the sealed command.
 Its fixed expression, every trailing argument and nested call are checked

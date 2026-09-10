@@ -20,8 +20,10 @@ default inputs without evaluating its syntax again.
 The semantic passes retain the exact predecessor declaration, mode and
 classified flag record. Task admission requires that predecessor to remain
 the newest publication. Old publication snapshots remain available to compiled
-consumers. An earlier unresolved extern selection remains unresolved after a
-later definition; it cannot silently acquire the new executable.
+consumers. An earlier unresolved extern call can reach a later definition
+through its exact joined declaration ancestry. It keeps its original header
+and saved defaults; a new JIT shadow cannot replace that target. See
+[extern call publication](integer-extern-calls.md).
 
 The behavior follows the pinned `Compiler/PrsStmt.HC:63-139` and
 `Compiler/PrsVar.HC:378` at `c26482bb6ad3f80106d28504ec5db3c6a360732c`.

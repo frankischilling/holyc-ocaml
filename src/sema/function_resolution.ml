@@ -31,6 +31,7 @@ type resolved_declaration = {
   identity_symbol : Symbol.t;
   replaced_header : declaration_site option;
   retained_predecessor : resolved_declaration option;
+  joined_predecessor : resolved_declaration option;
 }
 
 type t = {
@@ -58,6 +59,9 @@ let declaration_site_state (site : declaration_site) = site.state
 let resolved_declaration_site (declaration : resolved_declaration) =
   declaration.site
 
+let resolved_declaration_compilation_mode (declaration : resolved_declaration) =
+  declaration.compilation_mode
+
 let resolved_declaration_identity_symbol (declaration : resolved_declaration) =
   declaration.identity_symbol
 
@@ -66,6 +70,12 @@ let resolved_declaration_replaced_header (declaration : resolved_declaration) =
 
 let resolved_declaration_retained_predecessor declaration =
   declaration.retained_predecessor
+
+let rec is_joined_successor ~earlier ~later =
+  match later.joined_predecessor with
+  | None -> false
+  | Some predecessor ->
+      predecessor == earlier || is_joined_successor ~earlier ~later:predecessor
 
 let compilation_mode_name = function
   | Jit -> "jit"
@@ -305,26 +315,37 @@ let resolve_validated ~previous compilation_mode
         })
   in
   let identities_by_index = Array.of_list identities in
+  let latest_declaration_by_identity = Array.make !identity_count None in
   let declarations =
     List.init declaration_count (fun declaration_index ->
-        let identity =
-          identities_by_index.(declaration_identity.(declaration_index))
-        in
+        let identity_index = declaration_identity.(declaration_index) in
+        let identity = identities_by_index.(identity_index) in
         let site =
           match sites.(declaration_index) with
           | Some site -> site
           | None -> assert false
         in
-        {
-          site;
-          compilation_mode;
-          source_history = declaration_history.(declaration_index);
-          identity_symbol = identity.symbol;
-          replaced_header = declaration_replaced_header.(declaration_index);
-          retained_predecessor =
-            (identity_at declaration_identity.(declaration_index))
-              .retained_predecessor;
-        })
+        let retained_predecessor =
+          (identity_at identity_index).retained_predecessor
+        in
+        let joined_predecessor =
+          match latest_declaration_by_identity.(identity_index) with
+          | Some _ as predecessor -> predecessor
+          | None -> retained_predecessor
+        in
+        let declaration =
+          {
+            site;
+            compilation_mode;
+            source_history = declaration_history.(declaration_index);
+            identity_symbol = identity.symbol;
+            replaced_header = declaration_replaced_header.(declaration_index);
+            retained_predecessor;
+            joined_predecessor;
+          }
+        in
+        latest_declaration_by_identity.(identity_index) <- Some declaration;
+        declaration)
   in
   { compilation_mode; identities; declarations }
 

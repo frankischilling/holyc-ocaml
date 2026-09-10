@@ -136,6 +136,7 @@ let () =
       ("source integer pointers", Test_integer_pointers.tests);
       ("source integer arrays", Test_integer_arrays.tests);
       ("source integer variadic", Test_integer_variadic.tests);
+      ("source extern calls", Test_integer_extern_calls.tests);
       ("source integer bytes", Test_integer_bytes.tests);
       ("source integer strings", Test_integer_strings.tests);
       ("source integer U0 calls", Test_integer_u0.tests);

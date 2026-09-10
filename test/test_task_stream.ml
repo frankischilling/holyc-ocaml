@@ -238,15 +238,35 @@ let depth_and_zero_bytes () =
     ]
 
 let retained_provider_and_shadow () =
-  let session, task = create () in
-  run session task {|U0 Emit(){StreamPrint("old");}|};
-  run session task {|U0 StreamPrint(U8 *fmt){Print("new");}|};
-  let stream = begin_ task in
-  run session task {|Emit();StreamPrint("ignored");|};
-  Alcotest.(check string)
-    "retained call keeps exact provider" "old" (finish task stream);
-  Alcotest.(check string)
-    "new source definition executes normally" "new" (Task.output_bytes task)
+  List.iter
+    (fun compatible ->
+      let session, task = create () in
+      run session task {|I64 N=0;U0 Emit(){++N;StreamPrint("old");}|};
+      let original = begin_ task in
+      run session task "Emit();";
+      Alcotest.(check string)
+        "unpublished source retains provider" "old" (finish task original);
+      run session task
+        (if compatible then {|U0 StreamPrint(U8 *fmt,...){Print("new");}|}
+         else {|U0 StreamPrint(U8 *fmt){Print("new");}|});
+      let stream = begin_ task in
+      (if compatible then run session task "Emit();"
+       else
+         let result = T.run session task "Emit();" in
+         T.fault "HCIRVM0014" result;
+         let error = Test_integer_functions.first_error result in
+         Alcotest.(check bool)
+           "captured header mismatch faults at invocation" true
+           (List.mem "stage=execution" error.notes));
+      T.value 2L (T.run session task "N;");
+      Alcotest.(check string)
+        "published source never falls back to provider" "" (finish task stream);
+      run session task {|StreamPrint("ignored");|};
+      Alcotest.(check string)
+        "compatible retained call uses the joined source body"
+        (if compatible then "newnew" else "new")
+        (Task.output_bytes task))
+    [ true; false ]
 
 let retained_literal_uses_current_buffer () =
   let session, task = create () in
@@ -310,8 +330,12 @@ let invalid_headers () =
       let session = Session.create () in
       let task = T.create session in
       let stream = begin_ task in
-      T.fault "HCIRVM0014"
-        (T.run session task (header ^ {|StreamPrint("42;");|}));
+      let result = T.run session task (header ^ {|StreamPrint("42;");|}) in
+      T.fault "HCIRVM0030" result;
+      let error = Test_integer_functions.first_error result in
+      Alcotest.(check bool)
+        "unrecognized provider header remains unresolved until invocation" true
+        (List.mem "stage=execution" error.notes);
       Alcotest.(check int)
         "invalid header has no formatter work" 0 (Task.output_work task);
       Alcotest.(check string)

@@ -435,25 +435,74 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
                 List.filter_map
                   (fun (item : Seq.description) ->
                     match (item.opcode, item.payload) with
-                    | Ir.Opcode.Ic_call, Some (Seq.Symbol symbol) ->
-                        Some (globals, functions, symbol)
+                    | ( (Ir.Opcode.Ic_call | Ic_call_indirect2 | Ic_call_extern),
+                        Some (Seq.Symbol symbol) ) ->
+                        Some
+                          ( globals,
+                            functions,
+                            symbol,
+                            item.opcode <> Ir.Opcode.Ic_call )
                     | _ -> None)
                   code
               in
               let rec guard_callees visited = function
                 | [] -> Ok ()
-                | (_, _, symbol) :: rest
+                | (_, _, symbol, _) :: rest
                   when List.exists (fun other -> other == symbol) visited ->
                     guard_callees visited rest
-                | (owner_globals, owner_functions, symbol) :: rest -> (
-                    let source =
+                | (owner_globals, owner_functions, symbol, external_) :: rest
+                  -> (
+                    let before =
+                      match root_ with
+                      | Global (slot, _) ->
+                          Some
+                            (Globals.slot_record slot
+                           |> Sema.Global_record_classification
+                              .classified_record_source
+                           |> Sema.Global_resolution.global_record_global
+                           |> Sema.Global_type_resolution.global_item_index)
+                      | Static (slot, _) ->
+                          Some
+                            (Globals.static_frame slot
+                           |> Sema.Function_frame_layout.function_item_index)
+                      (* The source callers pass no local definitions. Their source
+                         inspection callback exposes only admitted task bodies. *)
+                      | Fragment _ | Default _ | Dimension _ -> None
+                    in
+                    let find source_globals source_functions =
                       List.find_opt
                         (fun (function_ : VM.function_definition) ->
                           Ir.Function_body.callable_symbol function_.body
-                          == symbol)
-                        owner_functions
+                          == symbol
+                          && ((not external_) || source_globals != globals
+                             ||
+                             let aot =
+                               Option.fold ~none:false
+                                 ~some:(fun declaration ->
+                                   Sema.Function_resolution
+                                   .resolved_declaration_compilation_mode
+                                     declaration
+                                   = Sema.Function_resolution.Aot)
+                                 (Ir.Function_body.definition_declaration
+                                    function_.body)
+                             in
+                             aot
+                             || Option.fold ~none:true
+                                  ~some:(fun before ->
+                                    Sema.Function_frame_layout
+                                    .function_item_index function_.frame
+                                    < before)
+                                  before))
+                        source_functions
                       |> Option.map (fun function_ ->
-                          (owner_globals, owner_functions, function_))
+                          (source_globals, source_functions, function_))
+                    in
+                    let source =
+                      match
+                        if external_ then find globals functions else None
+                      with
+                      | Some _ as source -> source
+                      | None -> find owner_globals owner_functions
                     in
                     let source =
                       match source with
@@ -470,6 +519,7 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
                                 (retained_function_source reference))
                     in
                     match source with
+                    | None when external_ -> guard_callees visited rest
                     | None ->
                         invalid ~at ~notes "HCRUN0006"
                           "initializer call has no checked source definition"

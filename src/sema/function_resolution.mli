@@ -56,6 +56,10 @@ val declaration_site_kind : declaration_site -> declaration_kind
 val declaration_site_compiler_option_mask : declaration_site -> int64
 val declaration_site_state : declaration_site -> state
 val resolved_declaration_site : resolved_declaration -> declaration_site
+
+val resolved_declaration_compilation_mode :
+  resolved_declaration -> compilation_mode
+
 val resolved_declaration_identity_symbol : resolved_declaration -> Symbol.t
 
 val resolved_declaration_replaced_header :
@@ -63,6 +67,12 @@ val resolved_declaration_replaced_header :
 
 val resolved_declaration_retained_predecessor :
   resolved_declaration -> resolved_declaration option
+
+val is_joined_successor :
+  earlier:resolved_declaration -> later:resolved_declaration -> bool
+(** Whether [later] strictly succeeds the exact [earlier] declaration through
+    local or retained joins. Equal source headers or identity symbols from a
+    separately reconstructed resolution do not establish ancestry. *)
 
 val compilation_mode_name : compilation_mode -> string
 val declaration_kind_name : declaration_kind -> string

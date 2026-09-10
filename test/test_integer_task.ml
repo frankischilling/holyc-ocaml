@@ -319,11 +319,18 @@ let rejected_command_has_no_effects () =
   let task = create session in
   ignore (run session task "I64 N=40;" |> Test_integer_program.checked);
   let command =
-    compile session task "extern I64 Missing();I64 M=1;N=99;if(0)Missing();"
+    compile session task "I64 Unsupported(){1.0;return 1;}I64 M=1;N=99;"
   in
   let before = Task.executed_steps task in
-  fault "HCIRVM0014" (Task.execute task command);
-  fault "HCIRVM0014" (Task.execute task command);
+  List.iter
+    (fun () ->
+      let result = Task.execute task command in
+      fault "HCIRVM0002" result;
+      let error = Test_integer_functions.first_error result in
+      Alcotest.(check bool)
+        "unsupported body fails during preflight" true
+        (List.mem "stage=preflight" error.notes))
+    [ (); () ];
   Alcotest.(check int)
     "preflight charges no instructions" before (Task.executed_steps task);
   value 40L (run session task "N;");
@@ -806,7 +813,7 @@ let retained_function_fault_and_join () =
 let retained_function_publication_boundary () =
   let session = Session.create () in
   let task = create session in
-  fault "HCIRVM0014"
+  fault "HCIRVM0030"
     (run session task
        "I64 Rejected(){return 100;}extern I64 Missing();Missing();");
   value 100L (run session task "Rejected();");
@@ -860,8 +867,8 @@ let retained_unfinished_selection () =
   ignore
     (run session task "I64 F(I64 n){N=100;return n+2;}"
     |> Test_integer_program.checked);
-  fault "HCIRVM0014" (Task.execute task pending);
-  value 0L (run session task "N;");
+  value 3L (Task.execute task pending);
+  value 100L (run session task "N;");
   value 42L (run session task "F(40);")
 
 let retained_cross_command_join () =
@@ -911,7 +918,7 @@ let retained_join_shadow () =
   value 99L (run session task "Joined();");
   ignore
     (run session task "extern I64 Joined();" |> Test_integer_program.checked);
-  fault "HCIRVM0014" (run session task "Joined();");
+  fault "HCIRVM0030" (run session task "Joined();");
   value 42L (run session task "Earlier();")
 
 let retained_join_dimension () =
@@ -1343,9 +1350,8 @@ let tests =
       `Quick retained_initializer_guard;
     Alcotest.test_case "retained recursive calls obey active depth bound" `Quick
       retained_function_depth_limit;
-    Alcotest.test_case
-      "earlier extern selection cannot acquire later executable" `Quick
-      retained_unfinished_selection;
+    Alcotest.test_case "earlier extern selection acquires its joined executable"
+      `Quick retained_unfinished_selection;
     Alcotest.test_case "separate commands join the current extern identity"
       `Quick retained_cross_command_join;
     Alcotest.test_case

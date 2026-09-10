@@ -426,6 +426,223 @@ let retained_predecessor_ownership () =
   reject "ancestor source cannot be reused after a batch join"
     (resolve ~previous:[ batch ] Jit [ first ])
 
+let joined_successor_local_chain () =
+  let prepared =
+    prepare ~path:"joined-local-chain.HC"
+      "extern I64 F();extern I64 Other();extern I64 F();I64 F(){return 1;}"
+  in
+  let declarations =
+    resolve prepared Preprocessor.Jit
+      [ Semantic_function_resolution.Extern; Extern; Extern; Definition ]
+    |> Semantic_function_resolution.declarations
+  in
+  let first, other, repeated, definition =
+    match declarations with
+    | [ first; other; repeated; definition ] ->
+        (first, other, repeated, definition)
+    | _ -> assert false
+  in
+  let joined = Semantic_function_resolution.is_joined_successor in
+  Alcotest.(check bool)
+    "prototype joins across another name" true
+    (joined ~earlier:first ~later:repeated);
+  Alcotest.(check bool)
+    "definition joins the latest prototype" true
+    (joined ~earlier:repeated ~later:definition);
+  Alcotest.(check bool)
+    "local ancestry is transitive" true
+    (joined ~earlier:first ~later:definition);
+  Alcotest.(check bool)
+    "another name is not an ancestor" false
+    (joined ~earlier:other ~later:definition);
+  Alcotest.(check bool)
+    "ancestry is strict" false
+    (joined ~earlier:first ~later:first);
+  Alcotest.(check bool)
+    "ancestry is directed" false
+    (joined ~earlier:definition ~later:first);
+  List.iter
+    (fun declaration ->
+      Alcotest.(check bool)
+        "local joins have no retained predecessor" true
+        (Option.is_none
+           (Semantic_function_resolution
+            .resolved_declaration_retained_predecessor declaration)))
+    declarations
+
+let joined_successor_retained_chain () =
+  let prepared =
+    prepare ~path:"joined-retained-chain.HC"
+      "extern I64 F();extern I64 F();extern I64 F();extern I64 F();I64 \
+       F(){return 1;}"
+  in
+  let table = Session.semantic_symbols prepared.session in
+  let parent = Semantic_declaration_collection.scope prepared.declarations in
+  let first, second, third, fourth, fifth =
+    match
+      facts prepared
+        [
+          Semantic_function_resolution.Extern;
+          Extern;
+          Extern;
+          Extern;
+          Definition;
+        ]
+    with
+    | [ first; second; third; fourth; fifth ] ->
+        (first, second, third, fourth, fifth)
+    | _ -> assert false
+  in
+  let resolve ?(previous = []) declarations =
+    Semantic_function_resolution.resolve ~previous ~table ~parent
+      ~compilation_mode:Jit declarations
+    |> checked |> Semantic_function_resolution.declarations
+  in
+  let initial = resolve [ first; second ] in
+  let prior = List.nth initial 1 in
+  let middle = resolve ~previous:[ prior ] [ third; fourth ] in
+  let latest = List.nth middle 1 in
+  let definition = resolve ~previous:[ latest ] [ fifth ] |> List.hd in
+  List.iter
+    (fun earlier ->
+      Alcotest.(check bool)
+        "retained and local ancestors reach definition" true
+        (Semantic_function_resolution.is_joined_successor ~earlier
+           ~later:definition))
+    (initial @ middle);
+  List.iter
+    (fun declaration ->
+      Alcotest.(check bool)
+        "retained predecessor remains the batch input" true
+        (match
+           Semantic_function_resolution
+           .resolved_declaration_retained_predecessor declaration
+         with
+        | Some retained -> retained == prior
+        | None -> false))
+    middle
+
+let joined_successor_reconstructed_resolution () =
+  let prepared =
+    prepare ~path:"joined-reconstructed-resolution.HC"
+      "extern I64 F();extern I64 F();I64 F(){return 1;}"
+  in
+  let kinds = [ Semantic_function_resolution.Extern; Extern; Definition ] in
+  let original = resolve prepared Preprocessor.Jit kinds in
+  let reconstructed = resolve prepared Preprocessor.Jit kinds in
+  Alcotest.(check (list int))
+    "reconstruction has the same identity IDs"
+    (declaration_identity_ids original)
+    (declaration_identity_ids reconstructed);
+  let originals = Semantic_function_resolution.declarations original in
+  let reconstructions =
+    Semantic_function_resolution.declarations reconstructed
+  in
+  List.iter2
+    (fun original reconstructed ->
+      let header declaration =
+        Semantic_function_resolution.resolved_declaration_site declaration
+        |> Semantic_function_resolution.declaration_site_function
+      in
+      Alcotest.(check bool)
+        "reconstruction reuses the exact source header" true
+        (header original == header reconstructed))
+    originals reconstructions;
+  List.iter
+    (fun earlier ->
+      Alcotest.(check bool)
+        "foreign reconstruction is not a successor" false
+        (Semantic_function_resolution.is_joined_successor ~earlier
+           ~later:(List.nth reconstructions 2)))
+    originals;
+  Alcotest.(check bool)
+    "reconstructed ancestor is not original ancestry" false
+    (Semantic_function_resolution.is_joined_successor
+       ~earlier:(List.hd reconstructions) ~later:(List.nth originals 2))
+
+let joined_successor_boundaries () =
+  let prepared =
+    prepare ~path:"joined-jit-boundaries.HC"
+      "extern I64 F();I64 F(){return 1;}I64 F(){return 2;}extern I64 F();I64 \
+       F(){return 3;}"
+  in
+  let declarations =
+    resolve prepared Preprocessor.Jit
+      [
+        Semantic_function_resolution.Extern;
+        Definition;
+        Definition;
+        Extern;
+        Definition;
+      ]
+    |> Semantic_function_resolution.declarations
+  in
+  let joined earlier later =
+    Semantic_function_resolution.is_joined_successor
+      ~earlier:(List.nth declarations earlier)
+      ~later:(List.nth declarations later)
+  in
+  Alcotest.(check bool)
+    "resolved definition starts a new JIT identity" false (joined 1 2);
+  Alcotest.(check bool)
+    "new extern does not join a resolved JIT identity" false (joined 2 3);
+  Alcotest.(check bool)
+    "old extern does not reach a later shadow" false (joined 0 4);
+  Alcotest.(check bool) "new extern joins its own definition" true (joined 3 4);
+  let shadow =
+    Semantic_function_resolution.resolve
+      ~previous:[ List.nth declarations 1 ]
+      ~table:(Session.semantic_symbols prepared.session)
+      ~parent:(Semantic_declaration_collection.scope prepared.declarations)
+      ~compilation_mode:Jit
+      [
+        List.nth
+          (facts prepared
+             [
+               Semantic_function_resolution.Extern;
+               Definition;
+               Definition;
+               Extern;
+               Definition;
+             ])
+          2;
+      ]
+    |> checked |> Semantic_function_resolution.declarations |> List.hd
+  in
+  Alcotest.(check bool)
+    "retained resolved definition is not a joined ancestor" false
+    (Semantic_function_resolution.is_joined_successor
+       ~earlier:(List.nth declarations 1) ~later:shadow);
+  let aot =
+    prepare ~mode:Preprocessor.Aot ~path:"joined-aot-boundaries.HC"
+      "extern I64 F();I64 F(){return 1;}I64 F(){return 2;}import I64 F();I64 \
+       F(){return 3;}"
+  in
+  let declarations =
+    resolve aot Preprocessor.Aot
+      [
+        Semantic_function_resolution.Extern;
+        Definition;
+        Definition;
+        Import;
+        Definition;
+      ]
+    |> Semantic_function_resolution.declarations
+  in
+  let joined earlier later =
+    Semantic_function_resolution.is_joined_successor
+      ~earlier:(List.nth declarations earlier)
+      ~later:(List.nth declarations later)
+  in
+  Alcotest.(check bool)
+    "AOT definitions retain their joined ancestry" true (joined 1 2);
+  Alcotest.(check bool)
+    "AOT import joins the preceding identity" true (joined 0 3);
+  Alcotest.(check bool)
+    "AOT import prevents a subsequent join" false (joined 3 4);
+  Alcotest.(check bool)
+    "ancestry does not cross an AOT import" false (joined 0 4)
+
 let tests =
   [
     Alcotest.test_case "JIT join and shadow matrix" `Quick
@@ -445,4 +662,12 @@ let tests =
     Alcotest.test_case
       "retained predecessors preserve mode and source ownership" `Quick
       retained_predecessor_ownership;
+    Alcotest.test_case "joined successor retains local physical ancestry" `Quick
+      joined_successor_local_chain;
+    Alcotest.test_case "joined successor retains cross-batch ancestry" `Quick
+      joined_successor_retained_chain;
+    Alcotest.test_case "joined successor rejects reconstructed ancestry" `Quick
+      joined_successor_reconstructed_resolution;
+    Alcotest.test_case "joined successor respects JIT and AOT boundaries" `Quick
+      joined_successor_boundaries;
   ]
