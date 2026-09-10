@@ -755,8 +755,66 @@ let late_admission_cannot_certify_completion () =
   reject "post-parse admission cannot certify an earlier completion snapshot"
     (VM.task_result runtime ~sequence:(Option.get !sequence))
 
+let deferred_dimension_charge_authority () =
+  let session, source, ledger = inputs "I64 A[1+1];#exe {}" in
+  let preparation = ref None in
+  let declaration event =
+    Result.map
+      (fun () ->
+        match event with
+        | Parser.Array_dimension_preparing original ->
+            preparation := Some original
+        | _ -> ())
+      (D.observe ledger event)
+  in
+  let enter span =
+    let create () =
+      VM.create_task_state ~table:(Session.semantic_symbols session) ()
+      |> checked
+    in
+    let runtime = create () in
+    let foreign = create () in
+    D.promote_source_for_activation ledger ~runtime session ~source |> checked;
+    let original = Option.get !preparation in
+    reject "deferred preparation cannot charge before its event"
+      (VM.charge_source_dimension runtime original);
+    Alcotest.(check int)
+      "promotion keeps charges deferred" 0
+      (VM.task_initializer_steps runtime);
+    D.activate_source ledger ~runtime ~span
+      ~command:(fun _ -> Ok ())
+      ~declaration:(fun event ->
+        (match event with
+        | Parser.Array_dimension_preparing p ->
+            reject "dimension charge cannot replay within its event"
+              (VM.charge_source_dimension runtime p);
+            reject "dimension charge cannot cross runtimes"
+              (VM.charge_source_dimension foreign p);
+            Alcotest.(check int)
+              "exact original charge" 3
+              (VM.task_initializer_steps runtime)
+        | _ -> ());
+        Ok ())
+    |> expect;
+    reject "completed activation cannot recharge a dimension"
+      (VM.charge_source_dimension runtime original);
+    Alcotest.(check int)
+      "rejected charges preserve the tally" 3
+      (VM.task_initializer_steps runtime);
+    Error
+      [
+        Diagnostic.make ~code:"TEST" ~severity:Diagnostic.Error ~primary:span
+          ~message:"stop after authority checks" ();
+      ]
+  in
+  let output = parse ~declaration ~execute_stream:enter session source ledger in
+  Alcotest.(check bool)
+    "authority probe reached directive" true (Parser.has_errors output)
+
 let tests =
   [
+    Alcotest.test_case "deferred dimensions require their original charge event"
+      `Quick deferred_dimension_charge_authority;
     Alcotest.test_case "source completion requires admission at that boundary"
       `Quick late_admission_cannot_certify_completion;
     Alcotest.test_case "source result requires accepted successful execution"

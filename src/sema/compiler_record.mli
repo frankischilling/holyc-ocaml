@@ -160,6 +160,15 @@ val complete_dimension :
   (declared_dimension, string) result
 
 val prepared_dimension_count : dimension_preparation -> int64
+
+val dimension_preparation_source :
+  dimension_preparation -> Frontend.Parser.array_dimension_preparation
+
+val dimension_preparation_work : dimension_preparation -> int
+
+val dimension_preparation_namespace :
+  dimension_preparation -> Declaration_collection.namespace
+
 val dimension_count : declared_dimension -> int64
 val dimension_work : declared_dimension -> int
 

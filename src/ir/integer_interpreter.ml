@@ -348,6 +348,7 @@ type task_state = {
   mutable declared_admissions : admitted_publication list;
   mutable source_promotion_open : bool;
   mutable source_activation : Sema.Source_activation.t option;
+  mutable deferred_dimensions : Sema.Compiler_record.dimension_preparation list;
   mutable source_execution_failed : bool;
   mutable source_result : (Frontend.Parser.completed_sequence * t) option;
   catalog : Integer_globals.task_catalog;
@@ -411,6 +412,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         declared_admissions = [];
         source_promotion_open = true;
         source_activation = None;
+        deferred_dimensions = [];
         source_execution_failed = false;
         source_result = None;
         catalog = Integer_globals.create_task_catalog ~table;
@@ -525,6 +527,63 @@ let bind_source_activation task ~namespace activation =
     task.source_activation <- Some activation;
     Ok ())
 
+let promote_task_source_activation task ~namespace ~activation ~dimensions =
+  let originals = Sema.Source_activation.dimension_preparations activation in
+  if
+    Option.is_some task.source_activation
+    || (not (Sema.Source_activation.available activation))
+    || (not (Sema.Source_activation.owns_namespace activation namespace))
+    || List.length originals <> List.length dimensions
+    || not
+         (List.for_all2
+            (fun original checked ->
+              Sema.Compiler_record.dimension_preparation_source checked
+              == original
+              && Sema.Compiler_record.dimension_preparation_namespace checked
+                 == namespace)
+            originals dimensions)
+  then
+    Error "source activation requires its original checked dimension manifest"
+  else
+    promote_task_source task ~namespace
+      ~events:(Sema.Source_activation.command_events activation)
+      ~dimension_steps:0
+    |> Result.map (fun () ->
+        task.source_activation <- Some activation;
+        task.deferred_dimensions <- dimensions)
+
+let source_dimensions_ready task =
+  match (task.deferred_dimensions, task.source_activation) with
+  | [], _ -> true
+  | next :: _, Some activation ->
+      Sema.Source_activation.before_dimension activation
+        (Sema.Compiler_record.dimension_preparation_source next)
+  | _ -> false
+
+let charge_source_dimension task preparation =
+  match task.deferred_dimensions with
+  | next :: rest
+    when (not task.source_execution_failed)
+         && Sema.Compiler_record.dimension_preparation_source next
+            == preparation
+         && Sema.Source_activation.dimension_preparing task.source_activation
+              preparation ->
+      let work = Sema.Compiler_record.dimension_preparation_work next in
+      let remaining = task.max_initializer_steps - task.initializer_steps in
+      task.initializer_steps <- task.initializer_steps + min work remaining;
+      if work > remaining then (
+        task.source_execution_failed <- true;
+        Error
+          "HCIRVM0007: the bounded array dimension preparation work limit was \
+           exhausted")
+      else (
+        task.deferred_dimensions <- rest;
+        Ok ())
+  | _ ->
+      Error
+        "source dimension charge is repeated, foreign or outside its \
+         activation event"
+
 let matches_source_program program ~runtime_calls ~globals ~initialization
     ~functions entry =
   program.source_entry == entry
@@ -618,8 +677,9 @@ let admit_declared_global task declaration =
   let ( let* ) = Result.bind in
   let* () =
     if
-      Sema.Source_activation.global_admission task.source_activation
-        (Sema.Compiler_record.declared_global_source declaration)
+      source_dimensions_ready task
+      && Sema.Source_activation.global_admission task.source_activation
+           (Sema.Compiler_record.declared_global_source declaration)
     then Ok ()
     else
       Error
@@ -674,10 +734,11 @@ let begin_task_default task ~namespace ~publication receipt =
               task.defaults)
   in
   if
-    (not
-       (Frontend.Parser.parameter_default_is_current receipt
-       || Sema.Source_activation.parameter_default task.source_activation
-            receipt))
+    (not (source_dimensions_ready task))
+    || (not
+          (Frontend.Parser.parameter_default_is_current receipt
+          || Sema.Source_activation.parameter_default task.source_activation
+               receipt))
     || (not (predecessor receipt.default_predecessor))
     || (not
           (Sema.Declaration_collection.namespace_owns_publication namespace
@@ -799,6 +860,7 @@ let begin_task_initializer task ~namespace declaration start =
        (Frontend.Parser.initializer_start_is_current start
        || Sema.Source_activation.initializer_start task.source_activation start
        ))
+    || (not (source_dimensions_ready task))
     || start.initializer_owner
        != Sema.Compiler_record.declared_global_source declaration
     || List.exists
@@ -946,6 +1008,7 @@ let complete_task_initializer task ~namespace start source =
 let task_result task ~sequence =
   if
     task.streams <> [] || task.source_execution_failed
+    || task.deferred_dimensions <> []
     || (not (Sema.Source_activation.finished task.source_activation))
     || (not
           (Sema.Source_activation.owns_context task.source_activation
@@ -4624,10 +4687,11 @@ let execute_task_program task ~runtime_calls ~globals ~initialization ~functions
   task.source_promotion_open <- false;
   let result =
     if
-      not
-        (List.for_all
-           (Sema.Source_activation.command_admission task.source_activation)
-           (Integer_globals.source_command_receipts globals))
+      (not (source_dimensions_ready task))
+      || not
+           (List.for_all
+              (Sema.Source_activation.command_admission task.source_activation)
+              (Integer_globals.source_command_receipts globals))
     then
       Error
         [

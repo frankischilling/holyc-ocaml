@@ -48,10 +48,10 @@ let create ?max_steps ?max_initializer_steps ?max_global_bytes
 
 let frontend task = task.session
 
-let adopt_source ?max_steps ?max_initializer_steps ?max_global_bytes
-    ?max_literal_bytes ?max_frame_bytes ?max_call_depth ?max_output_bytes
-    ?max_output_work ?max_generated_bytes ?max_stream_depth session ~source
-    ~ledger =
+let adopt_source_with_promotion promote ?max_steps ?max_initializer_steps
+    ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
+    ?max_output_bytes ?max_output_work ?max_generated_bytes ?max_stream_depth
+    session ~source ~ledger =
   let ( let* ) = Result.bind in
   let* config = Frontend.Preprocessor.Config.create ~compilation_mode:Jit () in
   let* state =
@@ -61,9 +61,7 @@ let adopt_source ?max_steps ?max_initializer_steps ?max_global_bytes
       ~table:(Session.semantic_symbols session)
       ()
   in
-  let* () =
-    Task_declarations.promote_source ledger ~runtime:state session ~source
-  in
+  let* () = promote ledger ~runtime:state session ~source in
   Ok
     {
       session;
@@ -73,6 +71,11 @@ let adopt_source ?max_steps ?max_initializer_steps ?max_global_bytes
       identity = ref ();
       commands = [];
     }
+
+let adopt_source = adopt_source_with_promotion Task_declarations.promote_source
+
+let adopt_source_for_activation =
+  adopt_source_with_promotion Task_declarations.promote_source_for_activation
 
 let output_bytes task = VM.task_output_bytes task.state
 let output_work task = VM.task_output_work task.state

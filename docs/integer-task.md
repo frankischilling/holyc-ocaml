@@ -80,6 +80,15 @@ selected publications, and executes only commands whose lookahead has resumed.
 Pending statements execute after the directive returns. Later source callbacks
 and nested blocks use the same task. No source prefix is reparsed.
 
+Activation promotion binds the original checked dimension preparations without
+charging future work. Each preparation consumes the shared allowance at its
+original journal event; a failure preserves earlier output and all reached
+visits. Extent layout reuses the checked result without another evaluation.
+Missing, repeated, foreign, consumed or expired activation evidence cannot
+authorize a charge or skip a pending dimension. The separate inert adoption API
+still imports already reached dimension work atomically and permits retry when
+its preparation preflight fails.
+
 Each deferred operation requires its exact active journal event. Failure or
 exception revokes that authority, including saved storage and command admission;
 source promotion alone remains inert. The final result requires the exact
@@ -437,14 +446,6 @@ metadata, general default/provider and later
 call-phase receipts, effectful dimensions, and remaining ordinary default
 preparation remain part of issue #635. The existing integer
 function domain remains unchanged, including its pointer-return boundary.
-
-Closed dimension work observed before activation is still charged together at
-source promotion. With a preparation allowance smaller than that accumulated
-work, promotion rejects before earlier deferred output runs. For example,
-`extern U0 Print(U8 *fmt,...);Print("A");I64 Values[1+1];#exe {}` with a two-step
-preparation allowance currently reports HCIRVM0001 with empty output. Charging
-that work at its original dimension event, preserving the earlier `A`, remains
-required. Successful activation reports include the dimension work once.
 
 The streaming parser now exposes private declaration events for provisional
 globals and functions, completed global declarators, function headers and bodies.

@@ -19,6 +19,38 @@ let current t =
   Parser.context_is_current t.context ~observed_events:t.observed_events
 
 let owns_namespace t namespace = t.namespace == namespace
+let available t = (not t.consumed) && current t
+
+let command_events t =
+  List.filter_map
+    (function
+      | Command event -> Some event
+      | _ -> None)
+    t.events
+
+let dimension_preparations t =
+  List.filter_map
+    (function
+      | Declaration (Parser.Array_dimension_preparing p) -> Some p
+      | _ -> None)
+    t.events
+
+let before_dimension t preparation =
+  if not (current t) then false
+  else
+    let rec scan = function
+      | [] -> false
+      | Declaration (Parser.Array_dimension_preparing p) :: _
+        when p == preparation -> false
+      | event :: rest ->
+          if
+            Option.fold ~none:false
+              ~some:(fun active -> active == event)
+              t.active
+          then true
+          else scan rest
+    in
+    scan t.events
 
 let event_context = function
   | Command (Parser.Sequence_started context | Parser.Sequence_aborted context)
@@ -135,6 +167,12 @@ let parameter_default activation receipt =
 let declaration activation receipt =
   allows activation (function
     | Declaration original -> original == receipt
+    | _ -> false)
+
+let dimension_preparing activation receipt =
+  allows activation (function
+    | Declaration (Parser.Array_dimension_preparing original) ->
+        original == receipt
     | _ -> false)
 
 let reference activation receipt =

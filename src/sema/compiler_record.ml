@@ -94,6 +94,9 @@ let dimension_count checked = checked.prepared.count
 let dimension_work checked = checked.prepared.work
 let dimension_receipt checked = checked.completed
 let prepared_dimension_count checked = checked.count
+let dimension_preparation_source checked = checked.preparation
+let dimension_preparation_work checked = checked.work
+let dimension_preparation_namespace checked = checked.dimension_namespace
 
 let validate_dimension_queries checked queries =
   let original = checked.prepared.queries in

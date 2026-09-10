@@ -56,4 +56,5 @@ work before deferred commands execute. A two-step preparation limit on
 `extern U0 Print(U8 *fmt,...);Print("A");I64 Values[1+1];#exe {}` therefore rejects
 with HCIRVM0001 and empty output. Preserve the separate inert-promotion contract,
 but add ordered dimension charging for source activation so earlier output
-survives this later resource failure. This remains part of #635.
+survives this later resource failure. The follow-up is implemented and tracked
+in `2026-09-09-deferred-dimension-charging.md`; #635 remains unfinished.

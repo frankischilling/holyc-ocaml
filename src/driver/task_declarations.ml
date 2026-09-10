@@ -180,6 +180,8 @@ type t = {
   mutable activation : Sema.Source_activation.t option;
   max_dimension_work : int;
   mutable dimension_work : int;
+  mutable source_dimensions_rev :
+    Sema.Compiler_record.dimension_preparation list;
   runtime_entries : VM.admitted_publication Entries.t;
   runtime_records : (Sema.Compiler_record.t, string) result Entries.t;
   mutable admissions : VM.task_admission list;
@@ -267,6 +269,7 @@ let create_with_authority ?(max_dimension_work = 100_000) authority session =
               activation = None;
               max_dimension_work;
               dimension_work = 0;
+              source_dimensions_rev = [];
               runtime_entries = Entries.create 32;
               runtime_records = Entries.create 32;
               admissions = [];
@@ -300,7 +303,7 @@ let create_source ?(max_dimension_work = 100_000) session ~source =
           session
     | _ -> Error "ordinary source ledger requires its exact registered input"
 
-let promote_source ledger ~runtime session ~source =
+let promote_source_with_activation ~activate ledger ~runtime session ~source =
   if
     ledger.session != session
     || ledger.sources != Session.sources session
@@ -321,11 +324,32 @@ let promote_source ledger ~runtime session ~source =
              | Ready | Reading _ | Pending _ -> true
              | Closed | Aborted -> false)
            && ledger.commands = [] ->
-        VM.promote_task_source runtime ~namespace:ledger.namespace
-          ~events:(List.rev ledger.source_events_rev)
-          ~dimension_steps:ledger.dimension_work
-        |> Result.map (fun () -> ledger.authority <- Task_runtime runtime)
+        (if activate then
+           Sema.Source_activation.create ~namespace:ledger.namespace
+             ~context:active.context
+             ~observed_events:(List.length ledger.source_events_rev)
+             (List.rev ledger.activation_events_rev)
+           |> fun result ->
+           Result.bind result (fun activation ->
+               VM.promote_task_source_activation runtime
+                 ~namespace:ledger.namespace ~activation
+                 ~dimensions:(List.rev ledger.source_dimensions_rev)
+               |> Result.map (fun () ->
+                   ledger.activation <- Some activation;
+                   ledger.dimension_work <- 0))
+         else
+           VM.promote_task_source runtime ~namespace:ledger.namespace
+             ~events:(List.rev ledger.source_events_rev)
+             ~dimension_steps:ledger.dimension_work)
+        |> Result.map (fun () ->
+            if not activate then ledger.source_dimensions_rev <- [];
+            ledger.authority <- Task_runtime runtime)
     | _ -> Error "source promotion requires its original live unsealed JIT root"
+
+let promote_source = promote_source_with_activation ~activate:false
+
+let promote_source_for_activation =
+  promote_source_with_activation ~activate:true
 
 let ledger_runtime ledger =
   match ledger.authority with
@@ -1100,7 +1124,13 @@ let prepare_dimension ledger (preparation : Parser.array_dimension_preparation)
       | _ -> ());
       ledger.dimension_work <- ledger.dimension_work + work;
       match result with
-      | Ok prepared -> pending.evaluation <- Prepared_dimension prepared
+      | Ok prepared -> (
+          pending.evaluation <- Prepared_dimension prepared;
+          match ledger.authority with
+          | Source_compilation _ ->
+              ledger.source_dimensions_rev <-
+                prepared :: ledger.source_dimensions_rev
+          | _ -> ())
       | Error message ->
           let code, message =
             match String.index_opt message ':' with
@@ -2111,20 +2141,24 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
         in
         let span = context_span context in
         require_initializer_runtime ledger runtime span;
-        if Option.is_some ledger.activation || ledger.commands <> [] then
+        if ledger.commands <> [] then
           fail span
             "source activation has already started or source commands were \
              sealed";
-        let activation =
-          Sema.Source_activation.create ~namespace:ledger.namespace ~context
-            ~observed_events:(List.length ledger.source_events_rev)
-            (List.rev ledger.activation_events_rev)
-          |> checked span
-        in
-        VM.bind_source_activation runtime ~namespace:ledger.namespace activation
-        |> checked span;
-        ledger.activation <- Some activation;
-        activation)
+        match ledger.activation with
+        | Some activation -> activation
+        | None ->
+            let activation =
+              Sema.Source_activation.create ~namespace:ledger.namespace ~context
+                ~observed_events:(List.length ledger.source_events_rev)
+                (List.rev ledger.activation_events_rev)
+              |> checked span
+            in
+            VM.bind_source_activation runtime ~namespace:ledger.namespace
+              activation
+            |> checked span;
+            ledger.activation <- Some activation;
+            activation)
   in
   let invalid =
     [
@@ -2170,6 +2204,23 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
         let* () =
           protect (fun () ->
               match event with
+              | Parser.Array_dimension_preparing preparation
+                when ledger.source_dimensions_rev <> [] -> (
+                  let before = VM.task_initializer_steps runtime in
+                  let result = VM.charge_source_dimension runtime preparation in
+                  ledger.dimension_work <-
+                    ledger.dimension_work
+                    + VM.task_initializer_steps runtime
+                    - before;
+                  match result with
+                  | Ok () -> ()
+                  | Error message ->
+                      if String.starts_with ~prefix:"HCIRVM0007:" message then
+                        fail ~code:"HCIRVM0007"
+                          preparation.dimension_opening.span
+                          "the bounded array dimension preparation work limit \
+                           was exhausted"
+                      else fail preparation.dimension_opening.span message)
               | Parser.Global_completed (publication, completed) ->
                   let boundary =
                     Names.find ledger.storage_boundaries publication.global_name

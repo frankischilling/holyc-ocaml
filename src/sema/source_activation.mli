@@ -13,6 +13,16 @@ val create :
   (t, string) result
 
 val owns_namespace : t -> Declaration_collection.namespace -> bool
+val available : t -> bool
+val command_events : t -> Frontend.Parser.command_event list
+
+val dimension_preparations :
+  t -> Frontend.Parser.array_dimension_preparation list
+
+val before_dimension : t -> Frontend.Parser.array_dimension_preparation -> bool
+
+val dimension_preparing :
+  t option -> Frontend.Parser.array_dimension_preparation -> bool
 
 val run : t -> invalid:'e -> (event -> (unit, 'e) result) -> (unit, 'e) result
 (** Consumes the complete original journal once. Only the current event has

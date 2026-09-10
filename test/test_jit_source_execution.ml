@@ -132,6 +132,67 @@ let limits () =
       ("HCIRVM0023", run ~max_output_work:(measured.output_work - 1) source);
     ]
 
+let deferred_dimension_budget () =
+  let source =
+    {|extern U0 Print(U8 *fmt,...);Print("A");I64 Values[1+1];#exe {Print("B");}42;|}
+  in
+  let report = run ~max_initializer_steps:2 source in
+  ignore (Output.fault ~output:"A" "HCIRVM0007" report);
+  let progress = Option.get (integer_program_report_progress report) in
+  Alcotest.(check int) "only reached dimension work" 2 progress.dimension_work;
+  Alcotest.(check int)
+    "exhausted shared preparation allowance" 2
+    progress.runtime.initializer_steps;
+  let exact = run ~max_initializer_steps:3 source in
+  ignore (Output.expect "AB" exact);
+  let progress = Option.get (integer_program_report_progress exact) in
+  Alcotest.(check int)
+    "original dimension charged once" 3 progress.dimension_work;
+  Alcotest.(check int)
+    "layout does not charge dimension again" 3
+    progress.runtime.initializer_steps
+
+let dimension_event_order () =
+  List.iter
+    (fun (body, work, reached, complete) ->
+      let source = "extern U0 Print(U8 *fmt,...);" ^ body in
+      let report = run ~max_initializer_steps:(work - 1) source in
+      ignore (Output.fault ~output:reached "HCIRVM0007" report);
+      let progress = Option.get (integer_program_report_progress report) in
+      Alcotest.(check int)
+        "bounded reached preparation" (work - 1)
+        progress.runtime.initializer_steps;
+      ignore (run ~max_initializer_steps:work source |> Output.expect complete))
+    [
+      ( {|Print("A");I64 X[1+1];Print("B");I64 Y[1+1];#exe {Print("C");}42;|},
+        6,
+        "AB",
+        "ABC" );
+      ({|Print("A");I64 X[1+1][#exe {Print("B");}1+1];42;|}, 6, "AB", "AB");
+      ({|Print("A");#exe {}I64 X[1+1];42;|}, 3, "A", "A");
+    ]
+
+let dimensions_share_initializer_budget () =
+  List.iter
+    (fun prefix ->
+      let source =
+        "extern U0 Print(U8 *fmt,...);" ^ prefix
+        ^ {|Print("A");I64 X[1+1];#exe {Print("B");}42;|}
+      in
+      let report = run source in
+      ignore (Output.expect "AB" report);
+      let work =
+        (Option.get (integer_program_report_progress report)).runtime
+          .initializer_steps
+      in
+      Alcotest.(check bool)
+        "earlier value preparation also charged" true (work > 3);
+      ignore (run ~max_initializer_steps:work source |> Output.expect "AB");
+      ignore
+        (run ~max_initializer_steps:(work - 1) source
+        |> Output.fault ~output:"A" "HCIRVM0007"))
+    [ "I64 N=40;"; "I64 F(I64 x=40){return x;};" ]
+
 let original_read_timing () =
   ignore
     (run {|I64 F(){return 42;};#exe {StreamPrint("%d;",F());}|}
@@ -158,6 +219,12 @@ let tests =
       `Quick reached_failures;
     Alcotest.test_case "outer and stream commands share exact resource limits"
       `Quick limits;
+    Alcotest.test_case "deferred dimension failure preserves earlier commands"
+      `Quick deferred_dimension_budget;
+    Alcotest.test_case "dimension events charge before and after activation"
+      `Quick dimension_event_order;
+    Alcotest.test_case "dimensions share earlier initializer and default work"
+      `Quick dimensions_share_initializer_budget;
     Alcotest.test_case "directives retain function and identifier read timing"
       `Quick original_read_timing;
   ]

@@ -114,6 +114,15 @@ val promote_source :
     both owners unchanged; promotion does not upgrade unadmitted selections or
     compile, publish or execute source declarations. *)
 
+val promote_source_for_activation :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Session.t ->
+  source:Common.Source_file.t ->
+  (unit, string) result
+(** Prepare original source activation with deferred dimension charges. The
+    complete checked journal is bound before any source effects. *)
+
 val seal_source :
   t -> Frontend.Ast.module_ -> (source_command, Common.Diagnostic.t list) result
 (** Seal original source callbacks from a source-compilation ledger. Analysis

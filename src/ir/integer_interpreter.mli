@@ -187,6 +187,20 @@ val promote_task_source :
     command receipts and their reached dimension work atomically. Failed
     preflight leaves the runtime unchanged; success consumes promotion once. *)
 
+val promote_task_source_activation :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  activation:Sema.Source_activation.t ->
+  dimensions:Sema.Compiler_record.dimension_preparation list ->
+  (unit, string) result
+(** Bind the complete activation journal and its checked preparation manifest
+    atomically. Each dimension must be charged at its original active event. *)
+
+val charge_source_dimension :
+  task_state ->
+  Frontend.Parser.array_dimension_preparation ->
+  (unit, string) result
+
 val bind_task_source_program :
   task_state ->
   runtime_calls:Runtime_call_context.t ->

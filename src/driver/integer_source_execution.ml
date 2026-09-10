@@ -181,9 +181,10 @@ let compile_report ?(max_dimension_work = 100_000)
                         task_session
                 | None ->
                     fun () ->
-                      Task.adopt_source ~max_steps ~max_initializer_steps
-                        ~max_global_bytes ~max_literal_bytes ~max_frame_bytes
-                        ~max_call_depth ~max_output_bytes ~max_output_work
+                      Task.adopt_source_for_activation ~max_steps
+                        ~max_initializer_steps ~max_global_bytes
+                        ~max_literal_bytes ~max_frame_bytes ~max_call_depth
+                        ~max_output_bytes ~max_output_work
                         ~max_generated_bytes:
                           (Frontend.Preprocessor.Config.max_generated_bytes
                              config)
