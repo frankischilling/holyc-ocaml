@@ -1198,6 +1198,23 @@ let observe ledger event =
           | _ ->
               fail start.initializer_equals.span
                 "initializer start is foreign, repeated or out of order")
+      | Parser.Global_initializer_delimiter_completed delimiter -> (
+          let start = delimiter.delimiter_initializer in
+          let publication = start.initializer_owner in
+          validate_command ledger publication.global_header;
+          match (find ledger publication.global_name).source with
+          | Global
+              {
+                publication = original;
+                completed = None;
+                initializing = Some pending;
+              }
+            when original == publication ->
+              Sema.Initializer_source.observe_parser_delimiter pending delimiter
+              |> checked start.initializer_equals.span
+          | _ ->
+              fail start.initializer_equals.span
+                "initializer delimiter has no active original initializer")
       | Parser.Global_initializer_leaf_completed leaf -> (
           let start = leaf.leaf_initializer in
           let publication = start.initializer_owner in
@@ -1682,6 +1699,42 @@ let initializer_leaf_for ledger (receipt : Parser.completed_initializer_leaf) =
         when original == publication ->
           Sema.Initializer_source.parser_leaf pending receipt |> checked span
       | _ -> fail span "initializer leaf belongs to another source declaration")
+
+let initializer_declaration ledger (start : Parser.global_initializer_start) =
+  protect (fun () ->
+      let publication = start.initializer_owner in
+      let span = start.initializer_equals.span in
+      if not (Parser.initializer_start_is_current start) then
+        fail span "initializer layout is outside its original start callback";
+      validate_command ledger publication.global_header;
+      (match (find ledger publication.global_name).source with
+      | Global
+          { publication = original; completed = None; initializing = Some _ }
+        when original == publication -> ()
+      | _ -> fail span "initializer layout has no observed original start");
+      let declaration =
+        match
+          Names.find_opt ledger.storage_boundaries publication.global_name
+        with
+        | Some { storage_source; storage_declaration = Some declaration; _ }
+          when storage_source == publication -> declaration
+        | _ ->
+            fail span
+              "initializer layout has no checked original storage declaration"
+      in
+      let runtime =
+        match ledger_runtime ledger with
+        | Some runtime -> runtime
+        | None -> fail span "initializer layout has no retained task storage"
+      in
+      (match
+         VM.admitted_publication_for_symbol runtime
+           (Sema.Compiler_record.declared_global_symbol declaration)
+       with
+      | Some (VM.Admitted_declared_global (_, slot))
+        when Ir.Integer_globals.declared_record slot == declaration -> ()
+      | _ -> fail span "initializer layout storage has not been admitted");
+      declaration)
 
 let initializer_fragment ledger ~runtime ~task_view
     (receipt : Parser.completed_initializer_leaf) =

@@ -316,6 +316,9 @@ let stream_executor task span =
       | Global_initializer_leaf_completed leaf ->
           leaf.leaf_initializer.initializer_owner.global_header
             .declaration_command
+      | Global_initializer_delimiter_completed delimiter ->
+          delimiter.delimiter_initializer.initializer_owner.global_header
+            .declaration_command
       | Function_declared publication ->
           publication.function_header.declaration_command
       | Function_header_completed header | Function_body_completed (header, _)

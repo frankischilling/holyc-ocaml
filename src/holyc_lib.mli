@@ -210,6 +210,7 @@ module Semantic_global_dimension_binding = Sema.Global_dimension_binding
 module Semantic_global_array_layout = Sema.Global_array_layout
 module Semantic_initializer_source = Sema.Initializer_source
 module Semantic_initializer_fragment = Sema.Initializer_fragment
+module Ir_integer_initializer_layout = Ir.Integer_initializer_layout
 module Semantic_function_default_binding = Sema.Function_default_binding
 module Semantic_function_resolution = Sema.Function_resolution
 module Semantic_function_header_analysis = Sema.Function_header_analysis

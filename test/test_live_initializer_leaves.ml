@@ -190,6 +190,13 @@ let missing_phase skip =
     "missing initializer phase stops completion" true (Parser.has_errors output)
 
 let missing_phases () =
+  List.iter
+    (fun index ->
+      missing_phase (function
+        | Parser.Global_initializer_delimiter_completed receipt ->
+            receipt.delimiter_index = index
+        | _ -> false))
+    [ 0; 1; 2 ];
   missing_phase (function
     | Parser.Global_initializer_started _ -> true
     | _ -> false);
@@ -210,6 +217,11 @@ let delayed_leaf () =
     | Parser.Global_initializer_leaf_completed leaf when leaf.leaf_index = 0 ->
         delayed := Some event;
         Ok ()
+    | Parser.Global_initializer_delimiter_completed _
+      when Option.is_some !delayed ->
+        reject "unobserved leaf cannot arrive during delimiter callback"
+          (D.observe ledger (Option.get !delayed));
+        D.observe ledger event
     | Parser.Global_initializer_leaf_completed _ ->
         reject "unobserved prior leaf cannot arrive during next callback"
           (D.observe ledger (Option.get !delayed));
@@ -223,6 +235,44 @@ let delayed_leaf () =
     "delayed transcript remains incomplete" true (Parser.has_errors output)
 
 exception Stop_leaf
+
+let delimiter_lifetime raises =
+  let entered = ref 0 and saved = ref None in
+  let commands =
+    Test_stream_parser.declaration_sink (fun event ->
+        match event with
+        | Parser.Global_initializer_delimiter_completed receipt ->
+            Alcotest.(check bool)
+              "delimiter callback is current" true
+              (Parser.initializer_delimiter_is_current receipt);
+            saved := Some receipt;
+            if raises then raise Stop_leaf
+            else
+              Error
+                [
+                  Diagnostic.make ~code:"TESTDELIMITER"
+                    ~severity:Diagnostic.Error
+                    ~primary:
+                      receipt.delimiter_initializer.initializer_equals.span
+                    ~message:"rejected delimiter" ();
+                ]
+        | _ -> Ok ())
+  in
+  (try
+     let _, _, parsed, _, _, _ =
+       Test_stream_parser.parse ~same_task:true ~commands
+         ~on_enter:(fun () -> incr entered)
+         {|I64 A[2]={#exe {}40,2};|}
+     in
+     if raises then Alcotest.fail "expected callback exception";
+     Alcotest.(check bool)
+       "delimiter error stops parser" true (Parser.has_errors parsed)
+   with Stop_leaf -> if not raises then raise Stop_leaf);
+  Alcotest.(check int)
+    "directive after rejected delimiter never entered" 0 !entered;
+  Alcotest.(check bool)
+    "delimiter lifetime revoked" false
+    (Parser.initializer_delimiter_is_current (Option.get !saved))
 
 let failure_lifetime raises =
   let entered = ref 0 in
@@ -468,6 +518,57 @@ let cross_owner () =
     |> expect
     != (D.initializer_leaf_for ledger (Option.get !second) |> expect))
 
+let delimiter_identity () =
+  let pending = ref None and last = ref None in
+  let commands =
+    Test_stream_parser.declaration_sink (fun event ->
+        (match event with
+        | Parser.Global_initializer_started start ->
+            pending := Some (Source.begin_parser start |> checked)
+        | Parser.Global_initializer_delimiter_completed receipt ->
+            let pending = Option.get !pending in
+            Option.iter
+              (fun earlier ->
+                reject "earlier delimiter cannot revive in later callback"
+                  (Source.observe_parser_delimiter pending earlier))
+              !last;
+            Source.observe_parser_delimiter pending receipt |> checked;
+            reject "same delimiter cannot be observed twice"
+              (Source.observe_parser_delimiter pending receipt);
+            last := Some receipt
+        | Parser.Global_initializer_leaf_completed receipt ->
+            ignore
+              (Source.observe_parser_leaf (Option.get !pending) receipt
+              |> checked)
+        | Parser.Global_completed (_, declaration) ->
+            let pending = Option.get !pending in
+            let initial = Option.get declaration.global_initial_value in
+            let group =
+              match initial.global_initializer_value with
+              | Ast.Braced_initializer group -> group
+              | _ -> assert false
+            in
+            Alcotest.(check bool)
+              "trailing delimiter keeps original closing location" true
+              (match (Option.get !last).Parser.delimiter_value with
+              | Parser.Initializer_close location ->
+                  location == group.initializer_closing_brace
+              | _ -> false);
+            let source = Source.complete_parser pending event |> checked in
+            Alcotest.(check bool)
+              "complete manifest retains original trailing receipt" true
+              (Option.get (Source.last_parser_delimiter source)
+              == Option.get !last)
+        | _ -> ());
+        Ok ())
+  in
+  let _, _, parsed, _, _, _ =
+    Test_stream_parser.parse ~same_task:true ~commands {|I64 A[2]={40,2};|}
+  in
+  ignore (Test_parser.expect_ast parsed);
+  reject "delayed delimiter cannot revive completed transcript"
+    (Source.observe_parser_delimiter (Option.get !pending) (Option.get !last))
+
 let timing text expected =
   let phases = ref 0 in
   let seen = ref [] in
@@ -496,6 +597,13 @@ let tests =
     ("complete manifest reuses early leaves", `Quick, retained_manifest);
     ("missing phases cannot complete", `Quick, missing_phases);
     ("delayed leaf cannot revive prior callback", `Quick, delayed_leaf);
+    ( "delimiter rejection stops later directives",
+      `Quick,
+      fun () -> delimiter_lifetime false );
+    ( "delimiter exception revokes lifetime",
+      `Quick,
+      fun () -> delimiter_lifetime true );
+    ("delimiter identity and completion transcript", `Quick, delimiter_identity);
     ( "callback rejection stops later directives",
       `Quick,
       fun () -> failure_lifetime false );
@@ -512,7 +620,7 @@ let tests =
       fun () -> timing {|I64 A=40;#exe {}|} [ 2 ] );
     ( "leaf follows expression lookahead and precedes next element",
       `Quick,
-      fun () -> timing {|I64 A[2]={40#exe {},#exe {"2";}};|} [ 1; 2 ] );
+      fun () -> timing {|I64 A[2]={40#exe {},#exe {"2";}};|} [ 2; 4 ] );
     ( "source ledger retains native leaves",
       `Quick,
       fun () ->

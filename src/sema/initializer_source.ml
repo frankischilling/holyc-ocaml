@@ -11,6 +11,8 @@ type t = {
   source : Frontend.Ast.initial_value;
   tree_ : tree;
   leaves_ : leaf list;
+  last_parser_delimiter_ :
+    Frontend.Parser.completed_initializer_delimiter option;
 }
 
 let origin_of_location (location : Frontend.Ast.location) =
@@ -53,18 +55,80 @@ let create source =
     (next, List.rev children, List.rev leaves)
   in
   let _, tree_, leaves_ = build 0 [] source in
-  { source; tree_; leaves_ }
+  { source; tree_; leaves_; last_parser_delimiter_ = None }
 
 type pending = {
   start : Frontend.Parser.global_initializer_start;
   mutable leaves_rev : leaf list;
   mutable finished : bool;
+  mutable last_delimiter :
+    Frontend.Parser.completed_initializer_delimiter option;
+  mutable delimiters_since_leaf_rev : Frontend.Parser.initializer_delimiter list;
 }
+
+let same_optional_identity left right =
+  match (left, right) with
+  | None, None -> true
+  | Some left, Some right -> left == right
+  | _ -> false
+
+let same_delimiter left right =
+  match (left, right) with
+  | ( Frontend.Parser.Initializer_open left,
+      Frontend.Parser.Initializer_open right )
+  | ( Frontend.Parser.Initializer_close left,
+      Frontend.Parser.Initializer_close right )
+  | ( Frontend.Parser.Initializer_comma left,
+      Frontend.Parser.Initializer_comma right ) -> left == right
+  | _ -> false
+
+let same_delimiters left right =
+  List.length left = List.length right
+  && List.for_all2 same_delimiter left right
 
 let begin_parser start =
   if not (Frontend.Parser.initializer_start_is_current start) then
     Error "initializer start is outside its original parser callback"
-  else Ok { start; leaves_rev = []; finished = false }
+  else
+    Ok
+      {
+        start;
+        leaves_rev = [];
+        finished = false;
+        last_delimiter = None;
+        delimiters_since_leaf_rev = [];
+      }
+
+let observe_parser_delimiter pending
+    (receipt : Frontend.Parser.completed_initializer_delimiter) =
+  let index =
+    Option.fold ~none:0
+      ~some:(fun previous -> previous.Frontend.Parser.delimiter_index + 1)
+      pending.last_delimiter
+  in
+  let previous_leaf =
+    match pending.leaves_rev with
+    | [] -> None
+    | previous :: _ -> previous.receipt
+  in
+  if
+    pending.finished
+    || (not (Frontend.Parser.initializer_delimiter_is_current receipt))
+    || receipt.delimiter_initializer != pending.start
+    || receipt.delimiter_index <> index
+    || (not
+          (same_optional_identity pending.last_delimiter
+             receipt.delimiter_predecessor))
+    || not
+         (same_optional_identity previous_leaf
+            receipt.delimiter_leaf_predecessor)
+  then
+    Error "initializer delimiter is foreign, repeated, delayed or out of order"
+  else (
+    pending.last_delimiter <- Some receipt;
+    pending.delimiters_since_leaf_rev <-
+      receipt.delimiter_value :: pending.delimiters_since_leaf_rev;
+    Ok ())
 
 let observe_parser_leaf pending
     (receipt : Frontend.Parser.completed_initializer_leaf) =
@@ -84,7 +148,14 @@ let observe_parser_leaf pending
     || (not (Frontend.Parser.initializer_leaf_is_current receipt))
     || receipt.leaf_initializer != pending.start
     || receipt.leaf_index <> index
-    || not same_predecessor
+    || (not same_predecessor)
+    || (not
+          (same_optional_identity pending.last_delimiter
+             receipt.leaf_delimiter_predecessor))
+    || not
+         (same_delimiters
+            (List.rev pending.delimiters_since_leaf_rev)
+            receipt.leaf_delimiters)
   then Error "initializer leaf is foreign, repeated, delayed or out of order"
   else
     match receipt.leaf_value with
@@ -98,6 +169,7 @@ let observe_parser_leaf pending
           }
         in
         pending.leaves_rev <- leaf :: pending.leaves_rev;
+        pending.delimiters_since_leaf_rev <- [];
         Ok leaf
     | _ -> Error "initializer leaf is not an original scalar expression"
 
@@ -162,14 +234,75 @@ let complete_parser pending event =
   let leaves_ = List.rev pending.leaves_rev in
   let source = initial.global_initializer_value in
   let* tree_, rest = build [] source leaves_ in
-  if rest <> [] then Error "initializer completion omitted reached leaves"
+  let rec delimiters reversed leaves = function
+    | Frontend.Ast.Scalar_initializer _ -> (
+        match leaves with
+        | { receipt = Some receipt; _ } :: rest ->
+            let expected = List.rev reversed in
+            if
+              List.length expected = List.length receipt.leaf_delimiters
+              && List.for_all2 same_delimiter expected receipt.leaf_delimiters
+            then Ok ([], rest)
+            else
+              Error
+                "initializer completion substituted its original delimiter \
+                 transcript"
+        | _ -> Error "initializer delimiter transcript has no original leaf")
+    | Frontend.Ast.Braced_initializer group ->
+        let* reversed, leaves =
+          delimiter_elements
+            (Frontend.Parser.Initializer_open group.initializer_opening_brace
+           :: reversed)
+            leaves group.initializer_elements
+        in
+        Ok
+          ( Frontend.Parser.Initializer_close group.initializer_closing_brace
+            :: reversed,
+            leaves )
+    | Frontend.Ast.Unbraced_array_initializer group ->
+        let* reversed, leaves =
+          delimiter_elements reversed leaves group.unbraced_initializer_elements
+        in
+        Ok
+          ( Option.fold ~none:reversed
+              ~some:(fun location ->
+                Frontend.Parser.Initializer_close location :: reversed)
+              group.unbraced_initializer_closing_brace,
+            leaves )
+  and delimiter_elements reversed leaves = function
+    | [] -> Ok (reversed, leaves)
+    | (element : Frontend.Ast.initializer_element) :: rest ->
+        let* reversed, leaves =
+          delimiters reversed leaves element.initializer_element_value
+        in
+        let reversed =
+          Option.fold ~none:reversed
+            ~some:(fun location ->
+              Frontend.Parser.Initializer_comma location :: reversed)
+            element.initializer_element_comma
+        in
+        delimiter_elements reversed leaves rest
+  in
+  let* trailing, _ = delimiters [] leaves_ source in
+  if not (same_delimiters trailing pending.delimiters_since_leaf_rev) then
+    Error
+      "initializer completion substituted or omitted original trailing \
+       delimiters"
+  else if rest <> [] then Error "initializer completion omitted reached leaves"
   else (
     pending.finished <- true;
-    Ok { source; tree_; leaves_ })
+    Ok
+      {
+        source;
+        tree_;
+        leaves_;
+        last_parser_delimiter_ = pending.last_delimiter;
+      })
 
 let source_ast source = source.source
 let tree source = source.tree_
 let leaves source = source.leaves_
+let last_parser_delimiter source = source.last_parser_delimiter_
 
 let origin source =
   source.source |> Frontend.Ast.initial_value_location |> origin_of_location

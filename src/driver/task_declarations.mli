@@ -2,6 +2,13 @@ type t
 
 val initializer_scope : t -> Sema.Symbol_table.scope
 
+val initializer_declaration :
+  t ->
+  Frontend.Parser.global_initializer_start ->
+  (Sema.Compiler_record.declared_global, Common.Diagnostic.t list) result
+(** Read checked original storage during its observed initializer start. This
+    source certificate can begin pure layout; it does not authorize effects. *)
+
 val initializer_fragment :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->

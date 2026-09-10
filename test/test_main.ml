@@ -125,6 +125,7 @@ let () =
       ("partial global storage", Test_partial_global_storage.tests);
       ("live initializer execution", Test_live_initializer_execution.tests);
       ("initializer fragment typing", Test_initializer_fragment_typing.tests);
+      ("live initializer layout", Test_live_initializer_layout.tests);
       ("stream parser", Test_stream_parser.tests);
       ("source integer statics", Test_integer_statics.tests);
       ("source static initializers", Test_integer_static_initializers.tests);

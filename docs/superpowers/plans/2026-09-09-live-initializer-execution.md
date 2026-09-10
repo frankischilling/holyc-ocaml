@@ -26,6 +26,11 @@ contracts. The full compiler/native/BIN/loader/bootstrap goal remains active.
   Bind its destination to the declared object's checked scalar or array position.
   Execute through retained task cells with cumulative budgets and original leaf
   order. Copied strings use the checked owned-prefix and terminator policy.
+- [x] Share complete and incremental fixed-array layout. Observe original
+  initializer delimiters synchronously before requesting the following token;
+  reject invalid layout before later directives can run. Completion retains
+  exact leaf destinations and every original trailing delimiter. Layout is
+  pure source metadata and grants no runtime admission authority.
 - [ ] Make completed-command compilation and admission reuse fragment execution
   and preparation receipts without repeating effects or charges. Test mixed
   prepared/scheduled leaves, failure, limits, foreign owners and replay.

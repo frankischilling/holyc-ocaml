@@ -161,7 +161,14 @@ let global_publication_is_current publication =
   && publication.global_header.declaration_command.command_context
        .context_active
 
-type initializer_activity = { mutable initializer_phase : int option }
+type initializer_phase =
+  | Starting_initializer
+  | Completing_leaf of int
+  | Completing_delimiter of int
+
+type initializer_activity = {
+  mutable initializer_phase : initializer_phase option;
+}
 
 type global_initializer_start = {
   initializer_owner : global_publication;
@@ -169,23 +176,46 @@ type global_initializer_start = {
   initializer_activity : initializer_activity;
 }
 
+type initializer_delimiter =
+  | Initializer_open of Ast.location
+  | Initializer_close of Ast.location
+  | Initializer_comma of Ast.location
+
 type completed_initializer_leaf = {
   leaf_initializer : global_initializer_start;
   leaf_index : int;
   leaf_predecessor : completed_initializer_leaf option;
   leaf_path : int list;
   leaf_value : Ast.initial_value;
+  leaf_delimiters : initializer_delimiter list;
+  leaf_delimiter_predecessor : completed_initializer_delimiter option;
+}
+
+and completed_initializer_delimiter = {
+  delimiter_initializer : global_initializer_start;
+  delimiter_index : int;
+  delimiter_predecessor : completed_initializer_delimiter option;
+  delimiter_leaf_predecessor : completed_initializer_leaf option;
+  delimiter_value : initializer_delimiter;
 }
 
 let initializer_start_is_current start =
-  start.initializer_activity.initializer_phase = Some (-1)
+  start.initializer_activity.initializer_phase = Some Starting_initializer
   && start.initializer_owner.global_header.declaration_command.command_context
        .context_active
 
 let initializer_leaf_is_current leaf =
   leaf.leaf_initializer.initializer_activity.initializer_phase
-  = Some leaf.leaf_index
+  = Some (Completing_leaf leaf.leaf_index)
   && leaf.leaf_initializer.initializer_owner.global_header.declaration_command
+       .command_context
+       .context_active
+
+let initializer_delimiter_is_current delimiter =
+  delimiter.delimiter_initializer.initializer_activity.initializer_phase
+  = Some (Completing_delimiter delimiter.delimiter_index)
+  && delimiter.delimiter_initializer.initializer_owner.global_header
+       .declaration_command
        .command_context
        .context_active
 
@@ -233,6 +263,7 @@ type declaration_event =
   | Global_declared of global_publication
   | Global_initializer_started of global_initializer_start
   | Global_initializer_leaf_completed of completed_initializer_leaf
+  | Global_initializer_delimiter_completed of completed_initializer_delimiter
   | Global_completed of global_publication * Ast.global_declarator
   | Function_declared of function_publication
   | Function_header_completed of completed_function_header
@@ -3098,6 +3129,8 @@ let initializer_failure ?(secondary = []) ?(local_open_braces = 0) cursor
 type live_initializer = {
   start : global_initializer_start;
   mutable previous_leaf : completed_initializer_leaf option;
+  mutable delimiters_rev : initializer_delimiter list;
+  mutable previous_delimiter : completed_initializer_delimiter option;
 }
 
 let publish_initializer_phase cursor at start phase event =
@@ -3105,6 +3138,30 @@ let publish_initializer_phase cursor at start phase event =
   Fun.protect
     ~finally:(fun () -> start.initializer_activity.initializer_phase <- None)
     (fun () -> publish_declaration cursor at event)
+
+let publish_initializer_delimiter cursor at live delimiter_value =
+  Option.iter
+    (fun (state, _) ->
+      let delimiter_index =
+        Option.fold ~none:0
+          ~some:(fun previous -> previous.delimiter_index + 1)
+          state.previous_delimiter
+      in
+      let receipt =
+        {
+          delimiter_initializer = state.start;
+          delimiter_index;
+          delimiter_predecessor = state.previous_delimiter;
+          delimiter_leaf_predecessor = state.previous_leaf;
+          delimiter_value;
+        }
+      in
+      publish_initializer_phase cursor at state.start
+        (Completing_delimiter delimiter_index)
+        (Global_initializer_delimiter_completed receipt);
+      state.previous_delimiter <- Some receipt;
+      state.delimiters_rev <- delimiter_value :: state.delimiters_rev)
+    live
 
 let publish_initializer_leaf cursor live node =
   Option.iter
@@ -3121,11 +3178,14 @@ let publish_initializer_leaf cursor live node =
           leaf_predecessor = state.previous_leaf;
           leaf_path = List.rev path_rev;
           leaf_value = node;
+          leaf_delimiters = List.rev state.delimiters_rev;
+          leaf_delimiter_predecessor = state.previous_delimiter;
         }
       in
-      publish_initializer_phase cursor (peek cursor) state.start leaf_index
-        (Global_initializer_leaf_completed leaf);
-      state.previous_leaf <- Some leaf)
+      publish_initializer_phase cursor (peek cursor) state.start
+        (Completing_leaf leaf_index) (Global_initializer_leaf_completed leaf);
+      state.previous_leaf <- Some leaf;
+      state.delimiters_rev <- [])
     live
 
 let initializer_child live index =
@@ -3181,20 +3241,24 @@ and parse_braced_initializer ?live cursor ~declarator_context ~depth :
     parsed_initializer option =
   let opening_item = take cursor in
   let opening_brace = token_location opening_item.token in
+  publish_initializer_delimiter cursor opening_item live
+    (Initializer_open opening_brace);
   let rec parse_elements index elements_rev token_groups_rev :
       parsed_initializer option =
     let item = peek cursor in
     match item.token.kind with
     | Token_kind.Punctuation '}' ->
         let closing_item = take cursor in
+        let closing_brace = token_location closing_item.token in
+        publish_initializer_delimiter cursor closing_item live
+          (Initializer_close closing_brace);
         let tokens =
           (opening_item.token :: (List.rev token_groups_rev |> List.concat))
           @ [ closing_item.token ]
         in
         let node =
           Ast.make_braced_initializer ~opening_brace
-            ~elements:(List.rev elements_rev)
-            ~closing_brace:(token_location closing_item.token)
+            ~elements:(List.rev elements_rev) ~closing_brace
             ~location:(location_from_expression_tokens tokens)
           |> fun braced -> Ast.Braced_initializer braced
         in
@@ -3227,8 +3291,10 @@ and parse_braced_initializer ?live cursor ~declarator_context ~depth :
               match following_item.token.kind with
               | Token_kind.Punctuation ',' ->
                   let comma_item = take cursor in
-                  ( Some (token_location comma_item.token),
-                    value.tokens @ [ comma_item.token ] )
+                  let comma = token_location comma_item.token in
+                  publish_initializer_delimiter cursor comma_item live
+                    (Initializer_comma comma);
+                  (Some comma, value.tokens @ [ comma_item.token ])
               | Token_kind.Punctuation '}' -> (None, value.tokens)
               | _ -> (None, [])
             in
@@ -3310,9 +3376,12 @@ and parse_unbraced_array_initializer ?live cursor ~declarator_context ~depth
             if
               allow_closing_brace
               && closing_item.token.kind = Token_kind.Punctuation '}'
-            then
+            then (
               let closing_item = take cursor in
-              (Some (token_location closing_item.token), [ closing_item.token ])
+              let closing = token_location closing_item.token in
+              publish_initializer_delimiter cursor closing_item live
+                (Initializer_close closing);
+              (Some closing, [ closing_item.token ]))
             else (None, [])
           in
           let element_tokens = List.rev token_groups_rev |> List.concat in
@@ -3348,10 +3417,12 @@ and parse_unbraced_array_initializer ?live cursor ~declarator_context ~depth
               let following_item = peek cursor in
               let comma, element_tokens =
                 if needs_comma then
-                  if following_item.token.kind = Token_kind.Punctuation ',' then
+                  if following_item.token.kind = Token_kind.Punctuation ',' then (
                     let comma_item = take cursor in
-                    ( Some (token_location comma_item.token),
-                      value.tokens @ [ comma_item.token ] )
+                    let comma = token_location comma_item.token in
+                    publish_initializer_delimiter cursor comma_item live
+                      (Initializer_comma comma);
+                    (Some comma, value.tokens @ [ comma_item.token ]))
                   else (None, [])
                 else (None, value.tokens)
               in
@@ -3394,9 +3465,15 @@ let parse_global_initializer ?publication cursor ~array_dimensions =
               initializer_activity = { initializer_phase = None };
             }
           in
-          publish_initializer_phase cursor equals_item start (-1)
-            (Global_initializer_started start);
-          ({ start; previous_leaf = None }, []))
+          publish_initializer_phase cursor equals_item start
+            Starting_initializer (Global_initializer_started start);
+          ( {
+              start;
+              previous_leaf = None;
+              delimiters_rev = [];
+              previous_delimiter = None;
+            },
+            [] ))
         publication
     in
     let value =

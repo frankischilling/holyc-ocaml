@@ -190,19 +190,42 @@ type global_initializer_start = private {
   initializer_activity : initializer_activity;
 }
 
+type initializer_delimiter =
+  | Initializer_open of Ast.location
+  | Initializer_close of Ast.location
+  | Initializer_comma of Ast.location
+
 type completed_initializer_leaf = private {
   leaf_initializer : global_initializer_start;
   leaf_index : int;
   leaf_predecessor : completed_initializer_leaf option;
   leaf_path : int list;
   leaf_value : Ast.initial_value;
+  leaf_delimiters : initializer_delimiter list;
+  leaf_delimiter_predecessor : completed_initializer_delimiter option;
 }
+
+and completed_initializer_delimiter = private {
+  delimiter_initializer : global_initializer_start;
+  delimiter_index : int;
+  delimiter_predecessor : completed_initializer_delimiter option;
+  delimiter_leaf_predecessor : completed_initializer_leaf option;
+  delimiter_value : initializer_delimiter;
+}
+(** Delimiters consumed since the preceding leaf, in original source order.
+    Their locations are the same objects later retained in the complete AST. The
+    first leaf includes any opening delimiters; expression-internal punctuation
+    is excluded. This is source evidence, not execution authority. *)
 
 val initializer_start_is_current : global_initializer_start -> bool
 
 val initializer_leaf_is_current : completed_initializer_leaf -> bool
 (** True only during the original synchronous declaration callback. Remembered
     events cannot be observed later, even while their command remains open. *)
+
+val initializer_delimiter_is_current : completed_initializer_delimiter -> bool
+(** Original delimiter callback, before requesting the following token. Both
+    predecessor chains retain ordering with leaves and other delimiters. *)
 
 type function_publication = private {
   function_header : declaration_header;
@@ -248,6 +271,7 @@ type declaration_event = private
   | Global_declared of global_publication
   | Global_initializer_started of global_initializer_start
   | Global_initializer_leaf_completed of completed_initializer_leaf
+  | Global_initializer_delimiter_completed of completed_initializer_delimiter
   | Global_completed of global_publication * Ast.global_declarator
   | Function_declared of function_publication
   | Function_header_completed of completed_function_header

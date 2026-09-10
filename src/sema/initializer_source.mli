@@ -14,6 +14,11 @@ val begin_parser :
 val observe_parser_leaf :
   pending -> Frontend.Parser.completed_initializer_leaf -> (leaf, string) result
 
+val observe_parser_delimiter :
+  pending ->
+  Frontend.Parser.completed_initializer_delimiter ->
+  (unit, string) result
+
 val parser_leaf :
   pending -> Frontend.Parser.completed_initializer_leaf -> (leaf, string) result
 
@@ -28,6 +33,12 @@ val complete_parser :
 val source_ast : t -> Frontend.Ast.initial_value
 val tree : t -> tree
 val leaves : t -> leaf list
+
+val last_parser_delimiter :
+  t -> Frontend.Parser.completed_initializer_delimiter option
+(** Last receipt of the original completed transcript, including delimiters
+    after the final leaf. AST-only sources have no parser receipts. *)
+
 val origin : t -> Symbol.origin
 val matches_ast : t -> Frontend.Ast.initial_value -> bool
 val owns_leaf : t -> leaf -> bool
