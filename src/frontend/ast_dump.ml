@@ -1221,6 +1221,13 @@ and print_implicit_output_statement buffer sources ~indent
             (location_text sources comma))
         omission.leading_comma)
     statement.omissions;
+  Option.iter
+    (fun (opening, closing) ->
+      Printf.bprintf buffer "%scall_parentheses opening=%s closing=%s\n"
+        child_indent
+        (location_text sources opening)
+        (location_text sources closing))
+    statement.call_parentheses;
   match statement.semicolon with
   | None -> Printf.bprintf buffer "%ssemicolon omitted\n" child_indent
   | Some semicolon ->
@@ -2230,6 +2237,17 @@ let implicit_output_statement_to_yojson sources
          | Some semicolon -> location_to_yojson sources semicolon );
        ("location", location_to_yojson sources statement.location);
      ]
+    @ (match statement.call_parentheses with
+      | None -> []
+      | Some (opening, closing) ->
+          [
+            ( "call_parentheses",
+              `Assoc
+                [
+                  ("opening", location_to_yojson sources opening);
+                  ("closing", location_to_yojson sources closing);
+                ] );
+          ])
     @
     if statement.omissions = [] then []
     else

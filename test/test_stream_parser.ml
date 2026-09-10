@@ -1691,6 +1691,89 @@ let implicit_defaults_do_not_consume_supplied_values () =
 
 let tests =
   [
+    Alcotest.test_case
+      "implicit call parentheses retain separate expression groups" `Quick
+      (fun () ->
+        let contents =
+          {|extern U0 Print(U8 *s,I64 a=7,I64 b);""(("x"),,((40+2)));|}
+        in
+        let session, _, parsed, _, _, _ = parse contents in
+        let ast = P.expect_ast parsed in
+        let output =
+          match List.rev ast.items with
+          | Ast.Top_level_statement (Ast.Implicit_output_statement output) :: _
+            -> output
+          | _ -> Alcotest.fail "expected implicit output"
+        in
+        let opening, closing = Option.get output.call_parentheses in
+        let text (location : Ast.location) =
+          String.sub contents location.span.start
+            (location.span.stop - location.span.start)
+        in
+        Alcotest.(check string) "opening call delimiter" "(" (text opening);
+        Alcotest.(check string) "closing call delimiter" ")" (text closing);
+        let fixed = Test_parser.expect_following_fixed_argument output in
+        Alcotest.(check string)
+          "group belongs to first expression" "(\"x\")"
+          (text (Ast.expression_location fixed));
+        Alcotest.(check string)
+          "nested trailing expression groups" "((40+2))"
+          (text (Ast.expression_location (List.hd output.arguments).value));
+        Alcotest.(check (list int))
+          "omission retains formal index" [ 1 ]
+          (List.map
+             (fun (o : Ast.implicit_output_omission) -> o.parameter_index)
+             output.omissions);
+        let dump =
+          Ast_dump.to_yojson (Session.sources session) ast
+          |> Yojson.Safe.to_string
+        in
+        Alcotest.(check bool)
+          "JSON exposes call parentheses" true
+          (P.contains dump "\"call_parentheses\""));
+    Alcotest.test_case
+      "native implicit separators stop before later lexer effects" `Quick
+      (fun () ->
+        List.iter
+          (fun (code, contents) ->
+            let entered = ref 0 in
+            error code (parse ~on_enter:(fun () -> incr entered) contents);
+            Alcotest.(check int) "later directive was not reached" 0 !entered)
+          [
+            ("HCPARSE0167", {|extern U0 Print(U8 *s,I64 a=7);""("x");#exe {}|});
+            ("HCPARSE0167", {|extern U0 Print(U8 *s,...);""("x");#exe {}|});
+            ( "HCPARSE0167",
+              {|extern U0 Print(U8 *s,I64 a);""("x",42, #exe {} 7);|} );
+            ("HCPARSE0165", {|extern U0 PutChars(I64 a,I64 b);''(42);#exe {}|});
+            ("HCPARSE0165", {|extern U0 Print(U8 *s,I64 a=7);""("x",;#exe {}|});
+            ("HCPARSE0166", {|extern U0 Print(I64 a=7,I64 b);""(, #exe {} 42);|});
+            ("HCPARSE0166", {|extern U0 Print();""();#exe {}|});
+            ("HCPARSE0166", {|extern U0 PutChars(...);''();#exe {}|});
+          ]);
+    Alcotest.test_case "PutChars parentheses permit empty variadic tail" `Quick
+      (fun () ->
+        let _, _, parsed, _, _, _ =
+          parse {|extern U0 PutChars(I64 a,I64 b=2,...);''(40);''(40,2,7,8);|}
+        in
+        let outputs =
+          (P.expect_ast parsed).items
+          |> List.filter_map (function
+            | Ast.Top_level_statement (Ast.Implicit_output_statement output) ->
+                Some output
+            | _ -> None)
+        in
+        Alcotest.(check (list int))
+          "supplied trailing values" [ 0; 3 ]
+          (List.map
+             (fun (o : Ast.implicit_output_statement) ->
+               List.length o.arguments)
+             outputs);
+        Alcotest.(check (list int))
+          "omitted defaults" [ 1; 0 ]
+          (List.map
+             (fun (o : Ast.implicit_output_statement) ->
+               List.length o.omissions)
+             outputs));
     Alcotest.test_case "implicit omissions retain original separators" `Quick
       (fun () ->
         let contents =

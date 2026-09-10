@@ -1140,6 +1140,27 @@ let retained_implicit_defaults () =
     "custom output defaults do not invoke a provider" ""
     (Task.output_bytes task)
 
+let retained_parenthesized_implicit () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task
+       {|I64 N=38;I64 Out=0;U0 Print(U8 *s,I64 a=++N,I64 b,I64 tail=1){Out=a+b+tail;}|}
+    |> Test_integer_program.checked);
+  value 42L (run session task {|N=0;""("top",,2,);Out;|});
+  ignore
+    (run session task {|U0 Saved(){""("body",,2,);}U0 Print(U8 *s){Out=7;}|}
+    |> Test_integer_program.checked);
+  value 7L (run session task {|"new";Out;|});
+  value 42L (run session task {|Saved;Out+N;|});
+  ignore
+    (run session task {|U0 PutChars(I64 a,I64 b=2){Out=a+b;}|}
+    |> Test_integer_program.checked);
+  value 42L (run session task {|''(40);Out;|});
+  value 42L (run session task {|''(20,22);Out;|});
+  Alcotest.(check string)
+    "source-defined targets keep their behavior" "" (Task.output_bytes task)
+
 let retained_implicit_joined_defaults () =
   let session = Session.create () in
   let task = create session in
@@ -1306,6 +1327,8 @@ let tests =
       `Quick retained_implicit_absence_and_mask;
     Alcotest.test_case "implicit output uses the selected saved defaults" `Quick
       retained_implicit_defaults;
+    Alcotest.test_case "parenthesized implicit calls survive separate inputs"
+      `Quick retained_parenthesized_implicit;
     Alcotest.test_case "implicit output uses joined definition defaults" `Quick
       retained_implicit_joined_defaults;
   ]

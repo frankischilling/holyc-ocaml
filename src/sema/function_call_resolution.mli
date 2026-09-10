@@ -436,6 +436,16 @@ val bind_implicit_output_source :
 val implicit_output_statement :
   implicit_output_input -> Frontend.Ast.implicit_output_statement option
 
+val make_source_implicit_output :
+  source:Frontend.Ast.implicit_output_statement ->
+  calls:call list ->
+  index:int ->
+  fixed_expression:argument_expression ->
+  arguments:implicit_output_argument list ->
+  (implicit_output_input, string) result
+(** Bind the original source expressions, including parenthesized PutChars
+    arguments, before publishing the implicit call input. *)
+
 val make_ranged_case_pattern :
   start_expression:argument_expression ->
   ellipsis_origin:Symbol.origin ->

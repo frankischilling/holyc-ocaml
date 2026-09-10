@@ -30,6 +30,38 @@ let tests =
     (fun (name, source) -> Alcotest.test_case name `Quick (expect 42L source))
     gates
   @ [
+      Alcotest.test_case
+        "parenthesized implicit first argument overrides default" `Quick
+        (expect 42L
+           {|I64 Out=0;U0 Print(I64 a=7,I64 b=9){Out=a+b;}""(40,2);I64 Top=Out;U0 Saved(){""(20,22);}Out=0;Saved;Top+Out-42;|});
+      Alcotest.test_case
+        "parenthesized implicit target survives closing lookahead" `Quick
+        (expect 42L
+           {|#exe {I64 Out=0;U0 Print(U8 *s,I64 a,I64 b){Out=a+b;}""("old",40,2) #exe {U0 Print(U8 *s,I64 a=7){Out=a;}};I64 Before=Out;"new";StreamPrint("%d;",Before+Out-7);}|});
+      Alcotest.test_case "parenthesized implicit variadic output" `Quick
+        (fun () ->
+          List.iter
+            (fun mode ->
+              ignore
+                (Output.run ~mode {|#exe {""("%d",40+2);StreamPrint("42;");}|}
+                |> Output.expect ~value:(Some 42L) "42"))
+            G.modes);
+      Alcotest.test_case "parenthesized implicit Print supplies fixed values"
+        `Quick
+        (expect 42L
+           {|I64 Out=0;U0 Print(U8 *s,I64 a,I64 b){Out=a+b;}""("top",40,2);I64 Top=Out;U0 Saved(){""("body",20,22);}Out=0;Saved;Top+Out-42;|});
+      Alcotest.test_case "parenthesized implicit Print overrides saved defaults"
+        `Quick
+        (expect 42L
+           {|#exe {I64 Out=0;U0 Print(U8 *s,I64 a=7,I64 b=9){Out=a+b;}""("top",40,2);I64 Top=Out;U0 Saved(){""("body",20,22);}Out=0;Saved;StreamPrint("%d;",Top+Out-42);}|});
+      Alcotest.test_case "parenthesized implicit Print keeps omitted defaults"
+        `Quick
+        (expect 42L
+           {|#exe {I64 N=38;I64 Out=0;U0 Print(U8 *s,I64 a=++N,I64 required,I64 tail=1){Out=a+required+tail;}N=0;""("top",,2,);I64 Top=Out;U0 Saved(){""("body",,2,);}Out=0;Saved;StreamPrint("%d;",Top+Out+N-42);}|});
+      Alcotest.test_case "parenthesized PutChars has supplied and default slots"
+        `Quick
+        (expect 42L
+           {|I64 Out=0;U0 PutChars(I64 a,I64 b=2,I64 c=0){Out=a+b+c;}''(40);I64 Top=Out;U0 Saved(){''(20,22);}Out=0;Saved;Top+Out-42;|});
       Alcotest.test_case "implicit separators select saved defaults" `Quick
         (expect 42L
            {|#exe {I64 N=40;I64 Out=0;U0 Print(U8 *s,I64 a=++N,I64 b=1){Out=a+b;}N=0;"top",,;I64 Top=Out;U0 Saved(){"body",,;}Out=0;Saved;StreamPrint("%d;",Top+Out+N-42);}|});

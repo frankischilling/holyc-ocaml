@@ -5096,12 +5096,44 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
     | Ast.Integer_value value -> Int64.equal value 0L
     | Ast.Float_value _ -> false
   in
+  let opening_parenthesis =
+    if empty_marker && (peek cursor).token.kind = Token_kind.Punctuation '('
+    then Some (take cursor)
+    else None
+  in
+  let fixed_prefix =
+    marker_expression.tokens
+    @
+    match opening_parenthesis with
+    | None -> []
+    | Some item -> [ item.token ]
+  in
+  if
+    Option.is_some opening_parenthesis
+    && (peek cursor).token.kind = Token_kind.Punctuation ')'
+    && Option.fold ~none:false
+         ~some:(fun shape ->
+           shape.Symbol_visibility.parameters = []
+           && ((not shape.variadic) || target = Ast.Put_chars_target))
+         selected_shape
+  then (
+    report cursor (peek cursor) ~code:"HCPARSE0166"
+      ~message:"implicit calls without a supplied value are not implemented";
+    raise Stop_command);
+  (if Option.is_some opening_parenthesis && selected_default 0 then
+     let item = peek cursor in
+     if
+       item.token.kind = Token_kind.Punctuation ','
+       || item.token.kind = Token_kind.Punctuation ')'
+     then (
+       report cursor item ~code:"HCPARSE0166"
+         ~message:"omitted initial implicit arguments are not implemented";
+       raise Stop_command));
   let fixed_argument =
     if empty_marker then (
       let next_item = peek cursor in
-      if
-        selected_default 0 && next_item.token.kind <> Token_kind.Punctuation '('
-      then reject_unconsumed_default next_item;
+      if selected_default 0 && Option.is_none opening_parenthesis then
+        reject_unconsumed_default next_item;
       match next_item.token.kind with
       | Token_kind.Punctuation (';' | ',') | Token_kind.Eof ->
           let target_name =
@@ -5121,7 +5153,7 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
             ~depth:0 ~minimum_binding_power:0
           |> Option.map (fun (expression : parsed_expression) ->
               ( Ast.Expression_fixed_argument expression.node,
-                marker_expression.tokens @ expression.tokens )))
+                fixed_prefix @ expression.tokens )))
     else
       parse_expression_tail cursor ~context:Implicit_output_argument_expression
         ~depth:0 ~minimum_binding_power:0 ~allow_parenthesis_free_call:true
@@ -5205,18 +5237,149 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
                       omissions_rev
                       (List.rev_append expression.tokens tokens_rev)))
       in
+      let parse_parenthesized_arguments () =
+        let syntax_error item message =
+          report cursor item ~code:"HCPARSE0167" ~message;
+          raise Stop_command
+        in
+        let rec supplied position comma arguments_rev omissions_rev tokens_rev
+            next =
+          let item = peek cursor in
+          match item.token.kind with
+          | Token_kind.Punctuation (',' | ')' | ';') | Token_kind.Eof ->
+              report cursor item ~code:"HCPARSE0165"
+                ~message:"implicit output is missing a required argument";
+              raise Stop_command
+          | _ -> (
+              match
+                parse_expression cursor
+                  ~context:Implicit_output_argument_expression ~depth:0
+                  ~minimum_binding_power:0
+              with
+              | None -> None
+              | Some (expression : parsed_expression) ->
+                  let argument =
+                    Ast.make_implicit_output_argument
+                      ~leading_comma:(token_location comma.token)
+                      ~value:expression.node
+                      ~location:
+                        (location_from_expression_tokens
+                           (comma.token :: expression.tokens))
+                  in
+                  next (position + 1)
+                    (argument :: arguments_rev)
+                    omissions_rev
+                    (List.rev_append expression.tokens
+                       (comma.token :: tokens_rev)))
+        and fixed position arguments_rev omissions_rev tokens_rev =
+          match selected_parameter position with
+          | None ->
+              let variadic =
+                Option.fold ~none:true
+                  ~some:(fun shape -> shape.Symbol_visibility.variadic)
+                  selected_shape
+              in
+              if variadic then
+                let already_variadic =
+                  Option.fold ~none:true
+                    ~some:(fun shape -> shape.Symbol_visibility.parameters = [])
+                    selected_shape
+                in
+                variadic_tail already_variadic position arguments_rev
+                  omissions_rev tokens_rev
+              else finish arguments_rev omissions_rev tokens_rev
+          | Some parameter -> (
+              let item = peek cursor in
+              let comma =
+                match item.token.kind with
+                | Token_kind.Punctuation ',' -> Some (take cursor)
+                | Token_kind.Punctuation ';' when target = Ast.Print_target ->
+                    None
+                | Token_kind.Punctuation ')' when target = Ast.Put_chars_target
+                  -> None
+                | _ ->
+                    syntax_error item
+                      "expected ',' before the next implicit argument"
+              in
+              let item = peek cursor in
+              if
+                parameter.Symbol_visibility.has_default
+                && (item.token.kind = Token_kind.Punctuation ','
+                   || item.token.kind = Token_kind.Punctuation ')')
+              then
+                let omission =
+                  Ast.make_implicit_output_omission ~parameter_index:position
+                    ~leading_comma:
+                      (Option.map (fun item -> token_location item.token) comma)
+                    ~lookahead:(token_location item.token)
+                in
+                let tokens_rev =
+                  match comma with
+                  | None -> tokens_rev
+                  | Some item -> item.token :: tokens_rev
+                in
+                fixed (position + 1) arguments_rev
+                  (omission :: omissions_rev)
+                  tokens_rev
+              else
+                match comma with
+                | Some comma ->
+                    supplied position comma arguments_rev omissions_rev
+                      tokens_rev fixed
+                | None ->
+                    report cursor item ~code:"HCPARSE0165"
+                      ~message:"implicit output is missing a required argument";
+                    raise Stop_command)
+        and variadic_tail started position arguments_rev omissions_rev
+            tokens_rev =
+          let item = peek cursor in
+          match item.token.kind with
+          | Token_kind.Punctuation ',' ->
+              let comma = take cursor in
+              supplied position comma arguments_rev omissions_rev tokens_rev
+                (variadic_tail true)
+          | _
+            when started
+                 || target = Ast.Put_chars_target
+                 || item.token.kind = Token_kind.Punctuation ';' ->
+              finish arguments_rev omissions_rev tokens_rev
+          | _ ->
+              syntax_error item
+                "expected ',' before an implicit Print variadic argument"
+        and finish arguments_rev omissions_rev tokens_rev =
+          Some
+            (List.rev arguments_rev, List.rev omissions_rev, List.rev tokens_rev)
+        in
+        fixed 1 [] [] []
+      in
       let parsed_arguments =
-        match target with
-        | Ast.Print_target -> parse_print_arguments 1 [] [] []
-        | Ast.Put_chars_target -> Some ([], [], [])
+        match (opening_parenthesis, target) with
+        | Some _, _ -> parse_parenthesized_arguments ()
+        | None, Ast.Print_target -> parse_print_arguments 1 [] [] []
+        | None, Ast.Put_chars_target -> Some ([], [], [])
       in
       match parsed_arguments with
       | None ->
           recover_statement cursor ~boundary;
           None
       | Some (arguments, omissions, argument_tokens) -> (
+          let call_parentheses, closing_tokens =
+            match opening_parenthesis with
+            | None -> (None, [])
+            | Some opening ->
+                let closing = peek cursor in
+                if closing.token.kind <> Token_kind.Punctuation ')' then (
+                  report cursor closing ~code:"HCPARSE0167"
+                    ~message:"expected ')' after implicit call arguments";
+                  raise Stop_command);
+                let closing = take cursor in
+                ( Some
+                    (token_location opening.token, token_location closing.token),
+                  [ closing.token ] )
+          in
           let terminator_item = peek cursor in
-          if target = Ast.Put_chars_target then
+          if target = Ast.Put_chars_target && Option.is_none opening_parenthesis
+          then
             Option.iter
               (fun shape ->
                 let remaining =
@@ -5260,10 +5423,14 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
               recover_statement cursor ~boundary;
               None
           | Some (semicolon, terminator_tokens) ->
-              let tokens = fixed_tokens @ argument_tokens @ terminator_tokens in
+              let tokens =
+                fixed_tokens @ argument_tokens @ closing_tokens
+                @ terminator_tokens
+              in
               let statement =
-                Ast.make_implicit_output_statement_with_omissions ~target
-                  ~marker ~fixed_argument ~arguments ~omissions ~semicolon
+                Ast.make_implicit_output_statement_with_syntax ~target ~marker
+                  ~fixed_argument ~arguments ~omissions ~call_parentheses
+                  ~semicolon
                   ~location:(location_from_expression_tokens tokens)
               in
               selection.output_statement <- Some statement;

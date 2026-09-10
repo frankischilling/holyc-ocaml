@@ -47,6 +47,9 @@ let require condition message = if not condition then failwith message
 let omission_source =
   {|#exe {I64 N=38;I64 Out=0;U0 Print(U8 *s,I64 saved=++N,I64 required,I64 tail=1){Out=saved+required+tail;}N=0;"top",,2,;I64 Top=Out;U0 Saved(){"body",,2,;}Out=0;Saved;StreamPrint("%d;",Top+Out+N-42);}|}
 
+let parenthesized_source =
+  {|#exe {I64 N=38;I64 Out=0;U0 Print(U8 *s,I64 saved=++N,I64 required,I64 tail=1){Out=saved+required+tail;}N=0;""("top",,2,);I64 Top=Out;U0 Saved(){""("body",20,21,1);}Out=0;Saved;I64 Body=Out;U0 PutChars(I64 a,I64 b=2){Out=a+b;}''(40);StreamPrint("%d;",Top+Body+Out+N-84);}|}
+
 let () =
   let executable = Sys.argv.(1) in
   List.iter
@@ -94,8 +97,8 @@ let () =
       );
     ];
   List.iter
-    (fun (mode, steps) ->
-      with_source omission_source (fun path ->
+    (fun (source, mode, steps, prep) ->
+      with_source source (fun path ->
           List.iter
             (fun (limits, expected_status, expected_steps, preparation) ->
               let status, output, errors =
@@ -143,18 +146,26 @@ let () =
             [
               ( [
                   "--step-limit=" ^ string_of_int steps;
-                  "--initializer-step-limit=9";
+                  "--initializer-step-limit=" ^ string_of_int prep;
                 ],
                 0,
                 Some steps,
-                9 );
+                prep );
               ( [ "--step-limit=" ^ string_of_int (steps - 1) ],
                 1,
                 Some (steps - 1),
-                9 );
-              ([ "--initializer-step-limit=8" ], 1, None, 8);
+                prep );
+              ( [ "--initializer-step-limit=" ^ string_of_int (prep - 1) ],
+                1,
+                None,
+                prep - 1 );
             ]))
-    [ ("jit", 112); ("aot", 114) ];
+    [
+      (omission_source, "jit", 112, 9);
+      (omission_source, "aot", 114, 9);
+      (parenthesized_source, "jit", 145, 12);
+      (parenthesized_source, "aot", 147, 12);
+    ];
   List.iter
     (fun source ->
       with_source source (fun path ->

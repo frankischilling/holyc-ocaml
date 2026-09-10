@@ -1480,12 +1480,10 @@ let record_implicit_output state
   let globals = state.global_values in
   let occurrences = state.occurrences in
   let defined_queries = state.defined_queries in
-  let fixed_value, fixed_source =
+  let fixed_value =
     match output.fixed_argument with
-    | Frontend.Ast.Marker_fixed_argument value ->
-        (value, Sema.Function_call_resolution.Marker_fixed_output)
-    | Frontend.Ast.Expression_fixed_argument value ->
-        (value, Sema.Function_call_resolution.Following_expression_output)
+    | Frontend.Ast.Marker_fixed_argument value -> value
+    | Frontend.Ast.Expression_fixed_argument value -> value
   in
   match expression state fixed_value with
   | Error _ as error -> error
@@ -1539,34 +1537,20 @@ let record_implicit_output state
                     "function implicit output traversal disagrees with \
                      ordinary expression binding"
               | Ok arguments -> (
-                  let target =
-                    match output.target with
-                    | Frontend.Ast.Print_target ->
-                        Sema.Function_call_resolution.Print_output
-                    | Frontend.Ast.Put_chars_target ->
-                        Sema.Function_call_resolution.Put_chars_output
-                  in
                   match
-                    Sema.Function_call_resolution.make_implicit_output
-                      ~index:state.next_implicit_output ~target
-                      ~marker_origin:(origin output.marker.literal_location)
-                      ~fixed_source ~fixed_expression ~arguments
-                      ~origin:(origin output.location)
-                    |> fun result ->
-                    Result.bind result (fun prepared ->
-                        Sema.Function_call_resolution
-                        .bind_implicit_output_source ~source:output
-                          ~calls:
-                            (state.calls_rev
-                            |> List.filter (fun call ->
-                                Sema.Function_call_resolution.call_index call
-                                >= first_call)
-                            |> List.sort (fun left right ->
-                                Int.compare
-                                  (Sema.Function_call_resolution.call_index left)
-                                  (Sema.Function_call_resolution.call_index
-                                     right)))
-                          prepared)
+                    Sema.Function_call_resolution.make_source_implicit_output
+                      ~source:output ~index:state.next_implicit_output
+                      ~fixed_expression ~arguments
+                      ~calls:
+                        (state.calls_rev
+                        |> List.filter (fun call ->
+                            Sema.Function_call_resolution.call_index call
+                            >= first_call)
+                        |> List.sort (fun left right ->
+                            Int.compare
+                              (Sema.Function_call_resolution.call_index left)
+                              (Sema.Function_call_resolution.call_index right))
+                        )
                   with
                   | Error _ as error -> error
                   | Ok prepared ->

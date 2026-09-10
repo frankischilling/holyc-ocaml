@@ -519,6 +519,7 @@ type implicit_output_statement = {
   fixed_argument : implicit_output_fixed_argument;
   arguments : implicit_output_argument list;
   omissions : implicit_output_omission list;
+  call_parentheses : (location * location) option;
   semicolon : location option;
   location : location;
 }
@@ -1364,8 +1365,8 @@ let make_implicit_output_omission ~parameter_index ~leading_comma ~lookahead =
     invalid_arg "implicit output omission must follow the initial argument";
   { parameter_index; leading_comma; lookahead }
 
-let make_implicit_output_statement_with_omissions ~target ~marker
-    ~fixed_argument ~arguments ~omissions ~semicolon ~location =
+let make_implicit_output_statement_with_syntax ~target ~marker ~fixed_argument
+    ~arguments ~omissions ~call_parentheses ~semicolon ~location =
   let rec check previous = function
     | [] -> ()
     | omission :: rest ->
@@ -1374,7 +1375,21 @@ let make_implicit_output_statement_with_omissions ~target ~marker
         check omission.parameter_index rest
   in
   check 0 omissions;
-  { target; marker; fixed_argument; arguments; omissions; semicolon; location }
+  {
+    target;
+    marker;
+    fixed_argument;
+    arguments;
+    omissions;
+    call_parentheses;
+    semicolon;
+    location;
+  }
+
+let make_implicit_output_statement_with_omissions ~target ~marker
+    ~fixed_argument ~arguments ~omissions ~semicolon ~location =
+  make_implicit_output_statement_with_syntax ~target ~marker ~fixed_argument
+    ~arguments ~omissions ~call_parentheses:None ~semicolon ~location
 
 let make_implicit_output_statement ~target ~marker ~fixed_argument ~arguments
     ~semicolon ~location =

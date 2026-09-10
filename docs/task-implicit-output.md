@@ -79,8 +79,30 @@ identifies the unconsumed-argument boundary; HCPARSE0165 identifies the missing
 required parameter. Callback-free legacy AST inputs retain separate semantic
 arity diagnostics.
 
-The checked subset still excludes omitted initial arguments, general
-parenthesized multi-argument implicit forms, general default values and argument
+An opening parenthesis after an empty marker starts an implicit argument list:
+`""("format",40,2);` and `''(40,2);` retain the original call delimiters
+separately from any expression groups inside them. Supplied fixed values can
+override saved defaults, including the first parameter. Interior and trailing
+omissions use their original formal positions and lookahead locations. Calls
+retain their selected header across closing-parenthesis lookahead and across
+separate task inputs.
+
+The pinned separator rules differ by target. Print requires a comma before each
+trailing default, so `""("format",,)` selects two defaults; `""("format")`
+does not omit them. PutChars can select all trailing defaults at the closing
+parenthesis, as in `''(40)`. A parenthesized Print call with fixed parameters
+and a variadic tail requires a supplied variadic argument. PutChars permits an
+empty variadic tail. These rules follow `Compiler/PrsExp.HC:438-535`.
+HCPARSE0167 reports an invalid separator or closing delimiter before later
+lexer effects. The [parentheses example](../examples/stateful-exe-implicit-parentheses.hc)
+checks saved and supplied arguments through top-level and body calls and returns
+42 with empty output in JIT and AOT.
+It uses 145 runtime / 12 preparation instructions in JIT and 147 / 12 in AOT.
+Both exact limits pass together; either allowance one instruction lower stops
+with HCIRVM0007 and empty capture.
+
+The checked subset still excludes omitted initial arguments, zero-value implicit
+calls, parenthesis-free additional PutChars values, general default values and argument
 conversions. Some excluded omission forms are valid native syntax; these
 diagnostics do not establish complete native parser parity. It does not
 provide native extern linkage, general format/runtime parity, a

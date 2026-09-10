@@ -2136,15 +2136,17 @@ let validate_implicit_output_argument_indexes arguments =
   in
   loop 0 arguments
 
-let make_implicit_output ~index ~target ~marker_origin ~fixed_source
-    ~fixed_expression ~arguments ~origin =
+let make_implicit_output_input ~allow_additional_putchars ~index ~target
+    ~marker_origin ~fixed_source ~fixed_expression ~arguments ~origin =
   if index < 0 then Error "function implicit output index cannot be negative"
   else if not (valid_origin marker_origin) then
     Error "function implicit output marker has an invalid source origin"
   else if not (valid_origin origin) then
     Error "function implicit output statement has an invalid source origin"
-  else if target = Put_chars_output && arguments <> [] then
-    Error "implicit PutChars output cannot have variadic arguments"
+  else if
+    (not allow_additional_putchars)
+    && target = Put_chars_output && arguments <> []
+  then Error "implicit PutChars output cannot have variadic arguments"
   else
     match validate_implicit_output_argument_indexes arguments with
     | Error _ as error -> error
@@ -2161,6 +2163,11 @@ let make_implicit_output ~index ~target ~marker_origin ~fixed_source
             arguments;
             origin;
           }
+
+let make_implicit_output ~index ~target ~marker_origin ~fixed_source
+    ~fixed_expression ~arguments ~origin =
+  make_implicit_output_input ~allow_additional_putchars:false ~index ~target
+    ~marker_origin ~fixed_source ~fixed_expression ~arguments ~origin
 
 let implicit_output_statement (output : implicit_output_input) =
   output.source_statement
@@ -2213,6 +2220,35 @@ let bind_implicit_output_source ~source ~calls (output : implicit_output_input)
           source_statement = Some source;
           implicit_source_calls = calls;
         })
+
+let make_source_implicit_output ~source ~calls ~index ~fixed_expression
+    ~arguments =
+  let module Ast = Frontend.Ast in
+  let target =
+    match source.Ast.target with
+    | Ast.Print_target -> Print_output
+    | Ast.Put_chars_target -> Put_chars_output
+  in
+  let fixed_source =
+    match source.fixed_argument with
+    | Ast.Marker_fixed_argument _ -> Marker_fixed_output
+    | Ast.Expression_fixed_argument _ -> Following_expression_output
+  in
+  let origin = Initializer_source.origin_of_location in
+  if
+    target = Put_chars_output && arguments <> []
+    && source.call_parentheses = None
+  then
+    Error
+      "additional implicit PutChars arguments require original call parentheses"
+  else
+    make_implicit_output_input ~allow_additional_putchars:true ~index ~target
+      ~marker_origin:(origin source.marker.literal_location)
+      ~fixed_source ~fixed_expression ~arguments
+      ~origin:(origin source.location)
+    |> fun result ->
+    Result.bind result (fun output ->
+        bind_implicit_output_source ~source ~calls output)
 
 let make_ranged_case_pattern ~start_expression ~ellipsis_origin ~end_expression
     =
@@ -3240,7 +3276,15 @@ let validate_implicit_outputs table parent visible declarations compilation_mode
         else if output.index <> expected then
           Error
             (invalid_input "function implicit output indexes are not contiguous")
-        else if output.target = Put_chars_output && output.arguments <> [] then
+        else if
+          output.target = Put_chars_output
+          && output.arguments <> []
+          && not
+               (Option.fold ~none:false
+                  ~some:(fun source ->
+                    Option.is_some source.Frontend.Ast.call_parentheses)
+                  output.source_statement)
+        then
           Error
             (invalid_input
                "implicit PutChars output cannot have variadic arguments")

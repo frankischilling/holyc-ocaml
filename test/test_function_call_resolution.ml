@@ -3061,6 +3061,11 @@ let implicit_output_constructors_validate_source_shape () =
     (Error "function implicit output index cannot be negative")
     (make ~index:(-1) ());
   Alcotest.(check (result reject string))
+    "legacy PutChars validates identity before argument restrictions"
+    (Error "function implicit output index cannot be negative")
+    (make ~index:(-1) ~target:Semantic_function_call_resolution.Put_chars_output
+       ());
+  Alcotest.(check (result reject string))
     "an empty output marker origin is rejected"
     (Error "function implicit output marker has an invalid source origin")
     (make ~marker_origin:(Semantic_symbol.Synthesized "") ());
@@ -3362,6 +3367,56 @@ let implicit_output_call_ownership () =
 
 let tests =
   [
+    Alcotest.test_case "source-backed PutChars validates arguments and calls"
+      `Quick (fun () ->
+        let module Call = Semantic_function_call_resolution in
+        let prepared =
+          prepare ~path:"parenthesized-putchars-source.HC"
+            {|extern U0 PutChars(I64 a,I64 b);extern I64 Next(I64 n);U0 Caller(){''(40,Next(2));}|}
+        in
+        let resolved = resolve prepared |> checked in
+        let caller =
+          Call.functions resolved
+          |> List.find (fun fn ->
+              Semantic_symbol.name (Call.function_symbol fn) = "Caller")
+        in
+        let output = List.hd (Call.function_implicit_outputs caller) in
+        let source = Option.get (Call.implicit_output_statement output) in
+        let call = only_direct resolved "Caller" |> Call.direct_source in
+        let fixed_expression = Call.implicit_output_fixed_expression output in
+        let arguments = Call.implicit_output_arguments output in
+        let rebuild source calls arguments =
+          Call.make_source_implicit_output ~source ~calls ~index:0
+            ~fixed_expression ~arguments
+        in
+        Alcotest.(check bool)
+          "exact source and call" true
+          (Result.is_ok (rebuild source [ call ] arguments));
+        Alcotest.(check bool)
+          "missing source call" true
+          (Result.is_error (rebuild source [] arguments));
+        let missing_parentheses =
+          Ast.make_implicit_output_statement_with_omissions
+            ~target:source.target ~marker:source.marker
+            ~fixed_argument:source.fixed_argument ~arguments:source.arguments
+            ~omissions:source.omissions ~semicolon:source.semicolon
+            ~location:source.location
+        in
+        Alcotest.(check bool)
+          "missing original parentheses" true
+          (Result.is_error (rebuild missing_parentheses [ call ] arguments));
+        let argument = List.hd arguments in
+        let replaced =
+          Call.make_implicit_output_argument ~index:0
+            ~leading_comma_origin:
+              (Call.implicit_output_argument_leading_comma_origin argument)
+            ~expression:fixed_expression
+            ~origin:(Call.implicit_output_argument_origin argument)
+          |> checked
+        in
+        Alcotest.(check bool)
+          "foreign expression in original argument position" true
+          (Result.is_error (rebuild source [ call ] [ replaced ])));
     Alcotest.test_case "fixed defaults and sparse slots" `Quick
       fixed_defaults_and_sparse_slots;
     Alcotest.test_case "active header and canonical identity" `Quick
