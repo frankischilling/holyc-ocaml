@@ -175,6 +175,7 @@ let implicit_output state (output : Frontend.Ast.implicit_output_statement) =
     match output.fixed_argument with
     | Frontend.Ast.Marker_fixed_argument value
     | Frontend.Ast.Expression_fixed_argument value -> expression state value
+    | Frontend.Ast.Absent_fixed_argument -> Ok state
   in
   match fixed with
   | Error _ as error -> error
@@ -279,11 +280,8 @@ let statement_input selections queries statement_index item_index statement_node
   match statement (empty_state selections queries) statement_node with
   | Error _ as error -> error
   | Ok state ->
-      Sema.Top_level_expression_binding.make_statement ~statement_index
-        ~item_index
-        ~origin:
-          (statement_node |> Frontend.Ast.statement_location
-         |> origin_of_location)
+      Sema.Top_level_expression_binding.make_source_statement
+        ~source:statement_node ~statement_index ~item_index
         (List.rev state.events_rev)
 
 let ordinary_statement_inputs selections queries

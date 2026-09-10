@@ -1482,10 +1482,11 @@ let record_implicit_output state
   let defined_queries = state.defined_queries in
   let fixed_value =
     match output.fixed_argument with
-    | Frontend.Ast.Marker_fixed_argument value -> value
-    | Frontend.Ast.Expression_fixed_argument value -> value
+    | Frontend.Ast.Marker_fixed_argument value -> Some value
+    | Frontend.Ast.Expression_fixed_argument value -> Some value
+    | Frontend.Ast.Absent_fixed_argument -> None
   in
-  match expression state fixed_value with
+  match Option.fold ~none:(Ok state) ~some:(expression state) fixed_value with
   | Error _ as error -> error
   | Ok state -> (
       match
@@ -1498,8 +1499,12 @@ let record_implicit_output state
       | Ok state -> (
           let cursor = ref first_occurrence in
           match
-            argument_expression member_index before_item_index visible locals
-              globals occurrences defined_queries cursor fixed_value
+            Option.fold ~none:(Ok None)
+              ~some:(fun value ->
+                argument_expression member_index before_item_index visible
+                  locals globals occurrences defined_queries cursor value
+                |> Result.map Option.some)
+              fixed_value
           with
           | Error _ as error -> error
           | Ok fixed_expression -> (
@@ -1538,7 +1543,8 @@ let record_implicit_output state
                      ordinary expression binding"
               | Ok arguments -> (
                   match
-                    Sema.Function_call_resolution.make_source_implicit_output
+                    Sema.Function_call_resolution
+                    .make_source_implicit_output_with_optional_fixed
                       ~source:output ~index:state.next_implicit_output
                       ~fixed_expression ~arguments
                       ~calls:

@@ -132,3 +132,12 @@ val error_kind : error -> error_kind
 val error_origin : error -> Symbol.origin option
 val error_message : error -> string
 val error_to_string : error -> string
+
+val make_source_statement :
+  source:Frontend.Ast.statement ->
+  statement_index:int ->
+  item_index:int ->
+  event list ->
+  (input, string) result
+
+val statement_ast : statement -> Frontend.Ast.statement option

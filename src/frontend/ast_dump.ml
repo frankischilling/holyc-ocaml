@@ -1193,6 +1193,8 @@ and print_implicit_output_statement buffer sources ~indent
     (literal_value_text statement.marker.literal_value)
     (location_text sources statement.marker.literal_location);
   (match statement.fixed_argument with
+  | Ast.Absent_fixed_argument ->
+      Printf.bprintf buffer "%sfixed_argument kind=absent\n" child_indent
   | Ast.Marker_fixed_argument expression ->
       Printf.bprintf buffer "%sfixed_argument kind=marker_expression\n"
         child_indent;
@@ -2207,6 +2209,7 @@ let implicit_output_statement_to_yojson sources
   in
   let fixed_argument =
     match statement.fixed_argument with
+    | Ast.Absent_fixed_argument -> `Assoc [ ("kind", `String "absent") ]
     | Ast.Marker_fixed_argument expression ->
         `Assoc
           [

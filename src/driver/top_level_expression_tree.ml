@@ -25,6 +25,7 @@ type state = {
   next_case : int;
   next_local_declaration : int;
   next_return : int;
+  implicit_outputs_rev : (int * Frontend.Ast.implicit_output_statement) list;
   roots_rev : Sema.Top_level_expression_tree.root list;
   calls_rev : Sema.Top_level_expression_tree.call list;
   switch_cases_rev : Sema.Top_level_expression_tree.switch_case list;
@@ -52,6 +53,7 @@ let initial_state ~next_occurrence ~next_query ~next_root ~next_call
     next_case;
     next_local_declaration;
     next_return;
+    implicit_outputs_rev = [];
     roots_rev = [];
     calls_rev = [];
     switch_cases_rev = [];
@@ -820,22 +822,35 @@ let record_output state (output : Frontend.Ast.implicit_output_statement) =
   let fixed, source =
     match output.fixed_argument with
     | Frontend.Ast.Marker_fixed_argument value ->
-        (value, Sema.Function_call_resolution.Marker_fixed_output)
+        (Some value, Sema.Function_call_resolution.Marker_fixed_output)
     | Frontend.Ast.Expression_fixed_argument value ->
-        (value, Sema.Function_call_resolution.Following_expression_output)
+        (Some value, Sema.Function_call_resolution.Following_expression_output)
+    | Frontend.Ast.Absent_fixed_argument ->
+        (None, Sema.Function_call_resolution.Absent_fixed_output)
   in
   match increment "top-level implicit output" output_index with
   | Error _ as error -> error
   | Ok next_output -> (
+      let state =
+        {
+          state with
+          next_output;
+          implicit_outputs_rev =
+            (output_index, output) :: state.implicit_outputs_rev;
+        }
+      in
       match
-        add_root ~implicit_source:output { state with next_output }
-          (Sema.Top_level_expression_tree.Implicit_output_fixed
-             {
-               output_index;
-               target;
-               source;
-               marker_origin = origin output.marker.literal_location;
-             })
+        Option.fold ~none:(Ok state)
+          ~some:(fun fixed ->
+            add_root ~implicit_source:output state
+              (Sema.Top_level_expression_tree.Implicit_output_fixed
+                 {
+                   output_index;
+                   target;
+                   source;
+                   marker_origin = origin output.marker.literal_location;
+                 })
+              fixed)
           fixed
       with
       | Error _ as error -> error
@@ -1200,8 +1215,9 @@ let statement_input counters expected (item_index, ast) =
                  |> Sema.Function_call_resolution.call_index))
           in
           match
-            Sema.Top_level_expression_tree.make_statement ~source:expected
-              ~roots ~calls ~switch_cases
+            Sema.Top_level_expression_tree.make_source_statement
+              ~outputs:(List.rev state.implicit_outputs_rev)
+              ~source:expected ~roots ~calls ~switch_cases
           with
           | Error error ->
               Error (Sema.Top_level_expression_tree.error_to_string error)

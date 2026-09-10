@@ -70,7 +70,7 @@ let find_outer_header headers symbol =
       Some header
   | Some _ | None -> None
 
-let plan ?(omissions = []) header values =
+let plan ?(omissions = []) ?(absent_initial = false) header values =
   let signature = Function_type_resolution.function_signature header in
   let parameters = Function_type_resolution.signature_parameters signature in
   let fixed_count = List.length parameters in
@@ -99,7 +99,11 @@ let plan ?(omissions = []) header values =
     | [] -> Ok (List.rev rev, values)
   in
   match
-    match invalid_omission 0 omissions with
+    match
+      if absent_initial && fixed_count > 0 && not (List.mem 0 omissions) then
+        Some 0
+      else invalid_omission (-1) omissions
+    with
     | Some position -> Error (Invalid_omission position)
     | None -> fixed 0 [] parameters values
   with

@@ -205,13 +205,14 @@ let error_to_string error = error.code ^ ": " ^ error_message error
 
 let provided_values output =
   let fixed =
-    Top_level_implicit_output_target_resolution.output_fixed_value output
+    Top_level_implicit_output_target_resolution.output_supplied_fixed_value
+      output
   in
   let following =
     output |> Top_level_implicit_output_target_resolution.output_arguments
     |> List.map (fun root -> Trailing_value root)
   in
-  Fixed_value fixed :: following
+  List.map (fun root -> Fixed_value root) (Option.to_list fixed) @ following
 
 let make_provided policies ~before_item_index position parameter source =
   let result = result_of_source source in
@@ -243,18 +244,18 @@ let make_default policies mode ~before_item_index output position parameter
   }
 
 let bind_header policies mode ~before_item_index output header =
-  let omissions =
-    output |> Top_level_implicit_output_target_resolution.output_fixed_value
-    |> Function_call_expression_result.top_level_root_source
-    |> Top_level_expression_tree.root_implicit_statement
-    |> Option.fold ~none:[] ~some:(fun source ->
-        List.map
-          (fun (omission : Frontend.Ast.implicit_output_omission) ->
-            omission.parameter_index)
-          source.Frontend.Ast.omissions)
+  let omissions, absent_initial =
+    output
+    |> Top_level_implicit_output_target_resolution.output_source_statement
+    |> Option.fold ~none:([], false) ~some:(fun source ->
+        ( List.map
+            (fun (omission : Frontend.Ast.implicit_output_omission) ->
+              omission.parameter_index)
+            source.Frontend.Ast.omissions,
+          source.fixed_argument = Frontend.Ast.Absent_fixed_argument ))
   in
   match
-    Implicit_output_argument_rules.plan ~omissions header
+    Implicit_output_argument_rules.plan ~omissions ~absent_initial header
       (provided_values output)
   with
   | Error (Implicit_output_argument_rules.Invalid_omission _) ->

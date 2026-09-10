@@ -220,7 +220,7 @@ type implicit_output_argument_result = {
 
 type implicit_output_result = {
   implicit_output_source : Function_call_resolution.implicit_output_input;
-  implicit_output_fixed_value : expression_result;
+  implicit_output_fixed_value : expression_result option;
   implicit_output_arguments : implicit_output_argument_result list;
   implicit_output_result_use : result_use;
 }
@@ -403,7 +403,13 @@ let function_implicit_outputs (function_ : resolved_function) =
   function_.implicit_outputs
 
 let implicit_output_source result = result.implicit_output_source
-let implicit_output_fixed_value result = result.implicit_output_fixed_value
+
+let implicit_output_supplied_fixed_value result =
+  result.implicit_output_fixed_value
+
+let implicit_output_fixed_value result =
+  Option.get (implicit_output_supplied_fixed_value result)
+
 let implicit_output_arguments result = result.implicit_output_arguments
 let implicit_output_result_use result = result.implicit_output_result_use
 
@@ -3785,9 +3791,13 @@ let type_implicit_output_argument table members policies ~before_item_index
 let type_implicit_output table members policies ~before_item_index state source
     =
   match
-    type_expression table members policies ~before_item_index
-      ~context:Value_context state
-      (Function_call_resolution.implicit_output_fixed_expression source)
+    Option.fold
+      ~none:(Ok (None, state))
+      ~some:(fun expression ->
+        type_expression table members policies ~before_item_index
+          ~context:Value_context state expression
+        |> Result.map (fun (value, state) -> (Some value, state)))
+      (Function_call_resolution.implicit_output_supplied_fixed_expression source)
   with
   | Error _ as error -> error
   | Ok (implicit_output_fixed_value, state) -> (

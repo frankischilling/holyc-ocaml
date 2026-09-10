@@ -320,14 +320,31 @@ let shape ~globals records description =
         let origin = Target.output_marker_origin source in
         let span = origin_span origin in
         require ?span
-          (match
-             Target.output_fixed_value source
-             |> Typed.top_level_root_source
-             |> Sema.Top_level_expression_tree.root_role
-           with
-          | Sema.Top_level_expression_tree.Implicit_output_fixed
-              { output_index; _ } -> output_index = Target.output_index source
-          | _ -> false)
+          (match Target.output_supplied_fixed_value source with
+          | Some root -> (
+              match
+                root |> Typed.top_level_root_source
+                |> Sema.Top_level_expression_tree.root_role
+              with
+              | Sema.Top_level_expression_tree.Implicit_output_fixed
+                  { output_index; _ } ->
+                  output_index = Target.output_index source
+              | _ -> false)
+          | None ->
+              Option.fold ~none:false
+                ~some:(fun ast ->
+                  ast.Frontend.Ast.fixed_argument
+                  = Frontend.Ast.Absent_fixed_argument
+                  && Option.fold ~none:false
+                       ~some:
+                         (List.exists (fun (index, original) ->
+                              index = Target.output_index source
+                              && original == ast))
+                       (Target.output_statement source
+                       |> Typed.top_level_statement_source
+                       |> Sema.Top_level_expression_tree
+                          .statement_implicit_outputs))
+                (Target.output_source_statement source))
           "top-level output does not retain its checked implicit root role";
         let declaration, symbol =
           match Target.output_binding source with
@@ -1276,7 +1293,8 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
               require ?span
                 (List.exists (fun source -> source == root) roots)
                 "entry output root is foreign to its containing statement")
-            (Target.output_fixed_value target :: Target.output_arguments target)
+            (Option.to_list (Target.output_supplied_fixed_value target)
+            @ Target.output_arguments target)
     in
     let rec checked_functions seen = function
       | [] -> []

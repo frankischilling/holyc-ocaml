@@ -269,6 +269,7 @@ type implicit_output_target = Print_output | Put_chars_output
 
 type implicit_output_fixed_source =
   | Marker_fixed_output
+  | Absent_fixed_output
   | Following_expression_output
 
 type implicit_output_argument = {
@@ -285,7 +286,7 @@ type implicit_output_input = {
   target : implicit_output_target;
   marker_origin : Symbol.origin;
   fixed_source : implicit_output_fixed_source;
-  fixed_expression : argument_expression;
+  fixed_expression : argument_expression option;
   arguments : implicit_output_argument list;
   origin : Symbol.origin;
 }
@@ -514,8 +515,11 @@ let implicit_output_marker_origin (output : implicit_output_input) =
 let implicit_output_fixed_source (output : implicit_output_input) =
   output.fixed_source
 
-let implicit_output_fixed_expression (output : implicit_output_input) =
+let implicit_output_supplied_fixed_expression (output : implicit_output_input) =
   output.fixed_expression
+
+let implicit_output_fixed_expression output =
+  Option.get (implicit_output_supplied_fixed_expression output)
 
 let implicit_output_arguments (output : implicit_output_input) =
   output.arguments
@@ -692,6 +696,7 @@ let implicit_output_target_name = function
   | Put_chars_output -> "PutChars"
 
 let implicit_output_fixed_source_name = function
+  | Absent_fixed_output -> "absent"
   | Marker_fixed_output -> "marker"
   | Following_expression_output -> "following-expression"
 
@@ -2150,6 +2155,11 @@ let make_implicit_output_input ~allow_additional_putchars ~index ~target
   else
     match validate_implicit_output_argument_indexes arguments with
     | Error _ as error -> error
+    | Ok ()
+      when fixed_source = Absent_fixed_output <> Option.is_none fixed_expression
+      ->
+        Error
+          "implicit output fixed source disagrees with its supplied expression"
     | Ok () ->
         Ok
           {
@@ -2167,7 +2177,8 @@ let make_implicit_output_input ~allow_additional_putchars ~index ~target
 let make_implicit_output ~index ~target ~marker_origin ~fixed_source
     ~fixed_expression ~arguments ~origin =
   make_implicit_output_input ~allow_additional_putchars:false ~index ~target
-    ~marker_origin ~fixed_source ~fixed_expression ~arguments ~origin
+    ~marker_origin ~fixed_source ~fixed_expression:(Some fixed_expression)
+    ~arguments ~origin
 
 let implicit_output_statement (output : implicit_output_input) =
   output.source_statement
@@ -2177,8 +2188,10 @@ let bind_implicit_output_source ~source ~calls (output : implicit_output_input)
   let module Ast = Frontend.Ast in
   let fixed, fixed_source =
     match source.Ast.fixed_argument with
-    | Ast.Marker_fixed_argument value -> (value, Marker_fixed_output)
-    | Ast.Expression_fixed_argument value -> (value, Following_expression_output)
+    | Ast.Marker_fixed_argument value -> (Some value, Marker_fixed_output)
+    | Ast.Expression_fixed_argument value ->
+        (Some value, Following_expression_output)
+    | Ast.Absent_fixed_argument -> (None, Absent_fixed_output)
   in
   let target =
     match source.target with
@@ -2191,7 +2204,12 @@ let bind_implicit_output_source ~source ~calls (output : implicit_output_input)
     || output.target <> target
     || output.marker_origin <> origin source.marker.literal_location
     || output.origin <> origin source.location
+    || (not
+          (Ast.valid_implicit_output_arguments
+             ~fixed_argument:source.fixed_argument ~arguments:source.arguments
+             ~omissions:source.omissions))
     || output.fixed_source <> fixed_source
+    || Option.is_some output.fixed_expression <> Option.is_some fixed
     || List.length output.arguments <> List.length source.arguments
     || not
          (List.for_all2
@@ -2204,15 +2222,15 @@ let bind_implicit_output_source ~source ~calls (output : implicit_output_input)
   else
     validate_source_expressions
       ~sources:
-        (fixed
-        :: List.map
-             (fun (argument : Ast.implicit_output_argument) -> argument.value)
-             source.arguments)
+        (Option.to_list fixed
+        @ List.map
+            (fun (argument : Ast.implicit_output_argument) -> argument.value)
+            source.arguments)
       ~expressions:
-        (output.fixed_expression
-        :: List.map
-             (fun (argument : implicit_output_argument) -> argument.expression)
-             output.arguments)
+        (Option.to_list output.fixed_expression
+        @ List.map
+            (fun (argument : implicit_output_argument) -> argument.expression)
+            output.arguments)
       ~calls ()
     |> Result.map (fun () ->
         {
@@ -2221,8 +2239,8 @@ let bind_implicit_output_source ~source ~calls (output : implicit_output_input)
           implicit_source_calls = calls;
         })
 
-let make_source_implicit_output ~source ~calls ~index ~fixed_expression
-    ~arguments =
+let make_source_implicit_output_with_optional_fixed ~source ~calls ~index
+    ~fixed_expression ~arguments =
   let module Ast = Frontend.Ast in
   let target =
     match source.Ast.target with
@@ -2233,6 +2251,7 @@ let make_source_implicit_output ~source ~calls ~index ~fixed_expression
     match source.fixed_argument with
     | Ast.Marker_fixed_argument _ -> Marker_fixed_output
     | Ast.Expression_fixed_argument _ -> Following_expression_output
+    | Ast.Absent_fixed_argument -> Absent_fixed_output
   in
   let origin = Initializer_source.origin_of_location in
   if
@@ -2249,6 +2268,11 @@ let make_source_implicit_output ~source ~calls ~index ~fixed_expression
     |> fun result ->
     Result.bind result (fun output ->
         bind_implicit_output_source ~source ~calls output)
+
+let make_source_implicit_output ~source ~calls ~index ~fixed_expression
+    ~arguments =
+  make_source_implicit_output_with_optional_fixed ~source ~calls ~index
+    ~fixed_expression:(Some fixed_expression) ~arguments
 
 let make_ranged_case_pattern ~start_expression ~ellipsis_origin ~end_expression
     =
@@ -3289,7 +3313,10 @@ let validate_implicit_outputs table parent visible declarations compilation_mode
             (invalid_input
                "implicit PutChars output cannot have variadic arguments")
         else
-          match validate_expression output.fixed_expression with
+          match
+            Option.fold ~none:(Ok ()) ~some:validate_expression
+              output.fixed_expression
+          with
           | Error _ as error -> error
           | Ok () -> (
               match validate_arguments 0 output.arguments with

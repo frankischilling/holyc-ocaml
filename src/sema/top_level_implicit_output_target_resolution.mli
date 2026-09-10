@@ -46,6 +46,9 @@ val output_marker_origin : output -> Symbol.origin
 
 val output_fixed_value :
   output -> Function_call_expression_result.top_level_root_result
+(** Legacy supplied-value accessor. Raises [Invalid_argument] for an absent
+    value; use the corresponding supplied-value option accessor for general
+    calls. *)
 
 val output_arguments :
   output -> Function_call_expression_result.top_level_root_result list
@@ -65,3 +68,9 @@ val error_kind : error -> error_kind
 val error_origin : error -> Symbol.origin option
 val error_message : error -> string
 val error_to_string : error -> string
+
+val output_supplied_fixed_value :
+  output -> Function_call_expression_result.top_level_root_result option
+
+val output_source_statement :
+  output -> Frontend.Ast.implicit_output_statement option

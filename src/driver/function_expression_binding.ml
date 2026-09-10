@@ -201,6 +201,7 @@ let implicit_output state (output : Frontend.Ast.implicit_output_statement) =
     match output.fixed_argument with
     | Frontend.Ast.Marker_fixed_argument value
     | Frontend.Ast.Expression_fixed_argument value -> expression state value
+    | Frontend.Ast.Absent_fixed_argument -> Ok state
   in
   match fixed with
   | Error _ as error -> error

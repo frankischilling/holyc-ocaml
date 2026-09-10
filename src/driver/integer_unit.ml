@@ -319,15 +319,16 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                   let fixed =
                     match item.fixed_argument with
                     | Ast.Marker_fixed_argument value
-                    | Ast.Expression_fixed_argument value -> value
+                    | Ast.Expression_fixed_argument value -> Some value
+                    | Ast.Absent_fixed_argument -> None
                   in
                   let actual =
                     List.map expression
-                      (fixed
-                      :: List.map
-                           (fun (argument : Ast.implicit_output_argument) ->
-                             argument.value)
-                           item.arguments)
+                      (Option.to_list fixed
+                      @ List.map
+                          (fun (argument : Ast.implicit_output_argument) ->
+                            argument.value)
+                          item.arguments)
                   in
                   if
                     List.length actual <> List.length expected
@@ -610,10 +611,12 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                                     checked runtime header"
                              | Bound.Bound_output output ->
                                  let values =
-                                   Typed.implicit_output_fixed_value typed
-                                   :: List.map
-                                        Typed.implicit_output_argument_value
-                                        (Typed.implicit_output_arguments typed)
+                                   Option.to_list
+                                     (Typed.implicit_output_supplied_fixed_value
+                                        typed)
+                                   @ List.map
+                                       Typed.implicit_output_argument_value
+                                       (Typed.implicit_output_arguments typed)
                                  in
                                  (marker, Lower.Function_output output, values))
                    in
@@ -741,8 +744,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                        runtime header"
                 | Bound.Bound_output output ->
                     let values =
-                      Target.output_fixed_value target
-                      :: Target.output_arguments target
+                      Option.to_list (Target.output_supplied_fixed_value target)
+                      @ Target.output_arguments target
                       |> List.map Typed.top_level_root_value
                     in
                     (marker, Lower.Top_level_output output, values))

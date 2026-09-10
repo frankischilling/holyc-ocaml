@@ -505,6 +505,7 @@ type implicit_output_target = Print_target | Put_chars_target
 type implicit_output_fixed_argument =
   | Marker_fixed_argument of expression
   | Expression_fixed_argument of expression
+  | Absent_fixed_argument
 
 type implicit_output_argument = private {
   leading_comma : location;
@@ -1594,3 +1595,11 @@ val statement_location : statement -> location
 
 val make_module :
   source:Common.Source_id.t -> span:Common.Span.t -> items:item list -> module_
+
+val valid_implicit_output_arguments :
+  fixed_argument:implicit_output_fixed_argument ->
+  arguments:implicit_output_argument list ->
+  omissions:implicit_output_omission list ->
+  bool
+
+val statement_implicit_outputs : statement -> implicit_output_statement list

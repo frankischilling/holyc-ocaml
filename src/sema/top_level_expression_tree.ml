@@ -78,6 +78,7 @@ type statement = {
   roots : root list;
   calls : call list;
   switch_cases : switch_case list;
+  implicit_outputs_ : (int * Frontend.Ast.implicit_output_statement) list option;
 }
 
 type expression_node = {
@@ -119,6 +120,7 @@ let all_switch_cases result = result.all_switch_cases_
 let all_expression_nodes result = result.all_expression_nodes_
 let statement_source (statement : statement) = statement.source
 let statement_roots (statement : statement) = statement.roots
+let statement_implicit_outputs statement = statement.implicit_outputs_
 let statement_calls (statement : statement) = statement.calls
 let statement_switch_cases (statement : statement) = statement.switch_cases
 let root_index (root : root) = root.index
@@ -263,9 +265,11 @@ let bind_implicit_root_source ~source ~calls root =
   let fixed, fixed_source =
     match source.Ast.fixed_argument with
     | Ast.Marker_fixed_argument value ->
-        (value, Function_call_resolution.Marker_fixed_output)
+        (Some value, Function_call_resolution.Marker_fixed_output)
     | Ast.Expression_fixed_argument value ->
-        (value, Function_call_resolution.Following_expression_output)
+        (Some value, Function_call_resolution.Following_expression_output)
+    | Ast.Absent_fixed_argument ->
+        (None, Function_call_resolution.Absent_fixed_output)
   in
   let target =
     match source.target with
@@ -281,7 +285,7 @@ let bind_implicit_root_source ~source ~calls root =
           && selected.marker_origin
              = Initializer_source.origin_of_location
                  source.marker.literal_location
-        then Some fixed
+        then fixed
         else None
     | Implicit_output_argument { argument_index; _ } ->
         Option.map
@@ -514,7 +518,22 @@ let unique_implicit_sources roots =
   in
   loop [] roots
 
-let make_statement ~source ~roots ~calls ~switch_cases =
+let make_statement_input ~allow_absent_outputs ~source ~roots ~calls
+    ~switch_cases =
+  let original_outputs =
+    source |> Top_level_outer_expression_binding.statement_source
+    |> Top_level_expression_binding.statement_ast
+    |> Option.fold ~none:[] ~some:Frontend.Ast.statement_implicit_outputs
+  in
+  let absent_allowed =
+    allow_absent_outputs
+    || not
+         (List.exists
+            (fun output ->
+              output.Frontend.Ast.fixed_argument
+              = Frontend.Ast.Absent_fixed_argument)
+            original_outputs)
+  in
   let implicit_groups_match =
     List.for_all
       (fun root ->
@@ -737,7 +756,7 @@ let make_statement ~source ~roots ~calls ~switch_cases =
   in
   if not (unique_implicit_sources roots) then
     Error (invalid_input "implicit source statement appears twice in statement")
-  else if not implicit_groups_match then
+  else if (not implicit_groups_match) || not absent_allowed then
     Error
       (invalid_input
          "implicit arguments do not own their complete original statement")
@@ -778,7 +797,92 @@ let make_statement ~source ~roots ~calls ~switch_cases =
       (invalid_input
          ~origin:(Top_level_outer_expression_binding.statement_origin source)
          "top-level switch cases are not in identity order")
-  else Ok { source; roots; calls; switch_cases }
+  else Ok { source; roots; calls; switch_cases; implicit_outputs_ = None }
+
+let make_statement ~source ~roots ~calls ~switch_cases =
+  make_statement_input ~allow_absent_outputs:false ~source ~roots ~calls
+    ~switch_cases
+
+let make_source_statement ~outputs ~source ~roots ~calls ~switch_cases =
+  let module Ast = Frontend.Ast in
+  let sources = List.map snd outputs in
+  let expected =
+    source |> Top_level_outer_expression_binding.statement_source
+    |> Top_level_expression_binding.statement_ast
+    |> Option.fold ~none:[] ~some:Ast.statement_implicit_outputs
+  in
+  let original_matches =
+    List.length sources = List.length expected
+    && List.for_all2 ( == ) sources expected
+  in
+  let rec unique seen = function
+    | [] -> true
+    | source :: rest ->
+        (not (List.exists (( == ) source) seen)) && unique (source :: seen) rest
+  in
+  let root_owner root =
+    match root.role with
+    | Implicit_output_fixed { output_index; _ }
+    | Implicit_output_argument { output_index; _ } -> Some output_index
+    | _ -> None
+  in
+  let group_matches (index, (statement : Ast.implicit_output_statement)) =
+    let owned = List.filter (fun root -> root_owner root = Some index) roots in
+    let fixed, arguments =
+      List.partition
+        (fun root ->
+          match root.role with
+          | Implicit_output_fixed _ -> true
+          | _ -> false)
+        owned
+    in
+    let fixed_matches =
+      match (statement.fixed_argument, fixed) with
+      | Ast.Absent_fixed_argument, [] -> true
+      | (Ast.Marker_fixed_argument _ | Ast.Expression_fixed_argument _), [ _ ]
+        -> true
+      | _ -> false
+    in
+    fixed_matches
+    && Ast.valid_implicit_output_arguments
+         ~fixed_argument:statement.fixed_argument ~arguments:statement.arguments
+         ~omissions:statement.omissions
+    && List.length arguments = List.length statement.arguments
+    && List.for_all
+         (fun (expected, root) ->
+           match root.role with
+           | Implicit_output_argument { argument_index; _ } ->
+               argument_index = expected
+           | _ -> false)
+         (List.mapi (fun i root -> (i, root)) arguments)
+    && List.for_all
+         (fun root ->
+           Option.fold ~none:false ~some:(( == ) statement)
+             root.implicit_statement_)
+         owned
+  in
+  if
+    (not original_matches)
+    || (not (unique [] sources))
+    || (not (indexes_increase fst outputs))
+    || List.exists (fun (index, _) -> index < 0) outputs
+    || (not (List.for_all group_matches outputs))
+    || not
+         (List.for_all
+            (fun root ->
+              match root_owner root with
+              | None -> true
+              | Some index -> List.mem_assoc index outputs)
+            roots)
+  then
+    Error
+      (invalid_input
+         "implicit output groups do not own their complete original roots")
+  else
+    make_statement_input ~allow_absent_outputs:true ~source ~roots ~calls
+      ~switch_cases
+    |> Result.map (fun statement ->
+        { statement with implicit_outputs_ = Some outputs })
 
 let rec flatten_expression rev expression =
   let rev = expression :: rev in
@@ -1125,7 +1229,29 @@ let validate_global_indexes statements =
   else Ok (roots, calls, switch_cases)
 
 let create ~table ~source statements =
-  if not (unique_implicit_sources (List.concat_map statement_roots statements))
+  let source_outputs =
+    List.concat_map
+      (fun statement ->
+        match statement.implicit_outputs_ with
+        | Some outputs -> List.map snd outputs
+        | None ->
+            List.filter_map
+              (fun root ->
+                match root.role with
+                | Implicit_output_fixed _ -> root.implicit_statement_
+                | _ -> None)
+              statement.roots)
+      statements
+  in
+  let rec unique seen = function
+    | [] -> true
+    | ast :: rest ->
+        (not (List.exists (( == ) ast) seen)) && unique (ast :: seen) rest
+  in
+  if
+    (not (unique [] source_outputs))
+    || not
+         (unique_implicit_sources (List.concat_map statement_roots statements))
   then
     Error
       (invalid_input

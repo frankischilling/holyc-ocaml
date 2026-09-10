@@ -121,6 +121,7 @@ type implicit_output_target = Print_output | Put_chars_output
 
 type implicit_output_fixed_source =
   | Marker_fixed_output
+  | Absent_fixed_output
   | Following_expression_output
 
 type implicit_output_argument
@@ -446,6 +447,16 @@ val make_source_implicit_output :
 (** Bind the original source expressions, including parenthesized PutChars
     arguments, before publishing the implicit call input. *)
 
+val make_source_implicit_output_with_optional_fixed :
+  source:Frontend.Ast.implicit_output_statement ->
+  calls:call list ->
+  index:int ->
+  fixed_expression:argument_expression option ->
+  arguments:implicit_output_argument list ->
+  (implicit_output_input, string) result
+(** Bind the original source expressions, including parenthesized PutChars
+    arguments, before publishing the implicit call input. *)
+
 val make_ranged_case_pattern :
   start_expression:argument_expression ->
   ellipsis_origin:Symbol.origin ->
@@ -637,8 +648,14 @@ val implicit_output_marker_origin : implicit_output_input -> Symbol.origin
 val implicit_output_fixed_source :
   implicit_output_input -> implicit_output_fixed_source
 
+val implicit_output_supplied_fixed_expression :
+  implicit_output_input -> argument_expression option
+
 val implicit_output_fixed_expression :
   implicit_output_input -> argument_expression
+(** Legacy supplied-value accessor. Raises [Invalid_argument] for an absent
+    value; use the corresponding supplied-value option accessor for general
+    calls. *)
 
 val implicit_output_arguments :
   implicit_output_input -> implicit_output_argument list

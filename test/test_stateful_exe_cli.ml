@@ -50,6 +50,23 @@ let omission_source =
 let parenthesized_source =
   {|#exe {I64 N=38;I64 Out=0;U0 Print(U8 *s,I64 saved=++N,I64 required,I64 tail=1){Out=saved+required+tail;}N=0;""("top",,2,);I64 Top=Out;U0 Saved(){""("body",20,21,1);}Out=0;Saved;I64 Body=Out;U0 PutChars(I64 a,I64 b=2){Out=a+b;}''(40);StreamPrint("%d;",Top+Body+Out+N-84);}|}
 
+let absent_source =
+  {|#exe {
+ I64 N=39; I64 Out=0;
+ U0 Print(I64 a=++N,I64 b) { Out=a+b; }
+ N=0;
+ ""(,2);
+ I64 Top=Out;
+ U0 Saved() { ""(,2); }
+ Out=0; Saved;
+ I64 Body=Out;
+ U0 Print() { Out+=20; }
+ U0 PutChars(I64 a=22) { Out+=a; }
+ Out=0; ""(); ''();
+ StreamPrint("%d;",Top+Body+Out+N-84);
+}
+|}
+
 let () =
   let executable = Sys.argv.(1) in
   List.iter
@@ -165,6 +182,8 @@ let () =
       (omission_source, "aot", 114, 9);
       (parenthesized_source, "jit", 145, 12);
       (parenthesized_source, "aot", 147, 12);
+      (absent_source, "jit", 143, 9);
+      (absent_source, "aot", 145, 9);
     ];
   List.iter
     (fun source ->

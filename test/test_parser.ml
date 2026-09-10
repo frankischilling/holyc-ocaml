@@ -488,14 +488,14 @@ let expect_return_statement = function
 let expect_marker_fixed_argument (statement : Ast.implicit_output_statement) =
   match statement.fixed_argument with
   | Ast.Marker_fixed_argument expression -> expression
-  | Ast.Expression_fixed_argument _ ->
+  | Ast.Absent_fixed_argument | Ast.Expression_fixed_argument _ ->
       Alcotest.fail "expected the marker to supply the fixed argument"
 
 let expect_following_fixed_argument (statement : Ast.implicit_output_statement)
     =
   match statement.fixed_argument with
   | Ast.Expression_fixed_argument expression -> expression
-  | Ast.Marker_fixed_argument _ ->
+  | Ast.Absent_fixed_argument | Ast.Marker_fixed_argument _ ->
       Alcotest.fail "expected an expression after the empty marker"
 
 let expect_identifier_expression = function

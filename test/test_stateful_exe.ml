@@ -31,6 +31,40 @@ let tests =
     gates
   @ [
       Alcotest.test_case
+        "absent Print leaves comma-separated statements in order" `Quick
+        (expect 42L
+           {|I64 Out=0;U0 Print(I64 a=20){Out+=a;}"",Out+=1;U0 Saved(){""(),Out+=1;}Saved;Out;|});
+      Alcotest.test_case "rootless outputs preserve nested statement traversal"
+        `Quick
+        (expect 42L
+           {|I64 Out=0;I64 i=0;U0 Print(){Out+=10;}U0 PutChars(){Out+=11;}for(i=0;i<2;""()){''();++i;}Out;|});
+      Alcotest.test_case
+        "implicit absent values preserve closing lookahead target" `Quick
+        (expect 42L
+           {|#exe {I64 Out=0;U0 Print(){Out=42;}""() #exe {U0 Print(){Out=7;}};I64 Before=Out;""();StreamPrint("%d;",Before+Out-7);}|});
+      Alcotest.test_case
+        "implicit empty markers select parenthesis-free defaults" `Quick
+        (expect 42L
+           {|I64 Out=0;U0 Print(I64 a=20,I64 b=1){Out+=a+b;}U0 PutChars(I64 a=21){Out+=a;}"";'';Out;|});
+      Alcotest.test_case
+        "implicit zero-parameter bodies work without parentheses" `Quick
+        (expect 42L
+           {|I64 Out=0;U0 Print(){Out+=10;}U0 PutChars(){Out+=11;}"";'';U0 Saved(){"";'';}Saved;Out;|});
+      Alcotest.test_case
+        "implicit omitted first parameter retains saved default" `Quick
+        (expect 42L
+           {|#exe {I64 N=39;I64 Out=0;U0 Print(I64 a=++N,I64 b){Out=a+b;}N=0;""(,2);I64 Top=Out;U0 Saved(){""(,2);}Out=0;Saved;StreamPrint("%d;",Top+Out+N-42);}|});
+      Alcotest.test_case "implicit calls with no supplied values retain bodies"
+        `Quick
+        (expect 42L
+           {|I64 Out=0;U0 Print(){Out+=10;}U0 PutChars(I64 a=11){Out+=a;}""();''();U0 Saved(){""();''();}Saved;Out;|});
+      Alcotest.test_case "implicit omitted first and trailing defaults" `Quick
+        (expect 42L
+           {|I64 Out=0;U0 Print(I64 a=40,I64 b=2){Out=a+b;}""(,);I64 Top=Out;U0 Saved(){""(,);}Out=0;Saved;Top+Out-42;|});
+      Alcotest.test_case "implicit zero parameter PutChars call" `Quick
+        (expect 42L
+           {|I64 Out=0;U0 PutChars(){Out+=21;}''();U0 Saved(){''();}Saved;Out;|});
+      Alcotest.test_case
         "parenthesized implicit first argument overrides default" `Quick
         (expect 42L
            {|I64 Out=0;U0 Print(I64 a=7,I64 b=9){Out=a+b;}""(40,2);I64 Top=Out;U0 Saved(){""(20,22);}Out=0;Saved;Top+Out-42;|});

@@ -1173,8 +1173,29 @@ let retained_implicit_joined_defaults () =
   value 42L (run session task {|N=0;"joined";Out;|});
   value 0L (run session task "N;")
 
+let retained_absent_implicit () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task {|I64 N=39;I64 Out=0;U0 Print(I64 a=++N,I64 b){Out=a+b;}|}
+    |> Test_integer_program.checked);
+  value 42L (run session task {|N=0;""(,2);Out;|});
+  ignore
+    (run session task {|U0 Saved(){""(,2);}U0 Print(){Out=7;}|}
+    |> Test_integer_program.checked);
+  value 7L (run session task {|""();Out;|});
+  value 42L (run session task {|Saved;Out+N;|});
+  ignore
+    (run session task {|U0 Empty(){""();}U0 Print(){Out=9;}|}
+    |> Test_integer_program.checked);
+  value 7L (run session task {|Empty;Out;|});
+  Alcotest.(check string)
+    "source-defined absent calls keep empty capture" "" (Task.output_bytes task)
+
 let tests =
   [
+    Alcotest.test_case "absent implicit values survive separate task inputs"
+      `Quick retained_absent_implicit;
     Alcotest.test_case
       "retained array extents follow preflight and reached admission" `Quick
       retained_array_extent_admission_boundaries;

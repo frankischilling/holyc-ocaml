@@ -1746,9 +1746,152 @@ let tests =
               {|extern U0 Print(U8 *s,I64 a);""("x",42, #exe {} 7);|} );
             ("HCPARSE0165", {|extern U0 PutChars(I64 a,I64 b);''(42);#exe {}|});
             ("HCPARSE0165", {|extern U0 Print(U8 *s,I64 a=7);""("x",;#exe {}|});
-            ("HCPARSE0166", {|extern U0 Print(I64 a=7,I64 b);""(, #exe {} 42);|});
-            ("HCPARSE0166", {|extern U0 Print();""();#exe {}|});
-            ("HCPARSE0166", {|extern U0 PutChars(...);''();#exe {}|});
+          ]);
+    Alcotest.test_case
+      "absent implicit values retain original delimiters and omissions" `Quick
+      (fun () ->
+        let contents =
+          {|extern U0 Print(I64 a=7,I64 b);""(, #exe {} 42);extern U0 Print();""();extern U0 PutChars(...);''();|}
+        in
+        let entered = ref 0 in
+        let session, _, parsed, _, _, _ =
+          parse ~on_enter:(fun () -> incr entered) contents
+        in
+        let ast = P.expect_ast parsed in
+        let outputs =
+          ast.items
+          |> List.filter_map (function
+            | Ast.Top_level_statement (Ast.Implicit_output_statement output) ->
+                Some output
+            | _ -> None)
+        in
+        Alcotest.(check int) "required value reaches directive" 1 !entered;
+        Alcotest.(check (list int))
+          "only real supplied arguments" [ 1; 0; 0 ]
+          (List.map
+             (fun (o : Ast.implicit_output_statement) ->
+               List.length o.arguments)
+             outputs);
+        Alcotest.(check (list (list int)))
+          "first omission is separate from zero parameter calls"
+          [ [ 0 ]; []; [] ]
+          (List.map
+             (fun (o : Ast.implicit_output_statement) ->
+               List.map
+                 (fun (x : Ast.implicit_output_omission) -> x.parameter_index)
+                 o.omissions)
+             outputs);
+        List.iter
+          (fun (o : Ast.implicit_output_statement) ->
+            Alcotest.(check bool)
+              "no fixed expression" true
+              (o.fixed_argument = Ast.Absent_fixed_argument);
+            Alcotest.(check bool)
+              "original parentheses" true
+              (Option.is_some o.call_parentheses))
+          outputs;
+        let first = List.hd outputs in
+        let omission = List.hd first.omissions in
+        Alcotest.(check bool)
+          "no consumed first comma" true
+          (Option.is_none omission.leading_comma);
+        Alcotest.(check bool)
+          "lookahead becomes the next supplied separator" true
+          (omission.lookahead = (List.hd first.arguments).leading_comma);
+        let dump =
+          Ast_dump.to_yojson (Session.sources session) ast
+          |> Yojson.Safe.to_string
+        in
+        Alcotest.(check bool)
+          "absent kind is explicit" true
+          (P.contains dump "\"kind\":\"absent\""));
+    Alcotest.test_case
+      "implicit initial omission agrees with supplied source role" `Quick
+      (fun () ->
+        let _, _, parsed, _, _, _ =
+          parse {|extern U0 Print(I64 a=7,I64 b);""(,42);|}
+        in
+        let ast = P.expect_ast parsed in
+        let source =
+          match List.rev ast.items with
+          | Ast.Top_level_statement (Ast.Implicit_output_statement output) :: _
+            -> output
+          | _ -> Alcotest.fail "expected implicit output"
+        in
+        let make fixed_argument omissions =
+          Ast.make_implicit_output_statement_with_syntax ~target:source.target
+            ~marker:source.marker ~fixed_argument ~arguments:source.arguments
+            ~omissions ~call_parentheses:source.call_parentheses
+            ~semicolon:source.semicolon ~location:source.location
+        in
+        let rejected f =
+          try
+            ignore (f ());
+            false
+          with Invalid_argument _ -> true
+        in
+        Alcotest.(check bool)
+          "supplied first expression cannot also be omitted" true
+          (rejected (fun () ->
+               make
+                 (Ast.Expression_fixed_argument (List.hd source.arguments).value)
+                 source.omissions));
+        Alcotest.(check bool)
+          "trailing value cannot silently move into absent first slot" true
+          (rejected (fun () -> make Ast.Absent_fixed_argument [])));
+    Alcotest.test_case
+      "absent implicit calls keep native early error boundaries" `Quick
+      (fun () ->
+        List.iter
+          (fun (code, contents) ->
+            let entered = ref 0 in
+            error code (parse ~on_enter:(fun () -> incr entered) contents);
+            Alcotest.(check int) "later directive is not reached" 0 !entered)
+          [
+            ("HCPARSE0167", {|extern U0 Print(I64 a=7,I64 b=2);""();#exe {}|});
+            ("HCPARSE0165", {|extern U0 Print(I64 a=7,I64 b);""(,);#exe {}|});
+            ("HCPARSE0167", {|extern U0 Print(I64 a=7,...);""();#exe {}|});
+            ("HCPARSE0018", {|extern U0 Print(...);""();#exe {}|});
+            ("HCPARSE0167", {|extern U0 PutChars();''(42);#exe {}|});
+          ]);
+    Alcotest.test_case
+      "completed absent Print leaves the comma to statement sequencing" `Quick
+      (fun () ->
+        List.iter
+          (fun contents ->
+            let entered = ref 0 in
+            let _, _, parsed, _, _, _ =
+              parse ~on_enter:(fun () -> incr entered) contents
+            in
+            let ast = P.expect_ast parsed in
+            Alcotest.(check int)
+              "following statement reaches directive" 1 !entered;
+            match List.rev ast.items with
+            | Ast.Top_level_statement (Ast.Sequence_statement sequence) :: _
+              -> (
+                Alcotest.(check int)
+                  "two statements retain their boundary" 2
+                  (List.length sequence.sequence_elements);
+                match
+                  (List.hd sequence.sequence_elements).sequence_statement
+                with
+                | Ast.Implicit_output_statement output ->
+                    Alcotest.(check int)
+                      "comma did not become an argument" 0
+                      (List.length output.arguments);
+                    Alcotest.(check bool)
+                      "call ends before statement comma" true
+                      (Option.is_none output.semicolon)
+                | _ ->
+                    Alcotest.fail
+                      "first sequence element is not the original call")
+            | _ ->
+                Alcotest.fail
+                  "expected implicit call followed by another statement")
+          [
+            {|extern U0 Print();"",#exe {} 42;|};
+            {|extern U0 Print(I64 a=42);"",#exe {} 7;|};
+            {|extern U0 Print();""(),#exe {} 42;|};
           ]);
     Alcotest.test_case "PutChars parentheses permit empty variadic tail" `Quick
       (fun () ->

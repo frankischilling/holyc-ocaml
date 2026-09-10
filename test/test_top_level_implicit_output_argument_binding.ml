@@ -351,6 +351,65 @@ let shared_rules_preserve_function_binding () =
 
 let tests =
   [
+    Alcotest.test_case
+      "absent fixed parameter requires original omission evidence" `Quick
+      (fun () ->
+        let source =
+          prepare ~path:"missing-first-omission.HC"
+            {|extern U0 Print(I64 a=42);""();|}
+        in
+        let items =
+          List.map
+            (function
+              | Ast.Top_level_statement (Ast.Implicit_output_statement output)
+                ->
+                  Ast.Top_level_statement
+                    (Ast.Implicit_output_statement
+                       (Ast.make_implicit_output_statement_with_syntax
+                          ~target:output.target ~marker:output.marker
+                          ~fixed_argument:output.fixed_argument
+                          ~arguments:output.arguments ~omissions:[]
+                          ~call_parentheses:output.call_parentheses
+                          ~semicolon:output.semicolon ~location:output.location))
+              | item -> item)
+            source.ast.items
+        in
+        let ast =
+          Ast.make_module ~source:source.ast.source ~span:source.ast.span ~items
+        in
+        let inputs =
+          Test_function_call_conversion_policy.finish_prepare Preprocessor.Jit
+            source.session ast
+          |> analyze
+        in
+        match bind inputs with
+        | Ok _ ->
+            Alcotest.fail
+              "absent value silently acquired a default without omission \
+               evidence"
+        | Error error ->
+            Alcotest.(check string)
+              "invalid original omission" "HCSEMA0060"
+              (Binding.error_code error));
+    Alcotest.test_case "omitted first fixed value precedes variadic values"
+      `Quick (fun () ->
+        List.iter
+          (fun mode ->
+            let source =
+              prepare ~mode ~path:"absent-variadic.HC"
+                {|extern U0 Print(I64 a=40,...);""(,10,20);|}
+            in
+            let outputs =
+              bind (analyze source) |> checked_binding |> Binding.outputs
+            in
+            let output = bound (List.hd outputs) in
+            Alcotest.(check (list string))
+              "saved first formal" [ "defaulted:immediate" ]
+              (fixed_path_names output);
+            Alcotest.(check int)
+              "two original variadic roots" 2
+              (List.length (Binding.bound_variadic_roots output)))
+          [ Preprocessor.Jit; Preprocessor.Aot ]);
     Alcotest.test_case "omission cannot refer beyond the selected header" `Quick
       (fun () ->
         let source =

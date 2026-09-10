@@ -26,6 +26,7 @@ type 'value error =
 
 val plan :
   ?omissions:int list ->
+  ?absent_initial:bool ->
   Function_type_resolution.resolved_function ->
   'value list ->
   ('value plan, 'value error) result

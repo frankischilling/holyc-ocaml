@@ -82,6 +82,7 @@ let make_initializer_name_query ?selection ~leaf ~role ~name ~origin () =
       | Identifier _ -> assert false)
 
 type input = {
+  original_statement : Frontend.Ast.statement option;
   statement_index : int;
   item_index : int;
   origin : Symbol.origin;
@@ -101,6 +102,7 @@ let make_statement ~statement_index ~item_index ~origin events =
   else
     Ok
       {
+        original_statement = None;
         statement_index;
         item_index;
         origin;
@@ -110,6 +112,14 @@ let make_statement ~statement_index ~item_index ~origin events =
         default_owner = None;
         dimension_owner = None;
       }
+
+let make_source_statement ~source ~statement_index ~item_index events =
+  make_statement ~statement_index ~item_index
+    ~origin:
+      (Initializer_source.origin_of_location
+         (Frontend.Ast.statement_location source))
+    events
+  |> Result.map (fun input -> { input with original_statement = Some source })
 
 let make_fragment_input ~leaf ~origin ~references ~source_queries
     ~fragment_owner ~default_owner ~dimension_owner events =
@@ -168,6 +178,7 @@ let make_fragment_input ~leaf ~origin ~references ~source_queries
   else
     Ok
       {
+        original_statement = None;
         statement_index = 0;
         item_index = 0;
         origin;
@@ -263,6 +274,7 @@ let statements result = result.statements_
 let all_occurrences result = result.all_occurrences_
 let all_queries result = result.all_queries_
 let statement_source (statement : statement) = statement.source
+let statement_ast statement = statement.source.original_statement
 let statement_index (statement : statement) = statement.source.statement_index
 let statement_item_index (statement : statement) = statement.source.item_index
 let statement_origin (statement : statement) = statement.source.origin

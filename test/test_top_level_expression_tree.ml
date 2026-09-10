@@ -948,8 +948,42 @@ let implicit_output_source_ownership () =
     (Result.is_error
        (remake (roots @ [ duplicate_fixed; duplicate_argument ]) calls))
 
+let absent_implicit_output_source_ownership () =
+  let module Tree = Semantic_top_level_expression_tree in
+  let prepared =
+    prepare ~path:"absent-source-owner.HC" {|extern U0 Print();""();""();;|}
+  in
+  let tree = build prepared Preprocessor.Jit [] in
+  let first = List.nth (Tree.statements tree) 0 in
+  let second = List.nth (Tree.statements tree) 1 in
+  let empty = List.nth (Tree.statements tree) 2 in
+  let outputs = Option.get (Tree.statement_implicit_outputs first) in
+  let remake source outputs =
+    Tree.make_source_statement
+      ~source:(Tree.statement_source source)
+      ~outputs ~roots:[] ~calls:[] ~switch_cases:[]
+  in
+  ignore (remake first outputs |> checked_tree);
+  Alcotest.(check bool)
+    "rootless call cannot change containing statement" true
+    (Result.is_error (remake second outputs));
+  Alcotest.(check bool)
+    "rootless call cannot enter empty statement" true
+    (Result.is_error (remake empty outputs));
+  Alcotest.(check bool)
+    "rootless call cannot disappear" true
+    (Result.is_error (remake first []));
+  Alcotest.(check bool)
+    "legacy root maker cannot erase source call" true
+    (Result.is_error
+       (Tree.make_statement
+          ~source:(Tree.statement_source first)
+          ~roots:[] ~calls:[] ~switch_cases:[]))
+
 let tests =
   [
+    Alcotest.test_case "absent output owns its containing source" `Quick
+      absent_implicit_output_source_ownership;
     Alcotest.test_case "complete shapes, roles, calls, and identities" `Quick
       complete_shapes_roles_calls_and_identities;
     Alcotest.test_case "generated outer binding provenance" `Quick

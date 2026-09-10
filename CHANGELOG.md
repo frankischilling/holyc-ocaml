@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added implicit calls with omitted first defaults and zero supplied values.
+  Original statements retain call identity independently of expression roots;
+  semantic binding uses saved values without a placeholder expression. Source
+  ownership and supplied/absent consistency checks reject malformed groups.
+  General conversions, defaults and native linkage remain unfinished in #635.
+
 - Added parenthesized implicit Print and PutChars arguments after empty markers.
   Original call delimiters remain separate from expression groups. Supplied
   fixed values can override saved defaults; omissions preserve the native

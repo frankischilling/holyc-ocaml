@@ -232,13 +232,14 @@ let result_of_source = function
 let provided_values output =
   let source = Implicit_output_target_resolution.output_source output in
   let fixed =
-    Function_call_expression_result.implicit_output_fixed_value source
+    Function_call_expression_result.implicit_output_supplied_fixed_value source
   in
   let following =
     source |> Function_call_expression_result.implicit_output_arguments
     |> List.map (fun argument -> Following_argument argument)
   in
-  Fixed_expression fixed :: following
+  List.map (fun value -> Fixed_expression value) (Option.to_list fixed)
+  @ following
 
 let make_provided policies ~before_item_index position parameter source =
   let result = result_of_source source in
@@ -271,17 +272,20 @@ let make_default policies mode ~before_item_index output position parameter
 
 let bind_header policies mode ~before_item_index output header =
   let values = provided_values output in
-  let omissions =
+  let omissions, absent_initial =
     output |> Implicit_output_target_resolution.output_source
     |> Function_call_expression_result.implicit_output_source
     |> Function_call_resolution.implicit_output_statement
-    |> Option.fold ~none:[] ~some:(fun source ->
-        List.map
-          (fun (omission : Frontend.Ast.implicit_output_omission) ->
-            omission.parameter_index)
-          source.Frontend.Ast.omissions)
+    |> Option.fold ~none:([], false) ~some:(fun source ->
+        ( List.map
+            (fun (omission : Frontend.Ast.implicit_output_omission) ->
+              omission.parameter_index)
+            source.Frontend.Ast.omissions,
+          source.fixed_argument = Frontend.Ast.Absent_fixed_argument ))
   in
-  match Implicit_output_argument_rules.plan ~omissions header values with
+  match
+    Implicit_output_argument_rules.plan ~omissions ~absent_initial header values
+  with
   | Error (Implicit_output_argument_rules.Invalid_omission _) ->
       Error
         (invalid_input "implicit output omission has no ordered fixed parameter")

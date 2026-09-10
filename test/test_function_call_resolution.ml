@@ -3367,6 +3367,43 @@ let implicit_output_call_ownership () =
 
 let tests =
   [
+    Alcotest.test_case "absent first value retains only original supplied calls"
+      `Quick (fun () ->
+        let module Call = Semantic_function_call_resolution in
+        let prepared =
+          prepare ~path:"absent-call-source.HC"
+            {|extern U0 Print(I64 a=40,I64 b);extern I64 Next(I64 n);U0 Caller(){""(,Next(2));}|}
+        in
+        let resolved = resolve prepared |> checked in
+        let caller =
+          Call.functions resolved
+          |> List.find (fun fn ->
+              Semantic_symbol.name (Call.function_symbol fn) = "Caller")
+        in
+        let output = List.hd (Call.function_implicit_outputs caller) in
+        let source = Option.get (Call.implicit_output_statement output) in
+        let arguments = Call.implicit_output_arguments output in
+        let call = only_direct resolved "Caller" |> Call.direct_source in
+        Alcotest.(check bool)
+          "there is no first expression" true
+          (Option.is_none
+             (Call.implicit_output_supplied_fixed_expression output));
+        let remake calls fixed_expression =
+          Call.make_source_implicit_output_with_optional_fixed ~source ~calls
+            ~index:0 ~fixed_expression ~arguments
+        in
+        Alcotest.(check bool)
+          "original supplied call belongs to absent output" true
+          (Result.is_ok (remake [ call ] None));
+        Alcotest.(check bool)
+          "missing supplied call cannot be certified" true
+          (Result.is_error (remake [] None));
+        Alcotest.(check bool)
+          "supplied value cannot fill absent slot without source" true
+          (Result.is_error
+             (remake [ call ]
+                (Some
+                   (Call.implicit_output_argument_expression (List.hd arguments))))));
     Alcotest.test_case "source-backed PutChars validates arguments and calls"
       `Quick (fun () ->
         let module Call = Semantic_function_call_resolution in
@@ -3385,6 +3422,15 @@ let tests =
         let call = only_direct resolved "Caller" |> Call.direct_source in
         let fixed_expression = Call.implicit_output_fixed_expression output in
         let arguments = Call.implicit_output_arguments output in
+        Alcotest.(check bool)
+          "legacy supplied constructor rejects absent source tag" true
+          (Result.is_error
+             (Call.make_implicit_output ~index:0
+                ~target:(Call.implicit_output_target output)
+                ~marker_origin:(Call.implicit_output_marker_origin output)
+                ~fixed_source:Call.Absent_fixed_output ~fixed_expression
+                ~arguments:[]
+                ~origin:(Call.implicit_output_origin output)));
         let rebuild source calls arguments =
           Call.make_source_implicit_output ~source ~calls ~index:0
             ~fixed_expression ~arguments

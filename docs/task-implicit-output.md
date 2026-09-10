@@ -101,10 +101,35 @@ It uses 145 runtime / 12 preparation instructions in JIT and 147 / 12 in AOT.
 Both exact limits pass together; either allowance one instruction lower stops
 with HCIRVM0007 and empty capture.
 
-The checked subset still excludes omitted initial arguments, zero-value implicit
-calls, parenthesis-free additional PutChars values, general default values and argument
-conversions. Some excluded omission forms are valid native syntax; these
-diagnostics do not establish complete native parser parity. It does not
-provide native extern linkage, general format/runtime parity, a
-native backend, BIN loading or bootstrap. The pinned source comparison is
-static evidence; no native execution capture is claimed.
+Implicit calls can also omit the initial fixed parameter, as in `""(,2)`
+for `Print(I64 saved=40,I64 required)`. The omission has formal index zero,
+no consumed leading comma, and the original unconsumed lookahead. `''()`
+can select all PutChars defaults, while Print still needs a comma before each
+subsequent default. Empty markers without parentheses select available initial
+defaults without consuming a supplied expression. A zero-parameter header can
+be called with `""()` or `''()` and with an empty marker followed by `;`.
+A comma after a completed nonvariadic absent-value call belongs to the enclosing
+statement sequence, as does a comma after a parenthesized call. It is not a new
+argument. This follows `Compiler/PrsStmt.HC:920-922,1201-1214`; the next statement
+and any directive it reaches retain their original sequence boundary.
+
+The AST explicitly marks an absent initial value. No placeholder literal or
+expression root is created. Both semantic binding paths retain optional supplied
+values. Top-level outputs belong to the original containing statement even when
+they have no expression roots. Missing, swapped, copied or duplicate source
+groups cannot certify a call. A supplied initial expression cannot also carry
+omission zero. Legacy supplied-value constructors and accessors remain available;
+general consumers use the option accessors for absent values.
+
+The [absent-values example](../examples/stateful-exe-implicit-absent.hc) checks
+saved first defaults, retained function bodies and zero-value calls together.
+Built and installed JIT/AOT runs return 42 with empty output. It uses 143 runtime
+/ 9 preparation instructions in JIT and 145 / 9 in AOT. Exact limits pass
+together; either allowance one instruction lower stops with HCIRVM0007.
+
+Parenthesis-free additional PutChars values, general default values and argument
+conversions remain incomplete. Source-defined variadic body execution remains
+outside the current runtime subset, even where parsing and semantic argument
+binding succeed. Native extern linkage, general format/runtime parity, a native
+backend, BIN loading and bootstrap are unfinished. The pinned source comparison
+is static evidence; no native execution capture is claimed.

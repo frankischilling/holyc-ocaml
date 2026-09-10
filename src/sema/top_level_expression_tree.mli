@@ -112,6 +112,14 @@ val make_call :
   result_expression:Function_call_resolution.argument_expression ->
   (call, error) result
 
+val make_source_statement :
+  outputs:(int * Frontend.Ast.implicit_output_statement) list ->
+  source:Top_level_outer_expression_binding.statement ->
+  roots:root list ->
+  calls:call list ->
+  switch_cases:switch_case list ->
+  (statement, error) result
+
 val make_statement :
   source:Top_level_outer_expression_binding.statement ->
   roots:root list ->
@@ -172,3 +180,6 @@ val error_kind : error -> error_kind
 val error_origin : error -> Symbol.origin option
 val error_message : error -> string
 val error_to_string : error -> string
+
+val statement_implicit_outputs :
+  statement -> (int * Frontend.Ast.implicit_output_statement) list option

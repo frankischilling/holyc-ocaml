@@ -214,7 +214,13 @@ val function_implicit_outputs : resolved_function -> implicit_output_result list
 val implicit_output_source :
   implicit_output_result -> Function_call_resolution.implicit_output_input
 
+val implicit_output_supplied_fixed_value :
+  implicit_output_result -> expression_result option
+
 val implicit_output_fixed_value : implicit_output_result -> expression_result
+(** Legacy supplied-value accessor. Raises [Invalid_argument] for an absent
+    value; use the corresponding supplied-value option accessor for general
+    calls. *)
 
 val implicit_output_arguments :
   implicit_output_result -> implicit_output_argument_result list
