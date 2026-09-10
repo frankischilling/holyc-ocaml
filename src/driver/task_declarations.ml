@@ -71,6 +71,7 @@ type source =
       publication : Parser.function_publication;
       mutable defaults_rev : Parser.completed_parameter_default list;
       mutable header : Parser.completed_function_header option;
+      mutable declared_header : Sema.Compiler_record.declared_function option;
       mutable body : Ast.function_definition option;
     }
 
@@ -1450,7 +1451,13 @@ let observe ledger event =
             publication.function_header publication.function_name;
           assign ledger publication.function_name Sema.Symbol.Function
             (Function
-               { publication; defaults_rev = []; header = None; body = None })
+               {
+                 publication;
+                 defaults_rev = [];
+                 header = None;
+                 declared_header = None;
+                 body = None;
+               })
             publication.function_entry
       | Parser.Parameter_default_completed receipt -> (
           let publication = receipt.default_function in
@@ -1556,6 +1563,15 @@ let observe ledger event =
                 fail publication.function_name.location.span
                   "function header is missing its exact original parameter \
                    defaults";
+              let declared_header =
+                if Parser.function_header_is_current header then
+                  Some
+                    (Sema.Compiler_record.declare_function ~table:ledger.table
+                       ~namespace:ledger.namespace assigned.publication header
+                    |> checked publication.function_name.location.span)
+                else None
+              in
+              state.declared_header <- declared_header;
               state.header <- Some header;
               Entries.add ledger.entries header.completed_entry assigned
           | _ ->
@@ -2241,6 +2257,22 @@ let finish_runtime_dimension ledger ~runtime ~succeeded receipt =
           |> checked span
         in
         pending.evaluation <- Proposed_runtime_dimension (prepared, queries))
+
+let declared_function_header ledger header =
+  protect (fun () ->
+      let span =
+        header.Parser.function_publication.function_name.location.span
+      in
+      match (find ledger header.function_publication.function_name).source with
+      | Function
+          { header = Some original; declared_header = Some declaration; _ }
+        when original == header
+             && Sema.Compiler_record.declared_function_source declaration
+                == header -> declaration
+      | _ ->
+          fail span
+            "completed function header lacks its original observed source \
+             authority")
 
 let complete_defaults_runtime ledger ~runtime header =
   protect (fun () ->

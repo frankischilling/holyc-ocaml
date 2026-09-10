@@ -21,6 +21,27 @@ val runtime_dimension_work : runtime_dimension_proposal -> int
 type t
 type declared_dimension
 type declared_global
+type declared_function
+
+val declare_function :
+  ?activation:Source_activation.t ->
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  Declaration_collection.publication ->
+  Frontend.Parser.completed_function_header ->
+  (declared_function, string) result
+(** Preserve the exact completed header at its original callback or active
+    source-journal event. This is source authority for header typing; it does
+    not admit a runtime binding, executable, frame or completed command. *)
+
+val declared_function_source :
+  declared_function -> Frontend.Parser.completed_function_header
+
+val declared_function_symbol : declared_function -> Symbol.t
+val declared_function_owns_table : declared_function -> Symbol_table.t -> bool
+
+val declared_function_owns_namespace :
+  declared_function -> Declaration_collection.namespace -> bool
 
 val declare_global :
   dimensions:declared_dimension list ->

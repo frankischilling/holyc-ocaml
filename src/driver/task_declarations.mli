@@ -1,5 +1,13 @@
 type t
 
+val declared_function_header :
+  t ->
+  Frontend.Parser.completed_function_header ->
+  (Sema.Compiler_record.declared_function, Common.Diagnostic.t list) result
+(** Retrieve the original completed header witness captured by this ledger
+    during its live callback. Metadata-only replay creates no witness. Header
+    evidence alone does not admit a task function or publish a body. *)
+
 val observe_implicit_output :
   t ->
   Frontend.Parser.implicit_output_selection ->

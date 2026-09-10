@@ -98,6 +98,59 @@ type declared_global = {
 
 let ( let* ) = Result.bind
 
+type declared_function = {
+  function_table : Symbol_table.t;
+  function_namespace : Declaration_collection.namespace;
+  function_publication : Declaration_collection.publication;
+  function_source : Parser.completed_function_header;
+}
+
+let declare_function ?activation ~table ~namespace publication header =
+  if
+    (not (Declaration_collection.namespace_owns_table namespace table))
+    || not
+         (Declaration_collection.namespace_owns_publication namespace
+            publication)
+  then Error "completed function header requires its exact namespace and table"
+  else if
+    not
+      (Option.fold ~none:false
+         ~some:(( == ) header.Parser.function_publication)
+         (Declaration_collection.publication_source_function publication))
+  then
+    Error "completed function header requires its original source publication"
+  else if
+    not
+      (Parser.function_header_is_current header
+      || Option.fold ~none:false
+           ~some:(fun activation ->
+             Source_activation.owns_namespace activation namespace)
+           activation
+         && Source_activation.function_header activation header)
+  then
+    Error
+      "completed function header is outside its original callback or \
+       activation event"
+  else
+    Ok
+      {
+        function_table = table;
+        function_namespace = namespace;
+        function_publication = publication;
+        function_source = header;
+      }
+
+let declared_function_source declaration = declaration.function_source
+
+let declared_function_symbol declaration =
+  Declaration_collection.publication_symbol declaration.function_publication
+
+let declared_function_owns_table declaration table =
+  declaration.function_table == table
+
+let declared_function_owns_namespace declaration namespace =
+  declaration.function_namespace == namespace
+
 let validate_dimension ~table ~(dimension : Ast.array_dimension) checked =
   if checked.prepared.dimension_table != table then
     Error "checked array dimension belongs to another semantic table"

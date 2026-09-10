@@ -408,6 +408,14 @@ val resolve_function_types :
     source position. Default evaluation, declaration reconciliation, call
     checking, storage, and linkage remain separate passes. *)
 
+val resolve_completed_function_header :
+  Session.t ->
+  namespace:Semantic_declaration_collection.namespace ->
+  Semantic_compiler_record.declared_function ->
+  (Semantic_function_type_resolution.resolved_function, string) result
+(** Type the original completed header without a body or command AST. Executable
+    publication and task admission remain separate operations. *)
+
 val resolve_local_types :
   Session.t ->
   declarations:Semantic_declaration_collection.t ->

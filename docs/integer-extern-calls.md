@@ -86,6 +86,12 @@ or full ABI/header-mismatch behavior. Native code generation, TempleOS BIN and
 loader acceptance, and bootstrap remain unfinished. These claims use pinned
 source audit and hosted regression tests; there is no new native capture.
 
+[Completed function headers](completed-function-headers.md) can be typed from
+their original source evidence before a body exists. Runtime admission of such
+pending definitions remains open. In particular, a directive reached while
+looking past the body's closing brace must not acquire that body's executable
+before native publication.
+
 [Extern regression tests](../test/test_integer_extern_calls.ml) cover forward
 and retained calls, publication order, saved defaults, variadic bodies,
 provider replacement, failure recovery, initializers and resource bounds.

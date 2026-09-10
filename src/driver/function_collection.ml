@@ -262,3 +262,30 @@ let collect ~table ~declarations module_ =
       Sema.Function_collection.collect ~table
         ~parent:(Sema.Declaration_collection.scope declarations)
         facts
+
+let collect_completed_header ~table ~namespace declaration =
+  if not (Sema.Compiler_record.declared_function_owns_table declaration table)
+  then Error "completed function header belongs to a different symbol table"
+  else if
+    not
+      (Sema.Compiler_record.declared_function_owns_namespace declaration
+         namespace)
+  then Error "completed function header belongs to a different namespace"
+  else
+    let header = Sema.Compiler_record.declared_function_source declaration in
+    let symbol = Sema.Compiler_record.declared_function_symbol declaration in
+    Result.bind (parameters header.parameters header.variadic) (fun bindings ->
+        Result.bind
+          (Sema.Function_collection.make_function ~symbol ~item_index:0 bindings)
+          (fun function_ ->
+            Result.bind
+              (Sema.Function_collection.collect ~table
+                 ~parent:(Sema.Declaration_collection.namespace_scope namespace)
+                 [ function_ ])
+              (fun collection ->
+                match Sema.Function_collection.functions collection with
+                | [ function_ ] -> Ok function_
+                | _ ->
+                    Error
+                      "completed function header did not produce one function \
+                       scope")))

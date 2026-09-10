@@ -280,6 +280,8 @@ val parameter_default_is_current : completed_parameter_default -> bool
     parameter delimiter is consumed. Only its synchronous callback is current;
     the receipt alone grants no evaluation or call-materialization authority. *)
 
+type function_header_activity
+
 type completed_function_header = private {
   function_publication : function_publication;
   completed_entry : Symbol_visibility.entry;
@@ -287,7 +289,12 @@ type completed_function_header = private {
   empty_parameter_entries : Ast.empty_parameter_entry list;
   variadic : Ast.variadic_marker option;
   closing_parenthesis : Ast.location;
+  header_activity : function_header_activity;
 }
+
+val function_header_is_current : completed_function_header -> bool
+(** True only during this exact header's original completion callback. The
+    callback follows closing-parenthesis lookahead and precedes body parsing. *)
 
 type array_dimensions_owner = private {
   dimensions_command : command_start;

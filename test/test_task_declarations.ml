@@ -293,6 +293,11 @@ let phase_order_and_replay () =
         (D.observe ledger declared);
       reject "body cannot precede header" (D.observe ledger body);
       ignore (D.observe ledger header |> expect);
+      (match header with
+      | Parser.Function_header_completed source ->
+          reject "metadata replay cannot create live header authority"
+            (D.declared_function_header ledger source)
+      | _ -> Alcotest.fail "expected completed header");
       reject "header cannot complete twice" (D.observe ledger header);
       reject "unfinished function cannot seal" (D.seal ledger ast);
       ignore (D.observe ledger body |> expect);

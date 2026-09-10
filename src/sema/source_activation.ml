@@ -142,6 +142,12 @@ let allows activation matches =
     ~some:(fun t -> current t && Option.fold ~none:false ~some:matches t.active)
     activation
 
+let function_header activation header =
+  allows activation (function
+    | Declaration (Parser.Function_header_completed original) ->
+        original == header
+    | _ -> false)
+
 let initializer_start activation receipt =
   allows activation (function
     | Declaration (Parser.Global_initializer_started original) ->

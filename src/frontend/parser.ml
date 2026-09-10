@@ -268,6 +268,8 @@ let parameter_default_is_current receipt =
        .command_context
        .context_active
 
+type function_header_activity = { mutable function_header_active : bool }
+
 type completed_function_header = {
   function_publication : function_publication;
   completed_entry : Symbol_visibility.entry;
@@ -275,7 +277,14 @@ type completed_function_header = {
   empty_parameter_entries : Ast.empty_parameter_entry list;
   variadic : Ast.variadic_marker option;
   closing_parenthesis : Ast.location;
+  header_activity : function_header_activity;
 }
+
+let function_header_is_current receipt =
+  receipt.header_activity.function_header_active
+  && receipt.function_publication.function_header.declaration_command
+       .command_context
+       .context_active
 
 type array_dimensions_owner = {
   dimensions_command : command_start;
@@ -1458,9 +1467,14 @@ let complete_function_header cursor at publication
           empty_parameter_entries = parsed.empty_parameter_entries;
           variadic = parsed.variadic;
           closing_parenthesis = parsed.closing_parenthesis;
+          header_activity = { function_header_active = true };
         }
       in
-      publish_declaration cursor at (Function_header_completed completed);
+      Fun.protect
+        ~finally:(fun () ->
+          completed.header_activity.function_header_active <- false)
+        (fun () ->
+          publish_declaration cursor at (Function_header_completed completed));
       completed)
     publication
 

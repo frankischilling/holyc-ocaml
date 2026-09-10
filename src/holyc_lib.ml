@@ -267,6 +267,11 @@ let resolve_function_types session ~declarations ~aggregates ~functions module_
     ~table:(Session.semantic_symbols session)
     ~declarations ~aggregates ~functions module_
 
+let resolve_completed_function_header session ~namespace declaration =
+  Driver.Function_type_resolution.resolve_completed_header
+    ~table:(Session.semantic_symbols session)
+    ~namespace declaration
+
 let resolve_local_types session ~declarations ~aggregates ~functions module_ =
   Driver.Local_type_resolution.resolve
     ~table:(Session.semantic_symbols session)

@@ -544,6 +544,18 @@ let variadic_bindings ast argc argv =
   | None, Some _, _ | None, _, Some _ | Some _, None, _ | Some _, _, None ->
       Error "semantic function collection does not match the variadic marker"
 
+let function_fact_with_types event ~return_type ~signature =
+  match collected_bindings event with
+  | Error _ as error -> error
+  | Ok (parameter_bindings, argc, argv) -> (
+      match variadic_bindings event.function_ast argc argv with
+      | Error _ as error -> error
+      | Ok variadic_bindings ->
+          Sema.Function_type_resolution.make_function
+            ~symbol:event.function_symbol ~scope:event.function_scope
+            ~item_index:event.function_ast.function_item_index ~return_type
+            ~signature ~parameter_bindings ~variadic_bindings)
+
 let function_fact visible event =
   let ast = event.function_ast in
   match
@@ -558,17 +570,7 @@ let function_fact visible event =
           ~closing:ast.function_closing
       with
       | Error _ as error -> error
-      | Ok signature -> (
-          match collected_bindings event with
-          | Error _ as error -> error
-          | Ok (parameter_bindings, argc, argv) -> (
-              match variadic_bindings ast argc argv with
-              | Error _ as error -> error
-              | Ok variadic_bindings ->
-                  Sema.Function_type_resolution.make_function
-                    ~symbol:event.function_symbol ~scope:event.function_scope
-                    ~item_index:ast.function_item_index ~return_type ~signature
-                    ~parameter_bindings ~variadic_bindings)))
+      | Ok signature -> function_fact_with_types event ~return_type ~signature)
 
 let resolve_events ~table ~scope aggregates functions =
   let rec resolve visible facts_rev aggregates functions =
@@ -621,3 +623,73 @@ let resolve ~table ~declarations ~aggregates ~functions module_ =
         match function_events ~table ~declarations ~functions module_ with
         | Error _ as error -> error
         | Ok functions -> resolve_events ~table ~scope aggregates functions)
+
+let resolve_completed_header ~table ~namespace declaration =
+  if not (Sema.Compiler_record.declared_function_owns_table declaration table)
+  then Error "completed function header belongs to a different symbol table"
+  else if
+    not
+      (Sema.Compiler_record.declared_function_owns_namespace declaration
+         namespace)
+  then Error "completed function header belongs to a different namespace"
+  else
+    let header = Sema.Compiler_record.declared_function_source declaration in
+    let publication = header.function_publication in
+    let ast =
+      {
+        function_declaration_kind =
+          (match publication.function_header.binding with
+          | None -> Sema.Declaration_collection.Function_definition
+          | Some _ -> Sema.Declaration_collection.Function_prototype);
+        function_item_index = 0;
+        function_name = publication.function_name;
+        function_return_type = publication.function_header.type_specifier;
+        function_return_pointers = publication.function_pointer_layers;
+        function_opening = publication.function_opening_parenthesis;
+        function_parameters = header.parameters;
+        function_variadic = header.variadic;
+        function_closing = header.closing_parenthesis;
+      }
+    in
+    (* A completed header does not retain selected aggregate-type evidence.
+       Do not substitute current namespace lookup for its source visibility. *)
+    let visible = String_map.empty in
+    Result.bind
+      (make_type_reference visible ast.function_return_type
+         ast.function_return_pointers) (fun return_type ->
+        Result.bind
+          (signature_fact visible ~opening:ast.function_opening
+             ast.function_parameters ast.function_variadic
+             ~closing:ast.function_closing) (fun signature ->
+            Result.bind
+              (Function_collection.collect_completed_header ~table ~namespace
+                 declaration) (fun collected ->
+                let event =
+                  {
+                    function_ast = ast;
+                    function_symbol =
+                      Sema.Compiler_record.declared_function_symbol declaration;
+                    function_scope =
+                      Sema.Function_collection.function_scope collected;
+                    function_entries =
+                      Sema.Function_collection.function_entries collected;
+                  }
+                in
+                Result.bind
+                  (function_fact_with_types event ~return_type ~signature)
+                  (fun function_ ->
+                    Result.bind
+                      (Sema.Function_type_resolution.resolve ~table
+                         ~parent:
+                           (Sema.Declaration_collection.namespace_scope
+                              namespace)
+                         [ function_ ])
+                      (fun resolution ->
+                        match
+                          Sema.Function_type_resolution.functions resolution
+                        with
+                        | [ function_ ] -> Ok function_
+                        | _ ->
+                            Error
+                              "completed function header did not produce one \
+                               resolved signature")))))

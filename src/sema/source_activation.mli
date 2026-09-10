@@ -6,6 +6,12 @@ type event =
 
 type t
 
+val function_header :
+  t option -> Frontend.Parser.completed_function_header -> bool
+(** Only the exact currently active header event may create header evidence. An
+    absent event, an inactive journal and a consumed journal grant no authority.
+*)
+
 val implicit_output :
   t option -> Frontend.Parser.implicit_output_selection -> bool
 
