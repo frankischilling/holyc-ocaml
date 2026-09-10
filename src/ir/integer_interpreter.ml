@@ -333,7 +333,17 @@ and initializer_attempt = {
   mutable attempt_state : initializer_attempt_state;
 }
 
+type default_attempt = {
+  default_catalog : Integer_globals.task_catalog;
+  default_publication : Sema.Declaration_collection.publication;
+  default_receipt : Frontend.Parser.completed_parameter_default;
+  default_preparation_before : int;
+  mutable default_state : initializer_attempt_state;
+  mutable default_bits : int64 option;
+}
+
 type task_state = {
+  mutable defaults : default_attempt list;
   mutable initializers : task_initializer list;
   mutable declared_admissions : admitted_publication list;
   mutable source_promotion_open : bool;
@@ -393,6 +403,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
     let output = Output.create ~max_output_bytes ~max_output_work in
     Ok
       {
+        defaults = [];
         initializers = [];
         declared_admissions = [];
         source_promotion_open = true;
@@ -596,6 +607,121 @@ let require_initializer_namespace task namespace =
   if Integer_globals.task_catalog_owns_namespace task.catalog namespace then
     Ok ()
   else Error "initializer operation belongs to another task source namespace"
+
+let begin_task_default task ~namespace ~publication receipt =
+  let ( let* ) = Result.bind in
+  let* () = require_initializer_namespace task namespace in
+  let rec predecessor = function
+    | None -> true
+    | Some (prior : Frontend.Parser.completed_parameter_default) -> (
+        match prior.default_ast.value with
+        | Frontend.Ast.Lastclass_default _ ->
+            predecessor prior.default_predecessor
+        | Frontend.Ast.Expression_default _ ->
+            List.exists
+              (fun attempt ->
+                attempt.default_receipt == prior
+                && attempt.default_state = Successful_initializer)
+              task.defaults)
+  in
+  if
+    (not (Frontend.Parser.parameter_default_is_current receipt))
+    || (not (predecessor receipt.default_predecessor))
+    || (not
+          (Sema.Declaration_collection.namespace_owns_publication namespace
+             publication))
+    || (not
+          (Option.fold ~none:false
+             ~some:(( == ) receipt.Frontend.Parser.default_function)
+             (Sema.Declaration_collection.publication_source_function
+                publication)))
+    || List.exists
+         (fun attempt -> attempt.default_receipt == receipt)
+         task.defaults
+  then
+    Error
+      "default preparation has another source, namespace or consumed boundary"
+  else
+    let attempt =
+      {
+        default_catalog = task.catalog;
+        default_publication = publication;
+        default_receipt = receipt;
+        default_preparation_before = task.initializer_steps;
+        default_state = Preparing_initializer;
+        default_bits = None;
+      }
+    in
+    task.defaults <- attempt :: task.defaults;
+    task.source_promotion_open <- false;
+    Ok attempt
+
+let fail_task_default task attempt =
+  if
+    attempt.default_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.defaults))
+    || attempt.default_state <> Preparing_initializer
+       && attempt.default_state <> Executing_initializer
+  then Error "default failure has another task or inactive attempt"
+  else (
+    attempt.default_state <- Failed_initializer;
+    Ok ())
+
+let task_default_bits task receipt =
+  List.find_map
+    (fun attempt ->
+      if
+        attempt.default_receipt == receipt
+        && attempt.default_state = Successful_initializer
+      then attempt.default_bits
+      else None)
+    task.defaults
+
+let complete_task_defaults task ~namespace header =
+  let ( let* ) = Result.bind in
+  let* () = require_initializer_namespace task namespace in
+  let expected =
+    List.mapi
+      (fun index (parameter : Frontend.Ast.function_parameter) ->
+        Option.bind parameter.default (fun default ->
+            match default.value with
+            | Frontend.Ast.Expression_default _ -> Some (index, default)
+            | Lastclass_default _ -> None))
+      header.Frontend.Parser.parameters
+    |> List.filter_map Fun.id
+  in
+  let rec collect rev = function
+    | [] ->
+        Integer_globals.publish_parameter_defaults task.catalog ~namespace
+          (List.rev rev)
+    | (index, default) :: rest ->
+        let* attempt =
+          match
+            List.find_opt
+              (fun attempt ->
+                attempt.default_receipt.default_function
+                == header.function_publication
+                && attempt.default_receipt.default_parameter_index = index
+                && attempt.default_receipt.default_ast == default)
+              task.defaults
+          with
+          | Some attempt
+            when attempt.default_state = Successful_initializer
+                 && Option.is_some attempt.default_bits -> Ok attempt
+          | _ ->
+              Error
+                "function header requires each successful original default \
+                 preparation"
+        in
+        let* value =
+          Prepared_parameter_default.create
+            ~publication:attempt.default_publication ~header
+            ~receipt:attempt.default_receipt
+            ~bits:(Option.get attempt.default_bits)
+        in
+        collect (value :: rev) rest
+  in
+  collect [] expected
 
 let begin_task_initializer task ~namespace declaration start =
   let ( let* ) = Result.bind in
@@ -1395,7 +1521,7 @@ let indexed_address frame types (description : Sequence.description) =
   | _ -> Unsupported
 
 let declared_types ?frame ?globals ?literals ?initialization
-    ?(allow_calls = false) block =
+    ?(allow_calls = false) ?(is_default = fun _ -> false) block =
   let memory_enabled =
     Option.is_some frame || Option.is_some globals || Option.is_some literals
   in
@@ -1450,6 +1576,14 @@ let declared_types ?frame ?globals ?literals ?initialization
                          | None -> Unsupported
                        else
                          match (frame, description.opcode) with
+                         | _, Opcode.Ic_imm_i64
+                           when is_default description.instruction_id -> (
+                             match
+                               scalar_value_type ~allow_byte:true
+                                 ~allow_public:true type_
+                             with
+                             | Some word_type -> supported word_type type_
+                             | None -> Unsupported)
                          | _, opcode
                            when memory_enabled
                                 && (opcode = Opcode.Ic_deref
@@ -1787,7 +1921,7 @@ let collect_literals ~max_literal_bytes image graph =
   Ok { literal_graph = graph; literal_regions }
 
 let prepare_instruction ?frame ?globals ?literals ?initialization
-    ?(allow_public = false) block_index types block_id
+    ?(allow_public = false) ?(is_default = false) block_index types block_id
     (description : Sequence.description) =
   let memory_enabled =
     Option.is_some frame || Option.is_some globals || Option.is_some literals
@@ -2034,7 +2168,12 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                   description.payload )
               with
               | [], Some result, Some type_, Some (Sequence.Integer bits) -> (
-                  match producer_word_type type_ with
+                  match
+                    if is_default then
+                      scalar_value_type ~allow_byte:true ~allow_public:true
+                        type_
+                    else producer_word_type type_
+                  with
                   | Some type_ ->
                       Ok (Immediate (result.value_id, { type_; bits }))
                   | None -> Error (unsupported_type block_id description))
@@ -2232,6 +2371,12 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
 let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
     ?(retained_functions = []) ?(runtime_owner = Runtime.Entry) graph =
   let ( let* ) = Result.bind in
+  let is_default id =
+    Option.fold ~none:false
+      ~some:(fun context ->
+        Runtime.is_prepared_default context ~owner:runtime_owner id)
+      runtime_calls
+  in
   let* () =
     match literals with
     | Some context when context.literal_graph != graph ->
@@ -2258,7 +2403,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
         let block_id = Graph.block_id block in
         let types =
           declared_types ?frame ?globals ?literals ?initialization
-            ~allow_calls:(Option.is_some callees) block
+            ~allow_calls:(Option.is_some callees) ~is_default block
         in
         let instructions_rev = ref [] in
         let calls = ref [] in
@@ -2476,7 +2621,9 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                    "direct call cleanup and call end must follow the call")
           | _ ->
               prepare_instruction ?frame ?globals ?literals ?initialization
-                ~allow_public:true block_index types block_id description
+                ~allow_public:true
+                ~is_default:(is_default description.instruction_id)
+                block_index types block_id description
         in
         Graph.instructions block |> Sequence.instructions
         |> List.iter (fun instruction ->
@@ -3707,9 +3854,10 @@ let execute_function ?(max_literal_bytes = 1_048_576) ~max_steps
               { program with owner = Some (function_id, function_name) })
 
 let execute_program_with_output ?task ?isolated_budget
-    ?(initializer_mode = false) ?runtime_calls ~output ?globals ?initialization
-    ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576) ~max_steps
-    ~max_frame_bytes ~max_call_depth ~functions checked =
+    ?(initializer_mode = false) ?(capture_fragment_value = false) ?runtime_calls
+    ~output ?globals ?initialization ?(max_global_bytes = 1_048_576)
+    ?(max_literal_bytes = 1_048_576) ~max_steps ~max_frame_bytes ~max_call_depth
+    ~functions checked =
   let ( let* ) = Result.bind in
   let accounting =
     match (task, isolated_budget) with
@@ -4163,8 +4311,10 @@ let execute_program_with_output ?task ?isolated_budget
       in
       execute_prepared ~callees:programs ~max_frame_bytes ~max_call_depth
         ?initialization ~global_words ~literal_image ~output ?stream_output
-        ?generation_output ~capture_last:(not initializer_mode) ?on_capture
-        ?admit ~retained_regions ~retained_functions ~max_steps entry
+        ?generation_output
+        ~capture_last:((not initializer_mode) || capture_fragment_value)
+        ?on_capture ?admit ~retained_regions ~retained_functions ~max_steps
+        entry
     in
     Option.iter
       (fun task ->
@@ -4287,6 +4437,86 @@ let execute_task_initializer task attempt execution =
           attempt.attempt_state <- Successful_initializer;
           Ok ())
 
+let execute_task_default task attempt execution =
+  let module Program = Default_fragment_program in
+  let module Destination = Default_fragment_destination in
+  let ( let* ) = Result.bind in
+  let destination = Program.execution_destination execution in
+  let fragment = Destination.fragment destination in
+  let span = Destination.span destination in
+  let invalid message =
+    Error
+      [
+        make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026" message;
+      ]
+  in
+  let* () =
+    if
+      attempt.default_catalog != task.catalog
+      || (not (List.exists (( == ) attempt) task.defaults))
+      || attempt.default_state <> Preparing_initializer
+      || (not
+            (Frontend.Parser.parameter_default_is_current
+               attempt.default_receipt))
+      || Sema.Default_fragment.receipt fragment != attempt.default_receipt
+      || Sema.Default_fragment.publication fragment
+         != attempt.default_publication
+      || Sema.Default_fragment.authorized_fragment (Program.authority execution)
+         != fragment
+      || (not
+            (Integer_globals.owns_task_storage task.catalog
+               (Destination.globals destination)))
+      || (not
+            (Integer_globals.is_default_fragment
+               (Destination.globals destination)))
+      || Integer_globals.byte_size (Destination.globals destination) <> 0
+      || Program.steps execution
+         <> task.initializer_steps - attempt.default_preparation_before
+    then
+      invalid
+        "default execution has another task, source attempt or preparation"
+    else Ok ()
+  in
+  attempt.default_state <- Executing_initializer;
+  let outcome =
+    match Program.code execution with
+    | Program.Prepared bits -> Ok bits
+    | Program.Scheduled program -> (
+        if task.steps >= task.max_steps then
+          Error
+            [
+              make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0007"
+                "the task cumulative execution step limit was exhausted";
+            ]
+        else
+          let* result =
+            execute_program_with_output ~task ~initializer_mode:true
+              ~capture_fragment_value:true
+              ~runtime_calls:(Program.runtime_calls program)
+              ~output:task.output
+              ~globals:(Destination.globals destination)
+              ~initialization:(Program.initialization program)
+              ~max_global_bytes:task.max_global_bytes
+              ~max_literal_bytes:task.max_literal_bytes
+              ~max_steps:(task.max_steps - task.steps)
+              ~max_frame_bytes:task.max_frame_bytes
+              ~max_call_depth:task.max_call_depth ~functions:[]
+              (Program.entry program)
+          in
+          match result.final_value_ with
+          | Some word -> Ok word.bits
+          | None ->
+              invalid "default evaluation produced no checked parameter value")
+  in
+  match outcome with
+  | Error errors ->
+      ignore (fail_task_default task attempt);
+      Error errors
+  | Ok bits ->
+      attempt.default_bits <- Some bits;
+      attempt.default_state <- Successful_initializer;
+      Ok ()
+
 let execute_task_program task ~runtime_calls ~globals ~initialization ~functions
     checked =
   task.source_promotion_open <- false;
@@ -4297,6 +4527,11 @@ let execute_task_program task ~runtime_calls ~globals ~initialization ~functions
         && not
              (Integer_globals.declared_initializer_failed state.initializer_slot))
       task.initializers
+    || List.exists
+         (fun attempt ->
+           attempt.default_state = Preparing_initializer
+           || attempt.default_state = Executing_initializer)
+         task.defaults
   then
     Error
       [

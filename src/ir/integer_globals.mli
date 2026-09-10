@@ -40,6 +40,21 @@ val fragment_context :
   task_view -> Sema.Initializer_fragment.t -> (t, string) result
 
 val is_initializer_fragment : t -> bool
+val default_context : task_view -> Sema.Default_fragment.t -> (t, string) result
+val is_default_fragment : t -> bool
+
+val publish_parameter_defaults :
+  task_catalog ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Prepared_parameter_default.t list ->
+  (unit, string) result
+
+val prepared_parameter_default :
+  t ->
+  header:Sema.Function_type_resolution.resolved_function ->
+  parameter:Sema.Function_type_resolution.parameter ->
+  Prepared_parameter_default.t option
+
 val task_catalog_owns_view : task_catalog -> task_view -> bool
 
 val task_global_binding :

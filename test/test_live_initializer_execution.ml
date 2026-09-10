@@ -249,6 +249,17 @@ let instruction_budget () =
 
 let tests =
   [
+    Alcotest.test_case "default effects precede the next parameter directive"
+      `Quick
+      (returns_42
+         {|I64 N=0;I64 Touch(){return ++N;};I64 F(I64 a=Touch(),I64 b=#exe {StreamPrint("%d",N+40);}){return a+b;};F();|});
+    Alcotest.test_case "default values survive later writes and repeated calls"
+      `Quick
+      (returns_42
+         {|I64 N=20;I64 Touch(){return ++N;};I64 F(I64 a=Touch()){return a;};N=0;F()+F();|});
+    Alcotest.test_case "default preparation runs even without a call" `Quick
+      (returns_42
+         {|I64 N=41;I64 Touch(){return ++N;};I64 F(I64 a=Touch()){return a;};N;|});
     Alcotest.test_case "live calls retain transitive optimizer guards" `Quick
       optimizer_guards;
     Alcotest.test_case "live calls share cumulative instruction allowance"

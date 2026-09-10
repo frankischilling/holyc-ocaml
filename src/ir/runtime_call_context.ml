@@ -26,6 +26,7 @@ type owner = Entry | Function of Function_body.t
 type argument_role = Fixed of int | Variadic_count | Variadic of int
 
 type argument = {
+  prepared_default : bool;
   role : argument_role;
   producer : Seq.Instruction_id.t;
   value : Seq.Value_id.t;
@@ -107,6 +108,19 @@ let find_start context ~owner id =
   Option.bind (find_graph context owner) (fun graph ->
       Instructions.find_opt id graph.calls)
 
+let is_prepared_default context ~owner id =
+  Option.fold ~none:false
+    ~some:(fun graph ->
+      Instructions.exists
+        (fun _ call ->
+          List.exists
+            (fun argument ->
+              argument.prepared_default
+              && Seq.Instruction_id.equal argument.producer id)
+            call.arguments_)
+        graph.calls)
+    (find_graph context owner)
+
 let is_implicit_discard context ~owner id =
   Option.fold ~none:false
     ~some:(fun graph -> Instructions.mem id graph.discards)
@@ -133,6 +147,10 @@ let fail ?span message =
 
 let require ?span condition message = if not condition then fail ?span message
 
+type fixed_value =
+  | Provided of Typed.expression_result
+  | Prepared_default of Prepared_parameter_default.t
+
 type shape = {
   source_description : description;
   selected_declaration : Functions.resolved_declaration;
@@ -140,7 +158,7 @@ type shape = {
   selected_record : Records.record;
   selected_symbol : Sema.Symbol.t;
   result_type : Type.t;
-  fixed : (Headers.parameter * Typed.expression_result) list;
+  fixed : (Headers.parameter * fixed_value) list;
   variadic : Typed.expression_result list;
   count_type : Type.t option;
   origin : Sema.Symbol.origin;
@@ -151,10 +169,16 @@ let parameter_type parameter =
   parameter |> Headers.parameter_type_reference
   |> Sema.Type_reference.resolved_type
 
-let provided ?span = function
-  | Typed.Provided_result result -> result
-  | Typed.Declared_default_result _ ->
-      fail ?span "runtime call context cannot materialize an omitted default"
+let provided ~globals ~header ~parameter ?span = function
+  | Typed.Provided_result result -> Provided result
+  | Typed.Declared_default_result _ -> (
+      match
+        Integer_globals.prepared_parameter_default globals ~header ~parameter
+      with
+      | Some prepared -> Prepared_default prepared
+      | None ->
+          fail ?span
+            "runtime call has no original prepared default in its snapshot")
 
 let shape ~globals records description =
   let declaration, header, symbol, fixed, variadic, count, origin, implicit =
@@ -178,7 +202,10 @@ let shape ~globals records description =
                 |> Sema.Function_call_conversion_policy.fixed_source
                 |> Resolution.fixed_parameter
               in
-              (parameter, provided ?span (Typed.fixed_path result)))
+              ( parameter,
+                provided ~globals
+                  ~header:(Resolution.direct_active_header direct)
+                  ~parameter ?span (Typed.fixed_path result) ))
             (Typed.direct_fixed_results typed)
         in
         ( Target.declaration target,
@@ -206,7 +233,11 @@ let shape ~globals records description =
                 result |> Typed.top_level_fixed_source
                 |> Resolution.fixed_parameter
               in
-              (parameter, provided ?span (Typed.top_level_fixed_path result)))
+              ( parameter,
+                provided ~globals
+                  ~header:(Typed.top_level_direct_header typed)
+                  ~parameter ?span
+                  (Typed.top_level_fixed_path result) ))
             (Typed.top_level_direct_fixed_results typed)
         in
         ( Target.declaration target,
@@ -252,7 +283,7 @@ let shape ~globals records description =
                     fail ?span
                       "implicit output default materialization is unsupported"
               in
-              (Bound.fixed_parameter slot, value))
+              (Bound.fixed_parameter slot, Provided value))
             (Bound.bound_fixed_slots output)
         in
         ( Target.module_declaration target,
@@ -301,7 +332,7 @@ let shape ~globals records description =
                     fail ?span
                       "implicit output default materialization is unsupported"
               in
-              (Bound.fixed_parameter slot, value))
+              (Bound.fixed_parameter slot, Provided value))
             (Bound.bound_fixed_slots output)
         in
         ( Target.module_declaration target,
@@ -491,6 +522,7 @@ let approved_provider shape =
   | _ -> None
 
 type expected_argument = {
+  expected_default : bool;
   expected_role : argument_role;
   expected_source : Type.t;
   expected_target : Type.t;
@@ -621,12 +653,24 @@ let expected_arguments ~globals shape =
       expected_target = Option.value target ~default:source;
       expected_origin = producer_origin value;
       expected_count = None;
+      expected_default = false;
     }
   in
   let fixed =
     List.mapi
       (fun i (parameter, value) ->
-        actual (Fixed i) (Some (parameter_type parameter)) value)
+        match value with
+        | Provided value ->
+            actual (Fixed i) (Some (parameter_type parameter)) value
+        | Prepared_default prepared ->
+            {
+              expected_role = Fixed i;
+              expected_source = Prepared_parameter_default.type_ prepared;
+              expected_target = parameter_type parameter;
+              expected_origin = span;
+              expected_count = Some (Prepared_parameter_default.bits prepared);
+              expected_default = true;
+            })
       shape.fixed
   in
   let variadic =
@@ -643,6 +687,7 @@ let expected_arguments ~globals shape =
             expected_target = type_;
             expected_origin = span;
             expected_count = Some (Int64.of_int (List.length shape.variadic));
+            expected_default = false;
           };
         ]
   in
@@ -895,6 +940,7 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                 pending.pushes <-
                   {
                     role = expected.expected_role;
+                    prepared_default = expected.expected_default;
                     producer = item.instruction_id;
                     value;
                     source_type = expected.expected_source;

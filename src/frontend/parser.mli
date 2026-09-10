@@ -237,6 +237,26 @@ type function_publication = private {
   function_opening_parenthesis : Ast.location;
 }
 
+type parameter_default_activity
+
+type completed_parameter_default = private {
+  default_function : function_publication;
+  default_parameter_index : int;
+  default_predecessor : completed_parameter_default option;
+  default_register_qualifiers : Ast.register_qualifier list;
+  default_type_specifier : Ast.type_specifier;
+  default_pointer_layers : Ast.pointer_layer list;
+  default_parameter_name : Ast.identifier option;
+  default_function_pointer : Ast.function_pointer_declarator option;
+  default_ast : Ast.parameter_default;
+  default_activity : parameter_default_activity;
+}
+
+val parameter_default_is_current : completed_parameter_default -> bool
+(** Original named-function default after expression lookahead and before the
+    parameter delimiter is consumed. Only its synchronous callback is current;
+    the receipt alone grants no evaluation or call-materialization authority. *)
+
 type completed_function_header = private {
   function_publication : function_publication;
   completed_entry : Symbol_visibility.entry;
@@ -274,6 +294,7 @@ type declaration_event = private
   | Global_initializer_delimiter_completed of completed_initializer_delimiter
   | Global_completed of global_publication * Ast.global_declarator
   | Function_declared of function_publication
+  | Parameter_default_completed of completed_parameter_default
   | Function_header_completed of completed_function_header
   | Function_body_completed of
       completed_function_header * Ast.function_definition

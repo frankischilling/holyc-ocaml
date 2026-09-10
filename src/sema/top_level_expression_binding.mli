@@ -49,6 +49,9 @@ type input
 val make_initializer_fragment :
   fragment:Initializer_fragment.t -> event list -> (input, string) result
 
+val make_default_fragment :
+  fragment:Default_fragment.t -> event list -> (input, string) result
+
 val make_statement :
   statement_index:int ->
   item_index:int ->
@@ -103,6 +106,7 @@ val statement_initializer :
   statement -> Global_initializer_binding.resolved_global option
 
 val statement_fragment : statement -> Initializer_fragment.t option
+val statement_default : statement -> Default_fragment.t option
 val initializer_bindings : t -> Global_initializer_binding.t option
 val occurrence_index : occurrence -> int
 val occurrence_name : occurrence -> string

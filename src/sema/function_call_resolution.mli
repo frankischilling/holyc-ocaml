@@ -359,6 +359,18 @@ val validate_initializer_expression :
     call subtrees with the original source leaf. All supplied calls must be
     consumed once in source order. *)
 
+val validate_source_expression :
+  source:Frontend.Ast.expression ->
+  expression:argument_expression ->
+  calls:call list ->
+  ?callee_expressions:(call * argument_expression) list ->
+  ?call_expressions:(call * argument_expression) list ->
+  unit ->
+  (unit, string) result
+(** Shared literal/operator, ordered-child, query and complete-call validation
+    for an original expression. This structural check grants no runtime
+    authority. *)
+
 val make_initializer_leaf :
   index:int ->
   local:Local_type_resolution.local ->

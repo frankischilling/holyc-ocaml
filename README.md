@@ -1,5 +1,10 @@
 # holyc-ocaml
 
+`holyc run --mode=aot --format=json examples/stateful-exe-defaults.hc` returns
+42 using defaults evaluated once during declaration parsing inside `#exe`.
+[Integer defaults](docs/integer-defaults.md) describes saved values, nested calls,
+entry narrowing, failure accounting and the remaining default execution paths.
+
 `holyc run --format=json examples/integer-narrow.hc` executes I8/I16/U16/I32/U32
 storage and signatures, captures `42`, and returns I64 42 in both modes.
 [Narrow integers](docs/integer-narrow.md) covers signed storage, full register
@@ -418,8 +423,10 @@ The `eval` and `run --target=ir` commands use the shared bounded integer interpr
 the live parser, then executes the complete outer unit in an isolated image.
 Try [stateful-exe-aot.hc](examples/stateful-exe-aot.hc), which returns 42 and
 captures `AB`. [Task execution notes](docs/integer-task.md) describe the shared
-invocation limits and current boundaries. Shared outer JIT execution and partial
-declaration/initializer publication remain unfinished in #635.
+invocation limits and current boundaries. Live tasks now allocate original global
+storage and execute initializer leaves and integer parameter defaults at parser
+boundaries. Shared outer JIT execution and partial function headers remain
+unfinished in #635.
 
 ## License and attribution
 

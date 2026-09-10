@@ -1,5 +1,26 @@
 type t
 
+val begin_default_attempt :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.completed_parameter_default ->
+  (Ir.Integer_interpreter.default_attempt, Common.Diagnostic.t list) result
+
+val complete_defaults_runtime :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.completed_function_header ->
+  (unit, Common.Diagnostic.t list) result
+
+val default_fragment_authority :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  task_view:Ir.Integer_globals.task_view ->
+  Frontend.Parser.completed_parameter_default ->
+  (Sema.Default_fragment.authority, Common.Diagnostic.t list) result
+(** Capture only the ledger's original observed default, frozen references and
+    queries in its exact runtime snapshot. *)
+
 val initializer_scope : t -> Sema.Symbol_table.scope
 
 val initializer_declaration :

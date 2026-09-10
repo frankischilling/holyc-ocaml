@@ -52,4 +52,8 @@ val leaf_parser_receipt :
 
 val leaf_identifiers : leaf -> (string * Symbol.origin) list
 val leaf_identifier_nodes : leaf -> Frontend.Ast.identifier list
+
+val expression_identifier_nodes :
+  Frontend.Ast.expression -> Frontend.Ast.identifier list
+
 val origin_of_location : Frontend.Ast.location -> Symbol.origin

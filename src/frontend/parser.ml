@@ -229,6 +229,27 @@ type function_publication = {
   function_opening_parenthesis : Ast.location;
 }
 
+type parameter_default_activity = { mutable parameter_default_active : bool }
+
+type completed_parameter_default = {
+  default_function : function_publication;
+  default_parameter_index : int;
+  default_predecessor : completed_parameter_default option;
+  default_register_qualifiers : Ast.register_qualifier list;
+  default_type_specifier : Ast.type_specifier;
+  default_pointer_layers : Ast.pointer_layer list;
+  default_parameter_name : Ast.identifier option;
+  default_function_pointer : Ast.function_pointer_declarator option;
+  default_ast : Ast.parameter_default;
+  default_activity : parameter_default_activity;
+}
+
+let parameter_default_is_current receipt =
+  receipt.default_activity.parameter_default_active
+  && receipt.default_function.function_header.declaration_command
+       .command_context
+       .context_active
+
 type completed_function_header = {
   function_publication : function_publication;
   completed_entry : Symbol_visibility.entry;
@@ -266,6 +287,7 @@ type declaration_event =
   | Global_initializer_delimiter_completed of completed_initializer_delimiter
   | Global_completed of global_publication * Ast.global_declarator
   | Function_declared of function_publication
+  | Parameter_default_completed of completed_parameter_default
   | Function_header_completed of completed_function_header
   | Function_body_completed of
       completed_function_header * Ast.function_definition
@@ -4112,14 +4134,39 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
                   Ast.Aggregate_definition definition)
                 parsed_tail)
 
-let finish_function_parameter cursor ~register_qualifiers ~type_specifier
-    ~pointer_layers ~name ~function_pointer ~tokens =
+let finish_function_parameter ?default_context cursor ~register_qualifiers
+    ~type_specifier ~pointer_layers ~name ~function_pointer ~tokens =
   let parsed_default =
     let item = peek cursor in
     if item.token.kind = Token_kind.Punctuation '=' then
       Option.map (fun parsed -> Some parsed) (parse_parameter_default cursor)
     else Some None
   in
+  (match (default_context, parsed_default) with
+  | ( Some (default_function, default_parameter_index, previous),
+      Some (Some parsed) ) ->
+      let receipt =
+        {
+          default_function;
+          default_parameter_index;
+          default_predecessor = !previous;
+          default_register_qualifiers = register_qualifiers;
+          default_type_specifier = type_specifier;
+          default_pointer_layers = pointer_layers;
+          default_parameter_name = name;
+          default_function_pointer = function_pointer;
+          default_ast = parsed.node;
+          default_activity = { parameter_default_active = true };
+        }
+      in
+      Fun.protect
+        ~finally:(fun () ->
+          receipt.default_activity.parameter_default_active <- false)
+        (fun () ->
+          publish_declaration cursor (peek cursor)
+            (Parameter_default_completed receipt));
+      previous := Some receipt
+  | _ -> ());
   match parsed_default with
   | None -> None
   | Some parsed_default -> (
@@ -4185,8 +4232,8 @@ let finish_function_parameter cursor ~register_qualifiers ~type_specifier
           Some ({ node; tokens } : parsed_parameter)
       | _ -> fail_special_form ())
 
-let rec parse_function_parameter cursor ~prefix_qualifiers ~prefix_tokens
-    ~function_pointer_depth =
+let rec parse_function_parameter ?default_context cursor ~prefix_qualifiers
+    ~prefix_tokens ~function_pointer_depth =
   let type_item = peek cursor in
   match type_specifier_of_item cursor type_item with
   | Some type_specifier -> (
@@ -4212,9 +4259,9 @@ let rec parse_function_parameter cursor ~prefix_qualifiers ~prefix_tokens
             with
             | None -> None
             | Some parsed ->
-                finish_function_parameter cursor ~register_qualifiers
-                  ~type_specifier ~pointer_layers ~name:parsed.name
-                  ~function_pointer:(Some parsed.node)
+                finish_function_parameter ?default_context cursor
+                  ~register_qualifiers ~type_specifier ~pointer_layers
+                  ~name:parsed.name ~function_pointer:(Some parsed.node)
                   ~tokens:(leading_tokens @ parsed.tokens)
           else if token_is_name_position_identifier next_item.token then
             let name_item = take cursor in
@@ -4222,14 +4269,14 @@ let rec parse_function_parameter cursor ~prefix_qualifiers ~prefix_tokens
               Ast.make_identifier ~spelling:name_item.token.raw
                 ~location:(token_location name_item.token)
             in
-            finish_function_parameter cursor ~register_qualifiers
-              ~type_specifier ~pointer_layers ~name:(Some name)
-              ~function_pointer:None
+            finish_function_parameter ?default_context cursor
+              ~register_qualifiers ~type_specifier ~pointer_layers
+              ~name:(Some name) ~function_pointer:None
               ~tokens:(leading_tokens @ [ name_item.token ])
           else
-            finish_function_parameter cursor ~register_qualifiers
-              ~type_specifier ~pointer_layers ~name:None ~function_pointer:None
-              ~tokens:leading_tokens)
+            finish_function_parameter ?default_context cursor
+              ~register_qualifiers ~type_specifier ~pointer_layers ~name:None
+              ~function_pointer:None ~tokens:leading_tokens)
   | _ ->
       declaration_failure cursor type_item ~code:"HCPARSE0009"
         ~message:
@@ -4421,8 +4468,9 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
                            else None);
                       })
 
-and parse_function_parameters cursor parameters_rev empty_entries_rev tokens_rev
-    ~after_comma ~function_pointer_depth : parsed_parameter_list option =
+and parse_function_parameters ?default_owner cursor parameters_rev
+    empty_entries_rev tokens_rev ~after_comma ~function_pointer_depth :
+    parsed_parameter_list option =
   let prefix =
     parse_register_qualifiers cursor ~position:Ast.Before_type [] []
   in
@@ -4475,7 +4523,7 @@ and parse_function_parameters cursor parameters_rev empty_entries_rev tokens_rev
           ~preceding_parameter_count:(List.length parameters_rev)
           ~delimiter
       in
-      parse_function_parameters cursor parameters_rev
+      parse_function_parameters ?default_owner cursor parameters_rev
         (empty_entry :: empty_entries_rev)
         (semicolon.token :: tokens_rev)
         ~after_comma:false ~function_pointer_depth
@@ -4490,8 +4538,14 @@ and parse_function_parameters cursor parameters_rev empty_entries_rev tokens_rev
               register qualifier, but found ')'")
   | _ -> (
       match
-        parse_function_parameter cursor ~prefix_qualifiers:prefix.nodes
-          ~prefix_tokens:prefix.tokens ~function_pointer_depth
+        parse_function_parameter
+          ?default_context:
+            (Option.map
+               (fun (owner, previous) ->
+                 (owner, List.length parameters_rev, previous))
+               default_owner)
+          cursor ~prefix_qualifiers:prefix.nodes ~prefix_tokens:prefix.tokens
+          ~function_pointer_depth
       with
       | None -> None
       | Some parameter -> (
@@ -4499,13 +4553,14 @@ and parse_function_parameters cursor parameters_rev empty_entries_rev tokens_rev
           let parameters_rev = parameter.node :: parameters_rev in
           match parameter.node.delimiter with
           | Some delimiter ->
-              parse_function_parameters cursor parameters_rev empty_entries_rev
-                tokens_rev
+              parse_function_parameters ?default_owner cursor parameters_rev
+                empty_entries_rev tokens_rev
                 ~after_comma:(delimiter.kind = Ast.Comma)
                 ~function_pointer_depth
           | None ->
-              parse_function_parameters cursor parameters_rev empty_entries_rev
-                tokens_rev ~after_comma:false ~function_pointer_depth))
+              parse_function_parameters ?default_owner cursor parameters_rev
+                empty_entries_rev tokens_rev ~after_comma:false
+                ~function_pointer_depth))
 
 let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
     ~binding ~type_item ~return_type (prefix : parsed_declarator_prefix) =
@@ -4522,8 +4577,9 @@ let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
     | None -> token_location opening.token
   in
   match
-    parse_function_parameters cursor [] [] [] ~after_comma:false
-      ~function_pointer_depth:0
+    parse_function_parameters
+      ?default_owner:(Option.map (fun owner -> (owner, ref None)) provisional)
+      cursor [] [] [] ~after_comma:false ~function_pointer_depth:0
   with
   | None -> None
   | Some parsed_parameters ->
@@ -7558,8 +7614,9 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
     | None -> token_location opening.token
   in
   match
-    parse_function_parameters cursor [] [] [] ~after_comma:false
-      ~function_pointer_depth:0
+    parse_function_parameters
+      ?default_owner:(Option.map (fun owner -> (owner, ref None)) provisional)
+      cursor [] [] [] ~after_comma:false ~function_pointer_depth:0
   with
   | None -> None
   | Some parsed_parameters ->

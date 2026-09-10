@@ -18,9 +18,13 @@ type t = {
 
 type lowering_result = Lowered of t | Unsupported_call
 
+type argument =
+  | Provided of Result.expression_result
+  | Prepared_default of Prepared_parameter_default.t
+
 type call_shape =
   | Provided_parameters of {
-      arguments : Result.expression_result list;
+      arguments : argument list;
       variadic_count_type : Sema.Type.t option;
       variadic_count : int64;
       variadic_arguments : Result.expression_result list;
@@ -104,7 +108,7 @@ let call_opcode = function
   | Records.Aot_import_call -> Some Opcode.Ic_call_import
   | Records.Aot_extern_call -> Some Opcode.Ic_call_extern
 
-let call_shape target =
+let call_shape ?globals target =
   let typed = Target.source target in
   let direct = target_resolution target in
   let header = Resolution.direct_active_header direct in
@@ -140,7 +144,7 @@ let call_shape target =
               variadic_count;
               variadic_arguments = variadic_results;
             }
-      | source :: arguments, fixed :: results, _ :: parameters -> (
+      | source :: arguments, fixed :: results, parameter :: parameters -> (
           let retained_source =
             fixed |> Result.fixed_source |> Policy.fixed_source
           in
@@ -150,8 +154,18 @@ let call_shape target =
           else
             match Result.fixed_path fixed with
             | Result.Provided_result argument ->
-                provided (argument :: rev) arguments results parameters
-            | Result.Declared_default_result _ -> Unsupported_shape)
+                provided (Provided argument :: rev) arguments results parameters
+            | Result.Declared_default_result _ -> (
+                match
+                  Option.bind globals (fun globals ->
+                      Integer_globals.prepared_parameter_default globals ~header
+                        ~parameter)
+                with
+                | Some value ->
+                    provided
+                      (Prepared_default value :: rev)
+                      arguments results parameters
+                | None -> Unsupported_shape))
       | _ ->
           Inconsistent_shape
             "direct-call fixed arguments, typed results, and parameters \
@@ -159,7 +173,7 @@ let call_shape target =
     in
     provided [] fixed_arguments fixed_results parameters
 
-let top_level_call_shape target =
+let top_level_call_shape ?globals target =
   let typed = Top_target.source target in
   let header = Result.top_level_direct_header typed in
   let signature = Sema.Function_type_resolution.function_signature header in
@@ -203,8 +217,16 @@ let top_level_call_shape target =
           else
             match Result.top_level_fixed_path fixed with
             | Result.Provided_result argument ->
-                provided (argument :: rev) results parameters
-            | Result.Declared_default_result _ -> Unsupported_shape)
+                provided (Provided argument :: rev) results parameters
+            | Result.Declared_default_result _ -> (
+                match
+                  Option.bind globals (fun globals ->
+                      Integer_globals.prepared_parameter_default globals ~header
+                        ~parameter)
+                with
+                | Some value ->
+                    provided (Prepared_default value :: rev) results parameters
+                | None -> Unsupported_shape))
       | _ ->
           Inconsistent_shape
             "top-level direct-call fixed results and parameters disagree"
@@ -254,7 +276,25 @@ let lower_arguments ?frame ?globals ?lower_call ~span ~instruction_id ~value_id
     | [] ->
         Ok
           (Argument_lowered (List.rev rev_descriptions, instruction_id, value_id))
-    | argument :: rest -> (
+    | Prepared_default prepared :: rest -> (
+        match
+          ( next_instruction_id ~span instruction_id,
+            next_value_id ~span value_id )
+        with
+        | Error error, _ | _, Error error -> Error [ error ]
+        | Ok next_instruction_id, Ok next_value_id ->
+            let item =
+              description ~instruction_id ~opcode:Opcode.Ic_imm_i64
+                ~target_type:(Some (Prepared_parameter_default.type_ prepared))
+                ~payload:
+                  (Some
+                     (Sequence.Integer
+                        (Prepared_parameter_default.bits prepared)))
+                ~span ~result:{ Sequence.value_id } ~flags:push_result_flag ()
+            in
+            loop (item :: rev_descriptions) next_instruction_id next_value_id
+              rest)
+    | Provided argument :: rest -> (
         match
           Expression.lower_typed_result ?frame ?globals ?lower_call
             ~instruction_id ~value_id argument
@@ -309,7 +349,8 @@ let lower_supported ?frame ?globals ?lower_call ~span ~instruction_id ~value_id
   | Ok argument_instruction_id -> (
       match
         lower_arguments ?frame ?globals ?lower_call ~span
-          ~instruction_id:argument_instruction_id ~value_id variadic_arguments
+          ~instruction_id:argument_instruction_id ~value_id
+          (List.map (fun value -> Provided value) variadic_arguments)
       with
       | Error _ as error -> error
       | Ok Unsupported_argument -> Ok Unsupported_call
@@ -418,7 +459,7 @@ let lower ?frame ?globals ?lower_call ~instruction_id ~value_id ~target result =
         match call_opcode (Target.call_access target) with
         | None -> Ok Unsupported_call
         | Some call_opcode -> (
-            match call_shape target with
+            match call_shape ?globals target with
             | Unsupported_shape -> Ok Unsupported_call
             | Inconsistent_shape message ->
                 Error [ metadata_error ~span message ]
@@ -462,7 +503,7 @@ let lower_top_level ?frame ?globals ?lower_call ~instruction_id ~value_id
         match call_opcode (Top_target.call_access target) with
         | None -> Ok Unsupported_call
         | Some call_opcode -> (
-            match top_level_call_shape target with
+            match top_level_call_shape ?globals target with
             | Unsupported_shape -> Ok Unsupported_call
             | Inconsistent_shape message ->
                 Error [ metadata_error ~span message ]
@@ -573,7 +614,9 @@ let lower_output ?frame ?globals ?lower_call ~records ~instruction_id ~value_id
                     in
                     lower_supported ?frame ?globals ?lower_call ~span
                       ~instruction_id ~value_id ~source ~symbol ~record
-                      ~arguments:(List.map snd arguments) ~variadic_count_type
+                      ~arguments:
+                        (List.map (fun (_, value) -> Provided value) arguments)
+                      ~variadic_count_type
                       ~variadic_count:
                         (Int64.of_int (List.length variadic_arguments))
                       ~variadic_arguments ~call_opcode result_type))

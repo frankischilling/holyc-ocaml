@@ -151,6 +151,13 @@ let function_phases () =
       let session, ledger = setup () in
       let output, events = parse session ledger source in
       let ast = Test_parser.expect_ast output in
+      let events =
+        List.filter
+          (function
+            | Parser.Parameter_default_completed _ -> false
+            | _ -> true)
+          events
+      in
       match events with
       | Parser.Function_declared publication
         :: Parser.Function_header_completed header

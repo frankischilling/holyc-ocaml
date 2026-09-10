@@ -14,3 +14,9 @@ val build_initializer_fragment :
   expressions:Sema.Top_level_outer_expression_binding.t ->
   Sema.Initializer_fragment.t ->
   (Sema.Top_level_expression_tree.t, string) result
+
+val build_default_fragment :
+  table:Sema.Symbol_table.t ->
+  expressions:Sema.Top_level_outer_expression_binding.t ->
+  Sema.Default_fragment.t ->
+  (Sema.Top_level_expression_tree.t, string) result

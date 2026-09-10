@@ -64,6 +64,7 @@ type source =
     }
   | Function of {
       publication : Parser.function_publication;
+      mutable defaults_rev : Parser.completed_parameter_default list;
       mutable header : Parser.completed_function_header option;
       mutable body : Ast.function_definition option;
     }
@@ -1272,8 +1273,35 @@ let observe ledger event =
           validate_source ledger publication.function_environment
             publication.function_header publication.function_name;
           assign ledger publication.function_name Sema.Symbol.Function
-            (Function { publication; header = None; body = None })
+            (Function
+               { publication; defaults_rev = []; header = None; body = None })
             publication.function_entry
+      | Parser.Parameter_default_completed receipt -> (
+          let publication = receipt.default_function in
+          let span = receipt.default_ast.location.span in
+          validate_command ledger publication.function_header;
+          if not (Parser.parameter_default_is_current receipt) then
+            fail span "parameter default is outside its original callback";
+          match (find ledger publication.function_name).source with
+          | Function state
+            when state.publication == publication && Option.is_none state.header
+            ->
+              let previous = List.nth_opt state.defaults_rev 0 in
+              if
+                (not (same_option ( == ) previous receipt.default_predecessor))
+                || receipt.default_parameter_index < 0
+                || Option.fold ~none:false
+                     ~some:(fun previous ->
+                       previous.Parser.default_parameter_index
+                       >= receipt.default_parameter_index)
+                     previous
+              then
+                fail span
+                  "parameter default is skipped, repeated or out of order";
+              state.defaults_rev <- receipt :: state.defaults_rev
+          | _ ->
+              fail span
+                "parameter default belongs to another or completed function")
       | Parser.Global_completed (publication, completed) -> (
           validate_command ledger publication.global_header;
           let assigned = find ledger publication.global_name in
@@ -1318,6 +1346,40 @@ let observe ledger event =
               if Entries.mem ledger.entries header.completed_entry then
                 fail publication.function_name.location.span
                   "completed parser entry already has a semantic owner";
+              let expected =
+                List.mapi
+                  (fun index (parameter : Ast.function_parameter) ->
+                    Option.map
+                      (fun default -> (index, parameter, default))
+                      parameter.default)
+                  header.parameters
+                |> List.filter_map Fun.id
+              in
+              if
+                List.length expected <> List.length state.defaults_rev
+                || not
+                     (List.for_all2
+                        (fun ( index,
+                               (parameter : Ast.function_parameter),
+                               default ) receipt ->
+                          index = receipt.Parser.default_parameter_index
+                          && default == receipt.default_ast
+                          && parameter.Ast.type_specifier
+                             == receipt.default_type_specifier
+                          && parameter.pointer_layers
+                             == receipt.default_pointer_layers
+                          && parameter.register_qualifiers
+                             == receipt.default_register_qualifiers
+                          && same_option ( == ) parameter.name
+                               receipt.default_parameter_name
+                          && same_option ( == ) parameter.function_pointer
+                               receipt.default_function_pointer)
+                        expected
+                        (List.rev state.defaults_rev))
+              then
+                fail publication.function_name.location.span
+                  "function header is missing its exact original parameter \
+                   defaults";
               state.header <- Some header;
               Entries.add ledger.entries header.completed_entry assigned
           | _ ->
@@ -1538,7 +1600,7 @@ let seal ledger (ast : Ast.module_) =
                     let assigned = find ledger prototype.name in
                     match assigned.source with
                     | Function
-                        { publication; header = Some header; body = None } ->
+                        { publication; header = Some header; body = None; _ } ->
                         if
                           (not
                              (same_option ( == )
@@ -1736,13 +1798,65 @@ let initializer_declaration ledger (start : Parser.global_initializer_start) =
       | _ -> fail span "initializer layout storage has not been admitted");
       declaration)
 
+let selected_fragment_transcript ledger ~task_view ~span expression =
+  let module Selection = Sema.Reference_selection in
+  let module Globals = Ir.Integer_globals in
+  let table = ledger.table in
+  let environment = Globals.task_environment task_view in
+  let retained name publication =
+    let binding =
+      match publication with
+      | VM.Admitted_global (reference, _)
+      | VM.Admitted_declared_global (reference, _) ->
+          Globals.task_global_binding task_view reference
+      | VM.Admitted_function reference ->
+          Globals.task_function_binding task_view reference
+    in
+    match binding with
+    | Some binding ->
+        Selection.outer ~table ~name ~environment ~binding |> checked span
+    | None ->
+        fail span "initializer reference is absent from its exact task snapshot"
+  in
+  let references =
+    List.map
+      (fun (identifier : Ast.identifier) ->
+        let name = identifier.spelling in
+        let selection =
+          match Names.find_opt ledger.references identifier with
+          | None ->
+              fail span
+                "initializer reference has no original source observation"
+          | Some { target; _ } -> (
+              match target with
+              | Selected_absent -> Selection.absent ~table ~name |> checked span
+              | Selected_unbound _ | Selected_source { admitted = None; _ } ->
+                  Selection.unavailable ~table ~name |> checked span
+              | Selected_local ->
+                  fail span "global initializer selected a local reference"
+              | Selected_runtime publication
+              | Selected_source { admitted = Some publication; _ } ->
+                  retained name publication)
+        in
+        (identifier, selection))
+      (Sema.Initializer_source.expression_identifier_nodes expression)
+  in
+  let queries =
+    Sema.Query_selection.source_queries expression
+    |> List.map (fun expression ->
+        match Query_expressions.find_opt ledger.queries expression with
+        | Some query -> query.query_selection
+        | None ->
+            fail span "initializer query has no original source observation")
+  in
+  (environment, references, queries)
+
 let initializer_fragment ledger ~runtime ~task_view
     (receipt : Parser.completed_initializer_leaf) =
   let ( let* ) = Result.bind in
   let* leaf = initializer_leaf_for ledger receipt in
   protect (fun () ->
       let module Fragment = Sema.Initializer_fragment in
-      let module Selection = Sema.Reference_selection in
       let module Globals = Ir.Integer_globals in
       let publication = receipt.leaf_initializer.initializer_owner in
       let span = publication.global_name.location.span in
@@ -1777,55 +1891,9 @@ let initializer_fragment ledger ~runtime ~task_view
             "initializer fragment storage is absent from its exact task \
              snapshot");
       let table = ledger.table in
-      let environment = Globals.task_environment task_view in
-      let retained name publication =
-        let binding =
-          match publication with
-          | VM.Admitted_global (reference, _)
-          | VM.Admitted_declared_global (reference, _) ->
-              Globals.task_global_binding task_view reference
-          | VM.Admitted_function reference ->
-              Globals.task_function_binding task_view reference
-        in
-        match binding with
-        | Some binding ->
-            Selection.outer ~table ~name ~environment ~binding |> checked span
-        | None ->
-            fail span
-              "initializer reference is absent from its exact task snapshot"
-      in
-      let references =
-        List.map
-          (fun (identifier : Ast.identifier) ->
-            let name = identifier.spelling in
-            let selection =
-              match Names.find_opt ledger.references identifier with
-              | None ->
-                  fail span
-                    "initializer reference has no original source observation"
-              | Some { target; _ } -> (
-                  match target with
-                  | Selected_absent ->
-                      Selection.absent ~table ~name |> checked span
-                  | Selected_unbound _ | Selected_source { admitted = None; _ }
-                    -> Selection.unavailable ~table ~name |> checked span
-                  | Selected_local ->
-                      fail span "global initializer selected a local reference"
-                  | Selected_runtime publication
-                  | Selected_source { admitted = Some publication; _ } ->
-                      retained name publication)
-            in
-            (identifier, selection))
-          (Sema.Initializer_source.leaf_identifier_nodes leaf)
-      in
-      let queries =
-        Sema.Query_selection.source_queries
+      let environment, references, queries =
+        selected_fragment_transcript ledger ~task_view ~span
           (Sema.Initializer_source.leaf_expression_ast leaf)
-        |> List.map (fun expression ->
-            match Query_expressions.find_opt ledger.queries expression with
-            | Some query -> query.query_selection
-            | None ->
-                fail span "initializer query has no original source observation")
       in
       Fragment.create ~table ~declaration ~leaf ~environment ~references
         ~queries
@@ -1842,6 +1910,74 @@ let require_initializer_runtime ledger runtime span =
   if
     not (Option.fold ~none:false ~some:(( == ) runtime) (ledger_runtime ledger))
   then fail span "initializer operation belongs to another task runtime"
+
+let complete_defaults_runtime ledger ~runtime header =
+  protect (fun () ->
+      let span =
+        header.Parser.function_publication.function_name.location.span
+      in
+      require_initializer_runtime ledger runtime span;
+      let assigned = find ledger header.function_publication.function_name in
+      (match assigned.source with
+      | Function state
+        when Option.fold ~none:false ~some:(( == ) header) state.header -> ()
+      | _ -> fail span "default completion lacks its original observed header");
+      VM.complete_task_defaults runtime ~namespace:ledger.namespace header
+      |> checked span)
+
+let begin_default_attempt ledger ~runtime receipt =
+  protect (fun () ->
+      let span = receipt.Parser.default_ast.location.span in
+      require_initializer_runtime ledger runtime span;
+      let assigned = find ledger receipt.default_function.function_name in
+      (match assigned.source with
+      | Function state
+        when state.publication == receipt.default_function
+             && Option.is_none state.header
+             && Option.fold ~none:false ~some:(( == ) receipt)
+                  (List.nth_opt state.defaults_rev 0) -> ()
+      | _ ->
+          fail span
+            "default execution lacks its original observed function boundary");
+      VM.begin_task_default runtime ~namespace:ledger.namespace
+        ~publication:assigned.publication receipt
+      |> checked span)
+
+let default_fragment_authority ledger ~runtime ~task_view receipt =
+  protect (fun () ->
+      let span = receipt.Parser.default_ast.location.span in
+      require_initializer_runtime ledger runtime span;
+      if
+        (not (VM.task_owns_snapshot runtime task_view))
+        || not (Parser.parameter_default_is_current receipt)
+      then fail span "default fragment has another task snapshot or callback";
+      let assigned = find ledger receipt.default_function.function_name in
+      (match assigned.source with
+      | Function state
+        when state.publication == receipt.default_function
+             && Option.is_none state.header
+             && Option.fold ~none:false ~some:(( == ) receipt)
+                  (List.nth_opt state.defaults_rev 0) -> ()
+      | _ ->
+          fail span
+            "default fragment lacks its original observed function boundary");
+      let expression =
+        match receipt.default_ast.value with
+        | Ast.Expression_default expression -> expression
+        | Ast.Lastclass_default _ ->
+            fail span "lastclass is not a declaration-time expression"
+      in
+      let environment, references, queries =
+        selected_fragment_transcript ledger ~task_view ~span expression
+      in
+      let fragment =
+        Sema.Default_fragment.create ~table:ledger.table
+          ~publication:assigned.publication ~receipt ~environment ~references
+          ~queries
+        |> checked span
+      in
+      Sema.Default_fragment.authorize ~namespace:ledger.namespace fragment
+      |> checked span)
 
 let begin_initializer_runtime ledger ~runtime start =
   let ( let* ) = Result.bind in

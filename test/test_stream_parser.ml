@@ -572,12 +572,18 @@ let function_publication_timing () =
   | ( Ast.Function_definition definition :: _,
       [
         Parser.Function_declared provisional;
+        Parser.Parameter_default_completed default;
         Parser.Function_header_completed header;
         Parser.Function_body_completed (same_header, same_definition);
       ] ) ->
       Alcotest.(check bool)
         "header retains exact provisional publication" true
         (header.function_publication == provisional);
+      Alcotest.(check bool)
+        "default precedes completed header" true
+        (default.default_function == provisional
+        && Option.get (List.hd header.parameters).default == default.default_ast
+        );
       Alcotest.(check bool)
         "body completion retains exact header and definition" true
         (same_header == header && same_definition == definition);
@@ -611,8 +617,12 @@ let function_completion_preserves_shadow () =
   ignore (P.expect_ast output);
   match List.rev !events with
   | Parser.Function_declared provisional
+    :: Parser.Parameter_default_completed default
     :: Parser.Function_header_completed header
     :: _ ->
+      Alcotest.(check bool)
+        "default retains the original shadowed owner" true
+        (default.default_function == provisional);
       let entries =
         Symbol_visibility.Environment.all (Session.symbols session)
         |> List.filter (fun entry -> Symbol_visibility.name entry = "F")

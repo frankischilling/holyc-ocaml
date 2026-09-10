@@ -438,7 +438,8 @@ and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
           match declarator_kind with
           | Error _ as error -> error
           | Ok declarator_kind ->
-              Sema.Function_type_resolution.make_parameter ~index
+              Sema.Function_type_resolution.make_parameter ~source:parameter
+                ~index
                 ~origin:(origin parameter.location)
                 ~register_requests
                 ?name:

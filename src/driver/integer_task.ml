@@ -124,6 +124,35 @@ let prepare_initializer task receipt =
   prepare_initializer_context task receipt
   |> Result.map (fun (_, _, _, typed) -> typed)
 
+let prepare_default_context task receipt =
+  let ( let* ) = Result.bind in
+  let span = receipt.Frontend.Parser.default_ast.location.span in
+  let diagnose result =
+    Result.map_error
+      (fun message -> [ Integer_source.message_diagnostic ~span message ])
+      result
+  in
+  let* task_view = VM.task_snapshot task.state |> diagnose in
+  let* authority =
+    Task_declarations.default_fragment_authority task.declarations
+      ~runtime:task.state ~task_view receipt
+  in
+  let fragment = Sema.Default_fragment.authorized_fragment authority in
+  let* context =
+    Initializer_fragment_typing.create_context
+      ~table:(Session.semantic_symbols task.session)
+      ~parent:(Task_declarations.initializer_scope task.declarations)
+    |> diagnose
+  in
+  let* typed =
+    Initializer_fragment_typing.prepare_default context fragment |> diagnose
+  in
+  Ok (context, authority, task_view, typed)
+
+let prepare_parameter_default task receipt =
+  prepare_default_context task receipt
+  |> Result.map (fun (_, _, _, typed) -> typed)
+
 let prepare_initializer_destination_context task ~destination receipt =
   let ( let* ) = Result.bind in
   let span = receipt.Frontend.Parser.leaf_initializer.initializer_equals.span in
@@ -197,6 +226,34 @@ let execute_initializer_leaf task receipt =
   | Ok () -> ());
   outcome
 
+let execute_parameter_default task receipt =
+  let ( let* ) = Result.bind in
+  let* attempt =
+    Task_declarations.begin_default_attempt task.declarations
+      ~runtime:task.state receipt
+  in
+  let outcome =
+    let* context, authority, task_view, typed =
+      prepare_default_context task receipt
+    in
+    let span = receipt.Frontend.Parser.default_ast.location.span in
+    let* destination =
+      Ir.Default_fragment_destination.create ~task_view typed
+      |> Result.map_error (fun message ->
+          [ Integer_source.message_diagnostic ~span message ])
+    in
+    let* execution =
+      Default_fragment_lowering.prepare ~context ~authority ~runtime:task.state
+        destination
+    in
+    VM.execute_task_default task.state attempt execution
+    |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
+  in
+  (match outcome with
+  | Error _ -> ignore (VM.fail_task_default task.state attempt)
+  | Ok () -> ());
+  outcome
+
 let observe_initializer task event =
   (match event with
     | Frontend.Parser.Global_declared publication ->
@@ -209,6 +266,14 @@ let observe_initializer task event =
           ~runtime:task.state receipt
     | Frontend.Parser.Global_initializer_leaf_completed receipt ->
         execute_initializer_leaf task receipt
+    | Frontend.Parser.Parameter_default_completed receipt -> (
+        match receipt.default_ast.value with
+        | Frontend.Ast.Expression_default _ ->
+            execute_parameter_default task receipt
+        | Frontend.Ast.Lastclass_default _ -> Ok ())
+    | Frontend.Parser.Function_header_completed header ->
+        Task_declarations.complete_defaults_runtime task.declarations
+          ~runtime:task.state header
     | Frontend.Parser.Global_completed (_, completed)
       when Option.is_some completed.global_initial_value ->
         Task_declarations.complete_initializer_runtime task.declarations
@@ -433,6 +498,8 @@ let stream_executor task span =
             .declaration_command
       | Function_declared publication ->
           publication.function_header.declaration_command
+      | Parameter_default_completed receipt ->
+          receipt.default_function.function_header.declaration_command
       | Function_header_completed header | Function_body_completed (header, _)
         -> header.function_publication.function_header.declaration_command
     in

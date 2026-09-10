@@ -19,3 +19,10 @@ val resolve_initializer_fragment :
   module_expressions:Sema.Module_expression_binding.t ->
   Sema.Initializer_fragment.t ->
   (Sema.Top_level_expression_binding.t, string) result
+
+val resolve_default_fragment :
+  table:Sema.Symbol_table.t ->
+  parent:Sema.Symbol_table.scope ->
+  module_expressions:Sema.Module_expression_binding.t ->
+  Sema.Default_fragment.t ->
+  (Sema.Top_level_expression_binding.t, string) result

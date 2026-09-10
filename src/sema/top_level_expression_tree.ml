@@ -9,6 +9,7 @@ type root_role =
   | Expression_statement of { statement_index : int }
   | Global_initializer of Global_initializer_binding.resolved_global
   | Initializer_fragment of Initializer_fragment.t
+  | Default_fragment of Default_fragment.t
   | Implicit_output_fixed of {
       output_index : int;
       target : Function_call_resolution.implicit_output_target;
@@ -45,6 +46,7 @@ type root = {
   expression : Function_call_resolution.argument_expression;
   origin : Symbol.origin;
   initializer_leaf_ : Initializer_source.leaf option;
+  default_fragment_ : Default_fragment.t option;
   initializer_calls_ : Function_call_resolution.call list;
   initializer_call_trees_ :
     (Function_call_resolution.call
@@ -143,6 +145,12 @@ let switch_case_pattern_name = function
   | Ranged_case_pattern _ -> "ranged"
 
 let root_role_name = function
+  | Default_fragment fragment ->
+      Printf.sprintf "function:%d:parameter-default:%d"
+        (fragment |> Default_fragment.publication
+       |> Declaration_collection.publication_symbol |> Symbol.id
+       |> Symbol.Id.to_int)
+        (Default_fragment.receipt fragment).default_parameter_index
   | Initializer_fragment fragment ->
       Printf.sprintf "global:%d:initializer-leaf:%d"
         (fragment |> Initializer_fragment.declaration
@@ -194,6 +202,7 @@ let valid_origin = function
   | Symbol.Synthesized description -> not (String.equal description "")
 
 let role_is_valid = function
+  | Default_fragment _ -> true
   | Initializer_fragment _ -> true
   | Global_initializer global ->
       Option.is_some
@@ -231,6 +240,7 @@ let make_root ~index ~role ~expression ~origin =
         expression;
         origin;
         initializer_leaf_ = None;
+        default_fragment_ = None;
         initializer_calls_ = [];
         initializer_call_trees_ = [];
       }
@@ -290,6 +300,38 @@ let make_fragment_root ~index ~fragment ~expression ~calls =
   make_leaf_root ~index ~role:(Initializer_fragment fragment) ~leaf ~expression
     ~calls
     ~origin:(Initializer_source.leaf_origin leaf)
+
+let make_default_root ~index ~fragment ~expression ~calls =
+  let ( let* ) = Result.bind in
+  let source_calls = List.map (fun (call : call) -> call.source) calls in
+  let trees =
+    List.map
+      (fun (call : call) ->
+        (call.source, call.callee_expression, call.result_expression))
+      calls
+  in
+  let* () =
+    Function_call_resolution.validate_source_expression
+      ~source:(Default_fragment.expression fragment)
+      ~expression ~calls:source_calls
+      ~callee_expressions:
+        (List.map (fun (source, callee, _) -> (source, callee)) trees)
+      ~call_expressions:
+        (List.map (fun (source, _, result) -> (source, result)) trees)
+      ()
+    |> Result.map_error invalid_input
+  in
+  let* root =
+    make_root ~index ~role:(Default_fragment fragment) ~expression
+      ~origin:(Default_fragment.origin fragment)
+  in
+  Ok
+    {
+      root with
+      default_fragment_ = Some fragment;
+      initializer_calls_ = source_calls;
+      initializer_call_trees_ = trees;
+    }
 
 let make_switch_case ~index ~keyword_origin ~pattern ~origin =
   if index < 0 then
@@ -364,6 +406,10 @@ let indexes_increase accessor values =
 
 let make_statement ~source ~roots ~calls ~switch_cases =
   let initializer_matches =
+    let default =
+      source |> Top_level_outer_expression_binding.statement_source
+      |> Top_level_expression_binding.statement_default
+    in
     let fragment =
       source |> Top_level_outer_expression_binding.statement_source
       |> Top_level_expression_binding.statement_fragment
@@ -422,8 +468,36 @@ let make_statement ~source ~roots ~calls ~switch_cases =
                  && result == actual_result)
                expected_calls actual_calls
     in
-    match fragment with
-    | Some fragment -> (
+    match (default, fragment) with
+    | Some default, None -> (
+        match (owner, roots) with
+        | ( None,
+            [
+              ({
+                 role = Default_fragment selected;
+                 default_fragment_ = Some proof;
+                 _;
+               } as root);
+            ] ) ->
+            selected == default && proof == default
+            && root.origin = Default_fragment.origin default
+            && Function_call_resolution.argument_expression_origin
+                 root.expression
+               = root.origin
+            && switch_cases = []
+            && List.length calls = List.length root.initializer_call_trees_
+            && List.for_all2
+                 (fun (call : call) (source_call, callee, result) ->
+                   call.source == source_call
+                   && call.callee_expression == callee
+                   && call.result_expression == result
+                   && List.exists (( == ) call.callee)
+                        (Top_level_outer_expression_binding
+                         .statement_occurrences source))
+                 calls root.initializer_call_trees_
+        | _ -> false)
+    | Some _, Some _ -> false
+    | None, Some fragment -> (
         match (owner, roots) with
         | ( None,
             [
@@ -451,14 +525,16 @@ let make_statement ~source ~roots ~calls ~switch_cases =
                          .statement_occurrences source))
                  calls root.initializer_call_trees_
         | _ -> false)
-    | None -> (
+    | None, None -> (
         match (owner, roots) with
         | None, roots ->
             not
               (List.exists
                  (fun root ->
                    match root.role with
-                   | Global_initializer _ | Initializer_fragment _ -> true
+                   | Global_initializer _
+                   | Initializer_fragment _
+                   | Default_fragment _ -> true
                    | _ -> false)
                  roots)
         | Some owner, _ when retained_matches owner -> true
@@ -778,11 +854,13 @@ let expression_nodes statements =
 
 let validate_fragment_identifiers (statement : statement) =
   match
-    statement.source |> Top_level_outer_expression_binding.statement_source
-    |> Top_level_expression_binding.statement_fragment
+    ( statement.source |> Top_level_outer_expression_binding.statement_source
+      |> Top_level_expression_binding.statement_fragment,
+      statement.source |> Top_level_outer_expression_binding.statement_source
+      |> Top_level_expression_binding.statement_default )
   with
-  | None -> Ok ()
-  | Some _ ->
+  | None, None -> Ok ()
+  | _ ->
       let expected =
         Top_level_outer_expression_binding.statement_occurrences
           statement.source

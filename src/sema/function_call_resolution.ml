@@ -1756,7 +1756,7 @@ let make_return ~index ~keyword_origin ~expression ~origin =
     Error "function return statement has an invalid source origin"
   else Ok { index; keyword_origin; expression; origin }
 
-let validate_initializer_expression ~leaf ~expression ~calls
+let validate_source_expression ~source ~expression ~calls
     ?(callee_expressions = []) ?(call_expressions = []) () =
   let module Ast = Frontend.Ast in
   let origin = Initializer_source.origin_of_location in
@@ -1998,14 +1998,16 @@ let validate_initializer_expression ~leaf ~expression ~calls
       (fun (call, _) -> List.exists (( == ) call) calls)
       (callee_expressions @ call_expressions)
   in
-  if
-    pairs_are_owned
-    && matches (Initializer_source.leaf_expression_ast leaf) expression
-    && !remaining = []
-  then Ok ()
+  if pairs_are_owned && matches source expression && !remaining = [] then Ok ()
   else
     Error
       "initializer expression or calls do not match its retained source leaf"
+
+let validate_initializer_expression ~leaf ~expression ~calls ?callee_expressions
+    ?call_expressions () =
+  validate_source_expression
+    ~source:(Initializer_source.leaf_expression_ast leaf)
+    ~expression ~calls ?callee_expressions ?call_expressions ()
 
 let make_initializer ~index ~local ~expression ~origin =
   if index < 0 then Error "function initializer index cannot be negative"

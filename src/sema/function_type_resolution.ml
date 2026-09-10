@@ -22,6 +22,7 @@ and function_pointer = {
 }
 
 and parameter = {
+  parameter_source_ : Frontend.Ast.function_parameter option;
   parameter_index_ : int;
   parameter_origin_ : Symbol.origin;
   parameter_register_requests_ : Register_request.t list;
@@ -105,6 +106,7 @@ let signature_variadic_register_selection signature =
 
 let signature_closing_origin signature = signature.signature_closing_origin_
 let parameter_index parameter = parameter.parameter_index_
+let parameter_source parameter = parameter.parameter_source_
 let parameter_origin parameter = parameter.parameter_origin_
 
 let parameter_register_requests parameter =
@@ -185,9 +187,72 @@ let parameter_flags ~name ~declarator_kind ~default =
       |> set_flag_if contains_string_literal
            Member_flag.String_default_available
 
-let make_parameter ~index ~origin ?(register_requests = []) ?name ?name_origin
-    ~type_reference ~declarator_kind ~default ?delimiter_origin () =
+let source_location (location : Frontend.Ast.location) =
+  Symbol.Source_location
+    {
+      span = location.span;
+      source_segments = location.source_segments;
+      generated_from = location.generated_from;
+      defined_at = location.defined_at;
+    }
+
+let source_parameter_matches (source : Frontend.Ast.function_parameter) ~origin
+    ~name ~name_origin ~type_reference ~default =
+  origin = source_location source.location
+  && name
+     = Option.map
+         (fun (name : Frontend.Ast.identifier) -> name.spelling)
+         source.name
+  && name_origin
+     = Option.map
+         (fun (name : Frontend.Ast.identifier) -> source_location name.location)
+         source.name
+  && Type_reference.spelling type_reference
+     = Frontend.Ast.type_specifier_spelling source.type_specifier
+  && Type_reference.spelling_origin type_reference
+     = source_location
+         (Frontend.Ast.type_specifier_location source.type_specifier)
+  && Type_reference.pointer_origins type_reference
+     = List.map
+         (fun (layer : Frontend.Ast.pointer_layer) ->
+           source_location layer.location)
+         source.pointer_layers
+  &&
+  match (source.default, default) with
+  | None, None -> true
+  | Some source, Some (Expression_default value) -> (
+      value.origin = source_location source.location
+      && value.equals_origin = source_location source.equals
+      &&
+      match source.value with
+      | Frontend.Ast.Expression_default expression ->
+          value.expression_origin
+          = source_location (Frontend.Ast.expression_location expression)
+      | _ -> false)
+  | Some source, Some (Lastclass_default value) -> (
+      value.origin = source_location source.location
+      && value.equals_origin = source_location source.equals
+      &&
+      match source.value with
+      | Frontend.Ast.Lastclass_default keyword ->
+          value.keyword_origin = source_location keyword.lastclass_location
+      | _ -> false)
+  | _ -> false
+
+let make_parameter ?source ~index ~origin ?(register_requests = []) ?name
+    ?name_origin ~type_reference ~declarator_kind ~default ?delimiter_origin ()
+    =
   if index < 0 then Error "semantic function parameter index cannot be negative"
+  else if
+    not
+      (Option.fold ~none:true
+         ~some:(fun source ->
+           source_parameter_matches source ~origin ~name ~name_origin
+             ~type_reference ~default)
+         source)
+  then
+    Error
+      "semantic parameter metadata differs from its original source parameter"
   else
     match (name, name_origin) with
     | None, Some _ ->
@@ -199,6 +264,7 @@ let make_parameter ~index ~origin ?(register_requests = []) ?name ?name_origin
     | None, None | Some _, Some _ ->
         Ok
           {
+            parameter_source_ = source;
             parameter_index_ = index;
             parameter_origin_ = origin;
             parameter_register_requests_ = register_requests;

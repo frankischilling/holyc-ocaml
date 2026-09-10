@@ -78,6 +78,15 @@ val prepare_initializer :
 (** Type one current observed initializer leaf against its original admitted
     storage and selected retained bindings. This performs no runtime effects. *)
 
+val prepare_parameter_default :
+  t ->
+  Frontend.Parser.completed_parameter_default ->
+  ( Sema.Function_call_expression_result.top_level_t,
+    Common.Diagnostic.t list )
+  result
+(** Type the original current default through a distinct expression root without
+    allocating declarations, evaluating it or materializing an argument. *)
+
 val prepare_initializer_destination :
   t ->
   destination:Ir.Integer_initializer_layout.entry ->
@@ -99,8 +108,9 @@ val observe_initializer :
   Frontend.Parser.declaration_event ->
   (unit, Common.Diagnostic.t list) result
 (** After the source ledger observes the original event, admit declared storage,
-    consume initializer boundaries, and prepare/execute each original leaf once.
-    Completion reuses successful stores and preparation work. *)
+    consume initializer boundaries, and prepare/execute each original leaf and
+    integer expression default once. Global completion reuses successful stores;
+    header completion binds saved defaults to their original parameters. *)
 
 val adopt_source :
   ?max_steps:int ->

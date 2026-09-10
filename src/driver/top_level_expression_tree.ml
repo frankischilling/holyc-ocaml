@@ -1250,17 +1250,15 @@ let build ~table ~declarations ~compilation_mode ~expressions module_ =
       else "HCSEMA0055: " ^ message)
     result
 
-let build_initializer_fragment ~table ~expressions fragment =
+let build_fragment ~table ~expressions ~matches_source ~source_expression
+    ~make_root =
   let ( let* ) = Result.bind in
   let module Tree = Sema.Top_level_expression_tree in
   let module Binding = Sema.Top_level_outer_expression_binding in
   let convert result = Result.map_error Tree.error_to_string result in
   let* source =
     match Binding.statements expressions with
-    | [ source ]
-      when Option.fold ~none:false ~some:(( == ) fragment)
-             (source |> Binding.statement_source
-            |> Sema.Top_level_expression_binding.statement_fragment) ->
+    | [ source ] when matches_source (source |> Binding.statement_source) ->
         Ok source
     | _ -> Error "initializer fragment has foreign expression bindings"
   in
@@ -1276,11 +1274,7 @@ let build_initializer_fragment ~table ~expressions fragment =
       (Binding.statement_occurrences source)
       (Binding.statement_queries source)
   in
-  let* state, expression =
-    expression state
-      (fragment |> Sema.Initializer_fragment.leaf
-     |> Sema.Initializer_source.leaf_expression_ast)
-  in
+  let* state, expression = expression state source_expression in
   if
     state.occurrence_cursor <> Array.length state.occurrences
     || state.query_cursor <> Array.length state.queries
@@ -1296,11 +1290,29 @@ let build_initializer_fragment ~table ~expressions fragment =
            |> Sema.Function_call_resolution.call_index))
         state.calls_rev
     in
-    let* root =
-      Tree.make_fragment_root ~index:0 ~fragment ~expression ~calls |> convert
-    in
+    let* root = make_root ~expression ~calls |> convert in
     let* statement =
       Tree.make_statement ~source ~roots:[ root ] ~calls ~switch_cases:[]
       |> convert
     in
     Tree.create ~table ~source:expressions [ statement ] |> convert
+
+let build_initializer_fragment ~table ~expressions fragment =
+  build_fragment ~table ~expressions
+    ~matches_source:(fun source ->
+      Option.fold ~none:false ~some:(( == ) fragment)
+        (Sema.Top_level_expression_binding.statement_fragment source))
+    ~source_expression:
+      (fragment |> Sema.Initializer_fragment.leaf
+     |> Sema.Initializer_source.leaf_expression_ast)
+    ~make_root:
+      (Sema.Top_level_expression_tree.make_fragment_root ~index:0 ~fragment)
+
+let build_default_fragment ~table ~expressions fragment =
+  build_fragment ~table ~expressions
+    ~matches_source:(fun source ->
+      Option.fold ~none:false ~some:(( == ) fragment)
+        (Sema.Top_level_expression_binding.statement_default source))
+    ~source_expression:(Sema.Default_fragment.expression fragment)
+    ~make_root:
+      (Sema.Top_level_expression_tree.make_default_root ~index:0 ~fragment)

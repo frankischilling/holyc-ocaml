@@ -14,3 +14,8 @@ val prepare :
   context ->
   Sema.Initializer_fragment.t ->
   (Sema.Function_call_expression_result.top_level_t, string) result
+
+val prepare_default :
+  context ->
+  Sema.Default_fragment.t ->
+  (Sema.Function_call_expression_result.top_level_t, string) result

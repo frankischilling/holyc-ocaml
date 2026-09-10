@@ -37,6 +37,31 @@ type task_state
 type task_stream
 type task_admission
 type initializer_attempt
+type default_attempt
+
+val begin_task_default :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  publication:Sema.Declaration_collection.publication ->
+  Frontend.Parser.completed_parameter_default ->
+  (default_attempt, string) result
+
+val fail_task_default : task_state -> default_attempt -> (unit, string) result
+
+val task_default_bits :
+  task_state -> Frontend.Parser.completed_parameter_default -> int64 option
+
+val complete_task_defaults :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Frontend.Parser.completed_function_header ->
+  (unit, string) result
+
+val execute_task_default :
+  task_state ->
+  default_attempt ->
+  Default_fragment_program.execution ->
+  (unit, error list) result
 
 val begin_task_initializer :
   task_state ->

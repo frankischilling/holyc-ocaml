@@ -30,6 +30,7 @@ type resolved_function
 type t
 
 val make_parameter :
+  ?source:Frontend.Ast.function_parameter ->
   index:int ->
   origin:Symbol.origin ->
   ?register_requests:Register_request.t list ->
@@ -114,6 +115,7 @@ val signature_variadic_register_selection :
 
 val signature_closing_origin : signature -> Symbol.origin
 val parameter_index : parameter -> int
+val parameter_source : parameter -> Frontend.Ast.function_parameter option
 val parameter_origin : parameter -> Symbol.origin
 val parameter_register_requests : parameter -> Register_request.t list
 val parameter_register_selection : parameter -> Register_request.selection

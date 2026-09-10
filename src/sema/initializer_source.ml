@@ -317,7 +317,7 @@ let leaf_parser_receipt leaf = leaf.receipt
 let leaf_origin leaf =
   leaf.expression |> Frontend.Ast.expression_location |> origin_of_location
 
-let leaf_identifier_nodes leaf =
+let expression_identifier_nodes source =
   let rec expression reversed = function
     | Frontend.Ast.Identifier_expression identifier -> identifier :: reversed
     | Frontend.Ast.Parenthesized_expression grouped ->
@@ -352,7 +352,9 @@ let leaf_identifier_nodes leaf =
     | Frontend.Ast.Offset_expression _
     | Frontend.Ast.Defined_expression _ -> reversed
   in
-  List.rev (expression [] leaf.expression)
+  List.rev (expression [] source)
+
+let leaf_identifier_nodes leaf = expression_identifier_nodes leaf.expression
 
 let leaf_identifiers leaf =
   List.map

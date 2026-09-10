@@ -48,6 +48,7 @@ type task_publication =
   | Function_publication of Retained_function.t
 
 type task_catalog = {
+  mutable defaults : Prepared_parameter_default.t list;
   table : Sema.Symbol_table.t;
   mutable namespace : Sema.Declaration_collection.namespace option;
   mutable published : task_publication list;
@@ -56,6 +57,7 @@ type task_catalog = {
 }
 
 type task_view = {
+  defaults : Prepared_parameter_default.t list;
   catalog : task_catalog;
   environment : Sema.Outer_environment.t;
   task_table : Sema.Outer_environment.table;
@@ -65,8 +67,10 @@ type task_view = {
   source_command : Sema.Task_command_order.command option;
 }
 
+type fragment_kind = Initializer_context | Default_context
+
 type t = {
-  initializer_fragment_ : bool;
+  fragment_kind_ : fragment_kind option;
   declared_slots_ : declared_slot list;
   slots_ : slot list;
   symbols : slot Symbols.t;
@@ -87,7 +91,7 @@ let fragment_context view fragment =
   else
     Ok
       {
-        initializer_fragment_ = true;
+        fragment_kind_ = Some Initializer_context;
         declared_slots_ = [];
         slots_ = [];
         symbols = Symbols.empty;
@@ -100,7 +104,29 @@ let fragment_context view fragment =
         function_publications_ = [];
       }
 
-let is_initializer_fragment globals = globals.initializer_fragment_
+let default_context view fragment =
+  if view.environment != Sema.Default_fragment.environment fragment then
+    Error "default fragment has another retained task snapshot"
+  else
+    Ok
+      {
+        fragment_kind_ = Some Default_context;
+        declared_slots_ = [];
+        slots_ = [];
+        symbols = Symbols.empty;
+        statics_ = [];
+        mode = Resolution.Jit;
+        global_byte_size_ = 0;
+        global_cell_count_ = 0;
+        byte_size_ = 0;
+        task_view = Some view;
+        function_publications_ = [];
+      }
+
+let is_initializer_fragment globals =
+  globals.fragment_kind_ = Some Initializer_context
+
+let is_default_fragment globals = globals.fragment_kind_ = Some Default_context
 let byte_size globals = globals.byte_size_
 let slot_index slot = slot.index
 let slot_symbol slot = slot.symbol
@@ -413,7 +439,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
         if Symbols.is_empty roots then
           Ok
             {
-              initializer_fragment_ = false;
+              fragment_kind_ = None;
               declared_slots_ = [];
               slots_ = List.rev reversed;
               symbols;
@@ -656,6 +682,7 @@ let create_with_layout ~layout ?initializers ~span records =
 
 let create_task_catalog ~table =
   {
+    defaults = [];
     table;
     namespace = None;
     published = [];
@@ -667,6 +694,33 @@ let task_catalog_owns_table catalog table = catalog.table == table
 
 let task_catalog_owns_namespace catalog namespace =
   Option.fold ~none:false ~some:(( == ) namespace) catalog.namespace
+
+let publish_parameter_defaults catalog ~namespace defaults =
+  if
+    (not (task_catalog_owns_namespace catalog namespace))
+    || List.exists
+         (fun value ->
+           (not
+              (Sema.Declaration_collection.namespace_owns_publication namespace
+                 (Prepared_parameter_default.publication value)))
+           || List.exists
+                (fun prior ->
+                  Prepared_parameter_default.receipt prior
+                  == Prepared_parameter_default.receipt value)
+                catalog.defaults)
+         defaults
+  then
+    Error "prepared parameters have another task namespace or repeated source"
+  else (
+    catalog.defaults <- defaults @ catalog.defaults;
+    Ok ())
+
+let prepared_parameter_default globals ~header ~parameter =
+  Option.bind globals.task_view (fun view ->
+      List.find_opt
+        (fun value ->
+          Prepared_parameter_default.matches value ~header ~parameter)
+        view.defaults)
 
 let check_task_namespace catalog namespace =
   if Option.is_some catalog.namespace then
@@ -822,6 +876,7 @@ let snapshot_task catalog =
       entries;
       function_entries;
       source_command = None;
+      defaults = catalog.defaults;
     }
 
 let task_environment view = view.environment
@@ -965,7 +1020,7 @@ let prepare_declared catalog declaration =
     let bytes = Shape.byte_size declared_shape in
     Ok
       ( {
-          initializer_fragment_ = false;
+          fragment_kind_ = None;
           declared_slots_ = [ slot ];
           slots_ = [];
           symbols = Symbols.empty;
@@ -1082,7 +1137,7 @@ let join_declared view globals =
 let slot_reuses_declared_storage slot = Option.is_some slot.declared_owner
 
 let check_task_command catalog globals =
-  if globals.initializer_fragment_ then
+  if Option.is_some globals.fragment_kind_ then
     Error
       "initializer fragment storage requires its original live execution \
        attempt"
@@ -1094,6 +1149,33 @@ let check_task_command catalog globals =
     | Some view ->
         if globals.mode <> Resolution.Jit then
           Error "task commands require JIT storage"
+        else if
+          Option.is_some view.source_command
+          && List.exists
+               (fun reference ->
+                 let header =
+                   Retained_function.metadata reference
+                   |> Sema.Outer_environment.function_declaration
+                   |> Sema.Function_resolution.resolved_declaration_site
+                   |> Sema.Function_resolution.declaration_site_function
+                 in
+                 Sema.Function_type_resolution.function_signature header
+                 |> Sema.Function_type_resolution.signature_parameters
+                 |> List.exists (fun parameter ->
+                     match
+                       Sema.Function_type_resolution.parameter_default parameter
+                     with
+                     | Some (Sema.Function_type_resolution.Expression_default _)
+                       ->
+                         Option.is_none
+                           (prepared_parameter_default globals ~header
+                              ~parameter)
+                     | _ -> false))
+               globals.function_publications_
+        then
+          Error
+            "task function requires successful completion of its original \
+             parameter defaults"
         else if
           List.exists
             (fun slot ->

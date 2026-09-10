@@ -7,17 +7,19 @@ unknown JIT object. Nested commands can read and write that object through the
 retained IR address path. Uninitialized reads report HCIRVM0012. Failed allocation
 preflight changes no runtime work or byte charge.
 
-Completing the exact source declaration reuses its allocation. Scalar values,
-array leaves and copied rows published by completed-command initialization reach
-that same object, without another allocation or byte charge. Mixed fresh and
+Completing the exact source declaration reuses its allocation. Live scalar values,
+array leaves and copied rows reach that same object before the next parser leaf;
+completion reuses their successful receipts without repeated writes, preparation,
+allocation or byte charges. Mixed fresh and
 retained objects retain distinct arena indices and bounds. A task namespace binds
 once; foreign certificates, substituted source children, replay, missing
 predecessors and expired parser contexts cannot admit storage. A live source may
 activate from its retained original publication boundary after the callback ends.
 
-Ordered execution of each initializer leaf before the parser reads the next leaf
-remains unfinished. The public JIT source facade and partial function publication
-also remain open in #635. The partial-storage API does not enable those paths.
+Supported integer defaults also execute at their original parameter boundary and
+retain their values for later omitted arguments. [Integer defaults](integer-defaults.md)
+describes the source and runtime checks. The public JIT source facade, remaining
+default value types and partial function publication remain open in #635.
 
 Global initializer callbacks retain the original `=` location, scalar expression,
 syntax path, ordinal and predecessor. Start occurs before reading the first value;
@@ -34,8 +36,8 @@ and initializer publications. Promotion preserves leaves already observed in the
 open initializer. Missing, foreign, repeated and delayed phases reject. Callback
 failure revokes its synchronous authority and stops later lexer effects; a parse
 failure retains reached leaves without producing a complete manifest. These are
-source witnesses. Their ordered live execution still requires checked fragment
-typing and initializer admission.
+source witnesses. Shared fragment typing, destination lowering and single-use
+runtime attempts now execute supported leaves against their original task cells.
 
 `Holyc_lib.Integer_task` compiles separate JIT commands against retained global
 objects and functions. For example, running `I64 N=40;`, then `N+=2;`, then `N;` in one task
@@ -101,12 +103,10 @@ consumption, so source without `#exe` can now report an earlier `HCRUN0003`
 instead of a later semantic error. The native statement-start label probe keeps
 its earlier lookahead.
 
-This is scoped AOT support. Shared outer JIT execution, partial declaration and
-initializer publication inside directives, partial array leaves, implicit
-provider/default/later-call reads, cross-command extern joins and broader
-metadata remain required for #635. In particular, a nested directive cannot yet
-read the earlier declarator in `I64 A=40,B=#exe {...};`. Completed task commands
-must not be substituted for those native partial publication boundaries.
+This is scoped AOT support. Live task globals and partial array leaves now use
+their original publication and execution boundaries. Shared outer JIT execution,
+partial function headers, remaining provider/default/later-call reads,
+cross-command extern joins and broader metadata remain required for #635.
 
 Each task retains a frontend view available through `Integer_task.frontend`.
 Independent tasks sharing a session see baseline registrations and their own
@@ -138,8 +138,8 @@ sequence. The original resume and predecessor receipts still govern execution.
 Checked providers for a suspended source root must be parsed in a detached
 frontend, then compiled and admitted through the existing callback-free task
 path. `run` starts a new parser root and cannot be used inside that suspension.
-These APIs prepare shared JIT orchestration; native partial declarations and
-initializer leaves still need their own publication and admission boundaries.
+These APIs prepare shared JIT orchestration; partial global declarations,
+initializer leaves and integer defaults use separate original runtime receipts.
 
 `Integer_task.stream_executor task` implements the real
 `Parser.parse ~execute_stream` callback. It observes original parser receipts,
@@ -244,8 +244,9 @@ The existing `compile_ast` API keeps its callback-free collection path.
 Legacy AST commands publish new frontend entries when the VM admits them. This
 lets syntax parsed in `Session.fork_frontend` feed `compile_ast`, `execute` and
 later `run` calls: admitted globals become visible to conditionals, and functions
-retain their bare-call, default-argument and variadic parser shapes. Runtime
-omitted-default lowering remains outside the current integer execution domain.
+retain their bare-call, default-argument and variadic parser shapes. This legacy
+path still lacks declaration-time default evaluation. Saved integer defaults
+from live parser tasks now support omitted-argument lowering.
 Compilation alone and failed preflight publish no entries. A reached runtime
 fault keeps admitted declarations and earlier effects; replay cannot publish
 again or replace a newer source declaration.
@@ -410,8 +411,8 @@ controls include a configured limit above 100,000.
 
 ## Remaining #635 work
 
-Cross-command extern joins, partial type/storage/header publication and
-initializer execution, remaining query metadata, default/provider and later
+Cross-command extern joins, partial type/header publication, remaining query
+metadata, general default/provider and later
 call-phase receipts, shared outer JIT orchestration and the fourteen
 maintained #exe execution groups remain part of issue #635. The existing integer
 function domain remains unchanged, including its pointer-return boundary.
@@ -423,8 +424,9 @@ completion precedes lookahead into the next declarator. A function is visible
 before parameter defaults, but its header completes only after lookahead past
 the closing parenthesis. Body completion follows the full statement sequence
 and terminating lookahead. Assigned symbols now survive completion; consumers
-still need partial type/storage/header publication, initializer execution and
-executable installation at these points.
+still need partial type/header publication and executable installation at these
+points. Global storage and supported live initializer/default execution now
+consume their corresponding original receipts.
 
 Array suffixes expose separate expression-preparation and completed-dimension
 events. Preparation follows the expression's terminating lookahead and precedes

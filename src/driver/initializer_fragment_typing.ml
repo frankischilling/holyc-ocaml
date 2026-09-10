@@ -67,22 +67,14 @@ let create_context ~table ~parent =
       function_sources_;
     }
 
-let prepare context fragment =
+let finish context ~environment ~build bindings =
   let table = context.table in
-  let* bindings =
-    Top_level_expression_binding.resolve_initializer_fragment ~table
-      ~parent:context.parent ~module_expressions:context.expressions fragment
-  in
   let* expressions =
-    Sema.Top_level_outer_expression_binding.resolve ~table
-      ~environment:(Sema.Initializer_fragment.environment fragment)
+    Sema.Top_level_outer_expression_binding.resolve ~table ~environment
       ~expressions:bindings
     |> Result.map_error Sema.Top_level_outer_expression_binding.error_to_string
   in
-  let* expressions =
-    Top_level_expression_tree.build_initializer_fragment ~table ~expressions
-      fragment
-  in
+  let* expressions = build ~table ~expressions in
   let* identifiers =
     Top_level_identifier_resolution.classify ~table ~globals:context.globals
       ~functions:context.functions ~expressions
@@ -90,3 +82,28 @@ let prepare context fragment =
   Sema.Function_call_expression_result.analyze_top_level ~table
     ~members:context.members ~policies:context.policies ~identifiers expressions
   |> Result.map_error Sema.Function_call_expression_result.error_to_string
+
+let prepare context fragment =
+  let* bindings =
+    Top_level_expression_binding.resolve_initializer_fragment
+      ~table:context.table ~parent:context.parent
+      ~module_expressions:context.expressions fragment
+  in
+  finish context
+    ~environment:(Sema.Initializer_fragment.environment fragment)
+    ~build:(fun ~table ~expressions ->
+      Top_level_expression_tree.build_initializer_fragment ~table ~expressions
+        fragment)
+    bindings
+
+let prepare_default context fragment =
+  let* bindings =
+    Top_level_expression_binding.resolve_default_fragment ~table:context.table
+      ~parent:context.parent ~module_expressions:context.expressions fragment
+  in
+  finish context
+    ~environment:(Sema.Default_fragment.environment fragment)
+    ~build:(fun ~table ~expressions ->
+      Top_level_expression_tree.build_default_fragment ~table ~expressions
+        fragment)
+    bindings

@@ -19,6 +19,9 @@ let collect ?(execute_command = fun _ -> true) text =
         match event with
         | Parser.Global_declared publication ->
             Task.admit_global (task ()) publication
+        | Parser.Parameter_default_completed _
+        | Parser.Function_header_completed _ ->
+            Task.observe_initializer (task ()) event
         | Parser.Global_initializer_leaf_completed receipt ->
             let table = Session.semantic_symbols session in
             let before =

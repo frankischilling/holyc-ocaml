@@ -90,6 +90,7 @@ type input = {
     (Global_initializer_binding.t * Global_initializer_binding.resolved_global)
     option;
   fragment_owner : Initializer_fragment.t option;
+  default_owner : Default_fragment.t option;
 }
 
 let make_statement ~statement_index ~item_index ~origin events =
@@ -105,10 +106,17 @@ let make_statement ~statement_index ~item_index ~origin events =
         events;
         initial_owner = None;
         fragment_owner = None;
+        default_owner = None;
       }
 
-let make_initializer_fragment ~fragment events =
-  let leaf = Initializer_fragment.leaf fragment in
+let make_fragment_input ~leaf ~origin ~references ~source_queries
+    ~fragment_owner ~default_owner events =
+  let same_leaf actual =
+    match (leaf, actual) with
+    | None, None -> true
+    | Some expected, Some actual -> expected == actual
+    | _ -> false
+  in
   let identifiers =
     List.filter_map
       (function
@@ -123,9 +131,8 @@ let make_initializer_fragment ~fragment events =
         | _ -> None)
       events
   in
-  let references = Initializer_fragment.references fragment in
   let expected_queries =
-    Initializer_fragment.queries fragment
+    source_queries
     |> List.filter_map (fun selection ->
         Option.map
           (fun facts -> (selection, facts))
@@ -141,8 +148,7 @@ let make_initializer_fragment ~fragment events =
                actual.name = identifier.spelling
                && actual.origin
                   = Initializer_source.origin_of_location identifier.location
-               && Option.fold ~none:false ~some:(( == ) leaf)
-                    actual.initializer_leaf
+               && same_leaf actual.initializer_leaf
                && Option.fold ~none:false ~some:(( == ) selection)
                     actual.selection)
              identifiers references))
@@ -151,8 +157,7 @@ let make_initializer_fragment ~fragment events =
          (List.for_all2
             (fun (actual : query_event) (selection, (role, name, origin)) ->
               actual.role = role && actual.name = name && actual.origin = origin
-              && Option.fold ~none:false ~some:(( == ) leaf)
-                   actual.initializer_leaf
+              && same_leaf actual.initializer_leaf
               && Option.fold ~none:false ~some:(( == ) selection)
                    actual.selection)
             queries expected_queries)
@@ -163,11 +168,27 @@ let make_initializer_fragment ~fragment events =
       {
         statement_index = 0;
         item_index = 0;
-        origin = Initializer_source.leaf_origin leaf;
+        origin;
         events;
         initial_owner = None;
-        fragment_owner = Some fragment;
+        fragment_owner;
+        default_owner;
       }
+
+let make_initializer_fragment ~fragment events =
+  let leaf = Initializer_fragment.leaf fragment in
+  make_fragment_input ~leaf:(Some leaf)
+    ~origin:(Initializer_source.leaf_origin leaf)
+    ~references:(Initializer_fragment.references fragment)
+    ~source_queries:(Initializer_fragment.queries fragment)
+    ~fragment_owner:(Some fragment) ~default_owner:None events
+
+let make_default_fragment ~fragment events =
+  make_fragment_input ~leaf:None
+    ~origin:(Default_fragment.origin fragment)
+    ~references:(Default_fragment.references fragment)
+    ~source_queries:(Default_fragment.queries fragment)
+    ~fragment_owner:None ~default_owner:(Some fragment) events
 
 let make_global_initializer ~statement_index ~initializers ~global events =
   let symbol = Global_initializer_binding.global_symbol global in
@@ -239,6 +260,7 @@ let statement_initializer (statement : statement) =
   Option.map snd statement.source.initial_owner
 
 let statement_fragment (statement : statement) = statement.source.fragment_owner
+let statement_default (statement : statement) = statement.source.default_owner
 
 let initializer_bindings result =
   List.find_map
@@ -661,6 +683,18 @@ let resolve ~table ~parent ~module_expressions inputs =
   else if
     List.exists
       (fun input ->
+        Option.fold ~none:false
+          ~some:(fun fragment ->
+            (not (Default_fragment.owns_table fragment table))
+            || (not
+                  (symbol_in_scope
+                     (Declaration_collection.publication_symbol
+                        (Default_fragment.publication fragment))
+                     parent))
+            || Module_expression_binding.publications module_expressions <> []
+            || List.length inputs <> 1)
+          input.default_owner
+        ||
         match input.fragment_owner with
         | None -> false
         | Some fragment ->

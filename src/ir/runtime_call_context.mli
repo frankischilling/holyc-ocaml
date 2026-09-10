@@ -49,6 +49,9 @@ val find_start :
 val is_implicit_discard :
   t -> owner:owner -> Instruction_sequence.Instruction_id.t -> bool
 
+val is_prepared_default :
+  t -> owner:owner -> Instruction_sequence.Instruction_id.t -> bool
+
 val provider : call -> provider option
 val symbol : call -> Sema.Symbol.t
 val return_type : call -> Sema.Type.t
