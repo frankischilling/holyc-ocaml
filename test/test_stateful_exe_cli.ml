@@ -83,6 +83,17 @@ let adjacent_source =
 }
 |}
 
+let variadic_source =
+  {|#exe {
+ I64 Out=0;
+ U0 Print(I64 a=40,...){Out=a+argc+argv[0];}
+ ""(,1);
+ I64 Top=Out;
+ U0 Saved(){""(39,1,7);}
+ Out=0;Saved;
+ StreamPrint("%d;",Top+Out-42);
+}|}
+
 let () =
   let executable = Sys.argv.(1) in
   List.iter
@@ -202,6 +213,8 @@ let () =
       (absent_source, "aot", 145, 9);
       (adjacent_source, "jit", 139, 9);
       (adjacent_source, "aot", 141, 9);
+      (variadic_source, "jit", 106, 6);
+      (variadic_source, "aot", 108, 6);
     ];
   List.iter
     (fun source ->

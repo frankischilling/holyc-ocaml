@@ -153,9 +153,27 @@ body calls together. Built and installed JIT/AOT runs return 42 with empty outpu
 139 runtime / 9 preparation instructions in JIT and 141 / 9 in AOT. Exact limits
 pass together; either allowance one instruction lower stops with HCIRVM0007.
 
+Source-defined variadic functions now execute integer tails through ordinary,
+implicit and retained calls. Each invocation gets its own writable I64 `argc`
+and `argv` array over the actual tail values. The declared 127-element extent is
+the arbitrary placeholder in `Compiler/PrsVar.HC:373-409`; it does not allocate
+127 cells or restrict longer tails. Zero tails allow an empty array address but
+reject element access. Changing `argc` does not change the owned array extent.
+Recursion and pointer forwarding preserve each invocation's storage and lifetime.
+The I64i/I64 cell conversion follows the public union in `Kernel/KernelA.HH:105`;
+it preserves exact source identities and object bounds at pointer conversions.
+
+Frame quotas include fixed slots, the hidden count, actual tail words and local
+storage. Limits are checked before allocating the tail. The
+[variadic example](../examples/stateful-exe-variadic.hc) combines a saved default,
+top-level implicit output and a retained body's variadic call. JIT and AOT return
+42 with empty ordinary output, using 106 / 6 and 108 / 6 runtime / preparation
+instructions respectively. Both exact limits pass together; either allowance
+one instruction lower stops with HCIRVM0007.
+
 General default values, argument conversions and remaining implicit argument
-boundaries remain incomplete. Source-defined variadic body execution remains
-outside the current runtime subset, even where parsing and semantic argument
-binding succeed. Native extern linkage, general format/runtime parity, a native
+boundaries remain incomplete. Source variadic tails currently require integer
+values; floating point and machine-address tail representations remain outside
+the hosted subset. Native extern linkage, general format/runtime parity, a native
 backend, BIN loading and bootstrap are unfinished. The pinned source comparison
 is static evidence; no native execution capture is claimed.

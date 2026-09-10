@@ -501,12 +501,16 @@ val execute_function :
   arguments:int64 list ->
   Function_body.t ->
   (t, error list) result
-(** Execute one verified ordinary I64/U64/U8/U0 function with its exact checked
-    frame. Argument bits initialize the named parameter slots in source order.
+(** Execute one verified I64/U64/U8/U0 function with its exact checked frame.
+    Argument bits initialize the named parameter slots in source order.
     Automatic locals begin uninitialized. The allocation bound includes
     parameter slots and the checked local frame size. Canonical frame addresses,
     loads, assignments and scalar updates are preflighted before execution; slot
     contents survive block transfers. Every invocation owns independent storage.
+    A variadic frame consumes the fixed argument prefix followed by integer tail
+    bits, synthesizes argc and exposes argv with the actual tail extent. Its
+    arbitrary declared extent of 127 is not an allocation or indexing bound. The
+    allocation limit includes the hidden count and every actual tail word.
     Public U64 negation retains U64, while internal U64 negation yields internal
     I64. Integer returns preserve full bits; a U8 return reports runtime U64. U8
     parameters narrow incoming bits to one initialized byte while retaining an

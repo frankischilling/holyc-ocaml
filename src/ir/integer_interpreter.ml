@@ -84,6 +84,8 @@ type frame_context = {
   offsets : int Offset_map.t;
   return_type : Type.t;
   allocated_bytes : int;
+  variadic_location : (int64 * Type.t) option;
+  initial_variadic : runtime_value option array;
 }
 
 type termination = Stream_end | Returned of word option
@@ -186,6 +188,7 @@ type branch_condition = Zero | Not_zero
 
 type storage_location =
   | Frame_slot of int * int
+  | Variadic_slot
   | Global_slot of Integer_globals.storage_slot
   | Literal_slot of int * int
   | Indirect_slot of prepared_pointer
@@ -248,6 +251,7 @@ type prepared = {
   entry_index : int;
   initial_slots : runtime_value option array;
   initial_frame_bytes : int;
+  variadic_base : int option;
   is_function : bool;
   required_return : return_kind option;
   owner : (int * string) option;
@@ -261,6 +265,7 @@ type callee = {
   parameter_types : stored_type array;
   cleanup_opcode : Opcode.t;
   frame_bytes : int;
+  variadic : bool;
 }
 
 (* A prepared index and a literal offset are meaningful only in the command
@@ -1528,6 +1533,7 @@ type declared_type =
   | Frame_base of Type.t
   | Frame_offset of Type.t * int64
   | Frame_address of int
+  | Variadic_address of Type.t
   | Global_address of Integer_globals.storage_slot
   | Index_offset of Type.t * int64 * prepared_operand
   | Indexed_address of Type.t * int64 list
@@ -1706,6 +1712,33 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
   let parameters = of_kind Frame.Named_parameter in
   let locals = of_kind Frame.Automatic_local in
   let statics = of_kind Frame.Static_local in
+  let argc = of_kind Frame.Variadic_argc in
+  let argv = of_kind Frame.Variadic_argv in
+  let variadic =
+    Option.is_some
+      (Sema.Function_type_resolution.function_variadic_bindings
+         (Frame.function_header frame))
+  in
+  let synthetic_match =
+    match (variadic, argc, argv) with
+    | false, [], [] -> true
+    | true, [ count ], [ vector ] ->
+        let bindings =
+          Frame.function_header frame
+          |> Sema.Function_type_resolution.function_variadic_bindings
+          |> Option.get
+        in
+        let matches location binding =
+          Frame.location_symbol location
+          == Sema.Function_type_resolution.synthetic_binding_symbol binding
+          && Type.equal
+               (Frame.location_checked_type location)
+               (Sema.Function_type_resolution.synthetic_binding_type binding)
+        in
+        matches count (Sema.Function_type_resolution.variadic_argc bindings)
+        && matches vector (Sema.Function_type_resolution.variadic_argv bindings)
+    | _ -> false
+  in
   let statics_match =
     List.for_all
       (fun location ->
@@ -1735,6 +1768,11 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
          locations
   in
   let parameter_count = List.length parameters in
+  let argument_count = List.length arguments in
+  let stack_count =
+    if variadic && argument_count < Int.max_int then argument_count + 1
+    else argument_count
+  in
   let frame_size = Frame.function_frame_size frame in
   let allowed_flags =
     Int64.logor
@@ -1744,26 +1782,31 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
          (Sema.Function_flag.Stored.to_mask No_argument_pop))
   in
   let allowed_flags =
-    match Function.definition_declaration function_ with
-    | Some declaration ->
-        let header =
-          declaration |> Sema.Function_resolution.resolved_declaration_site
-          |> Sema.Function_resolution.declaration_site_function
-        in
-        if
-          header == Frame.function_header frame
-          && Function.definition_matches_frame function_ frame
-          && Option.is_none
-               (Sema.Function_type_resolution.function_variadic_bindings header)
-          && header |> Sema.Function_type_resolution.function_signature
-             |> Sema.Function_type_resolution.signature_variadic_origin
-             |> Option.is_none
-        then
-          (* PrsFunJoin retains this bit when a fixed header replaces a variadic
+    if variadic && synthetic_match then
+      Int64.logor allowed_flags (Sema.Function_flag.Stored.to_mask Variadic)
+    else
+      match Function.definition_declaration function_ with
+      | Some declaration ->
+          let header =
+            declaration |> Sema.Function_resolution.resolved_declaration_site
+            |> Sema.Function_resolution.declaration_site_function
+          in
+          if
+            header == Frame.function_header frame
+            && Function.definition_matches_frame function_ frame
+            && Option.is_none
+                 (Sema.Function_type_resolution.function_variadic_bindings
+                    header)
+            && header |> Sema.Function_type_resolution.function_signature
+               |> Sema.Function_type_resolution.signature_variadic_origin
+               |> Option.is_none
+          then
+            (* PrsFunJoin retains this bit when a fixed header replaces a variadic
              extern. The exact new header and frame still have only fixed slots. *)
-          Int64.logor allowed_flags (Sema.Function_flag.Stored.to_mask Variadic)
-        else allowed_flags
-    | _ -> allowed_flags
+            Int64.logor allowed_flags
+              (Sema.Function_flag.Stored.to_mask Variadic)
+          else allowed_flags
+      | _ -> allowed_flags
   in
   if
     Function.symbol function_ != Frame.function_symbol frame
@@ -1784,7 +1827,8 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
   else if
     List.length locations
     <> parameter_count + List.length locals + List.length statics
-    || (not statics_match)
+       + List.length argc + List.length argv
+    || (not synthetic_match) || (not statics_match)
     || Int64.logand
          (Function.stored_flags function_)
          (Int64.lognot allowed_flags)
@@ -1796,18 +1840,23 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
   else if Option.is_none (checked_return_kind (Function.return_type function_))
   then
     invalid "the function return type is outside nonzero integer/U0 execution"
-  else if List.length arguments <> parameter_count then
-    invalid "the argument word count does not match the checked parameters"
   else if
-    parameter_count > max_frame_bytes / 8
+    if variadic then argument_count < parameter_count
+    else argument_count <> parameter_count
+  then invalid "the argument word count does not match the checked parameters"
+  else if
+    stack_count > max_frame_bytes / 8
+    || (variadic && argument_count = Int.max_int)
     || frame_size < 0L
-    || frame_size > Int64.of_int (max_frame_bytes - (parameter_count * 8))
+    || frame_size > Int64.of_int (max_frame_bytes - (stack_count * 8))
     || List.length locations > Sys.max_array_length
   then invalid "the checked function frame exceeds max_frame_bytes"
   else
     let locations =
       List.filter
-        (fun location -> Frame.location_kind location <> Frame.Static_local)
+        (fun location ->
+          Frame.location_kind location <> Frame.Static_local
+          && Frame.location_kind location <> Frame.Variadic_argv)
         locations
     in
     let arguments = ref arguments in
@@ -1815,14 +1864,20 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
     and total_cells = ref 0L
     and total_bytes = ref 0L
     and error = ref None in
-    let allocated_bytes = Int64.to_int frame_size + (parameter_count * 8) in
-    let max_cells = Int64.of_int (min Sys.max_array_length max_frame_bytes) in
+    let allocated_bytes = Int64.to_int frame_size + (stack_count * 8) in
+    let tail_count = if variadic then argument_count - parameter_count else 0 in
+    let max_cells =
+      Int64.of_int (min Sys.max_array_length max_frame_bytes - tail_count)
+    in
     List.iter
       (fun location ->
         let dimensions = Frame.location_dimensions location in
         let storage_kind = stored_type (Frame.location_checked_type location) in
         let allocation_bytes object_bytes =
-          if Frame.location_kind location = Frame.Named_parameter then 8L
+          if
+            Frame.location_kind location = Frame.Named_parameter
+            || Frame.location_kind location = Frame.Variadic_argc
+          then 8L
           else object_bytes
         in
         let rec array_strides = function
@@ -1891,6 +1946,13 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
                               "integer argument bits cannot supply a pointer \
                                parameter";
                         None)
+                | Frame.Variadic_argc, _ ->
+                    Some
+                      (Runtime_word
+                         {
+                           type_ = I64;
+                           bits = Int64.of_int (argument_count - parameter_count);
+                         })
                 | _ -> None
               in
               let entry =
@@ -1944,6 +2006,22 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
                 offsets = !offsets;
                 return_type = Function.return_type function_;
                 allocated_bytes;
+                variadic_location =
+                  (match argv with
+                  | [ location ] ->
+                      Some
+                        ( Frame.frame_slot_displacement
+                            (Option.get (Frame.location_frame_slot location)),
+                          Frame.location_checked_type location )
+                  | _ -> None);
+                initial_variadic =
+                  (if variadic then
+                     Array.of_list
+                       (List.map
+                          (fun bits ->
+                            Some (Runtime_word { type_ = I64; bits }))
+                          !arguments)
+                   else [||]);
               })
 
 let frame_pointer type_ =
@@ -1962,13 +2040,20 @@ let address_slot context types (description : Sequence.description) =
       | Some (Frame_base base_type), Some (Frame_offset (offset_type, offset))
         when Type.equal base_type target_type
              && Type.equal offset_type target_type -> (
-          match Offset_map.find_opt offset context.offsets with
-          | Some index -> (
-              match Type.pointer_to context.slots.(index).slot_type with
+          match context.variadic_location with
+          | Some (expected, pointee) when expected = offset -> (
+              match Type.pointer_to pointee with
               | Ok pointer when Type.equal pointer target_type ->
-                  Frame_address index
+                  Variadic_address pointee
               | _ -> Unsupported)
-          | None -> Unsupported)
+          | _ -> (
+              match Offset_map.find_opt offset context.offsets with
+              | Some index -> (
+                  match Type.pointer_to context.slots.(index).slot_type with
+                  | Ok pointer when Type.equal pointer target_type ->
+                      Frame_address index
+                  | _ -> Unsupported)
+              | None -> Unsupported))
       | _ -> Unsupported)
   | _ -> Unsupported
 
@@ -2045,6 +2130,10 @@ let indexed_address frame types (description : Sequence.description) =
                 | Ok expected when Type.equal expected pointer ->
                     Some slot.strides
                 | _ -> None)
+        | Some (Variadic_address pointee) -> (
+            match Type.pointer_to pointee with
+            | Ok expected when Type.equal expected pointer -> Some [ 8L ]
+            | _ -> None)
         | Some (Global_address slot) -> (
             match Type.pointer_to (Integer_globals.storage_type slot) with
             | Ok expected when Type.equal expected pointer ->
@@ -2196,6 +2285,7 @@ let operand_of_value types value_id =
       | Frame_base _
       | Frame_offset _
       | Frame_address _
+      | Variadic_address _
       | Index_offset _
       | Indexed_address _
       | Global_address _ )
@@ -2218,12 +2308,14 @@ let value_matches stored operand =
   match (stored, operand) with
   | (Stored_word _ | Stored_narrow _), Word_operand _ -> true
   | Stored_pointer expected, Pointer_operand actual ->
-      Type.compatible_u8_pointer expected actual.pointer_type
+      Scalar.compatible_pointer expected actual.pointer_type
   | _ -> false
 
 let storage_operand ?(allow_array = false) frame initialization types
     instruction address =
   match (frame, Value_map.find_opt address types) with
+  | Some _, Some (Variadic_address pointee) when allow_array ->
+      Some (Variadic_slot, pointee, Stored_word I64)
   | Some context, Some (Frame_address index) ->
       let slot = context.slots.(index) in
       if slot.strides <> [] && not allow_array then None
@@ -2640,7 +2732,8 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                       [],
                       Some (Sequence.Integer _),
                       Some (Frame_offset _) )
-                  | Opcode.Ic_add, [ _; _ ], None, Some (Frame_address _) ->
+                  | Opcode.Ic_add, [ _; _ ], None, Some (Frame_address _)
+                  | Opcode.Ic_add, [ _; _ ], None, Some (Variadic_address _) ->
                       Ok Frame_address_tick
                   | _ -> Error (malformed block_id description))
               | None -> Error (malformed block_id description))
@@ -3010,6 +3103,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                   parameter_types = Array.of_list types;
                   cleanup_opcode = Runtime.cleanup_opcode site;
                   frame_bytes = 0;
+                  variadic = false;
                 }
           in
           match (description.opcode, !calls) with
@@ -3049,6 +3143,56 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                             | Some site, Some declaration ->
                                 Runtime.declaration site == declaration
                             | _ -> true)
+                  in
+                  let selected =
+                    Option.bind selected (fun callee ->
+                        if not callee.variadic then Some callee
+                        else
+                          Option.bind site (fun site ->
+                              Option.bind (runtime_callee site) (fun actual ->
+                                  let fixed =
+                                    Array.length callee.parameter_types
+                                  in
+                                  let types = actual.parameter_types in
+                                  let tail = Array.length types - fixed - 1 in
+                                  let same_type a b =
+                                    match (a, b) with
+                                    | Stored_pointer a, Stored_pointer b ->
+                                        Type.equal a b
+                                    | Stored_narrow scalar, Stored_word word ->
+                                        scalar_runtime_type scalar = word
+                                    | _ -> a = b
+                                  in
+                                  if
+                                    tail < 0
+                                    || Runtime.variadic_count site
+                                       <> Some (Int64.of_int tail)
+                                    || types.(fixed) <> Stored_word I64
+                                    || (not
+                                          (Array.for_all Fun.id
+                                             (Array.mapi
+                                                (fun i expected ->
+                                                  same_type expected types.(i))
+                                                callee.parameter_types)))
+                                    || not
+                                         (Array.for_all
+                                            (function
+                                              | Stored_word _ -> true
+                                              | _ -> false)
+                                            (Array.sub types (fixed + 1) tail))
+                                  then None
+                                  else
+                                    Some
+                                      {
+                                        callee with
+                                        parameter_types =
+                                          Array.mapi
+                                            (fun i type_ ->
+                                              if i < fixed then
+                                                callee.parameter_types.(i)
+                                              else type_)
+                                            types;
+                                      })))
                   in
                   match selected with
                   | Some callee
@@ -3320,7 +3464,9 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
           let initial_slots =
             Option.fold ~none:[||]
               ~some:(fun context ->
-                Array.map (fun slot -> slot.initial) context.slots)
+                Array.append
+                  (Array.map (fun slot -> slot.initial) context.slots)
+                  context.initial_variadic)
               frame
           in
           Ok
@@ -3332,6 +3478,11 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                 Option.fold ~none:0
                   ~some:(fun context -> context.allocated_bytes)
                   frame;
+              variadic_base =
+                Option.bind frame (fun context ->
+                    Option.map
+                      (fun _ -> Array.length context.slots)
+                      context.variadic_location);
               is_function = Option.is_some frame;
               required_return =
                 Option.bind frame (fun context ->
@@ -3575,7 +3726,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                       (Int64.of_int address.pointer_count)
                       (Int64.of_int address.pointer_element_bytes)
                && address.pointer_storage.live && address.pointer_base >= 0
-               && address.pointer_count > 0
+               && address.pointer_count >= 0
                && address.pointer_count
                   <= Array.length address.pointer_storage.cells
                && address.pointer_base
@@ -3630,11 +3781,45 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
               (Type.pointer_to address.pointer_pointee, Type.dereference type_)
             with
             | Ok actual, Ok pointer_pointee
-              when Type.compatible_u8_pointer type_ actual
+              when Scalar.compatible_pointer type_ actual
                    && address.pointer_storage.live ->
                 Some (Runtime_pointer { address with pointer_pointee })
             | _ -> None)
         | _ -> None)
+  in
+  let prepare_arguments callee arguments =
+    let rec fixed position rev arguments =
+      if position < Array.length callee.parameter_types then
+        match arguments with
+        | value :: rest ->
+            Option.bind
+              (coerce_value callee.parameter_types.(position) value)
+              (fun value -> fixed (position + 1) (Some value :: rev) rest)
+        | [] -> None
+      else if not callee.variadic then
+        if arguments = [] then Some (Array.of_list (List.rev rev), [||])
+        else None
+      else
+        match arguments with
+        | Runtime_word count :: tail
+          when count.type_ = I64 && count.bits = Int64.of_int (List.length tail)
+          ->
+            let rec words rev = function
+              | [] -> Some (Array.of_list (List.rev rev))
+              | Runtime_word word :: rest ->
+                  words
+                    (Some (Runtime_word { word with type_ = I64 }) :: rev)
+                    rest
+              | _ -> None
+            in
+            Option.map
+              (fun tail ->
+                ( Array.of_list (List.rev (Some (Runtime_word count) :: rev)),
+                  tail ))
+              (words [] tail)
+        | _ -> None
+    in
+    fixed 0 [] arguments
   in
   let resolve_address block instruction location pointer_pointee =
     let root pointer_storage pointer_base pointer_count =
@@ -3655,6 +3840,9 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
         (scalar_element_bytes pointer_pointee)
     in
     match location with
+    | Variadic_slot ->
+        Option.bind !program.variadic_base (fun base ->
+            root !slots base (Array.length !slots.cells - base))
     | Frame_slot (base, count) -> root !slots base count
     | Global_slot slot ->
         let storage, base = global_region slot in
@@ -3665,6 +3853,7 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
         require_pointer ~bounded:false block instruction operand
   in
   let resolve_location block instruction = function
+    | Variadic_slot -> None
     | Frame_slot (index, _) -> Some (!slots, index)
     | Global_slot slot -> Some (global_region slot)
     | Literal_slot (index, _) -> Some (!owner.owner_literals, index)
@@ -3914,7 +4103,14 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
               in
               match (!calls, target) with
               | ( ({ completion = Pending; _ } as scope) :: _,
-                  Some (callee, body, callee_owner) ) ->
+                  Some (callee, body, callee_owner) ) -> (
+                  let tail_count =
+                    if callee.variadic then
+                      List.length scope.arguments_rev
+                      - Array.length callee.parameter_types
+                      - 1
+                    else 0
+                  in
                   if !depth >= max_call_depth then
                     failed :=
                       Some
@@ -3922,50 +4118,59 @@ let execute_prepared ?(callees = [||]) ?(max_frame_bytes = Int.max_int)
                            "the integer call depth limit was exhausted")
                   else if
                     callee.frame_bytes > max_frame_bytes - !live_frame_bytes
+                    || tail_count
+                       > (max_frame_bytes - !live_frame_bytes
+                        - callee.frame_bytes)
+                         / 8
+                    || tail_count
+                       > Sys.max_array_length - Array.length body.initial_slots
                   then
                     failed :=
                       Some
                         (runtime_error ~instruction block !steps "HCIRVM0011"
                            "the active function frames exceed the frame byte \
                             limit")
-                  else (
-                    callers :=
-                      {
-                        saved_program = !program;
-                        saved_owner = !owner;
-                        saved_block = !current_block;
-                        saved_instruction = !current_instruction;
-                        saved_values = !values;
-                        saved_slots = !slots;
-                        saved_return = !pending_return;
-                        saved_calls = !calls;
-                      }
-                      :: !callers;
-                    incr depth;
-                    live_frame_bytes := !live_frame_bytes + callee.frame_bytes;
-                    let initialized = frame_storage body.initial_slots in
-                    scope.arguments_rev
-                    |> List.iteri (fun position value ->
-                        match
-                          coerce_value callee.parameter_types.(position) value
-                        with
-                        | Some value ->
-                            initialized.cells.(position) <- Some value
-                        | None ->
-                            failed :=
-                              Some
-                                (runtime_error ~instruction block !steps
-                                   "HCIRVM0008"
-                                   "prepared argument disagrees with its \
-                                    checked parameter"));
-                    program := body;
-                    owner := callee_owner;
-                    slots := initialized;
-                    values := Value_map.empty;
-                    pending_return := None;
-                    calls := [];
-                    current_block := body.entry_index;
-                    current_instruction := 0)
+                  else
+                    match prepare_arguments callee scope.arguments_rev with
+                    | None ->
+                        failed :=
+                          Some
+                            (runtime_error ~instruction block !steps
+                               "HCIRVM0008"
+                               "prepared arguments disagree with the checked \
+                                function frame")
+                    | Some (arguments, tail) ->
+                        let frame_bytes =
+                          callee.frame_bytes + (8 * Array.length tail)
+                        in
+                        callers :=
+                          {
+                            saved_program = !program;
+                            saved_owner = !owner;
+                            saved_block = !current_block;
+                            saved_instruction = !current_instruction;
+                            saved_values = !values;
+                            saved_slots = !slots;
+                            saved_return = !pending_return;
+                            saved_calls = !calls;
+                          }
+                          :: !callers;
+                        incr depth;
+                        live_frame_bytes := !live_frame_bytes + frame_bytes;
+                        let initialized =
+                          frame_storage (Array.append body.initial_slots tail)
+                        in
+                        Array.blit arguments 0 initialized.cells 0
+                          (Array.length arguments);
+                        program :=
+                          { body with initial_frame_bytes = frame_bytes };
+                        owner := callee_owner;
+                        slots := initialized;
+                        values := Value_map.empty;
+                        pending_return := None;
+                        calls := [];
+                        current_block := body.entry_index;
+                        current_instruction := 0)
               | _ ->
                   failed :=
                     Some
@@ -4596,6 +4801,7 @@ let execute_program_with_output ?task ?isolated_budget
                    then Opcode.Ic_add_rsp1
                    else Opcode.Ic_add_rsp);
                 frame_bytes = context.allocated_bytes;
+                variadic = Option.is_some context.variadic_location;
               }
             in
             summaries (index + 1) (symbol :: symbols) (function_id :: ids)

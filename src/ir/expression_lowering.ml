@@ -1473,6 +1473,7 @@ let rec prepare_index_address ?frame ?globals result =
                           let module F = Sema.Function_frame_layout in
                           if
                             F.location_kind location <> F.Automatic_local
+                            && F.location_kind location <> F.Variadic_argv
                             || F.location_declarator_shape location <> F.Object
                             || storage_element_size
                                  (F.location_checked_type location)
@@ -1497,7 +1498,8 @@ let rec prepare_index_address ?frame ?globals result =
                               strides (F.location_dimensions location)
                             in
                             if
-                              bytes <> F.location_allocated_size location
+                              F.location_kind location <> F.Variadic_argv
+                              && bytes <> F.location_allocated_size location
                               || List.length strides
                                  <> Semantic_result.result_array_rank result
                             then
@@ -1683,7 +1685,7 @@ let validate_frame_assignment result left right =
        && Type.pointer_depth l = 0
        && Type.pointer_depth v = 0
       || scalar_pointer_type r && Type.equal r l
-         && Type.compatible_u8_pointer l v)
+         && Integer_scalar_storage.compatible_pointer l v)
 
 let compound_assignment = function
   | Opcode.Ic_add_equ
@@ -3212,7 +3214,8 @@ let lower_store_initializer ?frame ?globals ?lower_call ~lower_address
     when (target_is_word && Type.pointer_depth value_type = 0)
          || Option.is_some frame
             && scalar_pointer_type target_type
-            && Type.compatible_u8_pointer target_type value_type -> (
+            && Integer_scalar_storage.compatible_pointer target_type value_type
+    -> (
       let* address_sequence, address_value, next_instruction, next_value =
         lower_address ~instruction_id ~value_id
       in
