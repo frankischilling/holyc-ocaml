@@ -1192,8 +1192,29 @@ let retained_absent_implicit () =
   Alcotest.(check string)
     "source-defined absent calls keep empty capture" "" (Task.output_bytes task)
 
+let retained_adjacent_putchars () =
+  let session = Session.create () in
+  let task = create session in
+  ignore
+    (run session task
+       {|I64 N=39;I64 Out=0;U0 PutChars(I64 a=++N,I64 b){Out=a+b;}|}
+    |> Test_integer_program.checked);
+  value 42L (run session task {|N=0;''2;Out;|});
+  ignore
+    (run session task
+       {|U0 Saved(){'A'-63;}U0 PutChars(I64 a,I64 b,I64 c){Out=a+b+c;}|}
+    |> Test_integer_program.checked);
+  value 7L (run session task {|''1 2 4;Out;|});
+  value 42L (run session task {|Saved;Out+N;|});
+  Alcotest.(check string)
+    "retained adjacent calls have no external capture" ""
+    (Task.output_bytes task)
+
 let tests =
   [
+    Alcotest.test_case
+      "adjacent PutChars survives separate inputs and shadowing" `Quick
+      retained_adjacent_putchars;
     Alcotest.test_case "absent implicit values survive separate task inputs"
       `Quick retained_absent_implicit;
     Alcotest.test_case

@@ -127,8 +127,34 @@ Built and installed JIT/AOT runs return 42 with empty output. It uses 143 runtim
 / 9 preparation instructions in JIT and 145 / 9 in AOT. Exact limits pass
 together; either allowance one instruction lower stops with HCIRVM0007.
 
-Parenthesis-free additional PutChars values, general default values and argument
-conversions remain incomplete. Source-defined variadic body execution remains
+Without parentheses, PutChars consumes required fixed arguments as adjacent
+expressions: `''20 20 2;` supplies three values. Defaults consume neither an
+expression nor a comma. For `PutChars(I64 a=40,I64 b)`, `''2;` and `'A'-63;`
+both use the saved 40 and supply 2 to the second formal. Several initial defaults
+can retain the same unconsumed marker as lookahead before a later required
+parameter consumes its original expression. The marker is not reparsed.
+
+Adjacent arguments have no comma location in the original AST or semantic
+input. The JSON dump records `comma: null`; the human dump marks an adjacent
+separator. Original comma-bearing constructors remain available, while general
+source consumers use the optional separator accessors. Separator checks reject
+adjacent arguments attached to parenthesized syntax, and legacy implicit-call
+constructors cannot admit adjacent values without the original source.
+
+Expression boundaries still apply: `''40-2;` is one subtraction expression,
+whereas `''40 2;` supplies two adjacent expressions. A comma after all fixed
+parameters belongs to statement sequencing. A comma before a remaining required
+parameter fails. Without parentheses, PutChars does not consume variadic values.
+These rules follow `Compiler/PrsExp.HC:438-531` and the enclosing statement parser.
+
+The [adjacent-values example](../examples/stateful-exe-implicit-adjacent.hc)
+checks initial/interior saved defaults, original marker expressions and retained
+body calls together. Built and installed JIT/AOT runs return 42 with empty output:
+139 runtime / 9 preparation instructions in JIT and 141 / 9 in AOT. Exact limits
+pass together; either allowance one instruction lower stops with HCIRVM0007.
+
+General default values, argument conversions and remaining implicit argument
+boundaries remain incomplete. Source-defined variadic body execution remains
 outside the current runtime subset, even where parsing and semantic argument
 binding succeed. Native extern linkage, general format/runtime parity, a native
 backend, BIN loading and bootstrap are unfinished. The pinned source comparison

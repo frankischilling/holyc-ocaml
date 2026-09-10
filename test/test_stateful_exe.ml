@@ -31,6 +31,25 @@ let tests =
     gates
   @ [
       Alcotest.test_case
+        "adjacent PutChars preserves target through argument lookahead" `Quick
+        (expect 42L
+           {|#exe {I64 Out=0;U0 PutChars(I64 a,I64 b){Out=a+b;}''40 2 #exe {U0 PutChars(I64 a=7){Out=a;}};I64 Before=Out;'';StreamPrint("%d;",Before+Out-7);}|});
+      Alcotest.test_case
+        "adjacent PutChars leaves completed comma to statement order" `Quick
+        (expect 42L
+           {|I64 Out=0;U0 PutChars(I64 a,I64 b=1){Out+=a+b;}''20,Out+=1;U0 Saved(){''19;}Saved;Out;|});
+      Alcotest.test_case "PutChars consumes adjacent required arguments" `Quick
+        (expect 42L
+           {|I64 Out=0;U0 PutChars(I64 a,I64 b,I64 c){Out=a+b+c;}'' 20 20 2;I64 Top=Out;U0 Saved(){'A'-45 20 2;}Out=0;Saved;Top+Out-42;|});
+      Alcotest.test_case
+        "PutChars defaults leave following required values unconsumed" `Quick
+        (expect 42L
+           {|#exe {I64 N=38;I64 Out=0;U0 PutChars(I64 a,I64 b=++N,I64 c){Out=a+b+c;}N=0;'' 1 2;I64 Top=Out;U0 Saved(){'A'-64 2;}Out=0;Saved;StreamPrint("%d;",Top+Out+N-42);}|});
+      Alcotest.test_case
+        "PutChars initial default leaves marker for a later formal" `Quick
+        (expect 42L
+           {|#exe {I64 N=39;I64 Out=0;U0 PutChars(I64 a=++N,I64 b){Out=a+b;}N=0;'' 2;I64 Top=Out;U0 Saved(){'A'-63;}Out=0;Saved;StreamPrint("%d;",Top+Out+N-42);}|});
+      Alcotest.test_case
         "absent Print leaves comma-separated statements in order" `Quick
         (expect 42L
            {|I64 Out=0;U0 Print(I64 a=20){Out+=a;}"",Out+=1;U0 Saved(){""(),Out+=1;}Saved;Out;|});

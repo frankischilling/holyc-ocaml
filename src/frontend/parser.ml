@@ -5057,7 +5057,22 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
     | Token.Int64 value -> Int64.equal value 0L
     | _ -> false
   in
-  if (not marker_empty) && selected_default 0 then
+  let putchars_later_required =
+    target = Ast.Put_chars_target
+    && Option.fold ~none:false
+         ~some:(fun shape ->
+           List.exists
+             (fun (index, parameter) ->
+               index > 0 && not parameter.Symbol_visibility.has_default)
+             (List.mapi
+                (fun index parameter -> (index, parameter))
+                shape.Symbol_visibility.parameters))
+         selected_shape
+  in
+  let deferred_marker =
+    (not marker_empty) && selected_default 0 && putchars_later_required
+  in
+  if (not marker_empty) && selected_default 0 && not deferred_marker then
     reject_unconsumed_default marker_item;
   let marker_expression : parsed_expression =
     match (marker_item.token.Token.kind, marker_item.token.value) with
@@ -5099,15 +5114,16 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
     else None
   in
   let fixed_prefix =
-    marker_expression.tokens
+    (if deferred_marker then [] else marker_expression.tokens)
     @
     match opening_parenthesis with
     | None -> []
     | Some item -> [ item.token ]
   in
-  let initial_item = peek cursor in
+  let initial_item = if deferred_marker then marker_item else peek cursor in
   let omitted_initial =
-    empty_marker && selected_default 0
+    (empty_marker || deferred_marker)
+    && selected_default 0
     &&
     match opening_parenthesis with
     | Some _ ->
@@ -5131,6 +5147,7 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
   if
     (omitted_initial || no_values)
     && Option.is_none opening_parenthesis
+    && (not putchars_later_required)
     && initial_item.token.kind <> Token_kind.Punctuation ';'
     && initial_item.token.kind <> Token_kind.Punctuation ','
   then reject_unconsumed_default initial_item;
@@ -5378,11 +5395,70 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
         in
         fixed 1 [] [] []
       in
+      let rec parse_putchars_arguments position pending_marker arguments_rev
+          omissions_rev tokens_rev =
+        match selected_parameter position with
+        | None ->
+            Some
+              ( List.rev arguments_rev,
+                List.rev omissions_rev,
+                List.rev tokens_rev )
+        | Some parameter ->
+            let item =
+              if Option.is_some pending_marker then marker_item else peek cursor
+            in
+            if parameter.Symbol_visibility.has_default then
+              let omission =
+                Ast.make_implicit_output_omission ~parameter_index:position
+                  ~leading_comma:None
+                  ~lookahead:(token_location item.token)
+              in
+              parse_putchars_arguments (position + 1) pending_marker
+                arguments_rev
+                (omission :: omissions_rev)
+                tokens_rev
+            else (
+              (match item.token.kind with
+              | Token_kind.Punctuation (',' | ';' | ')' | '}') | Token_kind.Eof
+                ->
+                  report cursor item ~code:"HCPARSE0165"
+                    ~message:"implicit output is missing a required argument";
+                  raise Stop_command
+              | _ -> ());
+              let parsed =
+                match pending_marker with
+                | Some marker ->
+                    parse_expression_tail cursor
+                      ~context:Implicit_output_argument_expression ~depth:0
+                      ~minimum_binding_power:0 ~allow_parenthesis_free_call:true
+                      marker
+                | None ->
+                    parse_expression cursor
+                      ~context:Implicit_output_argument_expression ~depth:0
+                      ~minimum_binding_power:0
+              in
+              match parsed with
+              | None -> None
+              | Some (expression : parsed_expression) ->
+                  let argument =
+                    Ast.make_implicit_output_argument_with_separator
+                      ~leading_comma:None ~value:expression.node
+                      ~location:
+                        (location_from_expression_tokens expression.tokens)
+                  in
+                  parse_putchars_arguments (position + 1) None
+                    (argument :: arguments_rev)
+                    omissions_rev
+                    (List.rev_append expression.tokens tokens_rev))
+      in
       let parsed_arguments =
         match (opening_parenthesis, target) with
         | Some _, _ -> parse_parenthesized_arguments ()
         | None, Ast.Print_target -> parse_print_arguments 1 [] [] []
-        | None, Ast.Put_chars_target -> Some ([], [], [])
+        | None, Ast.Put_chars_target ->
+            parse_putchars_arguments 1
+              (if deferred_marker then Some marker_expression else None)
+              [] [] []
       in
       match parsed_arguments with
       | None ->
@@ -5405,25 +5481,6 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
                   [ closing.token ] )
           in
           let terminator_item = peek cursor in
-          if target = Ast.Put_chars_target && Option.is_none opening_parenthesis
-          then
-            Option.iter
-              (fun shape ->
-                let remaining =
-                  List.filteri
-                    (fun index _ -> index > 0)
-                    shape.Symbol_visibility.parameters
-                in
-                if
-                  List.exists
-                    (fun parameter ->
-                      not parameter.Symbol_visibility.has_default)
-                    remaining
-                then (
-                  report cursor terminator_item ~code:"HCPARSE0165"
-                    ~message:"implicit output is missing a required argument";
-                  raise Stop_command))
-              selected_shape;
           let terminator =
             match (boundary, terminator_item.token.kind) with
             | For_update_boundary _, _ -> Some (None, [])

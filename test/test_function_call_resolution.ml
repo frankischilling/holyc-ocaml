@@ -3367,6 +3367,60 @@ let implicit_output_call_ownership () =
 
 let tests =
   [
+    Alcotest.test_case
+      "adjacent PutChars arguments require complete original source" `Quick
+      (fun () ->
+        let module Call = Semantic_function_call_resolution in
+        let prepared =
+          prepare ~path:"adjacent-putchars-source.HC"
+            {|extern U0 PutChars(I64 a,I64 b);extern I64 Next(I64 n);U0 Caller(){''40 Next(2);}|}
+        in
+        let resolved = resolve prepared |> checked in
+        let caller =
+          Call.functions resolved
+          |> List.find (fun fn ->
+              Semantic_symbol.name (Call.function_symbol fn) = "Caller")
+        in
+        let output = List.hd (Call.function_implicit_outputs caller) in
+        let source = Option.get (Call.implicit_output_statement output) in
+        let arguments = Call.implicit_output_arguments output in
+        let fixed_expression = Call.implicit_output_fixed_expression output in
+        let call = only_direct resolved "Caller" |> Call.direct_source in
+        let remake source calls =
+          Call.make_source_implicit_output ~source ~calls ~index:0
+            ~fixed_expression ~arguments
+        in
+        Alcotest.(check bool)
+          "exact adjacent source with original call" true
+          (Result.is_ok (remake source [ call ]));
+        Alcotest.(check bool)
+          "adjacent argument does not invent comma origin" true
+          (Option.is_none
+             (Call.implicit_output_argument_separator_origin (List.hd arguments)));
+        Alcotest.(check bool)
+          "missing original call is rejected" true
+          (Result.is_error (remake source []));
+        let wrong_parentheses =
+          Ast.make_implicit_output_statement_with_syntax ~target:source.target
+            ~marker:source.marker ~fixed_argument:source.fixed_argument
+            ~arguments:source.arguments ~omissions:source.omissions
+            ~call_parentheses:
+              (Some (source.marker.literal_location, source.location))
+            ~semicolon:source.semicolon ~location:source.location
+        in
+        Alcotest.(check bool)
+          "adjacent source cannot acquire call parentheses" true
+          (Result.is_error (remake wrong_parentheses [ call ]));
+        Alcotest.(check bool)
+          "legacy Print cannot certify adjacent arguments without original \
+           source"
+          true
+          (Result.is_error
+             (Call.make_implicit_output ~index:0 ~target:Call.Print_output
+                ~marker_origin:(Call.implicit_output_marker_origin output)
+                ~fixed_source:(Call.implicit_output_fixed_source output)
+                ~fixed_expression ~arguments
+                ~origin:(Call.implicit_output_origin output))));
     Alcotest.test_case "absent first value retains only original supplied calls"
       `Quick (fun () ->
         let module Call = Semantic_function_call_resolution in

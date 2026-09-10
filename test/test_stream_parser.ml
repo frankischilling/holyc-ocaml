@@ -1797,7 +1797,7 @@ let tests =
           (Option.is_none omission.leading_comma);
         Alcotest.(check bool)
           "lookahead becomes the next supplied separator" true
-          (omission.lookahead = (List.hd first.arguments).leading_comma);
+          (Some omission.lookahead = (List.hd first.arguments).leading_comma);
         let dump =
           Ast_dump.to_yojson (Session.sources session) ast
           |> Yojson.Safe.to_string
@@ -1893,6 +1893,90 @@ let tests =
             {|extern U0 Print(I64 a=42);"",#exe {} 7;|};
             {|extern U0 Print();""(),#exe {} 42;|};
           ]);
+    Alcotest.test_case
+      "adjacent PutChars retains marker and unconsumed default lookahead" `Quick
+      (fun () ->
+        let contents = {|extern U0 PutChars(I64 a=40,I64 b=1,I64 c);'A'-64;|} in
+        let session, _, parsed, _, _, _ = parse contents in
+        let ast = P.expect_ast parsed in
+        let output =
+          match List.rev ast.items with
+          | Ast.Top_level_statement (Ast.Implicit_output_statement output) :: _
+            -> output
+          | _ -> Alcotest.fail "expected PutChars"
+        in
+        Alcotest.(check bool)
+          "initial value is omitted" true
+          (output.fixed_argument = Ast.Absent_fixed_argument);
+        Alcotest.(check (list int))
+          "two saved defaults precede original marker" [ 0; 1 ]
+          (List.map
+             (fun (o : Ast.implicit_output_omission) -> o.parameter_index)
+             output.omissions);
+        List.iter
+          (fun (o : Ast.implicit_output_omission) ->
+            Alcotest.(check bool)
+              "default consumes no comma" true
+              (Option.is_none o.leading_comma);
+            Alcotest.(check bool)
+              "each default sees the same unconsumed marker" true
+              (o.lookahead = output.marker.literal_location))
+          output.omissions;
+        let argument = List.hd output.arguments in
+        Alcotest.(check bool)
+          "adjacent argument has no invented comma" true
+          (Option.is_none argument.leading_comma);
+        (match argument.value with
+        | Ast.Binary_expression binary -> (
+            match binary.binary_left with
+            | Ast.Character_literal marker ->
+                Alcotest.(check bool)
+                  "same original literal object" true (marker == output.marker)
+            | _ -> Alcotest.fail "expected original character marker")
+        | _ -> Alcotest.fail "expected original subtraction expression");
+        let dump =
+          Ast_dump.to_yojson (Session.sources session) ast
+          |> Yojson.Safe.to_string
+        in
+        Alcotest.(check bool)
+          "JSON records absent separator" true
+          (P.contains dump "\"comma\":null"));
+    Alcotest.test_case
+      "adjacent PutChars respects expression and lexer boundaries" `Quick
+      (fun () ->
+        List.iter
+          (fun (code, contents) ->
+            let entered = ref 0 in
+            error code (parse ~on_enter:(fun () -> incr entered) contents);
+            Alcotest.(check int) "later directive remains unreached" 0 !entered)
+          [
+            ("HCPARSE0165", {|extern U0 PutChars(I64 a,I64 b);''40-2;#exe {}|});
+            ("HCPARSE0165", {|extern U0 PutChars(I64 a,I64 b);''40,#exe {}22;|});
+            ("HCPARSE0165", {|extern U0 PutChars(I64 a=40,I64 b);'',#exe {}2;|});
+            ( "HCPARSE0164",
+              {|extern U0 PutChars(I64 a=40,I64 b=2);'A' #exe {};|} );
+            ("HCPARSE0046", {|extern U0 PutChars(I64 a,...);''40 2 #exe {};|});
+            ( "HCPARSE0046",
+              {|extern U0 PutChars(I64 a,I64 b);''40 2 7 #exe {};|} );
+          ]);
+    Alcotest.test_case
+      "parenthesis-free PutChars variadic comma belongs to following statement"
+      `Quick (fun () ->
+        let _, _, parsed, _, _, _ =
+          parse {|extern U0 PutChars(I64 a,...);''40,2;|}
+        in
+        match List.rev (P.expect_ast parsed).items with
+        | Ast.Top_level_statement (Ast.Sequence_statement sequence) :: _ -> (
+            Alcotest.(check int)
+              "comma separates statements" 2
+              (List.length sequence.sequence_elements);
+            match (List.hd sequence.sequence_elements).sequence_statement with
+            | Ast.Implicit_output_statement output ->
+                Alcotest.(check int)
+                  "no implicit variadic argument" 0
+                  (List.length output.arguments)
+            | _ -> Alcotest.fail "expected PutChars sequence head")
+        | _ -> Alcotest.fail "expected statement sequence");
     Alcotest.test_case "PutChars parentheses permit empty variadic tail" `Quick
       (fun () ->
         let _, _, parsed, _, _, _ =

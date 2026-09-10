@@ -503,7 +503,7 @@ type implicit_output_fixed_argument =
   | Absent_fixed_argument
 
 type implicit_output_argument = {
-  leading_comma : location;
+  leading_comma : location option;
   value : expression;
   location : location;
 }
@@ -1358,8 +1358,13 @@ let make_function_prototype ~modifiers ~binding ~return_type
     location;
   }
 
-let make_implicit_output_argument ~leading_comma ~value ~location =
+let make_implicit_output_argument_with_separator ~leading_comma ~value ~location
+    =
   { leading_comma; value; location }
+
+let make_implicit_output_argument ~leading_comma ~value ~location =
+  make_implicit_output_argument_with_separator
+    ~leading_comma:(Some leading_comma) ~value ~location
 
 let make_implicit_output_omission ~parameter_index ~leading_comma ~lookahead =
   if parameter_index < 0 then
@@ -1781,3 +1786,12 @@ and switch_implicit_outputs elements =
           switch_implicit_outputs subswitch.subswitch_elements
       | Switch_case_element _ | Switch_default_element _ -> [])
     elements
+
+let valid_implicit_output_separators statement =
+  let expects_comma =
+    statement.target = Print_target || Option.is_some statement.call_parentheses
+  in
+  List.for_all
+    (fun (argument : implicit_output_argument) ->
+      Option.is_some argument.leading_comma = expects_comma)
+    statement.arguments

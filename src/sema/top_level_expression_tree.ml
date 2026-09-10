@@ -844,6 +844,7 @@ let make_source_statement ~outputs ~source ~roots ~calls ~switch_cases =
       | _ -> false
     in
     fixed_matches
+    && Ast.valid_implicit_output_separators statement
     && Ast.valid_implicit_output_arguments
          ~fixed_argument:statement.fixed_argument ~arguments:statement.arguments
          ~omissions:statement.omissions

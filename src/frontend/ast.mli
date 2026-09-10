@@ -508,7 +508,7 @@ type implicit_output_fixed_argument =
   | Absent_fixed_argument
 
 type implicit_output_argument = private {
-  leading_comma : location;
+  leading_comma : location option;
   value : expression;
   location : location;
 }
@@ -1603,3 +1603,11 @@ val valid_implicit_output_arguments :
   bool
 
 val statement_implicit_outputs : statement -> implicit_output_statement list
+
+val make_implicit_output_argument_with_separator :
+  leading_comma:location option ->
+  value:expression ->
+  location:location ->
+  implicit_output_argument
+
+val valid_implicit_output_separators : implicit_output_statement -> bool

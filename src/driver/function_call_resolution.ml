@@ -1521,10 +1521,8 @@ let record_implicit_output state
                     | Ok expression -> (
                         match
                           Sema.Function_call_resolution
-                          .make_implicit_output_argument ~index
-                            ~leading_comma_origin:
-                              (origin argument.leading_comma)
-                            ~expression ~origin:(origin argument.location)
+                          .make_source_implicit_output_argument ~source:argument
+                            ~index ~expression
                         with
                         | Error _ as error -> error
                         | Ok prepared ->

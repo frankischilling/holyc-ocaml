@@ -274,7 +274,7 @@ type implicit_output_fixed_source =
 
 type implicit_output_argument = {
   index : int;
-  leading_comma_origin : Symbol.origin;
+  leading_comma_origin : Symbol.origin option;
   expression : argument_expression;
   origin : Symbol.origin;
 }
@@ -529,9 +529,12 @@ let implicit_output_origin (output : implicit_output_input) = output.origin
 let implicit_output_argument_index (argument : implicit_output_argument) =
   argument.index
 
-let implicit_output_argument_leading_comma_origin
+let implicit_output_argument_separator_origin
     (argument : implicit_output_argument) =
   argument.leading_comma_origin
+
+let implicit_output_argument_leading_comma_origin argument =
+  Option.get (implicit_output_argument_separator_origin argument)
 
 let implicit_output_argument_expression (argument : implicit_output_argument) =
   argument.expression
@@ -2122,14 +2125,26 @@ let make_expression_statement ~index ~expression ~origin =
     Error "function expression statement has an invalid source origin"
   else Ok { index; expression; origin }
 
-let make_implicit_output_argument ~index ~leading_comma_origin ~expression
+let make_implicit_output_argument_input ~index ~leading_comma_origin ~expression
     ~origin =
   if index < 0 then Error "implicit output argument index cannot be negative"
-  else if not (valid_origin leading_comma_origin) then
-    Error "implicit output argument comma has an invalid source origin"
+  else if not (Option.fold ~none:true ~some:valid_origin leading_comma_origin)
+  then Error "implicit output argument comma has an invalid source origin"
   else if not (valid_origin origin) then
     Error "implicit output argument has an invalid source origin"
   else Ok { index; leading_comma_origin; expression; origin }
+
+let make_implicit_output_argument ~index ~leading_comma_origin ~expression
+    ~origin =
+  make_implicit_output_argument_input ~index
+    ~leading_comma_origin:(Some leading_comma_origin) ~expression ~origin
+
+let make_source_implicit_output_argument
+    ~(source : Frontend.Ast.implicit_output_argument) ~index ~expression =
+  let origin = Initializer_source.origin_of_location in
+  make_implicit_output_argument_input ~index
+    ~leading_comma_origin:(Option.map origin source.Frontend.Ast.leading_comma)
+    ~expression ~origin:(origin source.location)
 
 let validate_implicit_output_argument_indexes arguments =
   let rec loop expected = function
@@ -2141,7 +2156,7 @@ let validate_implicit_output_argument_indexes arguments =
   in
   loop 0 arguments
 
-let make_implicit_output_input ~allow_additional_putchars ~index ~target
+let make_implicit_output_input ~allow_source_arguments ~index ~target
     ~marker_origin ~fixed_source ~fixed_expression ~arguments ~origin =
   if index < 0 then Error "function implicit output index cannot be negative"
   else if not (valid_origin marker_origin) then
@@ -2149,12 +2164,18 @@ let make_implicit_output_input ~allow_additional_putchars ~index ~target
   else if not (valid_origin origin) then
     Error "function implicit output statement has an invalid source origin"
   else if
-    (not allow_additional_putchars)
-    && target = Put_chars_output && arguments <> []
+    (not allow_source_arguments) && target = Put_chars_output && arguments <> []
   then Error "implicit PutChars output cannot have variadic arguments"
   else
     match validate_implicit_output_argument_indexes arguments with
     | Error _ as error -> error
+    | Ok ()
+      when (not allow_source_arguments)
+           && List.exists
+                (fun (argument : implicit_output_argument) ->
+                  Option.is_none argument.leading_comma_origin)
+                arguments ->
+        Error "adjacent implicit arguments require an original source statement"
     | Ok ()
       when fixed_source = Absent_fixed_output <> Option.is_none fixed_expression
       ->
@@ -2176,7 +2197,7 @@ let make_implicit_output_input ~allow_additional_putchars ~index ~target
 
 let make_implicit_output ~index ~target ~marker_origin ~fixed_source
     ~fixed_expression ~arguments ~origin =
-  make_implicit_output_input ~allow_additional_putchars:false ~index ~target
+  make_implicit_output_input ~allow_source_arguments:false ~index ~target
     ~marker_origin ~fixed_source ~fixed_expression:(Some fixed_expression)
     ~arguments ~origin
 
@@ -2215,7 +2236,8 @@ let bind_implicit_output_source ~source ~calls (output : implicit_output_input)
          (List.for_all2
             (fun (actual : implicit_output_argument)
                  (expected : Ast.implicit_output_argument) ->
-              actual.leading_comma_origin = origin expected.leading_comma
+              actual.leading_comma_origin
+              = Option.map origin expected.leading_comma
               && actual.origin = origin expected.location)
             output.arguments source.arguments)
   then Error "implicit output does not match its original statement"
@@ -2254,14 +2276,10 @@ let make_source_implicit_output_with_optional_fixed ~source ~calls ~index
     | Ast.Absent_fixed_argument -> Absent_fixed_output
   in
   let origin = Initializer_source.origin_of_location in
-  if
-    target = Put_chars_output && arguments <> []
-    && source.call_parentheses = None
-  then
-    Error
-      "additional implicit PutChars arguments require original call parentheses"
+  if not (Ast.valid_implicit_output_separators source) then
+    Error "implicit argument separators do not match the original call syntax"
   else
-    make_implicit_output_input ~allow_additional_putchars:true ~index ~target
+    make_implicit_output_input ~allow_source_arguments:true ~index ~target
       ~marker_origin:(origin source.marker.literal_location)
       ~fixed_source ~fixed_expression ~arguments
       ~origin:(origin source.location)
@@ -3305,8 +3323,7 @@ let validate_implicit_outputs table parent visible declarations compilation_mode
           && output.arguments <> []
           && not
                (Option.fold ~none:false
-                  ~some:(fun source ->
-                    Option.is_some source.Frontend.Ast.call_parentheses)
+                  ~some:Frontend.Ast.valid_implicit_output_separators
                   output.source_statement)
         then
           Error

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added parenthesis-free PutChars fixed arguments with adjacent expression
+  boundaries. Defaults leave the original token untouched, including when the
+  marker supplies a later formal after an initial default. Original optional
+  separators and call ownership reach semantic binding and retained execution.
+  Completed commas remain statement separators; no parenthesis-free variadic
+  values are consumed. General defaults, conversions and native linkage remain
+  unfinished in #635.
+
 - Added implicit calls with omitted first defaults and zero supplied values.
   Original statements retain call identity independently of expression roots;
   semantic binding uses saved values without a placeholder expression. Source

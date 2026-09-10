@@ -1207,8 +1207,11 @@ and print_implicit_output_statement buffer sources ~indent
     (fun index (argument : Ast.implicit_output_argument) ->
       Printf.bprintf buffer "%sargument index=%d span=%s\n" child_indent index
         (location_text sources argument.location);
-      Printf.bprintf buffer "%s  comma span=%s\n" child_indent
-        (location_text sources argument.leading_comma);
+      (match argument.leading_comma with
+      | Some comma ->
+          Printf.bprintf buffer "%s  comma span=%s\n" child_indent
+            (location_text sources comma)
+      | None -> Printf.bprintf buffer "%s  separator=adjacent\n" child_indent);
       print_expression buffer sources ~indent:(child_indent ^ "  ")
         argument.value)
     statement.arguments;
@@ -2195,7 +2198,10 @@ let implicit_output_argument_to_yojson sources
     (argument : Ast.implicit_output_argument) =
   `Assoc
     [
-      ("comma", location_to_yojson sources argument.leading_comma);
+      ( "comma",
+        Option.fold ~none:`Null
+          ~some:(location_to_yojson sources)
+          argument.leading_comma );
       ("expression", expression_to_yojson sources argument.value);
       ("location", location_to_yojson sources argument.location);
     ]

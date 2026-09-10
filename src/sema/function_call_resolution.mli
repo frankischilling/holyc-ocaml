@@ -665,6 +665,8 @@ val implicit_output_argument_index : implicit_output_argument -> int
 
 val implicit_output_argument_leading_comma_origin :
   implicit_output_argument -> Symbol.origin
+(** Legacy comma accessor. Raises [Invalid_argument] for an adjacent argument;
+    use [implicit_output_argument_separator_origin] for general source calls. *)
 
 val implicit_output_argument_expression :
   implicit_output_argument -> argument_expression
@@ -839,3 +841,12 @@ val error_kind : error -> error_kind
 val error_origin : error -> Symbol.origin option
 val error_message : error -> string
 val error_to_string : error -> string
+
+val make_source_implicit_output_argument :
+  source:Frontend.Ast.implicit_output_argument ->
+  index:int ->
+  expression:argument_expression ->
+  (implicit_output_argument, string) result
+
+val implicit_output_argument_separator_origin :
+  implicit_output_argument -> Symbol.origin option
