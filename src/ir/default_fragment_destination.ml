@@ -21,7 +21,7 @@ let symbol value =
   Fragment.publication value.fragment_
   |> Sema.Declaration_collection.publication_symbol
 
-let create ~task_view typed =
+let create_with_globals globals typed =
   let ( let* ) = Result.bind in
   let* root_ =
     match
@@ -68,7 +68,7 @@ let create ~task_view typed =
       Error
         "HCRUN0001: default preparation requires a checked scalar integer value"
   in
-  let* globals_ = Integer_globals.default_context task_view fragment_ in
+  let* globals_ = globals fragment_ in
   Ok
     {
       fragment_;
@@ -78,3 +78,8 @@ let create ~task_view typed =
       type_;
       span_ = receipt.default_ast.location.span;
     }
+
+let create ~task_view =
+  create_with_globals (Integer_globals.default_context task_view)
+
+let create_source = create_with_globals Integer_globals.source_default_context

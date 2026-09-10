@@ -257,6 +257,17 @@ let compile_report ?(max_dimension_work = 100_000)
                         ensure_task receipt.default_ast.location.span
                         |> Result.map ignore
                     | Frontend.Ast.Lastclass_default _ -> Ok ())
+                | false, _, Parser.Parameter_default_completed receipt -> (
+                    match receipt.default_ast.value with
+                    | Frontend.Ast.Expression_default _ ->
+                        let* task =
+                          ensure_task receipt.default_ast.location.span
+                        in
+                        Task.prepare_source_default task ~session ~ledger
+                          receipt
+                    | Frontend.Ast.Lastclass_default _ -> Ok ())
+                | false, _, Parser.Function_header_completed header ->
+                    Task_declarations.complete_source_defaults ledger header
                 | _ -> Ok ());
           dimension_count =
             Some (Task_declarations.grammar_dimension_count ledger);

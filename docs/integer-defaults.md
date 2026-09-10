@@ -13,6 +13,24 @@ reports expose the completed task and its separate units. Provider headers are
 installed only when execution actually enters a `#exe` block. Ordinary inputs
 without expression defaults or active directives retain their isolated path.
 
+`holyc run --mode=aot --format=json examples/integer-aot-defaults.hc` also
+returns I64 42. The unused prototype prepares 42, while `Saved` saves the full
+word 277 from its checked `sizeof` expression. Each omitted argument narrows to
+U8 21 on function entry. The AOT source seal owns those values; the isolated
+output reuses them for top-level calls and calls inside function bodies.
+The example uses 34 runtime instructions and ten preparation instructions,
+including work for the unused prototype, with no captured output.
+
+Ordinary AOT defaults use the same bounded initializer preparation engine at
+their original parameter callbacks. Closed integer expressions and original
+checked queries are supported. Their work shares the invocation's preparation
+allowance with directives and later image preparation. Completion verifies the
+exact charge to the owning invocation; another runtime's charge cannot pay for
+it. Missing preparation, skipped header publication and replay cannot seal even
+an unused prototype. Values retain the original source namespace, publication,
+header and parameter identity, and are never added to the directive task's
+default set. The public AOT compilation result remains an isolated artifact.
+
 `holyc run --mode=aot --format=json examples/stateful-exe-defaults.hc` returns
 I64 42. Inside the directive, parsing `Saved` evaluates `Next()` once and stores
 21 as its parameter default. The later write to `N` leaves that value intact;
@@ -50,9 +68,11 @@ native TempleOS execution capture.
 
 General default support remains unfinished: floating conversion, pointer and
 owned string defaults, `lastclass` materialization, defaults nested inside
-callback declarators, cross-command extern joins, partial-header calls, and
-ordinary outer AOT declaration preparation still need
-integration. The execution path operates in live parser tasks, including AOT
+callback declarators, cross-command extern joins and partial-header calls.
+Ordinary outer AOT defaults still need output relocation and callable support
+for global reads and function calls. Those AOT operands currently report
+HCRUN0006. Effectful default execution
+operates in live parser tasks, including AOT
 `#exe` bodies and activated outer JIT source. Outer JIT activation consumes
 earlier original default receipts once at the first default or directive;
 later defaults use their live parser callbacks.
@@ -64,3 +84,21 @@ including an integer-returning call with a string argument. Native
 `PrsExp.HC:691-704` marks this miscellaneous storage and `PrsVar.HC:649-652`
 copies the resulting default with StrNew. Ordinary integer preparation cannot
 stand in for that ownership operation.
+
+## Native AOT preparation boundary
+
+In the pinned source, `PrsVar.HC:635-640` clears only `CCF_HAS_MISC_DATA`
+before `LexExpression2Bin` and the immediate call. It leaves AOT mode active.
+`PrsExp.HC:1117-1133` and `PrsLib.HC:99-123` push and initialize code controls
+without switching the hash tables or compilation flags. This differs from both
+the directive task switch and the global-initializer path, which temporarily
+clears AOT in `PrsVar.HC:53-60` and copies staging bytes in `PrsStmt.HC:432`.
+
+AOT global operands use output RIP, heap or import references in
+`PrsExp.HC:877-887`; function calls use output-relative addresses in
+`PrsExp.HC:571` and `OptPass789A.HC:51`. `PrsStmt.HC:171-179` assigns the
+output offset and frees the temporary function buffer. The inspected path has
+no intervening output rebasing or loading before a default's temporary fragment
+is called. Dynamic ordinary AOT default behavior therefore still needs native
+evidence and explicit output address authority. Reusing task globals or global
+initializer staging storage would not follow these source paths.

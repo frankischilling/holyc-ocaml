@@ -2,6 +2,13 @@ type t
 type command
 type stream
 
+val prepare_source_default :
+  t ->
+  session:Session.t ->
+  ledger:Task_declarations.t ->
+  Frontend.Parser.completed_parameter_default ->
+  (unit, Common.Diagnostic.t list) result
+
 val activate_source :
   t -> span:Common.Span.t -> (unit, Common.Diagnostic.t list) result
 

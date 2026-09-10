@@ -14,7 +14,7 @@ let ( let* ) = Result.bind
 let records context = context.records_
 let function_sources context = context.function_sources_
 
-let create_context ~table ~parent =
+let create_context_with_mode ~compilation_mode ~table ~parent =
   let* headers = Sema.Aggregate_header_resolution.resolve ~table ~parent [] in
   let* members =
     Sema.Aggregate_member_index.build ~table ~parent []
@@ -29,7 +29,7 @@ let create_context ~table ~parent =
     |> Result.map_error Sema.Function_expression_binding.error_to_string
   in
   let* expressions =
-    Sema.Module_expression_binding.resolve ~table ~parent ~compilation_mode:Jit
+    Sema.Module_expression_binding.resolve ~table ~parent ~compilation_mode
       ~expressions []
     |> Result.map_error Sema.Module_expression_binding.error_to_string
   in
@@ -37,7 +37,7 @@ let create_context ~table ~parent =
     Sema.Function_type_resolution.resolve ~table ~parent []
   in
   let* functions =
-    Sema.Function_resolution.resolve ~table ~parent ~compilation_mode:Jit []
+    Sema.Function_resolution.resolve ~table ~parent ~compilation_mode []
   in
   let* calls =
     Sema.Function_call_resolution.resolve ~table ~parent ~members
@@ -66,6 +66,9 @@ let create_context ~table ~parent =
       records_;
       function_sources_;
     }
+
+let create_context = create_context_with_mode ~compilation_mode:Jit
+let create_aot_context = create_context_with_mode ~compilation_mode:Aot
 
 let finish context ~environment ~build bindings =
   let table = context.table in

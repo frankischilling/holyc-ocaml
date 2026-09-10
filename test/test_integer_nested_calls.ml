@@ -150,9 +150,7 @@ let unsupported () =
   List.iter
     (fun mode ->
       let default = "I64 F(I64 n=1){return n;}(1+F());" in
-      (match mode with
-      | Preprocessor.Jit -> ignore (F.run ~mode default |> F.expect 2L)
-      | Preprocessor.Aot -> ignore (F.first_error (F.run ~mode default)));
+      ignore (F.run ~mode default |> F.expect 2L);
       List.iter
         (fun text -> ignore (F.first_error (F.run ~mode text)))
         [

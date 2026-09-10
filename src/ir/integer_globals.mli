@@ -1,4 +1,10 @@
 type t
+
+val source_default_context : Sema.Default_fragment.t -> (t, string) result
+
+val with_source_defaults :
+  t -> Prepared_parameter_default.t list -> (t, string) result
+
 type slot
 type static_slot
 type storage_slot

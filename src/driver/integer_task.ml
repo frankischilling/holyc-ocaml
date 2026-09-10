@@ -156,6 +156,63 @@ let prepare_parameter_default task receipt =
   prepare_default_context task receipt
   |> Result.map (fun (_, _, _, typed) -> typed)
 
+let prepare_source_default task ~session ~ledger receipt =
+  let ( let* ) = Result.bind in
+  let span = receipt.Frontend.Parser.default_ast.location.span in
+  let diagnose result =
+    Result.map_error
+      (fun message -> [ Integer_source.message_diagnostic ~span message ])
+      result
+  in
+  let* authority =
+    Task_declarations.begin_source_default ledger ~runtime:task.state receipt
+  in
+  let fragment = Sema.Default_fragment.authorized_fragment authority in
+  let* () =
+    if
+      Expression_facts.contains_string_literal
+        (Sema.Default_fragment.expression fragment)
+    then
+      Error
+        "HCRUN0006: defaults containing string storage require native \
+         owned-default preparation" |> diagnose
+    else Ok ()
+  in
+  let* context =
+    Initializer_fragment_typing.create_aot_context
+      ~table:(Session.semantic_symbols session)
+      ~parent:(Task_declarations.initializer_scope ledger)
+    |> diagnose
+  in
+  let* typed =
+    Initializer_fragment_typing.prepare_default context fragment |> diagnose
+  in
+  let* destination =
+    Ir.Default_fragment_destination.create_source typed |> diagnose
+  in
+  let before = VM.task_initializer_steps task.state in
+  let* classification, steps =
+    Integer_initializers.prepare_default
+      ~on_progress:(fun steps ->
+        VM.record_task_preparation task.state ~before ~steps)
+      ~max_steps:(VM.task_initializer_limit task.state - before)
+      ~top_calls:[] destination
+  in
+  let* bits =
+    match classification with
+    | Integer_initializers.Prepared_constant bits -> Ok bits
+    | Scheduled ->
+        Error
+          "HCRUN0006: AOT default requires proven output relocation and \
+           callable authority" |> diagnose
+  in
+  let* execution =
+    Ir.Default_fragment_program.prepare ~authority ~destination
+      ~code:(Ir.Default_fragment_program.Prepared bits) ~steps
+    |> diagnose
+  in
+  Task_declarations.finish_source_default ledger execution
+
 let prepare_initializer_destination_context task ~destination receipt =
   let ( let* ) = Result.bind in
   let span = receipt.Frontend.Parser.leaf_initializer.initializer_equals.span in

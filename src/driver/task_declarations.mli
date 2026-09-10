@@ -91,6 +91,29 @@ val complete_initializer_runtime :
 
 type command
 type source_command
+
+val begin_source_default :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.completed_parameter_default ->
+  (Sema.Default_fragment.authority, Common.Diagnostic.t list) result
+
+val finish_source_default :
+  t ->
+  Ir.Default_fragment_program.execution ->
+  (unit, Common.Diagnostic.t list) result
+
+val complete_source_defaults :
+  t ->
+  Frontend.Parser.completed_function_header ->
+  (unit, Common.Diagnostic.t list) result
+
+val source_defaults :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  (Ir.Prepared_parameter_default.t list, Common.Diagnostic.t list) result
+
 type query
 
 val create_source :

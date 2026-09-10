@@ -1,5 +1,8 @@
 type t
 
+val create_source :
+  Sema.Function_call_expression_result.top_level_t -> (t, string) result
+
 val create :
   task_view:Integer_globals.task_view ->
   Sema.Function_call_expression_result.top_level_t ->

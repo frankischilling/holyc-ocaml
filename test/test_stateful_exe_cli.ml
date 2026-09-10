@@ -73,6 +73,10 @@ let () =
       ("aot", {|#exe {StreamPrint("42;");}|});
       ("jit", {|I64 N=40;#exe {StreamPrint("%d;",N+2);}|});
       ("jit", {|I64 F(I64 n=42){return n;};F();|});
+      ("aot", {|I64 F(I64 n=42){return n;};F();|});
+      ( "aot",
+        {|extern I64 Unused(I64 n=20+22);I64 Saved(U8 n=sizeof U8+276){return n;};I64 Twice(){return Saved()+Saved();};Twice();|}
+      );
       ( "jit",
         {|I64 N=20;I64 Next(){return ++N;};I64 Saved(I64 n=Next()){return n;};N=0;Saved()+Saved();|}
       );

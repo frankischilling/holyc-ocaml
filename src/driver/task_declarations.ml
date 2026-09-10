@@ -121,6 +121,7 @@ type reading_query = {
 }
 
 type command = {
+  source_defaults : Ir.Prepared_parameter_default.t list;
   table : Sema.Symbol_table.t;
   runtime : VM.task_state option;
   ast : Ast.module_;
@@ -159,6 +160,14 @@ type command_sequence = {
 }
 
 type t = {
+  mutable source_default_attempts :
+    (Parser.completed_parameter_default
+    * Sema.Default_fragment.authority
+    * int
+    * int64 option ref)
+    list;
+  mutable source_defaults_runtime : VM.task_state option;
+  mutable prepared_source_defaults : Ir.Prepared_parameter_default.t list;
   storage_boundaries : storage_boundary Names.t;
   mutable last_storage_global : Sema.Symbol.t option;
   session : Session.t;
@@ -248,6 +257,9 @@ let create_with_authority ?(max_dimension_work = 100_000) authority session =
         Result.map
           (fun () ->
             {
+              source_default_attempts = [];
+              source_defaults_runtime = None;
+              prepared_source_defaults = [];
               storage_boundaries = Names.create 16;
               last_storage_global = None;
               session;
@@ -1716,6 +1728,39 @@ let seal ledger (ast : Ast.module_) =
                     fail ~code:"HCRUN0001" ast.span
                       "declaration is outside integer program execution")
               ast.items;
+            (match ledger.authority with
+            | Source_compilation _ ->
+                List.iter
+                  (fun assigned ->
+                    match assigned.source with
+                    | Function state
+                      when Parser.context_mode
+                             state.publication.function_header
+                               .declaration_command
+                               .command_context
+                           = Frontend.Preprocessor.Aot ->
+                        List.iter
+                          (fun receipt ->
+                            match receipt.Parser.default_ast.value with
+                            | Ast.Lastclass_default _ -> ()
+                            | Ast.Expression_default _ ->
+                                if
+                                  not
+                                    (List.exists
+                                       (fun value ->
+                                         Ir.Prepared_parameter_default.receipt
+                                           value
+                                         == receipt)
+                                       ledger.prepared_source_defaults)
+                                then
+                                  fail receipt.default_ast.location.span
+                                    "output source seal requires every \
+                                     original default preparation and header \
+                                     publication")
+                          state.defaults_rev
+                    | _ -> ())
+                  !claimed
+            | Semantic_analysis | Task_runtime _ -> ());
             let declarations =
               Collection.view ledger.namespace (List.rev !facts)
               |> checked ast.span
@@ -1756,6 +1801,15 @@ let seal ledger (ast : Ast.module_) =
               ledger.dimensions;
             let command =
               {
+                source_defaults =
+                  List.filter
+                    (fun value ->
+                      List.exists
+                        (fun assigned ->
+                          assigned.publication
+                          == Ir.Prepared_parameter_default.publication value)
+                        !claimed)
+                    ledger.prepared_source_defaults;
                 table = ledger.table;
                 runtime = ledger_runtime ledger;
                 ast;
@@ -2065,6 +2119,197 @@ let default_fragment_authority ledger ~runtime ~task_view receipt =
       Sema.Default_fragment.authorize ?activation:ledger.activation
         ~namespace:ledger.namespace fragment
       |> checked span)
+
+let begin_source_default ledger ~runtime receipt =
+  protect (fun () ->
+      let span = receipt.Parser.default_ast.location.span in
+      (match ledger.authority with
+      | Source_compilation _
+        when Parser.context_mode
+               receipt.default_function.function_header.declaration_command
+                 .command_context
+             = Frontend.Preprocessor.Aot -> ()
+      | _ ->
+          fail span
+            "output default preparation requires its original AOT source ledger");
+      if not (Parser.parameter_default_is_current receipt) then
+        fail span "output default preparation is outside its original callback";
+      if
+        List.exists
+          (fun (prior, _, _, _) -> prior == receipt)
+          ledger.source_default_attempts
+      then fail span "output default preparation was already attempted";
+      (match ledger.source_defaults_runtime with
+      | Some prior when prior != runtime ->
+          fail span "output defaults have another invocation budget"
+      | _ -> ());
+      let assigned = find ledger receipt.default_function.function_name in
+      (match assigned.source with
+      | Function state
+        when state.publication == receipt.default_function
+             && state.header = None
+             && Option.fold ~none:false ~some:(( == ) receipt)
+                  (List.nth_opt state.defaults_rev 0) -> ()
+      | _ -> fail span "output default lacks its original observed parameter");
+      Option.iter
+        (fun previous ->
+          match previous.Parser.default_ast.value with
+          | Ast.Lastclass_default _ -> ()
+          | Ast.Expression_default _ ->
+              if
+                not
+                  (List.exists
+                     (fun (prior, _, _, value) ->
+                       prior == previous && Option.is_some !value)
+                     ledger.source_default_attempts)
+              then
+                fail span "output default requires its successful predecessor")
+        receipt.default_predecessor;
+      let expression =
+        match receipt.default_ast.value with
+        | Ast.Expression_default expression -> expression
+        | Ast.Lastclass_default _ ->
+            fail span "lastclass needs separate materialization"
+      in
+      if Sema.Initializer_source.expression_identifier_nodes expression <> []
+      then
+        fail ~code:"HCRUN0006" span
+          "AOT default references require proven output relocation and \
+           callable authority";
+      let module Outer = Sema.Outer_environment in
+      let assembler =
+        Outer.make_table ~table_kind:Outer.Assembler ~table_index:0 []
+        |> Result.map_error Outer.error_to_string
+        |> checked span
+      in
+      let environment =
+        Outer.create ~table:ledger.table ~compilation_mode:Aot [ assembler ]
+        |> Result.map_error Outer.error_to_string
+        |> checked span
+      in
+      let queries =
+        Sema.Query_selection.source_queries expression
+        |> List.map (fun expression ->
+            match Query_expressions.find_opt ledger.queries expression with
+            | Some query -> query.query_selection
+            | None ->
+                fail span "output default lacks its original checked query")
+      in
+      let fragment =
+        Sema.Default_fragment.create ~table:ledger.table
+          ~publication:assigned.publication ~receipt ~environment ~references:[]
+          ~queries
+        |> checked span
+      in
+      let authority =
+        Sema.Default_fragment.authorize ~namespace:ledger.namespace fragment
+        |> checked span
+      in
+      ledger.source_defaults_runtime <- Some runtime;
+      ledger.source_default_attempts <-
+        (receipt, authority, VM.task_initializer_steps runtime, ref None)
+        :: ledger.source_default_attempts;
+      authority)
+
+let finish_source_default ledger execution =
+  protect (fun () ->
+      let module Program = Ir.Default_fragment_program in
+      let authority = Program.authority execution in
+      let fragment = Sema.Default_fragment.authorized_fragment authority in
+      let receipt = Sema.Default_fragment.receipt fragment in
+      let span = receipt.Parser.default_ast.location.span in
+      if not (Parser.parameter_default_is_current receipt) then
+        fail span "output default completion is delayed";
+      let before, value =
+        match
+          List.find_opt
+            (fun (prior, proof, _, _) -> prior == receipt && proof == authority)
+            ledger.source_default_attempts
+        with
+        | Some (_, _, before, value) when !value = None -> (before, value)
+        | _ -> fail span "output default completion is foreign or repeated"
+      in
+      (match ledger.source_defaults_runtime with
+      | Some runtime
+        when VM.task_initializer_steps runtime - before
+             = Program.steps execution -> ()
+      | _ ->
+          fail span
+            "output default preparation was not charged to its owning \
+             invocation");
+      match Program.code execution with
+      | Program.Prepared bits -> value := Some bits
+      | Program.Scheduled _ ->
+          fail ~code:"HCRUN0006" span
+            "AOT default execution requires output relocation authority")
+
+let complete_source_defaults ledger header =
+  protect (fun () ->
+      let span =
+        header.Parser.function_publication.function_name.location.span
+      in
+      let assigned = find ledger header.function_publication.function_name in
+      (match
+         (ledger.authority, assigned.source, ledger.activation_events_rev)
+       with
+      | ( Source_compilation _,
+          Function state,
+          Sema.Source_activation.Declaration
+            (Parser.Function_header_completed original)
+          :: _ )
+        when original == header
+             && Option.fold ~none:false ~some:(( == ) header) state.header
+             && Parser.context_is_current
+                  header.function_publication.function_header
+                    .declaration_command
+                    .command_context
+                  ~observed_events:(List.length ledger.source_events_rev) -> ()
+      | _ ->
+          fail span
+            "output defaults require their original current completed header");
+      let values =
+        List.mapi
+          (fun index (parameter : Ast.function_parameter) ->
+            match parameter.default with
+            | Some { value = Ast.Expression_default _; _ } ->
+                let receipt, bits =
+                  match
+                    List.find_opt
+                      (fun (receipt, _, _, _) ->
+                        receipt.Parser.default_function
+                        == header.function_publication
+                        && receipt.default_parameter_index = index)
+                      ledger.source_default_attempts
+                  with
+                  | Some (receipt, _, _, value) when Option.is_some !value ->
+                      (receipt, Option.get !value)
+                  | _ ->
+                      fail span
+                        "output header requires every original default \
+                         preparation"
+                in
+                if
+                  List.exists
+                    (fun value ->
+                      Ir.Prepared_parameter_default.receipt value == receipt)
+                    ledger.prepared_source_defaults
+                then fail span "output defaults cannot be published twice";
+                Some
+                  (Ir.Prepared_parameter_default.create
+                     ~publication:assigned.publication ~header ~receipt ~bits
+                  |> checked span)
+            | _ -> None)
+          header.parameters
+        |> List.filter_map Fun.id
+      in
+      ledger.prepared_source_defaults <-
+        values @ ledger.prepared_source_defaults)
+
+let source_defaults ~table ~ast (Source_command command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span "output defaults belong to another source seal";
+      command.source_defaults)
 
 let begin_initializer_runtime ledger ~runtime start =
   let ( let* ) = Result.bind in

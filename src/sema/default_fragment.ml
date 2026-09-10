@@ -50,11 +50,19 @@ let create ~table ~publication ~receipt ~environment ~references ~queries =
          (Symbol_table.owns_symbol table
             (Declaration_collection.publication_symbol publication)))
       || (not (Outer_environment.owns_table environment table))
-      || Outer_environment.compilation_mode environment <> Outer_environment.Jit
+      ||
+      match
+        ( Outer_environment.compilation_mode environment,
+          Frontend.Parser.context_mode
+            receipt.Frontend.Parser.default_function.function_header
+              .declaration_command
+              .command_context )
+      with
+      | Outer_environment.Jit, Frontend.Preprocessor.Jit
+      | Outer_environment.Aot, Frontend.Preprocessor.Aot -> false
+      | _ -> true
     then
-      Error
-        "default fragment requires its original table and retained JIT \
-         environment"
+      Error "default fragment requires its original table and compilation mode"
     else
       match Declaration_collection.publication_source_function publication with
       | Some owner when owner == receipt.Frontend.Parser.default_function ->

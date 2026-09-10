@@ -214,6 +214,50 @@ let ordinary_declaration_defaults () =
       {|I64 F(I64 x=42){return x;};F()+defined(Print)+defined(PutChars)+defined(StreamPrint);|};
     ]
 
+let aot_declaration_defaults () =
+  List.iter
+    (fun source ->
+      ignore (Output.run ~mode:Preprocessor.Aot source |> Output.expect ""))
+    [
+      {|I64 F(I64 x=42){return x;};F();|};
+      {|I64 F(I64 x=20+1){return x;};F()+F();|};
+      {|I64 F(I64 x=21){return x;};I64 G(){return F()+F();};G();|};
+      {|I64 F(I64 x=sizeof U8+41){return x;};F();|};
+      {|I64 N=0;I64 F(I64 x=defined(N)+41){return x;};F();|};
+      {|I64 F(U8 x=298){return x;};F();|};
+    ]
+
+let aot_default_order_and_limits () =
+  let run = Output.run ~mode:Preprocessor.Aot in
+  let source = {|#exe {Print("A");}I64 F(I64 x=20+22){return x;};F();|} in
+  let report = run ~max_initializer_steps:2 source in
+  ignore (Output.fault ~output:"A" "HCIRVM0007" report);
+  Alcotest.(check int)
+    "AOT default retains reached preparation" 2
+    (Option.get (integer_program_report_progress report)).runtime
+      .initializer_steps;
+  ignore (run ~max_initializer_steps:5 source |> Output.expect "A");
+  let source =
+    {|extern I64 Unused(I64 x=20+22);#exe {I64 N=20+22;StreamPrint("42;");}|}
+  in
+  let measured = run source in
+  ignore (Output.expect "" measured);
+  let steps =
+    (Option.get (integer_program_report_progress measured)).runtime
+      .initializer_steps
+  in
+  ignore
+    (run ~max_initializer_steps:(steps - 1) source |> Output.fault "HCIRVM0007");
+  ignore (run ~max_initializer_steps:steps source |> Output.expect "");
+  ignore
+    (run {|I64 F(I64 x=42){return x;};#exe {Print("A");}F();|}
+    |> Output.expect "A");
+  ignore
+    (run {|I64 N=42;I64 F(I64 x=N){return x;};F();|} |> Output.fault "HCRUN0006");
+  ignore
+    (run {|I64 G(){return 42;};I64 F(I64 x=G()){return x;};F();|}
+    |> Output.fault "HCRUN0006")
+
 let ordinary_default_failures () =
   List.iter
     (fun (code, body) ->
@@ -291,6 +335,11 @@ let tests =
       `Quick dimensions_share_initializer_budget;
     Alcotest.test_case "ordinary JIT defaults execute at declaration time"
       `Quick ordinary_declaration_defaults;
+    Alcotest.test_case "ordinary AOT defaults retain output-owned constants"
+      `Quick aot_declaration_defaults;
+    Alcotest.test_case
+      "AOT defaults preserve output namespace and shared limits" `Quick
+      aot_default_order_and_limits;
     Alcotest.test_case "ordinary default failures preserve earlier execution"
       `Quick ordinary_default_failures;
     Alcotest.test_case "ordinary defaults share exact task limits" `Quick

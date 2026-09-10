@@ -110,6 +110,14 @@ activate a task. Generated text returns to the ordinary outer parser, including
 joined tokens, expressions, function bodies and initializer operands. The final
 outer unit executes in a fresh isolated image with no task namespace access.
 
+Ordinary AOT integer defaults are prepared in the original output namespace at
+their parameter callbacks, using the detached task only for its shared
+invocation allowance. Closed expressions and checked queries are supported;
+their saved values belong to the output source seal and isolated image. The
+task does not acquire those defaults or provider headers through preparation.
+See [integer defaults](integer-defaults.md) for the remaining AOT relocation
+and value-ownership requirements.
+
 Streams and the outer image share cumulative instruction, initializer, global,
 literal, output and formatting allowances. Preparation uses an invocation-owned
 ticket that binds charged work to the exact compiled bundle before execution.

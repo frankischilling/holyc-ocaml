@@ -70,6 +70,7 @@ type task_view = {
 type fragment_kind = Initializer_context | Default_context
 
 type t = {
+  source_defaults : Prepared_parameter_default.t list;
   fragment_kind_ : fragment_kind option;
   declared_slots_ : declared_slot list;
   slots_ : slot list;
@@ -92,6 +93,7 @@ let fragment_context view fragment =
     Ok
       {
         fragment_kind_ = Some Initializer_context;
+        source_defaults = [];
         declared_slots_ = [];
         slots_ = [];
         symbols = Symbols.empty;
@@ -111,6 +113,7 @@ let default_context view fragment =
     Ok
       {
         fragment_kind_ = Some Default_context;
+        source_defaults = [];
         declared_slots_ = [];
         slots_ = [];
         symbols = Symbols.empty;
@@ -125,6 +128,37 @@ let default_context view fragment =
 
 let is_initializer_fragment globals =
   globals.fragment_kind_ = Some Initializer_context
+
+let source_default_context fragment =
+  if
+    Sema.Outer_environment.compilation_mode
+      (Sema.Default_fragment.environment fragment)
+    <> Sema.Outer_environment.Aot
+  then Error "source default context requires its original AOT environment"
+  else
+    Ok
+      {
+        source_defaults = [];
+        fragment_kind_ = Some Default_context;
+        declared_slots_ = [];
+        slots_ = [];
+        symbols = Symbols.empty;
+        statics_ = [];
+        mode = Resolution.Aot;
+        global_byte_size_ = 0;
+        global_cell_count_ = 0;
+        byte_size_ = 0;
+        task_view = None;
+        function_publications_ = [];
+      }
+
+let with_source_defaults globals defaults =
+  if
+    globals.mode <> Resolution.Aot
+    || Option.is_some globals.task_view
+    || globals.source_defaults <> []
+  then Error "source defaults require their isolated AOT output context"
+  else Ok { globals with source_defaults = defaults }
 
 let is_default_fragment globals = globals.fragment_kind_ = Some Default_context
 let byte_size globals = globals.byte_size_
@@ -440,6 +474,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
           Ok
             {
               fragment_kind_ = None;
+              source_defaults = [];
               declared_slots_ = [];
               slots_ = List.rev reversed;
               symbols;
@@ -716,11 +751,18 @@ let publish_parameter_defaults catalog ~namespace defaults =
     Ok ())
 
 let prepared_parameter_default globals ~header ~parameter =
-  Option.bind globals.task_view (fun view ->
-      List.find_opt
-        (fun value ->
-          Prepared_parameter_default.matches value ~header ~parameter)
-        view.defaults)
+  match
+    List.find_opt
+      (fun value -> Prepared_parameter_default.matches value ~header ~parameter)
+      globals.source_defaults
+  with
+  | Some value -> Some value
+  | None ->
+      Option.bind globals.task_view (fun view ->
+          List.find_opt
+            (fun value ->
+              Prepared_parameter_default.matches value ~header ~parameter)
+            view.defaults)
 
 let check_task_namespace catalog namespace =
   if Option.is_some catalog.namespace then
@@ -1029,6 +1071,7 @@ let prepare_declared catalog declaration =
     Ok
       ( {
           fragment_kind_ = None;
+          source_defaults = [];
           declared_slots_ = [ slot ];
           slots_ = [];
           symbols = Symbols.empty;

@@ -241,7 +241,7 @@ let unsupported () =
     ];
   let default = "I64 F(I64 a=1){return a;}(F());" in
   ignore (run ~mode:Preprocessor.Jit default |> expect 1L);
-  ignore (first_error (run ~mode:Preprocessor.Aot default))
+  ignore (run ~mode:Preprocessor.Aot default |> expect 1L)
 
 let compile text =
   let session, config, source = inputs text in
