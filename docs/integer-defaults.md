@@ -43,3 +43,9 @@ execution path operates in live parser tasks, including AOT `#exe` bodies.
 Outer JIT directives still have fourteen failing HCPP0008 acceptance groups.
 Issue #635 and draft #636 remain open, together with the full compiler, native
 backend, BIN/loader and bootstrap requirements.
+
+Defaults containing string storage reject with HCRUN0006 before evaluation,
+including an integer-returning call with a string argument. Native
+`PrsExp.HC:691-704` marks this miscellaneous storage and `PrsVar.HC:649-652`
+copies the resulting default with StrNew. Ordinary integer preparation cannot
+stand in for that ownership operation.

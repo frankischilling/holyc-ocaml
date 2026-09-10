@@ -12,6 +12,17 @@ let prepare ~context ~authority ~runtime destination =
       (fun message -> [ Integer_source.message_diagnostic ~span message ])
       result
   in
+  let* () =
+    if
+      Destination.fragment destination
+      |> Sema.Default_fragment.expression
+      |> Expression_facts.contains_string_literal
+    then
+      Error
+        "HCRUN0006: defaults containing string storage require native \
+         owned-default preparation" |> diagnose
+    else Ok ()
+  in
   let typed = Destination.typed destination in
   let records = Initializer_fragment_typing.records context in
   let rec classify = function

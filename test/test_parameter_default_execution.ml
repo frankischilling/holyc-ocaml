@@ -141,8 +141,20 @@ let runtime_budget () =
     "default instructions share the retained task allowance" (!reached - 1)
     (Task.executed_steps task)
 
+let string_storage_boundary () =
+  let parsed, task =
+    Live.run_result
+      {|I64 N=0;I64 First(U8 *p){N=42;return p[0];};I64 F(I64 n=First("a")){return n;};|}
+  in
+  Live.expect_error "HCRUN0006" parsed;
+  Alcotest.(check int64)
+    "unprepared string-default ownership cannot run effects" 0L
+    (Live.read task "N;")
+
 let tests =
   [
+    Alcotest.test_case "string-containing defaults require owned preparation"
+      `Quick string_storage_boundary;
     Alcotest.test_case "later default requires prior runtime completion" `Quick
       skipped_predecessor;
     Alcotest.test_case "function admission requires its original defaults"
