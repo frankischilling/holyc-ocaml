@@ -110,3 +110,15 @@ let prepare_default context fragment =
       Top_level_expression_tree.build_default_fragment ~table ~expressions
         fragment)
     bindings
+
+let prepare_dimension context fragment =
+  let* bindings =
+    Top_level_expression_binding.resolve_dimension_fragment ~table:context.table
+      ~parent:context.parent ~module_expressions:context.expressions fragment
+  in
+  finish context
+    ~environment:(Sema.Dimension_fragment.environment fragment)
+    ~build:(fun ~table ~expressions ->
+      Top_level_expression_tree.build_dimension_fragment ~table ~expressions
+        fragment)
+    bindings

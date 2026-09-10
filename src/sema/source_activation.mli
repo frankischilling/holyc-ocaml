@@ -24,6 +24,9 @@ val before_dimension : t -> Frontend.Parser.array_dimension_preparation -> bool
 val dimension_preparing :
   t option -> Frontend.Parser.array_dimension_preparation -> bool
 
+val dimension_completed :
+  t option -> Frontend.Parser.completed_array_dimension -> bool
+
 val run : t -> invalid:'e -> (event -> (unit, 'e) result) -> (unit, 'e) result
 (** Consumes the complete original journal once. Only the current event has
     authority, and failure or exception permanently revokes the journal. *)

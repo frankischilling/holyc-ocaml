@@ -67,7 +67,7 @@ type task_view = {
   source_command : Sema.Task_command_order.command option;
 }
 
-type fragment_kind = Initializer_context | Default_context
+type fragment_kind = Initializer_context | Default_context | Dimension_context
 
 type t = {
   source_defaults : Prepared_parameter_default.t list;
@@ -125,6 +125,29 @@ let default_context view fragment =
         task_view = Some view;
         function_publications_ = [];
       }
+
+let dimension_context view fragment =
+  if view.environment != Sema.Dimension_fragment.environment fragment then
+    Error "dimension fragment has another retained task snapshot"
+  else
+    Ok
+      {
+        fragment_kind_ = Some Dimension_context;
+        source_defaults = [];
+        declared_slots_ = [];
+        slots_ = [];
+        symbols = Symbols.empty;
+        statics_ = [];
+        mode = Resolution.Jit;
+        global_byte_size_ = 0;
+        global_cell_count_ = 0;
+        byte_size_ = 0;
+        task_view = Some view;
+        function_publications_ = [];
+      }
+
+let is_dimension_fragment globals =
+  globals.fragment_kind_ = Some Dimension_context
 
 let is_initializer_fragment globals =
   globals.fragment_kind_ = Some Initializer_context
@@ -779,6 +802,10 @@ let bind_task_namespace catalog namespace =
     (check_task_namespace catalog namespace)
 
 let task_source_order catalog = catalog.source_order
+
+let check_dimension_source ?require_admitted catalog receipt =
+  Sema.Task_command_order.check_dimension ?require_admitted catalog.source_order
+    ~admitted:catalog.admitted_commands receipt
 
 let with_source_command view ~ast command =
   if Sema.Task_command_order.owns view.catalog.source_order ~ast command then
@@ -1622,3 +1649,23 @@ let array_human globals =
         |> String.concat "")
 
 let human globals = scalar_human globals ^ array_human globals
+
+let dimension_dependencies globals =
+  List.concat_map
+    (fun slot ->
+      Option.fold ~none:[]
+        ~some:Sema.Compiler_record.global_extent_runtime_dependencies
+        slot.extent
+      @ List.concat_map
+          (fun root ->
+            Dimension_requirements.expression (Typed.top_level_root_value root))
+          (slot_initializers slot))
+    globals.slots_
+  @ List.concat_map
+      (fun slot ->
+        Dimension_requirements.frame (static_frame slot)
+        @ List.concat_map
+            (fun root ->
+              Dimension_requirements.expression (Typed.initializer_value root))
+            (static_initializers slot))
+      globals.statics_

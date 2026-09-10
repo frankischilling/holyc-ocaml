@@ -1316,3 +1316,12 @@ let build_default_fragment ~table ~expressions fragment =
     ~source_expression:(Sema.Default_fragment.expression fragment)
     ~make_root:
       (Sema.Top_level_expression_tree.make_default_root ~index:0 ~fragment)
+
+let build_dimension_fragment ~table ~expressions fragment =
+  build_fragment ~table ~expressions
+    ~matches_source:(fun source ->
+      Option.fold ~none:false ~some:(( == ) fragment)
+        (Sema.Top_level_expression_binding.statement_dimension source))
+    ~source_expression:(Sema.Dimension_fragment.expression fragment)
+    ~make_root:
+      (Sema.Top_level_expression_tree.make_dimension_root ~index:0 ~fragment)

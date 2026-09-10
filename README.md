@@ -1,5 +1,10 @@
 # holyc-ocaml
 
+`holyc run --mode=jit --format=json examples/integer-runtime-dimensions.hc`
+returns 42 using an array bound evaluated once during declaration parsing.
+[Runtime dimensions](docs/integer-runtime-dimensions.md) covers calls, updates,
+local declaration timing, shared limits and the remaining AOT boundary.
+
 `holyc run --mode=jit --format=json examples/integer-jit-defaults.hc` returns
 42 using a default evaluated once during ordinary declaration parsing, without
 a directive. Later calls reuse the saved value after its source global changes.

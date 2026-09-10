@@ -8,7 +8,13 @@ type location_kind =
 type declarator_shape = Object | Function_pointer
 type value_shape = Scalar | Array
 type dimension_kind = Source_extent | Compiler_placeholder_extent
-type dimension = { kind : dimension_kind; value : int64 }
+
+type dimension = {
+  kind : dimension_kind;
+  value : int64;
+  runtime_dependencies : Compiler_record.runtime_dimension_proposal list;
+}
+
 type frame_slot = { displacement : int64; size : int64 }
 
 type location = {
@@ -121,6 +127,7 @@ let location_allocated_size (location : location) = location.allocated_size
 let location_alignment (location : location) = location.alignment
 let location_frame_slot (location : location) = location.frame_slot
 let dimension_kind (dimension : dimension) = dimension.kind
+let dimension_runtime_dependencies dimension = dimension.runtime_dependencies
 let dimension_value (dimension : dimension) = dimension.value
 let frame_slot_displacement (slot : frame_slot) = slot.displacement
 let frame_slot_size (slot : frame_slot) = slot.size
@@ -499,7 +506,17 @@ let evaluate_dimensions table symbol semantic_dimensions inputs =
                    "the local array element count" total value)
                 (fun total ->
                   loop (index + 1) total
-                    ({ kind = Source_extent; value } :: values_rev)
+                    ({
+                       kind = Source_extent;
+                       value;
+                       runtime_dependencies =
+                         (match input.expression with
+                         | Prepared_dimension checked ->
+                             Compiler_record.dimension_runtime_dependencies
+                               checked
+                         | _ -> []);
+                     }
+                    :: values_rev)
                     semantic_rest input_rest))
     | [], _ :: _ | _ :: _, [] ->
         Error
@@ -657,11 +674,16 @@ let parameter_location table aggregate_layouts typed_function binding evidence =
                 Option.to_list
                   (Option.map
                      (fun value ->
-                       { kind = Source_extent; value = Int64.of_int value })
+                       {
+                         kind = Source_extent;
+                         value = Int64.of_int value;
+                         runtime_dependencies = [];
+                       })
                      source_extent)
                 @ [
                     {
                       kind = Compiler_placeholder_extent;
+                      runtime_dependencies = [];
                       value = Int64.of_int compiler_placeholder_extent;
                     };
                   ]

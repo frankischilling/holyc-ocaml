@@ -10,6 +10,7 @@ type root_role =
   | Global_initializer of Global_initializer_binding.resolved_global
   | Initializer_fragment of Initializer_fragment.t
   | Default_fragment of Default_fragment.t
+  | Dimension_fragment of Dimension_fragment.t
   | Implicit_output_fixed of {
       output_index : int;
       target : Function_call_resolution.implicit_output_target;
@@ -68,6 +69,13 @@ val make_initializer_root :
 val make_fragment_root :
   index:int ->
   fragment:Initializer_fragment.t ->
+  expression:Function_call_resolution.argument_expression ->
+  calls:call list ->
+  (root, error) result
+
+val make_dimension_root :
+  index:int ->
+  fragment:Dimension_fragment.t ->
   expression:Function_call_resolution.argument_expression ->
   calls:call list ->
   (root, error) result

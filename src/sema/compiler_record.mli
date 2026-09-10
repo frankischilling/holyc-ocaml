@@ -1,3 +1,23 @@
+type runtime_dimension_proposal
+
+val propose_runtime_dimension :
+  namespace:Declaration_collection.namespace ->
+  preparation:Frontend.Parser.array_dimension_preparation ->
+  count:int64 ->
+  work:int ->
+  (runtime_dimension_proposal, string) result
+(** An unverified proposed shape. Only the owning VM can establish that its
+    original expression executed with this result. *)
+
+val runtime_dimension_namespace :
+  runtime_dimension_proposal -> Declaration_collection.namespace
+
+val runtime_dimension_source :
+  runtime_dimension_proposal -> Frontend.Parser.array_dimension_preparation
+
+val runtime_dimension_count : runtime_dimension_proposal -> int64
+val runtime_dimension_work : runtime_dimension_proposal -> int
+
 type t
 type declared_dimension
 type declared_global
@@ -18,6 +38,10 @@ val declared_global_source :
 
 val declared_global_type : declared_global -> Type_reference.t
 val declared_global_dimensions : declared_global -> int64 list
+
+val declared_global_runtime_dependencies :
+  declared_global -> runtime_dimension_proposal list
+
 val declared_global_owns_table : declared_global -> Symbol_table.t -> bool
 
 val declared_global_owns_namespace :
@@ -39,6 +63,11 @@ val validate_declared_global_type :
 
 type sizeof_read
 type dimension_preparation
+
+val declared_dimension_preparation : declared_dimension -> dimension_preparation
+
+val dimension_preparation_runtime_dependencies :
+  dimension_preparation -> runtime_dimension_proposal list
 
 val seed_primitive :
   table:Symbol_table.t ->
@@ -234,3 +263,21 @@ val bind_retained_global :
   (t, string) result
 (** Associate a newly admitted frontend entry with its original record and
     checked extent. Declared byte size is independent of padded VM storage. *)
+
+val complete_runtime_dimension :
+  table:Symbol_table.t ->
+  receipt:Frontend.Parser.completed_array_dimension ->
+  queries:query_read list ->
+  runtime_dimension_proposal ->
+  (declared_dimension, string) result
+(** Check original parser source associations while retaining the proposal as an
+    unverified runtime dependency. This does not establish VM execution or
+    authorize storage; consumers must retain and validate the dependencies. *)
+
+val dimension_runtime_dependencies :
+  declared_dimension -> runtime_dimension_proposal list
+
+val query_runtime_dependencies : query_read -> runtime_dimension_proposal list
+
+val global_extent_runtime_dependencies :
+  global_extent -> runtime_dimension_proposal list

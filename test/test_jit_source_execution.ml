@@ -258,6 +258,85 @@ let aot_default_order_and_limits () =
     (run {|I64 G(){return 42;};I64 F(I64 x=G()){return x;};F();|}
     |> Output.fault "HCRUN0006")
 
+let runtime_dimensions () =
+  List.iter
+    (fun body ->
+      ignore (run (body ^ "A[0]+A[1]+N-1;") |> Output.expect "");
+      List.iter
+        (fun mode ->
+          ignore
+            (Output.run ~mode
+               ("#exe {" ^ body ^ "StreamPrint(\"%d;\",A[0]+A[1]+N-1);}")
+            |> Output.expect ""))
+        [ Preprocessor.Jit; Preprocessor.Aot ])
+    [
+      "I64 N=0;I64 Next(){return ++N;};I64 A[Next()+1]=20,22;";
+      "I64 N=0;I64 A[++N+1]=20,22;";
+      "I64 N=1;I64 A[N+1]=20,22;";
+    ];
+  List.iter
+    (fun source -> ignore (run source |> Output.expect ""))
+    [
+      "I64 N=0;I64 Next(){return ++N;};I64 F(){I64 A[Next()+1];return sizeof \
+       A;};N*26+F();";
+      "I64 N=0;I64 Next(){return ++N;};I64 F(){I64 A[Next()+1];return sizeof \
+       A;};N*10+F()+F();";
+      "I64 N=0;I64 Next(){return ++N;};I64 Unused(){I64 A[Next()+1];return \
+       sizeof A;};N+41;";
+      "I64 N=0;I64 Next(){return ++N;};I64 A[2][Next()];sizeof A+N+25;";
+      "I64 N=0;I64 Next(){return ++N;};I64 A[Next()][2];sizeof A+N+25;";
+      "I64 N=0;I64 Next(){return ++N;};I64 A[Next()][Next()];sizeof A+N+24;";
+      "I64 N=2;I64 A[N];I64 B[sizeof A/8];sizeof B+26;";
+      "I64 N=2;I64 A[N];I64 F(I64 x=sizeof A+26){return x;};F();";
+    ]
+
+let runtime_dimension_failures () =
+  List.iter
+    (fun (code, body) ->
+      let report =
+        run
+          ({|extern U0 Print(U8 *fmt,...);77;I64 Bound(I64 n){Print("A");return n;};|}
+         ^ body)
+      in
+      ignore (Output.fault ~output:"A" code report);
+      let progress = Option.get (integer_program_report_progress report) in
+      Alcotest.(check (option int64))
+        "dimension failure retains preceding result" (Some 77L)
+        (Option.map (fun word -> word.VM.bits) progress.runtime.final_value))
+    [
+      ("HCRUN0004", {|I64 A[Bound(-1)][Bound(2)];Print("late");|});
+      ("HCPARSE0023", {|I64 A[Bound(2);Print("late");|});
+      ( "HCIRVM0009",
+        {|I64 Bad(I64 n){return 1/n;};I64 A[Bad(Bound(0))];Print("late");|} );
+    ];
+  ignore
+    (run
+       {|extern U0 Print(U8 *fmt,...);I64 Bound(){Print("A");return 2;};I64 A[Bound() #exe {Print("B");}];sizeof A+26;|}
+    |> Output.expect "BA");
+  ignore
+    (Output.run ~mode:Preprocessor.Aot "I64 N=2;I64 A[N];42;"
+    |> Output.fault "HCRUN0006")
+
+let runtime_dimension_limits () =
+  let source =
+    "I64 N=0;I64 Next(){return ++N;};I64 A[Next()+1][1+1];sizeof A+N+9;"
+  in
+  let report = run source in
+  ignore (Output.expect "" report);
+  let measured =
+    (Option.get (integer_program_report_progress report)).runtime
+  in
+  ignore
+    (run ~max_steps:measured.executed_steps
+       ~max_initializer_steps:measured.initializer_steps source
+    |> Output.expect "");
+  ignore
+    (run ~max_steps:(measured.executed_steps - 1) source
+    |> Output.fault "HCIRVM0007");
+  ignore
+    (run ~max_initializer_steps:(measured.initializer_steps - 1) source
+    |> Output.fault "HCIRVM0007")
+
 let ordinary_default_failures () =
   List.iter
     (fun (code, body) ->
@@ -346,4 +425,10 @@ let tests =
       ordinary_default_limits;
     Alcotest.test_case "directives retain function and identifier read timing"
       `Quick original_read_timing;
+    Alcotest.test_case "runtime dimensions execute at declaration time" `Quick
+      runtime_dimensions;
+    Alcotest.test_case "runtime dimension faults preserve reached effects"
+      `Quick runtime_dimension_failures;
+    Alcotest.test_case "runtime dimensions share exact task allowances" `Quick
+      runtime_dimension_limits;
   ]

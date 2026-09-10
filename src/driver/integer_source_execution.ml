@@ -248,6 +248,14 @@ let compile_report ?(max_dimension_work = 100_000)
           declaration =
             Some
               (fun event ->
+                let* () =
+                  match (is_jit, !task, event) with
+                  | true, None, Parser.Array_dimension_preparing receipt
+                    when Task_declarations.dimension_requires_runtime receipt ->
+                      ensure_task receipt.dimension_opening.span
+                      |> Result.map ignore
+                  | _ -> Ok ()
+                in
                 let* () = Task_declarations.observe ledger event in
                 match (is_jit, !task, event) with
                 | true, Some task, _ -> Task.observe_initializer task event

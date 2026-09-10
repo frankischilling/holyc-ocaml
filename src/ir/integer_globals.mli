@@ -12,6 +12,11 @@ type declared_slot
 type task_catalog
 type task_view
 
+val dimension_context :
+  task_view -> Sema.Dimension_fragment.t -> (t, string) result
+
+val is_dimension_fragment : t -> bool
+
 type task_publication = private
   | Global_publication of Retained_global.t * slot
   | Declared_publication of Retained_global.t * declared_slot
@@ -30,6 +35,12 @@ val bind_task_namespace :
   task_catalog -> Sema.Declaration_collection.namespace -> (unit, string) result
 
 val task_source_order : task_catalog -> Sema.Task_command_order.t
+
+val check_dimension_source :
+  ?require_admitted:bool ->
+  task_catalog ->
+  Frontend.Parser.array_dimension_preparation ->
+  (unit, string) result
 
 val with_source_command :
   task_view ->
@@ -269,3 +280,6 @@ val with_array_initial_values :
 
 val storage_array_image :
   storage_slot -> (int * Integer_array_initializers.payload) list
+
+val dimension_dependencies :
+  t -> Sema.Compiler_record.runtime_dimension_proposal list

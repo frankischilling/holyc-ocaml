@@ -37,6 +37,42 @@ type task_state
 type task_stream
 type task_admission
 type initializer_attempt
+type dimension_attempt
+
+val prepare_task_closed_dimension :
+  task_state ->
+  table:Sema.Symbol_table.t ->
+  namespace:Sema.Declaration_collection.namespace ->
+  preparation:Frontend.Parser.array_dimension_preparation ->
+  queries:Sema.Compiler_record.query_read list ->
+  (Sema.Compiler_record.dimension_preparation, string) result * int
+
+val complete_task_dimension :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Sema.Compiler_record.declared_dimension ->
+  (unit, string) result
+
+val task_dimension_is_completed :
+  task_state -> Frontend.Parser.completed_array_dimension -> bool
+
+val begin_task_dimension :
+  task_state ->
+  Sema.Dimension_fragment.authority ->
+  (dimension_attempt, string) result
+
+val fail_task_dimension :
+  task_state -> dimension_attempt -> (unit, string) result
+
+val task_dimension_bits :
+  task_state -> Frontend.Parser.array_dimension_preparation -> int64 option
+
+val execute_task_dimension :
+  task_state ->
+  dimension_attempt ->
+  Dimension_fragment_program.execution ->
+  (unit, error list) result
+
 type default_attempt
 
 val begin_task_default :
@@ -178,6 +214,8 @@ val start_task_compilation : task_state -> unit
     unit, including a unit with no preparation work or runtime effects. *)
 
 val promote_task_source :
+  ?dimensions:Sema.Compiler_record.dimension_preparation list ->
+  ?completed_dimensions:Sema.Compiler_record.declared_dimension list ->
   task_state ->
   namespace:Sema.Declaration_collection.namespace ->
   events:Frontend.Parser.command_event list ->

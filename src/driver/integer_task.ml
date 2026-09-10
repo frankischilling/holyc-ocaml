@@ -314,8 +314,55 @@ let execute_parameter_default task receipt =
   | Ok () -> ());
   outcome
 
+let execute_runtime_dimension task receipt =
+  let ( let* ) = Result.bind in
+  let span = receipt.Frontend.Parser.dimension_opening.span in
+  let diagnose result =
+    Result.map_error
+      (fun message -> [ Integer_source.message_diagnostic ~span message ])
+      result
+  in
+  let* task_view = VM.task_snapshot task.state |> diagnose in
+  let* authority, attempt =
+    Task_declarations.begin_runtime_dimension task.declarations
+      ~runtime:task.state ~task_view receipt
+  in
+  let outcome =
+    let fragment = Sema.Dimension_fragment.authorized_fragment authority in
+    let* context =
+      Initializer_fragment_typing.create_context
+        ~table:(Session.semantic_symbols task.session)
+        ~parent:(Task_declarations.initializer_scope task.declarations)
+      |> diagnose
+    in
+    let* typed =
+      Initializer_fragment_typing.prepare_dimension context fragment |> diagnose
+    in
+    let* destination =
+      Ir.Dimension_fragment_destination.create ~task_view typed |> diagnose
+    in
+    let* execution =
+      Dimension_fragment_lowering.prepare ~context ~authority
+        ~runtime:task.state destination
+    in
+    VM.execute_task_dimension task.state attempt execution
+    |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
+  in
+  (match outcome with
+  | Error _ -> ignore (VM.fail_task_dimension task.state attempt)
+  | Ok () -> ());
+  let finished =
+    Task_declarations.finish_runtime_dimension task.declarations
+      ~runtime:task.state ~succeeded:(Result.is_ok outcome) receipt
+  in
+  let* () = outcome in
+  finished
+
 let observe_initializer task event =
   (match event with
+    | Frontend.Parser.Array_dimension_preparing receipt
+      when Task_declarations.dimension_requires_runtime receipt ->
+        execute_runtime_dimension task receipt
     | Frontend.Parser.Global_declared publication ->
         admit_global task publication
     | Frontend.Parser.Global_initializer_started start ->

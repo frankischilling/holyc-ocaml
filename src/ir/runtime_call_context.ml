@@ -59,6 +59,9 @@ type graph_context = {
 }
 
 type t = {
+  typed_top_level : Typed.top_level_t;
+  dimension_dependencies_ :
+    Sema.Compiler_record.runtime_dimension_proposal list;
   entry : X87_stack.t;
   initialization : Global_initialization.t;
   functions : Function_body.t list;
@@ -1248,5 +1251,18 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
         (X87_stack.graph entry) entry_calls
       :: checked_functions [] functions
     in
-    Ok { entry; initialization; functions = List.map fst functions; graphs }
+    Ok
+      {
+        typed_top_level = top_level;
+        dimension_dependencies_ =
+          Dimension_requirements.top_level top_level
+          @ Dimension_requirements.functions function_sources;
+        entry;
+        initialization;
+        functions = List.map fst functions;
+        graphs;
+      }
   with Invalid error -> Error [ error ]
+
+let dimension_dependencies context = context.dimension_dependencies_
+let owns_top_level context typed = context.typed_top_level == typed

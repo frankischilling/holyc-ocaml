@@ -70,9 +70,9 @@ folding follows the pinned signed intermediate-code payload conversion;
 conversion overflow and nonpositive persistent extents are rejected.
 Unparenthesized comparison chains are explicitly unsupported in this layout
 path, including inside a skipped logical branch. Explicitly grouped comparison
-results remain usable in arithmetic, as in `((0<1)<2)+1`. These rules do not
-implement general runtime dimension evaluation or the remaining optimizer
-comparison-chain behavior.
+results remain usable in arithmetic, as in `((0<1)<2)+1`. The remaining optimizer
+comparison-chain behavior is unsupported. [Declaration-time runtime bounds](integer-runtime-dimensions.md)
+add retained global reads, calls and updates in ordinary JIT and directive bodies.
 
 ## Delimiters, arity and direct strings
 

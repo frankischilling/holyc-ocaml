@@ -446,3 +446,19 @@ let resolve_default_fragment ~table ~parent ~module_expressions fragment =
   Sema.Top_level_expression_binding.resolve ~table ~parent ~module_expressions
     [ input ]
   |> Result.map_error Sema.Top_level_expression_binding.error_to_string
+
+let resolve_dimension_fragment ~table ~parent ~module_expressions fragment =
+  let ( let* ) = Result.bind in
+  let state =
+    empty_state
+      (Some (Sema.Dimension_fragment.reference_for fragment))
+      (Some (Sema.Dimension_fragment.query_for fragment))
+  in
+  let* state = expression state (Sema.Dimension_fragment.expression fragment) in
+  let* input =
+    Sema.Top_level_expression_binding.make_dimension_fragment ~fragment
+      (List.rev state.events_rev)
+  in
+  Sema.Top_level_expression_binding.resolve ~table ~parent ~module_expressions
+    [ input ]
+  |> Result.map_error Sema.Top_level_expression_binding.error_to_string

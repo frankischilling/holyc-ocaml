@@ -42,6 +42,11 @@ end)
 type dimension_evaluation =
   | Observed_dimension
   | Failed_dimension
+  | Awaiting_runtime_dimension
+  | Executing_dimension of VM.dimension_attempt * int
+  | Proposed_runtime_dimension of
+      Sema.Compiler_record.runtime_dimension_proposal
+      * Sema.Compiler_record.query_read list
   | Prepared_dimension of Sema.Compiler_record.dimension_preparation
 
 type pending_dimension = {
@@ -352,6 +357,16 @@ let promote_source_with_activation ~activate ledger ~runtime session ~source =
          else
            VM.promote_task_source runtime ~namespace:ledger.namespace
              ~events:(List.rev ledger.source_events_rev)
+             ~dimensions:(List.rev ledger.source_dimensions_rev)
+             ~completed_dimensions:
+               (List.filter_map
+                  (function
+                    | Sema.Source_activation.Declaration
+                        (Parser.Array_dimension_completed receipt) ->
+                        Dimensions.find_opt ledger.checked_dimensions
+                          receipt.dimension_ast
+                    | _ -> None)
+                  (List.rev ledger.activation_events_rev))
              ~dimension_steps:ledger.dimension_work)
         |> Result.map (fun () ->
             if not activate then ledger.source_dimensions_rev <- [];
@@ -1074,6 +1089,13 @@ let validate_dimension_owner ledger (owner : Parser.array_dimensions_owner) =
   if owner.dimensions_environment != ledger.symbols then
     fail span "array dimension belongs to another frontend environment"
 
+let dimension_requires_runtime
+    (preparation : Parser.array_dimension_preparation) =
+  Option.fold ~none:false
+    ~some:(fun expression ->
+      Sema.Initializer_source.expression_identifier_nodes expression <> [])
+    preparation.dimension_expression
+
 let prepare_dimension ledger (preparation : Parser.array_dimension_preparation)
     =
   let owner = preparation.dimension_owner in
@@ -1105,6 +1127,12 @@ let prepare_dimension ledger (preparation : Parser.array_dimension_preparation)
   state.pending <- Some pending;
   match ledger.authority with
   | Semantic_analysis -> pending.evaluation <- Observed_dimension
+  | Task_runtime _ when dimension_requires_runtime preparation ->
+      pending.evaluation <- Awaiting_runtime_dimension
+  | Source_compilation _ when dimension_requires_runtime preparation ->
+      fail ~code:"HCRUN0006" span
+        "runtime AOT dimensions require output relocation and callable \
+         authority"
   | Source_compilation _ | Task_runtime _ -> (
       let queries =
         Option.fold ~none:[] ~some:Sema.Query_selection.source_queries
@@ -1127,13 +1155,15 @@ let prepare_dimension ledger (preparation : Parser.array_dimension_preparation)
         | Semantic_analysis -> assert false
       in
       let result, work =
-        Sema.Compiler_record.prepare_dimension ~table:ledger.table
-          ~namespace:ledger.namespace ~max_work:(limit - before) ~preparation
-          ~queries
+        match ledger.authority with
+        | Task_runtime task ->
+            VM.prepare_task_closed_dimension task ~table:ledger.table
+              ~namespace:ledger.namespace ~preparation ~queries
+        | _ ->
+            Sema.Compiler_record.prepare_dimension ~table:ledger.table
+              ~namespace:ledger.namespace ~max_work:(limit - before)
+              ~preparation ~queries
       in
-      (match ledger.authority with
-      | Task_runtime task -> VM.record_task_preparation task ~before ~steps:work
-      | _ -> ());
       ledger.dimension_work <- ledger.dimension_work + work;
       match result with
       | Ok prepared -> (
@@ -1184,13 +1214,23 @@ let complete_dimension ledger (receipt : Parser.completed_array_dimension) =
   let prepared =
     match (Option.get state.pending).evaluation with
     | Observed_dimension -> None
-    | Failed_dimension ->
+    | Failed_dimension | Awaiting_runtime_dimension | Executing_dimension _ ->
         fail span "array dimension preparation did not succeed"
+    | Proposed_runtime_dimension (proposal, queries) ->
+        Some
+          (Sema.Compiler_record.complete_runtime_dimension ~table:ledger.table
+             ~receipt ~queries proposal
+          |> checked span)
     | Prepared_dimension prepared ->
         Some
           (Sema.Compiler_record.complete_dimension ~receipt prepared
           |> checked span)
   in
+  (match (ledger.authority, prepared) with
+  | Task_runtime task, Some prepared ->
+      VM.complete_task_dimension task ~namespace:ledger.namespace prepared
+      |> checked span
+  | _ -> ());
   state.pending <- None;
   state.completed_rev <- receipt :: state.completed_rev;
   state.next_index <- state.next_index + 1;
@@ -2042,6 +2082,88 @@ let require_initializer_runtime ledger runtime span =
     not (Option.fold ~none:false ~some:(( == ) runtime) (ledger_runtime ledger))
   then fail span "initializer operation belongs to another task runtime"
 
+let runtime_dimension_pending ledger ~runtime receipt =
+  let span = receipt.Parser.dimension_opening.span in
+  require_initializer_runtime ledger runtime span;
+  validate_dimension_owner ledger receipt.dimension_owner;
+  if not (Parser.dimension_preparation_is_current receipt) then
+    fail span "runtime dimension callback is not current";
+  match
+    Names.find_opt ledger.dimension_owners
+      receipt.dimension_owner.dimensions_name
+  with
+  | Some state when state.owner == receipt.dimension_owner -> (
+      match state.pending with
+      | Some pending when pending.preparation == receipt -> pending
+      | _ ->
+          fail span "runtime dimension lacks its original pending preparation")
+  | _ -> fail span "runtime dimension has another prospective owner"
+
+let begin_runtime_dimension ledger ~runtime ~task_view receipt =
+  protect (fun () ->
+      let span = receipt.Parser.dimension_opening.span in
+      let pending = runtime_dimension_pending ledger ~runtime receipt in
+      (match pending.evaluation with
+      | Awaiting_runtime_dimension -> ()
+      | _ ->
+          fail span "runtime dimension was already attempted or is not pending");
+      pending.evaluation <- Failed_dimension;
+      let expression = Option.get receipt.dimension_expression in
+      let environment, references, queries =
+        selected_fragment_transcript ledger ~task_view ~span expression
+      in
+      let fragment =
+        Sema.Dimension_fragment.create ~table:ledger.table
+          ~namespace:ledger.namespace ~receipt ~environment ~references ~queries
+        |> checked span
+      in
+      let authority =
+        Sema.Dimension_fragment.authorize fragment |> checked span
+      in
+      let before = VM.task_initializer_steps runtime in
+      let attempt = VM.begin_task_dimension runtime authority |> checked span in
+      pending.evaluation <- Executing_dimension (attempt, before);
+      (authority, attempt))
+
+let finish_runtime_dimension ledger ~runtime ~succeeded receipt =
+  protect (fun () ->
+      let span = receipt.Parser.dimension_opening.span in
+      let pending = runtime_dimension_pending ledger ~runtime receipt in
+      let before =
+        match pending.evaluation with
+        | Executing_dimension (_, before) -> before
+        | _ ->
+            fail span "runtime dimension completion lacks its original attempt"
+      in
+      pending.evaluation <- Failed_dimension;
+      let work = VM.task_initializer_steps runtime - before in
+      if work < 0 then
+        fail span "runtime dimension preparation counter moved backward";
+      ledger.dimension_work <- ledger.dimension_work + work;
+      if succeeded then
+        let count =
+          match VM.task_dimension_bits runtime receipt with
+          | Some bits -> bits
+          | None ->
+              fail span "runtime dimension has no successful original execution"
+        in
+        let queries =
+          Sema.Query_selection.source_queries
+            (Option.get receipt.dimension_expression)
+          |> List.map (fun expression ->
+              match Query_expressions.find_opt ledger.queries expression with
+              | Some query ->
+                  Sema.Query_selection.checked_read query.query_selection
+              | None ->
+                  fail span "runtime dimension lost its original checked query")
+        in
+        let prepared =
+          Sema.Compiler_record.propose_runtime_dimension
+            ~namespace:ledger.namespace ~preparation:receipt ~count ~work
+          |> checked span
+        in
+        pending.evaluation <- Proposed_runtime_dimension (prepared, queries))
+
 let complete_defaults_runtime ledger ~runtime header =
   protect (fun () ->
       let span =
@@ -2475,6 +2597,15 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
                       Sema.Compiler_record.complete_declared_global record event
                       |> checked completed.location.span)
                     boundary.storage_declaration
+              | Parser.Array_dimension_completed receipt ->
+                  let prepared =
+                    Dimensions.find ledger.checked_dimensions
+                      receipt.dimension_ast
+                  in
+                  if not (VM.task_dimension_is_completed runtime receipt) then
+                    VM.complete_task_dimension runtime
+                      ~namespace:ledger.namespace prepared
+                    |> checked receipt.dimension_ast.location.span
               | _ -> ())
         in
         declaration event

@@ -130,3 +130,6 @@ val error_kind : error -> error_kind
 val error_origin : error -> Symbol.origin option
 val error_message : error -> string
 val error_to_string : error -> string
+
+val dimension_runtime_dependencies :
+  dimension -> Compiler_record.runtime_dimension_proposal list

@@ -265,18 +265,35 @@ type array_dimensions_owner = {
   dimensions_name : Ast.identifier;
 }
 
+type dimension_activity = {
+  mutable dimension_active : bool;
+  mutable completion_active : bool;
+}
+
 type array_dimension_preparation = {
   dimension_owner : array_dimensions_owner;
   dimension_index : int;
   dimension_predecessor : completed_array_dimension option;
   dimension_opening : Ast.location;
   dimension_expression : Ast.expression option;
+  dimension_activity : dimension_activity;
 }
 
 and completed_array_dimension = {
   dimension_preparation : array_dimension_preparation;
   dimension_ast : Ast.array_dimension;
 }
+
+let dimension_preparation_is_current preparation =
+  preparation.dimension_activity.dimension_active
+  && preparation.dimension_owner.dimensions_command.command_context
+       .context_active
+
+let dimension_completion_is_current receipt =
+  let preparation = receipt.dimension_preparation in
+  preparation.dimension_activity.completion_active
+  && preparation.dimension_owner.dimensions_command.command_context
+       .context_active
 
 type declaration_event =
   | Array_dimension_preparing of array_dimension_preparation
@@ -3055,10 +3072,16 @@ let parse_array_dimension cursor ~owner ~predecessor ~index =
             dimension_predecessor = predecessor;
             dimension_opening = opening_bracket;
             dimension_expression;
+            dimension_activity =
+              { dimension_active = true; completion_active = false };
           }
         in
-        publish_declaration cursor opening
-          (Array_dimension_preparing preparation);
+        Fun.protect
+          ~finally:(fun () ->
+            preparation.dimension_activity.dimension_active <- false)
+          (fun () ->
+            publish_declaration cursor opening
+              (Array_dimension_preparing preparation));
         preparation)
       owner
   in
@@ -3072,7 +3095,14 @@ let parse_array_dimension cursor ~owner ~predecessor ~index =
       Option.map
         (fun dimension_preparation ->
           let receipt = { dimension_preparation; dimension_ast = node } in
-          publish_declaration cursor closing (Array_dimension_completed receipt);
+          dimension_preparation.dimension_activity.completion_active <- true;
+          Fun.protect
+            ~finally:(fun () ->
+              dimension_preparation.dimension_activity.completion_active <-
+                false)
+            (fun () ->
+              publish_declaration cursor closing
+                (Array_dimension_completed receipt));
           cache_dimension_count cursor closing receipt;
           receipt)
         preparation

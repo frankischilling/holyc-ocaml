@@ -175,6 +175,12 @@ let dimension_preparing activation receipt =
         original == receipt
     | _ -> false)
 
+let dimension_completed activation receipt =
+  allows activation (function
+    | Declaration (Parser.Array_dimension_completed original) ->
+        original == receipt
+    | _ -> false)
+
 let reference activation receipt =
   allows activation (function
     | Reference original -> original == receipt

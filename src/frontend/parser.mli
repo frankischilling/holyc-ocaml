@@ -272,18 +272,24 @@ type array_dimensions_owner = private {
   dimensions_name : Ast.identifier;
 }
 
+type dimension_activity
+
 type array_dimension_preparation = private {
   dimension_owner : array_dimensions_owner;
   dimension_index : int;
   dimension_predecessor : completed_array_dimension option;
   dimension_opening : Ast.location;
   dimension_expression : Ast.expression option;
+  dimension_activity : dimension_activity;
 }
 
 and completed_array_dimension = private {
   dimension_preparation : array_dimension_preparation;
   dimension_ast : Ast.array_dimension;
 }
+
+val dimension_preparation_is_current : array_dimension_preparation -> bool
+val dimension_completion_is_current : completed_array_dimension -> bool
 
 type declaration_event = private
   | Array_dimension_preparing of array_dimension_preparation

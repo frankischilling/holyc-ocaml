@@ -154,9 +154,12 @@ let invalid_extents () =
           "U8 A[9223372036854775807];42;";
           "I64 A[1152921504606846976];42;";
           "I64 F(){static U8 A[9223372036854775807];return 42;}F();";
-          "I64 n=2;I64 A[n];42;";
         ])
-    G.modes
+    G.modes;
+  ignore (F.first_error (G.run ~mode:Preprocessor.Aot "I64 n=2;I64 A[n];42;"));
+  ignore
+    (Output.run ~mode:Preprocessor.Jit "I64 n=2;I64 A[n];sizeof A+26;"
+    |> Output.expect "")
 
 let fresh_images () =
   List.iter

@@ -251,9 +251,8 @@ let same_identity left right =
 
 let contains node nodes = List.exists (fun saved -> saved == node) nodes
 
-let check_declaration order ~admitted ~(publication : Parser.global_publication)
+let check_preparation order ~admitted ~(start : Parser.command_start)
     ~predecessor =
-  let start = publication.global_header.declaration_command in
   let observed_events =
     List.fold_left
       (fun count event ->
@@ -287,6 +286,21 @@ let check_declaration order ~admitted ~(publication : Parser.global_publication)
                       command.owner == order && contains node command.nodes)
                     admitted -> Ok ()
         | _ -> Error "declared storage predecessor has not been admitted")
+
+let check_declaration order ~admitted ~(publication : Parser.global_publication)
+    ~predecessor =
+  check_preparation order ~admitted
+    ~start:publication.global_header.declaration_command ~predecessor
+
+let check_dimension ?(require_admitted = true) order ~admitted
+    (receipt : Parser.array_dimension_preparation) =
+  let start = receipt.dimension_owner.dimensions_command in
+  if not (Parser.dimension_preparation_is_current receipt) then
+    Error "dimension source callback is not current"
+  else
+    check_preparation order ~admitted ~start
+      ~predecessor:
+        (if require_admitted then start.command_predecessor else None)
 
 let contains_global command ~(publication : Parser.global_publication)
     ~(completed : Frontend.Ast.global_declarator) ~item_index ~declarator_index

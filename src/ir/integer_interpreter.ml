@@ -342,7 +342,21 @@ type default_attempt = {
   mutable default_bits : int64 option;
 }
 
+type dimension_attempt = {
+  dimension_catalog : Integer_globals.task_catalog;
+  dimension_authority : Sema.Dimension_fragment.authority;
+  dimension_receipt : Frontend.Parser.array_dimension_preparation;
+  dimension_preparation_before : int;
+  mutable dimension_state : initializer_attempt_state;
+  mutable dimension_bits : int64 option;
+  mutable dimension_work : int option;
+}
+
 type task_state = {
+  mutable seen_dimensions : Frontend.Parser.array_dimension_preparation list;
+  mutable closed_dimensions : Sema.Compiler_record.dimension_preparation list;
+  mutable completed_dimensions : Frontend.Parser.completed_array_dimension list;
+  mutable dimensions : dimension_attempt list;
   mutable defaults : default_attempt list;
   mutable initializers : task_initializer list;
   mutable declared_admissions : admitted_publication list;
@@ -408,11 +422,15 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
     Ok
       {
         defaults = [];
+        dimensions = [];
         initializers = [];
         declared_admissions = [];
         source_promotion_open = true;
         source_activation = None;
         deferred_dimensions = [];
+        seen_dimensions = [];
+        closed_dimensions = [];
+        completed_dimensions = [];
         source_execution_failed = false;
         source_result = None;
         catalog = Integer_globals.create_task_catalog ~table;
@@ -501,11 +519,65 @@ let start_task_compilation task = task.source_promotion_open <- false
 let bind_task_namespace task namespace =
   Integer_globals.bind_task_namespace task.catalog namespace
 
-let promote_task_source task ~namespace ~events ~dimension_steps =
+let promote_task_source ?(dimensions = []) ?(completed_dimensions = []) task
+    ~namespace ~events ~dimension_steps =
+  let module Record = Sema.Compiler_record in
+  let originals = List.map Record.dimension_preparation_source dimensions in
+  let completions = List.map Record.dimension_receipt completed_dimensions in
+  let manifest_valid =
+    let rec preparations total seen = function
+      | [] -> total = dimension_steps
+      | prepared :: rest ->
+          let source = Record.dimension_preparation_source prepared in
+          let work = Record.dimension_preparation_work prepared in
+          Record.dimension_preparation_namespace prepared == namespace
+          && Record.dimension_preparation_runtime_dependencies prepared = []
+          && (not (List.exists (( == ) source) seen))
+          && List.exists
+               (function
+                 | Frontend.Parser.Command_started start ->
+                     start == source.dimension_owner.dimensions_command
+                 | _ -> false)
+               events
+          && (match source.dimension_predecessor with
+            | None -> source.dimension_index = 0
+            | Some prior ->
+                List.exists (( == ) prior) completions
+                && List.exists (( == ) prior.dimension_preparation) seen)
+          && work >= 0
+          && work <= dimension_steps - total
+          && preparations (total + work) (source :: seen) rest
+    in
+    preparations 0 [] dimensions
+    && List.for_all
+         (fun checked ->
+           List.exists
+             (( == ) (Record.declared_dimension_preparation checked))
+             dimensions)
+         completed_dimensions
+    && List.length completions
+       = List.length
+           (List.sort_uniq compare
+              (List.map
+                 (fun receipt ->
+                   let rec position index = function
+                     | [] -> -1
+                     | source :: rest ->
+                         if
+                           source
+                           == receipt.Frontend.Parser.dimension_preparation
+                         then index
+                         else position (index + 1) rest
+                   in
+                   position 0 originals)
+                 completions))
+  in
   if not task.source_promotion_open then
     Error "source promotion requires a fresh task runtime"
   else if dimension_steps < 0 || dimension_steps > task.max_initializer_steps
   then Error "source dimension work exceeds the task preparation allowance"
+  else if not manifest_valid then
+    Error "source promotion requires its original closed dimension manifest"
   else
     Result.bind (Integer_globals.check_task_namespace task.catalog namespace)
       (fun () ->
@@ -515,6 +587,9 @@ let promote_task_source task ~namespace ~events ~dimension_steps =
     Result.bind result (fun () -> bind_task_namespace task namespace)
     |> Result.map (fun () ->
         task.initializer_steps <- dimension_steps;
+        task.seen_dimensions <- originals;
+        task.closed_dimensions <- dimensions;
+        task.completed_dimensions <- completions;
         task.source_promotion_open <- false)
 
 let bind_source_activation task ~namespace activation =
@@ -560,15 +635,28 @@ let source_dimensions_ready task =
         (Sema.Compiler_record.dimension_preparation_source next)
   | _ -> false
 
+let dimension_predecessor_ready task
+    (preparation : Frontend.Parser.array_dimension_preparation) =
+  match preparation.dimension_predecessor with
+  | None -> preparation.dimension_index = 0
+  | Some prior ->
+      prior.dimension_preparation.dimension_owner == preparation.dimension_owner
+      && prior.dimension_preparation.dimension_index
+         = preparation.dimension_index - 1
+      && List.exists (( == ) prior) task.completed_dimensions
+
 let charge_source_dimension task preparation =
   match task.deferred_dimensions with
   | next :: rest
     when (not task.source_execution_failed)
+         && dimension_predecessor_ready task preparation
+         && (not (List.exists (( == ) preparation) task.seen_dimensions))
          && Sema.Compiler_record.dimension_preparation_source next
             == preparation
          && Sema.Source_activation.dimension_preparing task.source_activation
               preparation ->
       let work = Sema.Compiler_record.dimension_preparation_work next in
+      task.seen_dimensions <- preparation :: task.seen_dimensions;
       let remaining = task.max_initializer_steps - task.initializer_steps in
       task.initializer_steps <- task.initializer_steps + min work remaining;
       if work > remaining then (
@@ -578,6 +666,7 @@ let charge_source_dimension task preparation =
            exhausted")
       else (
         task.deferred_dimensions <- rest;
+        task.closed_dimensions <- next :: task.closed_dimensions;
         Ok ())
   | _ ->
       Error
@@ -673,8 +762,40 @@ let admitted_publication_for_symbol task symbol =
             receipt.admission_publications)
         task.admissions
 
+let validate_dimension_dependencies task dependencies =
+  let module Record = Sema.Compiler_record in
+  if
+    List.for_all
+      (fun dependency ->
+        Option.fold ~none:false
+          ~some:(fun task ->
+            Integer_globals.task_catalog_owns_namespace task.catalog
+              (Record.runtime_dimension_namespace dependency)
+            && List.exists
+                 (fun attempt ->
+                   attempt.dimension_catalog == task.catalog
+                   && attempt.dimension_receipt
+                      == Record.runtime_dimension_source dependency
+                   && attempt.dimension_state = Successful_initializer
+                   && attempt.dimension_bits
+                      = Some (Record.runtime_dimension_count dependency)
+                   && attempt.dimension_work
+                      = Some (Record.runtime_dimension_work dependency))
+                 task.dimensions)
+          task)
+      dependencies
+  then Ok ()
+  else
+    Error
+      "runtime array extent requires its owning task's successful original \
+       evaluation"
+
 let admit_declared_global task declaration =
   let ( let* ) = Result.bind in
+  let* () =
+    validate_dimension_dependencies (Some task)
+      (Sema.Compiler_record.declared_global_runtime_dependencies declaration)
+  in
   let* () =
     if
       source_dimensions_ready task
@@ -789,6 +910,133 @@ let task_default_bits task receipt =
       then attempt.default_bits
       else None)
     task.defaults
+
+let prepare_task_closed_dimension task ~table ~namespace ~preparation ~queries =
+  let module Record = Sema.Compiler_record in
+  let invalid message = (Error message, 0) in
+  match require_initializer_namespace task namespace with
+  | Error message -> invalid message
+  | Ok () -> (
+      match
+        Integer_globals.check_dimension_source ~require_admitted:false
+          task.catalog preparation
+      with
+      | Error message -> invalid message
+      | Ok () ->
+          if
+            (not (task_owns_table task table))
+            || (not (source_dimensions_ready task))
+            || (not (dimension_predecessor_ready task preparation))
+            || List.exists (( == ) preparation) task.seen_dimensions
+          then
+            invalid
+              "closed dimension preparation has a skipped predecessor or \
+               consumed boundary"
+          else (
+            task.seen_dimensions <- preparation :: task.seen_dimensions;
+            let result, work =
+              Record.prepare_dimension ~table ~namespace ~preparation ~queries
+                ~max_work:(task.max_initializer_steps - task.initializer_steps)
+            in
+            task.initializer_steps <- task.initializer_steps + work;
+            (match result with
+            | Ok checked ->
+                task.closed_dimensions <- checked :: task.closed_dimensions
+            | Error _ -> ());
+            (result, work)))
+
+let complete_task_dimension task ~namespace checked =
+  let module Record = Sema.Compiler_record in
+  let ( let* ) = Result.bind in
+  let receipt = Record.dimension_receipt checked in
+  let preparation = receipt.Frontend.Parser.dimension_preparation in
+  let* () = require_initializer_namespace task namespace in
+  let* () =
+    validate_dimension_dependencies (Some task)
+      (Record.dimension_runtime_dependencies checked)
+  in
+  let prepared = Record.declared_dimension_preparation checked in
+  let success =
+    List.exists (( == ) prepared) task.closed_dimensions
+    || List.exists
+         (fun attempt ->
+           attempt.dimension_receipt == preparation
+           && attempt.dimension_state = Successful_initializer
+           && attempt.dimension_bits = Some (Record.dimension_count checked)
+           && attempt.dimension_work = Some (Record.dimension_work checked))
+         task.dimensions
+  in
+  if
+    (not
+       (Frontend.Parser.dimension_completion_is_current receipt
+       || Sema.Source_activation.dimension_completed task.source_activation
+            receipt))
+    || (not (dimension_predecessor_ready task preparation))
+    || Record.dimension_preparation_namespace prepared != namespace
+    || (not success)
+    || List.exists (( == ) receipt) task.completed_dimensions
+  then
+    Error
+      "dimension completion requires its original successful ordered \
+       preparation"
+  else (
+    task.completed_dimensions <- receipt :: task.completed_dimensions;
+    Ok ())
+
+let task_dimension_is_completed task receipt =
+  List.exists (( == ) receipt) task.completed_dimensions
+
+let begin_task_dimension task authority =
+  let ( let* ) = Result.bind in
+  let fragment = Sema.Dimension_fragment.authorized_fragment authority in
+  let receipt = Sema.Dimension_fragment.receipt fragment in
+  let* () =
+    require_initializer_namespace task
+      (Sema.Dimension_fragment.namespace fragment)
+  in
+  let* () = Integer_globals.check_dimension_source task.catalog receipt in
+  if
+    (not (source_dimensions_ready task))
+    || (not (dimension_predecessor_ready task receipt))
+    || List.exists (( == ) receipt) task.seen_dimensions
+  then Error "dimension preparation has another source or consumed boundary"
+  else
+    let attempt =
+      {
+        dimension_catalog = task.catalog;
+        dimension_authority = authority;
+        dimension_receipt = receipt;
+        dimension_preparation_before = task.initializer_steps;
+        dimension_state = Preparing_initializer;
+        dimension_bits = None;
+        dimension_work = None;
+      }
+    in
+    task.dimensions <- attempt :: task.dimensions;
+    task.seen_dimensions <- receipt :: task.seen_dimensions;
+    task.source_promotion_open <- false;
+    Ok attempt
+
+let fail_task_dimension task attempt =
+  if
+    attempt.dimension_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.dimensions))
+    || attempt.dimension_state <> Preparing_initializer
+       && attempt.dimension_state <> Executing_initializer
+  then Error "dimension failure has another task or inactive attempt"
+  else (
+    attempt.dimension_state <- Failed_initializer;
+    Ok ())
+
+let task_dimension_bits task receipt =
+  List.find_map
+    (fun attempt ->
+      if
+        attempt.dimension_receipt == receipt
+        && attempt.dimension_state = Successful_initializer
+      then attempt.dimension_bits
+      else None)
+    task.dimensions
 
 let complete_task_defaults task ~namespace header =
   let ( let* ) = Result.bind in
@@ -1009,6 +1257,17 @@ let task_result task ~sequence =
   if
     task.streams <> [] || task.source_execution_failed
     || task.deferred_dimensions <> []
+    || List.exists
+         (fun preparation ->
+           not
+             (List.exists
+                (fun receipt ->
+                  receipt.Frontend.Parser.dimension_preparation == preparation)
+                task.completed_dimensions))
+         task.seen_dimensions
+    || List.exists
+         (fun attempt -> attempt.dimension_state <> Successful_initializer)
+         task.dimensions
     || (not (Sema.Source_activation.finished task.source_activation))
     || (not
           (Sema.Source_activation.owns_context task.source_activation
@@ -3978,6 +4237,13 @@ let execute ~max_steps checked =
 let execute_function ?(max_literal_bytes = 1_048_576) ~max_steps
     ~max_frame_bytes ~frame ~arguments function_ =
   let ( let* ) = Result.bind in
+  let* () =
+    validate_dimension_dependencies None
+      (Dimension_requirements.frame frame
+      @ Function.dimension_dependencies function_)
+    |> Result.map_error (fun message ->
+        [ make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0026" message ])
+  in
   if max_steps <= 0 || max_frame_bytes <= 0 || max_literal_bytes <= 0 then
     Error
       [
@@ -4020,6 +4286,20 @@ let execute_program_with_output ?task ?isolated_budget
     ?(max_literal_bytes = 1_048_576) ~max_steps ~max_frame_bytes ~max_call_depth
     ~functions checked =
   let ( let* ) = Result.bind in
+  let* () =
+    let dependencies =
+      Option.fold ~none:[] ~some:Integer_globals.dimension_dependencies globals
+      @ Option.fold ~none:[] ~some:Runtime.dimension_dependencies runtime_calls
+      @ List.concat_map
+          (fun (definition : function_definition) ->
+            Dimension_requirements.frame definition.frame
+            @ Function.dimension_dependencies definition.body)
+          functions
+    in
+    validate_dimension_dependencies task dependencies
+    |> Result.map_error (fun message ->
+        [ make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0026" message ])
+  in
   let accounting =
     match (task, isolated_budget) with
     | Some task, None | None, Some task -> Some task
@@ -4539,6 +4819,15 @@ let execute_task_initializer task attempt execution =
   in
   attempt.attempt_state <- Executing_initializer;
   let outcome =
+    let* () =
+      validate_dimension_dependencies (Some task)
+        (Dimension_requirements.top_level (Destination.typed destination))
+      |> Result.map_error (fun message ->
+          [
+            make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026"
+              message;
+          ])
+    in
     match Program.execution_code execution with
     | Program.Prepared payload ->
         let* storage =
@@ -4644,6 +4933,15 @@ let execute_task_default task attempt execution =
   in
   attempt.default_state <- Executing_initializer;
   let outcome =
+    let* () =
+      validate_dimension_dependencies (Some task)
+        (Dimension_requirements.top_level (Destination.typed destination))
+      |> Result.map_error (fun message ->
+          [
+            make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026"
+              message;
+          ])
+    in
     match Program.code execution with
     | Program.Prepared bits -> Ok bits
     | Program.Scheduled program -> (
@@ -4682,6 +4980,97 @@ let execute_task_default task attempt execution =
       attempt.default_state <- Successful_initializer;
       Ok ()
 
+let execute_task_dimension task attempt execution =
+  let module Program = Dimension_fragment_program in
+  let module Destination = Dimension_fragment_destination in
+  let ( let* ) = Result.bind in
+  let destination = Program.execution_destination execution in
+  let fragment = Destination.fragment destination in
+  let span = Destination.span destination in
+  let invalid message =
+    Error
+      [
+        make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026" message;
+      ]
+  in
+  let* () =
+    if
+      attempt.dimension_catalog != task.catalog
+      || (not (List.exists (( == ) attempt) task.dimensions))
+      || attempt.dimension_state <> Preparing_initializer
+      || (not
+            (Frontend.Parser.dimension_preparation_is_current
+               attempt.dimension_receipt))
+      || Program.authority execution != attempt.dimension_authority
+      || Sema.Dimension_fragment.receipt fragment != attempt.dimension_receipt
+      || Sema.Dimension_fragment.authorized_fragment
+           (Program.authority execution)
+         != fragment
+      || (not
+            (Integer_globals.owns_task_storage task.catalog
+               (Destination.globals destination)))
+      || (not
+            (Integer_globals.is_dimension_fragment
+               (Destination.globals destination)))
+      || Integer_globals.byte_size (Destination.globals destination) <> 0
+      || Program.steps execution
+         <> task.initializer_steps - attempt.dimension_preparation_before
+    then
+      invalid
+        "dimension execution has another task, source attempt or preparation"
+    else Ok ()
+  in
+  attempt.dimension_state <- Executing_initializer;
+  let outcome =
+    let* () =
+      validate_dimension_dependencies (Some task)
+        (Dimension_requirements.top_level (Destination.typed destination))
+      |> Result.map_error (fun message ->
+          [
+            make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026"
+              message;
+          ])
+    in
+    match Program.code execution with
+    | Program.Scheduled program -> (
+        if task.steps >= task.max_steps then
+          Error
+            [
+              make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0007"
+                "the task cumulative execution step limit was exhausted";
+            ]
+        else
+          let* result =
+            execute_program_with_output ~task ~initializer_mode:true
+              ~capture_fragment_value:true
+              ~runtime_calls:(Program.runtime_calls program)
+              ~output:task.output
+              ~globals:(Destination.globals destination)
+              ~initialization:(Program.initialization program)
+              ~max_global_bytes:task.max_global_bytes
+              ~max_literal_bytes:task.max_literal_bytes
+              ~max_steps:(task.max_steps - task.steps)
+              ~max_frame_bytes:task.max_frame_bytes
+              ~max_call_depth:task.max_call_depth ~functions:[]
+              (Program.entry program)
+          in
+          match result.final_value_ with
+          | Some word -> Ok word.bits
+          | None ->
+              invalid "dimension evaluation produced no checked parameter value"
+        )
+  in
+  match outcome with
+  | Error errors ->
+      ignore (fail_task_dimension task attempt);
+      Error errors
+  | Ok bits ->
+      attempt.dimension_bits <- Some bits;
+      attempt.dimension_work <-
+        Some (task.initializer_steps - attempt.dimension_preparation_before);
+      attempt.dimension_state <- Successful_initializer;
+      Ok ()
+
 let execute_task_program task ~runtime_calls ~globals ~initialization ~functions
     checked =
   task.source_promotion_open <- false;
@@ -4711,6 +5100,11 @@ let execute_task_program task ~runtime_calls ~globals ~initialization ~functions
              attempt.default_state = Preparing_initializer
              || attempt.default_state = Executing_initializer)
            task.defaults
+      || List.exists
+           (fun attempt ->
+             attempt.dimension_state = Preparing_initializer
+             || attempt.dimension_state = Executing_initializer)
+           task.dimensions
     then
       Error
         [

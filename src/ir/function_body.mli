@@ -93,3 +93,6 @@ val member_span : member -> Common.Span.t option
 
 val human : t -> string
 (** Render the versioned named-function form used by tests and later tools. *)
+
+val dimension_dependencies :
+  t -> Sema.Compiler_record.runtime_dimension_proposal list

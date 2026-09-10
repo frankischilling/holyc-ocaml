@@ -78,3 +78,9 @@ val variadic_count : call -> int64 option
 val declaration : call -> Sema.Function_resolution.resolved_declaration
 val header : call -> Sema.Function_type_resolution.resolved_function
 val retained_function : call -> Retained_function.t option
+
+val dimension_dependencies :
+  t -> Sema.Compiler_record.runtime_dimension_proposal list
+
+val owns_top_level :
+  t -> Sema.Function_call_expression_result.top_level_t -> bool

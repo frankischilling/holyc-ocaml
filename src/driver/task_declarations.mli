@@ -1,5 +1,24 @@
 type t
 
+val dimension_requires_runtime :
+  Frontend.Parser.array_dimension_preparation -> bool
+
+val begin_runtime_dimension :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  task_view:Ir.Integer_globals.task_view ->
+  Frontend.Parser.array_dimension_preparation ->
+  ( Sema.Dimension_fragment.authority * Ir.Integer_interpreter.dimension_attempt,
+    Common.Diagnostic.t list )
+  result
+
+val finish_runtime_dimension :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  succeeded:bool ->
+  Frontend.Parser.array_dimension_preparation ->
+  (unit, Common.Diagnostic.t list) result
+
 val activate_source :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->

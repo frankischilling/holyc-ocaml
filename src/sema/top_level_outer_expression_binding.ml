@@ -246,6 +246,15 @@ let resolve ~table ~environment ~expressions =
       (Top_level_expression_binding.statements expressions)
   then Error (invalid_input "default fragment uses another outer environment")
   else if
+    List.exists
+      (fun statement ->
+        Option.fold ~none:false
+          ~some:(fun fragment ->
+            Dimension_fragment.environment fragment != environment)
+          (Top_level_expression_binding.statement_dimension statement))
+      (Top_level_expression_binding.statements expressions)
+  then Error (invalid_input "dimension fragment uses another outer environment")
+  else if
     match Top_level_expression_binding.initializer_bindings expressions with
     | None -> false
     | Some batch -> Global_initializer_binding.environment batch != environment

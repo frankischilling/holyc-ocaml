@@ -2,6 +2,18 @@ module Visibility = Frontend.Symbol_visibility
 module Parser = Frontend.Parser
 module Ast = Frontend.Ast
 
+type runtime_dimension_proposal = {
+  proposal_namespace : Declaration_collection.namespace;
+  proposal_source : Parser.array_dimension_preparation;
+  proposal_count : int64;
+  proposal_work : int;
+}
+
+let runtime_dimension_namespace value = value.proposal_namespace
+let runtime_dimension_source value = value.proposal_source
+let runtime_dimension_count value = value.proposal_count
+let runtime_dimension_work value = value.proposal_work
+
 type t = {
   table : Symbol_table.t;
   entry : Visibility.entry;
@@ -9,6 +21,7 @@ type t = {
   primitive : Primitive_type.t option;
   byte_size : int64;
   internal : bool;
+  runtime_dimensions : runtime_dimension_proposal list;
 }
 
 type sizeof_owner =
@@ -18,6 +31,7 @@ type sizeof_owner =
       source : Parser.local_publication;
       byte_size : int64;
       internal : bool;
+      runtime_dimensions : runtime_dimension_proposal list;
     }
 
 type sizeof_read = { owner : sizeof_owner; root : Parser.query_root }
@@ -43,6 +57,7 @@ type dimension_preparation = {
   queries : query_read list;
   count : int64;
   work : int;
+  runtime_dependencies : runtime_dimension_proposal list;
 }
 
 type declared_dimension = {
@@ -89,6 +104,12 @@ let validate_dimension ~table ~(dimension : Ast.array_dimension) checked =
   else if checked.completed.dimension_ast != dimension then
     Error "checked array dimension belongs to another source node"
   else Ok ()
+
+let dimension_runtime_dependencies checked =
+  checked.prepared.runtime_dependencies
+
+let dimension_preparation_runtime_dependencies prepared =
+  prepared.runtime_dependencies
 
 let dimension_count checked = checked.prepared.count
 let dimension_work checked = checked.prepared.work
@@ -162,6 +183,7 @@ let seed_primitive ~table ~entry ~symbol ~primitive =
           primitive = Some primitive;
           byte_size = Int64.of_int info.byte_size;
           internal = true;
+          runtime_dimensions = [];
         }
 
 let seed_public_union ~table ~entry ~symbol
@@ -200,6 +222,7 @@ let seed_public_union ~table ~entry ~symbol
               primitive = Some primitive;
               byte_size = Int64.of_int info.byte_size;
               internal = false;
+              runtime_dimensions = [];
             }
 
 let scalar_size type_ =
@@ -256,6 +279,8 @@ let published_scalar ?(dimensions = []) ~table ~namespace publication =
               primitive = None;
               byte_size;
               internal = false;
+              runtime_dimensions =
+                List.concat_map dimension_runtime_dependencies dimensions;
             }
 
 let declare_global ~dimensions ~table ~namespace ~predecessor ~previous_global
@@ -297,6 +322,13 @@ let declared_global_type declaration = declaration.declared_type
 
 let declared_global_dimensions declaration =
   List.map dimension_count declaration.declared_dimensions
+
+let declared_dimension_preparation dimension = dimension.prepared
+
+let declared_global_runtime_dependencies declaration =
+  List.concat_map
+    (fun dimension -> dimension.prepared.runtime_dependencies)
+    declaration.declared_dimensions
 
 let declared_global_owns_table declaration table =
   declaration.declared_table == table
@@ -379,6 +411,7 @@ let bind_retained_scalar ~table ~entry global =
             primitive = None;
             byte_size;
             internal = false;
+            runtime_dimensions = [];
           }
 
 let read_sizeof ~table ~(root : Parser.query_root) (record : t) =
@@ -476,7 +509,20 @@ let read_local_sizeof ~dimensions ~table ~namespace ~function_publication
                     (127 * (Primitive_type.info Primitive_type.I64).byte_size),
                   true )
         in
-        Ok { owner = Local_record { table; source; byte_size; internal }; root }
+        Ok
+          {
+            owner =
+              Local_record
+                {
+                  table;
+                  source;
+                  byte_size;
+                  internal;
+                  runtime_dimensions =
+                    List.concat_map dimension_runtime_dependencies dimensions;
+                };
+            root;
+          }
     | _ ->
         Error
           "local sizeof read lacks its original function and source publication"
@@ -588,6 +634,14 @@ let query_sizeof selection =
       Some (sizeof_primitive read, sizeof_value read ~pointer, pointer)
   | _ -> None
 
+let query_runtime_dependencies selection =
+  match selection.sizeof_read with
+  | None -> []
+  | Some read -> (
+      match read.owner with
+      | Hash_record record -> record.runtime_dimensions
+      | Local_record local -> local.runtime_dimensions)
+
 let query_constant selection =
   match query_presence selection with
   | Some present -> Some (if present then 1L else 0L)
@@ -698,6 +752,8 @@ let prepare_dimension ~table ~namespace ~max_work
           queries;
           count;
           work = !work;
+          runtime_dependencies =
+            List.concat_map query_runtime_dependencies queries;
         }
   in
   (result, !work)
@@ -718,6 +774,43 @@ let complete_dimension ~receipt prepared =
       "checked dimension completion substituted its original preparation or \
        children"
   else Ok { prepared; completed = receipt }
+
+let propose_runtime_dimension ~namespace ~preparation ~count ~work =
+  if work < 0 || count < 0L then
+    Error "runtime dimension proposal requires nonnegative count and work"
+  else
+    Ok
+      {
+        proposal_namespace = namespace;
+        proposal_source = preparation;
+        proposal_count = count;
+        proposal_work = work;
+      }
+
+let complete_runtime_dimension ~table ~receipt ~queries proposal =
+  let preparation = proposal.proposal_source in
+  let namespace = proposal.proposal_namespace in
+  let* () =
+    if Declaration_collection.namespace_owns_table namespace table then Ok ()
+    else Error "runtime dimension proposal belongs to another table"
+  in
+  let* expression =
+    match preparation.dimension_expression with
+    | Some expression -> Ok expression
+    | None -> Error "runtime proposal has no original expression"
+  in
+  let* () = validate_query_manifest ~table ~expression queries in
+  complete_dimension ~receipt
+    {
+      dimension_table = table;
+      dimension_namespace = namespace;
+      preparation;
+      queries;
+      count = proposal.proposal_count;
+      work = proposal.proposal_work;
+      runtime_dependencies =
+        proposal :: List.concat_map query_runtime_dependencies queries;
+    }
 
 let global_dimensions record =
   Global_resolution.global_record_global record
@@ -933,6 +1026,17 @@ let make_global_extent ~table ~record dimensions =
 let global_extent_record extent = extent.global_extent_record
 let global_dimension_extent_count extent = extent.extent_count
 
+let global_extent_runtime_dependencies extent =
+  List.concat_map
+    (fun dimension ->
+      match dimension.extent_evaluation with
+      | Prepared_extent prepared -> dimension_runtime_dependencies prepared
+      | Legacy_extent queries ->
+          Option.fold ~none:[]
+            ~some:(List.concat_map query_runtime_dependencies)
+            queries)
+    extent.global_extent_dimensions
+
 let global_extent_dimensions extent =
   List.map (fun value -> value.extent_count) extent.global_extent_dimensions
 
@@ -989,4 +1093,5 @@ let bind_retained_global ~table ~entry ~record ~extent =
             primitive = None;
             byte_size = Int64.mul byte_size extent.global_extent_count;
             internal = false;
+            runtime_dimensions = global_extent_runtime_dependencies extent;
           }

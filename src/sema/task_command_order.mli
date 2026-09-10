@@ -1,6 +1,13 @@
 type t
 type command
 
+val check_dimension :
+  ?require_admitted:bool ->
+  t ->
+  admitted:command list ->
+  Frontend.Parser.array_dimension_preparation ->
+  (unit, string) result
+
 val command_receipts : command -> Frontend.Parser.completed_command list
 
 val check_completion :

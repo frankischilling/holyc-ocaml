@@ -72,9 +72,12 @@ let evaluate_dimension ~table global index input =
                 "global array layout requires its original source expression"
         in
         let* () =
-          match Global_dimension_binding.dimension_occurrences dimension with
-          | [] -> Ok ()
-          | occurrence :: _ ->
+          match
+            ( Global_dimension_binding.dimension_prepared dimension,
+              Global_dimension_binding.dimension_occurrences dimension )
+          with
+          | Some _, _ | None, [] -> Ok ()
+          | None, occurrence :: _ ->
               invalid_extent global index
                 (Printf.sprintf
                    "requires an evaluated value for bound identifier %S"

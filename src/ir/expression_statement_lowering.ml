@@ -111,6 +111,7 @@ let top_level_expression_statement root =
   | ( ( Top_level_source.Implicit_output_fixed _
       | Top_level_source.Global_initializer _
       | Top_level_source.Initializer_fragment _
+      | Top_level_source.Dimension_fragment _
       | Top_level_source.Default_fragment _
       | Top_level_source.Implicit_output_argument _
       | Top_level_source.Condition _
