@@ -1,5 +1,8 @@
 type context
 
+val records : context -> Sema.Function_record_classification.t
+val function_sources : context -> Sema.Function_call_expression_result.t
+
 val create_context :
   table:Sema.Symbol_table.t ->
   parent:Sema.Symbol_table.scope ->

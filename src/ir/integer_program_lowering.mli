@@ -7,6 +7,7 @@ type statement =
   | Initialize of Sema.Function_call_expression_result.initializer_result
   | Initialize_global of
       Sema.Function_call_expression_result.top_level_root_result
+  | Initialize_fragment of Initializer_fragment_destination.t
   | Initialize_static of Integer_globals.static_slot
   | Initialize_static_leaf of
       Integer_globals.static_slot

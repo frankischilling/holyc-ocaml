@@ -33,8 +33,9 @@ val execute_isolated :
 
 (** Incremental JIT execution with retained globals and functions. Calls
     preserve each body's original storage, literals and callees. [run] retains
-    assigned declaration symbols across parsing and compilation; partial runtime
-    publication and #exe integration remain separate work. *)
+    assigned declaration symbols across parsing and compilation. The synchronous
+    initializer adapter publishes partial storage and executes original leaves;
+    the public outer JIT invocation still requires separate integration. *)
 
 val create :
   ?max_steps:int ->
@@ -76,6 +77,30 @@ val prepare_initializer :
   result
 (** Type one current observed initializer leaf against its original admitted
     storage and selected retained bindings. This performs no runtime effects. *)
+
+val prepare_initializer_destination :
+  t ->
+  destination:Ir.Integer_initializer_layout.entry ->
+  Frontend.Parser.completed_initializer_leaf ->
+  (Ir.Initializer_fragment_destination.t, Common.Diagnostic.t list) result
+(** Bind an original live layout entry to its typed fragment and exact retained
+    object without allocating storage or authorizing execution. *)
+
+val lower_initializer_fragment :
+  t ->
+  destination:Ir.Integer_initializer_layout.entry ->
+  Frontend.Parser.completed_initializer_leaf ->
+  (Ir.Initializer_fragment_program.t, Common.Diagnostic.t list) result
+(** Lower one current original fragment into an internally sealed program.
+    Numeric preparation, runtime admission and execution remain separate. *)
+
+val observe_initializer :
+  t ->
+  Frontend.Parser.declaration_event ->
+  (unit, Common.Diagnostic.t list) result
+(** After the source ledger observes the original event, admit declared storage,
+    consume initializer boundaries, and prepare/execute each original leaf once.
+    Completion reuses successful stores and preparation work. *)
 
 val adopt_source :
   ?max_steps:int ->
@@ -160,5 +185,7 @@ val stream_executor :
 
     The task must already own checked provider declarations. Its ledger observes
     only stream commands; an unobserved outer parser must use a distinct
-    frontend environment. This does not execute the outer unit or provide shared
-    outer JIT declaration/initializer timing or a whole-invocation report. *)
+    frontend environment. Within the stream, original initializer leaves finish
+    before later leaves and reuse their retained storage at command completion.
+    This does not execute the outer unit or provide a whole-invocation report.
+*)

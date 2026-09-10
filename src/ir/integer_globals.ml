@@ -10,9 +10,13 @@ module Scalar = Integer_scalar_storage
 module Shape = Integer_storage_shape
 module Arrays = Integer_array_initializers
 
+type initializer_status = Unstarted | Active | Complete | Failed
+
 type declared_slot = {
   declaration : Sema.Compiler_record.declared_global;
   declared_shape : Shape.t;
+  mutable initialized_leaves : Sema.Initializer_source.leaf list;
+  mutable initializer_status : initializer_status;
 }
 
 type slot = {
@@ -62,6 +66,7 @@ type task_view = {
 }
 
 type t = {
+  initializer_fragment_ : bool;
   declared_slots_ : declared_slot list;
   slots_ : slot list;
   symbols : slot Symbols.t;
@@ -75,6 +80,27 @@ type t = {
 }
 
 let slots globals = globals.slots_
+
+let fragment_context view fragment =
+  if view.environment != Sema.Initializer_fragment.environment fragment then
+    Error "initializer fragment has another retained task snapshot"
+  else
+    Ok
+      {
+        initializer_fragment_ = true;
+        declared_slots_ = [];
+        slots_ = [];
+        symbols = Symbols.empty;
+        statics_ = [];
+        mode = Resolution.Jit;
+        global_byte_size_ = 0;
+        global_cell_count_ = 0;
+        byte_size_ = 0;
+        task_view = Some view;
+        function_publications_ = [];
+      }
+
+let is_initializer_fragment globals = globals.initializer_fragment_
 let byte_size globals = globals.byte_size_
 let slot_index slot = slot.index
 let slot_symbol slot = slot.symbol
@@ -91,6 +117,17 @@ let slot_initializers slot =
   match slot.array_initializers with
   | None -> Option.to_list slot.initializer_root
   | Some arrays -> List.map Arrays.root (Arrays.entries arrays)
+
+let slot_root_executed slot root =
+  List.exists (( == ) root) (slot_initializers slot)
+  && Option.fold ~none:false
+       ~some:(fun declared ->
+         Option.fold ~none:false
+           ~some:(fun leaf ->
+             List.exists (( == ) leaf) declared.initialized_leaves)
+           (Typed.top_level_root_source root
+           |> Sema.Top_level_expression_tree.root_initializer_leaf))
+       slot.declared_owner
 
 let slot_initializer_materialized slot = slot.initializer_materialized
 
@@ -134,6 +171,42 @@ let static_storage slot = Static slot
 let global_storage slot = Global slot
 let declared_storage slot = Declared slot
 let declared_record slot = slot.declaration
+
+let begin_declared_initializer slot =
+  if slot.initializer_status <> Unstarted then
+    Error "declared initializer has already started"
+  else (
+    slot.initializer_status <- Active;
+    Ok ())
+
+let complete_declared_initializer slot =
+  if slot.initializer_status <> Active then
+    Error "declared initializer has no active completion"
+  else (
+    slot.initializer_status <- Complete;
+    Ok ())
+
+let fail_declared_initializer slot = slot.initializer_status <- Failed
+let declared_initializer_failed slot = slot.initializer_status = Failed
+
+let declared_initializer_joinable slot =
+  match slot.initializer_status with
+  | Unstarted | Complete -> true
+  | Active | Failed -> false
+
+let record_declared_initializer slot layout =
+  let leaf = Integer_initializer_layout.leaf layout in
+  if
+    slot.initializer_status <> Active
+    || (not
+          (Option.fold ~none:false ~some:(( == ) slot.declaration)
+             (Integer_initializer_layout.declared_owner layout)))
+    || List.exists (( == ) leaf) slot.initialized_leaves
+  then
+    Error "initializer success is foreign, repeated or follows a failed attempt"
+  else (
+    slot.initialized_leaves <- leaf :: slot.initialized_leaves;
+    Ok ())
 
 let same_storage left right =
   match (left, right) with
@@ -340,6 +413,7 @@ let create_impl ?layout ?initializers ~span:unit_span records =
         if Symbols.is_empty roots then
           Ok
             {
+              initializer_fragment_ = false;
               declared_slots_ = [];
               slots_ = List.rev reversed;
               symbols;
@@ -590,6 +664,9 @@ let create_task_catalog ~table =
   }
 
 let task_catalog_owns_table catalog table = catalog.table == table
+
+let task_catalog_owns_namespace catalog namespace =
+  Option.fold ~none:false ~some:(( == ) namespace) catalog.namespace
 
 let check_task_namespace catalog namespace =
   if Option.is_some catalog.namespace then
@@ -877,10 +954,18 @@ let prepare_declared catalog declaration =
           Error
             "declared storage requires positive fixed public integer objects"
     in
-    let slot = { declaration; declared_shape } in
+    let slot =
+      {
+        declaration;
+        declared_shape;
+        initialized_leaves = [];
+        initializer_status = Unstarted;
+      }
+    in
     let bytes = Shape.byte_size declared_shape in
     Ok
       ( {
+          initializer_fragment_ = false;
           declared_slots_ = [ slot ];
           slots_ = [];
           symbols = Symbols.empty;
@@ -944,6 +1029,13 @@ let join_declared view globals =
               ({ slot with index } :: rev)
               rest
         | Some prior ->
+            let* () =
+              if not (declared_initializer_joinable prior) then
+                Error
+                  "completed declaration requires successful completion of its \
+                   started live initializer"
+              else Ok ()
+            in
             let global =
               Records.classified_record_source slot.record
               |> Resolution.global_record_global
@@ -990,94 +1082,112 @@ let join_declared view globals =
 let slot_reuses_declared_storage slot = Option.is_some slot.declared_owner
 
 let check_task_command catalog globals =
-  match globals.task_view with
-  | None -> Error "task execution requires a compiled task storage view"
-  | Some view when view.catalog != catalog ->
-      Error "compiled storage view belongs to another task"
-  | Some view ->
-      if globals.mode <> Resolution.Jit then
-        Error "task commands require JIT storage"
-      else if
-        not
-          (List.for_all
-             (fun slot ->
-               Sema.Symbol_table.owns_symbol catalog.table (storage_symbol slot))
-             (storage_slots globals))
-      then Error "new task storage has foreign symbols"
-      else if
-        List.exists
-          (fun slot ->
-            List.exists
-              (fun prior ->
-                publication_symbol prior == slot.symbol
-                && not
-                     (match (prior, slot.declared_owner) with
-                     | Declared_publication (_, pending), Some owner ->
-                         pending == owner
-                     | _ -> false))
-              catalog.published)
-          globals.slots_
-      then Error "task storage declaration has already been admitted"
-      else if
-        not
-          (List.for_all
-             (fun (_, reference, slot) ->
-               List.exists
-                 (function
-                   | Global_publication (prior, expected) ->
-                       Retained_global.same prior reference
-                       && same_storage (Global expected) slot
-                   | Declared_publication (prior, expected) ->
-                       Retained_global.same prior reference
-                       && same_storage (Declared expected) slot
-                   | Function_publication _ -> false)
-                 catalog.published)
-             view.entries)
-      then Error "retained global reference is absent from this task"
-      else if
-        not
-          (List.for_all
-             (fun (_, reference) ->
-               List.exists
-                 (function
-                   | Function_publication prior ->
-                       Retained_function.same prior reference
-                   | Global_publication _ | Declared_publication _ -> false)
-                 catalog.published)
-             view.function_entries)
-      then Error "retained function reference is absent from this task"
-      else if
-        List.exists
-          (fun reference ->
-            (not
-               (Sema.Symbol_table.owns_symbol catalog.table
-                  (Retained_function.symbol reference)))
-            || List.exists
-                 (fun prior ->
-                   publication_symbol prior
-                   == Retained_function.symbol reference)
-                 catalog.published)
-          globals.function_publications_
-      then Error "task function declaration is foreign or already admitted"
-      else
-        Result.bind
-          (Option.fold ~none:(Ok ())
-             ~some:
-               (Sema.Task_command_order.check catalog.source_order
-                  ~admitted:catalog.admitted_commands)
-             view.source_command)
-          (fun () ->
-            List.fold_left
-              (fun result slot ->
-                Result.bind result (fun () ->
-                    validate_slot_extent ~table:catalog.table slot))
-              (Ok ())
-              (globals.slots_
-              @ List.filter_map
-                  (function
-                    | _, _, Global slot -> Some slot
-                    | _ -> None)
-                  view.entries))
+  if globals.initializer_fragment_ then
+    Error
+      "initializer fragment storage requires its original live execution \
+       attempt"
+  else
+    match globals.task_view with
+    | None -> Error "task execution requires a compiled task storage view"
+    | Some view when view.catalog != catalog ->
+        Error "compiled storage view belongs to another task"
+    | Some view ->
+        if globals.mode <> Resolution.Jit then
+          Error "task commands require JIT storage"
+        else if
+          List.exists
+            (fun slot ->
+              Option.fold ~none:false
+                ~some:(fun declared ->
+                  not (declared_initializer_joinable declared))
+                slot.declared_owner)
+            globals.slots_
+        then
+          Error
+            "task command requires successful completion of its started live \
+             initializer"
+        else if
+          not
+            (List.for_all
+               (fun slot ->
+                 Sema.Symbol_table.owns_symbol catalog.table
+                   (storage_symbol slot))
+               (storage_slots globals))
+        then Error "new task storage has foreign symbols"
+        else if
+          List.exists
+            (fun slot ->
+              List.exists
+                (fun prior ->
+                  publication_symbol prior == slot.symbol
+                  && not
+                       (match (prior, slot.declared_owner) with
+                       | Declared_publication (_, pending), Some owner ->
+                           pending == owner
+                       | _ -> false))
+                catalog.published)
+            globals.slots_
+        then Error "task storage declaration has already been admitted"
+        else if
+          not
+            (List.for_all
+               (fun (_, reference, slot) ->
+                 List.exists
+                   (function
+                     | Global_publication (prior, expected) ->
+                         Retained_global.same prior reference
+                         && same_storage (Global expected) slot
+                     | Declared_publication (prior, expected) ->
+                         Retained_global.same prior reference
+                         && same_storage (Declared expected) slot
+                     | Function_publication _ -> false)
+                   catalog.published)
+               view.entries)
+        then Error "retained global reference is absent from this task"
+        else if
+          not
+            (List.for_all
+               (fun (_, reference) ->
+                 List.exists
+                   (function
+                     | Function_publication prior ->
+                         Retained_function.same prior reference
+                     | Global_publication _ | Declared_publication _ -> false)
+                   catalog.published)
+               view.function_entries)
+        then Error "retained function reference is absent from this task"
+        else if
+          List.exists
+            (fun reference ->
+              (not
+                 (Sema.Symbol_table.owns_symbol catalog.table
+                    (Retained_function.symbol reference)))
+              || List.exists
+                   (fun prior ->
+                     publication_symbol prior
+                     == Retained_function.symbol reference)
+                   catalog.published)
+            globals.function_publications_
+        then Error "task function declaration is foreign or already admitted"
+        else
+          Result.bind
+            (Option.fold ~none:(Ok ())
+               ~some:
+                 (Sema.Task_command_order.check catalog.source_order
+                    ~admitted:catalog.admitted_commands)
+               view.source_command)
+            (fun () ->
+              List.fold_left
+                (fun result slot ->
+                  Result.bind result (fun () ->
+                      validate_slot_extent ~table:catalog.table slot))
+                (Ok ())
+                (globals.slots_
+                @ List.filter_map
+                    (function
+                      | _, _, Global slot -> Some slot
+                      | _ -> None)
+                    view.entries))
 
 let publish_task catalog globals =
   Option.iter

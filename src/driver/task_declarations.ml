@@ -1831,6 +1831,82 @@ let initializer_fragment ledger ~runtime ~task_view
         ~queries
       |> checked span)
 
+let initializer_fragment_authority ledger ~runtime ~task_view receipt =
+  let ( let* ) = Result.bind in
+  let* fragment = initializer_fragment ledger ~runtime ~task_view receipt in
+  protect (fun () ->
+      Sema.Initializer_fragment.authorize ~namespace:ledger.namespace fragment
+      |> checked receipt.Parser.leaf_initializer.initializer_equals.span)
+
+let require_initializer_runtime ledger runtime span =
+  if
+    not (Option.fold ~none:false ~some:(( == ) runtime) (ledger_runtime ledger))
+  then fail span "initializer operation belongs to another task runtime"
+
+let begin_initializer_runtime ledger ~runtime start =
+  let ( let* ) = Result.bind in
+  let* declaration = initializer_declaration ledger start in
+  protect (fun () ->
+      let span = start.Parser.initializer_equals.span in
+      require_initializer_runtime ledger runtime span;
+      VM.begin_task_initializer runtime ~namespace:ledger.namespace declaration
+        start
+      |> checked span)
+
+let observe_initializer_delimiter ledger ~runtime receipt =
+  protect (fun () ->
+      let span = receipt.Parser.delimiter_initializer.initializer_equals.span in
+      require_initializer_runtime ledger runtime span;
+      VM.observe_task_initializer_delimiter runtime ~namespace:ledger.namespace
+        receipt
+      |> checked span)
+
+let begin_initializer_attempt ledger ~runtime receipt =
+  let ( let* ) = Result.bind in
+  let* leaf = initializer_leaf_for ledger receipt in
+  protect (fun () ->
+      let span = receipt.Parser.leaf_initializer.initializer_equals.span in
+      require_initializer_runtime ledger runtime span;
+      VM.begin_task_initializer_leaf runtime ~namespace:ledger.namespace leaf
+      |> checked span)
+
+let complete_initializer_runtime ledger ~runtime event =
+  protect (fun () ->
+      match event with
+      | Parser.Global_completed (publication, completed) ->
+          let span = completed.Ast.location.span in
+          require_initializer_runtime ledger runtime span;
+          let boundary =
+            Names.find ledger.storage_boundaries publication.global_name
+          in
+          if
+            not
+              (Option.fold ~none:false ~some:(( == ) event)
+                 boundary.storage_completion)
+          then
+            fail span "initializer completion has no original observed boundary";
+          let _, source =
+            match Names.find_opt ledger.initializers completed.name with
+            | Some pair -> pair
+            | None ->
+                fail span
+                  "initializer completion has no original source transcript"
+          in
+          let start =
+            match Sema.Initializer_source.leaves source with
+            | leaf :: _ ->
+                (Option.get (Sema.Initializer_source.leaf_parser_receipt leaf))
+                  .leaf_initializer
+            | [] ->
+                fail span "initializer completion has no reached source leaf"
+          in
+          VM.complete_task_initializer runtime ~namespace:ledger.namespace start
+            source
+          |> checked span
+      | _ ->
+          invalid_arg
+            "initializer completion requires its original global boundary")
+
 let initializer_scope ledger = Collection.namespace_scope ledger.namespace
 
 let initializer_for ~table ~ast (command : command) name initial =

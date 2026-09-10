@@ -25,6 +25,39 @@ val admit_global :
   Frontend.Parser.global_publication ->
   (unit, Common.Diagnostic.t list) result
 
+val initializer_fragment_authority :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  task_view:Ir.Integer_globals.task_view ->
+  Frontend.Parser.completed_initializer_leaf ->
+  (Sema.Initializer_fragment.authority, Common.Diagnostic.t list) result
+(** Authorize only the ledger's exact original selected fragment. No supplied
+    fragment can replace frozen references or queries at this boundary. *)
+
+val begin_initializer_runtime :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.global_initializer_start ->
+  (unit, Common.Diagnostic.t list) result
+
+val observe_initializer_delimiter :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.completed_initializer_delimiter ->
+  (unit, Common.Diagnostic.t list) result
+
+val begin_initializer_attempt :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.completed_initializer_leaf ->
+  (Ir.Integer_interpreter.initializer_attempt, Common.Diagnostic.t list) result
+
+val complete_initializer_runtime :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.declaration_event ->
+  (unit, Common.Diagnostic.t list) result
+
 type command
 type source_command
 type query

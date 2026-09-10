@@ -22,7 +22,7 @@ contracts. The full compiler/native/BIN/loader/bootstrap goal remains active.
   that reuse the existing expression traversal and type analyzer. Construct a
   legitimate empty semantic task context for declarations not present in the
   fragment; retained symbols come from the exact task snapshot.
-- [ ] Lower the typed fragment through the existing integer expression/call IR.
+- [x] Lower the typed fragment through the existing integer expression/call IR.
   Bind its destination to the declared object's checked scalar or array position.
   Execute through retained task cells with cumulative budgets and original leaf
   order. Copied strings use the checked owned-prefix and terminator policy.
@@ -31,11 +31,26 @@ contracts. The full compiler/native/BIN/loader/bootstrap goal remains active.
   reject invalid layout before later directives can run. Completion retains
   exact leaf destinations and every original trailing delimiter. Layout is
   pure source metadata and grants no runtime admission authority.
-- [ ] Make completed-command compilation and admission reuse fragment execution
+- [x] Make completed-command compilation and admission reuse fragment execution
   and preparation receipts without repeating effects or charges. Test mixed
   prepared/scheduled leaves, failure, limits, foreign owners and replay.
 - [ ] Obtain independent review, run focused/full/CLI and build/reference/
   provenance/corpus checks, push a reviewed checkpoint and update the prompt.
+
+The runtime now consumes source-owned leaf attempts. Fragment storage is marked
+and rejected by ordinary command admission. A started live initializer cannot
+join its completed declaration until every leaf and trailing delimiter passes
+the runtime layout cursor. Review found both admission gaps; failing regressions
+confirmed them before these checks were added.
+
+The original scalar, array, retained-call and copied-row timing gates now pass.
+The copied-row positive generates two characters plus its terminator for a
+three-byte row; the original shorter source remains a negative owned-bound test.
+Nested calls with explicit arguments execute. The new omitted-default acceptance
+case remains failing at shared call lowering (`HCRUN0003`), which still rejects
+the existing declared-default result type. Complete declaration-time default
+preparation and its later call materialization; do not replace defaults with
+synthetic expression results or literal-only substitutions.
 
 The public outer JIT facade still needs separate invocation projection and
 provider installation. Partial function timing, effectful dimensions, implicit

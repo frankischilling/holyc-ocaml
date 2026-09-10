@@ -94,9 +94,16 @@ let early_reference_reads () =
       rejected "HCRUN0003" parsed)
     [
       {|#exe {40+Missing #exe {Print("late");};}|};
-      {|#exe {I64 N=40;#exe {1+N+#exe {Print("late");}2;}}|};
       {|I64 N=40;#exe {1+N+#exe {Print("late");}2;}|};
     ];
+  let outer, _, task = setup () in
+  let _, parsed =
+    parse outer task {|#exe {I64 N=40;#exe {1+N+#exe {Print("late");}2;}}|}
+  in
+  ignore (Test_parser.expect_ast parsed);
+  Alcotest.(check string)
+    "completed live initializer is available before the nested directive" "late"
+    (Task.output_bytes task);
   let outer, _, task = setup () in
   rejected "HCPARSE0001"
     (parse outer task {|#exe {Missing #exe {Print("probe");};}|});

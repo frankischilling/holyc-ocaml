@@ -32,4 +32,5 @@ val leaf : entry -> Sema.Initializer_source.leaf
 val cell_offset : entry -> int
 val byte_offset : entry -> int
 val operation : entry -> operation
+val declared_owner : entry -> Sema.Compiler_record.declared_global option
 val find : t -> Sema.Initializer_source.leaf -> entry option

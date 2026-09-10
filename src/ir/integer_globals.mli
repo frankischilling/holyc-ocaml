@@ -14,6 +14,9 @@ type task_publication = private
 val create_task_catalog : table:Sema.Symbol_table.t -> task_catalog
 val task_catalog_owns_table : task_catalog -> Sema.Symbol_table.t -> bool
 
+val task_catalog_owns_namespace :
+  task_catalog -> Sema.Declaration_collection.namespace -> bool
+
 val check_task_namespace :
   task_catalog -> Sema.Declaration_collection.namespace -> (unit, string) result
 
@@ -32,6 +35,11 @@ val has_source_command : t -> bool
 val owns_task_storage : task_catalog -> t -> bool
 val snapshot_task : task_catalog -> (task_view, string) result
 val task_environment : task_view -> Sema.Outer_environment.t
+
+val fragment_context :
+  task_view -> Sema.Initializer_fragment.t -> (t, string) result
+
+val is_initializer_fragment : t -> bool
 val task_catalog_owns_view : task_catalog -> task_view -> bool
 
 val task_global_binding :
@@ -61,6 +69,14 @@ val retained_binding :
 
 val declared_storage : declared_slot -> storage_slot
 val declared_record : declared_slot -> Sema.Compiler_record.declared_global
+val declared_initializer_failed : declared_slot -> bool
+val begin_declared_initializer : declared_slot -> (unit, string) result
+val complete_declared_initializer : declared_slot -> (unit, string) result
+val fail_declared_initializer : declared_slot -> unit
+
+val record_declared_initializer :
+  declared_slot -> Integer_initializer_layout.entry -> (unit, string) result
+
 val allocated_storage_slots : t -> storage_slot list
 val find_allocated_storage : t -> Sema.Symbol.t -> storage_slot option
 
@@ -177,6 +193,9 @@ val slot_initializer :
 val slot_initializer_materialized : slot -> bool
 
 val slot_root_materialized :
+  slot -> Sema.Function_call_expression_result.top_level_root_result -> bool
+
+val slot_root_executed :
   slot -> Sema.Function_call_expression_result.top_level_root_result -> bool
 
 val static_root_materialized :

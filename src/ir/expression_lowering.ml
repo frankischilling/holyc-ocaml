@@ -3346,6 +3346,32 @@ let lower_global_initializer ~globals ?lower_call ~instruction_id ~value_id root
     ~instruction_id ~value_id
     (Semantic_result.top_level_root_value root)
 
+let lower_fragment_initializer ?lower_call ~instruction_id ~value_id destination
+    =
+  let ( let* ) = Result.bind in
+  let module Destination = Initializer_fragment_destination in
+  let* prepared =
+    Global_address_lowering.prepare_fragment_initializer destination
+  in
+  let lower_address ~instruction_id ~value_id =
+    let* address =
+      Global_address_lowering.lower_prepared ~instruction_id ~value_id prepared
+    in
+    Ok
+      ( Global_address_lowering.sequence address,
+        Global_address_lowering.result_value address,
+        Global_address_lowering.next_instruction_id address,
+        Global_address_lowering.next_value_id address )
+  in
+  lower_store_initializer
+    ~globals:(Destination.globals destination)
+    ?lower_call ~lower_address
+    ~target_type:
+      (Integer_globals.storage_type (Destination.storage destination))
+    ~span:(Some (Destination.span destination))
+    ~instruction_id ~value_id
+    (Semantic_result.top_level_root_value (Destination.root destination))
+
 let lower_static_initializer ~globals ?root ?lower_call ~instruction_id
     ~value_id slot =
   let ( let* ) = Result.bind in

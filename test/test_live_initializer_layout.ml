@@ -8,7 +8,8 @@ module Source = Semantic_initializer_source
 let checked = Test_declaration_collection.checked
 let expect = Test_integer_program.checked
 
-let parse ?execute_stream ?(skip_layout_delimiter = fun _ -> false) text =
+let parse ?execute_stream ?(skip_layout_delimiter = fun _ -> false)
+    ?(on_leaf = fun _ _ _ -> Ok ()) text =
   let session, source, ledger = Test_source_promotion.inputs text in
   let task = ref None and layout = ref None and entries = ref [] in
   let fragments = ref [] in
@@ -47,9 +48,13 @@ let parse ?execute_stream ?(skip_layout_delimiter = fun _ -> false) text =
             |> diagnose
                  receipt.leaf_initializer.initializer_owner.global_name.location
                    .span
-            |> Result.map (fun (next, entry) ->
-                layout := Some next;
-                entries := entry :: !entries)
+            |> fun result ->
+            Result.bind result (fun (next, entry) ->
+                Result.map
+                  (fun () ->
+                    layout := Some next;
+                    entries := entry :: !entries)
+                  (on_leaf (Option.get !task) receipt entry))
         | _ -> Ok ())
   in
   let checkpoint event =
@@ -60,23 +65,30 @@ let parse ?execute_stream ?(skip_layout_delimiter = fun _ -> false) text =
             Ok ()
         | Parser.Command_resumed completed ->
             let ast = completed.command_ast in
-            let command = D.seal ledger ast |> expect in
-            let declaration =
-              List.hd (Test_live_initializer_leaves.declarators ast)
-            in
-            let initial = Option.get declaration.global_initial_value in
-            let manifest =
-              D.initializer_for
-                ~table:(Session.semantic_symbols session)
-                ~ast command declaration.name initial
-              |> expect
-            in
-            Layout.complete_live (Option.get !layout) manifest
-            |> diagnose ast.span
-            |> Result.map (fun complete ->
-                Alcotest.(check int)
-                  "completed layout keeps reached leaves" (List.length !entries)
-                  (List.length (Layout.entries complete)))
+            if Test_live_initializer_leaves.declarators ast = [] then
+              Result.bind
+                (Task.compile_source_ast (Option.get !task) ast)
+                (fun command ->
+                  Task.execute (Option.get !task) command |> Result.map ignore)
+            else
+              let command = D.seal ledger ast |> expect in
+              let declaration =
+                List.hd (Test_live_initializer_leaves.declarators ast)
+              in
+              let initial = Option.get declaration.global_initial_value in
+              let manifest =
+                D.initializer_for
+                  ~table:(Session.semantic_symbols session)
+                  ~ast command declaration.name initial
+                |> expect
+              in
+              Layout.complete_live (Option.get !layout) manifest
+              |> diagnose ast.span
+              |> Result.map (fun complete ->
+                  Alcotest.(check int)
+                    "completed layout keeps reached leaves"
+                    (List.length !entries)
+                    (List.length (Layout.entries complete)))
         | _ -> Ok ())
   in
   let parsed =

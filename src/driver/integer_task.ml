@@ -91,7 +91,7 @@ let admit_global task publication =
   Task_declarations.admit_global task.declarations ~runtime:task.state
     publication
 
-let prepare_initializer task receipt =
+let prepare_initializer_context task receipt =
   let ( let* ) = Result.bind in
   let span =
     receipt.Frontend.Parser.leaf_initializer.initializer_owner.global_name
@@ -104,17 +104,129 @@ let prepare_initializer task receipt =
       result
   in
   let* task_view = VM.task_snapshot task.state |> diagnose in
-  let* fragment =
-    Task_declarations.initializer_fragment task.declarations ~runtime:task.state
-      ~task_view receipt
+  let* authority =
+    Task_declarations.initializer_fragment_authority task.declarations
+      ~runtime:task.state ~task_view receipt
   in
+  let fragment = Sema.Initializer_fragment.authorized_fragment authority in
   let* context =
     Initializer_fragment_typing.create_context
       ~table:(Session.semantic_symbols task.session)
       ~parent:(Task_declarations.initializer_scope task.declarations)
     |> diagnose
   in
-  Initializer_fragment_typing.prepare context fragment |> diagnose
+  let* typed =
+    Initializer_fragment_typing.prepare context fragment |> diagnose
+  in
+  Ok (context, authority, task_view, typed)
+
+let prepare_initializer task receipt =
+  prepare_initializer_context task receipt
+  |> Result.map (fun (_, _, _, typed) -> typed)
+
+let prepare_initializer_destination_context task ~destination receipt =
+  let ( let* ) = Result.bind in
+  let span = receipt.Frontend.Parser.leaf_initializer.initializer_equals.span in
+  let diagnose result =
+    Result.map_error
+      (fun message -> [ Integer_source.message_diagnostic ~span message ])
+      result
+  in
+  let* context, authority, task_view, typed =
+    prepare_initializer_context task receipt
+  in
+  let* declaration =
+    match Ir.Integer_initializer_layout.declared_owner destination with
+    | Some declaration -> Ok declaration
+    | None ->
+        Error "initializer destination has no original declared layout"
+        |> diagnose
+  in
+  let* reference, slot =
+    match
+      VM.admitted_publication_for_symbol task.state
+        (Sema.Compiler_record.declared_global_symbol declaration)
+    with
+    | Some (VM.Admitted_declared_global (reference, slot)) ->
+        Ok (reference, slot)
+    | _ ->
+        Error "initializer destination has no retained declared object"
+        |> diagnose
+  in
+  let* destination =
+    Ir.Initializer_fragment_destination.create ~task_view ~reference ~slot
+      ~layout:destination typed
+    |> diagnose
+  in
+  Ok (context, authority, destination)
+
+let prepare_initializer_destination task ~destination receipt =
+  prepare_initializer_destination_context task ~destination receipt
+  |> Result.map (fun (_, _, destination) -> destination)
+
+let lower_initializer_fragment task ~destination receipt =
+  let ( let* ) = Result.bind in
+  let* context, authority, destination =
+    prepare_initializer_destination_context task ~destination receipt
+  in
+  Initializer_fragment_lowering.lower ~context ~authority destination
+
+let execute_initializer_leaf task receipt =
+  let ( let* ) = Result.bind in
+  let* attempt =
+    Task_declarations.begin_initializer_attempt task.declarations
+      ~runtime:task.state receipt
+  in
+  let outcome =
+    let destination = VM.initializer_attempt_destination attempt in
+    let* context, authority, destination =
+      prepare_initializer_destination_context task ~destination receipt
+    in
+    let* execution =
+      Initializer_fragment_lowering.prepare ~context ~authority
+        ~runtime:task.state destination
+    in
+    VM.execute_task_initializer task.state attempt execution
+    |> Result.map_error
+         (Integer_execution_diagnostics.of_errors
+            ~span:
+              receipt.Frontend.Parser.leaf_initializer.initializer_equals.span)
+  in
+  (match outcome with
+  | Error _ -> ignore (VM.fail_task_initializer_attempt task.state attempt)
+  | Ok () -> ());
+  outcome
+
+let observe_initializer task event =
+  (match event with
+    | Frontend.Parser.Global_declared publication ->
+        admit_global task publication
+    | Frontend.Parser.Global_initializer_started start ->
+        Task_declarations.begin_initializer_runtime task.declarations
+          ~runtime:task.state start
+    | Frontend.Parser.Global_initializer_delimiter_completed receipt ->
+        Task_declarations.observe_initializer_delimiter task.declarations
+          ~runtime:task.state receipt
+    | Frontend.Parser.Global_initializer_leaf_completed receipt ->
+        execute_initializer_leaf task receipt
+    | Frontend.Parser.Global_completed (_, completed)
+      when Option.is_some completed.global_initial_value ->
+        Task_declarations.complete_initializer_runtime task.declarations
+          ~runtime:task.state event
+    | _ -> Ok ())
+  |> Result.map_error
+       (List.map (fun (error : Common.Diagnostic.t) ->
+            if
+              error.code = "HCRUN0004"
+              && String.starts_with ~prefix:"HC" error.message
+              && String.contains error.message ':'
+            then
+              let decoded =
+                Integer_source.message_diagnostic ~span:error.primary
+                  error.message
+              in
+              { error with code = decoded.code; message = decoded.message }
+            else error))
 
 let compiled_units task =
   List.rev_map (fun (_, command) -> command.program) task.commands
@@ -325,7 +437,8 @@ let stream_executor task span =
         -> header.function_publication.function_header.declaration_command
     in
     let* () = reading start.command_context in
-    Task_declarations.observe task.declarations event
+    let* () = Task_declarations.observe task.declarations event in
+    observe_initializer task event
   in
   let dimension_count (completed : Frontend.Parser.completed_array_dimension) =
     let* () =

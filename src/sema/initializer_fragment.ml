@@ -14,6 +14,25 @@ let environment fragment = fragment.environment_
 let references fragment = fragment.references_
 let queries fragment = fragment.queries_
 
+type authority = { authorized_fragment : t }
+
+let authorize ~namespace fragment =
+  if
+    not
+      (Compiler_record.declared_global_owns_namespace fragment.declaration_
+         namespace)
+  then
+    Error "initializer execution authority belongs to another source namespace"
+  else
+    match Initializer_source.leaf_parser_receipt fragment.leaf_ with
+    | Some receipt when Frontend.Parser.initializer_leaf_is_current receipt ->
+        Ok { authorized_fragment = fragment }
+    | _ ->
+        Error
+          "initializer execution authority requires its original current leaf"
+
+let authorized_fragment authority = authority.authorized_fragment
+
 let create ~table ~declaration ~leaf ~environment ~references ~queries =
   let ( let* ) = Result.bind in
   let* () =

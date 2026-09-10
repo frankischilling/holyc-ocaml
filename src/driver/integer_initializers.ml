@@ -7,6 +7,7 @@ module Values = Map.Make (Seq.Value_id)
 module Arrays = Ir.Integer_array_initializers
 module Layout = Ir.Integer_initializer_layout
 module Updates = Integer_update_initializers
+module Destination = Ir.Initializer_fragment_destination
 
 type classification = Prepared_constant of int64 | Scheduled
 
@@ -25,12 +26,14 @@ type static_item =
 type owner =
   | Global of Globals.slot * Typed.top_level_root_result
   | Static of Globals.static_slot * Typed.initializer_result
+  | Fragment of Destination.t
 
 type t = {
   globals_ : Globals.t;
   items_ : item list;
   static_items_ : static_item list;
   copies_ : (owner * string * int) list;
+  fragment_items_ : Destination.t prepared_item list;
   steps : int;
 }
 
@@ -62,9 +65,10 @@ let value_instructions graph =
       | Ir.Opcode.Ic_end_exp | Ic_end -> false
       | _ -> true)
 
-let prepare ?(function_calls = []) ?(allow_zero_budget = false)
-    ?(retained_function_source = fun _ -> None) ?(on_progress = fun _ -> ())
-    ~max_steps ~span ~globals ~top_calls ~functions () =
+let prepare_internal ?fragment ?(function_calls = [])
+    ?(allow_zero_budget = false) ?(retained_function_source = fun _ -> None)
+    ?(on_progress = fun _ -> ()) ~max_steps ~span ~globals ~top_calls ~functions
+    () =
   let invalid ?(notes = []) ?(at = span) code message =
     Error
       [
@@ -76,28 +80,35 @@ let prepare ?(function_calls = []) ?(allow_zero_budget = false)
     invalid "HCIRVM0001" "max_initializer_steps must be greater than zero"
   else
     let work =
-      (Globals.slots globals
-      |> List.concat_map (fun slot ->
-          List.map
-            (fun root -> Global (slot, root))
-            (Globals.slot_initializers slot)))
-      @ (Globals.statics globals
-        |> List.concat_map (fun slot ->
-            List.map
-              (fun root -> Static (slot, root))
-              (Globals.static_initializers slot)))
-      |> List.stable_sort (fun left right ->
-          let index = function
-            | Global (slot, _) ->
-                Globals.slot_record slot
-                |> Sema.Global_record_classification.classified_record_source
-                |> Sema.Global_resolution.global_record_global
-                |> Sema.Global_type_resolution.global_item_index
-            | Static (slot, _) ->
-                Globals.static_frame slot
-                |> Sema.Function_frame_layout.function_item_index
-          in
-          Int.compare (index left) (index right))
+      match fragment with
+      | Some destination -> [ Fragment destination ]
+      | None ->
+          (Globals.slots globals
+          |> List.concat_map (fun slot ->
+              List.map
+                (fun root -> Global (slot, root))
+                (Globals.slot_initializers slot
+                |> List.filter (fun root ->
+                    not (Globals.slot_root_executed slot root)))))
+          @ (Globals.statics globals
+            |> List.concat_map (fun slot ->
+                List.map
+                  (fun root -> Static (slot, root))
+                  (Globals.static_initializers slot)))
+          |> List.stable_sort (fun left right ->
+              let index = function
+                | Fragment _ -> 0
+                | Global (slot, _) ->
+                    Globals.slot_record slot
+                    |> Sema.Global_record_classification
+                       .classified_record_source
+                    |> Sema.Global_resolution.global_record_global
+                    |> Sema.Global_type_resolution.global_item_index
+                | Static (slot, _) ->
+                    Globals.static_frame slot
+                    |> Sema.Function_frame_layout.function_item_index
+              in
+              Int.compare (index left) (index right))
     in
     let rec collect total updates reversed work =
       on_progress total;
@@ -121,7 +132,8 @@ let prepare ?(function_calls = []) ?(allow_zero_budget = false)
               updates
           in
           let* globals_ =
-            Globals.with_initial_values ~span globals scalar_values
+            if Option.is_some fragment then Ok globals
+            else Globals.with_initial_values ~span globals scalar_values
           in
           let global_values =
             List.filter_map
@@ -144,8 +156,10 @@ let prepare ?(function_calls = []) ?(allow_zero_budget = false)
               updates
           in
           let* globals_ =
-            Globals.with_array_initial_values ~span globals_ ~global_values
-              ~static_values
+            if Option.is_some fragment then Ok globals_
+            else
+              Globals.with_array_initial_values ~span globals_ ~global_values
+                ~static_values
           in
           let prepared = List.rev reversed in
           let items_ =
@@ -153,7 +167,7 @@ let prepare ?(function_calls = []) ?(allow_zero_budget = false)
               (fun item ->
                 match item.root_ with
                 | Global (_, root_) -> Some { item with root_ }
-                | Static _ -> None)
+                | Static _ | Fragment _ -> None)
               prepared
           in
           let static_items_ =
@@ -169,7 +183,7 @@ let prepare ?(function_calls = []) ?(allow_zero_budget = false)
                       Option.get (Globals.find_static globals_ symbol)
                     in
                     Some { item with root_ = (slot, root) }
-                | Global _ -> None)
+                | Global _ | Fragment _ -> None)
               prepared
           in
           let copies_ =
@@ -180,10 +194,30 @@ let prepare ?(function_calls = []) ?(allow_zero_budget = false)
                 | _ -> None)
               updates
           in
-          Ok { globals_; items_; static_items_; copies_; steps = total }
+          let fragment_items_ =
+            List.filter_map
+              (fun item ->
+                match item.root_ with
+                | Fragment root_ -> Some { item with root_ }
+                | _ -> None)
+              prepared
+          in
+          Ok
+            {
+              globals_;
+              items_;
+              static_items_;
+              copies_;
+              fragment_items_;
+              steps = total;
+            }
       | root_ :: rest -> (
           let symbol, value, frame =
             match root_ with
+            | Fragment destination ->
+                ( Globals.storage_symbol (Destination.storage destination),
+                  Typed.top_level_root_value (Destination.root destination),
+                  None )
             | Global (slot, root) ->
                 (Globals.slot_symbol slot, Typed.top_level_root_value root, None)
             | Static (slot, root) ->
@@ -206,6 +240,8 @@ let prepare ?(function_calls = []) ?(allow_zero_budget = false)
           in
           let operation =
             match root_ with
+            | Fragment destination ->
+                Some (Layout.operation (Destination.layout destination))
             | Global (slot, root) ->
                 Option.bind (Globals.slot_array_initializers slot)
                   (fun arrays -> Arrays.find arrays root)
@@ -242,7 +278,7 @@ let prepare ?(function_calls = []) ?(allow_zero_budget = false)
                   [ Ir.Integer_program_lowering.Expression value ]
                 |> Result.map_error (fun errors ->
                     match root_ with
-                    | Global _ -> errors
+                    | Global _ | Fragment _ -> errors
                     | Static _ ->
                         List.map
                           (fun (error : Common.Diagnostic.t) ->
@@ -324,6 +360,8 @@ let prepare ?(function_calls = []) ?(allow_zero_budget = false)
               in
               let destination_type, compiler_options =
                 match root_ with
+                | Fragment destination ->
+                    (Globals.storage_type (Destination.storage destination), 0L)
                 | Global (slot, _) -> (Globals.slot_type slot, 0L)
                 | Static (slot, _) ->
                     ( Globals.static_storage slot |> Globals.storage_type,
@@ -426,7 +464,7 @@ let prepare ?(function_calls = []) ?(allow_zero_budget = false)
                     && Sema.Compiler_option.is_enabled
                          ~mask:(Globals.static_compiler_options slot)
                          Sema.Compiler_option.Globals_on_data_heap
-                | Global _ -> false
+                | Global _ | Fragment _ -> false
               then
                 invalid ~at ~notes "HCRUN0006"
                   "nonconstant AOT static initialization with \
@@ -495,6 +533,47 @@ let prepare ?(function_calls = []) ?(allow_zero_budget = false)
     in
     collect 0 [] [] work
 
+let prepare ?function_calls ?allow_zero_budget ?retained_function_source
+    ?on_progress ~max_steps ~span ~globals ~top_calls ~functions () =
+  prepare_internal ?function_calls ?allow_zero_budget ?retained_function_source
+    ?on_progress ~max_steps ~span ~globals ~top_calls ~functions ()
+
+type fragment_preparation = {
+  fragment_destination_ : Destination.t;
+  fragment_payload_ : Arrays.payload option;
+  fragment_steps_ : int;
+}
+
+let fragment_destination prepared = prepared.fragment_destination_
+let fragment_payload prepared = prepared.fragment_payload_
+let fragment_steps prepared = prepared.fragment_steps_
+
+let prepare_fragment ?retained_function_source ?on_progress ~max_steps
+    ~top_calls ~functions destination =
+  let* prepared =
+    prepare_internal ~fragment:destination ~allow_zero_budget:true
+      ?retained_function_source ?on_progress ~max_steps
+      ~span:(Destination.span destination)
+      ~globals:(Destination.globals destination)
+      ~top_calls ~functions ()
+  in
+  let payload =
+    match (prepared.fragment_items_, prepared.copies_) with
+    | [ item ], [] -> (
+        match item.classification_ with
+        | Prepared_constant bits -> Some (Arrays.Word bits)
+        | Scheduled -> None)
+    | [], [ (Fragment original, bytes, _) ] when original == destination ->
+        Some (Arrays.Bytes bytes)
+    | _ -> invalid_arg "fragment preparation lost its unique original work item"
+  in
+  Ok
+    {
+      fragment_destination_ = destination;
+      fragment_payload_ = payload;
+      fragment_steps_ = prepared.steps;
+    }
+
 let global_human prepared =
   match prepared.items_ with
   | [] -> ""
@@ -562,6 +641,8 @@ let human prepared =
              (fun (owner, bytes, steps) ->
                let symbol =
                  match owner with
+                 | Fragment destination ->
+                     Globals.storage_symbol (Destination.storage destination)
                  | Global (slot, _) -> Globals.slot_symbol slot
                  | Static (slot, _) ->
                      Globals.storage_symbol (Globals.static_storage slot)

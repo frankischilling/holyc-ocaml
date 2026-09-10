@@ -307,7 +307,34 @@ type isolated_preparation = {
   mutable preparation_closed : bool;
 }
 
+type initializer_attempt_state =
+  | Preparing_initializer
+  | Executing_initializer
+  | Successful_initializer
+  | Failed_initializer
+
+type task_initializer = {
+  initializer_catalog : Integer_globals.task_catalog;
+  initializer_slot : Integer_globals.declared_slot;
+  initializer_start : Frontend.Parser.global_initializer_start;
+  mutable initializer_cursor : Integer_initializer_layout.live;
+  mutable initializer_seen : Frontend.Parser.completed_initializer_leaf list;
+  mutable initializer_attempt : initializer_attempt option;
+  mutable initializer_complete : bool;
+}
+
+and initializer_attempt = {
+  attempt_initializer : task_initializer;
+  attempt_leaf : Sema.Initializer_source.leaf;
+  attempt_receipt : Frontend.Parser.completed_initializer_leaf;
+  attempt_destination : Integer_initializer_layout.entry;
+  attempt_next : Integer_initializer_layout.live;
+  attempt_preparation_before : int;
+  mutable attempt_state : initializer_attempt_state;
+}
+
 type task_state = {
+  mutable initializers : task_initializer list;
   mutable declared_admissions : admitted_publication list;
   mutable source_promotion_open : bool;
   catalog : Integer_globals.task_catalog;
@@ -366,6 +393,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
     let output = Output.create ~max_output_bytes ~max_output_work in
     Ok
       {
+        initializers = [];
         declared_admissions = [];
         source_promotion_open = true;
         catalog = Integer_globals.create_task_catalog ~table;
@@ -562,6 +590,155 @@ let admit_declared_global task declaration =
     task.declared_admissions <- publication :: task.declared_admissions;
     task.global_bytes <- task.global_bytes + bytes;
     task.source_promotion_open <- false;
+    Ok ()
+
+let require_initializer_namespace task namespace =
+  if Integer_globals.task_catalog_owns_namespace task.catalog namespace then
+    Ok ()
+  else Error "initializer operation belongs to another task source namespace"
+
+let begin_task_initializer task ~namespace declaration start =
+  let ( let* ) = Result.bind in
+  let* () = require_initializer_namespace task namespace in
+  let* slot =
+    match
+      admitted_publication_for_symbol task
+        (Sema.Compiler_record.declared_global_symbol declaration)
+    with
+    | Some (Admitted_declared_global (_, slot))
+      when Integer_globals.declared_record slot == declaration -> Ok slot
+    | _ -> Error "initializer start has no original admitted task object"
+  in
+  if
+    (not (Frontend.Parser.initializer_start_is_current start))
+    || start.initializer_owner
+       != Sema.Compiler_record.declared_global_source declaration
+    || List.exists
+         (fun state -> state.initializer_slot == slot)
+         task.initializers
+  then Error "initializer start is foreign, delayed or repeated"
+  else
+    let* initializer_cursor =
+      Integer_initializer_layout.begin_live declaration
+    in
+    let* () = Integer_globals.begin_declared_initializer slot in
+    let state =
+      {
+        initializer_catalog = task.catalog;
+        initializer_slot = slot;
+        initializer_start = start;
+        initializer_cursor;
+        initializer_seen = [];
+        initializer_attempt = None;
+        initializer_complete = false;
+      }
+    in
+    task.initializers <- state :: task.initializers;
+    Ok ()
+
+let find_task_initializer task start =
+  match
+    List.find_opt
+      (fun state -> state.initializer_start == start)
+      task.initializers
+  with
+  | Some state
+    when (not state.initializer_complete)
+         && not
+              (Integer_globals.declared_initializer_failed
+                 state.initializer_slot) -> Ok state
+  | _ -> Error "initializer has no active original task destination"
+
+let initializer_is_idle state =
+  match state.initializer_attempt with
+  | None -> true
+  | Some attempt -> attempt.attempt_state = Successful_initializer
+
+let observe_task_initializer_delimiter task ~namespace receipt =
+  let ( let* ) = Result.bind in
+  let* () = require_initializer_namespace task namespace in
+  let* state =
+    find_task_initializer task receipt.Frontend.Parser.delimiter_initializer
+  in
+  if
+    (not (Frontend.Parser.initializer_delimiter_is_current receipt))
+    || not (initializer_is_idle state)
+  then
+    Error "initializer delimiter is delayed or precedes completion of its leaf"
+  else
+    let* next =
+      Integer_initializer_layout.observe_live_delimiter state.initializer_cursor
+        receipt
+    in
+    state.initializer_cursor <- next;
+    Ok ()
+
+let begin_task_initializer_leaf task ~namespace leaf =
+  let ( let* ) = Result.bind in
+  let* () = require_initializer_namespace task namespace in
+  let* receipt =
+    match Sema.Initializer_source.leaf_parser_receipt leaf with
+    | Some receipt when Frontend.Parser.initializer_leaf_is_current receipt ->
+        Ok receipt
+    | _ -> Error "initializer attempt requires its original current leaf"
+  in
+  let* state = find_task_initializer task receipt.leaf_initializer in
+  if
+    (not (initializer_is_idle state))
+    || List.exists (( == ) receipt) state.initializer_seen
+  then
+    Error
+      "initializer leaf has already been attempted or precedes its prior leaf"
+  else (
+    state.initializer_seen <- receipt :: state.initializer_seen;
+    match
+      Integer_initializer_layout.prepare_live state.initializer_cursor leaf
+    with
+    | Error message ->
+        Integer_globals.fail_declared_initializer state.initializer_slot;
+        Error message
+    | Ok (attempt_next, attempt_destination) ->
+        let attempt =
+          {
+            attempt_initializer = state;
+            attempt_leaf = leaf;
+            attempt_receipt = receipt;
+            attempt_next;
+            attempt_destination;
+            attempt_preparation_before = task.initializer_steps;
+            attempt_state = Preparing_initializer;
+          }
+        in
+        state.initializer_attempt <- Some attempt;
+        Ok attempt)
+
+let initializer_attempt_destination attempt = attempt.attempt_destination
+
+let fail_task_initializer_attempt task attempt =
+  if
+    attempt.attempt_initializer.initializer_catalog != task.catalog
+    || attempt.attempt_state = Successful_initializer
+  then Error "initializer failure does not belong to an unfinished task attempt"
+  else (
+    attempt.attempt_state <- Failed_initializer;
+    Integer_globals.fail_declared_initializer
+      attempt.attempt_initializer.initializer_slot;
+    Ok ())
+
+let complete_task_initializer task ~namespace start source =
+  let ( let* ) = Result.bind in
+  let* () = require_initializer_namespace task namespace in
+  let* state = find_task_initializer task start in
+  if not (initializer_is_idle state) then
+    Error "initializer completion has an unfinished leaf"
+  else
+    let* _ =
+      Integer_initializer_layout.complete_live state.initializer_cursor source
+    in
+    let* () =
+      Integer_globals.complete_declared_initializer state.initializer_slot
+    in
+    state.initializer_complete <- true;
     Ok ()
 
 let task_function_source task link =
@@ -3529,10 +3706,10 @@ let execute_function ?(max_literal_bytes = 1_048_576) ~max_steps
             execute_prepared ~literal_image ~max_steps
               { program with owner = Some (function_id, function_name) })
 
-let execute_program_with_output ?task ?isolated_budget ?runtime_calls ~output
-    ?globals ?initialization ?(max_global_bytes = 1_048_576)
-    ?(max_literal_bytes = 1_048_576) ~max_steps ~max_frame_bytes ~max_call_depth
-    ~functions checked =
+let execute_program_with_output ?task ?isolated_budget
+    ?(initializer_mode = false) ?runtime_calls ~output ?globals ?initialization
+    ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576) ~max_steps
+    ~max_frame_bytes ~max_call_depth ~functions checked =
   let ( let* ) = Result.bind in
   let accounting =
     match (task, isolated_budget) with
@@ -3630,6 +3807,7 @@ let execute_program_with_output ?task ?isolated_budget ?runtime_calls ~output
           then
             invalid "HCIRVM0016"
               "task global storage exceeds the cumulative byte limit"
+          else if initializer_mode then Ok ()
           else
             match Integer_globals.check_task_command task.catalog globals with
             | Error message -> invalid "HCIRVM0026" message
@@ -3889,67 +4067,69 @@ let execute_program_with_output ?task ?isolated_budget ?runtime_calls ~output
         (fun task storage owner ->
           let globals = Option.get globals in
           task.started <- checked :: task.started;
-          task.arenas <- (globals, storage) :: task.arenas;
           task.literal_arenas <- owner.owner_literals :: task.literal_arenas;
-          let executable_publications =
-            Integer_globals.function_publications globals
-            |> List.filter_map (fun function_link ->
-                let declaration =
-                  Retained_function.metadata function_link
-                  |> Sema.Outer_environment.function_declaration
-                in
-                let site =
-                  Sema.Function_resolution.resolved_declaration_site declaration
-                in
-                if
-                  Sema.Function_resolution.declaration_site_kind site
-                  <> Sema.Function_resolution.Definition
-                then None
-                else
-                  Array.to_list owner.owner_callees
-                  |> List.find_opt (fun (callee, _) ->
-                      match callee.callee_definition with
-                      | Some definition -> definition == declaration
-                      | None -> false)
-                  |> Option.map (fun (function_callee, function_program) ->
-                      {
-                        function_link;
-                        function_callee;
-                        function_program;
-                        function_owner = owner;
-                        function_source =
-                          {
-                            source_globals = globals;
-                            source_runtime_calls = Option.get runtime_calls;
-                            source_functions = functions;
-                            source_definition =
-                              List.nth functions function_callee.callee_index;
-                          };
-                      }))
-          in
-          task.functions <- executable_publications @ task.functions;
-          let publications =
-            Integer_globals.publish_task task.catalog globals
-          in
-          let admission_publications =
-            List.map
-              (function
-                | Integer_globals.Global_publication (reference, slot) ->
-                    Admitted_global (reference, slot)
-                | Integer_globals.Declared_publication (reference, slot) ->
-                    Admitted_declared_global (reference, slot)
-                | Integer_globals.Function_publication reference ->
-                    Admitted_function reference)
-              publications
-          in
-          task.admissions <-
-            {
-              admission_catalog = task.catalog;
-              admission_globals = globals;
-              admission_entry = checked;
-              admission_publications;
-            }
-            :: task.admissions)
+          if not initializer_mode then (
+            task.arenas <- (globals, storage) :: task.arenas;
+            let executable_publications =
+              Integer_globals.function_publications globals
+              |> List.filter_map (fun function_link ->
+                  let declaration =
+                    Retained_function.metadata function_link
+                    |> Sema.Outer_environment.function_declaration
+                  in
+                  let site =
+                    Sema.Function_resolution.resolved_declaration_site
+                      declaration
+                  in
+                  if
+                    Sema.Function_resolution.declaration_site_kind site
+                    <> Sema.Function_resolution.Definition
+                  then None
+                  else
+                    Array.to_list owner.owner_callees
+                    |> List.find_opt (fun (callee, _) ->
+                        match callee.callee_definition with
+                        | Some definition -> definition == declaration
+                        | None -> false)
+                    |> Option.map (fun (function_callee, function_program) ->
+                        {
+                          function_link;
+                          function_callee;
+                          function_program;
+                          function_owner = owner;
+                          function_source =
+                            {
+                              source_globals = globals;
+                              source_runtime_calls = Option.get runtime_calls;
+                              source_functions = functions;
+                              source_definition =
+                                List.nth functions function_callee.callee_index;
+                            };
+                        }))
+            in
+            task.functions <- executable_publications @ task.functions;
+            let publications =
+              Integer_globals.publish_task task.catalog globals
+            in
+            let admission_publications =
+              List.map
+                (function
+                  | Integer_globals.Global_publication (reference, slot) ->
+                      Admitted_global (reference, slot)
+                  | Integer_globals.Declared_publication (reference, slot) ->
+                      Admitted_declared_global (reference, slot)
+                  | Integer_globals.Function_publication reference ->
+                      Admitted_function reference)
+                publications
+            in
+            task.admissions <-
+              {
+                admission_catalog = task.catalog;
+                admission_globals = globals;
+                admission_entry = checked;
+                admission_publications;
+              }
+              :: task.admissions))
         task
     in
     let admit =
@@ -3977,14 +4157,14 @@ let execute_program_with_output ?task ?isolated_budget ?runtime_calls ~output
       in
       let on_capture =
         Option.bind accounting (fun task ->
-            if task.streams = [] then
+            if task.streams = [] && not initializer_mode then
               Some (fun value -> task.outer_value <- value)
             else None)
       in
       execute_prepared ~callees:programs ~max_frame_bytes ~max_call_depth
         ?initialization ~global_words ~literal_image ~output ?stream_output
-        ?generation_output ~capture_last:true ?on_capture ?admit
-        ~retained_regions ~retained_functions ~max_steps entry
+        ?generation_output ~capture_last:(not initializer_mode) ?on_capture
+        ?admit ~retained_regions ~retained_functions ~max_steps entry
     in
     Option.iter
       (fun task ->
@@ -4000,10 +4180,130 @@ let execute_program_with_output ?task ?isolated_budget ?runtime_calls ~output
       accounting;
     outcome
 
+let execute_task_initializer task attempt execution =
+  let module Program = Initializer_fragment_program in
+  let module Destination = Initializer_fragment_destination in
+  let ( let* ) = Result.bind in
+  let destination = Program.execution_destination execution in
+  let state = attempt.attempt_initializer in
+  let slot = Destination.storage destination in
+  let span = Destination.span destination in
+  let invalid code message =
+    Error [ make_error ~stage:Preflight ~span ~executed_steps:0 code message ]
+  in
+  let* () =
+    if
+      state.initializer_catalog != task.catalog
+      || attempt.attempt_state <> Preparing_initializer
+      || (not
+            (Option.fold ~none:false ~some:(( == ) attempt)
+               state.initializer_attempt))
+      || (not
+            (Frontend.Parser.initializer_leaf_is_current attempt.attempt_receipt))
+      || Destination.layout destination != attempt.attempt_destination
+      || Sema.Initializer_fragment.leaf (Destination.fragment destination)
+         != attempt.attempt_leaf
+      || Sema.Initializer_fragment.authorized_fragment
+           (Program.execution_authority execution)
+         != Destination.fragment destination
+      || (not
+            (Integer_globals.same_storage slot
+               (Integer_globals.declared_storage state.initializer_slot)))
+      || (not
+            (Integer_globals.owns_task_storage task.catalog
+               (Destination.globals destination)))
+      || (not
+            (Integer_globals.is_initializer_fragment
+               (Destination.globals destination)))
+      || Program.execution_steps execution
+         <> task.initializer_steps - attempt.attempt_preparation_before
+      || Integer_globals.byte_size (Destination.globals destination) <> 0
+    then
+      invalid "HCIRVM0026"
+        "initializer execution has another attempt, source, destination or \
+         preparation"
+    else Ok ()
+  in
+  attempt.attempt_state <- Executing_initializer;
+  let outcome =
+    match Program.execution_code execution with
+    | Program.Prepared payload ->
+        let* storage =
+          match
+            List.find_map
+              (fun (owner, storage) ->
+                match
+                  Integer_globals.find_allocated_storage owner
+                    (Integer_globals.storage_symbol slot)
+                with
+                | Some expected when Integer_globals.same_storage expected slot
+                  -> Some storage
+                | _ -> None)
+              task.arenas
+          with
+          | Some storage when storage.live -> Ok storage
+          | _ ->
+              invalid "HCIRVM0026"
+                "initializer destination has no live retained storage"
+        in
+        publish_array_payload ~slot
+          ~cell_offset:
+            (Integer_initializer_layout.cell_offset attempt.attempt_destination)
+          payload (fun cell word ->
+            storage.cells.(cell) <- Some (Runtime_word word));
+        Ok ()
+    | Program.Scheduled program ->
+        if task.steps >= task.max_steps then
+          invalid "HCIRVM0007"
+            "the task cumulative execution step limit was exhausted"
+        else
+          execute_program_with_output ~task ~initializer_mode:true
+            ~runtime_calls:(Program.runtime_calls program)
+            ~output:task.output
+            ~globals:(Destination.globals destination)
+            ~initialization:(Program.initialization program)
+            ~max_global_bytes:task.max_global_bytes
+            ~max_literal_bytes:task.max_literal_bytes
+            ~max_steps:(task.max_steps - task.steps)
+            ~max_frame_bytes:task.max_frame_bytes
+            ~max_call_depth:task.max_call_depth ~functions:[]
+            (Program.entry program)
+          |> Result.map ignore
+  in
+  match outcome with
+  | Error errors ->
+      ignore (fail_task_initializer_attempt task attempt);
+      Error errors
+  | Ok () -> (
+      match
+        Integer_globals.record_declared_initializer state.initializer_slot
+          attempt.attempt_destination
+      with
+      | Error message ->
+          ignore (fail_task_initializer_attempt task attempt);
+          invalid "HCIRVM0026" message
+      | Ok () ->
+          state.initializer_cursor <- attempt.attempt_next;
+          attempt.attempt_state <- Successful_initializer;
+          Ok ())
+
 let execute_task_program task ~runtime_calls ~globals ~initialization ~functions
     checked =
   task.source_promotion_open <- false;
-  if task.steps >= task.max_steps then
+  if
+    List.exists
+      (fun state ->
+        (not (initializer_is_idle state))
+        && not
+             (Integer_globals.declared_initializer_failed state.initializer_slot))
+      task.initializers
+  then
+    Error
+      [
+        make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0026"
+          "ordinary command cannot interleave an active initializer attempt";
+      ]
+  else if task.steps >= task.max_steps then
     Error
       [
         make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0007"

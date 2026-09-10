@@ -91,6 +91,17 @@ module Ir_integer_globals : sig
 end
 
 module Ir_global_address_lowering = Ir.Global_address_lowering
+module Ir_initializer_fragment_destination = Ir.Initializer_fragment_destination
+
+module Ir_initializer_fragment_program : sig
+  type t = Ir.Initializer_fragment_program.t
+
+  val destination : t -> Ir.Initializer_fragment_destination.t
+  val entry : t -> Ir.X87_stack.t
+  val initialization : t -> Ir.Global_initialization.t
+  val runtime_calls : t -> Ir.Runtime_call_context.t
+end
+
 module Ir_integer_interpreter = Ir.Integer_interpreter
 module Ir_runtime_call_context = Ir.Runtime_call_context
 module Ir_integer_program_lowering = Ir.Integer_program_lowering

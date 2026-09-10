@@ -294,6 +294,47 @@ let prepare ?frame ~globals result =
       | _ -> prepare_global ~globals result)
   | _ -> prepare_global ~globals result
 
+let layout_indices ~slot destination =
+  let invalid message = error "HCIRL0004" message in
+  match Integer_initializer_layout.operation destination with
+  | Integer_initializer_layout.Copy_bytes _ ->
+      invalid "array string copies cannot be lowered as scheduled scalar stores"
+  | Integer_initializer_layout.Scalar_store -> (
+      let cell = Integer_initializer_layout.cell_offset destination in
+      let bytes = Integer_initializer_layout.byte_offset destination in
+      match
+        Integer_scalar_storage.public_byte_size
+          (Integer_globals.storage_type slot)
+      with
+      | Some width
+        when cell >= 0
+             && cell < Integer_globals.storage_element_count slot
+             && bytes >= 0
+             && bytes mod width = 0
+             && bytes / width = cell ->
+          let rec coordinates offset reversed dimensions strides =
+            match (dimensions, strides) with
+            | [], [] when offset = 0L -> Ok (List.rev reversed)
+            | count :: dimensions, stride :: strides
+              when count > 0L && stride > 0L ->
+                let index = Int64.div offset stride in
+                if index >= count then
+                  invalid
+                    "array initializer destination exceeds its checked extent"
+                else
+                  coordinates (Int64.rem offset stride)
+                    ((stride, index) :: reversed)
+                    dimensions strides
+            | _ ->
+                invalid
+                  "array initializer destination has inconsistent dimensions \
+                   or strides"
+          in
+          coordinates (Int64.of_int bytes) []
+            (Integer_globals.storage_dimensions slot)
+            (Integer_globals.storage_strides slot)
+      | _ -> invalid "array initializer cell and byte destinations disagree")
+
 let initializer_indices ~slot ~roots ~arrays root =
   let invalid message = error "HCIRL0004" message in
   if not (List.exists (fun expected -> expected == root) roots) then
@@ -306,57 +347,31 @@ let initializer_indices ~slot ~roots ~arrays root =
     | Some arrays -> (
         match Integer_array_initializers.find arrays root with
         | None -> invalid "array initializer has no exact destination leaf"
-        | Some entry -> (
-            let destination = Integer_array_initializers.destination entry in
-            match Integer_initializer_layout.operation destination with
-            | Integer_initializer_layout.Copy_bytes _ ->
-                invalid
-                  "array string copies cannot be lowered as scheduled scalar \
-                   stores"
-            | Integer_initializer_layout.Scalar_store -> (
-                let cell = Integer_initializer_layout.cell_offset destination in
-                let bytes =
-                  Integer_initializer_layout.byte_offset destination
-                in
-                match
-                  Integer_scalar_storage.public_byte_size
-                    (Integer_globals.storage_type slot)
-                with
-                | Some width
-                  when cell >= 0
-                       && cell < Integer_globals.storage_element_count slot
-                       && bytes >= 0
-                       && bytes mod width = 0
-                       && bytes / width = cell ->
-                    let rec coordinates offset reversed dimensions strides =
-                      match (dimensions, strides) with
-                      | [], [] when offset = 0L -> Ok (List.rev reversed)
-                      | count :: dimensions, stride :: strides
-                        when count > 0L && stride > 0L ->
-                          let index = Int64.div offset stride in
-                          if index >= count then
-                            invalid
-                              "array initializer destination exceeds its \
-                               checked extent"
-                          else
-                            coordinates (Int64.rem offset stride)
-                              ((stride, index) :: reversed)
-                              dimensions strides
-                      | _ ->
-                          invalid
-                            "array initializer destination has inconsistent \
-                             dimensions or strides"
-                    in
-                    if Integer_globals.storage_dimensions slot = [] then
-                      invalid
-                        "array initializer destination has no declared rank"
-                    else
-                      coordinates (Int64.of_int bytes) []
-                        (Integer_globals.storage_dimensions slot)
-                        (Integer_globals.storage_strides slot)
-                | _ ->
-                    invalid
-                      "array initializer cell and byte destinations disagree")))
+        | Some entry ->
+            if Integer_globals.storage_dimensions slot = [] then
+              invalid "array initializer destination has no declared rank"
+            else
+              layout_indices ~slot
+                (Integer_array_initializers.destination entry))
+
+let prepare_fragment_initializer destination =
+  let ( let* ) = Stdlib.Result.bind in
+  let module Destination = Initializer_fragment_destination in
+  let slot = Destination.storage destination in
+  let* initializer_indices =
+    layout_indices ~slot (Destination.layout destination)
+  in
+  match Type.pointer_to (Integer_globals.storage_type slot) with
+  | Error message -> error "HCIRL0004" message
+  | Ok address_type ->
+      Ok
+        {
+          slot;
+          address_type;
+          span = Destination.span destination;
+          initializer_indices;
+          retained = Some (Destination.reference destination);
+        }
 
 let prepare_initializer ~globals root =
   let ( let* ) = Stdlib.Result.bind in

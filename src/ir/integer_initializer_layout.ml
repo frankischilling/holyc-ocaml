@@ -8,6 +8,7 @@ type entry = {
   cell_offset : int;
   byte_offset : int;
   operation : operation;
+  declared_owner_ : Sema.Compiler_record.declared_global option;
 }
 
 type t = { source : Source.t; entries : entry list }
@@ -19,6 +20,7 @@ let leaf entry = entry.leaf
 let cell_offset entry = entry.cell_offset
 let byte_offset entry = entry.byte_offset
 let operation entry = entry.operation
+let declared_owner entry = entry.declared_owner_
 
 let find layout leaf =
   List.find_opt (fun entry -> entry.leaf == leaf) layout.entries
@@ -77,7 +79,13 @@ type continuation =
 let advance ~shape ~final work input =
   let width = Shape.byte_size shape / Shape.element_count shape in
   let entry leaf cell_offset operation =
-    { leaf; cell_offset; byte_offset = cell_offset * width; operation }
+    {
+      leaf;
+      cell_offset;
+      byte_offset = cell_offset * width;
+      operation;
+      declared_owner_ = None;
+    }
   in
   let rec run work reversed input =
     match (work, input) with
@@ -277,6 +285,9 @@ let prepare_live live leaf =
         in
         match entries with
         | [ entry ] when entry.leaf == leaf ->
+            let entry =
+              { entry with declared_owner_ = Some live.declaration }
+            in
             Ok
               ( {
                   live with

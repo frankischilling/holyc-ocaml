@@ -2,6 +2,30 @@ type classification = Prepared_constant of int64 | Scheduled
 type item
 type static_item
 type t
+type fragment_preparation
+
+val prepare_fragment :
+  ?retained_function_source:
+    (Ir.Retained_function.t ->
+    Ir.Integer_interpreter.task_function_source option) ->
+  ?on_progress:(int -> unit) ->
+  max_steps:int ->
+  top_calls:Sema.Top_level_function_call_target_classification.t list ->
+  functions:Ir.Integer_interpreter.function_definition list ->
+  Ir.Initializer_fragment_destination.t ->
+  (fragment_preparation, Common.Diagnostic.t list) result
+(** Share the ordinary initializer optimizer-domain, transitive call and update
+    checks. Constant preparation and owned copies consume the same work budget;
+    the exact retained storage context is preserved and no image is published.
+*)
+
+val fragment_destination :
+  fragment_preparation -> Ir.Initializer_fragment_destination.t
+
+val fragment_payload :
+  fragment_preparation -> Ir.Integer_array_initializers.payload option
+
+val fragment_steps : fragment_preparation -> int
 
 val prepare :
   ?function_calls:Sema.Function_call_target_classification.t list ->

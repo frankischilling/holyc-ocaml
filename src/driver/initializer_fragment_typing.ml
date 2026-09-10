@@ -6,9 +6,13 @@ type context = {
   globals : Sema.Global_type_resolution.t;
   functions : Sema.Function_resolution.t;
   policies : Sema.Function_call_conversion_policy.t;
+  records_ : Sema.Function_record_classification.t;
+  function_sources_ : Sema.Function_call_expression_result.t;
 }
 
 let ( let* ) = Result.bind
+let records context = context.records_
+let function_sources context = context.function_sources_
 
 let create_context ~table ~parent =
   let* headers = Sema.Aggregate_header_resolution.resolve ~table ~parent [] in
@@ -45,7 +49,23 @@ let create_context ~table ~parent =
     |> Result.map_error Sema.Function_call_conversion_policy.error_to_string
   in
   let* globals = Sema.Global_type_resolution.resolve ~table ~parent [] in
-  Ok { table; parent; expressions; members; globals; functions; policies }
+  let* records_ = Sema.Function_record_classification.classify functions [] in
+  let* function_sources_ =
+    Sema.Function_call_expression_result.analyze ~table ~members policies
+    |> Result.map_error Sema.Function_call_expression_result.error_to_string
+  in
+  Ok
+    {
+      table;
+      parent;
+      expressions;
+      members;
+      globals;
+      functions;
+      policies;
+      records_;
+      function_sources_;
+    }
 
 let prepare context fragment =
   let table = context.table in

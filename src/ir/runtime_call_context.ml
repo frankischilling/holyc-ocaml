@@ -1146,10 +1146,8 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
                 (Option.is_none (Global_initialization.storage_frame region))
                 "top-level entry call cannot belong to a static initializer";
               let root =
-                match
-                  Global_initialization.find initialization description.first
-                with
-                | Some region -> Global_initialization.root region
+                match Global_initialization.storage_root region with
+                | Some root -> root
                 | None ->
                     fail ?span
                       "global-initializer region has no exact source root"

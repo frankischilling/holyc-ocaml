@@ -36,6 +36,45 @@ type report
 type task_state
 type task_stream
 type task_admission
+type initializer_attempt
+
+val begin_task_initializer :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Sema.Compiler_record.declared_global ->
+  Frontend.Parser.global_initializer_start ->
+  (unit, string) result
+
+val observe_task_initializer_delimiter :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Frontend.Parser.completed_initializer_delimiter ->
+  (unit, string) result
+
+val begin_task_initializer_leaf :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Sema.Initializer_source.leaf ->
+  (initializer_attempt, string) result
+
+val initializer_attempt_destination :
+  initializer_attempt -> Integer_initializer_layout.entry
+
+val fail_task_initializer_attempt :
+  task_state -> initializer_attempt -> (unit, string) result
+
+val complete_task_initializer :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Frontend.Parser.global_initializer_start ->
+  Sema.Initializer_source.t ->
+  (unit, string) result
+
+val execute_task_initializer :
+  task_state ->
+  initializer_attempt ->
+  Initializer_fragment_program.execution ->
+  (unit, error list) result
 
 type task_progress = private {
   executed_steps : int;

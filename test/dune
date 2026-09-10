@@ -76,6 +76,7 @@
   test_live_initializer_execution
   test_initializer_fragment_typing
   test_live_initializer_layout
+  test_live_initializer_lowering
   test_task_command_order
   test_stream_parser
   test_integer_statics
