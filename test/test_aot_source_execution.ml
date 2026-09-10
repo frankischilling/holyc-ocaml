@@ -137,7 +137,7 @@ let combined_limits () =
   in
   Alcotest.(check (list int))
     "measured cumulative resources"
-    [ 37; 10; 16; 8; 3; 13; 2 ]
+    [ 39; 10; 16; 8; 3; 13; 2 ]
     counts;
   Alcotest.(check int)
     "VM reports cumulative instruction work" measured.executed_steps

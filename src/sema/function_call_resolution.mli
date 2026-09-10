@@ -148,6 +148,12 @@ val make_callable :
 val make_argument_expression :
   kind:argument_expression_kind -> origin:Symbol.origin -> argument_expression
 
+val make_source_identifier_expression :
+  occurrence:Module_expression_binding.occurrence -> argument_expression
+
+val argument_expression_source_identifier :
+  argument_expression -> Module_expression_binding.occurrence option
+
 val make_prefix_argument_expression :
   operator:prefix_operator ->
   operator_origin:Symbol.origin ->

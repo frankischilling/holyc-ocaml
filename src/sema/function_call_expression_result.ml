@@ -1971,7 +1971,15 @@ let rec type_expression table members policies ~before_item_index ~context
           | Function_call_resolution.Offset_expression ->
               finish ~source_type:integer_type Object_value Integer_result state
           | Function_call_resolution.Identifier_expression -> (
-              match outer_binding_for_expression state source with
+              match
+                match
+                  Function_call_resolution.argument_expression_source_identifier
+                    source
+                with
+                | Some occurrence ->
+                    outer_binding_for_occurrence state occurrence
+                | None -> outer_binding_for_expression state source
+              with
               | Error _ as error -> error
               | Ok None -> finish Unavailable Unresolved_actual_class state
               | Ok (Some (outer_occurrence, outer_binding)) -> (

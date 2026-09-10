@@ -941,6 +941,10 @@ let validate_fragment_identifiers (statement : statement) =
       let valid =
         expression_nodes [ statement ]
         |> List.for_all (fun node ->
+            Option.is_none
+              (Function_call_resolution.argument_expression_source_identifier
+                 node.source)
+            &&
             match
               Function_call_resolution.argument_expression_kind node.source
             with

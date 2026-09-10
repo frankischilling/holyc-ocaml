@@ -327,7 +327,7 @@ let rejected_command_has_no_effects () =
   Alcotest.(check int)
     "preflight charges no instructions" before (Task.executed_steps task);
   value 40L (run session task "N;");
-  fault "HCSEMA0054" (run session task "M;")
+  fault "HCRUN0003" (run session task "M;")
 
 let new_function_reads_old_global () =
   let session = Session.create () in
@@ -363,7 +363,7 @@ let cumulative_global_limit () =
   ignore (run session task "I64 M=2;" |> Test_integer_program.checked);
   fault "HCIRVM0016" (run session task "I8 Excess=1;N=0;");
   value 42L (run session task "N+M;");
-  fault "HCSEMA0054" (run session task "Excess;")
+  fault "HCRUN0003" (run session task "Excess;")
 
 let cumulative_output () =
   let session = Session.create () in
@@ -412,7 +412,7 @@ let compilation_budget () =
   in
   fault "HCIRVM0007" (Task.compile_ast task (parse session "I64 N=40;"));
   value 42L (run session task "42;");
-  fault "HCSEMA0054" (run session task "N;")
+  fault "HCRUN0003" (run session task "N;")
 
 let shared_compilation_budget () =
   let session = Session.create () in
@@ -776,7 +776,7 @@ let retained_function_rejections () =
         "rejected call consumes no runtime work" before
         (Task.executed_steps task);
       value 40L (run session task "N;"))
-    [ "N=100;F();"; "N=100;F(1,2);"; "N=100;F(\"bad\");" ];
+    [ "F();"; "F(++N,2);"; "F(\"bad\");" ];
   value 42L (run session task "F(2);")
 
 let retained_function_literal_capacity () =
@@ -809,7 +809,7 @@ let retained_function_publication_boundary () =
   fault "HCIRVM0014"
     (run session task
        "I64 Rejected(){return 100;}extern I64 Missing();Missing();");
-  fault "HCSEMA0054" (run session task "Rejected();");
+  value 100L (run session task "Rejected();");
   fault "HCIRVM0009" (run session task "I64 Admitted(){return 42;}1/0;");
   value 42L (run session task "Admitted();")
 
@@ -1012,6 +1012,52 @@ let query_self_metadata () =
   let task = create session in
   value 8L (run session task "I64 N=sizeof N;N;")
 
+let source_callbacks_across_inputs () =
+  let session = Session.create () in
+  let task = create session in
+  ignore (run session task "I64 N=38;" |> Test_integer_program.checked);
+  ignore
+    (run session task "extern I64 Saved(I64 n=++N);"
+    |> Test_integer_program.checked);
+  ignore
+    (run session task "I64 Saved(I64 n=++N){return n+2;}"
+    |> Test_integer_program.checked);
+  value 42L (run session task "Saved();");
+  value 42L (run session task "Saved();");
+  value 40L (run session task "N;");
+  ignore (run session task "I64 A[++N-39];" |> Test_integer_program.checked);
+  value 16L (run session task "sizeof A;");
+  value 41L (run session task "N;");
+  value 42L (run session task "A[1]=42;A[1];")
+
+let source_command_timing () =
+  let session = Session.create () in
+  let task = create session in
+  value 42L (run session task "I64 N=0;N=40;I64 Saved=++N;N=100;Saved+1;");
+  fault "HCIRVM0009" (run session task "N=42;1/0;N=99;");
+  value 42L (run session task "N;")
+
+let source_input_values () =
+  let session = Session.create () in
+  let task = create session in
+  value 77L (run session task "77;");
+  let stream = Task.begin_stream task |> Test_function_resolution.checked in
+  value 42L (run session task "42;");
+  let declared = run session task "I64 N=1;" |> Test_integer_program.checked in
+  Alcotest.(check bool)
+    "declaration-only input has no inherited result" true
+    (VM.final_value declared = None);
+  Alcotest.(check string)
+    "ordinary words generate no text" ""
+    (Task.finish_stream task stream |> Test_function_resolution.checked);
+  Alcotest.(check (option int64))
+    "manual buffer preserves outer progress" (Some 77L)
+    (Option.map
+       (fun (word : VM.word) -> word.bits)
+       (Task.progress task).runtime.final_value);
+  fault "HCIRVM0009" (run session task "I64 Bad=1/0;");
+  value 42L (run session task "N+41;")
+
 let tests =
   [
     Alcotest.test_case
@@ -1150,4 +1196,11 @@ let tests =
       retained_join_shadow;
     Alcotest.test_case "joined function supplies one runtime dimension" `Quick
       retained_join_dimension;
+    Alcotest.test_case
+      "task inputs use original default and dimension callbacks" `Quick
+      source_callbacks_across_inputs;
+    Alcotest.test_case "task inputs execute each resumed command" `Quick
+      source_command_timing;
+    Alcotest.test_case "task input results are local and recover after failures"
+      `Quick source_input_values;
   ]

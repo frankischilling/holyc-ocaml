@@ -25,7 +25,13 @@ let outer_latch () =
      that existing boundary explicit, then exercise the supported local header. *)
   T.fault "HCRUN0003" (T.run session task {|"A";|});
   value (Some 42L) (snapshot task);
-  run session task {|extern U0 Print(U8 *fmt,...);"A";|};
+  T.fault "HCRUN0003" (T.run session task {|extern U0 Print(U8 *fmt,...);"A";|});
+  let local =
+    T.compile
+      (Session.fork_frontend session)
+      task {|extern U0 Print(U8 *fmt,...);"A";|}
+  in
+  ignore (Task.execute task local |> Test_integer_program.checked);
   value (Some 42L) (snapshot task);
   run session task {|Print("B");|};
   value None (snapshot task);
@@ -131,14 +137,21 @@ let compilation_and_parse_failures () =
     (after.runtime.initializer_steps - before.runtime.initializer_steps
     > after.dimension_work - before.dimension_work);
   Alcotest.(check int)
-    "unadmitted storage is not allocated" before.runtime.global_bytes
+    "each reached declaration allocates before its initializer"
+    (before.runtime.global_bytes + 11)
     after.runtime.global_bytes;
   (match T.run session task "I64 Missing=;" with
   | Error _ -> ()
   | Ok _ -> Alcotest.fail "invalid source parsed");
-  Alcotest.(check bool)
-    "parse failure preserves reached progress" true
-    (after = Task.progress task);
+  let malformed = Task.progress task in
+  Alcotest.(check int)
+    "malformed initializer retains its declared storage"
+    (after.runtime.global_bytes + 8)
+    malformed.runtime.global_bytes;
+  Alcotest.(check int)
+    "parse failure executes no additional instructions"
+    after.runtime.executed_steps malformed.runtime.executed_steps;
+  value (Some 42L) malformed.runtime;
   Alcotest.(check int)
     "snapshot agrees with task preparation"
     (Task.initializer_steps task)
@@ -163,7 +176,7 @@ let reached_discard_budget () =
   let task = T.create session in
   let execution = T.run session task source |> Test_integer_program.checked in
   let exact = VM.executed_steps execution in
-  Alcotest.(check int) "two values and stream end" 5 exact;
+  Alcotest.(check int) "two independently resumed command streams" 6 exact;
   List.iter
     (fun (limit, expected) ->
       let session = Session.create () in

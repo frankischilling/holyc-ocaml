@@ -550,25 +550,17 @@ let result task ~sequence =
           ~span:sequence.Frontend.Parser.sequence_ast.span "HCRUN0004" message;
       ])
 
-let stream_executor task span =
+let execution_commands task span ~active =
   let ( let* ) = Result.bind in
-  let* stream =
-    begin_stream task |> Result.map_error (stream_diagnostics span)
-  in
   let context = ref None in
   let sequence = ref None in
   let aborted = ref false in
-  let closed = ref false in
   let invalid () =
     Error
       (stream_diagnostics span
-         "HCIRVM0027: parser executor does not own the active stream context")
+         "HCIRVM0027: parser executor does not own the active source context")
   in
-  let active () =
-    if !closed || !aborted || not (VM.task_stream_is_active task.state stream)
-    then invalid ()
-    else Ok ()
-  in
+  let active () = if !aborted then invalid () else active () in
   let owns candidate =
     match !context with
     | Some owner -> owner == candidate
@@ -691,6 +683,32 @@ let stream_executor task span =
       resume = active;
     }
   in
+  ( commands,
+    fun () ->
+      let* () = active () in
+      match !sequence with
+      | Some completed
+        when owns completed.sequence_context
+             && Frontend.Parser.sequence_accepted completed -> Ok completed
+      | _ ->
+          Error
+            (stream_diagnostics span
+               "HCIRVM0027: source sequence has not been accepted") )
+
+let stream_executor task span =
+  let ( let* ) = Result.bind in
+  let* stream =
+    begin_stream task |> Result.map_error (stream_diagnostics span)
+  in
+  let closed = ref false in
+  let active () =
+    if !closed || not (VM.task_stream_is_active task.state stream) then
+      Error
+        (stream_diagnostics span
+           "HCIRVM0027: parser executor does not own the active stream context")
+    else Ok ()
+  in
+  let commands, completed = execution_commands task span ~active in
   Ok
     Frontend.Parser.
       {
@@ -699,21 +717,13 @@ let stream_executor task span =
         commands;
         finish =
           (fun () ->
-            let* () = active () in
-            match !sequence with
-            | Some completed
-              when owns completed.sequence_context
-                   && sequence_accepted completed ->
-                let* generated =
-                  finish_stream task stream
-                  |> Result.map_error (stream_diagnostics span)
-                in
-                closed := true;
-                Ok generated
-            | _ ->
-                Error
-                  (stream_diagnostics span
-                     "HCIRVM0027: stream sequence has not been accepted"));
+            let* _ = completed () in
+            let* generated =
+              finish_stream task stream
+              |> Result.map_error (stream_diagnostics span)
+            in
+            closed := true;
+            Ok generated);
         abort =
           (fun () ->
             match abort_stream task stream with
@@ -738,20 +748,12 @@ let run task ~source =
               "HCRUN0004" "task input is not the exact registered source";
           ]
   in
-  let commands : Frontend.Parser.command_sink =
-    {
-      checkpoint = Some (Task_declarations.observe_command task.declarations);
-      query = Some (Task_declarations.observe_query task.declarations);
-      reference = Some (Task_declarations.observe_reference task.declarations);
-      declaration = Some (Task_declarations.observe task.declarations);
-      dimension_count =
-        Some (Task_declarations.grammar_dimension_count task.declarations);
-      command = (fun _ -> Ok ());
-      resume = (fun () -> Ok ());
-    }
+  let commands, completed =
+    execution_commands task (Integer_source.source_span source)
+      ~active:(fun () -> Ok ())
   in
   let parsed =
-    Frontend.Parser.parse ~commands
+    Frontend.Parser.parse ~commands ~execute_stream:(stream_executor task)
       ~sources:(Session.sources task.session)
       ~definitions:(Session.definitions task.session)
       ~symbols:(Session.symbols task.session)
@@ -759,7 +761,12 @@ let run task ~source =
   in
   match parsed.ast with
   | None -> Error parsed.diagnostics
-  | Some ast ->
-      let* declaration_command = Task_declarations.seal task.declarations ast in
-      let* command = compile_ast_internal ~declaration_command task ast in
-      execute task command
+  | Some _ ->
+      let* sequence = completed () in
+      VM.task_input_result task.state ~sequence
+      |> Result.map_error (fun message ->
+          [
+            Integer_source.diagnostic
+              ~span:(Integer_source.source_span source)
+              "HCRUN0004" message;
+          ])

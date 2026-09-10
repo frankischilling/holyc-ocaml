@@ -1147,7 +1147,7 @@ let invalid_inputs_are_stable_and_pure () =
          ~syntax:(Semantic_function_call_resolution.call_syntax caller_call)
          [ foreign_argument ])
   in
-  let foreign_occurrence_inputs =
+  let foreign_occurrence_inputs foreign_call =
     prepared.module_expressions |> Semantic_module_expression_binding.functions
     |> List.map (fun function_ ->
         let symbol =
@@ -1163,7 +1163,38 @@ let invalid_inputs_are_stable_and_pure () =
                 [ foreign_call ]
               else [])))
   in
-  expect_invalid "foreign bound occurrence" foreign_occurrence_inputs;
+  expect_invalid "foreign bound occurrence"
+    (foreign_occurrence_inputs foreign_call);
+  let foreign_source_expression =
+    Semantic_function_call_resolution.make_source_identifier_expression
+      ~occurrence:foreign_occurrence
+  in
+  let foreign_source_argument =
+    checked
+      (Semantic_function_call_resolution.make_argument ~index:0
+         ~kind:Semantic_function_call_resolution.Provided
+         ~expression:(Some foreign_source_expression)
+         ~origin:
+           (Semantic_module_expression_binding.occurrence_origin
+              foreign_occurrence))
+  in
+  let foreign_source_call =
+    checked
+      (Semantic_function_call_resolution.make_call
+         ~index:(Semantic_function_call_resolution.call_index caller_call)
+         ~callee_occurrence_index:
+           (Semantic_function_call_resolution.call_callee_occurrence_index
+              caller_call)
+         ~callee_name:
+           (Semantic_function_call_resolution.call_callee_name caller_call)
+         ~callee_origin:
+           (Semantic_function_call_resolution.call_callee_origin caller_call)
+         ~origin:(Semantic_function_call_resolution.call_origin caller_call)
+         ~syntax:(Semantic_function_call_resolution.call_syntax caller_call)
+         [ foreign_source_argument ])
+  in
+  expect_invalid "foreign source identifier occurrence"
+    (foreign_occurrence_inputs foreign_source_call);
   let address_prepared =
     prepare ~path:"function-call-address-metadata.HC"
       "extern I64 Target(I64 address);I64 Handler(){return 1;}\n\

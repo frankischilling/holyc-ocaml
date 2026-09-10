@@ -337,7 +337,7 @@ let resource_limits () =
   ignore (execute_outer outer config parsed);
   let measured = (Task.progress task).runtime in
   Alcotest.(check (list int))
-    "measured task resources including provider setup" [ 22; 5; 8; 7; 3; 12; 2 ]
+    "measured task resources including provider setup" [ 23; 5; 8; 7; 3; 12; 2 ]
     [
       measured.executed_steps;
       measured.initializer_steps;

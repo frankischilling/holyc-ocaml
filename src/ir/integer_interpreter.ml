@@ -352,7 +352,23 @@ type dimension_attempt = {
   mutable dimension_work : int option;
 }
 
+type task_input = {
+  input_context : Frontend.Parser.command_context;
+  input_streams : task_stream list;
+  input_failure : unit ref;
+  input_seen_dimensions : Frontend.Parser.array_dimension_preparation list;
+  input_dimensions : dimension_attempt list;
+  input_defaults : default_attempt list;
+  input_initializers : task_initializer list;
+  input_ready : bool;
+  mutable input_value : word option;
+  mutable input_result :
+    (Frontend.Parser.completed_sequence * (t, string) result) option;
+}
+
 type task_state = {
+  mutable inputs : task_input list;
+  mutable failure_generation : unit ref;
   mutable seen_dimensions : Frontend.Parser.array_dimension_preparation list;
   mutable closed_dimensions : Sema.Compiler_record.dimension_preparation list;
   mutable completed_dimensions : Frontend.Parser.completed_array_dimension list;
@@ -432,6 +448,8 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         closed_dimensions = [];
         completed_dimensions = [];
         source_execution_failed = false;
+        inputs = [];
+        failure_generation = ref ();
         source_result = None;
         catalog = Integer_globals.create_task_catalog ~table;
         arenas = [];
@@ -491,10 +509,67 @@ let abort_task_stream task stream =
 let task_snapshot task = Integer_globals.snapshot_task task.catalog
 let task_source_order task = Integer_globals.task_source_order task.catalog
 
+let rec input_prefix_complete before current complete =
+  current == before
+  ||
+  match current with
+  | [] -> false
+  | item :: rest -> complete item && input_prefix_complete before rest complete
+
+let input_has_active_work task =
+  let active = function
+    | Preparing_initializer | Executing_initializer -> true
+    | _ -> false
+  in
+  List.exists (fun attempt -> active attempt.default_state) task.defaults
+  || List.exists (fun attempt -> active attempt.dimension_state) task.dimensions
+  || List.exists
+       (fun state ->
+         Option.fold ~none:false
+           ~some:(fun attempt -> active attempt.attempt_state)
+           state.initializer_attempt)
+       task.initializers
+
+let completed_input task input =
+  input.input_ready
+  && input.input_failure == task.failure_generation
+  && input.input_streams == task.streams
+  && Sema.Source_activation.finished task.source_activation
+  && task.deferred_dimensions = []
+  && input_prefix_complete input.input_seen_dimensions task.seen_dimensions
+       (fun preparation ->
+         List.exists
+           (fun receipt ->
+             receipt.Frontend.Parser.dimension_preparation == preparation)
+           task.completed_dimensions)
+  && input_prefix_complete input.input_dimensions task.dimensions
+       (fun attempt -> attempt.dimension_state = Successful_initializer)
+  && input_prefix_complete input.input_defaults task.defaults (fun attempt ->
+      attempt.default_state = Successful_initializer)
+  && input_prefix_complete input.input_initializers task.initializers
+       (fun state -> state.initializer_complete)
+
 let observe_task_source_event task event =
   Result.map
     (fun () ->
       match event with
+      | Frontend.Parser.Sequence_started context
+        when Option.is_none (Frontend.Parser.context_parent context) ->
+          task.inputs <-
+            {
+              input_context = context;
+              input_streams = task.streams;
+              input_failure = task.failure_generation;
+              input_seen_dimensions = task.seen_dimensions;
+              input_dimensions = task.dimensions;
+              input_defaults = task.defaults;
+              input_initializers = task.initializers;
+              input_ready = not (input_has_active_work task);
+              input_value = None;
+              input_result = None;
+            }
+            :: task.inputs
+      | Frontend.Parser.Sequence_aborted _ -> task.failure_generation <- ref ()
       | Frontend.Parser.Sequence_completed sequence
         when Option.is_none
                (Frontend.Parser.context_parent sequence.sequence_context)
@@ -502,17 +577,34 @@ let observe_task_source_event task event =
              && Result.is_ok
                   (Integer_globals.check_source_completion
                      ~require_accepted:false task.catalog sequence) ->
-          task.source_result <-
-            Some
-              ( sequence,
-                {
-                  termination_ = Stream_end;
-                  executed_steps_ = task.steps;
-                  compiled_initializer_steps_ = task.initializer_steps;
-                  final_value_ = task.outer_value;
-                } )
+          let result =
+            {
+              termination_ = Stream_end;
+              executed_steps_ = task.steps;
+              compiled_initializer_steps_ = task.initializer_steps;
+              final_value_ = task.outer_value;
+            }
+          in
+          task.source_result <- Some (sequence, result);
+          List.iter
+            (fun input ->
+              if input.input_context == sequence.sequence_context then
+                input.input_result <-
+                  Some
+                    ( sequence,
+                      if completed_input task input then
+                        Ok { result with final_value_ = input.input_value }
+                      else
+                        Error
+                          "task input requires successful completion of its \
+                           original execution" ))
+            task.inputs
       | _ -> ())
-    (Sema.Task_command_order.observe (task_source_order task) event)
+    (match event with
+    | Frontend.Parser.Sequence_started context
+      when not (Frontend.Parser.context_is_current context ~observed_events:1)
+      -> Error "task input start is outside its original parser callback"
+    | _ -> Sema.Task_command_order.observe (task_source_order task) event)
 
 let start_task_compilation task = task.source_promotion_open <- false
 
@@ -661,6 +753,7 @@ let charge_source_dimension task preparation =
       task.initializer_steps <- task.initializer_steps + min work remaining;
       if work > remaining then (
         task.source_execution_failed <- true;
+        task.failure_generation <- ref ();
         Error
           "HCIRVM0007: the bounded array dimension preparation work limit was \
            exhausted")
@@ -1286,6 +1379,19 @@ let task_result task ~sequence =
           (fun () -> result)
           (Integer_globals.check_source_completion task.catalog sequence)
     | _ -> Error "task result has no original execution completion"
+
+let task_input_result task ~sequence =
+  let ( let* ) = Result.bind in
+  let* () = Integer_globals.check_source_completion task.catalog sequence in
+  match
+    List.find_opt
+      (fun input ->
+        input.input_context == sequence.Frontend.Parser.sequence_context)
+      task.inputs
+  with
+  | Some { input_result = Some (original, result); _ } when original == sequence
+    -> result
+  | _ -> Error "task input has no original execution completion"
 
 let task_function_source task link =
   List.find_opt
@@ -4768,8 +4874,27 @@ let execute_program_with_output ?task ?isolated_budget
       in
       let on_capture =
         Option.bind accounting (fun task ->
-            if task.streams = [] && not initializer_mode then
-              Some (fun value -> task.outer_value <- value)
+            if not initializer_mode then
+              Some
+                (fun value ->
+                  if task.streams = [] then task.outer_value <- value;
+                  Option.iter
+                    (fun globals ->
+                      let receipts =
+                        Integer_globals.source_command_receipts globals
+                      in
+                      List.iter
+                        (fun input ->
+                          if
+                            input.input_result = None
+                            && List.exists
+                                 (fun receipt ->
+                                   receipt.Frontend.Parser.command_start
+                                     .command_context == input.input_context)
+                                 receipts
+                          then input.input_value <- value)
+                        task.inputs)
+                    globals)
             else None)
       in
       execute_prepared ~callees:programs ~max_frame_bytes ~max_call_depth
@@ -5147,7 +5272,9 @@ let execute_task_program task ~runtime_calls ~globals ~initialization ~functions
         ~max_frame_bytes:task.max_frame_bytes
         ~max_call_depth:task.max_call_depth ~functions checked
   in
-  if Result.is_error result then task.source_execution_failed <- true;
+  if Result.is_error result then (
+    task.source_execution_failed <- true;
+    task.failure_generation <- ref ());
   result
 
 let execute_isolated_program_in_task task ~runtime_calls ~globals
@@ -5157,41 +5284,48 @@ let execute_isolated_program_in_task task ~runtime_calls ~globals
     Error
       [ make_error ~stage:Preflight ~executed_steps:task.steps code message ]
   in
-  if
-    not
-      (List.exists
-         (fun program ->
-           matches_source_program program ~runtime_calls ~globals
-             ~initialization ~functions checked)
-         task.isolated_programs)
-  then
-    invalid "HCIRVM0026"
-      "isolated output lacks its owning preparation and compiled bundle"
-  else if task.streams <> [] then
-    invalid "HCIRVM0027"
-      "isolated output cannot execute inside an active stream"
-  else if List.exists (fun entry -> entry == checked) task.started then
-    invalid "HCIRVM0026"
-      "isolated output has already started in this invocation"
-  else if task.steps >= task.max_steps then
-    invalid "HCIRVM0007" "the invocation execution step limit was exhausted"
-  else
-    let before = task.steps in
-    execute_program_with_output ~isolated_budget:task ~runtime_calls
-      ~output:task.output ~globals ~initialization
-      ~max_global_bytes:task.max_global_bytes
-      ~max_literal_bytes:task.max_literal_bytes
-      ~max_steps:(task.max_steps - before) ~max_frame_bytes:task.max_frame_bytes
-      ~max_call_depth:task.max_call_depth ~functions checked
-    |> Result.map (fun result ->
-        {
-          result with
-          executed_steps_ = task.steps;
-          compiled_initializer_steps_ = task.initializer_steps;
-        })
-    |> Result.map_error
-         (List.map (fun (error : error) ->
-              { error with executed_steps = before + error.executed_steps }))
+  let result =
+    if
+      not
+        (List.exists
+           (fun program ->
+             matches_source_program program ~runtime_calls ~globals
+               ~initialization ~functions checked)
+           task.isolated_programs)
+    then
+      invalid "HCIRVM0026"
+        "isolated output lacks its owning preparation and compiled bundle"
+    else if task.streams <> [] then
+      invalid "HCIRVM0027"
+        "isolated output cannot execute inside an active stream"
+    else if List.exists (fun entry -> entry == checked) task.started then
+      invalid "HCIRVM0026"
+        "isolated output has already started in this invocation"
+    else if task.steps >= task.max_steps then
+      invalid "HCIRVM0007" "the invocation execution step limit was exhausted"
+    else
+      let before = task.steps in
+      execute_program_with_output ~isolated_budget:task ~runtime_calls
+        ~output:task.output ~globals ~initialization
+        ~max_global_bytes:task.max_global_bytes
+        ~max_literal_bytes:task.max_literal_bytes
+        ~max_steps:(task.max_steps - before)
+        ~max_frame_bytes:task.max_frame_bytes
+        ~max_call_depth:task.max_call_depth ~functions checked
+      |> Result.map (fun result ->
+          {
+            result with
+            executed_steps_ = task.steps;
+            compiled_initializer_steps_ = task.initializer_steps;
+          })
+      |> Result.map_error
+           (List.map (fun (error : error) ->
+                { error with executed_steps = before + error.executed_steps }))
+  in
+  if Result.is_error result then (
+    task.source_execution_failed <- true;
+    task.failure_generation <- ref ());
+  result
 
 let execute_program_report ?runtime_calls ?globals ?initialization
     ?max_global_bytes ?max_literal_bytes ?(max_output_bytes = 1_048_576)

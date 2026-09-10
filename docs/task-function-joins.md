@@ -28,7 +28,9 @@ The behavior follows the pinned `Compiler/PrsStmt.HC:63-139` and
 JIT uses the current hash table for joins. AOT directive commands use their
 separate JIT task; this does not join the isolated outer AOT image to that task.
 
+`Integer_task.run` uses the same original runtime callbacks across separate
+inputs. A later header can evaluate its default against live task storage and
+join the newest retained unresolved extern. See [incremental task inputs](task-inputs.md).
+
 Native extern address-slot updates, parent-table joins, general default values,
-alternate bindings and native linkage remain unfinished. The callback-free
-`Integer_task.run` entry point does not evaluate runtime defaults or dimensions;
-the source executor provides those original parser callbacks.
+alternate bindings and native linkage remain unfinished.

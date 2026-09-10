@@ -152,6 +152,7 @@ type argument_expression_kind =
 and argument_expression = {
   expression_kind : argument_expression_kind;
   expression_origin : Symbol.origin;
+  source_identifier : Module_expression_binding.occurrence option;
 }
 
 and prefix_expression = {
@@ -827,7 +828,21 @@ let error_message error =
 let error_to_string error = error.code ^ ": " ^ error_message error
 
 let make_argument_expression ~kind ~origin =
-  { expression_kind = kind; expression_origin = origin }
+  {
+    expression_kind = kind;
+    expression_origin = origin;
+    source_identifier = None;
+  }
+
+let make_source_identifier_expression ~occurrence =
+  {
+    expression_kind = Unresolved_expression Identifier_expression;
+    expression_origin = Module_expression_binding.occurrence_origin occurrence;
+    source_identifier = Some occurrence;
+  }
+
+let argument_expression_source_identifier expression =
+  expression.source_identifier
 
 let valid_origin = function
   | Symbol.Pinned_source { path; line } ->
@@ -1867,6 +1882,14 @@ let validate_source_expression ~source ~expression ~calls
         Module_expression_binding.occurrence_name occurrence = ast.spelling
         && Module_expression_binding.occurrence_origin occurrence
            = origin ast.location
+    | Ast.Identifier_expression ast, Unresolved_expression Identifier_expression
+      ->
+        Option.fold ~none:false
+          ~some:(fun occurrence ->
+            Module_expression_binding.occurrence_name occurrence = ast.spelling
+            && Module_expression_binding.occurrence_origin occurrence
+               = origin ast.location)
+          checked.source_identifier
     | Ast.Identifier_expression ast, Aggregate_offset_base_expression checked ->
         let occurrence = checked.aggregate_offset_base_occurrence_ in
         Module_expression_binding.occurrence_name occurrence = ast.spelling
@@ -2890,6 +2913,20 @@ let query_map queries =
 
 let rec validate_bound_evidence occurrence_by_index query_by_index expression =
   match argument_expression_kind expression with
+  | Unresolved_expression Identifier_expression
+    when Option.is_some expression.source_identifier -> (
+      let occurrence = Option.get expression.source_identifier in
+      match
+        Int_map.find_opt
+          (Module_expression_binding.occurrence_index occurrence)
+          occurrence_by_index
+      with
+      | Some expected when expected == occurrence -> Ok ()
+      | _ ->
+          Error
+            (invalid_input
+               "source identifier does not belong to its exact function \
+                occurrence"))
   | Parenthesized_expression grouped ->
       validate_bound_evidence occurrence_by_index query_by_index grouped
   | Prefix_expression prefix ->

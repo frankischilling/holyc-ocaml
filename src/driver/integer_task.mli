@@ -212,10 +212,17 @@ val run :
   t ->
   source:Common.Source_file.t ->
   (Ir.Integer_interpreter.t, Common.Diagnostic.t list) result
-(** Parse the exact registered source with declaration observation, then compile
-    using those assigned symbols in the task's shared module scope. Reached
-    semantic publications survive parse errors; failed declarations have no
-    runtime binding. [compile_ast] retains its callback-free collection path. *)
+(** Parse the exact registered source using the original runtime callbacks for
+    initializers, supported integer defaults and array bounds. Each command
+    compiles and executes at its parser resume boundary in the shared task.
+    Reached publications, storage, writes and resource charges survive later
+    errors. A later successful input may continue the task.
+
+    The result freezes this input's final root value and cumulative work totals
+    at its accepted completion. Declaration-only inputs have no final value;
+    existing generation buffers must remain the exact same stack. Stream
+    services require previously installed checked provider declarations.
+    [compile_ast] retains its separate callback-free collection path. *)
 
 val stream_executor :
   t ->

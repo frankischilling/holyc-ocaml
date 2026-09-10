@@ -545,6 +545,16 @@ val task_result :
   task_state ->
   sequence:Frontend.Parser.completed_sequence ->
   (t, string) result
+
 (** Cumulative outer result for the exact accepted and admitted root sequence.
     Failed execution, active streams and unfinished initializer/default work
     cannot produce a successful result. *)
+
+val task_input_result :
+  task_state ->
+  sequence:Frontend.Parser.completed_sequence ->
+  (t, string) result
+(** Frozen result for one original root input. Prior failed inputs and existing
+    generation buffers remain task state; this input must finish all its work
+    successfully and restore the same buffer stack. Work totals are cumulative,
+    while the final value belongs only to this input's root commands. *)

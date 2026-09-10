@@ -921,6 +921,7 @@ let rec advance_expression_occurrences occurrences cursor = function
 let rec argument_expression member_index before_item_index visible locals
     globals occurrences defined_queries cursor
     (expression : Frontend.Ast.expression) =
+  let source_identifier = ref None in
   let kind_result =
     match expression with
     | Frontend.Ast.Integer_literal literal -> (
@@ -976,6 +977,7 @@ let rec argument_expression member_index before_item_index visible locals
             | Sema.Module_expression_binding.Outer_candidate -> (
                 match typed_value_for_occurrence locals globals occurrence with
                 | None ->
+                    source_identifier := Some occurrence;
                     Ok
                       (Sema.Function_call_resolution.Unresolved_expression
                          Sema.Function_call_resolution.Identifier_expression)
@@ -1130,8 +1132,13 @@ let rec argument_expression member_index before_item_index visible locals
   in
   Result.map
     (fun kind ->
-      Sema.Function_call_resolution.make_argument_expression ~kind
-        ~origin:(origin (Frontend.Ast.expression_location expression)))
+      match !source_identifier with
+      | Some occurrence ->
+          Sema.Function_call_resolution.make_source_identifier_expression
+            ~occurrence
+      | None ->
+          Sema.Function_call_resolution.make_argument_expression ~kind
+            ~origin:(origin (Frontend.Ast.expression_location expression)))
     kind_result
 
 let argument member_index before_item_index visible locals globals occurrences
