@@ -944,6 +944,17 @@ revokes uncommitted call bindings. These are
 hosted source tests; see
 [provisional function members](provisional-function-members.md).
 
+`Compiler/PrsExp.HC:383-413` selects implicit `Print`/`PutChars` before
+empty-marker lookahead. The argument count and member cursor are captured at
+430-437, and emission follows closing-parenthesis lookahead at 534-586.
+Both implicit binders and `Ir.Runtime_call_context` carry these original phases
+through source execution. `examples/stateful-exe-implicit-phases.hc` exercises
+the path in both outer modes. Provider setup uses the original suspended parser
+stack and a consumed suspension token; task completion checks the exact accepted
+child sequence and admitted commands. The local-scope restoration follows
+`Compiler/PrsStmt.HC:805-841`. These are hosted execution and source observations,
+without a new native capture.
+
 ## Bounded source expression evaluation
 
 At pinned commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`,

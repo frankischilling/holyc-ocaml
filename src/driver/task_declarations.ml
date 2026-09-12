@@ -135,6 +135,15 @@ type selected_call = {
 }
 
 type selected_implicit_output = {
+  implicit_native : Sema.Function_record_phase.t option;
+  mutable arguments_capture :
+    Sema.Function_record_phase.implicit_arguments_snapshot option;
+  mutable emitted_capture :
+    Sema.Function_record_phase.implicit_emission_snapshot option;
+  mutable implicit_pending : VM.task_implicit_call_start option;
+  mutable implicit_phase : Sema.Function_call_phase.t option;
+  mutable arguments_observed : bool;
+  mutable emission_observed : bool;
   implicit_selection : Parser.implicit_output_selection;
   implicit_target : reference_target;
 }
@@ -1012,6 +1021,90 @@ let capture_runtime_call_emission ledger call =
         "native emission lacks its original runtime argument capture"
   | _ -> ()
 
+let native_call_arguments ledger span target native_record =
+  let snapshot = Option.map Sema.Function_record_phase.snapshot native_record in
+  match snapshot with
+  | None -> (None, None, None)
+  | Some snapshot -> (
+      match Sema.Function_record_phase.call_shape snapshot with
+      | Error message ->
+          (* Legacy providers and earlier session compilations can leave
+                 an untracked native predecessor. Only their exact unchanged
+                 completed ordinary header keeps legacy grammar; this creates
+                 neither a native count nor native emission evidence. *)
+          let ordinary_runtime_header retained =
+            let function_ =
+              Ir.Retained_function.metadata retained
+              |> Sema.Outer_environment.function_declaration
+              |> Sema.Function_resolution.resolved_declaration_header
+            in
+            if
+              Option.is_some
+                (Sema.Function_type_resolution.function_provisional_call
+                   function_)
+            then None
+            else
+              Sema.Function_type_resolution.function_completed_header function_
+          in
+          let legacy_header =
+            match (ledger.authority, target) with
+            | ( Source_compilation _,
+                Selected_source { stage = Function_selection (header, _); _ } )
+              -> Some header
+            | ( Task_runtime _,
+                Selected_source
+                  {
+                    stage = Function_selection (header, _);
+                    admitted = Some (VM.Admitted_function retained);
+                    _;
+                  } ) ->
+                Option.bind (ordinary_runtime_header retained) (fun current ->
+                    if current == header then Some header else None)
+            | Task_runtime _, Selected_runtime (VM.Admitted_function retained)
+              -> ordinary_runtime_header retained
+            | _ -> None
+          in
+          let legacy_header =
+            Sema.Function_record_phase.unavailable_reason snapshot
+            = Some "previous native function record is untracked"
+            && Option.fold ~none:false
+                 ~some:(fun header ->
+                   Sema.Function_record_phase.native_source snapshot
+                   == header.Parser.function_publication
+                   && Option.fold ~none:false ~some:(( == ) header)
+                        (Sema.Provisional_function.completed_header
+                           (Sema.Function_record_phase.source_snapshot snapshot)))
+                 legacy_header
+          in
+          if legacy_header then (None, None, None) else fail span message
+      | Ok shape ->
+          ( native_record,
+            Some snapshot,
+            Some
+              Visibility.
+                {
+                  parameters =
+                    List.map
+                      (fun member ->
+                        let source =
+                          Sema.Provisional_function.member_source member
+                        in
+                        {
+                          parameter_name =
+                            Option.map
+                              (fun (name : Ast.identifier) -> name.spelling)
+                              source.parameter_name;
+                          has_default =
+                            Option.is_some
+                              (Sema.Provisional_function.member_default_source
+                                 member);
+                        })
+                      (Sema.Function_record_phase.fixed_members shape);
+                  variadic =
+                    Option.is_some
+                      (Sema.Function_record_phase.variadic_tail shape);
+                } ))
+
 let observe_call_start ledger start =
   protect (fun () ->
       let span =
@@ -1022,97 +1115,9 @@ let observe_call_start ledger start =
       let reference = call_reference ledger start.call_reference in
       if List.exists (fun call -> call.start == start) ledger.calls then
         fail span "call start was already observed";
-      let snapshot =
-        Option.map Sema.Function_record_phase.snapshot reference.native_record
-      in
       let native_record, arguments, shape =
-        match snapshot with
-        | None -> (None, None, None)
-        | Some snapshot -> (
-            match Sema.Function_record_phase.call_shape snapshot with
-            | Error message ->
-                (* Legacy providers and earlier session compilations can leave
-                 an untracked native predecessor. Only their exact unchanged
-                 completed ordinary header keeps legacy grammar; this creates
-                 neither a native count nor native emission evidence. *)
-                let ordinary_runtime_header retained =
-                  let function_ =
-                    Ir.Retained_function.metadata retained
-                    |> Sema.Outer_environment.function_declaration
-                    |> Sema.Function_resolution.resolved_declaration_header
-                  in
-                  if
-                    Option.is_some
-                      (Sema.Function_type_resolution.function_provisional_call
-                         function_)
-                  then None
-                  else
-                    Sema.Function_type_resolution.function_completed_header
-                      function_
-                in
-                let legacy_header =
-                  match (ledger.authority, reference.target) with
-                  | ( Source_compilation _,
-                      Selected_source
-                        { stage = Function_selection (header, _); _ } ) ->
-                      Some header
-                  | ( Task_runtime _,
-                      Selected_source
-                        {
-                          stage = Function_selection (header, _);
-                          admitted = Some (VM.Admitted_function retained);
-                          _;
-                        } ) ->
-                      Option.bind (ordinary_runtime_header retained)
-                        (fun current ->
-                          if current == header then Some header else None)
-                  | ( Task_runtime _,
-                      Selected_runtime (VM.Admitted_function retained) ) ->
-                      ordinary_runtime_header retained
-                  | _ -> None
-                in
-                let legacy_header =
-                  Sema.Function_record_phase.unavailable_reason snapshot
-                  = Some "previous native function record is untracked"
-                  && Option.fold ~none:false
-                       ~some:(fun header ->
-                         Sema.Function_record_phase.native_source snapshot
-                         == header.Parser.function_publication
-                         && Option.fold ~none:false ~some:(( == ) header)
-                              (Sema.Provisional_function.completed_header
-                                 (Sema.Function_record_phase.source_snapshot
-                                    snapshot)))
-                       legacy_header
-                in
-                if legacy_header then (None, None, None) else fail span message
-            | Ok shape ->
-                ( reference.native_record,
-                  Some snapshot,
-                  Some
-                    Visibility.
-                      {
-                        parameters =
-                          List.map
-                            (fun member ->
-                              let source =
-                                Sema.Provisional_function.member_source member
-                              in
-                              {
-                                parameter_name =
-                                  Option.map
-                                    (fun (name : Ast.identifier) ->
-                                      name.spelling)
-                                    source.parameter_name;
-                                has_default =
-                                  Option.is_some
-                                    (Sema.Provisional_function
-                                     .member_default_source member);
-                              })
-                            (Sema.Function_record_phase.fixed_members shape);
-                        variadic =
-                          Option.is_some
-                            (Sema.Function_record_phase.variadic_tail shape);
-                      } ))
+        native_call_arguments ledger span reference.target
+          reference.native_record
       in
       (match ledger.authority with
       | Source_compilation _ ->
@@ -1261,6 +1266,16 @@ let observe_execution_reference ledger selection =
               validate_execution_target selection
                 (Names.find ledger.references identifier).target)))
 
+let capture_runtime_implicit_selection ledger selection target =
+  match (ledger_runtime ledger, target) with
+  | ( Some runtime,
+      ( Selected_source { admitted = Some (VM.Admitted_function selected); _ }
+      | Selected_runtime (VM.Admitted_function selected) ) ) ->
+      VM.observe_task_implicit_selection runtime ~namespace:ledger.namespace
+        ~selection ~selected
+      |> checked (Parser.implicit_marker selection).span
+  | _ -> ()
+
 let observe_implicit_output ledger selection =
   let span = (Parser.implicit_marker selection).span in
   Result.map
@@ -1289,8 +1304,143 @@ let observe_implicit_output ledger selection =
              | Some entry -> Visibility.Present entry)
          in
          ledger.implicit_outputs <-
-           { implicit_selection = selection; implicit_target = target }
-           :: ledger.implicit_outputs))
+           {
+             implicit_selection = selection;
+             implicit_target = target;
+             implicit_native =
+               Option.bind
+                 (Parser.implicit_lookup selection)
+                 (native_record_for_entry ledger);
+             arguments_capture = None;
+             emitted_capture = None;
+             implicit_pending = None;
+             implicit_phase = None;
+             arguments_observed = false;
+             emission_observed = false;
+           }
+           :: ledger.implicit_outputs;
+         capture_runtime_implicit_selection ledger selection target))
+
+let implicit_call ledger selection =
+  match
+    List.find_opt
+      (fun call -> call.implicit_selection == selection)
+      ledger.implicit_outputs
+  with
+  | Some call -> call
+  | None ->
+      fail (Parser.implicit_marker selection).span
+        "implicit call lacks its original target selection"
+
+let capture_runtime_implicit_arguments ledger call =
+  match (ledger_runtime ledger, call.arguments_capture) with
+  | Some runtime, Some capture ->
+      let span = (Parser.implicit_marker call.implicit_selection).span in
+      let selected =
+        match call.implicit_target with
+        | Selected_source { admitted = Some (VM.Admitted_function selected); _ }
+        | Selected_runtime (VM.Admitted_function selected) -> selected
+        | _ -> fail span "implicit call lacks its admitted selected function"
+      in
+      let scope =
+        Ir.Retained_function.metadata selected
+        |> Sema.Outer_environment.function_declaration
+        |> Sema.Function_resolution.resolved_declaration_header
+        |> Sema.Function_type_resolution.function_scope
+      in
+      let arguments =
+        Sema.Function_record_phase.implicit_argument_snapshot capture
+        |> Sema.Function_record_phase.call_shape |> checked span
+        |> Function_type_resolution.resolve_provisional_call ~scope
+             ~table:ledger.table ~namespace:ledger.namespace
+        |> checked span
+      in
+      call.implicit_pending <-
+        Some
+          (VM.capture_task_implicit_arguments runtime
+             ~namespace:ledger.namespace ~capture ~selected ~arguments
+          |> checked span)
+  | _ -> ()
+
+let capture_runtime_implicit_emission ledger call =
+  match
+    (ledger_runtime ledger, call.emitted_capture, call.implicit_pending)
+  with
+  | Some runtime, Some capture, Some pending ->
+      call.implicit_phase <-
+        Some
+          (VM.capture_task_implicit_emission runtime ~table:ledger.table
+             ~capture pending
+          |> checked (Parser.implicit_marker call.implicit_selection).span)
+  | Some _, Some _, None ->
+      fail (Parser.implicit_marker call.implicit_selection).span
+        "implicit emission lacks its original runtime argument capture"
+  | _ -> ()
+
+let observe_implicit_arguments ledger selection =
+  protect (fun () ->
+      let span = (Parser.implicit_marker selection).span in
+      let call = implicit_call ledger selection in
+      if
+        (not (Parser.implicit_arguments_are_current selection))
+        || call.arguments_observed
+      then
+        fail span
+          "implicit arguments are outside their original unfinished callback";
+      let native, _, shape =
+        native_call_arguments ledger span call.implicit_target
+          call.implicit_native
+      in
+      let capture =
+        Option.map
+          (fun record ->
+            Sema.Function_record_phase.capture_implicit_arguments record
+              selection
+            |> checked span)
+          native
+      in
+      (match ledger.authority with
+      | Source_compilation _ ->
+          Sema.Source_activation.capture_implicit ledger.call_journal
+            ~events_rev:ledger.activation_events_rev selection ~emission:false
+          |> checked span
+          |> record_activation_event ledger
+      | _ -> ());
+      call.arguments_observed <- true;
+      call.arguments_capture <- capture;
+      capture_runtime_implicit_arguments ledger call;
+      shape)
+
+let observe_implicit_emission ledger selection =
+  protect (fun () ->
+      let span = (Parser.implicit_marker selection).span in
+      let call = implicit_call ledger selection in
+      if
+        (not
+           (Parser.implicit_emission_is_current selection
+           && call.arguments_observed))
+        || call.emission_observed
+      then
+        fail span
+          "implicit emission lacks its original unfinished argument capture";
+      let capture =
+        Option.map
+          (fun arguments ->
+            Sema.Function_record_phase.capture_implicit_emission arguments
+              selection
+            |> checked span)
+          call.arguments_capture
+      in
+      (match ledger.authority with
+      | Source_compilation _ ->
+          Sema.Source_activation.capture_implicit ledger.call_journal
+            ~events_rev:ledger.activation_events_rev selection ~emission:true
+          |> checked span
+          |> record_activation_event ledger
+      | _ -> ());
+      call.emission_observed <- true;
+      call.emitted_capture <- capture;
+      capture_runtime_implicit_emission ledger call)
 
 let validate_implicit_output ledger selection ~execution =
   let span = (Parser.implicit_marker selection).span in
@@ -2508,7 +2658,18 @@ let seal ledger (ast : Ast.module_) =
                           original_commands
                       then call.runtime_phase
                       else None)
-                    ledger.calls;
+                    ledger.calls
+                  @ List.filter_map
+                      (fun call ->
+                        if
+                          List.exists
+                            (fun entry ->
+                              entry.receipt.command_start
+                              == Parser.implicit_command call.implicit_selection)
+                            original_commands
+                        then call.implicit_phase
+                        else None)
+                      ledger.implicit_outputs;
                 namespace = ledger.namespace;
                 function_headers =
                   List.filter_map
@@ -3542,6 +3703,27 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
                 ledger.calls
             in
             capture_runtime_call_emission ledger call)
+    | Sema.Source_activation.Implicit_arguments selection ->
+        protect (fun () ->
+            if
+              not
+                (Sema.Source_activation.implicit_arguments ledger.activation
+                   selection)
+            then
+              fail span
+                "implicit arguments lack their original activation event";
+            capture_runtime_implicit_arguments ledger
+              (implicit_call ledger selection))
+    | Sema.Source_activation.Implicit_emission selection ->
+        protect (fun () ->
+            if
+              not
+                (Sema.Source_activation.implicit_emission ledger.activation
+                   selection)
+            then
+              fail span "implicit emission lacks its original activation event";
+            capture_runtime_implicit_emission ledger
+              (implicit_call ledger selection))
     | Sema.Source_activation.Implicit_output selection ->
         let* () =
           protect (fun () ->
@@ -3562,16 +3744,14 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
                         match original.implicit_target with
                         | Selected_source selected ->
                             let admitted =
-                              match selected.stage with
-                              | Provisional_function_selection _ -> None
-                              | _ ->
-                                  VM.admitted_publication_for_symbol runtime
-                                    (Collection.publication_symbol
-                                       selected.publication)
+                              VM.admitted_publication_for_symbol runtime
+                                (Collection.publication_symbol
+                                   selected.publication)
                             in
                             Selected_source { selected with admitted }
                         | target -> target
                       in
+                      capture_runtime_implicit_selection ledger selection target;
                       { original with implicit_target = target }))
                   ledger.implicit_outputs;
               if not !found then
@@ -3897,7 +4077,34 @@ let call_resolver ~table ~ast ~task_view (command : command) =
       fun source ->
         match
           List.find_opt
-            (fun phase -> Sema.Function_call_phase.source phase == source)
+            (fun phase ->
+              Option.fold ~none:false ~some:(( == ) source)
+                (Sema.Function_call_phase.source phase))
+            command.calls
+        with
+        | None -> Ok None
+        | Some phase
+          when Option.fold ~none:false
+                 ~some:(fun runtime -> VM.owns_call_phase runtime phase)
+                 command.runtime -> Ok (Some phase)
+        | Some _ -> Error "original call lacks its owning runtime capture")
+
+let implicit_call_resolver ~table ~ast ~task_view (command : command) =
+  protect (fun () ->
+      if
+        command.table != table || command.ast != ast
+        || not
+             (Option.fold ~none:false
+                ~some:(fun runtime -> VM.task_owns_snapshot runtime task_view)
+                command.runtime)
+      then
+        fail ast.Ast.span "original calls belong to another task or source AST";
+      fun source ->
+        match
+          List.find_opt
+            (fun phase ->
+              Option.fold ~none:false ~some:(( == ) source)
+                (Sema.Function_call_phase.implicit_source phase))
             command.calls
         with
         | None -> Ok None
@@ -3980,3 +4187,8 @@ let implicit_output_resolver ~table ~ast ~task_view (command : command) =
                   | Some publication -> retained name publication
                   | None -> Selection.unavailable ~table ~name))
         | _ -> Error "implicit output lacks one exact observed source marker")
+
+let parser_suspension ledger =
+  match ledger.active with
+  | active :: _ -> Parser.suspend_context active.context
+  | [] -> Error "task has no suspended parser source"

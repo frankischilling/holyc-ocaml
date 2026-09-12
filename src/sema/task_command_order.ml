@@ -46,13 +46,15 @@ let create ~table =
 let command_receipts (command : command) =
   List.map (fun node -> node.receipt) command.nodes
 
-let check_completion ?(require_accepted = true) order ~admitted receipt =
+let check_completion_kind ~nested ?(require_accepted = true) order ~admitted
+    receipt =
   if
     (require_accepted && not (Parser.sequence_accepted receipt))
     || (match order.events with
       | Parser.Sequence_completed latest :: _ -> latest != receipt
       | _ -> true)
-    || Option.is_some (Parser.context_parent receipt.Parser.sequence_context)
+    || (not nested)
+       && Option.is_some (Parser.context_parent receipt.Parser.sequence_context)
     || (not
           (List.exists
              (fun (original, _) -> original == receipt)
@@ -71,6 +73,14 @@ let check_completion ?(require_accepted = true) order ~admitted receipt =
   then
     Error "task result requires its exact accepted and admitted root sequence"
   else Ok ()
+
+let check_completion ?require_accepted order ~admitted receipt =
+  check_completion_kind ~nested:false ?require_accepted order ~admitted receipt
+
+let check_suspended_completion order ~admitted ~suspension receipt =
+  if not (Parser.suspension_owns_sequence suspension receipt) then
+    Error "nested task completion has another parser suspension"
+  else check_completion_kind ~nested:true order ~admitted receipt
 
 let rec root context =
   match Parser.context_parent context with

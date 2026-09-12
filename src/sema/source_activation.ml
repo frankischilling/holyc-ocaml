@@ -7,6 +7,8 @@ type event = Parser.source_observation =
   | Call_start of Parser.call_start
   | Call_emission of Parser.completed_call
   | Implicit_output of Parser.implicit_output_selection
+  | Implicit_arguments of Parser.implicit_output_selection
+  | Implicit_emission of Parser.implicit_output_selection
 
 type call_journal = {
   namespace : Declaration_collection.namespace;
@@ -102,7 +104,10 @@ let event_context = function
   | Call_emission receipt ->
       (Parser.selected_command receipt.call_start.call_reference)
         .command_context
-  | Implicit_output receipt -> (Parser.implicit_command receipt).command_context
+  | Implicit_output receipt
+  | Implicit_arguments receipt
+  | Implicit_emission receipt ->
+      (Parser.implicit_command receipt).command_context
   | Declaration event ->
       let start =
         match event with
@@ -157,12 +162,15 @@ let extends_prefix events_rev prefix_rev =
 let call_events events =
   List.filter
     (function
-      | Call_start _ | Call_emission _ -> true
+      | Call_start _
+      | Call_emission _
+      | Implicit_arguments _
+      | Implicit_emission _ -> true
       | _ -> false)
     events
 
-let validate_capture journal events_rev reference =
-  let start = Parser.selected_command reference in
+let validate_capture_owner journal events_rev (start : Parser.command_start)
+    matches_reference =
   let context = start.command_context in
   let commands =
     List.filter_map
@@ -184,13 +192,15 @@ let validate_capture journal events_rev reference =
   && reading
   && Option.fold ~none:true ~some:(( == ) context) journal.context
   && List.for_all (fun event -> event_context event == context) events_rev
-  && List.exists
-       (function
-         | Reference original -> original == reference
-         | _ -> false)
-       events_rev
+  && List.exists matches_reference events_rev
   && extends_prefix events_rev journal.prefix_rev
   && same_events (call_events events_rev) journal.captures_rev
+
+let validate_capture journal events_rev reference =
+  validate_capture_owner journal events_rev (Parser.selected_command reference)
+    (function
+    | Reference original -> original == reference
+    | _ -> false)
 
 let capture (journal : call_journal) events_rev reference event =
   journal.context <- Some (Parser.selected_command reference).command_context;
@@ -242,6 +252,52 @@ let capture_call_emission journal ~events_rev receipt =
     || not (Parser.claim_call_emission receipt)
   then Error "call emission requires its original live start and journal prefix"
   else capture journal events_rev reference event
+
+let capture_implicit journal ~events_rev receipt ~emission =
+  let event =
+    if emission then Implicit_emission receipt else Implicit_arguments receipt
+  in
+  let start = Parser.implicit_command receipt in
+  let matches = function
+    | Implicit_arguments original -> (not emission) && original == receipt
+    | Implicit_emission original -> emission && original == receipt
+    | _ -> false
+  in
+  let live =
+    if emission then Parser.implicit_emission_is_current receipt
+    else Parser.implicit_arguments_are_current receipt
+  in
+  let original_start =
+    (not emission)
+    || List.exists
+         (function
+           | Implicit_arguments original -> original == receipt
+           | _ -> false)
+         journal.captures_rev
+  in
+  if
+    not
+      (live && original_start
+      && validate_capture_owner journal events_rev start (function
+        | Implicit_output original -> original == receipt
+        | _ -> false)
+      && (not (List.exists matches journal.captures_rev))
+      && Parser.source_observations_match start.command_context
+           ~events_rev:(event :: events_rev)
+         = Some true
+      &&
+      if emission then Parser.claim_implicit_emission receipt
+      else Parser.claim_implicit_arguments receipt)
+  then
+    Error
+      "implicit call capture requires its original live target and journal \
+       prefix"
+  else (
+    journal.context <- Some start.command_context;
+    journal.prefix_rev <- event :: events_rev;
+    journal.captures_rev <- event :: journal.captures_rev;
+    journal.revision <- journal.revision + 1;
+    Ok event)
 
 let create ?calls ~namespace ~context ~observed_events events =
   let checked_calls =
@@ -477,3 +533,43 @@ let initializer_completion activation start =
     | Declaration (Parser.Global_completed (original, _)) ->
         original == start.Parser.initializer_owner
     | _ -> false)
+
+let implicit_arguments activation receipt =
+  allows activation (function
+    | Implicit_arguments original -> original == receipt
+    | _ -> false)
+
+let implicit_emission activation receipt =
+  allows activation (function
+    | Implicit_emission original -> original == receipt
+    | _ -> false)
+
+let implicit_selection_admission activation receipt =
+  admission activation (function
+    | Implicit_output original -> original == receipt
+    | _ -> false)
+
+let implicit_arguments_admission activation receipt =
+  admission activation (function
+    | Implicit_arguments original -> original == receipt
+    | _ -> false)
+
+let implicit_emission_admission activation receipt =
+  admission activation (function
+    | Implicit_emission original -> original == receipt
+    | _ -> false)
+
+let implicit_binding_available activation receipt ~committed =
+  committed
+  ||
+  match activation with
+  | None -> true
+  | Some t ->
+      (not
+         (List.exists
+            (function
+              | Implicit_emission original -> original == receipt
+              | _ -> false)
+            t.events))
+      || t.finished
+      || (current t && Option.is_some t.active)

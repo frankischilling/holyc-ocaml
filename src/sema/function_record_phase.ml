@@ -236,6 +236,63 @@ let capture_call_emission arguments receipt =
         emission_snapshot = snapshot arguments.call_record;
       }
 
+type implicit_arguments_snapshot = {
+  implicit_record : t;
+  implicit_receipt : Parser.implicit_output_selection;
+  implicit_snapshot : snapshot;
+}
+
+type implicit_emission_snapshot = {
+  implicit_arguments : implicit_arguments_snapshot;
+  implicit_emitted : snapshot;
+}
+
+let implicit_arguments_receipt capture = capture.implicit_receipt
+let implicit_argument_snapshot capture = capture.implicit_snapshot
+let implicit_emission_arguments capture = capture.implicit_arguments
+let implicit_emitted_snapshot capture = capture.implicit_emitted
+
+let capture_implicit_arguments record receipt =
+  let captured = snapshot record in
+  let rec original entry =
+    match Visibility.function_alias_original entry with
+    | Some source -> original source
+    | None -> entry
+  in
+  let selected =
+    Option.fold ~none:false
+      ~some:(fun entry ->
+        let entry = original entry in
+        entry == (source captured).function_entry
+        || Option.fold ~none:false
+             ~some:(fun header -> entry == header.Parser.completed_entry)
+             (P.completed_header captured.source_state))
+      (Parser.implicit_lookup receipt)
+  in
+  if not (Parser.implicit_arguments_are_current receipt && selected) then
+    Error
+      "implicit arguments require their original live selected native record"
+  else
+    Ok
+      {
+        implicit_record = record;
+        implicit_receipt = receipt;
+        implicit_snapshot = captured;
+      }
+
+let capture_implicit_emission arguments receipt =
+  if
+    not
+      (Parser.implicit_emission_is_current receipt
+      && receipt == arguments.implicit_receipt)
+  then Error "implicit emission requires its original live argument capture"
+  else
+    Ok
+      {
+        implicit_arguments = arguments;
+        implicit_emitted = snapshot arguments.implicit_record;
+      }
+
 let create_registry ~mode ~table ~namespace =
   if mode <> Frontend.Preprocessor.Jit then
     Error "native function record phases require JIT compilation"

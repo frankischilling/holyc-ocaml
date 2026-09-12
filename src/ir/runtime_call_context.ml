@@ -21,7 +21,11 @@ let original_phase = function
   | Top_level_call target ->
       Sema.Top_level_function_call_target_classification.source target
       |> Typed.top_level_direct_original_phase
-  | Function_output _ | Top_level_output _ -> None
+  | Function_output output ->
+      Sema.Implicit_output_argument_binding.bound_original_phase output
+  | Top_level_output output ->
+      Sema.Top_level_implicit_output_argument_binding.bound_original_phase
+        output
 
 let cleanup_slot_count source ~fixed_count ~variadic_count ~variadic =
   let fixed =

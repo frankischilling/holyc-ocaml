@@ -13982,11 +13982,16 @@ let adjacent_string_expression_contexts_and_modes () =
           check_combined_string ~description:"call argument"
             ~value:"call argument" ~segments:[ "call"; " argument" ]
             call_literal;
-          check_combined_string ~description:"implicit output marker"
-            ~value:"ready" ~segments:[ ""; "ready" ] output_statement.marker;
-          ignore
-            (expect_marker_fixed_argument output_statement
-            |> expect_string_literal)
+          (* PrsFunCall consumes an empty marker with Lex before it calls
+             PrsExpression for the format string. Only expression literals join. *)
+          Alcotest.(check bool)
+            "empty implicit marker remains separate" true
+            (output_statement.marker.literal_value = Ast.Bytes_value "");
+          Alcotest.(check bool)
+            "following literal supplies the format" true
+            ((expect_following_fixed_argument output_statement
+             |> expect_string_literal)
+               .literal_value = Ast.Bytes_value "ready")
       | items ->
           Alcotest.failf "expected a prototype and three contexts, got %d items"
             (List.length items))

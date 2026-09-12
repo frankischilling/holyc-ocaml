@@ -5,6 +5,8 @@ type event = Frontend.Parser.source_observation =
   | Call_start of Frontend.Parser.call_start
   | Call_emission of Frontend.Parser.completed_call
   | Implicit_output of Frontend.Parser.implicit_output_selection
+  | Implicit_arguments of Frontend.Parser.implicit_output_selection
+  | Implicit_emission of Frontend.Parser.implicit_output_selection
 
 type t
 type call_journal
@@ -121,3 +123,31 @@ val initializer_completion :
 (** Journaled runtime boundaries require their exact active event even after
     revocation. Boundaries first observed after activation keep their live path.
 *)
+
+val capture_implicit :
+  call_journal ->
+  events_rev:event list ->
+  Frontend.Parser.implicit_output_selection ->
+  emission:bool ->
+  (event, string) result
+
+val implicit_arguments :
+  t option -> Frontend.Parser.implicit_output_selection -> bool
+
+val implicit_emission :
+  t option -> Frontend.Parser.implicit_output_selection -> bool
+
+val implicit_selection_admission :
+  t option -> Frontend.Parser.implicit_output_selection -> bool
+
+val implicit_arguments_admission :
+  t option -> Frontend.Parser.implicit_output_selection -> bool
+
+val implicit_emission_admission :
+  t option -> Frontend.Parser.implicit_output_selection -> bool
+
+val implicit_binding_available :
+  t option ->
+  Frontend.Parser.implicit_output_selection ->
+  committed:bool ->
+  bool

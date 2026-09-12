@@ -16,6 +16,9 @@ val prepare_unit :
   ?call_phases:
     (Frontend.Ast.call_expression ->
     (Sema.Function_call_phase.t option, string) result) ->
+  ?implicit_call_phases:
+    (Frontend.Ast.implicit_output_statement ->
+    (Sema.Function_call_phase.t option, string) result) ->
   ?include_global_initializers:bool ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->

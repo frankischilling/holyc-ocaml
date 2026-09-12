@@ -2000,3 +2000,7 @@ let dimension_dependencies globals =
               Dimension_requirements.expression (Typed.initializer_value root))
             (static_initializers slot))
       globals.statics_
+
+let check_suspended_completion catalog ~suspension receipt =
+  Sema.Task_command_order.check_suspended_completion catalog.source_order
+    ~admitted:catalog.admitted_commands ~suspension receipt

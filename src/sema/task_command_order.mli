@@ -72,3 +72,10 @@ val has_source_syntax : t -> Frontend.Ast.module_ -> bool
 val check : t -> admitted:command list -> command -> (unit, string) result
 (** Readiness, original predecessor admission and replay checks are read-only.
     The owning VM commits a proof only after all preflight checks succeed. *)
+
+val check_suspended_completion :
+  t ->
+  admitted:command list ->
+  suspension:Frontend.Parser.suspension ->
+  Frontend.Parser.completed_sequence ->
+  (unit, string) result

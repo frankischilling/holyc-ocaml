@@ -3,7 +3,10 @@
  (modules test_stateful_exe_cli)
  (libraries unix yojson)
  (action
-  (run %{test} %{exe:../bin/holyc.exe})))
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/stateful-exe-implicit-phases.hc})))
 
 (test
  (name test_integer_program_cli)

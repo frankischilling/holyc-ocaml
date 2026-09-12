@@ -693,6 +693,28 @@ let execution_commands task span ~active =
       call =
         Some
           {
+            implicit =
+              Some
+                {
+                  arguments =
+                    (fun selection ->
+                      let* () =
+                        reading
+                          (Frontend.Parser.implicit_command selection)
+                            .command_context
+                      in
+                      Task_declarations.observe_implicit_arguments
+                        task.declarations selection);
+                  emission =
+                    (fun selection ->
+                      let* () =
+                        reading
+                          (Frontend.Parser.implicit_command selection)
+                            .command_context
+                      in
+                      Task_declarations.observe_implicit_emission
+                        task.declarations selection);
+                };
             start =
               (fun receipt ->
                 let* () =
@@ -781,7 +803,7 @@ let stream_executor task span =
             | Error _ -> ());
       }
 
-let run task ~source =
+let run_input ?suspension task ~source =
   let ( let* ) = Result.bind in
   let* () =
     match
@@ -802,21 +824,59 @@ let run task ~source =
     execution_commands task (Integer_source.source_span source)
       ~active:(fun () -> Ok ())
   in
-  let parsed =
-    Frontend.Parser.parse ~commands ~execute_stream:(stream_executor task)
-      ~sources:(Session.sources task.session)
-      ~definitions:(Session.definitions task.session)
-      ~symbols:(Session.symbols task.session)
-      ~config:task.config source
+  let* parsed =
+    match suspension with
+    | None ->
+        Ok
+          (Frontend.Parser.parse ~commands
+             ~execute_stream:(stream_executor task)
+             ~sources:(Session.sources task.session)
+             ~definitions:(Session.definitions task.session)
+             ~symbols:(Session.symbols task.session)
+             ~config:task.config source)
+    | Some suspension ->
+        Frontend.Parser.parse_suspended suspension ~commands
+          ~execute_stream:(stream_executor task)
+          ~sources:(Session.sources task.session)
+          ~definitions:(Session.definitions task.session)
+          ~symbols:(Session.symbols task.session)
+          ~config:task.config source
+        |> Result.map_error (fun message ->
+            [
+              Integer_source.diagnostic
+                ~span:(Integer_source.source_span source)
+                "HCRUN0004" message;
+            ])
   in
   match parsed.ast with
   | None -> Error parsed.diagnostics
-  | Some _ ->
-      let* sequence = completed () in
-      VM.task_input_result task.state ~sequence
-      |> Result.map_error (fun message ->
-          [
-            Integer_source.diagnostic
-              ~span:(Integer_source.source_span source)
-              "HCRUN0004" message;
-          ])
+  | Some _ -> completed ()
+
+let run task ~source =
+  let ( let* ) = Result.bind in
+  let* sequence = run_input task ~source in
+  VM.task_input_result task.state ~sequence
+  |> Result.map_error (fun message ->
+      [
+        Integer_source.diagnostic
+          ~span:(Integer_source.source_span source)
+          "HCRUN0004" message;
+      ])
+
+let run_suspended task ~source =
+  let ( let* ) = Result.bind in
+  let diagnose result =
+    Result.map_error
+      (fun message ->
+        [
+          Integer_source.diagnostic
+            ~span:(Integer_source.source_span source)
+            "HCRUN0004" message;
+        ])
+      result
+  in
+  let* suspension =
+    Task_declarations.parser_suspension task.declarations |> diagnose
+  in
+  let* sequence = run_input ~suspension task ~source in
+  VM.check_task_suspended_completion task.state ~suspension sequence |> diagnose

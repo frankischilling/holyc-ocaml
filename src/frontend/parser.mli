@@ -15,6 +15,11 @@ val max_aggregate_depth : int
 val max_initializer_depth : int
 
 type command_context
+type suspension
+
+val suspend_context : command_context -> (suspension, string) result
+(** Capture the current stack position of a live parser context for one nested
+    input. A suspended ancestor cannot issue a token while a child is active. *)
 
 type command_start = private {
   command_context : command_context;
@@ -114,7 +119,20 @@ val claim_call_emission : completed_call -> bool
 (** Claim one receipt during its original callback, at most once across all
     journals. Callers must finish journal preflight before claiming. *)
 
+type implicit_output_selection
+
+type implicit_call_sink = {
+  arguments :
+    implicit_output_selection ->
+    ( Symbol_visibility.function_call_shape option,
+      Common.Diagnostic.t list )
+    result;
+  emission :
+    implicit_output_selection -> (unit, Common.Diagnostic.t list) result;
+}
+
 type direct_call_sink = {
+  implicit : implicit_call_sink option;
   start :
     call_start ->
     ( Symbol_visibility.function_call_shape option,
@@ -122,6 +140,7 @@ type direct_call_sink = {
     result;
   emit : completed_call -> (unit, Common.Diagnostic.t list) result;
 }
+
 (** Direct function start follows name lookahead and precedes lookahead inside
     an opening parenthesis. A supplied shape fixes argument traversal at that
     phase; [None] preserves legacy grammar. Emission follows the existing tail
@@ -131,8 +150,6 @@ type direct_call_sink = {
     metadata selection, template classification and runtime admission belong to
     the consumer. A provider requiring checked evidence must reject its absence
     instead of returning [None]. *)
-
-type implicit_output_selection
 
 val implicit_target : implicit_output_selection -> Ast.implicit_output_target
 val implicit_marker : implicit_output_selection -> Ast.location
@@ -149,7 +166,18 @@ val implicit_statement :
   implicit_output_selection -> Ast.implicit_output_statement option
 
 val implicit_selection_is_current : implicit_output_selection -> bool
-(** The function-only target lookup occurs at the original literal marker,
+val implicit_arguments_are_current : implicit_output_selection -> bool
+val implicit_emission_is_current : implicit_output_selection -> bool
+val claim_implicit_arguments : implicit_output_selection -> bool
+
+val claim_implicit_emission : implicit_output_selection -> bool
+(** Claims require the corresponding original active callback and succeed at
+    most once across all journals. Failed preflight must not claim a receipt.
+    Arguments follow empty-marker lookahead and precede argument-expression
+    lookahead. Emission follows closing-parenthesis lookahead and precedes
+    statement terminator validation.
+
+    The function-only target lookup occurs at the original literal marker,
     before argument parsing or subsequent lookahead. The callback is current
     only while its original observer runs. A successful parse later attaches the
     exact completed statement to the same receipt. No ordinary identifier or
@@ -480,6 +508,8 @@ type source_observation =
   | Call_start of call_start
   | Call_emission of completed_call
   | Implicit_output of implicit_output_selection
+  | Implicit_arguments of implicit_output_selection
+  | Implicit_emission of implicit_output_selection
 
 val source_observations_match :
   command_context -> events_rev:source_observation list -> bool option
@@ -559,3 +589,26 @@ val parse :
   output
 
 val has_errors : output -> bool
+
+val parse_suspended :
+  suspension ->
+  ?commands:command_sink ->
+  ?execute_stream:
+    (Common.Span.t -> (stream_execution, Common.Diagnostic.t list) result) ->
+  sources:Common.Source_manager.t ->
+  definitions:Definition.Environment.t ->
+  symbols:Symbol_visibility.Environment.t ->
+  config:Preprocessor.Config.t ->
+  Common.Source_file.t ->
+  (output, string) result
+
+(** Parse one input at the original suspension, requiring the same source
+    manager, symbol environment, compilation mode, stack position and event
+    count. Rejected preflight does not consume the token. Once parsing starts,
+    success, failure and exceptions consume it and restore the parent stack.
+    Definitions and other config options describe the new input; the task
+    adapter supplies its own original environments and config. *)
+
+val suspension_owns_sequence : suspension -> completed_sequence -> bool
+(** Only the exact accepted nested sequence belongs to a consumed token. This
+    establishes syntax ownership; runtime admission remains separate. *)

@@ -174,9 +174,16 @@ frozen unadmitted selections unchanged.
 
 `compile_source_ast` accepts the ledger's original complete command or accepted
 sequence. The original resume and predecessor receipts still govern execution.
-Checked providers for a suspended source root must be parsed in a detached
-frontend, then compiled and admitted through the existing callback-free task
-path. `run` starts a new parser root and cannot be used inside that suspension.
+Checked providers for a suspended source root use `run_suspended`, which consumes
+an opaque token for the exact live parser position. Nested parsing uses the task's
+original environments and declaration callbacks, records native function history,
+and validates the exact accepted child sequence and admitted command receipts.
+Provider discovery and parsing temporarily clear caller locals and restore them
+on exit. `run` starts a new parser root and cannot be used inside that suspension.
+Each provider declaration is a source command. The three-provider JIT setup now
+charges three command units instead of one combined unit, adding two execution
+steps to the affected CLI fixtures; AOT already charged those commands separately.
+Initializer preparation charges are unchanged.
 The public source driver composes these APIs for shared JIT execution; partial global declarations,
 initializer leaves and integer defaults use separate original runtime receipts.
 

@@ -20,6 +20,7 @@ let parse text =
       call =
         Some
           {
+            implicit = None;
             start =
               (fun receipt ->
                 let result = D.observe_call_start ledger receipt in
@@ -126,6 +127,7 @@ let legacy_provider () =
       call =
         Some
           {
+            implicit = None;
             start = D.observe_call_start ledger;
             emit =
               (fun receipt ->

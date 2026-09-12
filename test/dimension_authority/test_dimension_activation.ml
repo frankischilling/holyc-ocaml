@@ -175,7 +175,13 @@ let pending_dimension_manifest () =
                       (VM.task_initializer_steps runtime);
                     Error []
                 | _ -> Ok ());
-          call = Some { start = (fun _ -> Ok None); emit = (fun _ -> Ok ()) };
+          call =
+            Some
+              {
+                implicit = None;
+                start = (fun _ -> Ok None);
+                emit = (fun _ -> Ok ());
+              };
           implicit_output = None;
           query = None;
           dimension_count = None;

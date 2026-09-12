@@ -58,6 +58,30 @@ val capture_task_call_emission :
   task_call_start ->
   (Sema.Function_call_phase.t, string) result
 
+type task_implicit_call_start
+
+val observe_task_implicit_selection :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  selection:Frontend.Parser.implicit_output_selection ->
+  selected:Retained_function.t ->
+  (unit, string) result
+
+val capture_task_implicit_arguments :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  capture:Sema.Function_record_phase.implicit_arguments_snapshot ->
+  selected:Retained_function.t ->
+  arguments:Sema.Function_type_resolution.resolved_function ->
+  (task_implicit_call_start, string) result
+
+val capture_task_implicit_emission :
+  task_state ->
+  table:Sema.Symbol_table.t ->
+  capture:Sema.Function_record_phase.implicit_emission_snapshot ->
+  task_implicit_call_start ->
+  (Sema.Function_call_phase.t, string) result
+
 val owns_call_phase : task_state -> Sema.Function_call_phase.t -> bool
 
 type task_stream
@@ -625,3 +649,9 @@ val task_input_result :
     generation buffers remain task state; this input must finish all its work
     successfully and restore the same buffer stack. Work totals are cumulative,
     while the final value belongs only to this input's root commands. *)
+
+val check_task_suspended_completion :
+  task_state ->
+  suspension:Frontend.Parser.suspension ->
+  Frontend.Parser.completed_sequence ->
+  (unit, string) result

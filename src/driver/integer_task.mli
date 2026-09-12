@@ -239,3 +239,6 @@ val stream_executor :
     before later leaves and reuse their retained storage at command completion.
     This does not execute the outer unit or provide a whole-invocation report.
 *)
+
+val run_suspended :
+  t -> source:Common.Source_file.t -> (unit, Common.Diagnostic.t list) result

@@ -72,48 +72,30 @@ let ( let* ) = Result.bind
 let install_providers ?(suspended = false) task =
   let session = Task.frontend task in
   let symbols = Session.symbols session in
-  let headers =
-    [
-      ("StreamPrint", "extern U0 StreamPrint(U8 *fmt,...);");
-      ("Print", "extern U0 Print(U8 *fmt,...);");
-      ("PutChars", "extern U0 PutChars(U64 ch);");
-    ]
-    |> List.filter_map (fun (name, header) ->
-        match
-          Frontend.Symbol_visibility.Environment.find_preprocessor symbols name
-        with
-        | Absent -> Some header
-        | Present _ | Shadowed_by_local -> None)
-    |> String.concat "\n"
-  in
-  if headers = "" then Ok ()
-  else
-    let source =
-      Session.add_source session ~path:"<hosted-task-providers>"
-        ~contents:headers
-    in
-    if not suspended then Task.run task ~source |> Result.map ignore
-    else
-      let detached = Session.fork_frontend session in
-      let* config =
-        Frontend.Preprocessor.Config.create ~compilation_mode:Jit ()
-        |> Result.map_error (fun message ->
-            [
-              Integer_source.diagnostic
-                ~span:(Integer_source.source_span source)
-                "HCIRVM0001" message;
-            ])
+  Frontend.Symbol_visibility.Environment.without_locals symbols (fun () ->
+      let headers =
+        [
+          ("StreamPrint", "extern U0 StreamPrint(U8 *fmt,...);");
+          ("Print", "extern U0 Print(U8 *fmt,...);");
+          ("PutChars", "extern U0 PutChars(U64 ch);");
+        ]
+        |> List.filter_map (fun (name, header) ->
+            match
+              Frontend.Symbol_visibility.Environment.find_preprocessor symbols
+                name
+            with
+            | Absent -> Some header
+            | Present _ | Shadowed_by_local -> None)
+        |> String.concat "\n"
       in
-      let parsed =
-        Parser.parse ~sources:(Session.sources detached)
-          ~definitions:(Session.definitions detached)
-          ~symbols:(Session.symbols detached) ~config source
-      in
-      match parsed.ast with
-      | None -> Error parsed.diagnostics
-      | Some ast ->
-          let* command = Task.compile_ast task ast in
-          Task.execute task command |> Result.map ignore
+      if headers = "" then Ok ()
+      else
+        let source =
+          Session.add_source session ~path:"<hosted-task-providers>"
+            ~contents:headers
+        in
+        if suspended then Task.run_suspended task ~source
+        else Task.run task ~source |> Result.map ignore)
 
 let compile_report ?(max_dimension_work = 100_000)
     ?(max_initializer_steps = 100_000) ?(max_steps = 100_000)
@@ -234,6 +216,14 @@ let compile_report ?(max_dimension_work = 100_000)
             (if is_jit then
                Some
                  {
+                   implicit =
+                     Some
+                       {
+                         arguments =
+                           Task_declarations.observe_implicit_arguments ledger;
+                         emission =
+                           Task_declarations.observe_implicit_emission ledger;
+                       };
                    start = Task_declarations.observe_call_start ledger;
                    emit = Task_declarations.observe_call_emission ledger;
                  }

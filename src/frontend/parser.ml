@@ -13,6 +13,8 @@ type command_context = {
   mutable context_event_count : int;
   mutable context_accepted_ast : Ast.module_ option;
   context_observation_id : int;
+  context_stack : command_position ref list ref;
+  mutable context_position : command_position ref option;
 }
 
 and command_start = {
@@ -30,6 +32,30 @@ and command_position =
   | Before_first_command of command_context
   | Reading_command of command_start
   | Awaiting_resume of completed_command
+
+type suspension = {
+  suspended_context : command_context;
+  suspended_position : command_position;
+  suspended_ref : command_position ref;
+  suspended_events : int;
+  mutable suspension_consumed : bool;
+  mutable suspended_ast : Ast.module_ option;
+}
+
+let suspend_context context =
+  match (context.context_position, !(context.context_stack)) with
+  | Some position, active :: _ when context.context_active && active == position
+    ->
+      Ok
+        {
+          suspended_context = context;
+          suspended_position = !position;
+          suspended_ref = position;
+          suspended_events = context.context_event_count;
+          suspension_consumed = false;
+          suspended_ast = None;
+        }
+  | _ -> Error "parser suspension requires its current active context"
 
 type completed_sequence = {
   sequence_context : command_context;
@@ -103,15 +129,6 @@ let claim_call_activity activity =
 let claim_call_start receipt = claim_call_activity receipt.call_activity
 let claim_call_emission receipt = claim_call_activity receipt.emission_activity
 
-type direct_call_sink = {
-  start :
-    call_start ->
-    ( Symbol_visibility.function_call_shape option,
-      Common.Diagnostic.t list )
-    result;
-  emit : completed_call -> (unit, Common.Diagnostic.t list) result;
-}
-
 type implicit_output_selection = {
   output_target : Ast.implicit_output_target;
   output_marker : Ast.location;
@@ -120,6 +137,28 @@ type implicit_output_selection = {
   output_command : command_start;
   mutable output_active : bool;
   mutable output_statement : Ast.implicit_output_statement option;
+  output_arguments : call_activity;
+  output_emission : call_activity;
+}
+
+type implicit_call_sink = {
+  arguments :
+    implicit_output_selection ->
+    ( Symbol_visibility.function_call_shape option,
+      Common.Diagnostic.t list )
+    result;
+  emission :
+    implicit_output_selection -> (unit, Common.Diagnostic.t list) result;
+}
+
+type direct_call_sink = {
+  implicit : implicit_call_sink option;
+  start :
+    call_start ->
+    ( Symbol_visibility.function_call_shape option,
+      Common.Diagnostic.t list )
+    result;
+  emit : completed_call -> (unit, Common.Diagnostic.t list) result;
 }
 
 let implicit_target selection = selection.output_target
@@ -129,6 +168,18 @@ let implicit_lookup selection = selection.output_lookup
 let implicit_command selection = selection.output_command
 let implicit_statement selection = selection.output_statement
 let implicit_selection_is_current selection = selection.output_active
+
+let implicit_arguments_are_current selection =
+  selection.output_arguments.call_active
+
+let implicit_emission_is_current selection =
+  selection.output_emission.call_active
+
+let claim_implicit_arguments selection =
+  claim_call_activity selection.output_arguments
+
+let claim_implicit_emission selection =
+  claim_call_activity selection.output_emission
 
 type local_source =
   | Local_parameter of Ast.function_parameter
@@ -470,6 +521,8 @@ type source_observation =
   | Call_start of call_start
   | Call_emission of completed_call
   | Implicit_output of implicit_output_selection
+  | Implicit_arguments of implicit_output_selection
+  | Implicit_emission of implicit_output_selection
 
 module Context_observations = Ephemeron.K1.Make (struct
   type t = command_context
@@ -505,6 +558,8 @@ let same_observation left right =
   | Call_start left, Call_start right -> left == right
   | Call_emission left, Call_emission right -> left == right
   | Implicit_output left, Implicit_output right -> left == right
+  | Implicit_arguments left, Implicit_arguments right -> left == right
+  | Implicit_emission left, Implicit_emission right -> left == right
   | _ -> false
 
 let source_observations_match context ~events_rev =
@@ -5547,6 +5602,8 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
       output_command = Option.get cursor.current_command;
       output_active = true;
       output_statement = None;
+      output_arguments = { call_active = false; call_captured = false };
+      output_emission = { call_active = false; call_captured = false };
     }
   in
   Fun.protect
@@ -5568,8 +5625,51 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
                      diagnostic";
               raise Stop_command)
         cursor.implicit_output);
+  let marker_empty =
+    match marker_item.token.value with
+    | Token.Bytes value ->
+        String.length value = 0 || Char.equal value.[0] '\000'
+    | Token.Int64 value -> Int64.equal value 0L
+    | _ -> false
+  in
+  let consumed_marker =
+    if marker_empty then (
+      let item = take cursor in
+      ignore (peek cursor);
+      Some item)
+    else None
+  in
+  let implicit_sink = Option.bind cursor.call (fun sink -> sink.implicit) in
+  let observe_phase activity event callback =
+    activity.call_active <- true;
+    Fun.protect
+      ~finally:(fun () -> activity.call_active <- false)
+      (fun () ->
+        record_observation selection.output_command.command_context event;
+        match callback selection with
+        | Ok value -> value
+        | Error diagnostics ->
+            cursor.diagnostics_rev <-
+              List.rev_append diagnostics cursor.diagnostics_rev;
+            if not (has_error diagnostics) then
+              report cursor marker_item ~code:"HCPARSE0161"
+                ~message:
+                  "implicit call consumer failed without an error diagnostic";
+            raise Stop_command)
+  in
+  let supplied_shape =
+    match implicit_sink with
+    | None -> None
+    | Some sink ->
+        observe_phase selection.output_arguments (Implicit_arguments selection)
+          sink.arguments
+  in
   let selected_shape =
-    Option.bind selection.output_lookup Symbol_visibility.function_call_shape
+    match supplied_shape with
+    | Some _ -> supplied_shape
+    | None ->
+        Option.bind selection.output_lookup
+          Symbol_visibility.function_call_shape
   in
   let selected_parameter index =
     Option.bind selected_shape (fun shape ->
@@ -5584,13 +5684,6 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
     report cursor item ~code:"HCPARSE0164"
       ~message:"implicit output default leaves this argument unconsumed";
     raise Stop_command
-  in
-  let marker_empty =
-    match marker_item.token.value with
-    | Token.Bytes value ->
-        String.length value = 0 || Char.equal value.[0] '\000'
-    | Token.Int64 value -> Int64.equal value 0L
-    | _ -> false
   in
   let putchars_later_required =
     target = Ast.Put_chars_target
@@ -5611,9 +5704,8 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
     reject_unconsumed_default marker_item;
   let marker_expression : parsed_expression =
     match (marker_item.token.Token.kind, marker_item.token.value) with
-    | Token_kind.String, Token.Bytes value
-      when marker_empty && selected_default 0 ->
-        let item = take cursor in
+    | Token_kind.String, Token.Bytes value when marker_empty ->
+        let item = Option.get consumed_marker in
         {
           node =
             make_literal item.token (Ast.Bytes_value value) (fun literal ->
@@ -5622,7 +5714,11 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
         }
     | Token_kind.String, Token.Bytes _ -> take_string_literal_sequence cursor
     | Token_kind.Character, Token.Int64 value ->
-        let item = take cursor in
+        let item =
+          match consumed_marker with
+          | Some item -> item
+          | None -> take cursor
+        in
         {
           node =
             make_literal item.token (Ast.Integer_value value) (fun literal ->
@@ -6016,6 +6112,11 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
                   [ closing.token ] )
           in
           let terminator_item = peek cursor in
+          Option.iter
+            (fun sink ->
+              observe_phase selection.output_emission
+                (Implicit_emission selection) sink.emission)
+            implicit_sink;
           let terminator =
             match (boundary, terminator_item.token.kind) with
             | For_update_boundary _, _ -> Some (None, [])
@@ -8701,6 +8802,8 @@ let read_commands ?commands ?stream_opener cursor =
       context_active = true;
       context_event_count = 0;
       context_observation_id = fresh_observation_id ();
+      context_stack = cursor.command_stack;
+      context_position = None;
     }
   in
   if Option.is_some cursor.call then
@@ -8714,11 +8817,13 @@ let read_commands ?commands ?stream_opener cursor =
   in
   let notify event = if not (checkpoint event) then raise Stop_command in
   let position = ref (Before_first_command context) in
+  context.context_position <- Some position;
   cursor.command_stack := position :: saved_stack;
   let succeeded = ref false in
   Fun.protect
     ~finally:(fun () ->
       context.context_active <- false;
+      context.context_position <- None;
       cursor.current_command <- None;
       cursor.command_stack := saved_stack;
       if not !succeeded then ignore (checkpoint (Sequence_aborted context)))
@@ -8841,9 +8946,8 @@ let make_cursor ?reference ?call ?implicit_output ?query ?declaration
     local_publications = [];
   }
 
-let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
-    source =
-  let command_stack = ref [] in
+let parse_with_stack ~command_stack ?commands ?execute_stream ~sources
+    ~definitions ~symbols ~config source =
   let execute_stream =
     Option.map
       (fun enter stream opener ->
@@ -8939,3 +9043,43 @@ let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
   let diagnostics = List.rev cursor.diagnostics_rev in
   let ast = if has_error diagnostics then None else ast in
   { ast; diagnostics }
+
+let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
+    source =
+  parse_with_stack ~command_stack:(ref []) ?commands ?execute_stream ~sources
+    ~definitions ~symbols ~config source
+
+let parse_suspended suspension ?commands ?execute_stream ~sources ~definitions
+    ~symbols ~config source =
+  let context = suspension.suspended_context in
+  let current =
+    match !(context.context_stack) with
+    | active :: _ -> active == suspension.suspended_ref
+    | [] -> false
+  in
+  if
+    suspension.suspension_consumed
+    || (not (context.context_active && current))
+    || context.context_sources != sources
+    || context.context_environment != symbols
+    || context.context_mode <> Preprocessor.Config.compilation_mode config
+    || context.context_event_count <> suspension.suspended_events
+    || !(suspension.suspended_ref) != suspension.suspended_position
+  then Error "nested source requires its original live parser suspension"
+  else (
+    suspension.suspension_consumed <- true;
+    let output =
+      parse_with_stack ~command_stack:context.context_stack ?commands
+        ?execute_stream ~sources ~definitions ~symbols ~config source
+    in
+    suspension.suspended_ast <- output.ast;
+    Ok output)
+
+let suspension_owns_sequence suspension sequence =
+  suspension.suspension_consumed && sequence_accepted sequence
+  && Option.fold ~none:false
+       ~some:(( == ) sequence.sequence_ast)
+       suspension.suspended_ast
+  && Option.fold ~none:false
+       ~some:(( == ) suspension.suspended_position)
+       sequence.sequence_context.context_parent

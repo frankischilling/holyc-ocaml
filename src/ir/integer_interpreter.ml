@@ -380,7 +380,19 @@ type task_call_start = {
   mutable call_completed : bool;
 }
 
+type task_implicit_call_start = {
+  implicit_capture : Sema.Function_record_phase.implicit_arguments_snapshot;
+  implicit_start : Frontend.Parser.implicit_output_selection;
+  implicit_namespace : Sema.Declaration_collection.namespace;
+  implicit_selected : Retained_function.t;
+  implicit_arguments : Sema.Function_type_resolution.resolved_function;
+  mutable implicit_completed : bool;
+}
+
 type task_state = {
+  mutable implicit_selections :
+    (Frontend.Parser.implicit_output_selection * Retained_function.t) list;
+  mutable implicit_starts : task_implicit_call_start list;
   mutable call_selections :
     (Frontend.Parser.reference_selection * Retained_function.t) list;
   mutable call_starts : task_call_start list;
@@ -457,6 +469,8 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
       {
         call_starts = [];
         call_selections = [];
+        implicit_selections = [];
+        implicit_starts = [];
         call_phases = [];
         defaults = [];
         dimensions = [];
@@ -1102,14 +1116,215 @@ let capture_task_call_emission task ~table ~capture pending =
                ~arguments:pending.call_arguments ~emission_snapshot:snapshot
                ~emission)
 
+let observe_task_implicit_selection task ~namespace ~selection ~selected =
+  let module A = Sema.Source_activation in
+  let module P = Frontend.Parser in
+  let module N = Sema.Function_record_phase in
+  let module F = Sema.Function_resolution in
+  let snapshot =
+    Retained_function.metadata selected
+    |> Sema.Outer_environment.function_declaration
+    |> F.resolved_declaration_site |> F.declaration_site_native_snapshot
+  in
+  let matches =
+    Option.fold ~none:true
+      ~some:(fun snapshot ->
+        let rec original entry =
+          match Frontend.Symbol_visibility.function_alias_original entry with
+          | Some source -> original source
+          | None -> entry
+        in
+        let source_matches =
+          match
+            match P.implicit_lookup selection with
+            | Some entry -> Frontend.Symbol_visibility.Present entry
+            | None -> Frontend.Symbol_visibility.Absent
+          with
+          | Frontend.Symbol_visibility.Present entry ->
+              let entry = original entry in
+              entry == (N.source snapshot).function_entry
+              || Option.fold ~none:false
+                   ~some:(fun header -> entry == header.P.completed_entry)
+                   (Sema.Provisional_function.completed_header
+                      (N.source_snapshot snapshot))
+          | _ -> false
+        in
+        source_matches
+        && Option.fold ~none:false
+             ~some:(Retained_function.same selected)
+             (function_record_head task snapshot))
+      snapshot
+  in
+  if
+    not
+      (Integer_globals.task_catalog_owns_namespace task.catalog namespace
+      && matches
+      && Integer_globals.task_catalog_contains_function task.catalog selected
+      && A.implicit_selection_admission task.source_activation selection
+      && (P.implicit_selection_is_current selection
+         || A.implicit_output task.source_activation selection)
+      && not
+           (List.exists
+              (fun (original, _) -> original == selection)
+              task.implicit_selections))
+  then Error "function selection requires its original admitted task reference"
+  else (
+    task.implicit_selections <-
+      (selection, selected) :: task.implicit_selections;
+    Ok ())
+
+let capture_task_implicit_arguments task ~namespace ~capture ~selected
+    ~arguments =
+  let module A = Sema.Source_activation in
+  let module N = Sema.Function_record_phase in
+  let module F = Sema.Function_resolution in
+  let module P = Frontend.Parser in
+  let start = N.implicit_arguments_receipt capture in
+  let declaration =
+    Retained_function.metadata selected
+    |> Sema.Outer_environment.function_declaration
+  in
+  let selected_snapshot =
+    F.resolved_declaration_site declaration
+    |> F.declaration_site_native_snapshot
+  in
+  let snapshot =
+    Option.map N.shape_snapshot
+      (Sema.Function_type_resolution.function_provisional_call arguments)
+  in
+  let rec original_entry entry =
+    match Frontend.Symbol_visibility.function_alias_original entry with
+    | Some source -> original_entry source
+    | None -> entry
+  in
+  let selected_source_matches snapshot =
+    match
+      match P.implicit_lookup start with
+      | Some entry -> Frontend.Symbol_visibility.Present entry
+      | None -> Frontend.Symbol_visibility.Absent
+    with
+    | Frontend.Symbol_visibility.Present entry ->
+        let entry = original_entry entry in
+        entry == (N.source snapshot).function_entry
+        || Option.fold ~none:false
+             ~some:(fun header -> entry == header.P.completed_entry)
+             (Sema.Provisional_function.completed_header
+                (N.source_snapshot snapshot))
+    | _ -> false
+  in
+  if
+    not
+      (Integer_globals.task_catalog_owns_namespace task.catalog namespace
+      && List.exists
+           (fun (original, retained) ->
+             original == start && Retained_function.same retained selected)
+           task.implicit_selections
+      && A.implicit_arguments_admission task.source_activation start
+      && (P.implicit_arguments_are_current start
+         || A.implicit_arguments task.source_activation start)
+      && not
+           (List.exists
+              (fun original -> original.implicit_start == start)
+              task.implicit_starts))
+  then Error "call arguments are outside their original task event"
+  else
+    match (selected_snapshot, snapshot) with
+    | Some selected_snapshot, Some snapshot
+      when N.owns_namespace snapshot namespace
+           && snapshot == N.implicit_argument_snapshot capture
+           && selected_source_matches selected_snapshot
+           && N.same_identity selected_snapshot snapshot -> (
+        match function_record_head task snapshot with
+        | None -> Error "call arguments have no admitted native function"
+        | Some current
+          when Option.fold ~none:false ~some:(N.same_cursor snapshot)
+                 (Retained_function.metadata current
+                 |> Sema.Outer_environment.function_declaration
+                 |> F.resolved_declaration_site
+                 |> F.declaration_site_native_snapshot) ->
+            let pending =
+              {
+                implicit_capture = capture;
+                implicit_start = start;
+                implicit_namespace = namespace;
+                implicit_selected = selected;
+                implicit_arguments = arguments;
+                implicit_completed = false;
+              }
+            in
+            task.implicit_starts <- pending :: task.implicit_starts;
+            Ok pending
+        | Some _ ->
+            Error "call arguments do not match the current native cursor")
+    | _ -> Error "call arguments differ from their selected native allocation"
+
+let capture_task_implicit_emission task ~table ~capture pending =
+  let module A = Sema.Source_activation in
+  let module P = Frontend.Parser in
+  let receipt =
+    Sema.Function_record_phase.implicit_arguments_receipt
+      (Sema.Function_record_phase.implicit_emission_arguments capture)
+  in
+  let snapshot = Sema.Function_record_phase.implicit_emitted_snapshot capture in
+  if
+    not
+      (Integer_globals.task_catalog_owns_table task.catalog table
+      && Sema.Function_record_phase.implicit_emission_arguments capture
+         == pending.implicit_capture
+      && List.exists (( == ) pending) task.implicit_starts
+      && (not pending.implicit_completed)
+      && receipt == pending.implicit_start
+      && A.implicit_emission_admission task.source_activation receipt
+      && (P.implicit_emission_is_current receipt
+         || A.implicit_emission task.source_activation receipt))
+  then Error "call emission is outside its original task event"
+  else
+    match function_record_head task snapshot with
+    | None -> Error "call emission has no admitted native function"
+    | Some current ->
+        let emission =
+          Retained_function.metadata current
+          |> Sema.Outer_environment.function_classified_declaration
+        in
+        if
+          not
+            (Option.fold ~none:false
+               ~some:(Sema.Function_record_phase.same_cursor snapshot)
+               (Sema.Function_record_classification
+                .classified_declaration_source emission
+               |> Sema.Function_resolution.resolved_declaration_site
+               |> Sema.Function_resolution.declaration_site_native_snapshot))
+        then Error "call emission does not match the current native cursor"
+        else
+          Result.map
+            (fun phase ->
+              pending.implicit_completed <- true;
+              task.call_phases <- phase :: task.call_phases;
+              phase)
+            (Sema.Function_call_phase.create_implicit ~table
+               ~namespace:pending.implicit_namespace ~receipt
+               ~selected:
+                 (Retained_function.metadata pending.implicit_selected
+                 |> Sema.Outer_environment.function_declaration)
+               ~arguments:pending.implicit_arguments ~emission_snapshot:snapshot
+               ~emission)
+
 let owns_call_phase task phase =
+  let module Phase = Sema.Function_call_phase in
+  let committed =
+    Integer_globals.call_command_is_admitted task.catalog
+      (Phase.command_start phase)
+  in
   List.exists (( == ) phase) task.call_phases
   &&
-  let receipt = Sema.Function_call_phase.receipt phase in
-  Sema.Source_activation.call_binding_available task.source_activation receipt
-    ~committed:
-      (Integer_globals.call_command_is_admitted task.catalog
-         (Frontend.Parser.selected_command receipt.call_start.call_reference))
+  match (Phase.receipt phase, Phase.implicit_receipt phase) with
+  | Some receipt, None ->
+      Sema.Source_activation.call_binding_available task.source_activation
+        receipt ~committed
+  | None, Some receipt ->
+      Sema.Source_activation.implicit_binding_available task.source_activation
+        receipt ~committed
+  | _ -> false
 
 let check_function_phase_source task ~namespace ~event snapshot =
   let module Parser = Frontend.Parser in
@@ -6082,3 +6297,6 @@ let human execution =
     "holyc-ir-integer-execution-v1 reference=%s\nsteps=%d\ntermination=%s\n"
     reference_commit execution.executed_steps_
     (termination_name execution.termination_)
+
+let check_task_suspended_completion task ~suspension receipt =
+  Integer_globals.check_suspended_completion task.catalog ~suspension receipt

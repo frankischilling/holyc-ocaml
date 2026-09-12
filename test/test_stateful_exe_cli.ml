@@ -132,6 +132,60 @@ let parameter_delimiters_source =
 
 let () =
   let executable = Sys.argv.(1) in
+  let fixture = Sys.argv.(2) in
+  List.iter
+    (fun mode ->
+      let status, output, errors =
+        capture executable [ "run"; "--format=json"; "--mode=" ^ mode; fixture ]
+      in
+      require
+        (status = Unix.WEXITED 0 && errors = "")
+        ("implicit phase fixture failed: " ^ output ^ errors);
+      let open Yojson.Basic.Util in
+      let report = Yojson.Basic.from_string output in
+      require
+        (report |> member "final_value" |> member "value" |> to_string = "42")
+        "implicit phase fixture result";
+      require
+        (report |> member "diagnostics" |> to_list = [])
+        "implicit phase fixture diagnostics";
+      require
+        (report |> member "output_hex" |> to_string = "")
+        "implicit replacement must execute its source body";
+      List.iter
+        (fun (steps, exit_code) ->
+          let status, output, errors =
+            capture executable
+              [
+                "run";
+                "--format=json";
+                "--mode=" ^ mode;
+                "--step-limit=" ^ string_of_int steps;
+                fixture;
+              ]
+          in
+          require
+            (status = Unix.WEXITED exit_code && errors = "")
+            ("implicit phase step limit: " ^ output ^ errors);
+          let report = Yojson.Basic.from_string output in
+          require
+            (report |> member "executed_steps" |> to_int = steps)
+            "implicit phase exact step charge";
+          if exit_code = 0 then
+            require
+              (report |> member "final_value" |> member "value" |> to_string
+             = "42")
+              "implicit phase exact-limit result"
+          else (
+            require
+              (report |> member "final_value" = `Null)
+              "failed implicit phase input has no successful result";
+            require
+              (report |> member "diagnostics" |> to_list |> List.hd
+             |> member "code" |> to_string = "HCIRVM0007")
+              "implicit phase one-below diagnostic"))
+        [ (62, 0); (61, 1) ])
+    [ "jit"; "aot" ];
   List.iter
     (fun (mode, text) ->
       with_source text (fun path ->
@@ -241,25 +295,25 @@ let () =
                 prep - 1 );
             ]))
     [
-      (omission_source, "jit", 112, 9);
+      (omission_source, "jit", 114, 9);
       (omission_source, "aot", 114, 9);
-      (parenthesized_source, "jit", 145, 12);
+      (parenthesized_source, "jit", 147, 12);
       (parenthesized_source, "aot", 147, 12);
-      (absent_source, "jit", 143, 9);
+      (absent_source, "jit", 145, 9);
       (absent_source, "aot", 145, 9);
-      (adjacent_source, "jit", 139, 9);
+      (adjacent_source, "jit", 141, 9);
       (adjacent_source, "aot", 141, 9);
-      (variadic_source, "jit", 106, 6);
+      (variadic_source, "jit", 108, 6);
       (variadic_source, "aot", 108, 6);
-      (extern_source, "jit", 50, 6);
+      (extern_source, "jit", 52, 6);
       (extern_source, "aot", 52, 6);
-      (pending_header_source, "jit", 58, 3);
+      (pending_header_source, "jit", 60, 3);
       (pending_header_source, "aot", 60, 3);
-      (function_versions_source, "jit", 71, 6);
+      (function_versions_source, "jit", 73, 6);
       (function_versions_source, "aot", 73, 6);
       (parameter_delimiters_source, "jit", 22, 6);
       (parameter_delimiters_source, "aot", 20, 6);
-      (variadic_termination_source, "jit", 58, 3);
+      (variadic_termination_source, "jit", 60, 3);
       (variadic_termination_source, "aot", 60, 3);
     ];
   List.iter

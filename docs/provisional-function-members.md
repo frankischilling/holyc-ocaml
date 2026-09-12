@@ -65,16 +65,16 @@ completion does not move it ahead of the newer function.
 
 Reference: TempleOS `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
-- PrsVar.HC:519–530 inserts a concrete member after PrsType returns, before
-  default parsing/evaluation at 618–657. Type lookahead therefore precedes member
+- PrsVar.HC:519-530 inserts a concrete member after PrsType returns, before
+  default parsing/evaluation at 618-657. Type lookahead therefore precedes member
   publication. Parameter completion follows valid delimiter recognition.
-- PrsDotDotDot at PrsVar.HC:373–405 sets the function flag before its lexer read,
+- PrsDotDotDot at PrsVar.HC:373-405 sets the function flag before its lexer read,
   then adds synthetic members. Those members do not increment member_cnt.
-- PrsFunJoin at PrsStmt.HC:90–115 saves the old argument count for comparison,
+- PrsFunJoin at PrsStmt.HC:90-115 saves the old argument count for comparison,
   clears reused members and finally sets arg_cnt from the current member_cnt.
-  LexLib.HC:209–218's ClassMemberLstDel resets both counts to zero. Reused
+  LexLib.HC:209-218's ClassMemberLstDel resets both counts to zero. Reused
   provisional headers do not retain the previous active argument count.
-- PrsFunCall at PrsExp.HC:430–491 consumes arg_cnt fixed members before checking
+- PrsFunCall at PrsExp.HC:430-491 consumes arg_cnt fixed members before checking
   whether the resulting member cursor denotes a variadic tail. The function's
   ellipsis flag alone does not establish that call shape.
 
@@ -144,3 +144,24 @@ Run focused source tests with
 `opam exec -- dune exec -j 1 test/test_main.exe -- test 'provisional function'`.
 `dune runtest` also runs the private source-activation authority fixture.
 These are hosted tests and pinned source evidence, not native execution captures.
+
+Implicit `Print` and `PutChars` calls retain the same three native phases. Target
+selection precedes marker lookahead; an empty marker advances before argument
+count capture, while a nonempty marker remains the first argument expression.
+Emission keeps its own flags, return metadata, fixed cleanup count and executable
+lineage. Both function-body and top-level implicit binders require the exact
+completed source statement and task-owned phase.
+
+For example, `extern U0 PutChars();if(0){''#exe {extern U0 PutChars(I64 n);}(40);}`
+accepts the count installed by marker lookahead. Moving the directive inside the
+parenthesis retains zero arguments and rejects the surplus expression. Hosted
+regressions cover both providers, original executable selection, replacement
+member defaults, distinct emission counts, failed replay and callback lifetime.
+An emission captured before a malformed terminator has no completed statement
+and cannot supply source identity to binding. These checks do not complete the
+remaining compiler or native execution requirements.
+
+`holyc run --mode=jit examples/stateful-exe-implicit-phases.hc` returns I64 42
+with no ordinary output. The AOT outer mode has the same result. The fixture
+covers marker lookahead, joining an unresolved implicit call during closing
+lookahead, and retaining a resolved executable across a fresh definition.

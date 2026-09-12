@@ -162,8 +162,18 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                   |> Result.map Option.some
               | _ -> Ok None
             in
+            let* implicit_call_phases =
+              match (declaration_command, task_view) with
+              | Some command, Some task_view ->
+                  Task_declarations.implicit_call_resolver
+                    ~table:(Session.semantic_symbols session)
+                    ~ast ~task_view command
+                  |> Result.map Option.some
+              | _ -> Ok None
+            in
             Integer_source.prepare_unit ?declaration_command ?source_command
               ?selections ?implicit_selections ?call_phases
+              ?implicit_call_phases
               ?environment:
                 (Option.map Ir.Integer_globals.task_environment task_view)
               ~include_global_initializers:true session ~config ~span:ast.span

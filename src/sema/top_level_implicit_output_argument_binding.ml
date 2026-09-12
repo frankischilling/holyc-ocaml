@@ -51,6 +51,7 @@ type fixed_slot = {
 }
 
 type bound_output = {
+  original_phase : Function_call_phase.t option;
   source : Top_level_implicit_output_target_resolution.output;
   header : Function_type_resolution.resolved_function;
   fixed_slots : fixed_slot list;
@@ -93,6 +94,7 @@ let compilation_mode result = result.compilation_mode_
 let outputs result = result.outputs_
 let bound_source (output : bound_output) = output.source
 let bound_header (output : bound_output) = output.header
+let bound_original_phase (output : bound_output) = output.original_phase
 let bound_fixed_slots (output : bound_output) = output.fixed_slots
 let bound_variadic_roots (output : bound_output) = output.variadic_roots
 let deferred_source (output : deferred_output) = output.source
@@ -297,6 +299,7 @@ let bind_header policies mode ~before_item_index output header =
       Ok
         (Bound_output
            {
+             original_phase = None;
              source = output;
              header;
              fixed_slots;
@@ -311,7 +314,7 @@ let before_item_index output =
   |> Top_level_expression_tree.statement_source
   |> Top_level_outer_expression_binding.statement_item_index
 
-let bind_output policies mode outer_headers output =
+let bind_output_legacy policies mode outer_headers output =
   let before_item_index = before_item_index output in
   match Top_level_implicit_output_target_resolution.output_binding output with
   | Top_level_implicit_output_target_resolution.Module_function target ->
@@ -342,6 +345,57 @@ let bind_output policies mode outer_headers output =
             (Deferred_outer_output { source = output; outer_binding = binding })
       )
 
+let bind_output call_phases policies mode outer_headers output =
+  let ( let* ) = Result.bind in
+  let source =
+    Top_level_implicit_output_target_resolution.output_source_statement output
+  in
+  let* phase =
+    match source with
+    | None -> Ok None
+    | Some source -> Result.map_error invalid_input (call_phases source)
+  in
+  match phase with
+  | None -> bind_output_legacy policies mode outer_headers output
+  | Some phase ->
+      let selected =
+        match
+          Top_level_implicit_output_target_resolution.output_binding output
+        with
+        | Top_level_implicit_output_target_resolution.Module_function target ->
+            Some
+              (Top_level_implicit_output_target_resolution.module_declaration
+                 target)
+        | Top_level_implicit_output_target_resolution.Outer_function binding ->
+            Option.map Outer_environment.function_declaration
+              (Outer_environment.entry_function_metadata
+                 (Outer_environment.binding_entry binding))
+      in
+      if
+        not
+          (Option.fold ~none:false
+             ~some:(( == ) (Function_call_phase.selected phase))
+             selected
+          && Option.fold ~none:false
+               ~some:(fun source ->
+                 Option.fold ~none:false ~some:(( == ) source)
+                   (Function_call_phase.implicit_source phase))
+               source)
+      then
+        Error
+          (invalid_input
+             "implicit call phase has another selected declaration or source \
+              statement")
+      else
+        let before_item_index = before_item_index output in
+        Result.map
+          (function
+            | Bound_output bound ->
+                Bound_output { bound with original_phase = Some phase }
+            | Deferred_outer_output _ as deferred -> deferred)
+          (bind_header policies mode ~before_item_index output
+             (Function_call_phase.arguments phase))
+
 let map_result apply values =
   let rec loop rev = function
     | [] -> Ok (List.rev rev)
@@ -352,7 +406,8 @@ let map_result apply values =
   in
   loop [] values
 
-let bind ~table ~policies ?(outer_headers = []) targets =
+let bind ~table ~policies ?(outer_headers = [])
+    ?(call_phases = fun _ -> Ok None) targets =
   let expressions =
     Top_level_implicit_output_target_resolution.source targets
   in
@@ -399,7 +454,7 @@ let bind ~table ~policies ?(outer_headers = []) targets =
     | Ok outer_headers -> (
         match
           targets |> Top_level_implicit_output_target_resolution.outputs
-          |> map_result (bind_output policies mode outer_headers)
+          |> map_result (bind_output call_phases policies mode outer_headers)
         with
         | Error _ as error -> error
         | Ok outputs_ ->

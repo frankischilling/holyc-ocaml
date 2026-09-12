@@ -51,6 +51,7 @@ let phases_and_identity () =
   let record event = seen := event :: !seen in
   let call : Parser.direct_call_sink =
     {
+      implicit = None;
       start =
         (fun receipt ->
           record "start";
@@ -116,6 +117,7 @@ let capture_before_opening () =
   let entered = ref 0 and available = ref (shape []) and count = ref (-1) in
   let call : Parser.direct_call_sink =
     {
+      implicit = None;
       start =
         (fun _ ->
           count := List.length !available.parameters;
@@ -139,6 +141,7 @@ let surplus_stops () =
   let entered = ref 0 and emitted = ref 0 in
   let call : Parser.direct_call_sink =
     {
+      implicit = None;
       start = (fun _ -> Ok (Some (shape [])));
       emit =
         (fun _ ->
@@ -155,6 +158,7 @@ let surplus_stops () =
 let parenthesis_free_defaults () =
   let call : Parser.direct_call_sink =
     {
+      implicit = None;
       start =
         (fun receipt ->
           Alcotest.(check bool)
@@ -180,6 +184,7 @@ let provisional_is_call () =
   let starts = ref 0 in
   let call : Parser.direct_call_sink =
     {
+      implicit = None;
       start =
         (fun _ ->
           incr starts;
@@ -205,6 +210,7 @@ let function_address_cast selected_shape () =
   let entered = ref 0 in
   let call : Parser.direct_call_sink =
     {
+      implicit = None;
       start =
         (fun _ ->
           incr starts;
@@ -240,6 +246,7 @@ let function_address_cast selected_shape () =
 let ordinary_address_cast () =
   let call : Parser.direct_call_sink =
     {
+      implicit = None;
       start = (fun _ -> Alcotest.fail "an ordinary address cannot start a call");
       emit = (fun _ -> Alcotest.fail "an ordinary address cannot emit a call");
     }
@@ -297,6 +304,7 @@ let function_address_without_callbacks provisional () =
 let supplied_arguments variadic defaults source omissions commas () =
   let call : Parser.direct_call_sink =
     {
+      implicit = None;
       start = (fun _ -> Ok (Some { (shape defaults) with variadic }));
       emit = (fun _ -> Ok ());
     }
@@ -320,6 +328,7 @@ let malformed_shape variadic defaults source expected_entries () =
   let entered = ref 0 and emitted = ref 0 in
   let call : Parser.direct_call_sink =
     {
+      implicit = None;
       start = (fun _ -> Ok (Some { (shape defaults) with variadic }));
       emit =
         (fun _ ->
@@ -351,6 +360,7 @@ let callback_failure exceptional at_start () =
   in
   let call : Parser.direct_call_sink =
     {
+      implicit = None;
       start =
         (fun receipt ->
           if at_start then
@@ -448,3 +458,223 @@ let tests =
               (callback_failure exceptional at_start))
           [ false; true ])
       [ true; false ]
+
+let implicit_receipt_claims () =
+  let session = Session.create () in
+  let selected = ref None in
+  let early selection =
+    selected := Some selection;
+    Alcotest.(check bool)
+      "argument receipt cannot be claimed at selection" false
+      (Parser.claim_implicit_arguments selection);
+    Alcotest.(check bool)
+      "emission receipt cannot be claimed at selection" false
+      (Parser.claim_implicit_emission selection);
+    Ok ()
+  in
+  let call : Parser.direct_call_sink =
+    {
+      start = (fun _ -> Ok None);
+      emit = (fun _ -> Ok ());
+      implicit =
+        Some
+          {
+            arguments =
+              (fun selection ->
+                same "argument receipt is original selection"
+                  (Option.get !selected) selection;
+                Alcotest.(check bool)
+                  "emission cannot be claimed during arguments" false
+                  (Parser.claim_implicit_emission selection);
+                Alcotest.(check bool)
+                  "authentic arguments can be claimed" true
+                  (Parser.claim_implicit_arguments selection);
+                Alcotest.(check bool)
+                  "arguments can only be claimed once" false
+                  (Parser.claim_implicit_arguments selection);
+                Ok (Some (shape [ false ])));
+            emission =
+              (fun selection ->
+                same "emission receipt is original selection"
+                  (Option.get !selected) selection;
+                Alcotest.(check bool)
+                  "authentic emission can be claimed" true
+                  (Parser.claim_implicit_emission selection);
+                Alcotest.(check bool)
+                  "emission can only be claimed once" false
+                  (Parser.claim_implicit_emission selection);
+                Ok ());
+          };
+    }
+  in
+  let commands : Parser.command_sink =
+    {
+      checkpoint = None;
+      reference = None;
+      call = Some call;
+      implicit_output = Some early;
+      query = None;
+      declaration = None;
+      dimension_count = None;
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let _, _, parsed, _, _, _ =
+    Test_stream_parser.parse ~session ~commands {|''(42);|}
+  in
+  ignore (Test_parser.expect_ast parsed);
+  let selection = Option.get !selected in
+  Alcotest.(check bool)
+    "expired arguments cannot be claimed" false
+    (Parser.claim_implicit_arguments selection);
+  Alcotest.(check bool)
+    "expired emission cannot be claimed" false
+    (Parser.claim_implicit_emission selection)
+
+let tests =
+  tests
+  @ [
+      Alcotest.test_case "implicit receipts require original phase" `Quick
+        implicit_receipt_claims;
+    ]
+
+let parser_suspension_authority () =
+  let session = Session.create () in
+  let sources = Session.sources session and symbols = Session.symbols session in
+  let definitions = Session.definitions session in
+  let config =
+    Preprocessor.Config.create () |> Test_declaration_collection.checked
+  in
+  let source =
+    Session.add_source session ~path:"suspended-parent.hc" ~contents:"42;"
+  in
+  let child =
+    Session.add_source session ~path:"suspended-child.hc" ~contents:"17;"
+  in
+  let stale = ref None
+  and expired = ref None
+  and root = ref None
+  and nested = ref None in
+  let checked = Test_declaration_collection.checked in
+  let reject label result =
+    Alcotest.(check bool) label true (Result.is_error result)
+  in
+  let commands checkpoint : Parser.command_sink =
+    {
+      checkpoint = Some checkpoint;
+      reference = None;
+      call = None;
+      implicit_output = None;
+      declaration = None;
+      query = None;
+      dimension_count = None;
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let nested_commands =
+    commands (fun event ->
+        (match event with
+        | Parser.Sequence_completed sequence -> nested := Some sequence
+        | _ -> ());
+        Ok ())
+  in
+  let invoke ?(sources = sources) ?(symbols = symbols) ?(config = config)
+      ?(commands = nested_commands) token =
+    Parser.parse_suspended token ~commands ~sources ~symbols ~definitions
+      ~config child
+  in
+  let checkpoint event =
+    (match event with
+    | Parser.Sequence_started context ->
+        root := Some context;
+        stale := Some (Parser.suspend_context context |> checked)
+    | Parser.Command_started start ->
+        reject "advancing source invalidates previous suspension"
+          (invoke (Option.get !stale));
+        let context = start.command_context in
+        let token = Parser.suspend_context context |> checked in
+        reject "foreign source manager cannot borrow suspension"
+          (invoke ~sources:(Session.sources (Session.create ())) token);
+        reject "foreign symbols cannot borrow suspension"
+          (invoke ~symbols:(Session.symbols (Session.create ())) token);
+        reject "different compilation mode cannot borrow suspension"
+          (invoke
+             ~config:
+               (Preprocessor.Config.create ~compilation_mode:Preprocessor.Aot ()
+               |> checked)
+             token);
+        let nested_commands =
+          {
+            nested_commands with
+            checkpoint =
+              Some
+                (fun event ->
+                  (match event with
+                  | Parser.Sequence_started _ ->
+                      reject
+                        "suspended parent cannot issue a token while child is \
+                         active"
+                        (Parser.suspend_context context)
+                  | Parser.Sequence_completed sequence ->
+                      nested := Some sequence
+                  | _ -> ());
+                  Ok ());
+          }
+        in
+        ignore
+          (invoke ~commands:nested_commands token
+          |> checked |> Test_parser.expect_ast);
+        Alcotest.(check bool)
+          "token owns exact accepted child sequence" true
+          (Parser.suspension_owns_sequence token (Option.get !nested));
+        reject "successful child consumes token" (invoke token);
+        let rejected = Parser.suspend_context context |> checked in
+        let failure =
+          commands (fun _ ->
+              Error
+                [
+                  Diagnostic.make ~code:"TEST" ~severity:Diagnostic.Error
+                    ~message:"reject nested parse"
+                    ~primary:
+                      (Span.make ~source:(Source_file.id child) ~start:0 ~stop:0
+                         ~length:0
+                      |> checked)
+                    ();
+                ])
+        in
+        let output = invoke ~commands:failure rejected |> checked in
+        Alcotest.(check bool)
+          "callback rejection fails child" true (Parser.has_errors output);
+        reject "failed child consumes token" (invoke rejected);
+        let exceptional = Parser.suspend_context context |> checked in
+        let exception Abort_child in
+        (try
+           ignore
+             (invoke
+                ~commands:
+                  (commands (function
+                    | Parser.Sequence_aborted _ -> Ok ()
+                    | _ -> raise Abort_child))
+                exceptional)
+         with Abort_child -> ());
+        reject "exceptional child consumes token" (invoke exceptional);
+        expired := Some (Parser.suspend_context context |> checked)
+    | _ -> ());
+    Ok ()
+  in
+  ignore
+    (Parser.parse ~commands:(commands checkpoint) ~sources ~symbols ~definitions
+       ~config source
+    |> Test_parser.expect_ast);
+  reject "finished parent cannot issue a suspension"
+    (Parser.suspend_context (Option.get !root));
+  reject "expired unused token cannot parse" (invoke (Option.get !expired))
+
+let tests =
+  tests
+  @ [
+      Alcotest.test_case "parser suspension owns its exact live source position"
+        `Quick parser_suspension_authority;
+    ]

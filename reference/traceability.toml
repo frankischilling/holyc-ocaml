@@ -11556,15 +11556,17 @@ native_oracle_status = "pinned-source audit and hosted execution; no new native 
 
 [[feature]]
 id = "HC-PROVISIONAL-CALL-PHASES"
-description = "Admit original native declaration phases through exact live or activation events and bind variadic arguments from the checked member cursor."
-sources = ["Compiler/LexLib.HC:209-218", "Compiler/PrsStmt.HC:90-117", "Compiler/PrsExp.HC:430-491,534-586,810,865"]
+description = "Admit original native declaration phases and retain separate selection, argument and emission facts for direct and implicit calls."
+sources = ["Compiler/LexLib.HC:209-218", "Compiler/PrsStmt.HC:90-117,805-841", "Compiler/PrsExp.HC:383-491,534-586,810,865"]
 implementation = ["src/driver/task_declarations.ml", "src/driver/integer_task.ml", "src/sema/function_record_phase.ml", "src/sema/source_activation.ml", "src/sema/task_command_order.ml", "src/sema/function_type_resolution.ml", "src/sema/function_call_resolution.ml", "src/sema/implicit_output_argument_rules.ml", "src/ir/integer_globals.ml", "src/ir/integer_interpreter.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml"]
-tests = ["test/test_task_call_phases.ml", "test/test_provisional_function_types.ml", "test/test_provisional_function_runtime.ml", "test/test_provisional_function_authority.ml", "test/test_function_record_phase.ml", "test/test_call_activation.ml"]
+tests = ["test/test_task_call_phases.ml", "test/test_provisional_function_types.ml", "test/test_provisional_function_runtime.ml", "test/test_provisional_function_authority.ml", "test/test_function_record_phase.ml", "test/test_call_activation.ml", "test/test_direct_call_phases.ml", "test/test_task_parser_executor.ml", "test/test_stateful_exe_cli.ml", "examples/stateful-exe-implicit-phases.hc"]
 documentation = ["docs/provisional-function-members.md", "docs/reference-source-map.md"]
 status = "partial"
 issue = 635
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 semantics = "Declaration snapshots retain original argument counts and members during exact activation events, including reused native allocations. Variadic consumers use checked cursor count types without body-local synthetic bindings; fixed defaults retain original children."
 ownership = "Snapshot reads and admission require their exact live or replayed source phase. Admission separately checks task command order and actual native catalog heads; stale predecessors, alternate semantic roots and legacy-header bypasses reject without publication. Ordinary completed headers retain body authority separately. Hidden phase completion preserves visible lookup order."
-excluded = ["separate traversal/emission binding through execution", "general native ABI mismatch behavior", "native/BIN/loader acceptance", "bootstrap"]
-native_oracle_status = "pinned-source audit and hosted execution; post-name argument-phase acceptance remains failing; no new native capture"
+call_phases = "Direct identifier and implicit marker selection retain the admitted executable; argument capture follows name or empty-marker lookahead, emission follows closing-parenthesis lookahead, and saved defaults belong to the captured member owner. Failed replay revokes unadmitted phases. Malformed statements cannot supply binding identity."
+provider_setup = "Missing providers parse in the original suspended task context with caller locals cleared and restored. An opaque single-use token binds stack position, source manager, symbols, mode and event count; completion requires the exact accepted child sequence and admitted commands. Each provider declaration consumes one command unit."
+excluded = ["general native ABI mismatch behavior", "general callbacks and noninteger variadics", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted execution; direct post-name and implicit marker/emission gates pass; no new native capture"

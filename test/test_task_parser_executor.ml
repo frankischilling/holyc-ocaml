@@ -438,3 +438,71 @@ let tests =
         (generates
            {|#exe {I64 F(){U8 *p="(";++*p;return *p;}F();}#exe {StreamPrint("%d;",F());}|});
     ]
+
+let implicit_phase_after_abort () =
+  List.iter
+    (fun at_arguments ->
+      let outer, _, task = setup () in
+      let configured = ref false in
+      let configure (execution : Parser.stream_execution) =
+        let commands = execution.commands in
+        let call = Option.get commands.call in
+        let implicit = Option.get call.implicit in
+        let abort () =
+          configured := true;
+          execution.abort ()
+        in
+        let call =
+          {
+            call with
+            implicit =
+              Some
+                {
+                  arguments =
+                    (fun selection ->
+                      let result = implicit.arguments selection in
+                      if at_arguments then
+                        Alcotest.(check bool)
+                          "arguments reject aborted stream before capture" true
+                          (Result.is_error result)
+                      else abort ();
+                      result);
+                  emission =
+                    (fun selection ->
+                      let result = implicit.emission selection in
+                      Alcotest.(check bool)
+                        "emission rejects aborted stream before capture" true
+                        (Result.is_error result);
+                      result);
+                };
+          }
+        in
+        let implicit_output =
+          if at_arguments then
+            Some
+              (fun selection ->
+                Result.map
+                  (fun () -> abort ())
+                  ((Option.get commands.implicit_output) selection))
+          else commands.implicit_output
+        in
+        {
+          execution with
+          commands = { commands with call = Some call; implicit_output };
+        }
+      in
+      let _, parsed = parse ~configure outer task {|#exe {"discard";}|} in
+      Alcotest.(check bool) "original callback aborted stream" true !configured;
+      Alcotest.(check bool)
+        "later implicit phase requires active stream" true
+        (Parser.has_errors parsed);
+      Alcotest.(check string)
+        "aborted implicit call produces no output" "" (Task.output_bytes task))
+    [ true; false ]
+
+let tests =
+  tests
+  @ [
+      Alcotest.test_case "implicit phases reject an aborted stream" `Quick
+        implicit_phase_after_abort;
+    ]

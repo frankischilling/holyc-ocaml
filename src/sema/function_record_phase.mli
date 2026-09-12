@@ -6,6 +6,28 @@ type checked_call_shape
 type transition
 type call_start_snapshot
 type call_emission_snapshot
+type implicit_arguments_snapshot
+type implicit_emission_snapshot
+
+val capture_implicit_arguments :
+  t ->
+  Frontend.Parser.implicit_output_selection ->
+  (implicit_arguments_snapshot, string) result
+
+val capture_implicit_emission :
+  implicit_arguments_snapshot ->
+  Frontend.Parser.implicit_output_selection ->
+  (implicit_emission_snapshot, string) result
+
+val implicit_arguments_receipt :
+  implicit_arguments_snapshot -> Frontend.Parser.implicit_output_selection
+
+val implicit_argument_snapshot : implicit_arguments_snapshot -> snapshot
+
+val implicit_emission_arguments :
+  implicit_emission_snapshot -> implicit_arguments_snapshot
+
+val implicit_emitted_snapshot : implicit_emission_snapshot -> snapshot
 
 val capture_call_start :
   t -> Frontend.Parser.call_start -> (call_start_snapshot, string) result

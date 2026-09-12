@@ -525,3 +525,27 @@ val collection :
   command ->
   (Sema.Declaration_collection.t, Common.Diagnostic.t list) result
 (** The collection is available only for its owning table and exact AST. *)
+
+val implicit_call_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  task_view:Ir.Integer_globals.task_view ->
+  command ->
+  ( Frontend.Ast.implicit_output_statement ->
+    (Sema.Function_call_phase.t option, string) result,
+    Common.Diagnostic.t list )
+  result
+
+val observe_implicit_arguments :
+  t ->
+  Frontend.Parser.implicit_output_selection ->
+  ( Frontend.Symbol_visibility.function_call_shape option,
+    Common.Diagnostic.t list )
+  result
+
+val observe_implicit_emission :
+  t ->
+  Frontend.Parser.implicit_output_selection ->
+  (unit, Common.Diagnostic.t list) result
+
+val parser_suspension : t -> (Frontend.Parser.suspension, string) result

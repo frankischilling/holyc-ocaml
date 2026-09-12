@@ -325,3 +325,9 @@ val storage_array_image :
 
 val dimension_dependencies :
   t -> Sema.Compiler_record.runtime_dimension_proposal list
+
+val check_suspended_completion :
+  task_catalog ->
+  suspension:Frontend.Parser.suspension ->
+  Frontend.Parser.completed_sequence ->
+  (unit, string) result

@@ -128,3 +128,105 @@ let tests =
       "emission fixed count stays separate from pushed arguments" `Quick
       changed_emission_count;
   ]
+
+let implicit_count_after_marker () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (name, marker) ->
+          ignore
+            (O.run ~mode
+               ("#exe {extern U0 " ^ name ^ "();if(0){" ^ marker
+              ^ "#exe {extern U0 " ^ name
+              ^ "(I64 n);}(40);}StreamPrint(\"42;\");}")
+            |> O.expect ""))
+        [ ("Print", "\"\""); ("PutChars", "''") ])
+    Test_integer_globals.modes
+
+let tests =
+  tests
+  @ [
+      Alcotest.test_case
+        "implicit argument count follows empty marker lookahead" `Quick
+        implicit_count_after_marker;
+    ]
+
+let implicit_provider_local_shadow () =
+  List.iter
+    (fun mode ->
+      ignore
+        (O.run ~mode
+           {|I64 F(I64 Print,I64 PutChars,I64 StreamPrint){#exe {"x";StreamPrint("42;");}return Print+PutChars+StreamPrint;}F(10,20,12);|}
+        |> O.expect "x"))
+    Test_integer_globals.modes
+
+let tests =
+  tests
+  @ [
+      Alcotest.test_case "provider setup excludes and restores caller locals"
+        `Quick implicit_provider_local_shadow;
+    ]
+
+let implicit_phase_runtime_gates () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (name, marker) ->
+          List.iter
+            (fun (declaration, replacement, expected) ->
+              let text =
+                "#exe {I64 Out=0;" ^ declaration ^ marker ^ "()#exe {"
+                ^ replacement ^ "};StreamPrint(\"%d;\",Out);}"
+              in
+              ignore (O.run ~mode text |> O.expect ~value:(Some expected) ""))
+            [
+              ("extern U0 " ^ name ^ "();", "U0 " ^ name ^ "(){Out=42;}", 42L);
+              ("U0 " ^ name ^ "(){Out=17;}", "U0 " ^ name ^ "(){Out=42;}", 17L);
+            ];
+          List.iter
+            (fun body ->
+              ignore
+                (O.run ~mode
+                   ("#exe {extern U0 " ^ name ^ "();" ^ body
+                  ^ "StreamPrint(\"42;\");}")
+                |> O.expect ""))
+            [
+              "if(0){" ^ marker ^ "(#exe {extern U0 " ^ name ^ "(I64 n);});}";
+              "if(0){" ^ marker ^ "#exe {extern U0 " ^ name ^ "(I64 n=40);}();}";
+              "U0 Saved(){if(0){" ^ marker ^ "#exe {extern U0 " ^ name
+              ^ "(I64 n);}(40);}}Saved;";
+            ];
+          ignore
+            (O.run ~mode
+               ("#exe {extern U0 " ^ name ^ "();if(0){" ^ marker
+              ^ "(#exe {extern U0 " ^ name
+              ^ "(I64 n);}40#exe {Print(\"late\");});}}")
+            |> O.fault "HCPARSE0167"))
+        [ ("Print", "\"\""); ("PutChars", "''") ])
+    Test_integer_globals.modes
+
+let tests =
+  tests
+  @ [
+      Alcotest.test_case "implicit calls retain argument and emission phases"
+        `Quick implicit_phase_runtime_gates;
+    ]
+
+let implicit_nonempty_phase () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source -> ignore (O.run ~mode source |> O.expect ""))
+        [
+          {|#exe {extern U0 Print(U8 *s);if(0){"x"#exe {extern U0 Print(U8 *s,I64 m);};}StreamPrint("42;");}|};
+          {|#exe {extern U0 PutChars(I64 n);if(0){'A'#exe {extern U0 PutChars(I64 n,I64 m);};}StreamPrint("42;");}|};
+        ])
+    Test_integer_globals.modes
+
+let tests =
+  tests
+  @ [
+      Alcotest.test_case
+        "nonempty implicit marker captures count before argument lookahead"
+        `Quick implicit_nonempty_phase;
+    ]

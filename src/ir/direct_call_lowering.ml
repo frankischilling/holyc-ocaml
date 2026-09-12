@@ -528,29 +528,34 @@ let lower_output ?frame ?globals ?lower_call ?outer_binding ~records
   match span_of_origin origin with
   | Error error -> Error [ error ]
   | Ok span -> (
+      let original_phase = Runtime_call_context.original_phase source in
       let classified =
-        match outer_binding with
-        | Some binding ->
-            Option.bind globals (fun globals ->
-                Option.bind
-                  (Integer_globals.retained_function_binding globals binding)
-                  (fun reference ->
-                    let metadata = Retained_function.metadata reference in
-                    if
-                      Sema.Outer_environment.function_declaration metadata
-                      == declaration
-                      && Option.fold ~none:false ~some:(( == ) metadata)
-                           (Sema.Outer_environment.entry_function_metadata
-                              (Sema.Outer_environment.binding_entry binding))
-                    then
-                      Some
-                        (Sema.Outer_environment.function_classified_declaration
-                           metadata)
-                    else None))
-        | None ->
-            Records.declarations records
-            |> List.find_opt (fun candidate ->
-                Records.classified_declaration_source candidate == declaration)
+        match original_phase with
+        | Some phase -> Some (Sema.Function_call_phase.emission phase)
+        | None -> (
+            match outer_binding with
+            | Some binding ->
+                Option.bind globals (fun globals ->
+                    Option.bind
+                      (Integer_globals.retained_function_binding globals binding)
+                      (fun reference ->
+                        let metadata = Retained_function.metadata reference in
+                        if
+                          Sema.Outer_environment.function_declaration metadata
+                          == declaration
+                          && Option.fold ~none:false ~some:(( == ) metadata)
+                               (Sema.Outer_environment.entry_function_metadata
+                                  (Sema.Outer_environment.binding_entry binding))
+                        then
+                          Some
+                            (Sema.Outer_environment
+                             .function_classified_declaration metadata)
+                        else None))
+            | None ->
+                Records.declarations records
+                |> List.find_opt (fun candidate ->
+                    Records.classified_declaration_source candidate
+                    == declaration))
       in
       match classified with
       | None ->
@@ -565,7 +570,11 @@ let lower_output ?frame ?globals ?lower_call ?outer_binding ~records
             Sema.Function_resolution.resolved_declaration_header declaration
           in
           if
-            selected_header != header
+            (match original_phase with
+              | None -> selected_header != header
+              | Some phase ->
+                  Sema.Function_call_phase.selected phase != declaration
+                  || Sema.Function_call_phase.arguments phase != header)
             || Sema.Function_resolution.resolved_declaration_identity_symbol
                  declaration
                != symbol
@@ -615,7 +624,10 @@ let lower_output ?frame ?globals ?lower_call ?outer_binding ~records
                       ]
                   else
                     let result_type =
-                      header
+                      (match original_phase with
+                        | None -> header
+                        | Some phase ->
+                            Sema.Function_call_phase.emission_header phase)
                       |> Sema.Function_type_resolution.function_return_type
                       |> Sema.Type_reference.resolved_type
                     in

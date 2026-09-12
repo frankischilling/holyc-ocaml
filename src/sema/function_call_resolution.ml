@@ -2012,7 +2012,9 @@ let validate_source_expressions ~sources ~expressions ~calls
            | Ast.Parenthesis_free_call -> Parenthesis_free)
         && callee_matches
         && Option.fold ~none:true
-             ~some:(fun phase -> Function_call_phase.source phase == ast)
+             ~some:(fun phase ->
+               Option.fold ~none:false ~some:(( == ) ast)
+                 (Function_call_phase.source phase))
              checked.original_phase
         && (match
               List.find_opt

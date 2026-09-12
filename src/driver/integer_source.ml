@@ -45,7 +45,8 @@ let message_diagnostic ~span message =
 
 let prepare_unit ?environment:task_environment ?declaration_command
     ?source_command ?selections ?implicit_selections ?call_phases
-    ?(include_global_initializers = false) session ~config ~span ast =
+    ?implicit_call_phases ?(include_global_initializers = false) session ~config
+    ~span ast =
   let table = Session.semantic_symbols session in
   let* () =
     match (declaration_command, source_command, task_environment) with
@@ -409,8 +410,8 @@ let prepare_unit ?environment:task_environment ?declaration_command
     |> checked
   in
   let* function_outputs_ =
-    Sema.Implicit_output_argument_binding.bind ~table ~policies
-      function_output_targets
+    Sema.Implicit_output_argument_binding.bind ?call_phases:implicit_call_phases
+      ~table ~policies function_output_targets
     |> Result.map_error Sema.Implicit_output_argument_binding.error_to_string
     |> checked
   in
@@ -422,7 +423,8 @@ let prepare_unit ?environment:task_environment ?declaration_command
     |> checked
   in
   let* top_level_outputs_ =
-    Sema.Top_level_implicit_output_argument_binding.bind ~table ~policies
+    Sema.Top_level_implicit_output_argument_binding.bind
+      ?call_phases:implicit_call_phases ~table ~policies
       top_level_output_targets
     |> Result.map_error
          Sema.Top_level_implicit_output_argument_binding.error_to_string
