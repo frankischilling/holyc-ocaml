@@ -133,7 +133,7 @@ let parameter_delimiters_source =
 let () =
   let executable = Sys.argv.(1) in
   List.iter
-    (fun mode ->
+    (fun (mode, fixture, limits) ->
       List.iter
         (fun (steps, prep, expected_exit, reached_steps) ->
           let status, output, errors =
@@ -145,7 +145,7 @@ let () =
                 "--mode=" ^ mode;
                 "--step-limit=" ^ string_of_int steps;
                 "--initializer-step-limit=" ^ string_of_int prep;
-                Sys.argv.(6);
+                fixture;
               ]
           in
           require
@@ -178,8 +178,18 @@ let () =
               (report |> member "diagnostics" |> to_list |> List.hd
              |> member "code" |> to_string = "HCIRVM0007")
               "runtime offset bounded failure")
-        [ (49, 3, 0, 49); (48, 3, 1, 48); (49, 2, 1, 3) ])
-    [ "jit"; "aot" ];
+        limits)
+    (List.concat_map
+       (fun mode ->
+         [
+           ( mode,
+             Sys.argv.(6),
+             [ (49, 3, 0, 49); (48, 3, 1, 48); (49, 2, 1, 3) ] );
+           ( mode,
+             Sys.argv.(7),
+             [ (46, 4, 0, 46); (45, 4, 1, 45); (46, 3, 1, 10) ] );
+         ])
+       [ "jit"; "aot" ]);
   List.iter
     (fun mode ->
       List.iter

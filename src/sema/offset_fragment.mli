@@ -1,5 +1,6 @@
 type t
 type authority
+type position
 
 val create :
   table:Symbol_table.t ->
@@ -29,3 +30,10 @@ val query_for :
   t -> Frontend.Ast.expression -> (Query_selection.t, string) result
 
 val preparation : authority -> Compiler_record.runtime_aggregate_offset
+val position_for : t -> Frontend.Ast.expression -> (position, string) result
+val position_matches : position -> t -> Frontend.Ast.expression -> bool
+val position_value : position -> int64
+
+val position_dependencies : position -> Compiler_record.aggregate_offset list
+(** Original aggregate-position evidence, distinct from ordinary instruction
+    pointers. It is immutable metadata, not task execution authority. *)

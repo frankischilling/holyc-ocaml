@@ -565,14 +565,25 @@ let runtime_offset_failures () =
         "failed offset retains runtime work" true
         ((Option.get (integer_program_report_progress failed)).runtime
            .executed_steps > 0);
-      let unresolved_position =
-        O.run ~mode {|#exe {I64 N=8;class A {U8 h;$$=$$+N;};}|}
-        |> O.fault "HCRUN0006"
-      in
-      Alcotest.(check (list string))
-        "offset diagnostics retain their own role"
-        [ "aggregate-offset=runtime-expression" ]
-        unresolved_position.notes;
+      ignore
+        (O.run ~mode {|#exe {I64 Where(){return $$;};class A {$$=Where();};}|}
+        |> O.fault "HCIRVM0002");
+      List.iter
+        (fun expression ->
+          let failed =
+            O.run ~mode
+              ("#exe {extern U0 Print(U8 *fmt,...);I64 N=7;class A {U8 h;$$="
+             ^ expression ^ ";};}")
+          in
+          let diagnostic = O.fault ~output:"A" "HCRUN0004" failed in
+          Alcotest.(check bool)
+            "shared compiler-position guard was reached" true
+            (String.ends_with ~suffix:"shared compiler-position capture"
+               diagnostic.message))
+        [
+          {|N+ #exe {Print("A");class Noise {$$=50;};} $$|};
+          {|1+ #exe {Print("A");class Noise {$$=50;};} $$|};
+        ];
       ignore
         (O.run ~mode {|#exe {class A {$$=1||1/0;};}|} |> O.fault "HCRUN0004");
       let eager =
@@ -599,8 +610,47 @@ let runtime_offset_failures () =
         |> O.fault "HCRUN0001"))
     Test_integer_globals.modes
 
+let runtime_offset_positions () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source -> ignore (O.run ~mode source |> O.expect ""))
+        [
+          {|#exe {I64 N=7;class A {U8 h;$$=$$+N;I64 x;};StreamPrint("%d;",sizeof(A)+26);}|};
+          {|#exe {I64 N=7;union A {U8 h;$$=$$+N;I64 x;};StreamPrint("%d;",sizeof(A)+27);}|};
+          {|#exe {I64 N=7;class A {U8 h;union {U8 y;$$=$$+N;I64 x;}U8 t;};StreamPrint("%d;",sizeof(A)+25);}|};
+          {|#exe {I64 N=7;class A {U8 h;$$=-$$-N;I64 x;};StreamPrint("%d;",sizeof(A)+34);}|};
+          {|#exe {I64 N=7;class A {$$=N;$$=$$+N;I64 x;};StreamPrint("%d;",sizeof(A)+20);}|};
+          {|#exe {I64 N=7;class A {$$=N;$$=$$+1;I64 x;};StreamPrint("%d;",sizeof(A)+26);}|};
+          {|#exe {I64 N=6;I64 Next(I64 old){return old+ ++N;};class A {U8 h;$$=Next($$) #exe {N+=1;class Noise {$$=50;};};I64 x;};StreamPrint("%d;",sizeof(A)+N+17);}|};
+          {|#exe {I64 N=7;class A {U8 h;$$=$$+N+$$;I64 x;};I64 Saved(){U8 bytes[sizeof(A)];return sizeof(bytes);};N=0;class A {U8 h;};StreamPrint("%d;",Saved()+sizeof(A)+24);}|};
+          {|#exe {I64 N=7;class A {U8 h;#exe {class Noise {$$=50;};} U8 t;$$=$$+N;I64 x;};StreamPrint("%d;",sizeof(A)+25);}|};
+        ];
+      let source =
+        {|#exe {I64 Position=6;I64 Next(I64 old){return old+ ++Position;}class Span {U8 head;$$=Next($$) #exe {Position+=1;class Noise {$$=50;};};I64 last;};StreamPrint("%d;",sizeof(Span)+Position+17);}|}
+      in
+      List.iter
+        (fun (max_steps, max_initializer_steps, success, reached) ->
+          let report = O.run ~mode ~max_steps ~max_initializer_steps source in
+          if success then ignore (O.expect "" report)
+          else ignore (O.fault "HCIRVM0007" report);
+          Alcotest.(check int)
+            "position fixture exact runtime work" reached
+            (Option.get (integer_program_report_progress report)).runtime
+              .executed_steps;
+          Alcotest.(check (option int))
+            "position fixture exact preparation" (Some max_initializer_steps)
+            (integer_program_report_preparation_work report))
+        [ (46, 4, true, 46); (45, 4, false, 45); (46, 3, false, 10) ])
+    Test_integer_globals.modes;
+  ignore
+    (O.run {|I64 N=7;#exe {}class A {U8 h;$$=$$+N;I64 x;};sizeof(A)+26;|}
+    |> O.expect "")
+
 let tests =
   [
+    Alcotest.test_case "runtime offsets retain aggregate current positions"
+      `Quick runtime_offset_positions;
     Alcotest.test_case "runtime offsets use original typed task expressions"
       `Quick runtime_offsets;
     Alcotest.test_case "runtime offset failures preserve reached effects" `Quick

@@ -10,6 +10,7 @@ type argument_kind = Provided | Omitted
 type unresolved_expression_kind =
   | Identifier_expression
   | Current_position_expression
+  | Aggregate_position_expression of Offset_fragment.position
   | Offset_expression
   | Postfix_cast_expression
   | Call_expression
@@ -750,6 +751,7 @@ let direct_function_address_path compilation_mode declaration =
 let unresolved_expression_kind_name = function
   | Identifier_expression -> "identifier"
   | Current_position_expression -> "current-position"
+  | Aggregate_position_expression _ -> "aggregate-position"
   | Offset_expression -> "offset"
   | Postfix_cast_expression -> "postfix-cast"
   | Call_expression -> "call"
@@ -1789,7 +1791,7 @@ let make_return ~index ~keyword_origin ~expression ~origin =
     Error "function return statement has an invalid source origin"
   else Ok { index; keyword_origin; expression; origin }
 
-let validate_source_expressions ~sources ~expressions ~calls
+let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
     ?(callee_expressions = []) ?(call_expressions = []) () =
   let module Ast = Frontend.Ast in
   let origin = Initializer_source.origin_of_location in
@@ -1921,7 +1923,14 @@ let validate_source_expressions ~sources ~expressions ~calls
         && Top_level_outer_expression_binding.occurrence_origin occurrence
            = origin ast.location
     | ( Ast.Current_position_expression _,
-        Unresolved_expression Current_position_expression ) -> true
+        Unresolved_expression Current_position_expression ) ->
+        Option.is_none offset_fragment
+    | ( Ast.Current_position_expression _,
+        Unresolved_expression (Aggregate_position_expression position) ) ->
+        Option.fold ~none:false
+          ~some:(fun fragment ->
+            Offset_fragment.position_matches position fragment ast)
+          offset_fragment
     | Ast.Sizeof_expression ast, Sizeof_expression checked ->
         ast.sizeof_keyword_spelling = checked.sizeof_keyword_spelling_
         && origin ast.sizeof_keyword_location = checked.sizeof_keyword_origin_
@@ -2050,10 +2059,10 @@ let validate_source_expressions ~sources ~expressions ~calls
     Error
       "initializer expression or calls do not match its retained source leaf"
 
-let validate_source_expression ~source ~expression ~calls ?callee_expressions
-    ?call_expressions () =
+let validate_source_expression ~source ~expression ~calls ?offset_fragment
+    ?callee_expressions ?call_expressions () =
   validate_source_expressions ~sources:[ source ] ~expressions:[ expression ]
-    ~calls ?callee_expressions ?call_expressions ()
+    ~calls ?offset_fragment ?callee_expressions ?call_expressions ()
 
 let validate_initializer_expression ~leaf ~expression ~calls ?callee_expressions
     ?call_expressions () =

@@ -11,6 +11,7 @@ type command_context = {
   context_parent : command_position option;
   mutable context_active : bool;
   mutable context_event_count : int;
+  mutable context_nested_declarations : int;
   mutable context_accepted_ast : Ast.module_ option;
   context_observation_id : int;
   context_stack : command_position ref list ref;
@@ -537,6 +538,8 @@ and aggregate_phase = {
   phase_step : aggregate_step;
   phase_location : Ast.location;
   phase_activity : aggregate_activity;
+  phase_nested_declarations : int;
+  phase_position_reads : (Ast.expression * bool) list;
 }
 
 type completed_aggregate = {
@@ -694,7 +697,13 @@ module Dimension_table = Hashtbl.Make (struct
   let hash = Hashtbl.hash
 end)
 
+type offset_position_capture = {
+  capture_aggregate : aggregate_publication;
+  mutable capture_positions_rev : (Ast.expression * bool) list;
+}
+
 type cursor = {
+  mutable offset_position_capture : offset_position_capture option;
   command_stack : command_position ref list ref;
   mutable current_command : command_start option;
   stream : Preprocessor.t;
@@ -1224,6 +1233,26 @@ let report ?(secondary = []) cursor item ~code ~message =
   if cursor.stop_on_error then raise Stop_command
 
 let publish_declaration cursor at event =
+  (* Nested source uses the same native compiler position cell. Until those
+     writes have their own semantic captures, an outer $$ read must not silently
+     use its preceding layout after a nested declaration. *)
+  List.iter
+    (fun position ->
+      let context =
+        match !position with
+        | Before_first_command context -> context
+        | Reading_command command -> command.command_context
+        | Awaiting_resume completed -> completed.command_start.command_context
+      in
+      if
+        not
+          (Option.fold ~none:false
+             ~some:(fun command -> command.command_context == context)
+             cursor.current_command)
+      then
+        context.context_nested_declarations <-
+          context.context_nested_declarations + 1)
+    !(cursor.command_stack);
   Option.iter
     (fun consume ->
       record_observation (Option.get cursor.current_command).command_context
@@ -1807,7 +1836,7 @@ let declare_aggregate cursor at ~modifiers ~binding ~aggregate_kind name =
     (fun () -> publish_declaration cursor at (Aggregate_declared source));
   source
 
-let advance_aggregate cursor at source step =
+let advance_aggregate ?(positions = []) cursor at source step =
   let phase =
     {
       phase_aggregate = source;
@@ -1815,6 +1844,10 @@ let advance_aggregate cursor at source step =
       phase_step = step;
       phase_location = token_location at.token;
       phase_activity = { aggregate_active = true; aggregate_last_phase = None };
+      phase_nested_declarations =
+        source.aggregate_header.declaration_command.command_context
+          .context_nested_declarations;
+      phase_position_reads = positions;
     }
   in
   source.aggregate_activity.aggregate_last_phase <- Some phase;
@@ -2486,6 +2519,22 @@ and parse_expression_atom cursor ~context ~depth : parsed_expression option =
       let node =
         Ast.Current_position_expression (make_expression_operator item.token)
       in
+      Option.iter
+        (fun capture ->
+          let aggregate = capture.capture_aggregate in
+          let context =
+            aggregate.aggregate_header.declaration_command.command_context
+          in
+          let unchanged =
+            Option.fold ~none:false
+              ~some:(fun phase ->
+                phase.phase_nested_declarations
+                = context.context_nested_declarations)
+              aggregate.aggregate_activity.aggregate_last_phase
+          in
+          capture.capture_positions_rev <-
+            (node, unchanged) :: capture.capture_positions_rev)
+        cursor.offset_position_capture;
       Some { node; tokens = [ item.token ] }
   | Token_kind.Keyword Keyword.Sizeof, _ ->
       parse_sizeof_expression cursor ~context
@@ -4400,14 +4449,25 @@ and parse_aggregate_offset_directive cursor ~aggregate ~recovery_depth :
            (token_description equals_item.token))
   else
     let equals_item = take cursor in
-    match
-      parse_expression cursor ~context:Aggregate_offset_expression ~depth:0
-        ~minimum_binding_power:0
-    with
+    let capture =
+      { capture_aggregate = aggregate; capture_positions_rev = [] }
+    in
+    let previous_capture = cursor.offset_position_capture in
+    let expression =
+      Fun.protect
+        ~finally:(fun () -> cursor.offset_position_capture <- previous_capture)
+        (fun () ->
+          cursor.offset_position_capture <- Some capture;
+          parse_expression cursor ~context:Aggregate_offset_expression ~depth:0
+            ~minimum_binding_power:0)
+    in
+    match expression with
     | None -> Error { recovery_depth }
     | Some expression ->
         let semicolon_item = peek cursor in
-        advance_aggregate cursor semicolon_item aggregate
+        advance_aggregate
+          ~positions:(List.rev capture.capture_positions_rev)
+          cursor semicolon_item aggregate
           (Aggregate_offset_reached expression.node);
         if semicolon_item.token.kind <> Token_kind.Punctuation ';' then
           aggregate_member_failure cursor semicolon_item ~recovery_depth
@@ -8954,6 +9014,7 @@ let read_commands ?commands ?stream_opener cursor =
       context_accepted_ast = None;
       context_active = true;
       context_event_count = 0;
+      context_nested_declarations = 0;
       context_observation_id = fresh_observation_id ();
       context_stack = cursor.command_stack;
       context_position = None;
@@ -9077,6 +9138,7 @@ let make_cursor ?reference ?call ?implicit_output ?query ?declaration
     invalid_arg "an array count reader requires a declaration observer";
   {
     command_stack;
+    offset_position_capture = None;
     current_command = None;
     stream;
     sources;

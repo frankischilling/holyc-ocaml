@@ -454,7 +454,7 @@ let make_offset_root ~index ~fragment ~expression ~calls =
   let* () =
     Function_call_resolution.validate_source_expression
       ~source:(Offset_fragment.expression fragment)
-      ~expression ~calls:source_calls
+      ~offset_fragment:fragment ~expression ~calls:source_calls
       ~callee_expressions:
         (List.map (fun (source, callee, _) -> (source, callee)) trees)
       ~call_expressions:

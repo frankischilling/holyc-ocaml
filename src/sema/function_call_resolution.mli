@@ -10,6 +10,7 @@ type argument_kind = Provided | Omitted
 type unresolved_expression_kind =
   | Identifier_expression
   | Current_position_expression
+  | Aggregate_position_expression of Offset_fragment.position
   | Offset_expression
   | Postfix_cast_expression
   | Call_expression
@@ -371,6 +372,7 @@ val validate_source_expression :
   source:Frontend.Ast.expression ->
   expression:argument_expression ->
   calls:call list ->
+  ?offset_fragment:Offset_fragment.t ->
   ?callee_expressions:(call * argument_expression) list ->
   ?call_expressions:(call * argument_expression) list ->
   unit ->

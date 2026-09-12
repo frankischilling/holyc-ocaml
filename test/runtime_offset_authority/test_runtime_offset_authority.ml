@@ -70,7 +70,7 @@ let with_offset ?max_initializer_steps callback =
   in
   let source =
     Session.add_source session ~path:"offset-authority.hc"
-      ~contents:"class Span {$$=1+7;};"
+      ~contents:"class Span {$$=$$+8;};"
   in
   let config = Preprocessor.Config.create ~compilation_mode:Jit () |> checked in
   let parsed =
@@ -208,6 +208,82 @@ let metadata_is_not_execution () =
       in
       (reached, fun () -> ()))
 
+let position_evidence () =
+  let module Resolution = Holyc_lib__Sema.Function_call_resolution in
+  let module Source = Holyc_lib__Sema.Initializer_source in
+  with_offset (fun table namespace owner _ ->
+      let saved = ref None in
+      let reached progress receipt =
+        let view = VM.task_snapshot owner |> checked in
+        let create () =
+          Fragment.create ~table ~namespace ~progress ~receipt
+            ~environment:(Globals.task_environment view)
+            ~references:[] ~queries:[]
+        in
+        let selected = create () |> checked in
+        let other = create () |> checked in
+        let node, non_position =
+          match Fragment.expression selected with
+          | Ast.Binary_expression binary ->
+              (binary.binary_left, binary.binary_right)
+          | _ -> Alcotest.fail "expected original binary expression"
+        in
+        let position = Fragment.position_for selected node |> checked in
+        reject "literal cannot obtain position evidence"
+          (Fragment.position_for selected non_position);
+        let copied =
+          match node with
+          | Ast.Current_position_expression operator ->
+              Ast.Current_position_expression operator
+          | _ -> Alcotest.fail "expected original current position"
+        in
+        reject "copied source node is not original position"
+          (Fragment.position_for selected copied);
+        let expression kind =
+          Resolution.make_argument_expression ~kind
+            ~origin:(Ast.expression_location node |> Source.origin_of_location)
+        in
+        let checked_position =
+          expression
+            (Resolution.Unresolved_expression
+               (Resolution.Aggregate_position_expression position))
+        in
+        let validate ?offset_fragment source expression =
+          Resolution.validate_source_expression ?offset_fragment ~source
+            ~expression ~calls:[] ()
+        in
+        validate ~offset_fragment:selected node checked_position |> checked;
+        reject "position cannot borrow another fragment with equal source"
+          (validate ~offset_fragment:other node checked_position);
+        reject "position cannot become an ordinary expression"
+          (validate node checked_position);
+        reject "position cannot substitute an equal source wrapper"
+          (validate ~offset_fragment:selected copied checked_position);
+        reject "ordinary instruction pointer cannot replace aggregate position"
+          (validate ~offset_fragment:selected node
+             (expression
+                (Resolution.Unresolved_expression
+                   Resolution.Current_position_expression)));
+        reject "integer bits cannot replace original position evidence"
+          (validate ~offset_fragment:selected node
+             (expression (Resolution.Integer_literal 0L)));
+        let _, authority, attempt, context, destination =
+          fragment table namespace owner progress receipt
+        in
+        let execution =
+          Lowering.prepare ~context ~authority ~runtime:owner destination
+          |> diagnostics
+        in
+        VM.execute_task_offset owner attempt execution |> diagnostics;
+        reject "consumed phase cannot capture another position" (create ());
+        saved := Some position
+      in
+      ( reached,
+        fun () ->
+          Alcotest.(check int64)
+            "immutable position survives without execution authority" 0L
+            (Fragment.position_value (Option.get !saved)) ))
+
 let failed_preparation () =
   with_offset ~max_initializer_steps:2 (fun table namespace owner _ ->
       let reached progress receipt =
@@ -330,6 +406,10 @@ let standalone_dependencies () =
       Alcotest.(check bool) "function actually compiled" true (definitions <> []);
       List.iter
         (fun (definition : VM.function_definition) ->
+          Alcotest.(check bool)
+            "derived offsets do not multiply the same dependency" true
+            (List.length (Ir_function_body.offset_dependencies definition.body)
+            <= 1);
           match
             VM.execute_function ~max_steps:100 ~max_frame_bytes:1024
               ~frame:definition.frame ~arguments:[] definition.body
@@ -351,6 +431,9 @@ let standalone_dependencies () =
       "I64 F(){static U8 A[sizeof(Span)];return 42;};";
       "U8 A[sizeof(Span)];I64 F(){return sizeof(A)+26;};";
       "class B {$$=sizeof(Span);};I64 F(){return sizeof(B)+26;};";
+      "class B {$$=sizeof(Span);"
+      ^ String.concat "" (List.init 20 (fun _ -> "$$=$$+sizeof(Span);"))
+      ^ "};I64 F(){return sizeof(B)-294;};";
       "class B {U8 data[sizeof(Span)];};I64 F(){return sizeof(B)+26;};";
     ]
 
@@ -363,6 +446,8 @@ let () =
             `Quick execution_lifetime;
           Alcotest.test_case "matching metadata is not execution" `Quick
             metadata_is_not_execution;
+          Alcotest.test_case "positions retain exact source and fragment" `Quick
+            position_evidence;
           Alcotest.test_case "failure consumes original bounded attempt" `Quick
             failed_preparation;
           Alcotest.test_case "derived layouts retain runtime dependencies"

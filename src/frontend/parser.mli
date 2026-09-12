@@ -497,7 +497,12 @@ type aggregate_phase = private {
   phase_step : aggregate_step;
   phase_location : Ast.location;
   phase_activity : aggregate_activity;
+  phase_nested_declarations : int;
+  phase_position_reads : (Ast.expression * bool) list;
 }
+(** Position reads retain exact original nodes. A false read flag records an
+    intervening nested declaration whose shared native position writes are not
+    yet modeled; semantic preparation must reject that read. *)
 
 val aggregate_phase_is_current : aggregate_phase -> bool
 (** Body entry precedes opening-brace lookahead. Member placement follows

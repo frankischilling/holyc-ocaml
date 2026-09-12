@@ -376,6 +376,15 @@ val begin_runtime_aggregate_offset :
 
 val runtime_aggregate_offset_is_current : runtime_aggregate_offset -> bool
 
+val aggregate_offset_position :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  (int64 * aggregate_offset list, string) result
+(** Read the original offset phase's preceding class size or union base and its
+    runtime dependencies. These immutable facts grant no execution authority. *)
+
 val finish_runtime_aggregate_offset :
   runtime_aggregate_offset ->
   value:int64 ->

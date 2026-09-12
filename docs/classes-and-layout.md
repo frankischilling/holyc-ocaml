@@ -72,6 +72,12 @@ The index is immutable and lookup is pure. TempleOS increments `CMemberLst.use_c
 
 ## Deterministic layout reports
 
+Retained task execution has a separate [original aggregate-position path](retained-aggregates.md)
+for mixed integer runtime offsets. It preserves each `$$` token's captured
+position through later lookahead. Reads after nested declarations remain
+guarded until shared compiler-position writes are modeled; this does not expand
+the callback-free closed-layout evaluator described above.
+
 `holyc dump-layout FILE` runs declaration collection, aggregate reconciliation, header and direct-member type resolution, closed layout, and member-index validation as one checked pipeline. It emits schema `holyc-aggregate-layout-v1` as human text or JSON. Both forms record the exact TempleOS reference commit and keep aggregates and direct members in source order.
 
 Each aggregate record contains its stable symbol ID, spelling, class or union kind, module-item position, byte size, packing alignment, negative-offset adjustment, optional base, and source origin. Each direct member contains its stable ID, anonymous-union path, comma-declarator position, resolved type, callback marker, byte offset, storage and element sizes, array dimensions, signedness, alignment, and provenance. The base remains a separate record; inherited members are available through `Sema.Aggregate_member_index.lookup` and are not duplicated into the direct-member list.

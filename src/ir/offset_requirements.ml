@@ -1,7 +1,7 @@
 module Typed = Sema.Function_call_expression_result
 module Resolution = Sema.Function_call_resolution
 
-let direct_expression value =
+let query_expression value =
   let selection =
     match Resolution.argument_expression_kind (Typed.result_source value) with
     | Resolution.Sizeof_expression sizeof -> (
@@ -19,6 +19,13 @@ let direct_expression value =
       Sema.Query_selection.checked_read selection
       |> Sema.Compiler_record.query_runtime_offsets)
     selection
+
+let direct_expression value =
+  match Resolution.argument_expression_kind (Typed.result_source value) with
+  | Resolution.Unresolved_expression
+      (Resolution.Aggregate_position_expression position) ->
+      Sema.Offset_fragment.position_dependencies position
+  | _ -> query_expression value
 
 let rec expression value =
   let pair =

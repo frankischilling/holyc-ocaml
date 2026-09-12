@@ -11616,21 +11616,21 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 semantics = "Original expression lookahead precedes offset evaluation, position updates precede semicolon validation, and negative padding follows closing-brace lookahead. Closed integer/current-position/query expressions and floating raw bits use bounded numeric evaluation. Completed layout reuses checked values."
 ownership = "Original live phase, aggregate publication, namespace, expression and predecessor chain; preparation attempts cannot be repeated. Source activation charges original receipts at their exact journal events."
 source_gate = "The aggregate-offset CLI fixture returns I64 42 in both modes at 27 runtime steps and six preparation units, with zero dimension work. Exact limits and each one-below failure are checked."
-excluded = ["runtime offsets before JIT source activation", "ordinary AOT runtime offset relocation", "mixed runtime/current-position offsets", "runtime F64 offsets", "native extern record reuse", "inheritance and aggregate-valued members", "callbacks and metadata", "attached storage", "runtime-dependent member admission", "native/BIN/loader acceptance", "bootstrap"]
+excluded = ["runtime offsets before JIT source activation", "ordinary AOT runtime offset relocation", "shared compiler-position writes before later $$ reads", "runtime F64 offsets", "native extern record reuse", "inheritance and aggregate-valued members", "callbacks and metadata", "attached storage", "runtime-dependent member admission", "native/BIN/loader acceptance", "bootstrap"]
 native_oracle_status = "pinned-source audit and hosted execution; no new native capture"
 
 [[feature]]
 id = "HC-AGGREGATE-RUNTIME-OFFSET"
 description = "Execute original typed integer aggregate offset fragments in their owning task and retain derived layout dependencies."
-sources = ["Compiler/PrsVar.HC:408-449", "Compiler/PrsExp.HC:1117-1178", "Compiler/OptPass012.HC:693-706"]
+sources = ["Compiler/PrsVar.HC:408-449", "Compiler/PrsExp.HC:707-721", "Compiler/PrsExp.HC:1117-1178", "Compiler/PrsStmt.HC:805-841", "Compiler/OptPass012.HC:693-706"]
 implementation = ["src/sema/offset_fragment.ml", "src/sema/compiler_record.ml", "src/driver/initializer_fragment_typing.ml", "src/driver/offset_fragment_lowering.ml", "src/driver/integer_initializers.ml", "src/driver/integer_task.ml", "src/driver/task_declarations.ml", "src/ir/offset_fragment_destination.ml", "src/ir/offset_fragment_program.ml", "src/ir/offset_requirements.ml", "src/ir/integer_interpreter.ml"]
-tests = ["test/test_retained_aggregates.ml", "test/runtime_offset_authority/test_runtime_offset_authority.ml", "test/test_stateful_exe_cli.ml", "examples/stateful-exe-runtime-aggregate-offsets.hc"]
+tests = ["test/test_retained_aggregates.ml", "test/runtime_offset_authority/test_runtime_offset_authority.ml", "test/test_stateful_exe_cli.ml", "examples/stateful-exe-runtime-aggregate-offsets.hc", "examples/stateful-exe-runtime-offset-positions.hc"]
 documentation = ["docs/retained-aggregates.md", "docs/reference-source-map.md", "docs/integer-task.md", "CHANGELOG.md"]
 status = "partial"
 issue = 635
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 semantics = "Integer runtime expressions use original task storage, selected call versions and query reads after expression lookahead. Boolean values are eager. Completed layout reuses the successful result, including negative and union positions."
 ownership = "Original phase and aggregate progress authorize a distinct typed fragment. Exact task, graph, call context, snapshot and preparation count authorize execution. Matching semantic metadata alone cannot authorize runtime execution or derived sizes. Failures and replay retain once-only work."
-source_gate = "The runtime aggregate-offset fixture returns I64 42 in JIT and outer AOT modes at 49 execution steps, three preparation units and zero dimension work. Exact limits and each one-below failure are checked."
-excluded = ["runtime offsets before JIT source activation", "ordinary AOT runtime offset relocation", "mixed runtime/current-position offsets", "runtime F64 offsets", "full optimizer", "native/BIN/loader acceptance", "bootstrap"]
+source_gate = "The runtime aggregate-offset fixture returns I64 42 in JIT and outer AOT modes at 49 execution steps, three preparation units and zero dimension work. The original-position fixture returns 42 in both modes at 46 runtime steps, four preparation units and zero dimension work. Exact limits and each one-below failure are checked; later lookahead preserves the captured call argument."
+excluded = ["runtime offsets before JIT source activation", "ordinary AOT runtime offset relocation", "shared compiler-position writes before later $$ reads", "runtime F64 offsets", "full optimizer", "native/BIN/loader acceptance", "bootstrap"]
 native_oracle_status = "pinned-source audit and hosted execution; no new native capture"

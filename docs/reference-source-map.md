@@ -993,8 +993,14 @@ tests reject foreign tasks, replay, matching-but-unexecuted metadata and
 standalone functions whose layouts depend on those offsets. Boolean value
 evaluation remains eager in both typed IR and closed numeric preparation,
 following `Compiler/OptPass012.HC:693-706`; conditional branch lowering is a
-separate route. Runtime F64, mixed `$$` expressions and ordinary pre-activation
-or AOT runtime offset evaluation remain open.
+separate route. `Compiler/PrsExp.HC:707-721` fixes each aggregate `$$` value as an
+I64 immediate before token lookahead. Mixed typed offsets now retain those
+original token nodes, position values and runtime layout dependencies. The
+position fixture returns 42 in both modes at 46 runtime steps and four
+preparation units. `Compiler/PrsStmt.HC:805-841` keeps the same compiler position
+cell across nested source; reads after nested declarations remain explicitly
+guarded until those writes are modeled. Runtime F64 and ordinary pre-activation
+or AOT runtime offset evaluation also remain open.
 
 ## Bounded source expression evaluation
 

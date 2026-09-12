@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added original aggregate-position evidence to mixed integer runtime `$$`
+  offsets, including calls, unions and negative positions. Later lookahead
+  preserves captured values. Closed and runtime reads after nested declarations
+  now reject unmodeled shared compiler-position writes instead of using a stale
+  outer position. The new CLI fixture returns 42 in both outer modes at 46
+  runtime steps and four preparation units.
+
 - Added typed integer runtime offsets for retained task aggregates. Original
   references, lookahead effects and function versions feed once-only execution;
   derived sizes, bounds and functions retain its task dependency. The new CLI

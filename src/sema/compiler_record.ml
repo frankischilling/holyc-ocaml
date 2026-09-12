@@ -35,6 +35,26 @@ let aggregate_offset_work offset = offset.offset_work
 let aggregate_offset_is_runtime offset =
   offset.offset_runtime || offset.offset_dependencies <> []
 
+module Offset_identities = Hashtbl.Make (struct
+  type t = aggregate_offset
+
+  let equal = ( == )
+  let hash offset = Hashtbl.hash offset.offset_phase.phase_location.span
+end)
+
+let merge_offset_dependencies inherited selected =
+  match selected with
+  | [] -> inherited
+  | _ ->
+      let seen = Offset_identities.create 16 in
+      List.filter
+        (fun offset ->
+          if Offset_identities.mem seen offset then false
+          else (
+            Offset_identities.add seen offset ();
+            true))
+        (inherited @ selected)
+
 let aggregate_offset_runtime_dependencies offset =
   (if offset.offset_runtime then [ offset ] else [])
   @ offset.offset_dependencies
@@ -465,9 +485,9 @@ let advance_aggregate ~dimensions progress (phase : Parser.aggregate_phase) =
                   (fun record ->
                     {
                       record with
+                      (* Preparation already retains the preceding layout. *)
                       runtime_offsets =
-                        aggregate_offset_runtime_dependencies offset
-                        @ record.runtime_offsets;
+                        aggregate_offset_runtime_dependencies offset;
                     })
                   progress.progress_record;
               match scopes with
@@ -1138,7 +1158,14 @@ let begin_runtime_aggregate_offset ~table ~namespace ~queries progress phase =
     Error "runtime offset requires its original unconsumed phase and aggregate"
   else (
     progress.progress_offset_attempt <- Some phase;
-    let* _ = progress.progress_record in
+    let* record = progress.progress_record in
+    let* () =
+      if List.for_all snd phase.Parser.phase_position_reads then Ok ()
+      else
+        Error
+          "aggregate current position after nested declarations requires \
+           shared compiler-position capture"
+    in
     match phase.Parser.phase_step with
     | Parser.Aggregate_offset_reached expression ->
         let* () = validate_query_manifest ~table ~expression queries in
@@ -1160,9 +1187,22 @@ let begin_runtime_aggregate_offset ~table ~namespace ~queries progress phase =
               runtime_expression = expression;
               runtime_finished = false;
               runtime_offset_dependencies =
-                List.concat_map query_runtime_offsets queries;
+                merge_offset_dependencies record.runtime_offsets
+                  (List.concat_map query_runtime_offsets queries);
             }
     | _ -> Error "runtime offset requires its original expression phase")
+
+let aggregate_offset_position ~table ~namespace progress phase =
+  if not (aggregate_offset_is_current ~table ~namespace progress phase) then
+    Error "aggregate position requires its original unconsumed offset phase"
+  else
+    let* record = progress.progress_record in
+    let value =
+      match progress.progress_scopes with
+      | (Ast.Union_aggregate, base) :: _ -> base
+      | _ -> record.byte_size
+    in
+    Ok (value, record.runtime_offsets)
 
 let runtime_aggregate_offset_is_current preparation =
   let progress = preparation.runtime_progress in
@@ -1213,6 +1253,13 @@ let prepare_aggregate_offset ~table ~namespace ~max_work ~queries progress
       | Parser.Aggregate_offset_reached expression ->
           progress.progress_offset_attempt <- Some phase;
           let* record = progress.progress_record in
+          let* () =
+            if List.for_all snd phase.phase_position_reads then Ok ()
+            else
+              Error
+                "aggregate current position after nested declarations requires \
+                 shared compiler-position capture"
+          in
           let* () = validate_query_manifest ~table ~expression queries in
           let* () =
             if
@@ -1269,7 +1316,8 @@ let prepare_aggregate_offset ~table ~namespace ~max_work ~queries progress
               offset_work = !work;
               offset_runtime = false;
               offset_dependencies =
-                List.concat_map query_runtime_offsets queries;
+                merge_offset_dependencies record.runtime_offsets
+                  (List.concat_map query_runtime_offsets queries);
             }
           in
           progress.progress_offsets <- offset :: progress.progress_offsets;

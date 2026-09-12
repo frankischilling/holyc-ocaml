@@ -79,6 +79,21 @@ snapshot. Preparation uses the existing optimizer-domain checks; the scheduled
 IR executes once against the owning task. Expression lookahead can change a
 cell before execution, while a selected function keeps its original version.
 
+Mixed runtime expressions retain parser-owned evidence for each `$$` token.
+`Compiler/PrsExp.HC:707-721` emits the class-position I64 immediate before
+reading beyond that token. Typed lowering uses that original node and preceding
+class size or union base, not an instruction pointer or a substituted literal
+AST. Calls can receive the captured value, and later lookahead does not change
+it. Earlier runtime layout dependencies remain attached to the capture.
+
+The native compiler position cell is shared with nested declarations
+(`PrsStreamBlk` in `Compiler/PrsStmt.HC:805-841` does not save that cell).
+A `$$` read after an intervening nested declaration is therefore rejected with
+`HCRUN0004` until those writes are captured. This guard applies to closed and
+runtime offsets and preserves already reached output. Reads captured before
+the nested declaration remain valid. Ordinary `$$` in a called function still
+means an instruction pointer and remains outside integer VM execution.
+
 Negative offsets retain the greatest negative magnitude. After closing-brace
 lookahead, the body-completion phase adds that padding, before attached
 declarators and the final declaration delimiter. A query during closing-brace
@@ -105,6 +120,12 @@ after a nested lookahead update, retains the resulting size in another function,
 and returns 42. Both outer modes use 49 runtime steps, three preparation units
 and zero dimension work. `#exe` still uses JIT task storage in outer AOT mode.
 
+`examples/stateful-exe-runtime-offset-positions.hc` captures a function argument,
+then runs nested lookahead that changes both a task variable and another
+aggregate's position. The later function call receives the captured one. Both modes
+return 42 with 46 runtime steps, four preparation units and zero dimension work;
+the CLI checks the exact limits and each one-below failure.
+
 Successful runtime offsets remain dependencies of partial and completed sizes,
 derived offsets, array bounds, member arrays, global extents and function frames.
 The VM requires the exact successful task execution, not matching size/work
@@ -116,7 +137,7 @@ substituted typed roots, preparation counts, snapshots and replay.
 ## Remaining work
 
 Runtime offsets before ordinary JIT source activation, ordinary AOT runtime
-offset relocation, mixed runtime/current-position expressions and runtime F64
+offset relocation, shared position writes before a later `$$` read and runtime F64
 values still require separate support. Inheritance, aggregate-valued members,
 callbacks, member metadata, attached storage and general runtime-dependent member bounds remain outside
 retained layout execution. Native extern-record reuse still needs its own

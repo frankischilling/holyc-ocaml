@@ -1983,6 +1983,8 @@ let rec type_expression table members policies ~before_item_index ~context
           | Function_call_resolution.Current_position_expression ->
               finish ~source_type:rip_address_type Address_value Integer_result
                 state
+          | Function_call_resolution.Aggregate_position_expression _ ->
+              finish ~source_type:integer_type Object_value Integer_result state
           | Function_call_resolution.Offset_expression ->
               finish ~source_type:integer_type Object_value Integer_result state
           | Function_call_resolution.Identifier_expression -> (
