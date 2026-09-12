@@ -132,6 +132,57 @@ let parameter_delimiters_source =
 
 let () =
   let executable = Sys.argv.(1) in
+  let phase_fixture = Sys.argv.(4) in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (steps, prep, exit_code, reached_steps, reached_prep) ->
+          let status, output, errors =
+            capture executable
+              [
+                "run";
+                "--format=json";
+                "--report-version=2";
+                "--mode=" ^ mode;
+                "--step-limit=" ^ string_of_int steps;
+                "--initializer-step-limit=" ^ string_of_int prep;
+                phase_fixture;
+              ]
+          in
+          require
+            (status = Unix.WEXITED exit_code && errors = "")
+            ("aggregate phase fixture: " ^ output ^ errors);
+          let open Yojson.Basic.Util in
+          let report = Yojson.Basic.from_string output in
+          require
+            (report |> member "executed_steps" |> to_int = reached_steps)
+            "partial aggregate runtime work";
+          require
+            (report
+            |> member "compiled_initializer_steps"
+            |> to_int = reached_prep)
+            "partial aggregate preparation work";
+          require
+            (report |> member "dimension_preparation_work" |> to_int = 0)
+            "partial metadata does not synthesize dimension work";
+          require
+            (report |> member "output_hex" |> to_string = "")
+            "partial aggregate output";
+          if exit_code = 0 then (
+            require
+              (report |> member "final_value" |> member "value" |> to_string
+             = "42")
+              "partial aggregate result";
+            require
+              (report |> member "diagnostics" |> to_list = [])
+              "partial aggregate diagnostics")
+          else
+            require
+              (report |> member "diagnostics" |> to_list |> List.hd
+             |> member "code" |> to_string = "HCIRVM0007")
+              "partial aggregate one-below diagnostic")
+        [ (35, 3, 0, 35, 3); (34, 3, 1, 34, 3); (35, 2, 1, 3, 2) ])
+    [ "jit"; "aot" ];
   let aggregate_fixture = Sys.argv.(3) in
   List.iter
     (fun mode ->

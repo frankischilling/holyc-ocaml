@@ -122,7 +122,28 @@ val published_scalar :
     Arrays consume their original ordered checked dimensions. Aggregate layouts
     and function-pointer signatures still need separate checked metadata. *)
 
+type aggregate_progress
+
+val begin_aggregate :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  Declaration_collection.publication ->
+  (aggregate_progress, string) result
+
+val aggregate_metadata : aggregate_progress -> (t, string) result
+(** An immutable snapshot of reached layout, not storage or command authority.
+    Advancing invalidates this snapshot for new reads, not consumed queries. *)
+
+val advance_aggregate :
+  dimensions:(Frontend.Ast.array_dimension -> declared_dimension option) ->
+  aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  (unit, string) result
+
+(** Apply each original live aggregate phase once, in predecessor order. *)
+
 val complete_aggregate :
+  ?progress:aggregate_progress ->
   ?dimensions:(Frontend.Ast.array_dimension -> declared_dimension option) ->
   table:Symbol_table.t ->
   namespace:Declaration_collection.namespace ->

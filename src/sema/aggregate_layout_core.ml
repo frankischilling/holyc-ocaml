@@ -294,6 +294,29 @@ struct
           })
         (checked_negative_magnitude origin position)
 
+  let place_member ~origin ~kind ~union_base ~current_size ~member_size =
+    if Int64.compare member_size 0L < 0 then
+      Error (invalid_input ~origin "the member storage size cannot be negative")
+    else
+      match kind with
+      | Class -> checked_add origin "the class size" current_size member_size
+      | Union ->
+          Result.map (Int64.max current_size)
+            (checked_add origin "the union member end" union_base member_size)
+
+  let member_extent ~origin ~element_size ~counts =
+    let count =
+      List.fold_left
+        (fun result count ->
+          Result.bind result (fun size ->
+              checked_multiply_nonnegative origin "the array element count" size
+                count))
+        (Ok 1L) counts
+    in
+    Result.bind count (fun count ->
+        checked_multiply_nonnegative origin "the member storage size"
+          element_size count)
+
   let lay_out_member (previous : aggregate_layout Int_map.t) mode union_base
       state member =
     let current_position =
@@ -312,15 +335,8 @@ struct
               (fun size ->
                 let offset = current_position in
                 let placed_size =
-                  match mode with
-                  | Class ->
-                      checked_add member.member_origin "the class size" offset
-                        size
-                  | Union ->
-                      Result.map
-                        (fun member_end -> Int64.max state.size member_end)
-                        (checked_add member.member_origin "the union member end"
-                           offset size)
+                  place_member ~origin:member.member_origin ~kind:mode
+                    ~union_base ~current_size:state.size ~member_size:size
                 in
                 Result.map
                   (fun aggregate_size ->

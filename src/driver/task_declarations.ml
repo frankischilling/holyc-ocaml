@@ -22,7 +22,7 @@ module Query_roots = Hashtbl.Make (struct
   type t = Parser.query_root
 
   let equal left right = left == right
-  let hash = Hashtbl.hash
+  let hash root = Hashtbl.hash root.Parser.query_location
 end)
 
 module Query_expressions = Hashtbl.Make (struct
@@ -65,6 +65,7 @@ type reading_dimensions = {
 type source =
   | Aggregate of {
       publication : Parser.aggregate_publication;
+      mutable progress : Sema.Compiler_record.aggregate_progress option;
       mutable completed : Parser.completed_aggregate option;
       mutable record : (Sema.Compiler_record.t, string) result option;
     }
@@ -2002,15 +2003,46 @@ let validate_global_dimensions ledger (publication : Parser.global_publication)
 let observe ledger event =
   protect (fun () ->
       match event with
-      | Parser.Aggregate_declared publication ->
+      | Parser.Aggregate_declared publication -> (
           validate_source ledger publication.aggregate_environment
             publication.aggregate_header publication.aggregate_name;
           if not (Parser.aggregate_publication_is_current publication) then
             fail publication.aggregate_name.location.span
               "aggregate publication is outside its original callback";
           assign ledger publication.aggregate_name Sema.Symbol.Aggregate_type
-            (Aggregate { publication; completed = None; record = None })
-            publication.aggregate_entry
+            (Aggregate
+               { publication; progress = None; completed = None; record = None })
+            publication.aggregate_entry;
+          let assigned = find ledger publication.aggregate_name in
+          match assigned.source with
+          | Aggregate state ->
+              let progress =
+                Sema.Compiler_record.begin_aggregate ~table:ledger.table
+                  ~namespace:ledger.namespace assigned.publication
+                |> checked publication.aggregate_name.location.span
+              in
+              state.progress <- Some progress;
+              state.record <-
+                Some (Sema.Compiler_record.aggregate_metadata progress)
+          | _ -> assert false)
+      | Parser.Aggregate_advanced phase -> (
+          let publication = phase.phase_aggregate in
+          validate_command ledger publication.aggregate_header;
+          let assigned = find ledger publication.aggregate_name in
+          match assigned.source with
+          | Aggregate { progress = Some progress; _ } as source -> (
+              Sema.Compiler_record.advance_aggregate
+                ~dimensions:(Dimensions.find_opt ledger.checked_dimensions)
+                progress phase
+              |> checked phase.phase_location.span;
+              match source with
+              | Aggregate state ->
+                  state.record <-
+                    Some (Sema.Compiler_record.aggregate_metadata progress)
+              | _ -> assert false)
+          | _ ->
+              fail phase.phase_location.span
+                "aggregate phase has no original publication")
       | Parser.Aggregate_completed receipt -> (
           let publication = receipt.aggregate_publication in
           validate_command ledger publication.aggregate_header;
@@ -2022,7 +2054,8 @@ let observe ledger event =
                  && Parser.aggregate_completion_is_current receipt ->
               state.record <-
                 Some
-                  (Sema.Compiler_record.complete_aggregate ~table:ledger.table
+                  (Sema.Compiler_record.complete_aggregate
+                     ?progress:state.progress ~table:ledger.table
                      ~dimensions:(Dimensions.find_opt ledger.checked_dimensions)
                      ~namespace:ledger.namespace assigned.publication receipt);
               state.completed <- Some receipt

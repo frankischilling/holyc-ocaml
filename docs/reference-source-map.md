@@ -969,6 +969,13 @@ separate directives, arrays and authority rejection. See
 [retained aggregate sizes](retained-aggregates.md) for the explicit remaining
 phase and storage limits. This is hosted source evidence, not a native capture.
 
+`Compiler/PrsVar.HC:408-494,660-721` places members after type/array lookahead,
+before metadata and delimiter advancement. Parser body/member/union receipts
+advance immutable partial snapshots through the same checked placement rules.
+`test/test_retained_aggregates.ml` verifies exact phase ancestry, stale-snapshot
+rejection and frozen reads. The aggregate-phase CLI fixture observes 0, 8 and
+16 bytes through the original nested streams, including closing lookahead.
+
 ## Bounded source expression evaluation
 
 At pinned commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`,

@@ -1,10 +1,10 @@
 # Incremental integer task execution
 
-Completed primitive-member classes and unions retain checked size metadata
-across directives. Original member bounds are prepared once, and consumed
+Primitive-member classes and unions retain checked size metadata during member
+parsing and across directives. Original member bounds are prepared once, and consumed
 `sizeof` values survive type replacement. See
 [retained aggregate sizes](retained-aggregates.md) for source evidence, receipt
-ownership, CLI limits and the remaining partial-layout and storage work.
+ownership, CLI limits and the remaining dependent-layout and storage work.
 
 `Integer_task.admit_global` allocates an observed ordinary integer global while
 its source declaration is still open. The original publication, source namespace,

@@ -173,6 +173,20 @@ end) : sig
       result to [I64], while an aggregate offset retains the raw [F64] bits used
       by [LexExpression]. *)
 
+  val place_member :
+    origin:Symbol.origin ->
+    kind:aggregate_kind ->
+    union_base:int64 ->
+    current_size:int64 ->
+    member_size:int64 ->
+    (int64, error) result
+
+  val member_extent :
+    origin:Symbol.origin ->
+    element_size:int64 ->
+    counts:int64 list ->
+    (int64, error) result
+
   val layout :
     table:Symbol_table.t ->
     parent:Symbol_table.scope ->

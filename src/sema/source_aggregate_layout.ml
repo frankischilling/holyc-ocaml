@@ -20,6 +20,19 @@ module Layout = Aggregate_layout_core.Make (No_query)
 
 let ( let* ) = Result.bind
 
+let place_member ~origin ~kind ~union_base ~current_size ~member_size =
+  Layout.place_member ~origin
+    ~kind:
+      (match kind with
+      | Ast.Class_aggregate -> Layout.Class
+      | Ast.Union_aggregate -> Layout.Union)
+    ~union_base ~current_size ~member_size
+  |> Result.map_error Layout.error_to_string
+
+let member_extent ~origin ~element_size ~counts =
+  Layout.member_extent ~origin ~element_size ~counts
+  |> Result.map_error Layout.error_to_string
+
 let origin (location : Ast.location) =
   Symbol.Source_location
     {

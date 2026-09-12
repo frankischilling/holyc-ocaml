@@ -32,10 +32,6 @@ let boundaries () =
   List.iter
     (fun mode ->
       ignore
-        (O.run ~mode
-           {|#exe {class Pair {I64 a;}#exe {StreamPrint("%d;",sizeof(Pair));};}|}
-        |> O.fault "HCRUN0004");
-      ignore
         (O.run ~mode {|#exe {class Base {I64 a;};class Child : Base {U8 b;};}|}
         |> O.fault "HCRUN0001");
       ignore
@@ -44,8 +40,33 @@ let boundaries () =
       ignore
         (O.run ~mode {|#exe {class A {$$=8;I64 x;};}|} |> O.fault "HCRUN0001");
       ignore
+        (O.run ~mode {|#exe {class A {U0 x[9223372036854775807][2];};}|}
+        |> O.fault "HCRUN0001");
+      ignore
         (O.run ~mode {|#exe {class Bad {I64 a[-1];};}|} |> O.fault "HCRUN0004"))
     Test_integer_globals.modes
+
+let partial_sizes () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source -> ignore (O.run ~mode source |> O.expect ""))
+        [
+          {|#exe {I64 Seen=0;class Pair #exe {Seen=sizeof(Pair);} {I64 a;#exe {Seen+=sizeof(Pair);} I64 b;}#exe {Seen+=sizeof(Pair);};StreamPrint("%d;",Seen+18);}|};
+          {|#exe {I64 Seen=0;class Pair {I64 a #exe {Seen=sizeof(Pair);};#exe {Seen+=sizeof(Pair);} I64 b;};StreamPrint("%d;",Seen+34);}|};
+          {|#exe {class Row {I64 a;U8 b[sizeof(Row)];I64 c;};StreamPrint("%d;",sizeof(Row)+18);}|};
+          {|#exe {class Zero {I64 values[9223372036854775807][0];};StreamPrint("%d;",sizeof(Zero)+42);}|};
+          {|#exe {I64 Seen=0;class Mixed {I16 head;union {U8 a;#exe {Seen=sizeof(Mixed);} I64 b;#exe {Seen+=sizeof(Mixed);} }U8 tail;};StreamPrint("%d;",Seen+sizeof(Mixed)+18);}|};
+          {|#exe {I64 Seen=0;union U {U8 a;#exe {Seen=sizeof(U);} I64 b;#exe {Seen+=sizeof(U);} I32 c;};StreamPrint("%d;",Seen+sizeof(U)+25);}|};
+          {|#exe {I64 Seen=0;extern class Pair #exe {Seen=sizeof(Pair);};StreamPrint("%d;",Seen+42);}|};
+          {|#exe {class Pair {I64 a;#exe {I64 Saved(){return sizeof(Pair);}} I64 b;};StreamPrint("%d;",Saved()+sizeof(Pair)+18);}|};
+          {|#exe {class Pair {I64 a;#exe {I64 Saved(){return sizeof(Pair);}class Pair {U8 b;};}I64 c;};StreamPrint("%d;",Saved()+sizeof(Pair)+33);}|};
+        ])
+    Test_integer_globals.modes;
+  ignore
+    (O.run ~mode:Preprocessor.Jit
+       {|I64 Seen=0;class Pair #exe {Seen=sizeof(Pair);} {I64 a;#exe {Seen+=sizeof(Pair);}I64 b;}#exe {Seen+=sizeof(Pair);};Seen+18;|}
+    |> O.expect "")
 
 let source_authority () =
   let session = Session.create () in
@@ -106,6 +127,167 @@ let source_authority () =
   reject "expired publication cannot mint another association"
     (C.publish_aggregate namespace receipt.aggregate_publication)
 
+let phase_authority () =
+  let session = Session.create () in
+  let table = Session.semantic_symbols session in
+  let namespace = C.create_namespace ~table () |> checked in
+  let other = C.create_namespace ~table () |> checked in
+  let publication = ref None and progress = ref None and skipped = ref None in
+  let foreign = ref None and last = ref None and phases = ref 0 in
+  let reject = Test_task_declarations.reject in
+  let advance = Record.advance_aggregate ~dimensions:(fun _ -> None) in
+  let declaration = function
+    | Parser.Aggregate_declared source ->
+        let pub = C.publish_aggregate namespace source |> checked in
+        reject "partial metadata cannot use another namespace"
+          (Record.begin_aggregate ~table ~namespace:other pub);
+        publication := Some pub;
+        progress :=
+          Some (Record.begin_aggregate ~table ~namespace pub |> checked);
+        skipped := Some (Record.begin_aggregate ~table ~namespace pub |> checked);
+        Ok ()
+    | Parser.Aggregate_advanced phase ->
+        let current = Option.get !progress in
+        let before = Record.aggregate_metadata current |> checked in
+        Option.iter
+          (fun foreign ->
+            reject "another aggregate's phase is rejected"
+              (advance foreign phase))
+          !foreign;
+        if Option.is_some phase.phase_predecessor then
+          reject
+            "missing predecessor is rejected while the original callback is \
+             live"
+            (advance (Option.get !skipped) phase);
+        ignore (advance current phase |> checked);
+        let after = Record.aggregate_metadata current |> checked in
+        reject "live phase cannot be applied twice" (advance current phase);
+        Alcotest.(check bool)
+          "failed replay leaves the authentic snapshot unchanged" true
+          (Record.aggregate_metadata current |> checked == after);
+        (match phase.phase_step with
+        | Parser.Aggregate_member_prepared _ ->
+            Alcotest.(check bool)
+              "successful member placement creates a new immutable snapshot"
+              false (before == after)
+        | _ -> ());
+        last := Some phase;
+        incr phases;
+        Ok ()
+    | Parser.Aggregate_completed receipt ->
+        let pub = Option.get !publication in
+        reject "completion cannot omit the original phase chain"
+          (Record.complete_aggregate ~progress:(Option.get !skipped) ~table
+             ~namespace pub receipt);
+        ignore
+          (Record.complete_aggregate ~progress:(Option.get !progress) ~table
+             ~namespace pub receipt
+          |> checked);
+        reject "completed progress cannot be consumed again"
+          (Record.complete_aggregate ~progress:(Option.get !progress) ~table
+             ~namespace pub receipt);
+        foreign := !skipped;
+        Ok ()
+    | _ -> Ok ()
+  in
+  let source =
+    Session.add_source session ~path:"aggregate-phases.hc"
+      ~contents:"class Pair {I64 a;union {I64 b;}U8 c;};class Empty {};"
+  in
+  let commands = Test_provisional_function_parser.sink declaration in
+  ignore
+    (Parser.parse ~commands ~sources:(Session.sources session)
+       ~symbols:(Session.symbols session)
+       ~definitions:(Session.definitions session)
+       ~config:(Preprocessor.Config.create () |> checked)
+       source
+    |> Test_parser.expect_ast);
+  Alcotest.(check int) "all member and union boundaries observed" 7 !phases;
+  let phase = Option.get !last in
+  Alcotest.(check bool)
+    "phase lifetime ends on return" false
+    (Parser.aggregate_phase_is_current phase);
+  reject "expired phase cannot advance an unfinished progress object"
+    (advance (Option.get !skipped) phase)
+
+let snapshot_authority () =
+  let session = Session.create () in
+  let table = Session.semantic_symbols session in
+  let namespace = C.create_namespace ~table () |> checked in
+  let progress = ref None
+  and first_snapshot = ref None
+  and first_read = ref None in
+  let current_read = ref None and completed = ref [] and last_root = ref None in
+  let reads = ref 0 in
+  let reject = Test_task_declarations.reject in
+  let declaration = function
+    | Parser.Aggregate_declared source ->
+        let publication = C.publish_aggregate namespace source |> checked in
+        progress :=
+          Some (Record.begin_aggregate ~table ~namespace publication |> checked);
+        Ok ()
+    | Parser.Aggregate_advanced phase ->
+        Record.advance_aggregate
+          ~dimensions:(fun _ -> None)
+          (Option.get !progress) phase
+        |> checked;
+        Ok ()
+    | _ -> Ok ()
+  in
+  let query = function
+    | Parser.Query_root root ->
+        let snapshot =
+          Record.aggregate_metadata (Option.get !progress) |> checked
+        in
+        Option.iter
+          (fun stale ->
+            reject "stale snapshot cannot authorize a later live query"
+              (Record.read_sizeof ~table ~root stale))
+          !first_snapshot;
+        let read = Record.read_sizeof ~table ~root snapshot |> checked in
+        if !reads = 0 then (
+          first_snapshot := Some snapshot;
+          first_read := Some read);
+        current_read := Some read;
+        last_root := Some root;
+        incr reads;
+        Ok ()
+    | Parser.Query_completed receipt ->
+        completed := (receipt, Option.get !current_read) :: !completed;
+        Ok ()
+    | _ -> Ok ()
+  in
+  let commands =
+    {
+      (Test_provisional_function_parser.sink declaration) with
+      query = Some query;
+    }
+  in
+  let source =
+    Session.add_source session ~path:"aggregate-snapshots.hc"
+      ~contents:
+        "class Pair {I64 a Tag sizeof(Pair);I64 b Tag \
+         sizeof(Pair);};sizeof(Pair);"
+  in
+  ignore
+    (Parser.parse ~commands ~sources:(Session.sources session)
+       ~symbols:(Session.symbols session)
+       ~definitions:(Session.definitions session)
+       ~config:(Preprocessor.Config.create () |> checked)
+       source
+    |> Test_parser.expect_ast);
+  Alcotest.(check int) "three original queries" 3 !reads;
+  Alcotest.(check int64)
+    "consumed partial value remains frozen" 8L
+    (Record.sizeof_value (Option.get !first_read) ~pointer:false);
+  List.iter
+    (fun (receipt, read) ->
+      ignore (Record.complete_sizeof ~table ~receipt read |> checked))
+    !completed;
+  reject "even the current snapshot cannot bind an expired query root"
+    (Record.read_sizeof ~table ~root:(Option.get !last_root)
+       (Record.aggregate_metadata (Option.get !progress) |> checked))
+
 let command_authority () =
   let module D = Task_declarations in
   let module T = Test_task_declarations in
@@ -156,10 +338,15 @@ let tests =
   [
     Alcotest.test_case "completed layouts survive directives and replacements"
       `Quick source_gates;
-    Alcotest.test_case "partial and dependent layouts remain explicit" `Quick
-      boundaries;
+    Alcotest.test_case "dependent layouts remain explicit" `Quick boundaries;
+    Alcotest.test_case "partial sizes follow original member phases" `Quick
+      partial_sizes;
     Alcotest.test_case "metadata requires original live aggregate receipts"
       `Quick source_authority;
+    Alcotest.test_case "partial metadata authenticates every original phase"
+      `Quick phase_authority;
+    Alcotest.test_case "new queries reject stale partial snapshots" `Quick
+      snapshot_authority;
     Alcotest.test_case "aggregate commands reject substitution and replay"
       `Quick command_authority;
     Alcotest.test_case "malformed forward cannot complete" `Quick failed_forward;

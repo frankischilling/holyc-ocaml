@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added partial class/union size queries at original member parsing phases.
+  Name lookahead starts at zero; each primitive member advances the retained
+  size before metadata and delimiter advancement. Anonymous unions share the
+  containing size with their original base. Checked phase ancestry and snapshot
+  versions reject replay and stale new reads while preserving consumed values.
+  The phase fixture returns 42 in both modes with exact resource-limit checks.
+
 - Added retained size metadata for completed primitive-member classes and
   unions. Original parser receipts bind publication and completion; member
   bounds reuse their original checked counts. Separate streams and retained

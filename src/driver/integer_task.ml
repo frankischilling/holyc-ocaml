@@ -603,6 +603,8 @@ let execution_commands task span ~active =
     let start =
       match event with
       | Aggregate_declared p -> p.aggregate_header.declaration_command
+      | Aggregate_advanced p ->
+          p.phase_aggregate.aggregate_header.declaration_command
       | Aggregate_completed p ->
           p.aggregate_publication.aggregate_header.declaration_command
       | Array_dimension_preparing preparation ->

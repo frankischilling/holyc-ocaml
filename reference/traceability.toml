@@ -11584,5 +11584,21 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 semantics = "Packed completed classes/unions, closed member array extents and anonymous unions share the existing checked layout engine. Forward declarations supply zero-sized metadata. Original sizeof reads retain consumed values across replacement and separate directives."
 ownership = "Live parser publication/completion, exact namespace publication and AST item; immutable compiler record cached by original entry. Member bounds reuse checked command/member/AST/predecessor receipts without source reevaluation. No object or callable runtime authority is inferred from type metadata."
 source_gate = "Maintained two-stream fixture returns I64 42 in JIT and AOT, with 31 runtime steps and three preparation units. Exact combined limits and each one-below failure are checked through the CLI."
-excluded = ["partial definition queries", "native extern record reuse and partial mutation", "offset directive preparation", "inheritance", "aggregate-valued members", "callbacks and member metadata", "attached storage", "runtime-dependent member layout admission", "aggregate object execution", "native/BIN/loader acceptance", "bootstrap"]
+excluded = ["native extern record reuse", "offset directive preparation", "inheritance", "aggregate-valued members", "callbacks and member metadata", "attached storage", "runtime-dependent member layout admission", "aggregate object execution", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted execution; no new native capture"
+
+[[feature]]
+id = "HC-AGGREGATE-LAYOUT-PHASES"
+description = "Original member phases advance retained class/union size snapshots before metadata and delimiter advancement."
+sources = ["Compiler/PrsStmt.HC:1-59", "Compiler/PrsVar.HC:408-494,660-721", "Compiler/PrsExp.HC:303-348"]
+implementation = ["src/frontend/parser.ml", "src/sema/compiler_record.ml", "src/sema/aggregate_layout_core.ml", "src/sema/source_aggregate_layout.ml", "src/sema/source_activation.ml", "src/driver/task_declarations.ml", "src/driver/integer_task.ml"]
+tests = ["test/test_retained_aggregates.ml", "test/test_stateful_exe_cli.ml", "examples/stateful-exe-aggregate-phases.hc"]
+documentation = ["docs/retained-aggregates.md", "docs/integer-task.md", "docs/reference-source-map.md", "CHANGELOG.md"]
+status = "partial"
+issue = 635
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+semantics = "Zero-sized name publication, primitive member placement after type/dimension lookahead and before metadata/delimiters, anonymous-union base stack, frozen partial sizeof reads and final phase-chain reconciliation. No prefix compilation or dimension reevaluation."
+ownership = "Live parser phase, exact aggregate publication and predecessor, final phase and namespace; immutable size snapshots carry a current-version guard for new live query reads. Consumed query values remain valid after later phases."
+source_gate = "Nested-stream fixture observes 0, 8 and 16 bytes and returns I64 42 in both modes at 35 runtime steps and three preparation units. Combined exact limits and each one-below failure are checked through the CLI."
+excluded = ["native extern record reuse", "offset directive preparation", "inheritance", "aggregate-valued members", "callbacks and metadata", "attached storage", "runtime-dependent member layout admission", "member lookup", "aggregate object execution", "native/BIN/loader acceptance", "bootstrap"]
 native_oracle_status = "pinned-source audit and hosted execution; no new native capture"

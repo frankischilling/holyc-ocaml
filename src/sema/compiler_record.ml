@@ -14,6 +14,8 @@ let runtime_dimension_source value = value.proposal_source
 let runtime_dimension_count value = value.proposal_count
 let runtime_dimension_work value = value.proposal_work
 
+type aggregate_stamp = { mutable current_stamp : unit ref }
+
 type t = {
   table : Symbol_table.t;
   entry : Visibility.entry;
@@ -22,6 +24,7 @@ type t = {
   byte_size : int64;
   internal : bool;
   runtime_dimensions : runtime_dimension_proposal list;
+  aggregate_stamp : (aggregate_stamp * unit ref) option;
 }
 
 type sizeof_owner =
@@ -237,6 +240,7 @@ let seed_primitive ~table ~entry ~symbol ~primitive =
           byte_size = Int64.of_int info.byte_size;
           internal = true;
           runtime_dimensions = [];
+          aggregate_stamp = None;
         }
 
 let seed_public_union ~table ~entry ~symbol
@@ -276,6 +280,7 @@ let seed_public_union ~table ~entry ~symbol
               byte_size = Int64.of_int info.byte_size;
               internal = false;
               runtime_dimensions = [];
+              aggregate_stamp = None;
             }
 
 let scalar_size type_ =
@@ -287,7 +292,161 @@ let scalar_size type_ =
         Ok (Int64.of_int (Primitive_type.info primitive).byte_size)
     | Type.Aggregate _ -> Error "sizeof requires the selected aggregate layout"
 
-let complete_aggregate ?(dimensions = fun _ -> None) ~table ~namespace
+type aggregate_progress = {
+  progress_namespace : Declaration_collection.namespace;
+  progress_publication : Declaration_collection.publication;
+  progress_source : Parser.aggregate_publication;
+  mutable progress_phase : Parser.aggregate_phase option;
+  mutable progress_scopes : (Ast.aggregate_kind * int64) list;
+  mutable progress_record : (t, string) result;
+  mutable progress_finished : bool;
+  progress_stamp : aggregate_stamp;
+}
+
+let begin_aggregate ~table ~namespace publication =
+  match Declaration_collection.publication_source_aggregate publication with
+  | Some source
+    when Declaration_collection.namespace_owns_table namespace table
+         && Declaration_collection.namespace_owns_publication namespace
+              publication
+         && Parser.aggregate_publication_is_current source ->
+      let stamp = { current_stamp = ref () } in
+      Ok
+        {
+          progress_namespace = namespace;
+          progress_publication = publication;
+          progress_source = source;
+          progress_phase = None;
+          progress_scopes = [ (source.aggregate_kind, 0L) ];
+          progress_finished = false;
+          progress_stamp = stamp;
+          progress_record =
+            Ok
+              {
+                table;
+                entry = source.aggregate_entry;
+                symbol = Declaration_collection.publication_symbol publication;
+                primitive = None;
+                byte_size = 0L;
+                internal = false;
+                runtime_dimensions = [];
+                aggregate_stamp = Some (stamp, stamp.current_stamp);
+              };
+        }
+  | _ ->
+      Error "partial aggregate metadata requires its original live publication"
+
+let aggregate_metadata progress = progress.progress_record
+
+let same_phase left right =
+  match (left, right) with
+  | None, None -> true
+  | Some left, Some right -> left == right
+  | _ -> false
+
+let advance_aggregate ~dimensions progress (phase : Parser.aggregate_phase) =
+  if
+    progress.progress_finished
+    || phase.phase_aggregate != progress.progress_source
+    || (not (Parser.aggregate_phase_is_current phase))
+    || not (same_phase phase.phase_predecessor progress.progress_phase)
+  then
+    Error "aggregate layout phase is foreign, expired, repeated or out of order"
+  else
+    let scopes = progress.progress_scopes in
+    let* record, scopes =
+      match phase.phase_step with
+      | Parser.Aggregate_body_started base ->
+          if Option.is_some progress.progress_phase then
+            Error "aggregate body has already started"
+          else
+            Ok
+              ( (match base with
+                | None -> progress.progress_record
+                | Some _ ->
+                    Error
+                      "retained aggregate bases require original selected \
+                       layout metadata"),
+                scopes )
+      | Parser.Aggregate_union_entered ->
+          let size =
+            match progress.progress_record with
+            | Ok record -> record.byte_size
+            | Error _ -> 0L
+          in
+          Ok (progress.progress_record, (Ast.Union_aggregate, size) :: scopes)
+      | Parser.Aggregate_union_left -> (
+          match scopes with
+          | _ :: (_ :: _ as rest) -> Ok (progress.progress_record, rest)
+          | _ -> Error "aggregate union phase has no original enclosing scope")
+      | Parser.Aggregate_offset_reached ->
+          Ok
+            ( Error
+                "retained aggregate offsets require original expression \
+                 preparation",
+              scopes )
+      | Parser.Aggregate_member_prepared member ->
+          let record =
+            let* record = progress.progress_record in
+            if Option.is_some member.member_callback then
+              Error "retained aggregate callbacks require original preparation"
+            else
+              let* type_ =
+                Source_type_reference.builtin member.member_type
+                  member.member_pointers
+              in
+              let* element_size =
+                scalar_size (Type_reference.resolved_type type_)
+              in
+              let checked =
+                List.filter_map dimensions member.member_dimensions
+              in
+              let* _ =
+                declared_array_size ~table:record.table
+                  ~namespace:progress.progress_namespace
+                  ~command:
+                    progress.progress_source.aggregate_header
+                      .declaration_command ~name:member.member_name
+                  ~dimensions:member.member_dimensions ~checked 1L
+              in
+              if
+                List.exists
+                  (fun dimension ->
+                    dimension.prepared.runtime_dependencies <> [])
+                  checked
+              then
+                Error
+                  "retained aggregate runtime bounds require original runtime \
+                   layout admission"
+              else
+                let origin =
+                  Closed_numeric_expression.origin member.member_name.location
+                in
+                let* member_size =
+                  Source_aggregate_layout.member_extent ~origin ~element_size
+                    ~counts:(List.map dimension_count checked)
+                in
+                let kind, union_base = List.hd scopes in
+                let* byte_size =
+                  Source_aggregate_layout.place_member ~origin ~kind ~union_base
+                    ~current_size:record.byte_size ~member_size
+                in
+                Ok { record with byte_size }
+          in
+          Ok (record, scopes)
+    in
+    progress.progress_phase <- Some phase;
+    progress.progress_scopes <- scopes;
+    let stamp = progress.progress_stamp in
+    stamp.current_stamp <- ref ();
+    progress.progress_record <-
+      Result.map
+        (fun record ->
+          { record with aggregate_stamp = Some (stamp, stamp.current_stamp) })
+        record;
+    Ok ()
+
+let complete_aggregate ?progress ?(dimensions = fun _ -> None) ~table ~namespace
     publication receipt =
   let source = receipt.Parser.aggregate_publication in
   if
@@ -301,6 +460,28 @@ let complete_aggregate ?(dimensions = fun _ -> None) ~table ~namespace
     Error
       "aggregate metadata requires its original live publication and completion"
   else
+    let* () =
+      match progress with
+      | None -> Ok ()
+      | Some progress ->
+          if
+            progress.progress_finished
+            || progress.progress_namespace != namespace
+            || progress.progress_publication != publication
+            || progress.progress_source != source
+            || (not
+                  (same_phase progress.progress_phase
+                     receipt.aggregate_final_phase))
+            || List.length progress.progress_scopes <> 1
+          then
+            Error
+              "aggregate completion lacks its original complete layout phase \
+               chain"
+          else (
+            progress.progress_finished <- true;
+            progress.progress_stamp.current_stamp <- ref ();
+            Ok ())
+    in
     let symbol = Declaration_collection.publication_symbol publication in
     let* byte_size =
       match receipt.aggregate_item with
@@ -332,6 +513,15 @@ let complete_aggregate ?(dimensions = fun _ -> None) ~table ~namespace
             ~namespace ~symbol definition
       | _ -> Error "aggregate completion has another original declaration"
     in
+    let* () =
+      match progress with
+      | None -> Ok ()
+      | Some progress ->
+          let* record = progress.progress_record in
+          if record.byte_size = byte_size then Ok ()
+          else
+            Error "aggregate completion differs from its original member phases"
+    in
     Ok
       {
         table;
@@ -341,6 +531,7 @@ let complete_aggregate ?(dimensions = fun _ -> None) ~table ~namespace
         byte_size;
         internal = false;
         runtime_dimensions = [];
+        aggregate_stamp = None;
       }
 
 let rebind_primitive ~table ~symbol record =
@@ -390,6 +581,7 @@ let published_scalar ?(dimensions = []) ~table ~namespace publication =
               internal = false;
               runtime_dimensions =
                 List.concat_map dimension_runtime_dependencies dimensions;
+              aggregate_stamp = None;
             }
 
 let declare_global ~dimensions ~table ~namespace ~predecessor ~previous_global
@@ -521,11 +713,23 @@ let bind_retained_scalar ~table ~entry global =
             byte_size;
             internal = false;
             runtime_dimensions = [];
+            aggregate_stamp = None;
           }
 
 let read_sizeof ~table ~(root : Parser.query_root) (record : t) =
   if record.table != table || not (Symbol_table.owns_symbol table record.symbol)
   then Error "sizeof compiler record belongs to another semantic table"
+  else if
+    Visibility.kind record.entry = Visibility.Class
+    && Option.is_none record.primitive
+    && not (Parser.query_root_is_current root)
+    || Option.fold ~none:false
+         ~some:(fun (stamp, version) -> stamp.current_stamp != version)
+         record.aggregate_stamp
+  then
+    Error
+      "partial sizeof requires the current aggregate snapshot at its original \
+       query callback"
   else
     match (root.query_node, root.query_lookup) with
     | Parser.Sizeof_target _, Visibility.Present entry
@@ -1203,4 +1407,5 @@ let bind_retained_global ~table ~entry ~record ~extent =
             byte_size = Int64.mul byte_size extent.global_extent_count;
             internal = false;
             runtime_dimensions = global_extent_runtime_dependencies extent;
+            aggregate_stamp = None;
           }

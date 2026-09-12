@@ -205,6 +205,8 @@ type query_node =
   | Offset_target of Ast.identifier
   | Defined_target of Ast.defined_operand
 
+type query_activity = { mutable query_active : bool }
+
 type query_root = {
   query_node : query_node;
   query_location : Ast.location;
@@ -213,7 +215,12 @@ type query_root = {
   query_local : local_publication option;
   query_present : bool;
   query_command : command_start;
+  query_activity : query_activity;
 }
+
+let query_root_is_current root =
+  root.query_activity.query_active
+  && root.query_command.command_context.context_active
 
 type query_member_node =
   | Sizeof_member of Ast.sizeof_member
@@ -496,9 +503,12 @@ let dimension_completion_is_current receipt =
   && preparation.dimension_owner.dimensions_command.command_context
        .context_active
 
-type aggregate_activity = { mutable aggregate_active : bool }
+type aggregate_activity = {
+  mutable aggregate_active : bool;
+  mutable aggregate_last_phase : aggregate_phase option;
+}
 
-type aggregate_publication = {
+and aggregate_publication = {
   aggregate_header : declaration_header;
   aggregate_environment : Symbol_visibility.Environment.t;
   aggregate_entry : Symbol_visibility.entry;
@@ -507,20 +517,52 @@ type aggregate_publication = {
   aggregate_activity : aggregate_activity;
 }
 
+and aggregate_step =
+  | Aggregate_body_started of Ast.aggregate_base option
+  | Aggregate_member_prepared of {
+      member_type : Ast.type_specifier;
+      member_name : Ast.identifier;
+      member_pointers : Ast.pointer_layer list;
+      member_callback : Ast.function_pointer_declarator option;
+      member_dimensions : Ast.array_dimension list;
+    }
+  | Aggregate_union_entered
+  | Aggregate_union_left
+  | Aggregate_offset_reached
+
+and aggregate_phase = {
+  phase_aggregate : aggregate_publication;
+  phase_predecessor : aggregate_phase option;
+  phase_step : aggregate_step;
+  phase_location : Ast.location;
+  phase_activity : aggregate_activity;
+}
+
 type completed_aggregate = {
   aggregate_publication : aggregate_publication;
   aggregate_item : Ast.item;
+  aggregate_final_phase : aggregate_phase option;
   aggregate_completion_activity : aggregate_activity;
 }
 
 let aggregate_publication_is_current source =
   source.aggregate_activity.aggregate_active
+  && source.aggregate_header.declaration_command.command_context.context_active
 
 let aggregate_completion_is_current source =
   source.aggregate_completion_activity.aggregate_active
+  && source.aggregate_publication.aggregate_header.declaration_command
+       .command_context
+       .context_active
+
+let aggregate_phase_is_current phase =
+  phase.phase_activity.aggregate_active
+  && phase.phase_aggregate.aggregate_header.declaration_command.command_context
+       .context_active
 
 type declaration_event =
   | Aggregate_declared of aggregate_publication
+  | Aggregate_advanced of aggregate_phase
   | Aggregate_completed of completed_aggregate
   | Array_dimension_preparing of array_dimension_preparation
   | Array_dimension_completed of completed_array_dimension
@@ -1364,9 +1406,12 @@ let start_query cursor keyword item query_node =
           query_local = item.local_selection;
           query_present;
           query_command = Option.get cursor.current_command;
+          query_activity = { query_active = true };
         }
       in
-      publish_query cursor item (Query_root root);
+      Fun.protect
+        ~finally:(fun () -> root.query_activity.query_active <- false)
+        (fun () -> publish_query cursor item (Query_root root));
       (root, ref []))
     item.selection
 
@@ -1752,7 +1797,8 @@ let declare_aggregate cursor at ~modifiers ~binding ~aggregate_kind name =
       aggregate_entry = publish_class cursor name;
       aggregate_name = name;
       aggregate_kind;
-      aggregate_activity = { aggregate_active = true };
+      aggregate_activity =
+        { aggregate_active = true; aggregate_last_phase = None };
     }
   in
   Fun.protect
@@ -1760,12 +1806,29 @@ let declare_aggregate cursor at ~modifiers ~binding ~aggregate_kind name =
     (fun () -> publish_declaration cursor at (Aggregate_declared source));
   source
 
+let advance_aggregate cursor at source step =
+  let phase =
+    {
+      phase_aggregate = source;
+      phase_predecessor = source.aggregate_activity.aggregate_last_phase;
+      phase_step = step;
+      phase_location = token_location at.token;
+      phase_activity = { aggregate_active = true; aggregate_last_phase = None };
+    }
+  in
+  source.aggregate_activity.aggregate_last_phase <- Some phase;
+  Fun.protect
+    ~finally:(fun () -> phase.phase_activity.aggregate_active <- false)
+    (fun () -> publish_declaration cursor at (Aggregate_advanced phase))
+
 let complete_aggregate cursor at source item =
   let completed =
     {
       aggregate_publication = source;
       aggregate_item = item;
-      aggregate_completion_activity = { aggregate_active = true };
+      aggregate_final_phase = source.aggregate_activity.aggregate_last_phase;
+      aggregate_completion_activity =
+        { aggregate_active = true; aggregate_last_phase = None };
     }
   in
   Fun.protect
@@ -4249,8 +4312,9 @@ let aggregate_member_failure cursor item ~recovery_depth ~code ~message =
   report cursor item ~code ~message;
   Error { recovery_depth }
 
-let rec parse_aggregate_members cursor ~(opening_brace : Ast.location) ~depth
-    ~parse_member_function_pointer members_rev tokens_rev :
+let rec parse_aggregate_members cursor ~aggregate
+    ~(opening_brace : Ast.location) ~depth ~parse_member_function_pointer
+    members_rev tokens_rev :
     (parsed_aggregate_members, aggregate_parse_failure) result =
   let item = peek cursor in
   match item.token.kind with
@@ -4276,19 +4340,19 @@ let rec parse_aggregate_members cursor ~(opening_brace : Ast.location) ~depth
       Error { recovery_depth = depth + 1 }
   | Token_kind.Punctuation ';' ->
       let semicolon_item = take cursor in
-      parse_aggregate_members cursor ~opening_brace ~depth
+      parse_aggregate_members cursor ~aggregate ~opening_brace ~depth
         ~parse_member_function_pointer
         (Ast.Empty_aggregate_member (token_location semicolon_item.token)
         :: members_rev)
         (semicolon_item.token :: tokens_rev)
   | Token_kind.Keyword Keyword.Union -> (
       match
-        parse_anonymous_union_member cursor ~depth
+        parse_anonymous_union_member cursor ~aggregate ~depth
           ~parse_member_function_pointer
       with
       | Error failure -> Error failure
       | Ok member ->
-          parse_aggregate_members cursor ~opening_brace ~depth
+          parse_aggregate_members cursor ~aggregate ~opening_brace ~depth
             ~parse_member_function_pointer
             (member.node :: members_rev)
             (List.rev_append member.tokens tokens_rev))
@@ -4300,27 +4364,28 @@ let rec parse_aggregate_members cursor ~(opening_brace : Ast.location) ~depth
            bodies"
   | Token_kind.Operator Operator.Current_position -> (
       match
-        parse_aggregate_offset_directive cursor ~recovery_depth:(depth + 1)
+        parse_aggregate_offset_directive cursor ~aggregate
+          ~recovery_depth:(depth + 1)
       with
       | Error failure -> Error failure
       | Ok member ->
-          parse_aggregate_members cursor ~opening_brace ~depth
+          parse_aggregate_members cursor ~aggregate ~opening_brace ~depth
             ~parse_member_function_pointer
             (member.node :: members_rev)
             (List.rev_append member.tokens tokens_rev))
   | _ -> (
       match
-        parse_aggregate_member_declaration cursor ~recovery_depth:(depth + 1)
-          ~parse_member_function_pointer
+        parse_aggregate_member_declaration cursor ~aggregate
+          ~recovery_depth:(depth + 1) ~parse_member_function_pointer
       with
       | Error failure -> Error failure
       | Ok member ->
-          parse_aggregate_members cursor ~opening_brace ~depth
+          parse_aggregate_members cursor ~aggregate ~opening_brace ~depth
             ~parse_member_function_pointer
             (member.node :: members_rev)
             (List.rev_append member.tokens tokens_rev))
 
-and parse_aggregate_offset_directive cursor ~recovery_depth :
+and parse_aggregate_offset_directive cursor ~aggregate ~recovery_depth :
     (parsed_aggregate_member, aggregate_parse_failure) result =
   let marker_item = take cursor in
   let marker = make_expression_operator marker_item.token in
@@ -4341,6 +4406,8 @@ and parse_aggregate_offset_directive cursor ~recovery_depth :
     | None -> Error { recovery_depth }
     | Some expression ->
         let semicolon_item = peek cursor in
+        advance_aggregate cursor semicolon_item aggregate
+          Aggregate_offset_reached;
         if semicolon_item.token.kind <> Token_kind.Punctuation ';' then
           aggregate_member_failure cursor semicolon_item ~recovery_depth
             ~code:"HCPARSE0143"
@@ -4364,7 +4431,8 @@ and parse_aggregate_offset_directive cursor ~recovery_depth :
           in
           Ok { node = Ast.Aggregate_offset_directive node; tokens }
 
-and parse_anonymous_union_member cursor ~depth ~parse_member_function_pointer :
+and parse_anonymous_union_member cursor ~aggregate ~depth
+    ~parse_member_function_pointer :
     (parsed_aggregate_member, aggregate_parse_failure) result =
   let keyword_item = take cursor in
   if depth >= max_aggregate_depth then
@@ -4386,12 +4454,15 @@ and parse_anonymous_union_member cursor ~depth ~parse_member_function_pointer :
     else
       let opening_item = take cursor in
       let opening_brace = token_location opening_item.token in
+      advance_aggregate cursor opening_item aggregate Aggregate_union_entered;
       match
-        parse_aggregate_members cursor ~opening_brace ~depth:(depth + 1)
-          ~parse_member_function_pointer [] []
+        parse_aggregate_members cursor ~aggregate ~opening_brace
+          ~depth:(depth + 1) ~parse_member_function_pointer [] []
       with
       | Error failure -> Error failure
       | Ok parsed_members ->
+          let following_item = peek cursor in
+          advance_aggregate cursor following_item aggregate Aggregate_union_left;
           let semicolon_item =
             if (peek cursor).token.kind = Token_kind.Punctuation ';' then
               Some (take cursor)
@@ -4416,7 +4487,7 @@ and parse_anonymous_union_member cursor ~depth ~parse_member_function_pointer :
           in
           Ok { node = Ast.Anonymous_union_member node; tokens }
 
-and parse_aggregate_member_declaration cursor ~recovery_depth
+and parse_aggregate_member_declaration cursor ~aggregate ~recovery_depth
     ~parse_member_function_pointer :
     (parsed_aggregate_member, aggregate_parse_failure) result =
   let type_item = peek cursor in
@@ -4434,8 +4505,8 @@ and parse_aggregate_member_declaration cursor ~recovery_depth
       let rec collect declarators_rev tokens_rev :
           (parsed_aggregate_member, aggregate_parse_failure) result =
         match
-          parse_aggregate_member_declarator cursor ~base_spelling
-            ~recovery_depth ~parse_member_function_pointer
+          parse_aggregate_member_declarator cursor ~aggregate ~type_specifier
+            ~base_spelling ~recovery_depth ~parse_member_function_pointer
         with
         | Error failure -> Error failure
         | Ok declarator -> (
@@ -4459,8 +4530,8 @@ and parse_aggregate_member_declaration cursor ~recovery_depth
       in
       collect [] []
 
-and parse_aggregate_member_declarator cursor ~base_spelling ~recovery_depth
-    ~parse_member_function_pointer :
+and parse_aggregate_member_declarator cursor ~aggregate ~type_specifier
+    ~base_spelling ~recovery_depth ~parse_member_function_pointer :
     (parsed_aggregate_member_declarator, aggregate_parse_failure) result =
   match parse_pointer_layers cursor 0 [] [] with
   | None -> Error { recovery_depth }
@@ -4498,6 +4569,15 @@ and parse_aggregate_member_declarator cursor ~base_spelling ~recovery_depth
           match parse_array_dimensions cursor ~name with
           | None -> Error { recovery_depth }
           | Some (array_dimensions, array_tokens) -> (
+              advance_aggregate cursor (peek cursor) aggregate
+                (Aggregate_member_prepared
+                   {
+                     member_type = type_specifier;
+                     member_name = name;
+                     member_pointers = pointer_layers;
+                     member_callback = function_pointer;
+                     member_dimensions = array_dimensions;
+                   });
               match parse_aggregate_member_metadata cursor ~recovery_depth with
               | Error failure -> Error failure
               | Ok metadata -> (
@@ -4642,9 +4722,14 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
         else
           let opening_item = take cursor in
           let opening_brace = token_location opening_item.token in
+          advance_aggregate cursor opening_item publication
+            (Aggregate_body_started
+               (Option.map
+                  (fun (base : parsed_aggregate_base) -> base.node)
+                  base));
           match
-            parse_aggregate_members cursor ~opening_brace ~depth:0
-              ~parse_member_function_pointer [] []
+            parse_aggregate_members cursor ~aggregate:publication ~opening_brace
+              ~depth:0 ~parse_member_function_pointer [] []
           with
           | Error failure ->
               recover_aggregate_declaration cursor ~depth:failure.recovery_depth;

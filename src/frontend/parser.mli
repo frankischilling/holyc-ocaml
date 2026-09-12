@@ -207,6 +207,8 @@ type query_node =
   | Offset_target of Ast.identifier
   | Defined_target of Ast.defined_operand
 
+type query_activity
+
 type query_root = private {
   query_node : query_node;
   query_location : Ast.location;
@@ -215,7 +217,11 @@ type query_root = private {
   query_local : local_publication option;
   query_present : bool;
   query_command : command_start;
+  query_activity : query_activity;
 }
+
+val query_root_is_current : query_root -> bool
+(** True only during the original root read in an active parser context. *)
 
 type query_member_node =
   | Sizeof_member of Ast.sizeof_member
@@ -462,6 +468,19 @@ val dimension_completion_is_current : completed_array_dimension -> bool
 
 type aggregate_activity
 
+type aggregate_step =
+  | Aggregate_body_started of Ast.aggregate_base option
+  | Aggregate_member_prepared of {
+      member_type : Ast.type_specifier;
+      member_name : Ast.identifier;
+      member_pointers : Ast.pointer_layer list;
+      member_callback : Ast.function_pointer_declarator option;
+      member_dimensions : Ast.array_dimension list;
+    }
+  | Aggregate_union_entered
+  | Aggregate_union_left
+  | Aggregate_offset_reached
+
 type aggregate_publication = private {
   aggregate_header : declaration_header;
   aggregate_environment : Symbol_visibility.Environment.t;
@@ -471,9 +490,23 @@ type aggregate_publication = private {
   aggregate_activity : aggregate_activity;
 }
 
+type aggregate_phase = private {
+  phase_aggregate : aggregate_publication;
+  phase_predecessor : aggregate_phase option;
+  phase_step : aggregate_step;
+  phase_location : Ast.location;
+  phase_activity : aggregate_activity;
+}
+
+val aggregate_phase_is_current : aggregate_phase -> bool
+(** Body entry precedes opening-brace lookahead. Member placement follows
+    type/dimension lookahead and precedes metadata. Union exit follows the inner
+    closing-brace lookahead. The exact predecessor is parser-owned. *)
+
 type completed_aggregate = private {
   aggregate_publication : aggregate_publication;
   aggregate_item : Ast.item;
+  aggregate_final_phase : aggregate_phase option;
   aggregate_completion_activity : aggregate_activity;
 }
 
@@ -482,6 +515,7 @@ val aggregate_completion_is_current : completed_aggregate -> bool
 
 type declaration_event = private
   | Aggregate_declared of aggregate_publication
+  | Aggregate_advanced of aggregate_phase
   | Aggregate_completed of completed_aggregate
   | Array_dimension_preparing of array_dimension_preparation
   | Array_dimension_completed of completed_array_dimension

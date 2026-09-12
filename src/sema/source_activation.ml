@@ -112,6 +112,8 @@ let event_context = function
       let start =
         match event with
         | Parser.Aggregate_declared p -> p.aggregate_header.declaration_command
+        | Parser.Aggregate_advanced p ->
+            p.phase_aggregate.aggregate_header.declaration_command
         | Parser.Aggregate_completed p ->
             p.aggregate_publication.aggregate_header.declaration_command
         | Parser.Array_dimension_preparing p ->
