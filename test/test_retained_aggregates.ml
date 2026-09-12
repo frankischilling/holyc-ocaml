@@ -565,9 +565,14 @@ let runtime_offset_failures () =
         "failed offset retains runtime work" true
         ((Option.get (integer_program_report_progress failed)).runtime
            .executed_steps > 0);
-      ignore
-        (O.run ~mode {|#exe {I64 N=8;class A {U8 h;$$=$$+N;};}|}
-        |> O.fault "HCRUN0006");
+      let unresolved_position =
+        O.run ~mode {|#exe {I64 N=8;class A {U8 h;$$=$$+N;};}|}
+        |> O.fault "HCRUN0006"
+      in
+      Alcotest.(check (list string))
+        "offset diagnostics retain their own role"
+        [ "aggregate-offset=runtime-expression" ]
+        unresolved_position.notes;
       ignore
         (O.run ~mode {|#exe {class A {$$=1||1/0;};}|} |> O.fault "HCRUN0004");
       let eager =

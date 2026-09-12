@@ -299,7 +299,10 @@ let prepare_internal ?fragment ?default ?dimension ?offset
           in
           let notes =
             match symbol with
-            | None -> [ "dimension=runtime-expression" ]
+            | None ->
+                if Option.is_some offset then
+                  [ "aggregate-offset=runtime-expression" ]
+                else [ "dimension=runtime-expression" ]
             | Some symbol ->
                 [
                   "initializer=" ^ Symbol.name symbol;
