@@ -52,6 +52,7 @@ type fixed_slot = {
 }
 
 type bound_output = {
+  original_phase : Function_call_phase.t option;
   source : Implicit_output_target_resolution.output;
   header : Function_type_resolution.resolved_function;
   fixed_slots : fixed_slot list;
@@ -106,6 +107,7 @@ let function_source (function_ : resolved_function) = function_.source
 let function_outputs (function_ : resolved_function) = function_.outputs
 let bound_source (output : bound_output) = output.source
 let bound_header (output : bound_output) = output.header
+let bound_original_phase (output : bound_output) = output.original_phase
 let bound_fixed_slots (output : bound_output) = output.fixed_slots
 let bound_variadic_values (output : bound_output) = output.variadic_values
 let deferred_source (output : deferred_output) = output.source
@@ -232,13 +234,14 @@ let result_of_source = function
 let provided_values output =
   let source = Implicit_output_target_resolution.output_source output in
   let fixed =
-    Function_call_expression_result.implicit_output_fixed_value source
+    Function_call_expression_result.implicit_output_supplied_fixed_value source
   in
   let following =
     source |> Function_call_expression_result.implicit_output_arguments
     |> List.map (fun argument -> Following_argument argument)
   in
-  Fixed_expression fixed :: following
+  List.map (fun value -> Fixed_expression value) (Option.to_list fixed)
+  @ following
 
 let make_provided policies ~before_item_index position parameter source =
   let result = result_of_source source in
@@ -271,7 +274,23 @@ let make_default policies mode ~before_item_index output position parameter
 
 let bind_header policies mode ~before_item_index output header =
   let values = provided_values output in
-  match Implicit_output_argument_rules.plan header values with
+  let omissions, absent_initial =
+    output |> Implicit_output_target_resolution.output_source
+    |> Function_call_expression_result.implicit_output_source
+    |> Function_call_resolution.implicit_output_statement
+    |> Option.fold ~none:([], false) ~some:(fun source ->
+        ( List.map
+            (fun (omission : Frontend.Ast.implicit_output_omission) ->
+              omission.parameter_index)
+            source.Frontend.Ast.omissions,
+          source.fixed_argument = Frontend.Ast.Absent_fixed_argument ))
+  in
+  match
+    Implicit_output_argument_rules.plan ~omissions ~absent_initial header values
+  with
+  | Error (Implicit_output_argument_rules.Invalid_omission _) ->
+      Error
+        (invalid_input "implicit output omission has no ordered fixed parameter")
   | Error
       (Implicit_output_argument_rules.Missing_required_parameter
          { parameter; position }) ->
@@ -310,9 +329,16 @@ let bind_header policies mode ~before_item_index output header =
         |> List.map result_of_source
       in
       Ok
-        (Bound_output { source = output; header; fixed_slots; variadic_values })
+        (Bound_output
+           {
+             original_phase = None;
+             source = output;
+             header;
+             fixed_slots;
+             variadic_values;
+           })
 
-let bind_output policies mode outer_headers ~before_item_index output =
+let bind_output_legacy policies mode outer_headers ~before_item_index output =
   match Implicit_output_target_resolution.output_binding output with
   | Implicit_output_target_resolution.Module_function target ->
       bind_header policies mode ~before_item_index output
@@ -323,11 +349,71 @@ let bind_output policies mode outer_headers ~before_item_index output =
         |> Outer_environment.entry_symbol
       in
       match
-        Implicit_output_argument_rules.find_outer_header outer_headers symbol
+        match
+          Outer_environment.entry_function_metadata
+            (Outer_environment.binding_entry outer_binding)
+        with
+        | Some metadata ->
+            Some
+              (metadata |> Outer_environment.function_declaration
+             |> Function_resolution.resolved_declaration_header)
+        | None ->
+            Implicit_output_argument_rules.find_outer_header outer_headers
+              symbol
       with
       | Some header ->
           bind_header policies mode ~before_item_index output header
       | None -> Ok (Deferred_outer_output { source = output; outer_binding }))
+
+let bind_output call_phases policies mode outer_headers ~before_item_index
+    output =
+  let ( let* ) = Result.bind in
+  let source =
+    output |> Implicit_output_target_resolution.output_source
+    |> Function_call_expression_result.implicit_output_source
+    |> Function_call_resolution.implicit_output_statement
+  in
+  let* phase =
+    match source with
+    | None -> Ok None
+    | Some source -> Result.map_error invalid_input (call_phases source)
+  in
+  match phase with
+  | None ->
+      bind_output_legacy policies mode outer_headers ~before_item_index output
+  | Some phase ->
+      let selected =
+        match Implicit_output_target_resolution.output_binding output with
+        | Implicit_output_target_resolution.Module_function target ->
+            Some (Implicit_output_target_resolution.module_declaration target)
+        | Implicit_output_target_resolution.Outer_function binding ->
+            Option.map Outer_environment.function_declaration
+              (Outer_environment.entry_function_metadata
+                 (Outer_environment.binding_entry binding))
+      in
+      if
+        not
+          (Option.fold ~none:false
+             ~some:(( == ) (Function_call_phase.selected phase))
+             selected
+          && Option.fold ~none:false
+               ~some:(fun source ->
+                 Option.fold ~none:false ~some:(( == ) source)
+                   (Function_call_phase.implicit_source phase))
+               source)
+      then
+        Error
+          (invalid_input
+             "implicit call phase has another selected declaration or source \
+              statement")
+      else
+        Result.map
+          (function
+            | Bound_output bound ->
+                Bound_output { bound with original_phase = Some phase }
+            | Deferred_outer_output _ as deferred -> deferred)
+          (bind_header policies mode ~before_item_index output
+             (Function_call_phase.arguments phase))
 
 let map_result apply values =
   let rec loop rev = function
@@ -339,7 +425,7 @@ let map_result apply values =
   in
   loop [] values
 
-let bind_function policies mode outer_headers source =
+let bind_function call_phases policies mode outer_headers source =
   let expression_function =
     Implicit_output_target_resolution.function_source source
   in
@@ -348,12 +434,14 @@ let bind_function policies mode outer_headers source =
   in
   match
     source |> Implicit_output_target_resolution.function_outputs
-    |> map_result (bind_output policies mode outer_headers ~before_item_index)
+    |> map_result
+         (bind_output call_phases policies mode outer_headers ~before_item_index)
   with
   | Error _ as error -> error
   | Ok outputs -> Ok { source; outputs }
 
-let bind ~table ~policies ?(outer_headers = []) targets =
+let bind ~table ~policies ?(outer_headers = [])
+    ?(call_phases = fun _ -> Ok None) targets =
   let expressions = Implicit_output_target_resolution.source targets in
   let mode = Implicit_output_target_resolution.compilation_mode targets in
   if not (Implicit_output_target_resolution.owns_table targets table) then
@@ -390,7 +478,7 @@ let bind ~table ~policies ?(outer_headers = []) targets =
     | Ok outer_headers -> (
         match
           targets |> Implicit_output_target_resolution.functions
-          |> map_result (bind_function policies mode outer_headers)
+          |> map_result (bind_function call_phases policies mode outer_headers)
         with
         | Error _ as error -> error
         | Ok functions ->

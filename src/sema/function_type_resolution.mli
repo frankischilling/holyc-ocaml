@@ -30,6 +30,7 @@ type resolved_function
 type t
 
 val make_parameter :
+  ?source:Frontend.Ast.function_parameter ->
   index:int ->
   origin:Symbol.origin ->
   ?register_requests:Register_request.t list ->
@@ -55,9 +56,13 @@ val make_signature :
   parameters:parameter list ->
   ?variadic_origin:Symbol.origin ->
   ?variadic_register_requests:Register_request.t list ->
-  closing_origin:Symbol.origin ->
+  ?closing_origin:Symbol.origin ->
   unit ->
   (signature, string) result
+(** Require a closing origin unless an ellipsis is present. Require consecutive
+    concrete parameter slots and a delimiter before each subsequent parameter or
+    ellipsis. A trailing delimiter is permitted and creates no additional slot.
+*)
 
 val make_parameter_binding :
   parameter_index:int -> symbol:Symbol.t -> (parameter_binding, string) result
@@ -88,7 +93,40 @@ val make_function :
   variadic_bindings:variadic_bindings option ->
   (function_declaration, string) result
 
+val make_function_with_completed_header :
+  Frontend.Parser.completed_function_header ->
+  symbol:Symbol.t ->
+  scope:Symbol_table.scope ->
+  item_index:int ->
+  return_type:Type_reference.t ->
+  signature:signature ->
+  parameter_bindings:parameter_binding list ->
+  variadic_bindings:variadic_bindings option ->
+  (function_declaration, string) result
+
+val make_provisional_function :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  shape:Function_record_phase.checked_call_shape ->
+  scope:Symbol_table.scope ->
+  return_type:Type_reference.t ->
+  parameters:parameter list ->
+  variadic_register_requests:Register_request.t list ->
+  (resolved_function, string) result
+(** Call-only type projection of the checked native member cursor. It retains
+    explicit provisional provenance and cannot enter ordinary body resolution.
+*)
+
+val validate_provisional_source_types :
+  Function_record_phase.checked_call_shape -> (unit, string) result
+(** Preflight all current native member heads, including members outside the
+    active argument count and recursive callbacks. Named types require retained
+    selection evidence and are unavailable until that evidence is integrated. *)
+
+val function_variadic_count_type : resolved_function -> Type.t option
+
 val resolve :
+  ?retained_headers:resolved_function list ->
   table:Symbol_table.t ->
   parent:Symbol_table.scope ->
   function_declaration list ->
@@ -102,8 +140,19 @@ val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int
 val function_return_type : resolved_function -> Type_reference.t
 val function_signature : resolved_function -> signature
+
+val function_provisional_call :
+  resolved_function -> Function_record_phase.checked_call_shape option
+
+val signature_provisional_call :
+  signature -> Function_record_phase.checked_call_shape option
+
 val function_parameter_bindings : resolved_function -> parameter_binding list
 val function_variadic_bindings : resolved_function -> variadic_bindings option
+
+val function_completed_header :
+  resolved_function -> Frontend.Parser.completed_function_header option
+
 val signature_opening_origin : signature -> Symbol.origin
 val signature_parameters : signature -> parameter list
 val signature_variadic_origin : signature -> Symbol.origin option
@@ -112,8 +161,9 @@ val signature_variadic_register_requests : signature -> Register_request.t list
 val signature_variadic_register_selection :
   signature -> Register_request.selection
 
-val signature_closing_origin : signature -> Symbol.origin
+val signature_closing_origin : signature -> Symbol.origin option
 val parameter_index : parameter -> int
+val parameter_source : parameter -> Frontend.Ast.function_parameter option
 val parameter_origin : parameter -> Symbol.origin
 val parameter_register_requests : parameter -> Register_request.t list
 val parameter_register_selection : parameter -> Register_request.selection

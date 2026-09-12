@@ -25,6 +25,8 @@ let () =
       ("semantic aggregate member index", Test_aggregate_member_index.tests);
       ("semantic aggregate layout dump", Test_aggregate_layout_dump.tests);
       ("semantic function type resolution", Test_function_type_resolution.tests);
+      ("function parameter delimiters", Test_function_parameter_delimiters.tests);
+      ("variadic header termination", Test_variadic_header_termination.tests);
       ("semantic global type resolution", Test_global_type_resolution.tests);
       ("semantic local type resolution", Test_local_type_resolution.tests);
       ("semantic function binding index", Test_function_binding_index.tests);
@@ -58,6 +60,11 @@ let () =
       ("semantic global dimension binding", Test_global_dimension_binding.tests);
       ("semantic function default binding", Test_function_default_binding.tests);
       ("semantic function identity resolution", Test_function_resolution.tests);
+      ("completed function header", Test_completed_function_header.tests);
+      ("pending function header", Test_pending_function_header.tests);
+      ("pending function resolution", Test_pending_function_resolution.tests);
+      ("outer function versions", Test_outer_function_versions.tests);
+      ("retained header typing", Test_retained_header_typing.tests);
       ("semantic function header analysis", Test_function_header_analysis.tests);
       ("semantic function call resolution", Test_function_call_resolution.tests);
       ( "semantic function call conversion policy",
@@ -112,10 +119,48 @@ let () =
       ("source byte updates", Test_integer_byte_updates.tests);
       ("source byte signatures", Test_integer_byte_signatures.tests);
       ("source narrow integers", Test_integer_narrow.tests);
+      ("stateful exe", Test_stateful_exe.tests);
+      ("JIT source execution", Test_jit_source_execution.tests);
+      ("task command order", Test_task_command_order.tests);
+      ("integer task", Test_integer_task.tests);
+      ("task stream output", Test_task_stream.tests);
+      ("task progress", Test_task_progress.tests);
+      ("task parser executor", Test_task_parser_executor.tests);
+      ("AOT source execution", Test_aot_source_execution.tests);
+      ("task declarations", Test_task_declarations.tests);
+      ("retained aggregates", Test_retained_aggregates.tests);
+      ("source promotion", Test_source_promotion.tests);
+      ("live initializer leaves", Test_live_initializer_leaves.tests);
+      ("partial global storage", Test_partial_global_storage.tests);
+      ("live initializer execution", Test_live_initializer_execution.tests);
+      ("initializer fragment typing", Test_initializer_fragment_typing.tests);
+      ("live initializer layout", Test_live_initializer_layout.tests);
+      ("live initializer lowering", Test_live_initializer_lowering.tests);
+      ("parameter default boundaries", Test_parameter_default_boundaries.tests);
+      ("provisional function parser", Test_provisional_function_parser.tests);
+      ("provisional function source", Test_provisional_function_source.tests);
+      ("provisional function runtime", Test_provisional_function_runtime.tests);
+      ("function record phase", Test_function_record_phase.tests);
+      ("provisional function types", Test_provisional_function_types.tests);
+      ( "provisional function authority",
+        Test_provisional_function_authority.tests );
+      ("direct call phases", Test_direct_call_phases.tests);
+      ("call activation", Test_call_activation.tests);
+      ("task call phases", Test_task_call_phases.tests);
+      ( "provisional function resolution",
+        Test_provisional_function_resolution.tests );
+      ( "provisional function classification",
+        Test_provisional_function_classification.tests );
+      ("function alias", Test_function_alias.tests);
+      ("task function alias", Test_task_function_alias.tests);
+      ("parameter default execution", Test_parameter_default_execution.tests);
+      ("stream parser", Test_stream_parser.tests);
       ("source integer statics", Test_integer_statics.tests);
       ("source static initializers", Test_integer_static_initializers.tests);
       ("source integer pointers", Test_integer_pointers.tests);
       ("source integer arrays", Test_integer_arrays.tests);
+      ("source integer variadic", Test_integer_variadic.tests);
+      ("source extern calls", Test_integer_extern_calls.tests);
       ("source integer bytes", Test_integer_bytes.tests);
       ("source integer strings", Test_integer_strings.tests);
       ("source integer U0 calls", Test_integer_u0.tests);

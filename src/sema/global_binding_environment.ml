@@ -155,3 +155,4 @@ let publish_through cursor global =
   Module_binding_environment.publish_through cursor global.point
 
 let resolve = Module_binding_environment.resolve
+let resolve_selected = Module_binding_environment.resolve_selected

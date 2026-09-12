@@ -2,11 +2,189 @@
 
 ## Unreleased
 
+- Added original aggregate-position evidence to mixed integer runtime `$$`
+  offsets, including calls, unions and negative positions. Later lookahead
+  preserves captured values. Closed and runtime reads after nested declarations
+  now reject unmodeled shared compiler-position writes instead of using a stale
+  outer position. The new CLI fixture returns 42 in both outer modes at 46
+  runtime steps and four preparation units.
+
+- Added typed integer runtime offsets for retained task aggregates. Original
+  references, lookahead effects and function versions feed once-only execution;
+  derived sizes, bounds and functions retain its task dependency. The new CLI
+  fixture returns 42 in both outer modes at 49 runtime steps and three
+  preparation units. Closed numeric Boolean values now evaluate both operands,
+  matching the existing eager runtime value path.
+
+- Prepared closed aggregate `$$` offsets at their original parser phases.
+  Class and union positions, negative padding and saved `sizeof` reads feed
+  retained and completed layout without expression reevaluation. Source
+  activation charges the original receipts once. The CLI fixture returns 42 in
+  both modes at 27 runtime steps and six preparation units, with one-below checks.
+
+- Added partial class/union size queries at original member parsing phases.
+  Name lookahead starts at zero; each primitive member advances the retained
+  size before metadata and delimiter advancement. Anonymous unions share the
+  containing size with their original base. Checked phase ancestry and snapshot
+  versions reject replay and stale new reads while preserving consumed values.
+  The phase fixture returns 42 in both modes with exact resource-limit checks.
+
+- Added retained size metadata for completed primitive-member classes and
+  unions. Original parser receipts bind publication and completion; member
+  bounds reuse their original checked counts. Separate streams and retained
+  function bodies preserve consumed sizes across type replacement. The public
+  fixture and exact runtime/preparation limits pass in JIT and AOT modes.
+  Partial definitions, dependent layouts and aggregate storage remain open.
+
+- Preserved native function snapshots at their original declaration events
+  during source activation. Earlier replayed counts survive later header
+  completion and reuse; inactive or failed replay cannot read a later phase.
+  Provisional variadic argument binding and call-shape checks now use checked
+  cursor metadata without requiring body-local synthetic symbols, including
+  implicit output. Retained tasks now admit original provisional phases against
+  their actual native catalog head. Stale, foreign and alternate-root admissions
+  reject; hidden header completion preserves the visible shadow. Fresh/reused
+  provisional calls and reached UndefinedExtern pass. Separate argument and
+  emission phase binding remains unfinished in #635.
+  Completed-header admission also requires its exact journal event; a still-live
+  parser callback cannot bypass unstarted, misplaced or failed replay.
+
+- Added native variadic signature termination without a closing parenthesis.
+  AST and semantic signatures preserve an absent token explicitly; definitions,
+  prototypes and callback declarators own the following token. Retained headers
+  still require original source children. Execution coverage includes saved
+  defaults, pending calls, nested function versions and exact resource limits.
+  General callback execution and the remaining #635 requirements stay open.
+
+- Added runtime admission of original completed function headers before body
+  publication. Pending calls evaluate arguments before UndefinedExtern; retained
+  callers acquire the joined body while preserving saved defaults, variadic
+  arguments and source identity. Completion reuses the original parameter scope
+  and typed signature. Source checks reject changed modifiers or bindings before
+  consuming a retained header. Provisional parameters, named aggregate headers
+  and native extern address slots remain unfinished in #635.
+
+- Added parenthesis-free PutChars fixed arguments with adjacent expression
+  boundaries. Defaults leave the original token untouched, including when the
+  marker supplies a later formal after an initial default. Original optional
+  separators and call ownership reach semantic binding and retained execution.
+  Completed commas remain statement separators; no parenthesis-free variadic
+  values are consumed. General defaults, conversions and native linkage remain
+  unfinished in #635.
+
+- Added implicit calls with omitted first defaults and zero supplied values.
+  Original statements retain call identity independently of expression roots;
+  semantic binding uses saved values without a placeholder expression. Source
+  ownership and supplied/absent consistency checks reject malformed groups.
+  General conversions, defaults and native linkage remain unfinished in #635.
+
+- Added parenthesized implicit Print and PutChars arguments after empty markers.
+  Original call delimiters remain separate from expression groups. Supplied
+  fixed values can override saved defaults; omissions preserve the native
+  target-specific separator rules. Source-backed PutChars calls retain their
+  complete argument and call ownership. Omitted initial arguments, zero-value
+  calls and general conversions remain unfinished in #635.
+
+- Added implicit Print omissions after the initial supplied argument, including
+  separator-only defaults and required parameters following defaults. Original
+  omission locations and formal positions reach both semantic binding paths;
+  calls reuse saved declaration values. Missing required arguments stop before
+  later lexer effects. Parenthesized multi-argument forms, omitted first
+  arguments and general conversions remain unfinished in #635.
+
+- Added direct typing for an original initializer leaf while its global remains
+  open. The fragment retains its checked declaration, task snapshot, ordered
+  references and queries, and uses the existing expression and call type checker
+  without completed syntax wrappers. Exact occurrence checks reject substituted
+  bindings; stale leaf callbacks cannot prepare fragments. Live scalar/copy
+  execution and completion reuse of those effects remain unfinished in #635.
+
+- Added checked partial global allocation to retained JIT tasks. Nested commands
+  use the original unknown object while its declaration is open; completion
+  reuses the same storage for scalar, array and copied-row initialization without
+  another allocation charge. Original namespace, predecessor, shape and parser
+  lifetime checks reject foreign or stale admission. Ordered live initializer
+  execution and the public shared JIT source path remain unfinished in #635.
+
+- Added original parser receipts for global initializer starts and scalar/copy
+  leaves at the native lookahead boundary. Source and task compilation reuse the
+  same semantic leaves through typed IR and initializer publications, including
+  promotion midway through an initializer. Missing, delayed and foreign receipts
+  cannot complete a source manifest. Partial storage admission and shared outer
+  JIT execution remain unfinished in #635.
+
+- Added live JIT source-ledger promotion into retained tasks. Promotion preserves
+  original symbols, parser command order, frozen selections and checked array
+  dimensions, and transfers reached dimension work once. Parser lifetime and
+  checkpoint checks reject stale observers; used runtimes cannot receive source
+  authority even when their counters are zero. Shared outer JIT orchestration
+  and native partial publication remain unfinished in #635.
+
 - Expanded provenance checks to built executable consumers after Git or release
   override changes, including normal build/install aliases and both cache modes.
   Quoted Dune aliases in local command examples so PowerShell passes the requested
   targets instead of treating them as variable splats. The existing metadata
   generator and Dune rule are unchanged.
+
+- Connected public AOT source compilation and execution to retained #exe tasks.
+  Real generated text continues through the outer parser, while an early frontend
+  fork keeps task and outer namespaces separate. Streams and the isolated outer
+  image share invocation budgets and reached output. Reports retain immutable
+  progress and expose the complete outer artifact separately from task units.
+  Exact preparation ownership and replay checks protect isolated admission.
+  Unavailable AOT reads now fail at consumption with HCRUN0003, including source
+  without directives. Shared outer JIT and partial publication remain open in
+  #635; this does not complete general #exe support.
+
+- Connected the parser stream-execution callback to retained task compilation
+  and VM execution. Real StreamPrint output now feeds generated ASTs through the
+  adapter, with exact context/buffer ownership, resume timing, nested cleanup and
+  early unavailable-read diagnostics. The adapter requires checked providers and
+  a distinct outer environment; public #exe orchestration and partial outer JIT
+  declaration/initializer admission remain unfinished in #635.
+
+- Added immutable task progress snapshots for reached output, cumulative work
+  and storage, and the outer expression value. Later declarations, nested stream
+  commands and failures preserve the appropriate earlier observations. Extracted
+  the checked compilation core so source orchestration can use it and retained
+  tasks without a driver dependency cycle. The public #exe run path remains
+  unfinished in #635.
+
+- Task source commands now retain original parser resume order through VM
+  admission. Nested lookahead runs before its suspended command; source replay,
+  missing predecessors and substituted compilation bundles fail before effects.
+  Reached faults consume source identities, while failed preflight leaves them
+  pending. Production #exe orchestration and partial initializer timing remain
+  unfinished in #635.
+
+- Added checked StreamPrint execution into opaque nested task buffers. Ordinary
+  and generated output share formatting work, with separate generated-byte
+  limits and exact buffer ownership. Retained functions keep their provider and
+  literal owners while using the active buffer. Parser orchestration and native
+  partial declaration/initializer admission remain pending for #635.
+
+- Task parsing now retains assigned global and function symbols in one semantic
+  module scope. Completed ASTs reuse checked declaration views through the
+  existing type and IR pipeline. Source owners, declaration order and completion
+  phases are validated before claiming publications. Reached semantic symbols
+  survive parse errors without granting runtime storage or executable bindings.
+  Partial runtime publication, extern joins and #exe generation remain pending.
+
+- Added streaming parser declaration events at native global and function
+  publication boundaries. Function headers complete after closing-parenthesis
+  lookahead while preserving selected references and newer shadows. Global
+  alias candidates retain their name-token selection across dimension directives.
+  Private completion events share original AST nodes. Partial runtime
+  publication and StreamPrint integration remain pending.
+
+- Added incremental JIT task execution for retained global scalars and arrays
+  in #635. Separate commands share exact storage, preserve reached writes after
+  faults, reject command replay and share preparation/runtime/output limits.
+  Later commands and initializers can call earlier functions while preserving
+  original callees, globals, statics, mutable literal sites and exact selected
+  declaration snapshots. Initializer guards inspect retained callees with their
+  original context. Partial runtime publication and StreamPrint integration
+  remain pending.
 
 - Connected I8/I16/U16/I32/U32 storage, fixed arrays, references, updates and
   numeric signatures in #633 through shared generated width/signedness metadata.

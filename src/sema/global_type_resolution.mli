@@ -14,6 +14,7 @@ val make_array_dimension :
   opening_origin:Symbol.origin ->
   ?expression_origin:Symbol.origin ->
   ?source_expression:Frontend.Ast.expression ->
+  ?source_dimension:Frontend.Ast.array_dimension ->
   closing_origin:Symbol.origin ->
   unit ->
   (array_dimension, string) result
@@ -91,3 +92,6 @@ val function_pointer_closing_origin : function_pointer -> Symbol.origin
 
 val function_pointer_signature :
   function_pointer -> Function_type_resolution.signature
+
+val array_dimension_source :
+  array_dimension -> Frontend.Ast.array_dimension option

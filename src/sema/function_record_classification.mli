@@ -48,9 +48,19 @@ val make_declaration_state :
     spelling. *)
 
 val classify :
-  Function_resolution.t -> declaration_state list -> (t, string) result
+  ?previous:classified_declaration list ->
+  Function_resolution.t ->
+  declaration_state list ->
+  (t, string) result
 (** Replay [PrsFunJoin] and the binding-specific mutations in source order. The
-    state list must correspond one-for-one with the resolved declarations. *)
+    state list must correspond one-for-one with the resolved declarations.
+    [previous] supplies each retained predecessor's classified record. Its exact
+    identity is retained for runtime publication validation. Pending source
+    headers retain their binding kind but defer binding mutations until exact
+    completion; their state must match original source modifiers, loader names
+    and the complete compiler-option snapshot. Completion inherits the current
+    predecessor record without reapplying the original header's modifiers or
+    argument flags, then applies the original binding/body publication. *)
 
 val compilation_mode : t -> Function_resolution.compilation_mode
 val declarations : t -> classified_declaration list
@@ -64,6 +74,9 @@ val classified_declaration_source :
 
 val classified_declaration_state : classified_declaration -> declaration_state
 val classified_declaration_record : classified_declaration -> record
+
+val classified_declaration_retained_predecessor :
+  classified_declaration -> classified_declaration option
 
 val classified_identity_source :
   classified_identity -> Function_resolution.identity

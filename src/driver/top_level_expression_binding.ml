@@ -11,28 +11,74 @@ let origin (identifier : Frontend.Ast.identifier) =
   origin_of_location identifier.location
 
 type state = {
+  queries :
+    (Frontend.Ast.expression -> (Sema.Query_selection.t, string) result) option;
   events_rev : Sema.Top_level_expression_binding.event list;
   initializer_leaf : Sema.Initializer_source.leaf option;
+  initializer_owner : Sema.Global_initializer_binding.resolved_global option;
+  selections :
+    (Frontend.Ast.identifier -> (Sema.Reference_selection.t, string) result)
+    option;
 }
 
-let empty_state = { events_rev = []; initializer_leaf = None }
+let empty_state selections queries =
+  {
+    events_rev = [];
+    initializer_leaf = None;
+    initializer_owner = None;
+    selections;
+    queries;
+  }
 
 let add_event state = function
   | Error _ as error -> error
   | Ok event -> Ok { state with events_rev = event :: state.events_rev }
 
 let add_identifier state (identifier : Frontend.Ast.identifier) =
-  (match state.initializer_leaf with
-    | None ->
+  let ( let* ) = Result.bind in
+  let* selection =
+    match state.selections with
+    | None -> Ok None
+    | Some select -> select identifier |> Result.map Option.some
+  in
+  (match (state.initializer_leaf, selection) with
+    | None, None ->
         Sema.Top_level_expression_binding.make_identifier
           ~name:identifier.spelling ~origin:(origin identifier)
-    | Some leaf ->
+    | Some leaf, None ->
         Sema.Top_level_expression_binding.make_initializer_identifier ~leaf
-          ~name:identifier.spelling ~origin:(origin identifier))
+          ~name:identifier.spelling ~origin:(origin identifier)
+    | None, Some selection ->
+        Sema.Top_level_expression_binding.make_selected_identifier ~selection
+          ~name:identifier.spelling ~origin:(origin identifier)
+    | Some leaf, Some selection ->
+        Sema.Top_level_expression_binding.make_selected_initializer_identifier
+          ~selection ~leaf ~name:identifier.spelling ~origin:(origin identifier))
   |> add_event state
 
-let add_name_query state role ~name ~origin =
-  Sema.Top_level_expression_binding.make_name_query ~role ~name ~origin
+let select_query state node =
+  match (state.initializer_owner, state.initializer_leaf) with
+  | Some global, Some leaf ->
+      Sema.Global_initializer_binding.query_for ~global ~leaf ~expression:node
+      |> Result.map Sema.Global_initializer_binding.query_selection
+  | Some _, None -> Error "initializer query has no retained source leaf"
+  | None, _ -> (
+      match state.queries with
+      | None -> Ok None
+      | Some select -> select node |> Result.map Option.some)
+
+let add_name_query state node role ~name ~origin =
+  let ( let* ) = Result.bind in
+  let* selection = select_query state node in
+  (match (state.initializer_leaf, selection) with
+    | Some leaf, _ ->
+        Sema.Top_level_expression_binding.make_initializer_name_query ?selection
+          ~leaf ~role ~name ~origin ()
+    | None, None ->
+        Sema.Top_level_expression_binding.make_name_query ~role ~name ~origin
+    | None, Some selection ->
+        Sema.Top_level_expression_binding.make_selected_name_query ~selection
+          ~role ~name ~origin)
   |> add_event state
 
 let rec fold_result apply state = function
@@ -42,7 +88,8 @@ let rec fold_result apply state = function
       | Error _ as error -> error
       | Ok state -> fold_result apply state rest)
 
-let rec expression state = function
+let rec expression state node =
+  match node with
   | Frontend.Ast.Identifier_expression identifier ->
       add_identifier state identifier
   | Frontend.Ast.Parenthesized_expression grouped ->
@@ -70,16 +117,18 @@ let rec expression state = function
       let operand = defined.defined_operand in
       match operand.defined_operand_kind with
       | Frontend.Ast.Defined_name ->
-          add_name_query state Sema.Function_expression_binding.Defined_operand
+          add_name_query state node
+            Sema.Function_expression_binding.Defined_operand
             ~name:operand.defined_operand_spelling
             ~origin:(origin_of_location operand.defined_operand_location)
-      | Frontend.Ast.Defined_non_name -> Ok state)
+      | Frontend.Ast.Defined_non_name ->
+          select_query state node |> Result.map (fun _ -> state))
   | Frontend.Ast.Sizeof_expression sizeof ->
-      add_name_query state Sema.Function_expression_binding.Sizeof_root
+      add_name_query state node Sema.Function_expression_binding.Sizeof_root
         ~name:sizeof.sizeof_target.spelling
         ~origin:(origin sizeof.sizeof_target)
   | Frontend.Ast.Offset_expression offset ->
-      add_name_query state Sema.Function_expression_binding.Offset_root
+      add_name_query state node Sema.Function_expression_binding.Offset_root
         ~name:offset.offset_target.spelling
         ~origin:(origin offset.offset_target)
   | Frontend.Ast.Integer_literal _
@@ -126,6 +175,7 @@ let implicit_output state (output : Frontend.Ast.implicit_output_statement) =
     match output.fixed_argument with
     | Frontend.Ast.Marker_fixed_argument value
     | Frontend.Ast.Expression_fixed_argument value -> expression state value
+    | Frontend.Ast.Absent_fixed_argument -> Ok state
   in
   match fixed with
   | Error _ as error -> error
@@ -225,22 +275,24 @@ and switch_element state = function
   | Frontend.Ast.Switch_statement_element statement_ ->
       statement state statement_
 
-let statement_input statement_index item_index statement_node =
-  match statement empty_state statement_node with
+let statement_input selections queries statement_index item_index statement_node
+    =
+  match statement (empty_state selections queries) statement_node with
   | Error _ as error -> error
   | Ok state ->
-      Sema.Top_level_expression_binding.make_statement ~statement_index
-        ~item_index
-        ~origin:
-          (statement_node |> Frontend.Ast.statement_location
-         |> origin_of_location)
+      Sema.Top_level_expression_binding.make_source_statement
+        ~source:statement_node ~statement_index ~item_index
         (List.rev state.events_rev)
 
-let ordinary_statement_inputs (module_ : Frontend.Ast.module_) =
+let ordinary_statement_inputs selections queries
+    (module_ : Frontend.Ast.module_) =
   let rec loop statement_index inputs_rev item_index = function
     | [] -> Ok (List.rev inputs_rev)
     | Frontend.Ast.Top_level_statement statement :: rest -> (
-        match statement_input statement_index item_index statement with
+        match
+          statement_input selections queries statement_index item_index
+            statement
+        with
         | Error _ as error -> error
         | Ok input ->
             if statement_index = max_int then
@@ -252,9 +304,10 @@ let ordinary_statement_inputs (module_ : Frontend.Ast.module_) =
   in
   loop 0 [] 0 module_.items
 
-let statement_inputs ~table ?initializers (module_ : Frontend.Ast.module_) =
+let statement_inputs ~table selections queries ?initializers
+    (module_ : Frontend.Ast.module_) =
   match initializers with
-  | None -> ordinary_statement_inputs module_
+  | None -> ordinary_statement_inputs selections queries module_
   | Some initializers -> (
       match
         Global_initializer_binding.scalar_initializers ~table
@@ -285,8 +338,15 @@ let statement_inputs ~table ?initializers (module_ : Frontend.Ast.module_) =
             | (item_index, group) :: rest -> (
                 let prepared =
                   match group with
-                  | `Statement node -> statement_input index item_index node
+                  | `Statement node ->
+                      statement_input selections queries index item_index node
                   | `Initializer (global, initial) -> (
+                      let state =
+                        {
+                          (empty_state selections queries) with
+                          initializer_owner = Some global;
+                        }
+                      in
                       let collected =
                         match
                           Sema.Global_initializer_binding.global_source global
@@ -298,10 +358,10 @@ let statement_inputs ~table ?initializers (module_ : Frontend.Ast.module_) =
                                   { state with initializer_leaf = Some leaf }
                                   (Sema.Initializer_source.leaf_expression_ast
                                      leaf))
-                              empty_state
+                              state
                               (Sema.Initializer_source.leaves source)
                         | None ->
-                            initial_value empty_state
+                            initial_value state
                               initial.Frontend.Ast.global_initializer_value
                       in
                       match collected with
@@ -322,7 +382,8 @@ let statement_inputs ~table ?initializers (module_ : Frontend.Ast.module_) =
           in
           loop 0 [] groups)
 
-let resolve ~table ~declarations ~module_expressions ?initializers module_ =
+let resolve ~table ~declarations ~module_expressions ?initializers ?selections
+    ?queries module_ =
   let parent = Sema.Declaration_collection.scope declarations in
   let result =
     if not (Sema.Symbol_table.owns_scope table parent) then
@@ -330,7 +391,9 @@ let resolve ~table ~declarations ~module_expressions ?initializers module_ =
     else if Sema.Symbol_table.scope_kind parent <> Sema.Symbol_table.Module then
       Error "top-level expression binding requires a module declaration scope"
     else
-      match statement_inputs ~table ?initializers module_ with
+      match
+        statement_inputs ~table selections queries ?initializers module_
+      with
       | Error _ as error -> error
       | Ok inputs ->
           Sema.Top_level_expression_binding.resolve ~table ~parent
@@ -342,3 +405,74 @@ let resolve ~table ~declarations ~module_expressions ?initializers module_ =
       if String.starts_with ~prefix:"HCSEMA" message then message
       else "HCSEMA0052: " ^ message)
     result
+
+let resolve_initializer_fragment ~table ~parent ~module_expressions fragment =
+  let ( let* ) = Result.bind in
+  let leaf = Sema.Initializer_fragment.leaf fragment in
+  let state =
+    {
+      (empty_state
+         (Some (Sema.Initializer_fragment.reference_for fragment))
+         (Some (Sema.Initializer_fragment.query_for fragment)))
+      with
+      initializer_leaf = Some leaf;
+    }
+  in
+  let* state =
+    expression state (Sema.Initializer_source.leaf_expression_ast leaf)
+  in
+  let* input =
+    Sema.Top_level_expression_binding.make_initializer_fragment ~fragment
+      (List.rev state.events_rev)
+  in
+  Sema.Top_level_expression_binding.resolve ~table ~parent ~module_expressions
+    [ input ]
+  |> Result.map_error Sema.Top_level_expression_binding.error_to_string
+
+let resolve_default_fragment ~table ~parent ~module_expressions fragment =
+  let ( let* ) = Result.bind in
+  let state =
+    empty_state
+      (Some (Sema.Default_fragment.reference_for fragment))
+      (Some (Sema.Default_fragment.query_for fragment))
+  in
+  let* state = expression state (Sema.Default_fragment.expression fragment) in
+  let* input =
+    Sema.Top_level_expression_binding.make_default_fragment ~fragment
+      (List.rev state.events_rev)
+  in
+  Sema.Top_level_expression_binding.resolve ~table ~parent ~module_expressions
+    [ input ]
+  |> Result.map_error Sema.Top_level_expression_binding.error_to_string
+
+let resolve_dimension_fragment ~table ~parent ~module_expressions fragment =
+  let ( let* ) = Result.bind in
+  let state =
+    empty_state
+      (Some (Sema.Dimension_fragment.reference_for fragment))
+      (Some (Sema.Dimension_fragment.query_for fragment))
+  in
+  let* state = expression state (Sema.Dimension_fragment.expression fragment) in
+  let* input =
+    Sema.Top_level_expression_binding.make_dimension_fragment ~fragment
+      (List.rev state.events_rev)
+  in
+  Sema.Top_level_expression_binding.resolve ~table ~parent ~module_expressions
+    [ input ]
+  |> Result.map_error Sema.Top_level_expression_binding.error_to_string
+
+let resolve_offset_fragment ~table ~parent ~module_expressions fragment =
+  let ( let* ) = Result.bind in
+  let state =
+    empty_state
+      (Some (Sema.Offset_fragment.reference_for fragment))
+      (Some (Sema.Offset_fragment.query_for fragment))
+  in
+  let* state = expression state (Sema.Offset_fragment.expression fragment) in
+  let* input =
+    Sema.Top_level_expression_binding.make_offset_fragment ~fragment
+      (List.rev state.events_rev)
+  in
+  Sema.Top_level_expression_binding.resolve ~table ~parent ~module_expressions
+    [ input ]
+  |> Result.map_error Sema.Top_level_expression_binding.error_to_string

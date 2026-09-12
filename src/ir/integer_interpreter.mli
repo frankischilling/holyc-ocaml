@@ -6,6 +6,13 @@ type function_definition = {
   body : Function_body.t;
 }
 
+type task_function_source = {
+  source_globals : Integer_globals.t;
+  source_runtime_calls : Runtime_call_context.t;
+  source_functions : function_definition list;
+  source_definition : function_definition;
+}
+
 type termination = Stream_end | Returned of word option
 type error_stage = Configuration | Preflight | Execution
 
@@ -26,6 +33,404 @@ type error = private {
 
 type t
 type report
+type task_state
+type task_call_start
+
+val observe_task_function_selection :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  selection:Frontend.Parser.reference_selection ->
+  selected:Retained_function.t ->
+  (unit, string) result
+
+val capture_task_call_start :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  capture:Sema.Function_record_phase.call_start_snapshot ->
+  selected:Retained_function.t ->
+  arguments:Sema.Function_type_resolution.resolved_function ->
+  (task_call_start, string) result
+
+val capture_task_call_emission :
+  task_state ->
+  table:Sema.Symbol_table.t ->
+  capture:Sema.Function_record_phase.call_emission_snapshot ->
+  task_call_start ->
+  (Sema.Function_call_phase.t, string) result
+
+type task_implicit_call_start
+
+val observe_task_implicit_selection :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  selection:Frontend.Parser.implicit_output_selection ->
+  selected:Retained_function.t ->
+  (unit, string) result
+
+val capture_task_implicit_arguments :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  capture:Sema.Function_record_phase.implicit_arguments_snapshot ->
+  selected:Retained_function.t ->
+  arguments:Sema.Function_type_resolution.resolved_function ->
+  (task_implicit_call_start, string) result
+
+val capture_task_implicit_emission :
+  task_state ->
+  table:Sema.Symbol_table.t ->
+  capture:Sema.Function_record_phase.implicit_emission_snapshot ->
+  task_implicit_call_start ->
+  (Sema.Function_call_phase.t, string) result
+
+val owns_call_phase : task_state -> Sema.Function_call_phase.t -> bool
+
+type task_stream
+type task_admission
+type initializer_attempt
+type dimension_attempt
+
+val prepare_task_closed_dimension :
+  task_state ->
+  table:Sema.Symbol_table.t ->
+  namespace:Sema.Declaration_collection.namespace ->
+  preparation:Frontend.Parser.array_dimension_preparation ->
+  queries:Sema.Compiler_record.query_read list ->
+  (Sema.Compiler_record.dimension_preparation, string) result * int
+
+val complete_task_dimension :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Sema.Compiler_record.declared_dimension ->
+  (unit, string) result
+
+val task_dimension_is_completed :
+  task_state -> Frontend.Parser.completed_array_dimension -> bool
+
+val begin_task_dimension :
+  task_state ->
+  Sema.Dimension_fragment.authority ->
+  (dimension_attempt, string) result
+
+val fail_task_dimension :
+  task_state -> dimension_attempt -> (unit, string) result
+
+val task_dimension_bits :
+  task_state -> Frontend.Parser.array_dimension_preparation -> int64 option
+
+val execute_task_dimension :
+  task_state ->
+  dimension_attempt ->
+  Dimension_fragment_program.execution ->
+  (unit, error list) result
+
+type default_attempt
+
+val begin_task_default :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  publication:Sema.Declaration_collection.publication ->
+  Frontend.Parser.completed_parameter_default ->
+  (default_attempt, string) result
+
+val fail_task_default : task_state -> default_attempt -> (unit, string) result
+
+val task_default_bits :
+  task_state -> Frontend.Parser.completed_parameter_default -> int64 option
+
+val complete_task_defaults :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Frontend.Parser.completed_function_header ->
+  (unit, string) result
+
+val execute_task_default :
+  task_state ->
+  default_attempt ->
+  Default_fragment_program.execution ->
+  (unit, error list) result
+
+val begin_task_initializer :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Sema.Compiler_record.declared_global ->
+  Frontend.Parser.global_initializer_start ->
+  (unit, string) result
+
+val observe_task_initializer_delimiter :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Frontend.Parser.completed_initializer_delimiter ->
+  (unit, string) result
+
+val begin_task_initializer_leaf :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Sema.Initializer_source.leaf ->
+  (initializer_attempt, string) result
+
+val initializer_attempt_destination :
+  initializer_attempt -> Integer_initializer_layout.entry
+
+val fail_task_initializer_attempt :
+  task_state -> initializer_attempt -> (unit, string) result
+
+val complete_task_initializer :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Frontend.Parser.global_initializer_start ->
+  Sema.Initializer_source.t ->
+  (unit, string) result
+
+val execute_task_initializer :
+  task_state ->
+  initializer_attempt ->
+  Initializer_fragment_program.execution ->
+  (unit, error list) result
+
+type task_progress = private {
+  executed_steps : int;
+  initializer_steps : int;
+  global_bytes : int;
+  literal_bytes : int;
+  output_bytes : string;
+  output_work : int;
+  generated_bytes : int;
+  final_value : word option;
+}
+
+val task_progress : task_state -> task_progress
+(** Immutable observation of task-lifetime work, allocated storage, captured
+    output and the last reached outer expression value. Reached faults retain
+    that value; declarations and implicit output leave it alone, while an
+    explicit no-value expression clears it. Active stream commands do not alter
+    it. Snapshots grant no runtime, source or admission authority and do not
+    describe a successful whole-invocation outcome. *)
+
+type admitted_publication = private
+  | Admitted_declared_global of
+      Retained_global.t * Integer_globals.declared_slot
+  | Admitted_global of Retained_global.t * Integer_globals.slot
+  | Admitted_function of Retained_function.t
+
+val create_task_state :
+  ?max_steps:int ->
+  ?max_initializer_steps:int ->
+  ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
+  ?max_frame_bytes:int ->
+  ?max_call_depth:int ->
+  ?max_output_bytes:int ->
+  ?max_output_work:int ->
+  ?max_generated_bytes:int ->
+  ?max_stream_depth:int ->
+  table:Sema.Symbol_table.t ->
+  unit ->
+  (task_state, string) result
+
+val begin_task_stream : task_state -> (task_stream, string) result
+
+val task_stream_is_active : task_state -> task_stream -> bool
+(** Read-only exact top-buffer ownership check for parser callback admission. *)
+
+val finish_task_stream : task_state -> task_stream -> (string, string) result
+
+val abort_task_stream : task_state -> task_stream -> (unit, string) result
+(** Exact LIFO task-owned buffers. StreamPrint uses the active buffer and shares
+    ordinary formatting work. Generated bytes have a separate cumulative limit;
+    successful fragments remain charged after finish or abort. An abort returns
+    no text. Foreign, consumed and out-of-order tokens leave the stack intact.
+*)
+
+val task_snapshot : task_state -> (Integer_globals.task_view, string) result
+
+val admit_declared_global :
+  task_state -> Sema.Compiler_record.declared_global -> (unit, string) result
+
+val admit_function_header :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  source:Sema.Compiler_record.declared_function ->
+  records:Sema.Function_record_classification.t ->
+  (unit, string) result
+
+val check_function_header_source :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Sema.Compiler_record.declared_function ->
+  (unit, string) result
+
+val function_record_head :
+  task_state ->
+  Sema.Function_record_phase.snapshot ->
+  Retained_function.t option
+
+val check_function_phase_source :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  event:Frontend.Parser.declaration_event ->
+  Sema.Function_record_phase.snapshot ->
+  (unit, string) result
+
+val admit_function_phase :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  event:Frontend.Parser.declaration_event ->
+  snapshot:Sema.Function_record_phase.snapshot ->
+  records:Sema.Function_record_classification.t ->
+  (unit, string) result
+
+val bind_task_namespace :
+  task_state -> Sema.Declaration_collection.namespace -> (unit, string) result
+(** Internal single-assignment ledger binding. Driver-owned namespaces remain
+    private; an unrelated semantic publication cannot allocate in their task. *)
+
+val task_source_order : task_state -> Sema.Task_command_order.t
+
+val observe_task_source_event :
+  task_state -> Frontend.Parser.command_event -> (unit, string) result
+(** Observe original source order and retain immutable result counters at a root
+    completion boundary. Result projection still requires parser acceptance,
+    completed runtime admission and successful execution. *)
+
+val start_task_compilation : task_state -> unit
+(** Close the fresh-runtime source-promotion boundary before compiling a task
+    unit, including a unit with no preparation work or runtime effects. *)
+
+val promote_task_source :
+  ?offsets:Sema.Compiler_record.aggregate_offset list ->
+  ?dimensions:Sema.Compiler_record.dimension_preparation list ->
+  ?completed_dimensions:Sema.Compiler_record.declared_dimension list ->
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  events:Frontend.Parser.command_event list ->
+  dimension_steps:int ->
+  (unit, string) result
+(** Internal source-ledger join. A fresh runtime imports already validated
+    command receipts and their reached dimension/offset work atomically. Failed
+    preflight leaves the runtime unchanged; success consumes promotion once. *)
+
+val promote_task_source_activation :
+  ?offsets:Sema.Compiler_record.aggregate_offset list ->
+  ?pending_runtime_dimension:Frontend.Parser.array_dimension_preparation ->
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  activation:Sema.Source_activation.t ->
+  dimensions:Sema.Compiler_record.dimension_preparation list ->
+  (unit, string) result
+(** Bind the complete activation journal and its checked preparation manifest
+    atomically. Each closed dimension and offset is charged at its original
+    active event. One runtime-dependent preparation may be deferred only when it
+    is the exact final observation and its original parser callback is live. It
+    is neither evaluated nor charged here; replay requires normal runtime
+    authority. *)
+
+val charge_source_dimension :
+  task_state ->
+  Frontend.Parser.array_dimension_preparation ->
+  (unit, string) result
+
+val charge_source_aggregate_offset :
+  task_state -> Frontend.Parser.aggregate_phase -> (unit, string) result
+
+val charge_isolated_aggregate_offsets :
+  task_state ->
+  table:Sema.Symbol_table.t ->
+  Sema.Compiler_record.aggregate_offset list ->
+  (unit, string) result
+(** Charge the source compiler's checked offsets before isolated initializer
+    preparation. The isolated source table may differ from the directive task's
+    table. Duplicate or foreign-table receipts fail without additional work. *)
+
+val prepare_task_aggregate_offset :
+  task_state ->
+  table:Sema.Symbol_table.t ->
+  namespace:Sema.Declaration_collection.namespace ->
+  queries:Sema.Compiler_record.query_read list ->
+  Sema.Compiler_record.aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  (Sema.Compiler_record.aggregate_offset, string) result * int
+
+val prepare_isolated_aggregate_offset :
+  task_state ->
+  table:Sema.Symbol_table.t ->
+  namespace:Sema.Declaration_collection.namespace ->
+  queries:Sema.Compiler_record.query_read list ->
+  Sema.Compiler_record.aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  (Sema.Compiler_record.aggregate_offset, string) result * int
+
+val settle_isolated_aggregate_offsets :
+  task_state ->
+  table:Sema.Symbol_table.t ->
+  Sema.Compiler_record.aggregate_offset list ->
+  (unit, string) result
+
+val bind_task_source_program :
+  task_state ->
+  runtime_calls:Runtime_call_context.t ->
+  globals:Integer_globals.t ->
+  initialization:Global_initialization.t ->
+  functions:function_definition list ->
+  X87_stack.t ->
+  (unit, string) result
+(** Internal compiler join. Bind source order to the exact final compilation
+    bundle before exposing it. Registration admits no runtime effects. *)
+
+val task_owns_snapshot : task_state -> Integer_globals.task_view -> bool
+val task_owns_table : task_state -> Sema.Symbol_table.t -> bool
+
+val task_admission :
+  task_state ->
+  globals:Integer_globals.t ->
+  entry:X87_stack.t ->
+  task_admission option
+
+val owns_task_admission : task_state -> task_admission -> bool
+val admission_publications : task_admission -> admitted_publication list
+val admitted_source_symbol : admitted_publication -> Sema.Symbol.t
+
+val admitted_publication_for_symbol :
+  task_state -> Sema.Symbol.t -> admitted_publication option
+(** Read the already admitted publication for this exact source symbol,
+    including the original declaration of a joined function. Names and canonical
+    function identities cannot substitute for source identity. *)
+
+val latest_task_admission : task_state -> task_admission option
+(** Exact successful preflight/admission evidence for this task and compiled
+    storage/entry pair. Compilation and failed preflight issue no receipt.
+    Reached faults retain the original receipt and ordered global/function
+    publication links. Reading a receipt grants no execution or storage access.
+*)
+
+val task_function_source :
+  task_state -> Retained_function.t -> task_function_source option
+(** Read the original checked source owner for an exact admitted executable
+    link. Unadmitted definitions and foreign links have no source publication.
+*)
+
+val task_output_bytes : task_state -> string
+val task_output_work : task_state -> int
+val task_generated_bytes : task_state -> int
+val task_executed_steps : task_state -> int
+val task_initializer_steps : task_state -> int
+val task_initializer_limit : task_state -> int
+val record_task_preparation : task_state -> before:int -> steps:int -> unit
+
+val execute_task_program :
+  task_state ->
+  runtime_calls:Runtime_call_context.t ->
+  globals:Integer_globals.t ->
+  initialization:Global_initialization.t ->
+  functions:function_definition list ->
+  X87_stack.t ->
+  (t, error list) result
+(** Admit the fully preflighted command into its task before execution. Checked
+    function publications retain exact executable links, their original direct
+    callees and mutable literal images. Later calls preserve that owner across
+    nested calls and returns; original globals and statics retain their storage
+    identities. Failed preflight publishes nothing, while reached faults retain
+    admitted functions and storage effects. Instruction, storage and output
+    budgets remain cumulative across commands. *)
 
 val reference_commit : string
 
@@ -158,6 +563,45 @@ val report_outcome : report -> (t, error list) result
 val report_output_bytes : report -> string
 val report_output_work : report -> int
 
+val execute_isolated_program_in_task :
+  task_state ->
+  runtime_calls:Runtime_call_context.t ->
+  globals:Integer_globals.t ->
+  initialization:Global_initialization.t ->
+  functions:function_definition list ->
+  X87_stack.t ->
+  (t, error list) result
+(** Execute a fresh isolated output image using the invocation's remaining
+    instruction, storage, literal and output/work allowances. It receives no
+    retained task bindings and publishes none. Preflight preserves earlier task
+    effects; reached execution charges its allocations and instructions once.
+    Success reports cumulative instructions/preparation and the actual outer
+    result. Active streams and replayed output images reject before effects. *)
+
+type isolated_preparation
+
+val begin_isolated_preparation : task_state -> isolated_preparation
+
+val record_isolated_preparation :
+  task_state -> isolated_preparation -> steps:int -> unit
+
+val abort_isolated_preparation : task_state -> isolated_preparation -> unit
+
+val finish_isolated_preparation :
+  task_state ->
+  isolated_preparation ->
+  runtime_calls:Runtime_call_context.t ->
+  globals:Integer_globals.t ->
+  initialization:Global_initialization.t ->
+  functions:function_definition list ->
+  X87_stack.t ->
+  (unit, string) result
+(** Account preparation through this exact invocation-owned ticket, then seal
+    its actual ordinary entry/storage/initializer/call/body bundle. The charged
+    work must equal the bundle's checked preparation. Abort retains charges;
+    foreign, closed or undercharged tickets cannot authorize isolated execution.
+*)
+
 val final_value : t -> word option
 (** Last reached top-level expression value from [execute_program], separate
     from stream termination and function return values. A last U0 expression has
@@ -183,12 +627,16 @@ val execute_function :
   arguments:int64 list ->
   Function_body.t ->
   (t, error list) result
-(** Execute one verified ordinary I64/U64/U8/U0 function with its exact checked
-    frame. Argument bits initialize the named parameter slots in source order.
+(** Execute one verified I64/U64/U8/U0 function with its exact checked frame.
+    Argument bits initialize the named parameter slots in source order.
     Automatic locals begin uninitialized. The allocation bound includes
     parameter slots and the checked local frame size. Canonical frame addresses,
     loads, assignments and scalar updates are preflighted before execution; slot
     contents survive block transfers. Every invocation owns independent storage.
+    A variadic frame consumes the fixed argument prefix followed by integer tail
+    bits, synthesizes argc and exposes argv with the actual tail extent. Its
+    arbitrary declared extent of 127 is not an allocation or indexing bound. The
+    allocation limit includes the hidden count and every actual tail word.
     Public U64 negation retains U64, while internal U64 negation yields internal
     I64. Integer returns preserve full bits; a U8 return reports runtime U64. U8
     parameters narrow incoming bits to one initialized byte while retaining an
@@ -216,3 +664,53 @@ val compiled_initializer_steps : t -> int
 
 val human : t -> string
 (** Render the versioned, deterministic execution result. *)
+
+val bind_source_activation :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Sema.Source_activation.t ->
+  (unit, string) result
+
+val task_result :
+  task_state ->
+  sequence:Frontend.Parser.completed_sequence ->
+  (t, string) result
+
+(** Cumulative outer result for the exact accepted and admitted root sequence.
+    Failed execution, active streams and unfinished initializer/default work
+    cannot produce a successful result. *)
+
+val task_input_result :
+  task_state ->
+  sequence:Frontend.Parser.completed_sequence ->
+  (t, string) result
+(** Frozen result for one original root input. Prior failed inputs and existing
+    generation buffers remain task state; this input must finish all its work
+    successfully and restore the same buffer stack. Work totals are cumulative,
+    while the final value belongs only to this input's root commands. *)
+
+val check_task_suspended_completion :
+  task_state ->
+  suspension:Frontend.Parser.suspension ->
+  Frontend.Parser.completed_sequence ->
+  (unit, string) result
+
+type offset_attempt
+
+val begin_task_offset :
+  task_state ->
+  Sema.Offset_fragment.authority ->
+  (offset_attempt, string) result
+
+val fail_task_offset : task_state -> offset_attempt -> (unit, string) result
+
+val task_offset :
+  task_state ->
+  Frontend.Parser.aggregate_phase ->
+  Sema.Compiler_record.aggregate_offset option
+
+val execute_task_offset :
+  task_state ->
+  offset_attempt ->
+  Offset_fragment_program.execution ->
+  (unit, error list) result

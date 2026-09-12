@@ -10,12 +10,23 @@ module Scalar = Integer_scalar_storage
 module Shape = Integer_storage_shape
 module Arrays = Integer_array_initializers
 
+type initializer_status = Unstarted | Active | Complete | Failed
+
+type declared_slot = {
+  declaration : Sema.Compiler_record.declared_global;
+  declared_shape : Shape.t;
+  mutable initialized_leaves : Sema.Initializer_source.leaf list;
+  mutable initializer_status : initializer_status;
+}
+
 type slot = {
+  declared_owner : declared_slot option;
   index : int;
   symbol : Symbol.t;
   type_ : Type.t;
   record : Records.classified_record;
   shape : Shape.t;
+  extent : Sema.Compiler_record.global_extent option;
   opcode : Opcode.t;
   initial_bits : int64 option;
   initializer_root : Typed.top_level_root_result option;
@@ -25,9 +36,47 @@ type slot = {
 }
 
 type static_slot = Integer_statics.slot
-type storage_slot = Global of slot | Static of static_slot
+
+type storage_slot =
+  | Global of slot
+  | Static of static_slot
+  | Declared of declared_slot
+
+type task_publication =
+  | Global_publication of Retained_global.t * slot
+  | Declared_publication of Retained_global.t * declared_slot
+  | Function_publication of Retained_function.t
+
+type task_catalog = {
+  mutable defaults : Prepared_parameter_default.t list;
+  table : Sema.Symbol_table.t;
+  mutable namespace : Sema.Declaration_collection.namespace option;
+  mutable published : task_publication list;
+  source_order : Sema.Task_command_order.t;
+  mutable admitted_commands : Sema.Task_command_order.command list;
+}
+
+type task_view = {
+  defaults : Prepared_parameter_default.t list;
+  catalog : task_catalog;
+  environment : Sema.Outer_environment.t;
+  task_table : Sema.Outer_environment.table;
+  entries :
+    (Sema.Outer_environment.entry * Retained_global.t * storage_slot) list;
+  function_entries : (Sema.Outer_environment.entry * Retained_function.t) list;
+  source_command : Sema.Task_command_order.command option;
+}
+
+type fragment_kind =
+  | Initializer_context
+  | Default_context
+  | Dimension_context
+  | Offset_context
 
 type t = {
+  source_defaults : Prepared_parameter_default.t list;
+  fragment_kind_ : fragment_kind option;
+  declared_slots_ : declared_slot list;
   slots_ : slot list;
   symbols : slot Symbols.t;
   statics_ : static_slot list;
@@ -35,15 +84,139 @@ type t = {
   global_byte_size_ : int;
   global_cell_count_ : int;
   byte_size_ : int;
+  task_view : task_view option;
+  function_publications_ : Retained_function.t list;
 }
 
 let slots globals = globals.slots_
+
+let fragment_context view fragment =
+  if view.environment != Sema.Initializer_fragment.environment fragment then
+    Error "initializer fragment has another retained task snapshot"
+  else
+    Ok
+      {
+        fragment_kind_ = Some Initializer_context;
+        source_defaults = [];
+        declared_slots_ = [];
+        slots_ = [];
+        symbols = Symbols.empty;
+        statics_ = [];
+        mode = Resolution.Jit;
+        global_byte_size_ = 0;
+        global_cell_count_ = 0;
+        byte_size_ = 0;
+        task_view = Some view;
+        function_publications_ = [];
+      }
+
+let default_context view fragment =
+  if view.environment != Sema.Default_fragment.environment fragment then
+    Error "default fragment has another retained task snapshot"
+  else
+    Ok
+      {
+        fragment_kind_ = Some Default_context;
+        source_defaults = [];
+        declared_slots_ = [];
+        slots_ = [];
+        symbols = Symbols.empty;
+        statics_ = [];
+        mode = Resolution.Jit;
+        global_byte_size_ = 0;
+        global_cell_count_ = 0;
+        byte_size_ = 0;
+        task_view = Some view;
+        function_publications_ = [];
+      }
+
+let dimension_context view fragment =
+  if view.environment != Sema.Dimension_fragment.environment fragment then
+    Error "dimension fragment has another retained task snapshot"
+  else
+    Ok
+      {
+        fragment_kind_ = Some Dimension_context;
+        source_defaults = [];
+        declared_slots_ = [];
+        slots_ = [];
+        symbols = Symbols.empty;
+        statics_ = [];
+        mode = Resolution.Jit;
+        global_byte_size_ = 0;
+        global_cell_count_ = 0;
+        byte_size_ = 0;
+        task_view = Some view;
+        function_publications_ = [];
+      }
+
+let is_dimension_fragment globals =
+  globals.fragment_kind_ = Some Dimension_context
+
+let offset_context view fragment =
+  if view.environment != Sema.Offset_fragment.environment fragment then
+    Error "offset fragment has another retained task snapshot"
+  else
+    Ok
+      {
+        fragment_kind_ = Some Offset_context;
+        source_defaults = [];
+        declared_slots_ = [];
+        slots_ = [];
+        symbols = Symbols.empty;
+        statics_ = [];
+        mode = Resolution.Jit;
+        global_byte_size_ = 0;
+        global_cell_count_ = 0;
+        byte_size_ = 0;
+        task_view = Some view;
+        function_publications_ = [];
+      }
+
+let is_offset_fragment globals = globals.fragment_kind_ = Some Offset_context
+
+let is_initializer_fragment globals =
+  globals.fragment_kind_ = Some Initializer_context
+
+let source_default_context fragment =
+  if
+    Sema.Outer_environment.compilation_mode
+      (Sema.Default_fragment.environment fragment)
+    <> Sema.Outer_environment.Aot
+  then Error "source default context requires its original AOT environment"
+  else
+    Ok
+      {
+        source_defaults = [];
+        fragment_kind_ = Some Default_context;
+        declared_slots_ = [];
+        slots_ = [];
+        symbols = Symbols.empty;
+        statics_ = [];
+        mode = Resolution.Aot;
+        global_byte_size_ = 0;
+        global_cell_count_ = 0;
+        byte_size_ = 0;
+        task_view = None;
+        function_publications_ = [];
+      }
+
+let with_source_defaults globals defaults =
+  if
+    globals.mode <> Resolution.Aot
+    || Option.is_some globals.task_view
+    || globals.source_defaults <> []
+  then Error "source defaults require their isolated AOT output context"
+  else Ok { globals with source_defaults = defaults }
+
+let is_default_fragment globals = globals.fragment_kind_ = Some Default_context
 let byte_size globals = globals.byte_size_
 let slot_index slot = slot.index
 let slot_symbol slot = slot.symbol
 let slot_type slot = slot.type_
 let slot_record slot = slot.record
 let slot_shape slot = slot.shape
+let slot_extent slot = slot.extent
 let slot_opcode slot = slot.opcode
 let slot_initial_bits slot = slot.initial_bits
 let slot_initializer slot = slot.initializer_root
@@ -53,6 +226,17 @@ let slot_initializers slot =
   match slot.array_initializers with
   | None -> Option.to_list slot.initializer_root
   | Some arrays -> List.map Arrays.root (Arrays.entries arrays)
+
+let slot_root_executed slot root =
+  List.exists (( == ) root) (slot_initializers slot)
+  && Option.fold ~none:false
+       ~some:(fun declared ->
+         Option.fold ~none:false
+           ~some:(fun leaf ->
+             List.exists (( == ) leaf) declared.initialized_leaves)
+           (Typed.top_level_root_source root
+           |> Sema.Top_level_expression_tree.root_initializer_leaf))
+       slot.declared_owner
 
 let slot_initializer_materialized slot = slot.initializer_materialized
 
@@ -94,12 +278,67 @@ let static_root_materialized slot root =
 let static_compiler_options = Integer_statics.compiler_options
 let static_storage slot = Static slot
 let global_storage slot = Global slot
+let declared_storage slot = Declared slot
+let declared_record slot = slot.declaration
+
+let begin_declared_initializer slot =
+  if slot.initializer_status <> Unstarted then
+    Error "declared initializer has already started"
+  else (
+    slot.initializer_status <- Active;
+    Ok ())
+
+let complete_declared_initializer slot =
+  if slot.initializer_status <> Active then
+    Error "declared initializer has no active completion"
+  else (
+    slot.initializer_status <- Complete;
+    Ok ())
+
+let fail_declared_initializer slot = slot.initializer_status <- Failed
+let declared_initializer_failed slot = slot.initializer_status = Failed
+
+let declared_initializer_joinable slot =
+  match slot.initializer_status with
+  | Unstarted | Complete -> true
+  | Active | Failed -> false
+
+let record_declared_initializer slot layout =
+  let leaf = Integer_initializer_layout.leaf layout in
+  if
+    slot.initializer_status <> Active
+    || (not
+          (Option.fold ~none:false ~some:(( == ) slot.declaration)
+             (Integer_initializer_layout.declared_owner layout)))
+    || List.exists (( == ) leaf) slot.initialized_leaves
+  then
+    Error "initializer success is foreign, repeated or follows a failed attempt"
+  else (
+    slot.initialized_leaves <- leaf :: slot.initialized_leaves;
+    Ok ())
+
+let same_storage left right =
+  match (left, right) with
+  | Global left, Global right -> left == right
+  | Static left, Static right -> left == right
+  | Declared left, Declared right -> left == right
+  | Global complete, Declared pending | Declared pending, Global complete ->
+      Option.fold ~none:false ~some:(( == ) pending) complete.declared_owner
+  | _ -> false
 
 let storage_slots globals =
   List.map global_storage globals.slots_
+  @ List.map declared_storage globals.declared_slots_
   @ List.map static_storage globals.statics_
 
+let allocated_storage_slots globals =
+  storage_slots globals
+  |> List.filter (function
+    | Global slot -> Option.is_none slot.declared_owner
+    | _ -> true)
+
 let storage_shape = function
+  | Declared slot -> slot.declared_shape
   | Global slot -> slot.shape
   | Static slot -> Integer_statics.shape slot
 
@@ -115,31 +354,40 @@ let cell_count globals =
       0 globals.statics_
 
 let storage_index = function
+  | Declared _ -> 0
   | Global slot -> slot.index
   | Static slot -> Integer_statics.index slot
 
 let storage_symbol = function
+  | Declared slot ->
+      Sema.Compiler_record.declared_global_symbol slot.declaration
   | Global slot -> slot.symbol
   | Static slot -> Integer_statics.symbol slot
 
 let storage_type = function
+  | Declared slot ->
+      Sema.Compiler_record.declared_global_type slot.declaration
+      |> Sema.Type_reference.resolved_type
   | Global slot -> slot.type_
   | Static slot -> Integer_statics.type_ slot
 
 let storage_opcode = function
+  | Declared _ -> Opcode.Ic_imm_i64
   | Global slot -> slot.opcode
   | Static slot -> Integer_statics.opcode slot
 
 let storage_initial_bits = function
+  | Declared _ -> None
   | Global slot -> slot.initial_bits
   | Static slot -> Integer_statics.initial_bits slot
 
 let storage_preparation_steps = function
+  | Declared _ -> 0
   | Global slot -> slot_initializer_preparation_steps slot
   | Static slot -> Integer_statics.preparation_steps slot
 
 let storage_frame = function
-  | Global _ -> None
+  | Global _ | Declared _ -> None
   | Static slot -> Some (static_frame slot)
 
 let find_static globals symbol =
@@ -216,7 +464,21 @@ let find globals symbol =
 let find_storage globals symbol =
   match find globals symbol with
   | Some slot -> Some (Global slot)
-  | None -> Option.map static_storage (find_static globals symbol)
+  | None -> (
+      match
+        List.find_opt
+          (fun slot ->
+            Sema.Compiler_record.declared_global_symbol slot.declaration
+            == symbol)
+          globals.declared_slots_
+      with
+      | Some slot -> Some (Declared slot)
+      | None -> Option.map static_storage (find_static globals symbol))
+
+let find_allocated_storage globals symbol =
+  match find_storage globals symbol with
+  | Some (Global slot) when Option.is_some slot.declared_owner -> None
+  | result -> result
 
 let create_impl ?layout ?initializers ~span:unit_span records =
   let ( let* ) = Result.bind in
@@ -260,6 +522,9 @@ let create_impl ?layout ?initializers ~span:unit_span records =
         if Symbols.is_empty roots then
           Ok
             {
+              fragment_kind_ = None;
+              source_defaults = [];
+              declared_slots_ = [];
               slots_ = List.rev reversed;
               symbols;
               statics_ = [];
@@ -267,6 +532,8 @@ let create_impl ?layout ?initializers ~span:unit_span records =
               global_byte_size_ = byte_size;
               global_cell_count_ = index;
               byte_size_ = byte_size;
+              task_view = None;
+              function_publications_ = [];
             }
         else invalid "global initializer roots include an absent declaration"
     | record :: rest -> (
@@ -320,16 +587,25 @@ let create_impl ?layout ?initializers ~span:unit_span records =
           fail "HCRUN0001"
             "global execution requires public nonzero integer objects"
         else
-          let* dimensions =
+          let* dimensions, extent =
             match Global.global_array_dimensions global with
-            | [] -> Ok []
+            | [] -> Ok ([], None)
             | _ -> (
                 match
                   Option.bind layout (fun layout ->
                       Sema.Global_array_layout.find layout source)
                 with
                 | Some checked ->
-                    Ok (Sema.Global_array_layout.dimensions checked)
+                    let extent = Sema.Global_array_layout.extent checked in
+                    if
+                      Sema.Compiler_record.global_extent_record extent != source
+                    then
+                      fail "HCIRL0004"
+                        "global extent has another declaration record"
+                    else
+                      Ok
+                        ( Sema.Global_array_layout.dimensions checked,
+                          Some extent )
                 | None ->
                     fail "HCRUN0001"
                       "global array execution requires its exact checked \
@@ -458,11 +734,13 @@ let create_impl ?layout ?initializers ~span:unit_span records =
           | Some (opcode, initial_bits) ->
               let slot =
                 {
+                  declared_owner = None;
                   index;
                   symbol;
                   type_;
                   record;
                   shape;
+                  extent;
                   opcode;
                   initial_bits;
                   initializer_root;
@@ -485,6 +763,993 @@ let create ?initializers ~span records = create_impl ?initializers ~span records
 
 let create_with_layout ~layout ?initializers ~span records =
   create_impl ~layout ?initializers ~span records
+
+let create_task_catalog ~table =
+  {
+    defaults = [];
+    table;
+    namespace = None;
+    published = [];
+    source_order = Sema.Task_command_order.create ~table;
+    admitted_commands = [];
+  }
+
+let task_catalog_owns_table catalog table = catalog.table == table
+
+let task_catalog_contains_function catalog reference =
+  List.exists
+    (function
+      | Function_publication original ->
+          Retained_function.same original reference
+      | _ -> false)
+    catalog.published
+
+let call_command_is_admitted catalog start =
+  List.exists
+    (fun command ->
+      List.exists
+        (fun receipt -> receipt.Frontend.Parser.command_start == start)
+        (Sema.Task_command_order.command_receipts command))
+    catalog.admitted_commands
+
+let task_catalog_owns_namespace catalog namespace =
+  Option.fold ~none:false ~some:(( == ) namespace) catalog.namespace
+
+let publish_parameter_defaults catalog ~namespace defaults =
+  if
+    (not (task_catalog_owns_namespace catalog namespace))
+    || List.exists
+         (fun value ->
+           (not
+              (Sema.Declaration_collection.namespace_owns_publication namespace
+                 (Prepared_parameter_default.publication value)))
+           || List.exists
+                (fun prior ->
+                  Prepared_parameter_default.receipt prior
+                  == Prepared_parameter_default.receipt value)
+                catalog.defaults)
+         defaults
+  then
+    Error "prepared parameters have another task namespace or repeated source"
+  else (
+    catalog.defaults <- defaults @ catalog.defaults;
+    Ok ())
+
+let prepared_parameter_default globals ~header ~parameter =
+  match
+    List.find_opt
+      (fun value -> Prepared_parameter_default.matches value ~header ~parameter)
+      globals.source_defaults
+  with
+  | Some value -> Some value
+  | None ->
+      Option.bind globals.task_view (fun view ->
+          List.find_opt
+            (fun value ->
+              Prepared_parameter_default.matches value ~header ~parameter)
+            view.defaults)
+
+let check_task_namespace catalog namespace =
+  if Option.is_some catalog.namespace then
+    Error "task declaration namespace is already bound"
+  else if
+    not
+      (Sema.Declaration_collection.namespace_owns_table namespace catalog.table)
+  then Error "task declaration namespace belongs to another table"
+  else Ok ()
+
+let bind_task_namespace catalog namespace =
+  Result.map
+    (fun () -> catalog.namespace <- Some namespace)
+    (check_task_namespace catalog namespace)
+
+let task_source_order catalog = catalog.source_order
+
+let check_function_header_source catalog ~namespace source =
+  let module Source = Sema.Compiler_record in
+  if
+    (not (task_catalog_owns_namespace catalog namespace))
+    || (not (Source.declared_function_owns_namespace source namespace))
+    || not (Source.declared_function_owns_table source catalog.table)
+  then Error "pending header has another task source namespace"
+  else
+    Sema.Task_command_order.check_function_header catalog.source_order
+      ~admitted:catalog.admitted_commands
+      (Source.declared_function_source source)
+
+let check_function_phase_source catalog ~namespace ~event snapshot =
+  let module Native = Sema.Function_record_phase in
+  if
+    not
+      (task_catalog_owns_namespace catalog namespace
+      && Native.owns_namespace snapshot namespace
+      && Native.owns_table snapshot catalog.table
+      && Native.matches_event snapshot event)
+  then Error "native function phase has another source event or task namespace"
+  else
+    Sema.Task_command_order.check_function_publication catalog.source_order
+      ~admitted:catalog.admitted_commands (Native.source snapshot)
+
+let check_dimension_source ?require_admitted catalog receipt =
+  Sema.Task_command_order.check_dimension ?require_admitted catalog.source_order
+    ~admitted:catalog.admitted_commands receipt
+
+let check_offset_source catalog receipt =
+  Sema.Task_command_order.check_offset catalog.source_order
+    ~admitted:catalog.admitted_commands receipt
+
+let with_source_command view ~ast command =
+  if Sema.Task_command_order.owns view.catalog.source_order ~ast command then
+    Ok { view with source_command = Some command }
+  else Error "task source order belongs to another runtime or AST"
+
+let has_source_command globals =
+  Option.fold ~none:false
+    ~some:(fun view -> Option.is_some view.source_command)
+    globals.task_view
+
+let source_command_receipts globals =
+  Option.bind globals.task_view (fun view -> view.source_command)
+  |> Option.fold ~none:[] ~some:Sema.Task_command_order.command_receipts
+
+let check_source_completion ?require_accepted catalog receipt =
+  Sema.Task_command_order.check_completion ?require_accepted
+    catalog.source_order ~admitted:catalog.admitted_commands receipt
+
+let owns_task_storage catalog globals =
+  Option.fold ~none:false
+    ~some:(fun view -> view.catalog == catalog)
+    globals.task_view
+
+let publication_symbol = function
+  | Declared_publication (_, slot) ->
+      Sema.Compiler_record.declared_global_symbol slot.declaration
+  | Global_publication (_, slot) -> slot.symbol
+  | Function_publication reference -> Retained_function.symbol reference
+
+let newest_publications publications =
+  List.fold_left
+    (fun selected publication ->
+      let same prior =
+        publication_symbol prior == publication_symbol publication
+      in
+      let completion =
+        match publication with
+        | Function_publication reference ->
+            reference |> Retained_function.metadata
+            |> Sema.Outer_environment.function_declaration
+            |> fun declaration ->
+            Option.is_some
+              (Sema.Function_resolution.resolved_declaration_completion_source
+                 declaration)
+            || Option.is_some
+                 (Sema.Function_resolution.resolved_declaration_phase_current
+                    declaration)
+        | _ -> false
+      in
+      if completion && List.exists same selected then
+        List.map
+          (fun prior -> if same prior then publication else prior)
+          selected
+      else
+        List.filter (fun prior -> not (same prior)) selected @ [ publication ])
+    [] publications
+
+let function_publications globals = globals.function_publications_
+
+let with_function_publications ~records globals =
+  let module Outer = Sema.Outer_environment in
+  let ( let* ) = Result.bind in
+  let* publications =
+    List.fold_left
+      (fun result classified ->
+        let* publications = result in
+        let declaration =
+          Sema.Function_record_classification.classified_declaration_source
+            classified
+        in
+        let* metadata =
+          Outer.make_function_metadata ~records ~declaration
+          |> Result.map_error Outer.error_to_string
+        in
+        Ok
+          (Function_publication (Retained_function.create metadata)
+          :: publications))
+      (Ok [])
+      (Sema.Function_record_classification.declarations records)
+  in
+  let function_publications_ =
+    newest_publications (List.rev publications)
+    |> List.filter_map (function
+      | Function_publication reference -> Some reference
+      | Global_publication _ | Declared_publication _ -> None)
+  in
+  Ok { globals with function_publications_ }
+
+let snapshot_task catalog =
+  let module Outer = Sema.Outer_environment in
+  let ( let* ) = Result.bind in
+  let checked result = Result.map_error Outer.error_to_string result in
+  let rec collect index rev globals functions = function
+    | [] -> Ok (List.rev rev, List.rev globals, List.rev functions)
+    | Function_publication reference :: rest ->
+        let* entry =
+          Outer.make_function_entry ~entry_index:index
+            ~function_metadata:(Retained_function.metadata reference)
+          |> checked
+        in
+        collect (index + 1) (entry :: rev) globals
+          ((entry, reference) :: functions)
+          rest
+    | publication :: rest ->
+        let reference, slot, type_reference, declarator_kind =
+          match publication with
+          | Declared_publication (reference, slot) ->
+              ( reference,
+                Declared slot,
+                Sema.Compiler_record.declared_global_type slot.declaration,
+                Outer.Object_global )
+          | Global_publication (reference, slot) ->
+              let source =
+                Records.classified_record_source slot.record
+                |> Resolution.global_record_global
+              in
+              let kind =
+                match Global.global_declarator_kind source with
+                | Global.Object -> Outer.Object_global
+                | Global.Function_pointer pointer ->
+                    Outer.Function_pointer_global pointer
+              in
+              (reference, Global slot, Global.global_type_reference source, kind)
+          | Function_publication _ -> assert false
+        in
+        let* global_metadata =
+          Outer.make_global_metadata ~type_reference ~declarator_kind
+            ~array_rank:(List.length (storage_dimensions slot))
+          |> checked
+        in
+        let* entry =
+          Outer.make_global_entry ~symbol:(storage_symbol slot)
+            ~entry_index:index ~global_metadata
+          |> checked
+        in
+        collect (index + 1) (entry :: rev)
+          ((entry, reference, slot) :: globals)
+          functions rest
+  in
+  let* all_entries, entries, function_entries =
+    collect 0 [] [] [] (newest_publications catalog.published)
+  in
+  let* task_table =
+    Outer.make_table ~table_kind:(Outer.Jit_task 0) ~table_index:0 all_entries
+    |> checked
+  in
+  let* assembler =
+    Outer.make_table ~table_kind:Outer.Assembler ~table_index:1 [] |> checked
+  in
+  let* environment =
+    Outer.create ~table:catalog.table ~compilation_mode:Outer.Jit
+      [ task_table; assembler ]
+    |> checked
+  in
+  let historical =
+    catalog.published
+    |> List.filter_map (function
+      | Function_publication reference
+        when not
+               (List.exists
+                  (fun (_, current) -> Retained_function.same current reference)
+                  function_entries) -> Some reference
+      | _ -> None)
+  in
+  let* environment, historical_entries =
+    Outer.with_function_versions environment ~table:task_table
+      (List.map Retained_function.metadata historical)
+    |> checked
+  in
+  let function_entries =
+    function_entries @ List.combine historical_entries historical
+  in
+  Ok
+    {
+      catalog;
+      environment;
+      task_table;
+      entries;
+      function_entries;
+      source_command = None;
+      defaults = catalog.defaults;
+    }
+
+let task_environment view = view.environment
+let task_catalog_owns_view catalog view = view.catalog == catalog
+
+let task_global_binding view reference =
+  List.find_map
+    (fun (entry, candidate, _) ->
+      if Retained_global.same reference candidate then
+        Sema.Outer_environment.binding_for_entry view.environment entry
+      else None)
+    view.entries
+
+let task_function_binding view reference =
+  List.find_map
+    (fun (entry, candidate) ->
+      if Retained_function.same reference candidate then
+        Sema.Outer_environment.binding_for_entry view.environment entry
+      else None)
+    view.function_entries
+
+let with_task_view view globals = { globals with task_view = Some view }
+
+let retained_binding globals binding =
+  let module Outer = Sema.Outer_environment in
+  Option.bind globals.task_view (fun view ->
+      if Outer.binding_table binding != view.task_table then None
+      else
+        List.find_map
+          (fun (entry, reference, slot) ->
+            if Outer.binding_entry binding == entry then Some (reference, slot)
+            else None)
+          view.entries)
+
+let retained_slot globals reference =
+  Option.bind globals.task_view (fun view ->
+      List.find_map
+        (fun (_, candidate, slot) ->
+          if Retained_global.same candidate reference then Some slot else None)
+        view.entries)
+
+let retained_function_binding globals binding =
+  let module Outer = Sema.Outer_environment in
+  Option.bind globals.task_view (fun view ->
+      if Outer.binding_table binding != view.task_table then None
+      else
+        List.find_map
+          (fun (entry, reference) ->
+            if Outer.binding_entry binding == entry then Some reference
+            else None)
+          view.function_entries)
+
+let retained_function_symbol globals symbol =
+  Option.bind globals.task_view (fun view ->
+      List.find_map
+        (fun (_, reference) ->
+          if Retained_function.symbol reference == symbol then Some reference
+          else None)
+        view.function_entries)
+
+let retained_function_declaration globals declaration =
+  Option.bind globals.task_view (fun view ->
+      List.find_map
+        (fun (_, reference) ->
+          if
+            Retained_function.metadata reference
+            |> Sema.Outer_environment.function_declaration
+            |> fun original -> original == declaration
+          then Some reference
+          else None)
+        view.function_entries)
+
+let is_task_command globals = Option.is_some globals.task_view
+
+let validate_slot_extent ~table slot =
+  let ( let* ) = Result.bind in
+  let module Extent = Sema.Compiler_record in
+  let record = Records.classified_record_source slot.record in
+  let global = Resolution.global_record_global record in
+  if slot.symbol != Resolution.global_record_symbol record then
+    Error "global storage has another declaration symbol"
+  else
+    match (Global.global_array_dimensions global, slot.extent) with
+    | [], None when Shape.dimensions slot.shape = [] -> Ok ()
+    | _ :: _, Some extent ->
+        let* () = Extent.validate_global_extent ~table ~record extent in
+        if
+          Extent.global_extent_dimensions extent <> Shape.dimensions slot.shape
+          || Extent.global_extent_element_count extent
+             <> Int64.of_int (Shape.element_count slot.shape)
+        then Error "global storage shape disagrees with its checked extent"
+        else Ok ()
+    | _ -> Error "global storage lacks its original checked extent"
+
+let prepare_declared catalog declaration =
+  let ( let* ) = Result.bind in
+  let module Declared = Sema.Compiler_record in
+  let symbol = Declared.declared_global_symbol declaration in
+  let previous_global = Declared.declared_global_previous_global declaration in
+  if not (Declared.declared_global_owns_table declaration catalog.table) then
+    Error "declared storage belongs to another semantic table"
+  else if
+    not
+      (Option.fold ~none:false
+         ~some:(Declared.declared_global_owns_namespace declaration)
+         catalog.namespace)
+  then Error "declared storage belongs to another task namespace"
+  else if
+    List.exists
+      (fun publication -> publication_symbol publication == symbol)
+      catalog.published
+  then Error "declared storage has already been admitted"
+  else if
+    Option.fold ~none:false
+      ~some:(fun previous ->
+        not
+          (List.exists
+             (fun publication -> publication_symbol publication == previous)
+             catalog.published))
+      previous_global
+  then Error "previous global storage has not been admitted"
+  else
+    let* () =
+      Sema.Task_command_order.check_declaration catalog.source_order
+        ~admitted:catalog.admitted_commands
+        ~publication:(Declared.declared_global_source declaration)
+        ~predecessor:(Declared.declared_global_predecessor declaration)
+    in
+    let type_ =
+      Declared.declared_global_type declaration
+      |> Sema.Type_reference.resolved_type
+    in
+    let* declared_shape =
+      match
+        Shape.create ~type_
+          ~dimensions:(Declared.declared_global_dimensions declaration)
+      with
+      | Ok shape -> Ok shape
+      | Error Shape.Overflow ->
+          Error "declared storage size exceeds the host integer range"
+      | Error _ ->
+          Error
+            "declared storage requires positive fixed public integer objects"
+    in
+    let slot =
+      {
+        declaration;
+        declared_shape;
+        initialized_leaves = [];
+        initializer_status = Unstarted;
+      }
+    in
+    let bytes = Shape.byte_size declared_shape in
+    Ok
+      ( {
+          fragment_kind_ = None;
+          source_defaults = [];
+          declared_slots_ = [ slot ];
+          slots_ = [];
+          symbols = Symbols.empty;
+          statics_ = [];
+          mode = Resolution.Jit;
+          global_byte_size_ = bytes;
+          global_cell_count_ = Shape.element_count declared_shape;
+          byte_size_ = bytes;
+          task_view = None;
+          function_publications_ = [];
+        },
+        slot )
+
+let publish_declared catalog slot =
+  let publication =
+    Declared_publication
+      ( Retained_global.create
+          (Sema.Compiler_record.declared_global_symbol slot.declaration),
+        slot )
+  in
+  catalog.published <- catalog.published @ [ publication ];
+  publication
+
+let join_declared view globals =
+  let ( let* ) = Result.bind in
+  let module Declared = Sema.Compiler_record in
+  let rec collect index bytes rev = function
+    | [] ->
+        let slots_ = List.rev rev in
+        let symbols =
+          List.fold_left
+            (fun symbols slot ->
+              Symbols.add (Symbol.id slot.symbol) slot symbols)
+            Symbols.empty slots_
+        in
+        Ok
+          {
+            globals with
+            slots_;
+            symbols;
+            global_byte_size_ = bytes;
+            global_cell_count_ = index;
+            byte_size_ = bytes;
+            task_view = Some view;
+          }
+    | slot :: rest -> (
+        let prior =
+          List.find_map
+            (function
+              | _, _, Declared prior
+                when Declared.declared_global_symbol prior.declaration
+                     == slot.symbol -> Some prior
+              | _ -> None)
+            view.entries
+        in
+        match prior with
+        | None ->
+            collect
+              (index + Shape.element_count slot.shape)
+              (bytes + Shape.byte_size slot.shape)
+              ({ slot with index } :: rev)
+              rest
+        | Some prior ->
+            let* () =
+              if not (declared_initializer_joinable prior) then
+                Error
+                  "completed declaration requires successful completion of its \
+                   started live initializer"
+              else Ok ()
+            in
+            let global =
+              Records.classified_record_source slot.record
+              |> Resolution.global_record_global
+            in
+            let* () =
+              match
+                ( view.source_command,
+                  Declared.declared_global_completion prior.declaration )
+              with
+              | Some command, Some completed
+                when Sema.Task_command_order.contains_global command
+                       ~publication:
+                         (Declared.declared_global_source prior.declaration)
+                       ~completed
+                       ~item_index:(Global.global_item_index global)
+                       ~declarator_index:(Global.global_declarator_index global)
+                -> Ok ()
+              | _ ->
+                  Error
+                    "declared storage join lacks its original completed source \
+                     command"
+            in
+            let* () =
+              Declared.validate_declared_global_type prior.declaration global
+            in
+            let* () = validate_slot_extent ~table:view.catalog.table slot in
+            if
+              Shape.dimensions slot.shape
+              <> Shape.dimensions prior.declared_shape
+              || Shape.byte_size slot.shape
+                 <> Shape.byte_size prior.declared_shape
+            then
+              Error
+                "completed storage disagrees with its original allocation shape"
+            else
+              collect index bytes
+                ({ slot with index = 0; declared_owner = Some prior } :: rev)
+                rest)
+  in
+  if globals.statics_ <> [] || globals.declared_slots_ <> [] then
+    Error "declared storage join must precede new static storage layout"
+  else collect 0 0 [] globals.slots_
+
+let slot_reuses_declared_storage slot = Option.is_some slot.declared_owner
+
+let function_publication_is_fresh catalog reference =
+  let module Functions = Sema.Function_resolution in
+  let module Outer = Sema.Outer_environment in
+  let declaration =
+    Retained_function.metadata reference |> Outer.function_declaration
+  in
+  let symbol = Retained_function.symbol reference in
+  let completion =
+    Functions.resolved_declaration_completion_source declaration
+  in
+  let phase_current =
+    Functions.resolved_declaration_phase_current declaration
+  in
+  match Functions.resolved_declaration_retained_predecessor declaration with
+  | None ->
+      not
+        (List.exists
+           (fun prior -> publication_symbol prior == symbol)
+           catalog.published)
+  | Some predecessor -> (
+      match
+        List.find_map
+          (function
+            | Function_publication prior
+              when if Option.is_some completion || Option.is_some phase_current
+                   then Retained_function.symbol prior == symbol
+                   else
+                     Sema.Symbol.name (Retained_function.symbol prior)
+                     = Sema.Symbol.name symbol -> Some prior
+            | _ -> None)
+          (List.rev catalog.published)
+      with
+      | Some prior -> (
+          Retained_function.symbol prior == symbol
+          && Outer.function_declaration (Retained_function.metadata prior)
+             == predecessor
+          && (match
+                Retained_function.metadata reference
+                |> Outer.function_classified_declaration
+                |> Sema.Function_record_classification
+                   .classified_declaration_retained_predecessor
+              with
+            | Some record ->
+                record
+                == Outer.function_classified_declaration
+                     (Retained_function.metadata prior)
+            | None -> false)
+          &&
+          match (phase_current, completion) with
+          | Some current, _ ->
+              current == predecessor
+              && Option.fold ~none:true
+                   ~some:(fun source ->
+                     List.exists
+                       (function
+                         | Function_publication retained ->
+                             Outer.function_declaration
+                               (Retained_function.metadata retained)
+                             == source
+                         | _ -> false)
+                       catalog.published)
+                   (Functions.resolved_declaration_phase_source declaration)
+          | None, None ->
+              Functions.declaration_site_state
+                (Functions.resolved_declaration_site predecessor)
+              = Functions.Unresolved_extern
+          | None, Some pending ->
+              (pending == predecessor
+              || Functions.is_joined_successor ~earlier:pending
+                   ~later:predecessor)
+              && List.exists
+                   (function
+                     | Function_publication source ->
+                         source |> Retained_function.metadata
+                         |> Outer.function_declaration
+                         |> fun declaration -> declaration == pending
+                     | _ -> false)
+                   catalog.published)
+      | None -> false)
+
+let function_record_head catalog snapshot =
+  List.find_map
+    (function
+      | Function_publication reference ->
+          let declaration =
+            Retained_function.metadata reference
+            |> Sema.Outer_environment.function_declaration
+          in
+          let original =
+            Sema.Function_resolution.resolved_declaration_site declaration
+            |> Sema.Function_resolution.declaration_site_native_snapshot
+          in
+          if
+            Option.fold ~none:false
+              ~some:(Sema.Function_record_phase.same_identity snapshot)
+              original
+          then Some reference
+          else None
+      | _ -> None)
+    (List.rev catalog.published)
+
+let check_function_phase_current catalog snapshot declaration =
+  match
+    ( function_record_head catalog snapshot,
+      Sema.Function_resolution.resolved_declaration_phase_current declaration )
+  with
+  | None, None -> Ok ()
+  | Some retained, Some current
+    when Sema.Outer_environment.function_declaration
+           (Retained_function.metadata retained)
+         == current -> Ok ()
+  | _ -> Error "native function phase does not advance its actual catalog head"
+
+let publish_function_phase catalog ~namespace ~event ~snapshot ~records =
+  let module Functions = Sema.Function_resolution in
+  let module Records = Sema.Function_record_classification in
+  let module Native = Sema.Function_record_phase in
+  let ( let* ) = Result.bind in
+  let* classified =
+    match Records.declarations records with
+    | [ classified ] -> Ok classified
+    | _ -> Error "provisional admission requires one exact declaration"
+  in
+  let declaration = Records.classified_declaration_source classified in
+  let site = Functions.resolved_declaration_site declaration in
+  let* () =
+    if
+      not
+        (task_catalog_owns_namespace catalog namespace
+        && Native.owns_namespace snapshot namespace
+        && Native.owns_table snapshot catalog.table
+        && Native.matches_event snapshot event
+        && Functions.resolved_declaration_compilation_mode declaration
+           = Functions.Jit
+        && Functions.declaration_site_phase site = Functions.Provisional
+        && Option.fold ~none:false ~some:(( == ) snapshot)
+             (Functions.declaration_site_native_snapshot site))
+    then Error "provisional admission has another source event, phase or owner"
+    else Ok ()
+  in
+  let* () =
+    Sema.Task_command_order.check_function_publication catalog.source_order
+      ~admitted:catalog.admitted_commands (Native.source snapshot)
+  in
+  let* () = check_function_phase_current catalog snapshot declaration in
+  let* metadata =
+    Sema.Outer_environment.make_function_metadata ~records ~declaration
+    |> Result.map_error Sema.Outer_environment.error_to_string
+  in
+  let reference = Retained_function.create metadata in
+  if not (function_publication_is_fresh catalog reference) then
+    Error "provisional function predecessor is stale or already admitted"
+  else (
+    catalog.published <- catalog.published @ [ Function_publication reference ];
+    Ok reference)
+
+let publish_function_header catalog ~namespace ~source ~records =
+  let module Functions = Sema.Function_resolution in
+  let module Types = Sema.Function_type_resolution in
+  let module Records = Sema.Function_record_classification in
+  let module Source = Sema.Compiler_record in
+  let ( let* ) = Result.bind in
+  let* classified =
+    match Records.declarations records with
+    | [ classified ] -> Ok classified
+    | _ -> Error "pending header admission requires one exact declaration"
+  in
+  let declaration = Records.classified_declaration_source classified in
+  let site = Functions.resolved_declaration_site declaration in
+  let header =
+    Types.function_signature (Functions.declaration_site_function site)
+  in
+  let* () =
+    if
+      (not (task_catalog_owns_namespace catalog namespace))
+      || (not (Source.declared_function_owns_namespace source namespace))
+      || (not (Source.declared_function_owns_table source catalog.table))
+      || Functions.resolved_declaration_compilation_mode declaration
+         <> Functions.Jit
+      || not
+           (Option.fold ~none:false ~some:(( == ) source)
+              (Functions.declaration_site_pending_source site))
+    then Error "pending header admission has another task, source or phase"
+    else Ok ()
+  in
+  let* () =
+    Sema.Task_command_order.check_function_header catalog.source_order
+      ~admitted:catalog.admitted_commands
+      (Source.declared_function_source source)
+  in
+  let* () =
+    match Functions.declaration_site_native_snapshot site with
+    | Some snapshot -> check_function_phase_current catalog snapshot declaration
+    | None ->
+        let publication =
+          (Source.declared_function_source source).function_publication
+        in
+        if
+          List.exists
+            (function
+              | Function_publication retained ->
+                  let snapshot =
+                    Retained_function.metadata retained
+                    |> Sema.Outer_environment.function_declaration
+                    |> Functions.resolved_declaration_site
+                    |> Functions.declaration_site_native_snapshot
+                  in
+                  Option.fold ~none:false
+                    ~some:(fun snapshot ->
+                      Sema.Function_record_phase.source snapshot == publication)
+                    snapshot
+              | _ -> false)
+            catalog.published
+        then
+          Error
+            "tracked native function source requires its original phase advance"
+        else Ok ()
+  in
+  let* () =
+    if
+      List.for_all
+        (fun parameter ->
+          match Types.parameter_default parameter with
+          | Some (Types.Expression_default _) ->
+              List.exists
+                (fun value ->
+                  Prepared_parameter_default.matches value
+                    ~header:(Functions.declaration_site_function site)
+                    ~parameter)
+                catalog.defaults
+          | _ -> true)
+        (Types.signature_parameters header)
+    then Ok ()
+    else
+      Error "pending header requires its successful original parameter defaults"
+  in
+  let* metadata =
+    Sema.Outer_environment.make_function_metadata ~records ~declaration
+    |> Result.map_error Sema.Outer_environment.error_to_string
+  in
+  let reference = Retained_function.create metadata in
+  if not (function_publication_is_fresh catalog reference) then
+    Error
+      "pending header predecessor is stale or its source was already admitted"
+  else (
+    catalog.published <- catalog.published @ [ Function_publication reference ];
+    Ok reference)
+
+let check_task_command catalog globals =
+  if Option.is_some globals.fragment_kind_ then
+    Error
+      "initializer fragment storage requires its original live execution \
+       attempt"
+  else
+    match globals.task_view with
+    | None -> Error "task execution requires a compiled task storage view"
+    | Some view when view.catalog != catalog ->
+        Error "compiled storage view belongs to another task"
+    | Some view ->
+        if globals.mode <> Resolution.Jit then
+          Error "task commands require JIT storage"
+        else if
+          Option.is_some view.source_command
+          && List.exists
+               (fun reference ->
+                 let header =
+                   Retained_function.metadata reference
+                   |> Sema.Outer_environment.function_declaration
+                   |> Sema.Function_resolution.resolved_declaration_site
+                   |> Sema.Function_resolution.declaration_site_function
+                 in
+                 Sema.Function_type_resolution.function_signature header
+                 |> Sema.Function_type_resolution.signature_parameters
+                 |> List.exists (fun parameter ->
+                     match
+                       Sema.Function_type_resolution.parameter_default parameter
+                     with
+                     | Some (Sema.Function_type_resolution.Expression_default _)
+                       ->
+                         Option.is_none
+                           (prepared_parameter_default globals ~header
+                              ~parameter)
+                     | _ -> false))
+               globals.function_publications_
+        then
+          Error
+            "task function requires successful completion of its original \
+             parameter defaults"
+        else if
+          List.exists
+            (fun slot ->
+              Option.fold ~none:false
+                ~some:(fun declared ->
+                  not (declared_initializer_joinable declared))
+                slot.declared_owner)
+            globals.slots_
+        then
+          Error
+            "task command requires successful completion of its started live \
+             initializer"
+        else if
+          not
+            (List.for_all
+               (fun slot ->
+                 Sema.Symbol_table.owns_symbol catalog.table
+                   (storage_symbol slot))
+               (storage_slots globals))
+        then Error "new task storage has foreign symbols"
+        else if
+          List.exists
+            (fun slot ->
+              List.exists
+                (fun prior ->
+                  publication_symbol prior == slot.symbol
+                  && not
+                       (match (prior, slot.declared_owner) with
+                       | Declared_publication (_, pending), Some owner ->
+                           pending == owner
+                       | _ -> false))
+                catalog.published)
+            globals.slots_
+        then Error "task storage declaration has already been admitted"
+        else if
+          not
+            (List.for_all
+               (fun (_, reference, slot) ->
+                 List.exists
+                   (function
+                     | Global_publication (prior, expected) ->
+                         Retained_global.same prior reference
+                         && same_storage (Global expected) slot
+                     | Declared_publication (prior, expected) ->
+                         Retained_global.same prior reference
+                         && same_storage (Declared expected) slot
+                     | Function_publication _ -> false)
+                   catalog.published)
+               view.entries)
+        then Error "retained global reference is absent from this task"
+        else if
+          not
+            (List.for_all
+               (fun (_, reference) ->
+                 List.exists
+                   (function
+                     | Function_publication prior ->
+                         Retained_function.same prior reference
+                     | Global_publication _ | Declared_publication _ -> false)
+                   catalog.published)
+               view.function_entries)
+        then Error "retained function reference is absent from this task"
+        else if
+          List.exists
+            (fun reference ->
+              (not
+                 (Sema.Symbol_table.owns_symbol catalog.table
+                    (Retained_function.symbol reference)))
+              || not (function_publication_is_fresh catalog reference))
+            globals.function_publications_
+        then Error "task function declaration is foreign or already admitted"
+        else
+          Result.bind
+            (Option.fold ~none:(Ok ())
+               ~some:
+                 (Sema.Task_command_order.check catalog.source_order
+                    ~admitted:catalog.admitted_commands)
+               view.source_command)
+            (fun () ->
+              List.fold_left
+                (fun result slot ->
+                  Result.bind result (fun () ->
+                      validate_slot_extent ~table:catalog.table slot))
+                (Ok ())
+                (globals.slots_
+                @ List.filter_map
+                    (function
+                      | _, _, Global slot -> Some slot
+                      | _ -> None)
+                    view.entries))
+
+let publish_task catalog globals =
+  Option.iter
+    (fun view ->
+      Option.iter
+        (fun command ->
+          catalog.admitted_commands <- command :: catalog.admitted_commands)
+        view.source_command)
+    globals.task_view;
+  let order = function
+    | Declared_publication _ -> assert false
+    | Global_publication (_, slot) ->
+        let source =
+          Records.classified_record_source slot.record
+          |> Resolution.global_record_global
+        in
+        ( Global.global_item_index source,
+          Option.value (Global.global_declarator_index source) ~default:0 )
+    | Function_publication reference ->
+        let header =
+          Retained_function.metadata reference
+          |> Sema.Outer_environment.function_declaration
+          |> Sema.Function_resolution.resolved_declaration_site
+          |> Sema.Function_resolution.declaration_site_function
+        in
+        (Sema.Function_type_resolution.function_item_index header, 0)
+  in
+  let publications =
+    List.map
+      (fun slot ->
+        Global_publication (Retained_global.create slot.symbol, slot))
+      (List.filter
+         (fun slot -> Option.is_none slot.declared_owner)
+         globals.slots_)
+    @ List.map
+        (fun reference -> Function_publication reference)
+        globals.function_publications_
+    |> List.stable_sort (fun left right -> compare (order left) (order right))
+  in
+  catalog.published <- catalog.published @ publications;
+  publications
 
 let with_initial_values ~span globals values =
   let invalid message =
@@ -621,6 +1886,7 @@ let storage_array_image slot =
               (Arrays.prepared entry))
   in
   match slot with
+  | Declared _ -> []
   | Global slot -> image slot.array_initializers
   | Static slot -> image (Integer_statics.array_initializers slot)
 
@@ -720,6 +1986,7 @@ let array_human globals =
             let symbol = storage_symbol slot in
             let owner, values =
               match slot with
+              | Declared _ -> ("declared-global", "")
               | Global slot -> ("global", initializers slot.array_initializers)
               | Static slot ->
                   ( "static:"
@@ -743,3 +2010,46 @@ let array_human globals =
         |> String.concat "")
 
 let human globals = scalar_human globals ^ array_human globals
+
+let dimension_dependencies globals =
+  List.concat_map
+    (fun slot ->
+      Option.fold ~none:[]
+        ~some:Sema.Compiler_record.global_extent_runtime_dependencies
+        slot.extent
+      @ List.concat_map
+          (fun root ->
+            Dimension_requirements.expression (Typed.top_level_root_value root))
+          (slot_initializers slot))
+    globals.slots_
+  @ List.concat_map
+      (fun slot ->
+        Dimension_requirements.frame (static_frame slot)
+        @ List.concat_map
+            (fun root ->
+              Dimension_requirements.expression (Typed.initializer_value root))
+            (static_initializers slot))
+      globals.statics_
+
+let offset_dependencies globals =
+  List.concat_map
+    (fun slot ->
+      Option.fold ~none:[]
+        ~some:Sema.Compiler_record.global_extent_offset_dependencies slot.extent
+      @ List.concat_map
+          (fun root ->
+            Offset_requirements.expression (Typed.top_level_root_value root))
+          (slot_initializers slot))
+    globals.slots_
+  @ List.concat_map
+      (fun slot ->
+        Offset_requirements.frame (static_frame slot)
+        @ List.concat_map
+            (fun root ->
+              Offset_requirements.expression (Typed.initializer_value root))
+            (static_initializers slot))
+      globals.statics_
+
+let check_suspended_completion catalog ~suspension receipt =
+  Sema.Task_command_order.check_suspended_completion catalog.source_order
+    ~admitted:catalog.admitted_commands ~suspension receipt

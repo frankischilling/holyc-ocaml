@@ -1,5 +1,39 @@
 # holyc-ocaml
 
+[Variadic signatures](docs/variadic-header-termination.md) can omit the closing
+parenthesis after `...`, as in the pinned TempleOS parser.
+`holyc run examples/integer-variadic-termination.hc` returns 42.
+
+[Function parameter delimiters](docs/function-parameter-delimiters.md) now
+preserve trailing commas and empty semicolon entries without adding argument
+slots. `holyc run examples/integer-parameter-delimiters.hc` returns 42.
+
+Nested function replacement preserves separately selected headers and bodies.
+`holyc run --mode=jit examples/stateful-exe-function-versions.hc` returns 42
+by combining an earlier pending call, a captured inner body and a fresh call
+using the inner default with the outer body. The AOT outer mode runs the same
+directive in its separate JIT task.
+[Completed function headers](docs/completed-function-headers.md) explains the
+42/7/101 results, hidden shadows and initializer checks.
+
+Separate `#exe` commands can replace an extern header and define its function
+while retaining one callable identity. [Task function joins](docs/task-function-joins.md)
+covers saved defaults, record flags and earlier compiled calls.
+
+`holyc run --mode=jit --format=json examples/integer-runtime-dimensions.hc`
+returns 42 using an array bound evaluated once during declaration parsing.
+[Runtime dimensions](docs/integer-runtime-dimensions.md) covers calls, updates,
+local declaration timing, shared limits and the remaining AOT boundary.
+
+`holyc run --mode=jit --format=json examples/integer-jit-defaults.hc` returns
+42 using a default evaluated once during ordinary declaration parsing, without
+a directive. Later calls reuse the saved value after its source global changes.
+
+`holyc run --mode=aot --format=json examples/stateful-exe-defaults.hc` returns
+42 using defaults evaluated once during declaration parsing inside `#exe`.
+[Integer defaults](docs/integer-defaults.md) describes saved values, nested calls,
+entry narrowing, failure accounting and the remaining default execution paths.
+
 `holyc run --format=json examples/integer-narrow.hc` executes I8/I16/U16/I32/U32
 storage and signatures, captures `42`, and returns I64 42 in both modes.
 [Narrow integers](docs/integer-narrow.md) covers signed storage, full register
@@ -397,7 +431,7 @@ dune exec holyc -- corpus parse --mode=aot --reference-root=third_party/TempleOS
 dune exec holyc -- corpus parse --mode=aot --require-all --reference-root=third_party/TempleOS
 ```
 
-`lex`, `preprocess`, `parse`, `dump-ast`, `dump-symbols`, `dump-layout`, and `corpus lex` exit with status 1 when they report an error. `dump-symbols` still writes the state accumulated before a parser failure, which makes partial corpus failures inspectable without turning them into successful parses. Its default output includes the 570 pinned compiler entries; `--source-only` keeps declarations published from the input stream. `dump-layout` behaves differently: it writes no layout to stdout until parsing, type resolution, closed layout, and duplicate validation all succeed. Its JSON success schema is `holyc-aggregate-layout-v1`; semantic failures use `holyc-command-error-v1` on stderr. `corpus parse` normally succeeds after a complete comparison because known incompatibilities are its output; `--require-all` returns status 1 unless every file parses with the project prelude. A failed constant `#assert` is a warning, so later input remains available and the command succeeds when no error follows. JIT preprocessing is the default for single files. The parser corpus defaults to AOT, and `--mode=jit` selects its other branch. All columns and offsets are byte positions.
+`lex`, `preprocess`, `parse`, `dump-ast`, `dump-symbols`, `dump-layout`, and `corpus lex` exit with status 1 when they report an error. `dump-symbols` still writes the state accumulated before a parser failure, which makes partial corpus failures inspectable without turning them into successful parses. Its default output includes the 576 pinned compiler entries; `--source-only` keeps declarations published from the input stream. `dump-layout` behaves differently: it writes no layout to stdout until parsing, type resolution, closed layout, and duplicate validation all succeed. Its JSON success schema is `holyc-aggregate-layout-v1`; semantic failures use `holyc-command-error-v1` on stderr. `corpus parse` normally succeeds after a complete comparison because known incompatibilities are its output; `--require-all` returns status 1 unless every file parses with the project prelude. A failed constant `#assert` is a warning, so later input remains available and the command succeeds when no error follows. JIT preprocessing is the default for single files. The parser corpus defaults to AOT, and `--mode=jit` selects its other branch. All columns and offsets are byte positions.
 
 `holyc run --target=ir examples/integer-arrays.hc` executes the documented array program through semantic checking, verified IR and the bounded interpreter. The earlier integer function, control-flow, global, static and pointer examples use the same path. Native compilation and general HolyC execution remain unavailable.
 
@@ -413,7 +447,18 @@ The TempleOS checkout is a read-only submodule at `third_party/TempleOS`. Run `t
 
 HolyC `#exe` runs code during compilation. This build does not execute arbitrary `#exe` input. Future general support will use a deterministic VM with bounded steps and memory by default. Native compile-time execution will require an explicit unsafe option. See [SECURITY.md](SECURITY.md).
 
-The `eval` and `run --target=ir` commands use the shared bounded integer interpreter. Stateful compile-time execution has not yet connected that engine to `#exe` or `StreamPrint`; the existing source execution examples do not establish those capabilities.
+The `eval` and `run --target=ir` commands use the shared bounded integer interpreter.
+`run --mode=aot` now connects supported `#exe` task commands and `StreamPrint` to
+the live parser, then executes the complete outer unit in an isolated image.
+Try [stateful-exe-aot.hc](examples/stateful-exe-aot.hc), which returns 42 and
+captures `AB`. [Task execution notes](docs/integer-task.md) describe the shared
+invocation limits and current boundaries. Live tasks now allocate original global
+storage and execute initializer leaves and integer parameter defaults at parser
+boundaries. `run --mode=jit` shares that task with the original outer source;
+[stateful-exe-jit.hc](examples/stateful-exe-jit.hc) returns 42 and captures `AB`
+using a saved default prepared before its source global changes. Inputs without
+an active directive retain their isolated execution path. General defaults,
+partial function headers and the remaining #635 requirements are still open.
 
 ## License and attribution
 

@@ -82,6 +82,9 @@ type t = {
   body_ : Block_graph.t;
   x87_ : X87_stack.t;
   definition_ : definition_binding option;
+  dimension_dependencies_ :
+    Sema.Compiler_record.runtime_dimension_proposal list;
+  offset_dependencies_ : Sema.Compiler_record.aggregate_offset list;
 }
 
 let reference_commit = Instruction_sequence.reference_commit
@@ -265,6 +268,8 @@ let create description =
               body_ = description.body;
               x87_ = x87;
               definition_ = None;
+              dimension_dependencies_ = [];
+              offset_dependencies_ = [];
             })
 
 let function_id function_ = function_.function_id_
@@ -419,7 +424,16 @@ let with_definition ~records ~sources ~frames ~definition ~frame function_ =
          function_.definition_)
       "a bound function body cannot change its definition association"
   in
-  Ok { function_ with definition_ = Some { declaration; frame } }
+  Ok
+    {
+      function_ with
+      definition_ = Some { declaration; frame };
+      dimension_dependencies_ =
+        Dimension_requirements.functions sources
+        @ Dimension_requirements.frame frame;
+      offset_dependencies_ =
+        Offset_requirements.functions sources @ Offset_requirements.frame frame;
+    }
 
 let add_quoted buffer text =
   Buffer.add_char buffer '"';
@@ -497,3 +511,6 @@ let human function_ =
   Buffer.add_string buffer (Block_graph.human_body function_.body_);
   Buffer.add_string buffer "x87=verified\n";
   Buffer.contents buffer
+
+let dimension_dependencies function_ = function_.dimension_dependencies_
+let offset_dependencies value = value.offset_dependencies_

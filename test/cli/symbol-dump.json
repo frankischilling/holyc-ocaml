@@ -3,7 +3,7 @@
   "reference_commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
   "symbols": [
     {
-      "id": 570,
+      "id": 576,
       "name": "Node",
       "kind": "class",
       "origin": {
@@ -36,7 +36,7 @@
       "call_shape": null
     },
     {
-      "id": 571,
+      "id": 577,
       "name": "count",
       "kind": "global-variable",
       "origin": {
@@ -69,7 +69,7 @@
       "call_shape": null
     },
     {
-      "id": 572,
+      "id": 578,
       "name": "generated",
       "kind": "global-variable",
       "origin": {
@@ -120,7 +120,7 @@
       "call_shape": null
     },
     {
-      "id": 573,
+      "id": 579,
       "name": "Compute",
       "kind": "function",
       "origin": {

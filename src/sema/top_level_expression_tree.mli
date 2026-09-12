@@ -8,6 +8,10 @@ type switch_case_pattern =
 type root_role =
   | Expression_statement of { statement_index : int }
   | Global_initializer of Global_initializer_binding.resolved_global
+  | Initializer_fragment of Initializer_fragment.t
+  | Default_fragment of Default_fragment.t
+  | Dimension_fragment of Dimension_fragment.t
+  | Offset_fragment of Offset_fragment.t
   | Implicit_output_fixed of {
       output_index : int;
       target : Function_call_resolution.implicit_output_target;
@@ -63,6 +67,38 @@ val make_initializer_root :
   origin:Symbol.origin ->
   (root, error) result
 
+val make_fragment_root :
+  index:int ->
+  fragment:Initializer_fragment.t ->
+  expression:Function_call_resolution.argument_expression ->
+  calls:call list ->
+  (root, error) result
+
+val bind_implicit_root_source :
+  source:Frontend.Ast.implicit_output_statement ->
+  calls:call list ->
+  root ->
+  (root, error) result
+
+val root_implicit_statement :
+  root -> Frontend.Ast.implicit_output_statement option
+(** Original source attached after expression and call validation. Statement
+    construction checks complete argument groups and exact call membership. *)
+
+val make_dimension_root :
+  index:int ->
+  fragment:Dimension_fragment.t ->
+  expression:Function_call_resolution.argument_expression ->
+  calls:call list ->
+  (root, error) result
+
+val make_default_root :
+  index:int ->
+  fragment:Default_fragment.t ->
+  expression:Function_call_resolution.argument_expression ->
+  calls:call list ->
+  (root, error) result
+
 val make_switch_case :
   index:int ->
   keyword_origin:Symbol.origin ->
@@ -76,6 +112,14 @@ val make_call :
   callee_expression:Function_call_resolution.argument_expression ->
   result_expression:Function_call_resolution.argument_expression ->
   (call, error) result
+
+val make_source_statement :
+  outputs:(int * Frontend.Ast.implicit_output_statement) list ->
+  source:Top_level_outer_expression_binding.statement ->
+  roots:root list ->
+  calls:call list ->
+  switch_cases:switch_case list ->
+  (statement, error) result
 
 val make_statement :
   source:Top_level_outer_expression_binding.statement ->
@@ -137,3 +181,13 @@ val error_kind : error -> error_kind
 val error_origin : error -> Symbol.origin option
 val error_message : error -> string
 val error_to_string : error -> string
+
+val statement_implicit_outputs :
+  statement -> (int * Frontend.Ast.implicit_output_statement) list option
+
+val make_offset_root :
+  index:int ->
+  fragment:Offset_fragment.t ->
+  expression:Function_call_resolution.argument_expression ->
+  calls:call list ->
+  (root, error) result

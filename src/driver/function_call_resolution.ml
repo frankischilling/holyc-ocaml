@@ -531,6 +531,9 @@ let identifier_value_for_typed_value value =
     ?function_address_path:value.function_address_path ()
 
 type state = {
+  call_phases :
+    Frontend.Ast.call_expression ->
+    (Sema.Function_call_phase.t option, string) result;
   member_index : Sema.Aggregate_member_index.t option;
   before_item_index : int;
   next_occurrence : int;
@@ -560,9 +563,10 @@ type state = {
   defined_queries : Sema.Function_call_resolution.defined_function_query list;
 }
 
-let empty_state member_index before_item_index visible_aggregates typed_values
-    global_values occurrences defined_queries locals =
+let empty_state call_phases member_index before_item_index visible_aggregates
+    typed_values global_values occurrences defined_queries locals =
   {
+    call_phases;
     member_index;
     before_item_index;
     next_occurrence = 0;
@@ -694,11 +698,26 @@ let function_query_origin = function
   | Sema.Function_call_resolution.Outer_query query ->
       Sema.Outer_expression_binding.query_origin query
 
-let defined_query queries (operand : Frontend.Ast.defined_operand) =
+let selected_query_matches query expression =
+  let selection =
+    match query with
+    | Sema.Function_call_resolution.Module_query query ->
+        Sema.Module_expression_binding.query_selection query
+    | Sema.Function_call_resolution.Outer_query query ->
+        Sema.Outer_expression_binding.query_selection query
+  in
+  Option.fold ~none:true
+    ~some:(fun selected ->
+      Sema.Query_selection.expression selected == expression)
+    selection
+
+let defined_query queries expression (operand : Frontend.Ast.defined_operand) =
   let spelling = operand.defined_operand_spelling in
   let operand_origin = origin operand.defined_operand_location in
   let matches query =
-    function_query_role query = Sema.Function_expression_binding.Defined_operand
+    selected_query_matches query expression
+    && function_query_role query
+       = Sema.Function_expression_binding.Defined_operand
     && String.equal spelling (function_query_name query)
     && operand_origin = function_query_origin query
   in
@@ -707,11 +726,12 @@ let defined_query queries (operand : Frontend.Ast.defined_operand) =
   | [] -> Error "defined operand has no matching function query"
   | _ -> Error "defined operand has more than one matching function query"
 
-let sizeof_query queries (sizeof : Frontend.Ast.sizeof_expression) =
+let sizeof_query queries expression (sizeof : Frontend.Ast.sizeof_expression) =
   let spelling = sizeof.sizeof_target.spelling in
   let target_origin = origin sizeof.sizeof_target.location in
   let matches query =
-    function_query_role query = Sema.Function_expression_binding.Sizeof_root
+    selected_query_matches query expression
+    && function_query_role query = Sema.Function_expression_binding.Sizeof_root
     && String.equal spelling (function_query_name query)
     && target_origin = function_query_origin query
   in
@@ -720,11 +740,12 @@ let sizeof_query queries (sizeof : Frontend.Ast.sizeof_expression) =
   | [] -> Error "sizeof target has no matching function query"
   | _ -> Error "sizeof target has more than one matching function query"
 
-let offset_query queries (offset : Frontend.Ast.offset_expression) =
+let offset_query queries expression (offset : Frontend.Ast.offset_expression) =
   let spelling = offset.offset_target.spelling in
   let target_origin = origin offset.offset_target.location in
   let matches query =
-    function_query_role query = Sema.Function_expression_binding.Offset_root
+    selected_query_matches query expression
+    && function_query_role query = Sema.Function_expression_binding.Offset_root
     && String.equal spelling (function_query_name query)
     && target_origin = function_query_origin query
   in
@@ -744,12 +765,12 @@ let map_result apply values =
   loop [] values
 
 let sizeof_kind member_index ~before_item_index locals globals queries
-    (sizeof : Frontend.Ast.sizeof_expression) =
+    expression (sizeof : Frontend.Ast.sizeof_expression) =
   let pointer (layer : Frontend.Ast.pointer_layer) =
     Sema.Function_call_resolution.make_sizeof_pointer_layer ~depth:layer.depth
       ~spelling:layer.spelling ~origin:(origin layer.location)
   in
-  match sizeof_query queries sizeof with
+  match sizeof_query queries expression sizeof with
   | Error _ as error -> error
   | Ok query -> (
       let bound_target =
@@ -796,7 +817,7 @@ let sizeof_kind member_index ~before_item_index locals globals queries
                       (Sema.Function_call_resolution.Sizeof_function_query query)
                     ~bound_aggregate_size ~bound_target)))
 
-let offset_kind locals globals queries visible
+let offset_kind locals globals queries visible expression
     (offset : Frontend.Ast.offset_expression) =
   let publication_for_target target =
     let target_type =
@@ -822,7 +843,7 @@ let offset_kind locals globals queries visible
       ~origin:(origin source.offset_member_location)
       ()
   in
-  Result.bind (offset_query queries offset) (fun root_query ->
+  Result.bind (offset_query queries expression offset) (fun root_query ->
       let bound_target =
         root_query
         |> typed_value_for_query locals globals
@@ -904,6 +925,7 @@ let rec advance_expression_occurrences occurrences cursor = function
 let rec argument_expression member_index before_item_index visible locals
     globals occurrences defined_queries cursor
     (expression : Frontend.Ast.expression) =
+  let source_identifier = ref None in
   let kind_result =
     match expression with
     | Frontend.Ast.Integer_literal literal -> (
@@ -959,6 +981,7 @@ let rec argument_expression member_index before_item_index visible locals
             | Sema.Module_expression_binding.Outer_candidate -> (
                 match typed_value_for_occurrence locals globals occurrence with
                 | None ->
+                    source_identifier := Some occurrence;
                     Ok
                       (Sema.Function_call_resolution.Unresolved_expression
                          Sema.Function_call_resolution.Identifier_expression)
@@ -976,9 +999,9 @@ let rec argument_expression member_index before_item_index visible locals
              Sema.Function_call_resolution.Current_position_expression)
     | Frontend.Ast.Sizeof_expression sizeof ->
         sizeof_kind member_index ~before_item_index locals globals
-          defined_queries sizeof
+          defined_queries expression sizeof
     | Frontend.Ast.Offset_expression offset ->
-        offset_kind locals globals defined_queries visible offset
+        offset_kind locals globals defined_queries visible expression offset
     | Frontend.Ast.Defined_expression defined ->
         let operand = defined.defined_operand in
         let operand_kind =
@@ -996,7 +1019,7 @@ let rec argument_expression member_index before_item_index visible locals
               Result.map
                 (fun query ->
                   Sema.Function_call_resolution.Defined_function_query query)
-                (defined_query defined_queries operand)
+                (defined_query defined_queries expression operand)
         in
         Result.bind resolution (fun operand_resolution ->
             Sema.Function_call_resolution.make_defined_argument_expression
@@ -1113,8 +1136,13 @@ let rec argument_expression member_index before_item_index visible locals
   in
   Result.map
     (fun kind ->
-      Sema.Function_call_resolution.make_argument_expression ~kind
-        ~origin:(origin (Frontend.Ast.expression_location expression)))
+      match !source_identifier with
+      | Some occurrence ->
+          Sema.Function_call_resolution.make_source_identifier_expression
+            ~occurrence
+      | None ->
+          Sema.Function_call_resolution.make_argument_expression ~kind
+            ~origin:(origin (Frontend.Ast.expression_location expression)))
     kind_result
 
 let argument member_index before_item_index visible locals globals occurrences
@@ -1213,6 +1241,8 @@ let record_call state call =
 
 let collect_call visible locals globals occurrences defined_queries state
     (call : Frontend.Ast.call_expression) =
+  let ( let* ) = Result.bind in
+  let* original_phase = state.call_phases call in
   let member_index = state.member_index in
   let before_item_index = state.before_item_index in
   match identifier_callee 0 call.call_callee with
@@ -1242,7 +1272,7 @@ let collect_call visible locals globals occurrences defined_queries state
                     ~callee_occurrence_index:state.next_occurrence
                     ~callee_name:callee.spelling
                     ~callee_origin:(origin callee.location) ~callee_form
-                    ?callable
+                    ?callable ?original_phase
                     ~origin:(origin call.call_location)
                     ~syntax:(call_syntax call) arguments
                 with
@@ -1447,6 +1477,7 @@ let local_declaration state (declaration : Frontend.Ast.local_declaration) =
 
 let record_implicit_output state
     (output : Frontend.Ast.implicit_output_statement) =
+  let first_call = state.next_call in
   let first_occurrence = state.next_occurrence in
   let member_index = state.member_index in
   let before_item_index = state.before_item_index in
@@ -1455,14 +1486,13 @@ let record_implicit_output state
   let globals = state.global_values in
   let occurrences = state.occurrences in
   let defined_queries = state.defined_queries in
-  let fixed_value, fixed_source =
+  let fixed_value =
     match output.fixed_argument with
-    | Frontend.Ast.Marker_fixed_argument value ->
-        (value, Sema.Function_call_resolution.Marker_fixed_output)
-    | Frontend.Ast.Expression_fixed_argument value ->
-        (value, Sema.Function_call_resolution.Following_expression_output)
+    | Frontend.Ast.Marker_fixed_argument value -> Some value
+    | Frontend.Ast.Expression_fixed_argument value -> Some value
+    | Frontend.Ast.Absent_fixed_argument -> None
   in
-  match expression state fixed_value with
+  match Option.fold ~none:(Ok state) ~some:(expression state) fixed_value with
   | Error _ as error -> error
   | Ok state -> (
       match
@@ -1475,8 +1505,12 @@ let record_implicit_output state
       | Ok state -> (
           let cursor = ref first_occurrence in
           match
-            argument_expression member_index before_item_index visible locals
-              globals occurrences defined_queries cursor fixed_value
+            Option.fold ~none:(Ok None)
+              ~some:(fun value ->
+                argument_expression member_index before_item_index visible
+                  locals globals occurrences defined_queries cursor value
+                |> Result.map Option.some)
+              fixed_value
           with
           | Error _ as error -> error
           | Ok fixed_expression -> (
@@ -1493,10 +1527,8 @@ let record_implicit_output state
                     | Ok expression -> (
                         match
                           Sema.Function_call_resolution
-                          .make_implicit_output_argument ~index
-                            ~leading_comma_origin:
-                              (origin argument.leading_comma)
-                            ~expression ~origin:(origin argument.location)
+                          .make_source_implicit_output_argument ~source:argument
+                            ~index ~expression
                         with
                         | Error _ as error -> error
                         | Ok prepared ->
@@ -1514,19 +1546,21 @@ let record_implicit_output state
                     "function implicit output traversal disagrees with \
                      ordinary expression binding"
               | Ok arguments -> (
-                  let target =
-                    match output.target with
-                    | Frontend.Ast.Print_target ->
-                        Sema.Function_call_resolution.Print_output
-                    | Frontend.Ast.Put_chars_target ->
-                        Sema.Function_call_resolution.Put_chars_output
-                  in
                   match
-                    Sema.Function_call_resolution.make_implicit_output
-                      ~index:state.next_implicit_output ~target
-                      ~marker_origin:(origin output.marker.literal_location)
-                      ~fixed_source ~fixed_expression ~arguments
-                      ~origin:(origin output.location)
+                    Sema.Function_call_resolution
+                    .make_source_implicit_output_with_optional_fixed
+                      ~source:output ~index:state.next_implicit_output
+                      ~fixed_expression ~arguments
+                      ~calls:
+                        (state.calls_rev
+                        |> List.filter (fun call ->
+                            Sema.Function_call_resolution.call_index call
+                            >= first_call)
+                        |> List.sort (fun left right ->
+                            Int.compare
+                              (Sema.Function_call_resolution.call_index left)
+                              (Sema.Function_call_resolution.call_index right))
+                        )
                   with
                   | Error _ as error -> error
                   | Ok prepared ->
@@ -1903,8 +1937,8 @@ let function_header = function
   | Prototype prototype -> (prototype.name, None)
   | Definition definition -> (definition.name, definition.body)
 
-let function_input table member_index visible_aggregates global_values
-    defined_queries expected typed locals (item_index, ast) =
+let function_input call_phases table member_index visible_aggregates
+    global_values defined_queries expected typed locals (item_index, ast) =
   let symbol = Sema.Module_expression_binding.function_symbol expected in
   let scope = Sema.Module_expression_binding.function_scope expected in
   let expected_item =
@@ -1930,8 +1964,8 @@ let function_input table member_index visible_aggregates global_values
         in
         let collected =
           let state =
-            empty_state member_index item_index visible_aggregates typed_values
-              global_values
+            empty_state call_phases member_index item_index visible_aggregates
+              typed_values global_values
               (occurrence_map expected_occurrences)
               defined_queries
               (Sema.Local_type_resolution.function_locals locals)
@@ -1982,8 +2016,8 @@ let publish_aggregates_before visible publications item_index =
   in
   loop visible publications
 
-let function_inputs table member_index function_types local_types global_values
-    expressions outer module_ =
+let function_inputs call_phases table member_index function_types local_types
+    global_values expressions outer module_ =
   let rec pair inputs_rev visible publications expected typed locals ast =
     match (expected, typed, locals, ast) with
     | [], [], [], [] -> Ok (List.rev inputs_rev)
@@ -2023,8 +2057,8 @@ let function_inputs table member_index function_types local_types global_values
         | Error _ as error -> error
         | Ok defined_queries -> (
             match
-              function_input table member_index visible global_values
-                defined_queries expected typed locals ast
+              function_input call_phases table member_index visible
+                global_values defined_queries expected typed locals ast
             with
             | Error _ as error -> error
             | Ok input ->
@@ -2040,8 +2074,9 @@ let function_inputs table member_index function_types local_types global_values
     (Sema.Local_type_resolution.functions local_types)
     (ast_functions module_)
 
-let resolve ~table ~declarations ?members ~function_types ~local_types
-    ~global_types ~functions ~expressions ?outer module_ =
+let resolve ?(call_phases = fun _ -> Ok None) ~table ~declarations ?members
+    ~function_types ~local_types ~global_types ~functions ~expressions ?outer
+    module_ =
   let parent = Sema.Declaration_collection.scope declarations in
   let result =
     if not (Sema.Symbol_table.owns_scope table parent) then
@@ -2070,8 +2105,8 @@ let resolve ~table ~declarations ?members ~function_types ~local_types
           | Error _ as error -> error
           | Ok module_values -> (
               match
-                function_inputs table members function_types local_types
-                  module_values expressions outer module_
+                function_inputs call_phases table members function_types
+                  local_types module_values expressions outer module_
               with
               | Error _ as error -> error
               | Ok inputs ->

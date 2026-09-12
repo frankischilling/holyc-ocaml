@@ -18,7 +18,8 @@ type output = {
   target : Function_call_resolution.implicit_output_target;
   fixed_source : Function_call_resolution.implicit_output_fixed_source;
   marker_origin : Symbol.origin;
-  fixed_value : Function_call_expression_result.top_level_root_result;
+  fixed_value : Function_call_expression_result.top_level_root_result option;
+  source_ast : Frontend.Ast.implicit_output_statement option;
   arguments : Function_call_expression_result.top_level_root_result list;
   target_name : string;
   binding : target_binding;
@@ -44,7 +45,9 @@ type source_output = {
   source_target : Function_call_resolution.implicit_output_target;
   source_fixed_source : Function_call_resolution.implicit_output_fixed_source;
   source_marker_origin : Symbol.origin;
-  source_fixed_value : Function_call_expression_result.top_level_root_result;
+  source_fixed_value :
+    Function_call_expression_result.top_level_root_result option;
+  source_ast : Frontend.Ast.implicit_output_statement option;
   source_arguments : Function_call_expression_result.top_level_root_result list;
 }
 
@@ -84,7 +87,9 @@ let output_statement output = output.statement
 let output_target output = output.target
 let output_fixed_source output = output.fixed_source
 let output_marker_origin output = output.marker_origin
-let output_fixed_value output = output.fixed_value
+let output_supplied_fixed_value (output : output) = output.fixed_value
+let output_fixed_value output = Option.get (output_supplied_fixed_value output)
+let output_source_statement (output : output) = output.source_ast
 let output_arguments output = output.arguments
 let output_target_name output = output.target_name
 let output_binding output = output.binding
@@ -140,10 +145,13 @@ let resolve_module_target headers declarations publication =
   match
     (Int_map.find_opt number headers, Int_map.find_opt number declarations)
   with
-  | Some header, Some declaration
+  | Some _, Some declaration
     when same_symbol
            (Function_resolution.resolved_declaration_identity_symbol declaration)
            target_symbol ->
+      let header =
+        Function_resolution.resolved_declaration_header declaration
+      in
       Ok (Module_function { publication; header; declaration; target_symbol })
   | Some _, Some _ ->
       Error
@@ -191,7 +199,7 @@ let rec publish_before item_index visible = function
 let target_name target =
   Function_call_resolution.implicit_output_target_name target
 
-let resolve_output environment headers declarations visible source =
+let resolve_unselected_output environment headers declarations visible source =
   let name = target_name source.source_target in
   match String_map.find_opt name visible with
   | Some publication -> (
@@ -206,6 +214,7 @@ let resolve_output environment headers declarations visible source =
               fixed_source = source.source_fixed_source;
               marker_origin = source.source_marker_origin;
               fixed_value = source.source_fixed_value;
+              source_ast = source.source_ast;
               arguments = source.source_arguments;
               target_name = name;
               binding;
@@ -224,11 +233,75 @@ let resolve_output environment headers declarations visible source =
               fixed_source = source.source_fixed_source;
               marker_origin = source.source_marker_origin;
               fixed_value = source.source_fixed_value;
+              source_ast = source.source_ast;
               arguments = source.source_arguments;
               target_name = name;
               binding = Outer_function binding;
             }
       | None -> Error (missing_header source name))
+
+let resolve_output selections table publications environment headers
+    declarations visible source =
+  match selections with
+  | None ->
+      resolve_unselected_output environment headers declarations visible source
+  | Some select ->
+      let ( let* ) = Result.bind in
+      let name = target_name source.source_target in
+      let* statement =
+        match source.source_ast with
+        | Some statement -> Ok statement
+        | None ->
+            Error
+              (invalid_input
+                 "selected implicit root has no original source statement")
+      in
+      let* () =
+        if
+          List.length statement.Frontend.Ast.arguments
+          <> List.length source.source_arguments
+          || not
+               (List.for_all
+                  (fun root ->
+                    Option.fold ~none:false ~some:(( == ) statement)
+                      (root
+                     |> Function_call_expression_result.top_level_root_source
+                     |> Top_level_expression_tree.root_implicit_statement))
+                  source.source_arguments)
+        then
+          Error
+            (invalid_input
+               "selected implicit arguments do not own their complete source \
+                statement")
+        else Ok ()
+      in
+      let* selection = select statement |> Result.map_error invalid_input in
+      let* selected =
+        Implicit_output_selection.resolve ~table ~environment ~publications
+          ~name selection
+        |> Result.map_error invalid_input
+      in
+      let* binding =
+        match selected with
+        | Implicit_output_selection.Module publication ->
+            resolve_module_target headers declarations publication
+        | Implicit_output_selection.Outer binding -> Ok (Outer_function binding)
+        | Implicit_output_selection.Unavailable ->
+            Error (missing_header source name)
+      in
+      Ok
+        {
+          index = source.source_index;
+          statement = source.source_statement;
+          target = source.source_target;
+          fixed_source = source.source_fixed_source;
+          marker_origin = source.source_marker_origin;
+          fixed_value = source.source_fixed_value;
+          source_ast = source.source_ast;
+          arguments = source.source_arguments;
+          target_name = name;
+          binding;
+        }
 
 let root_role root =
   root |> Function_call_expression_result.top_level_root_source
@@ -251,7 +324,7 @@ let collect_arguments output_index roots =
   in
   loop 0 [] roots
 
-let collect_statement_outputs expected_output statement =
+let collect_legacy_statement_outputs expected_output statement =
   let rec loop expected rev = function
     | [] -> Ok (expected, List.rev rev)
     | root :: rest -> (
@@ -277,7 +350,12 @@ let collect_statement_outputs expected_output statement =
                        source_target = target;
                        source_fixed_source = source;
                        source_marker_origin = marker_origin;
-                       source_fixed_value = root;
+                       source_fixed_value = Some root;
+                       source_ast =
+                         root
+                         |> Function_call_expression_result
+                            .top_level_root_source
+                         |> Top_level_expression_tree.root_implicit_statement;
                        source_arguments = arguments;
                      }
                     :: rev)
@@ -289,6 +367,10 @@ let collect_statement_outputs expected_output statement =
                   value")
         | Top_level_expression_tree.Expression_statement _
         | Top_level_expression_tree.Global_initializer _
+        | Top_level_expression_tree.Initializer_fragment _
+        | Top_level_expression_tree.Dimension_fragment _
+        | Top_level_expression_tree.Offset_fragment _
+        | Top_level_expression_tree.Default_fragment _
         | Top_level_expression_tree.Condition _
         | Top_level_expression_tree.Switch_selector _
         | Top_level_expression_tree.Switch_case_value _
@@ -299,8 +381,78 @@ let collect_statement_outputs expected_output statement =
   statement |> Function_call_expression_result.top_level_statement_roots
   |> loop expected_output []
 
-let resolve_statements environment headers declarations module_expressions
-    expressions =
+let collect_statement_outputs expected_output statement =
+  let tree =
+    Function_call_expression_result.top_level_statement_source statement
+  in
+  match Top_level_expression_tree.statement_implicit_outputs tree with
+  | None -> collect_legacy_statement_outputs expected_output statement
+  | Some outputs ->
+      let roots =
+        Function_call_expression_result.top_level_statement_roots statement
+      in
+      let rec loop expected rev = function
+        | [] -> Ok (expected, List.rev rev)
+        | (index, (source : Frontend.Ast.implicit_output_statement)) :: rest ->
+            if index <> expected || expected = max_int then
+              Error
+                (invalid_input
+                   "top-level implicit output indexes are not contiguous")
+            else
+              let fixed =
+                List.find_opt
+                  (fun root ->
+                    match root_role root with
+                    | Top_level_expression_tree.Implicit_output_fixed selected
+                      -> selected.output_index = index
+                    | _ -> false)
+                  roots
+              in
+              let arguments =
+                List.filter
+                  (fun root ->
+                    match root_role root with
+                    | Top_level_expression_tree.Implicit_output_argument
+                        selected -> selected.output_index = index
+                    | _ -> false)
+                  roots
+              in
+              let target =
+                match source.target with
+                | Frontend.Ast.Print_target ->
+                    Function_call_resolution.Print_output
+                | Frontend.Ast.Put_chars_target ->
+                    Function_call_resolution.Put_chars_output
+              in
+              let fixed_source =
+                match source.fixed_argument with
+                | Frontend.Ast.Marker_fixed_argument _ ->
+                    Function_call_resolution.Marker_fixed_output
+                | Frontend.Ast.Expression_fixed_argument _ ->
+                    Function_call_resolution.Following_expression_output
+                | Frontend.Ast.Absent_fixed_argument ->
+                    Function_call_resolution.Absent_fixed_output
+              in
+              loop (expected + 1)
+                ({
+                   source_index = index;
+                   source_statement = statement;
+                   source_target = target;
+                   source_fixed_source = fixed_source;
+                   source_marker_origin =
+                     Initializer_source.origin_of_location
+                       source.marker.literal_location;
+                   source_fixed_value = fixed;
+                   source_ast = Some source;
+                   source_arguments = arguments;
+                 }
+                :: rev)
+                rest
+      in
+      loop expected_output [] outputs
+
+let resolve_statements selections table environment headers declarations
+    module_expressions expressions =
   let rec loop visible publications next_output rev = function
     | [] -> Ok (List.rev rev)
     | statement :: rest -> (
@@ -320,8 +472,9 @@ let resolve_statements environment headers declarations module_expressions
               | [] -> Ok rev
               | source :: rest -> (
                   match
-                    resolve_output environment headers declarations visible
-                      source
+                    resolve_output selections table
+                      (Module_expression_binding.publications module_expressions)
+                      environment headers declarations visible source
                   with
                   | Error _ as error -> error
                   | Ok output -> resolve_outputs (output :: rev) rest)
@@ -345,7 +498,7 @@ let source_context expressions =
   in
   (environment, module_expressions)
 
-let resolve ~table ~function_types ~functions expressions =
+let resolve ?selections ~table ~function_types ~functions expressions =
   let environment, module_expressions = source_context expressions in
   let mode = Function_resolution.compilation_mode functions in
   if
@@ -394,8 +547,8 @@ let resolve ~table ~function_types ~functions expressions =
             | Error _ as error -> error
             | Ok () -> (
                 match
-                  resolve_statements environment headers declarations
-                    module_expressions expressions
+                  resolve_statements selections table environment headers
+                    declarations module_expressions expressions
                 with
                 | Error _ as error -> error
                 | Ok outputs_ ->

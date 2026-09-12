@@ -291,8 +291,69 @@ let session_seed () =
   in
   Alcotest.(check bool) "I64i is seeded" true (Option.is_some i64)
 
+let primitive_entry_authority () =
+  let session = Session.create () in
+  let entry =
+    match
+      Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+        "I64i"
+    with
+    | Symbol_visibility.Present entry -> entry
+    | _ -> Alcotest.fail "expected seeded I64i"
+  in
+  let binding session =
+    match Session.primitive_for session entry with
+    | Some binding -> binding
+    | None -> Alcotest.fail "seeded entry lacks its primitive association"
+  in
+  let original = binding session in
+  let symbol = Session.primitive_symbol original in
+  Alcotest.(check bool)
+    "seeded semantic symbol has original table owner" true
+    (Semantic_symbol_table.owns_symbol
+       (Session.semantic_symbols session)
+       symbol);
+  Alcotest.(check bool)
+    "exact primitive metadata" true
+    (Session.primitive_type original = Primitive_type.I64);
+  let task = Session.task_frontend session in
+  Alcotest.(check bool)
+    "task shares exact builtin association" true
+    (binding task == original);
+  let fork = Session.fork_frontend session in
+  let fork_symbol = Session.primitive_symbol (binding fork) in
+  Alcotest.(check bool)
+    "fork rebinds to its fresh semantic table" true
+    (fork_symbol != symbol
+    && Semantic_symbol_table.owns_symbol
+         (Session.semantic_symbols fork)
+         fork_symbol);
+  let forged =
+    Symbol_visibility.Environment.add (Session.symbols session)
+      ~name:(Symbol_visibility.name entry)
+      ~kind:(Symbol_visibility.kind entry)
+      ~origin:(Symbol_visibility.origin entry)
+      ()
+  in
+  Alcotest.(check bool)
+    "same name, kind and pinned origin grant no authority" true
+    (Option.is_none (Session.primitive_for session forged));
+  Alcotest.(check bool)
+    "new shadow preserves original association" true
+    (binding session == original);
+  Alcotest.(check bool)
+    "unrelated session cannot borrow entry" true
+    (Option.is_none (Session.primitive_for (Session.create ()) entry));
+  let fork = Session.fork_frontend session in
+  Alcotest.(check bool)
+    "fork does not promote forged shadow" true
+    (Option.is_none (Session.primitive_for fork forged));
+  ignore (binding fork)
+
 let tests =
   [
+    Alcotest.test_case "primitive entries retain exact seeding authority" `Quick
+      primitive_entry_authority;
     Alcotest.test_case "stable IDs" `Quick stable_ids;
     Alcotest.test_case "newest and nth lookup" `Quick newest_and_nth_lookup;
     Alcotest.test_case "chained lookup" `Quick chained_lookup;

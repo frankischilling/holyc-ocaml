@@ -268,7 +268,7 @@ let repeated_modules_and_rejected_source () =
       Semantic_declaration_collection.scope second |> scope_id;
     ];
   Alcotest.(check (list int))
-    "declaration IDs" [ 17; 18 ]
+    "declaration IDs" [ 23; 24 ]
     [
       Semantic_declaration_collection.entries first
       |> List.hd |> Semantic_declaration_collection.entry_symbol |> symbol_id;
@@ -332,8 +332,72 @@ let declaration_metadata_validation () =
     (Semantic_declaration_collection.entries collection
     |> List.hd |> Semantic_declaration_collection.entry_symbol |> symbol_id)
 
+let retained_publication_views () =
+  let module C = Semantic_declaration_collection in
+  let table = Semantic_symbol_table.create () in
+  let namespace = C.create_namespace ~table () |> checked in
+  let other = C.create_namespace ~table () |> checked in
+  let origin = Semantic_symbol.Synthesized "publication source" in
+  let publish namespace =
+    C.publish namespace ~name:"A" ~kind:Semantic_symbol.Global_variable ~origin
+    |> checked
+  in
+  let first = publish namespace in
+  let newer = publish namespace in
+  let foreign = publish other in
+  let other_table = Semantic_symbol_table.create () in
+  let other_namespace = C.create_namespace ~table:other_table () |> checked in
+  let foreign_table = publish other_namespace in
+  let fact ?(name = "A") ?(origin = origin) ?(kind = C.Global_variable) index =
+    C.make_declaration ~name ~origin ~declaration_kind:kind ~item_index:index ()
+    |> checked
+  in
+  let original = C.view namespace [ (first, fact 0) ] |> checked in
+  let newest = C.view namespace [ (newer, fact 0) ] |> checked in
+  Alcotest.(check bool)
+    "views retain assigned symbols" true
+    (C.entry_symbol (List.hd (C.entries original)) == C.publication_symbol first
+    && C.entry_symbol (List.hd (C.entries newest)) == C.publication_symbol newer
+    );
+  let before = List.length (Semantic_symbol_table.all_symbols table) in
+  List.iter
+    (fun entries ->
+      Alcotest.(check bool)
+        "invalid publication view is rejected" true
+        (Result.is_error (C.view namespace entries)))
+    [
+      [ (foreign, fact 0) ];
+      [ (foreign_table, fact 0) ];
+      [ (first, fact 0); (first, fact 1) ];
+      [ (newer, fact 1); (first, fact 0) ];
+      [ (first, fact ~name:"B" 0) ];
+      [ (first, fact ~kind:C.Function_definition 0) ];
+      [ (first, fact ~origin:(Semantic_symbol.Synthesized "replacement") 0) ];
+    ];
+  Alcotest.(check int)
+    "views allocate no additional symbols" before
+    (List.length (Semantic_symbol_table.all_symbols table));
+  let selected =
+    Semantic_symbol_table.lookup_local table
+      ~scope:(C.namespace_scope namespace)
+      ~name:"A"
+      ~kinds:[ Semantic_symbol.Global_variable ]
+      ()
+    |> checked |> Option.get
+  in
+  Alcotest.(check bool)
+    "creating an older view preserves the newer shadow" true
+    (selected == C.publication_symbol newer);
+  Alcotest.(check bool)
+    "nondeclaration kind cannot be published" true
+    (Result.is_error
+       (C.publish namespace ~name:"local" ~kind:Semantic_symbol.Local_variable
+          ~origin))
+
 let tests =
   [
+    Alcotest.test_case "retained publication views preserve exact symbols"
+      `Quick retained_publication_views;
     Alcotest.test_case "top-level shapes" `Quick top_level_shapes;
     Alcotest.test_case "lookup order and parent" `Quick lookup_order_and_parent;
     Alcotest.test_case "generated provenance" `Quick generated_provenance;

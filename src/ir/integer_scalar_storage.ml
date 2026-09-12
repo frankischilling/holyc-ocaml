@@ -15,6 +15,17 @@ let of_type type_ =
     | Type.Aggregate _ -> None
 
 let byte_size scalar = scalar.Primitive.byte_size
+
+let compatible_pointer left right =
+  Type.compatible_u8_pointer left right
+  || Type.pointer_depth left = 1
+     && Type.pointer_depth right = 1
+     &&
+     match (Type.base left, Type.base right) with
+     | Type.Primitive (_, Primitive.I64), Type.Primitive (_, Primitive.I64) ->
+         true
+     | _ -> false
+
 let is_unsigned scalar = scalar.Primitive.signedness = Primitive.Unsigned
 
 let normalize scalar bits =

@@ -5,6 +5,11 @@ module Span = Common.Span
 module Diagnostic = Common.Diagnostic
 module Diagnostic_render = Common.Diagnostic_render
 module Session = Driver.Session
+module Integer_task = Driver.Integer_task
+module Task_declarations = Driver.Task_declarations
+module Semantic_compiler_record = Sema.Compiler_record
+module Semantic_provisional_function = Sema.Provisional_function
+module Semantic_function_record_phase = Sema.Function_record_phase
 module Version = Driver.Version
 module Corpus = Driver.Corpus
 module Primitive_type = Sema.Primitive_type
@@ -74,6 +79,7 @@ module Ir_integer_globals : sig
   val slot_symbol : slot -> Sema.Symbol.t
   val slot_type : slot -> Sema.Type.t
   val slot_record : slot -> Sema.Global_record_classification.classified_record
+  val slot_extent : slot -> Sema.Compiler_record.global_extent option
   val slot_opcode : slot -> Ir.Opcode.t
   val slot_initial_bits : slot -> int64 option
 
@@ -87,6 +93,17 @@ module Ir_integer_globals : sig
 end
 
 module Ir_global_address_lowering = Ir.Global_address_lowering
+module Ir_initializer_fragment_destination = Ir.Initializer_fragment_destination
+
+module Ir_initializer_fragment_program : sig
+  type t = Ir.Initializer_fragment_program.t
+
+  val destination : t -> Ir.Initializer_fragment_destination.t
+  val entry : t -> Ir.X87_stack.t
+  val initialization : t -> Ir.Global_initialization.t
+  val runtime_calls : t -> Ir.Runtime_call_context.t
+end
+
 module Ir_integer_interpreter = Ir.Integer_interpreter
 module Ir_runtime_call_context = Ir.Runtime_call_context
 module Ir_integer_program_lowering = Ir.Integer_program_lowering
@@ -198,11 +215,16 @@ module Semantic_top_level_identifier_resolution =
   Sema.Top_level_identifier_resolution
 
 module Semantic_outer_environment = Sema.Outer_environment
+module Semantic_reference_selection = Sema.Reference_selection
+module Semantic_query_selection = Sema.Query_selection
 module Semantic_outer_expression_binding = Sema.Outer_expression_binding
 module Semantic_global_initializer_binding = Sema.Global_initializer_binding
 module Semantic_global_dimension_binding = Sema.Global_dimension_binding
 module Semantic_global_array_layout = Sema.Global_array_layout
 module Semantic_initializer_source = Sema.Initializer_source
+module Semantic_initializer_fragment = Sema.Initializer_fragment
+module Semantic_default_fragment = Sema.Default_fragment
+module Ir_integer_initializer_layout = Ir.Integer_initializer_layout
 module Semantic_function_default_binding = Sema.Function_default_binding
 module Semantic_function_resolution = Sema.Function_resolution
 module Semantic_function_header_analysis = Sema.Function_header_analysis
@@ -387,6 +409,14 @@ val resolve_function_types :
 (** Resolve function return and recursive parameter types at each declaration's
     source position. Default evaluation, declaration reconciliation, call
     checking, storage, and linkage remain separate passes. *)
+
+val resolve_completed_function_header :
+  Session.t ->
+  namespace:Semantic_declaration_collection.namespace ->
+  Semantic_compiler_record.declared_function ->
+  (Semantic_function_type_resolution.resolved_function, string) result
+(** Type the original completed header without a body or command AST. Executable
+    publication and task admission remain separate operations. *)
 
 val resolve_local_types :
   Session.t ->
@@ -578,6 +608,7 @@ val resolve_global_types :
     separate passes. *)
 
 val resolve_function_identities :
+  ?previous:Semantic_function_resolution.resolved_declaration list ->
   ?compiler_option_mask:int64 ->
   Session.t ->
   declarations:Semantic_declaration_collection.t ->
@@ -586,12 +617,14 @@ val resolve_function_identities :
   Ast.module_ ->
   (Semantic_function_resolution.t, string) result
 (** Reconcile parsed function declarations using the pinned JIT/AOT join rules.
+    [previous] supplies the newest declarations in the current JIT namespace.
     The optional batch snapshot applies [OPTf_EXTERNS_TO_IMPORTS]; source-
     positioned option execution remains separate. Evaluated header analysis,
     task-parent lookup, alternate target resolution, and emitted linkage remain
     separate passes. *)
 
 val analyze_function_headers :
+  ?previous_inputs:Semantic_function_header_analysis.function_input list ->
   Session.t ->
   functions:Semantic_function_resolution.t ->
   Semantic_function_header_analysis.function_input list ->
@@ -762,13 +795,15 @@ val decide_function_call_conversions :
     unresolved results. *)
 
 val classify_function_records :
+  ?previous:Semantic_function_record_classification.classified_declaration list ->
   ?compiler_option_mask:int64 ->
   Session.t ->
   resolution:Semantic_function_resolution.t ->
   Ast.module_ ->
   (Semantic_function_record_classification.t, string) result
 (** Replay source-grounded function record mutations and expose raw flags, call
-    access, lookup visibility, and AOT linkage intent. The optional option mask
+    access, lookup visibility, and AOT linkage intent. [previous] supplies the
+    exact classified records for retained predecessors. The optional option mask
     overrides the declaration snapshots retained by resolution and must agree on
     [OPTf_EXTERNS_TO_IMPORTS]. Source-positioned option execution, addresses,
     header comparison, and record emission remain separate. *)
@@ -816,7 +851,66 @@ val lower_integer_program :
 
 type integer_program
 
+type integer_program_compilation =
+  | Isolated of integer_program
+  | Stateful of Ir_integer_interpreter.t
+
+type integer_program_compilation_report
+
+val compile_integer_program_report :
+  ?max_dimension_work:int ->
+  ?max_initializer_steps:int ->
+  Session.t ->
+  config:Preprocessor.Config.t ->
+  source:Source_file.t ->
+  integer_program_compilation_report
+
+val integer_program_compilation_result :
+  integer_program_compilation_report ->
+  (integer_program_compilation integer_program_result, Diagnostic.t list) result
+
+val integer_program_compilation_units :
+  integer_program_compilation_report -> integer_program list
+
+val integer_program_compilation_progress :
+  integer_program_compilation_report -> Integer_task.progress option
+
+val integer_program_compilation_dimension_work :
+  integer_program_compilation_report -> int
+(** Ordinary and AOT output have an isolated artifact. An activated JIT source
+    reports its completed cumulative task result and individually inspectable
+    task units; it has no single isolated executable graph. *)
+
+val compile_integer_task_ast :
+  task:Ir_integer_interpreter.task_state ->
+  ?declaration_command:Task_declarations.command ->
+  Session.t ->
+  config:Preprocessor.Config.t ->
+  Ast.module_ ->
+  (integer_program integer_program_result, Diagnostic.t list) result
+(** Compile one checked unit against its owning JIT task snapshot, charging the
+    task's cumulative preparation budget even on reached failure. Foreign
+    semantic tables and AOT mode are rejected before collection. The resulting
+    program still requires its owning task runtime for execution; compiling it
+    does not admit storage, publish frontend entries or run source effects.
+    Unlike [Integer_task.compile_ast], this low-level unit compiler does not
+    cache overlapping ASTs. Parser-aware compilation carries original resume
+    order and binds the complete compiled program before returning. VM admission
+    rejects early execution, unadmitted predecessors and recompiled source
+    replay. Callback-free compilation retains its separate graph-level contract.
+*)
+
+val compile_integer_ast :
+  ?max_initializer_steps:int ->
+  Session.t ->
+  config:Preprocessor.Config.t ->
+  Ast.module_ ->
+  (integer_program integer_program_result, Diagnostic.t list) result
+(** Compile an already parsed independent unit through the ordinary semantic and
+    verified IR pipeline, without consuming or preprocessing source again. *)
+
 val compile_integer_program :
+  ?max_dimension_work:int ->
   ?max_initializer_steps:int ->
   Session.t ->
   config:Preprocessor.Config.t ->
@@ -832,6 +926,8 @@ val integer_program_initialization :
 val integer_program_initializer_preparation :
   integer_program -> Integer_initializer_preparation.t
 
+val integer_program_dimension_preparation_work : integer_program -> int
+
 val integer_program_functions :
   integer_program -> Ir_integer_interpreter.function_definition list
 
@@ -839,6 +935,7 @@ val integer_program_human : integer_program -> string
 val integer_program_runtime_calls : integer_program -> Ir_runtime_call_context.t
 
 val run_integer_program :
+  ?max_dimension_work:int ->
   ?max_initializer_steps:int ->
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->
@@ -889,6 +986,7 @@ val run_integer_program :
 type integer_program_report
 
 val run_integer_program_report :
+  ?max_dimension_work:int ->
   ?max_initializer_steps:int ->
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->
@@ -901,9 +999,10 @@ val run_integer_program_report :
   source:Source_file.t ->
   max_steps:int ->
   integer_program_report
-(** Execute with fresh captured bytes and formatting work, including on failure.
-    Configuration and preflight failures have empty capture. Output/work limits
-    are positive and default independently to 1,048,576. *)
+(** Execute with fresh invocation capture and formatting work, including on
+    failure. Invalid limits fail before parsing. Later AOT compilation or
+    preflight failures retain effects from already reached stream commands.
+    Output/work limits are positive and default independently to 1,048,576. *)
 
 val integer_program_report_outcome :
   integer_program_report ->
@@ -911,6 +1010,27 @@ val integer_program_report_outcome :
 
 val integer_program_report_output_bytes : integer_program_report -> string
 val integer_program_report_output_work : integer_program_report -> int
+val integer_program_report_dimension_work : integer_program_report -> int
+
+val integer_program_report_preparation_work :
+  integer_program_report -> int option
+
+val integer_program_report_progress :
+  integer_program_report -> Integer_task.progress option
+(** Immutable cumulative invocation observations when AOT parsing reached a
+    stream directive, including effects before later compilation/runtime errors.
+    No directive means [None] and retains the ordinary isolated-unit path. *)
+
+val integer_program_report_program :
+  integer_program_report -> integer_program option
+(** The complete isolated outer unit, if compilation succeeded. Execution can
+    still fail; this projection grants no retained task bindings. *)
+
+val integer_program_report_task_units :
+  integer_program_report -> integer_program list
+(** Checked task units in compilation order, including provider setup and units
+    whose execution failed. They are distinct from the complete outer artifact.
+*)
 
 val lower_integer_expression :
   Session.t ->

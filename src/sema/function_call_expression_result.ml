@@ -116,6 +116,7 @@ type outer_callback_call = {
 type top_level_direct_call = {
   top_level_direct_source : Top_level_expression_tree.call;
   top_level_direct_declaration : Function_resolution.resolved_declaration;
+  top_level_direct_outer_binding : Outer_environment.binding option;
   top_level_direct_header : Function_type_resolution.resolved_function;
   top_level_direct_target_symbol : Symbol.t;
   top_level_direct_fixed_results : top_level_fixed_result list;
@@ -219,7 +220,7 @@ type implicit_output_argument_result = {
 
 type implicit_output_result = {
   implicit_output_source : Function_call_resolution.implicit_output_input;
-  implicit_output_fixed_value : expression_result;
+  implicit_output_fixed_value : expression_result option;
   implicit_output_arguments : implicit_output_argument_result list;
   implicit_output_result_use : result_use;
 }
@@ -402,7 +403,13 @@ let function_implicit_outputs (function_ : resolved_function) =
   function_.implicit_outputs
 
 let implicit_output_source result = result.implicit_output_source
-let implicit_output_fixed_value result = result.implicit_output_fixed_value
+
+let implicit_output_supplied_fixed_value result =
+  result.implicit_output_fixed_value
+
+let implicit_output_fixed_value result =
+  Option.get (implicit_output_supplied_fixed_value result)
+
 let implicit_output_arguments result = result.implicit_output_arguments
 let implicit_output_result_use result = result.implicit_output_result_use
 
@@ -453,6 +460,15 @@ let direct_source (call : direct_call) = call.source
 let direct_declaration (call : direct_call) =
   call.source |> Function_call_conversion_policy.direct_source
   |> Function_call_resolution.direct_declaration
+
+let direct_original_phase (call : direct_call) =
+  call.source |> Function_call_conversion_policy.direct_source
+  |> Function_call_resolution.direct_source
+  |> Function_call_resolution.call_original_phase
+
+let direct_outer_binding (call : direct_call) =
+  call.source |> Function_call_conversion_policy.direct_source
+  |> Function_call_resolution.direct_outer_binding
 
 let direct_fixed_results (call : direct_call) = call.fixed_results
 let direct_variadic_results (call : direct_call) = call.variadic_results
@@ -529,6 +545,13 @@ let top_level_direct_source (call : top_level_direct_call) =
 
 let top_level_direct_declaration (call : top_level_direct_call) =
   call.top_level_direct_declaration
+
+let top_level_direct_original_phase (call : top_level_direct_call) =
+  call.top_level_direct_source |> Top_level_expression_tree.call_source
+  |> Function_call_resolution.call_original_phase
+
+let top_level_direct_outer_binding (call : top_level_direct_call) =
+  call.top_level_direct_outer_binding
 
 let top_level_direct_header (call : top_level_direct_call) =
   call.top_level_direct_header
@@ -1820,7 +1843,8 @@ let rec type_expression table members policies ~before_item_index ~context
                   match
                     Top_level_identifier_resolution.leaf_resolution leaf
                   with
-                  | Top_level_id.Outer_type_required binding ->
+                  | Top_level_id.Outer_type_required binding
+                  | Top_level_id.Outer_function_value { binding; _ } ->
                       finish ~top_level_outer_occurrence:occurrence
                         ~outer_binding:binding Unavailable
                         Unresolved_actual_class state
@@ -1959,10 +1983,20 @@ let rec type_expression table members policies ~before_item_index ~context
           | Function_call_resolution.Current_position_expression ->
               finish ~source_type:rip_address_type Address_value Integer_result
                 state
+          | Function_call_resolution.Aggregate_position_expression _ ->
+              finish ~source_type:integer_type Object_value Integer_result state
           | Function_call_resolution.Offset_expression ->
               finish ~source_type:integer_type Object_value Integer_result state
           | Function_call_resolution.Identifier_expression -> (
-              match outer_binding_for_expression state source with
+              match
+                match
+                  Function_call_resolution.argument_expression_source_identifier
+                    source
+                with
+                | Some occurrence ->
+                    outer_binding_for_occurrence state occurrence
+                | None -> outer_binding_for_expression state source
+              with
               | Error _ as error -> error
               | Ok None -> finish Unavailable Unresolved_actual_class state
               | Ok (Some (outer_occurrence, outer_binding)) -> (
@@ -2064,7 +2098,9 @@ let rec type_expression table members policies ~before_item_index ~context
               | Ok (Some (Function_call_resolution.Direct_call direct as call))
                 -> (
                   let source_type =
-                    direct |> Function_call_resolution.direct_active_header
+                    Function_call_resolution.emission_header
+                      (Function_call_resolution.direct_source direct)
+                      (Function_call_resolution.direct_active_header direct)
                     |> Function_type_resolution.function_return_type
                     |> Type_reference.resolved_type
                   in
@@ -2822,7 +2858,13 @@ and type_top_level_call table members policies ~before_item_index
                  { declaration; _ }) ->
               type_top_level_direct_call table members policies
                 ~before_item_index ~intrinsic_conversion state id source call
-                declaration
+                None declaration
+          | Top_level_identifier_resolution.Outer_function_value
+              { binding; metadata } ->
+              type_top_level_direct_call table members policies
+                ~before_item_index ~intrinsic_conversion state id source call
+                (Some binding)
+                (Outer_environment.function_declaration metadata)
           | Top_level_identifier_resolution.Module_value
               (Top_level_identifier_resolution.Global_value { global; value })
             when Function_call_resolution.identifier_value_shape value
@@ -2907,7 +2949,7 @@ and type_top_level_call table members policies ~before_item_index
                            ~result_class:Unresolved_actual_class)))))
 
 and type_top_level_direct_call table members policies ~before_item_index
-    ~intrinsic_conversion state id source call declaration =
+    ~intrinsic_conversion state id source call outer_binding declaration =
   let source_call = Top_level_expression_tree.call_source call in
   let origin = Function_call_resolution.call_origin source_call in
   let invalid message = Error (invalid_top_level_input ~origin message) in
@@ -2918,8 +2960,14 @@ and type_top_level_direct_call table members policies ~before_item_index
   else if Option.is_some (Function_call_resolution.call_callable source_call)
   then invalid "top-level direct call unexpectedly carries a callback header"
   else
-    let site = Function_resolution.resolved_declaration_site declaration in
-    let header = Function_resolution.declaration_site_function site in
+    let ( let* ) = Result.bind in
+    let* header =
+      Function_call_resolution.argument_header source_call declaration
+      |> Result.map_error (fun error ->
+          invalid_top_level_input
+            ?origin:(Function_call_resolution.error_origin error)
+            (Function_call_resolution.error_message error))
+    in
     match Function_call_resolution.bind_direct_arguments source_call header with
     | Error error ->
         Error
@@ -2934,7 +2982,8 @@ and type_top_level_direct_call table members policies ~before_item_index
         | Error _ as error -> error
         | Ok (fixed_results, variadic_results, state) -> (
             let source_type =
-              header |> Function_type_resolution.function_return_type
+              Function_call_resolution.emission_header source_call header
+              |> Function_type_resolution.function_return_type
               |> Type_reference.resolved_type
             in
             match known_type table source_type with
@@ -2948,6 +2997,7 @@ and type_top_level_direct_call table members policies ~before_item_index
                   {
                     top_level_direct_source = call;
                     top_level_direct_declaration = declaration;
+                    top_level_direct_outer_binding = outer_binding;
                     top_level_direct_header = header;
                     top_level_direct_target_symbol =
                       Function_resolution.resolved_declaration_identity_symbol
@@ -3761,9 +3811,13 @@ let type_implicit_output_argument table members policies ~before_item_index
 let type_implicit_output table members policies ~before_item_index state source
     =
   match
-    type_expression table members policies ~before_item_index
-      ~context:Value_context state
-      (Function_call_resolution.implicit_output_fixed_expression source)
+    Option.fold
+      ~none:(Ok (None, state))
+      ~some:(fun expression ->
+        type_expression table members policies ~before_item_index
+          ~context:Value_context state expression
+        |> Result.map (fun (value, state) -> (Some value, state)))
+      (Function_call_resolution.implicit_output_supplied_fixed_expression source)
   with
   | Error _ as error -> error
   | Ok (implicit_output_fixed_value, state) -> (
@@ -4195,6 +4249,10 @@ let type_top_level_root table members policies ~before_item_index state source =
               Some Result_not_used
           | Top_level_expression_tree.Implicit_output_fixed _
           | Top_level_expression_tree.Global_initializer _
+          | Top_level_expression_tree.Initializer_fragment _
+          | Top_level_expression_tree.Dimension_fragment _
+          | Top_level_expression_tree.Offset_fragment _
+          | Top_level_expression_tree.Default_fragment _
           | Top_level_expression_tree.Implicit_output_argument _
           | Top_level_expression_tree.Condition _
           | Top_level_expression_tree.Switch_selector _

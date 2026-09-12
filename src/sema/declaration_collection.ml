@@ -23,9 +23,24 @@ type entry = {
 
 type t = { scope : Symbol_table.scope; entries : entry list }
 
-let scope collection = collection.scope
+type publication = {
+  owner : unit ref;
+  symbol : Symbol.t;
+  source_global : Frontend.Parser.global_publication option;
+  source_function : Frontend.Parser.function_publication option;
+  source_aggregate : Frontend.Parser.aggregate_publication option;
+}
+
+type namespace = {
+  table : Symbol_table.t;
+  scope : Symbol_table.scope;
+  owner : unit ref;
+  mutable source_globals : publication list;
+}
+
+let scope (collection : t) = collection.scope
 let entries collection = collection.entries
-let entry_symbol entry = entry.symbol
+let entry_symbol (entry : entry) = entry.symbol
 let entry_kind entry = entry.declaration_kind
 let entry_item_index entry = entry.item_index
 let entry_declarator_index entry = entry.declarator_index
@@ -91,3 +106,156 @@ let collect ~table ?module_name declarations =
             | Ok entry -> add (entry :: entries_rev) rest)
       in
       add [] declarations
+
+let create_namespace ~table ?module_name () =
+  create_module_scope table module_name
+  |> Result.map (fun scope ->
+      { table; scope; owner = ref (); source_globals = [] })
+
+let namespace_scope (namespace : namespace) = namespace.scope
+let publication_symbol (publication : publication) = publication.symbol
+let publication_source_global publication = publication.source_global
+let publication_source_function publication = publication.source_function
+let publication_source_aggregate publication = publication.source_aggregate
+
+let namespace_owns_publication (namespace : namespace)
+    (publication : publication) =
+  publication.owner == namespace.owner
+  && Symbol_table.owns_symbol namespace.table publication.symbol
+
+let namespace_owns_table (namespace : namespace) table =
+  namespace.table == table
+
+let source_global_for_symbol (namespace : namespace) symbol =
+  List.find_opt
+    (fun (publication : publication) -> publication.symbol == symbol)
+    namespace.source_globals
+
+let publish (namespace : namespace) ~name ~kind ~origin =
+  match kind with
+  | Symbol.Global_variable | Symbol.Function | Symbol.Aggregate_type ->
+      Symbol_table.add namespace.table ~scope:namespace.scope ~name ~kind
+        ~origin
+      |> Result.map (fun symbol ->
+          {
+            owner = namespace.owner;
+            symbol;
+            source_global = None;
+            source_function = None;
+            source_aggregate = None;
+          })
+  | _ ->
+      Error
+        "semantic declaration publication needs a top-level declaration kind"
+
+let publish_global namespace (source : Frontend.Parser.global_publication) =
+  let location = source.global_name.location in
+  let origin =
+    Symbol.Source_location
+      {
+        span = location.span;
+        source_segments = location.source_segments;
+        generated_from = location.generated_from;
+        defined_at = location.defined_at;
+      }
+  in
+  publish namespace ~name:source.global_name.spelling
+    ~kind:Symbol.Global_variable ~origin
+  |> Result.map (fun publication ->
+      let publication = { publication with source_global = Some source } in
+      namespace.source_globals <- publication :: namespace.source_globals;
+      publication)
+
+let publish_function namespace (source : Frontend.Parser.function_publication) =
+  let location = source.function_name.location in
+  let origin =
+    Symbol.Source_location
+      {
+        span = location.span;
+        source_segments = location.source_segments;
+        generated_from = location.generated_from;
+        defined_at = location.defined_at;
+      }
+  in
+  publish namespace ~name:source.function_name.spelling ~kind:Symbol.Function
+    ~origin
+  |> Result.map (fun publication ->
+      { publication with source_function = Some source })
+
+let publish_aggregate namespace (source : Frontend.Parser.aggregate_publication)
+    =
+  let location = source.aggregate_name.location in
+  let origin =
+    Symbol.Source_location
+      {
+        span = location.span;
+        source_segments = location.source_segments;
+        generated_from = location.generated_from;
+        defined_at = location.defined_at;
+      }
+  in
+  if not (Frontend.Parser.aggregate_publication_is_current source) then
+    Error "aggregate publication requires its original callback"
+  else
+    publish namespace ~name:source.aggregate_name.spelling
+      ~kind:Symbol.Aggregate_type ~origin
+    |> Result.map (fun publication ->
+        { publication with source_aggregate = Some source })
+
+let view (namespace : namespace) publications =
+  let rec validate previous seen entries_rev = function
+    | [] -> Ok { scope = namespace.scope; entries = List.rev entries_rev }
+    | ((publication : publication), (declaration : declaration)) :: rest ->
+        let symbol = publication.symbol in
+        let position = (declaration.item_index, declaration.declarator_index) in
+        let valid_shape =
+          match
+            (declaration.declaration_kind, declaration.declarator_index)
+          with
+          | Aggregate_attached_global, None -> false
+          | ( ( Aggregate_forward
+              | Aggregate_definition
+              | Function_prototype
+              | Function_definition ),
+              Some _ ) -> false
+          | _ -> true
+        in
+        if
+          publication.owner != namespace.owner
+          || (not (Symbol_table.owns_symbol namespace.table symbol))
+          || not
+               (Symbol.Scope_id.equal (Symbol.scope_id symbol)
+                  (Symbol_table.scope_id namespace.scope))
+        then
+          Error "semantic declaration publication belongs to another namespace"
+        else if List.exists (fun prior -> prior == publication) seen then
+          Error "semantic declaration view repeats a publication"
+        else if
+          Symbol.name symbol <> declaration.name
+          || (not
+                (Symbol.equal_kind (Symbol.kind symbol)
+                   (symbol_kind declaration.declaration_kind)))
+          || Symbol.origin symbol <> declaration.origin
+        then Error "semantic declaration view does not match its publication"
+        else if
+          (not valid_shape)
+          || Option.fold ~none:false
+               ~some:(fun prior -> compare prior position >= 0)
+               previous
+        then
+          Error
+            "semantic declaration view has invalid source order or declarator \
+             shape"
+        else
+          let entry =
+            {
+              symbol;
+              declaration_kind = declaration.declaration_kind;
+              item_index = declaration.item_index;
+              declarator_index = declaration.declarator_index;
+            }
+          in
+          validate (Some position) (publication :: seen) (entry :: entries_rev)
+            rest
+  in
+  validate None [] [] publications

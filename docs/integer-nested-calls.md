@@ -27,8 +27,9 @@ Returned recursion includes `return n*Fact(n-1);` and
 
 Nested arguments retain right-to-left evaluation and their formal positions.
 `Sub(Id(n=1),Id(n=2))` leaves n equal to 1 and returns minus one. Each call's
-arguments remain associated with it while inner calls execute. Variadic IR
-order is unchanged; variadic execution remains unsupported.
+arguments remain associated with it while inner calls execute. Source-defined
+variadic calls execute integer tails in the same order, with separate `argc`,
+`argv` storage and actual tail bounds for every recursive invocation.
 
 Calls in conditions use the existing short-circuit branches. Ordinary logical
 values execute eagerly. A call used as a shared comparison-chain operand runs

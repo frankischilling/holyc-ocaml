@@ -152,6 +152,10 @@ let standalone_candidate statement_index statement =
       | Tree.Local_array_dimension _
       | Tree.Local_initializer _
       | Tree.Global_initializer _
+      | Tree.Initializer_fragment _
+      | Tree.Dimension_fragment _
+      | Tree.Offset_fragment _
+      | Tree.Default_fragment _
       | Tree.Return_value _ -> None)
   | [] | _ :: _ :: _ -> None
 

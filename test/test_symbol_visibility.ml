@@ -65,7 +65,7 @@ let session_builtins () =
   let session = Session.create () in
   let symbols = Session.symbols session in
   let entries = Symbol_visibility.Environment.all symbols in
-  Alcotest.(check int) "checked built-in entries" 570 (List.length entries);
+  Alcotest.(check int) "checked built-in entries" 576 (List.length entries);
   List.iter
     (fun (name, expected_kind) ->
       match Symbol_visibility.Environment.find_preprocessor symbols name with
@@ -80,6 +80,7 @@ let session_builtins () =
       ("ifjit", Symbol_visibility.Keyword);
       ("ALIGN", Symbol_visibility.Assembly_keyword);
       ("I64i", Symbol_visibility.Internal_type);
+      ("I64", Symbol_visibility.Class);
       ("RAX", Symbol_visibility.Register);
       ("FS", Symbol_visibility.Register);
       ("ST3", Symbol_visibility.Register);
@@ -92,9 +93,9 @@ let session_builtins () =
   let first = List.hd entries in
   let last = List.hd (List.rev entries) in
   Alcotest.(check int) "first stable ID" 0 (Symbol_visibility.id first);
-  Alcotest.(check int) "last stable ID" 569 (Symbol_visibility.id last);
+  Alcotest.(check int) "last stable ID" 575 (Symbol_visibility.id last);
   Alcotest.(check string)
-    "last seeded spelling" "MOV_RAX_CR4"
+    "last seeded spelling" "I64"
     (Symbol_visibility.name last)
 
 let import_filtering () =
@@ -212,7 +213,7 @@ let deterministic_dump () =
   Alcotest.(check bool)
     "source origin" true
     (contains_text first
-       "symbol 570 name=\"UserFunction\" kind=function \
+       "symbol 576 name=\"UserFunction\" kind=function \
         origin=visibility.HC:1:1..1:2")
 
 let deterministic_json () =
@@ -291,8 +292,118 @@ let deterministic_json () =
     "source-only entry" "Callable"
     (source_symbols |> List.hd |> member "name" |> to_string)
 
+let provisional_function_completion () =
+  let module E = Symbol_visibility.Environment in
+  let environment = E.create () in
+  let entry = E.add environment ~name:"F" ~kind:Symbol_visibility.Function () in
+  let copied = E.copy environment in
+  let foreign = E.create () in
+  let shape = Symbol_visibility.{ parameters = []; variadic = false } in
+  let reject target candidate =
+    match
+      E.complete_function_header target ~entry:candidate
+        ~function_call_shape:shape
+    with
+    | Error _ -> ()
+    | Ok _ -> Alcotest.fail "invalid function completion accepted"
+  in
+  reject foreign entry;
+  let newer =
+    E.add environment ~name:"F" ~kind:Symbol_visibility.Global_variable ()
+  in
+  let completed =
+    E.complete_function_header environment ~entry ~function_call_shape:shape
+    |> checked
+  in
+  reject environment entry;
+  reject environment completed;
+  reject environment newer;
+  Alcotest.(check bool)
+    "copied environment retains provisional snapshot" true
+    (E.find_function copied "F" = Some entry
+    && Option.is_none (Symbol_visibility.function_call_shape entry));
+  Alcotest.(check bool)
+    "kind-filtered lookup selects completed function" true
+    (Option.get (E.find_function environment "F") == completed);
+  Alcotest.(check bool)
+    "newer global remains ordinary lookup winner" true
+    (match E.find_preprocessor environment "F" with
+    | Symbol_visibility.Present selected -> selected == newer
+    | _ -> false);
+  Alcotest.(check int)
+    "completion does not duplicate publication" 2
+    (List.length (E.all environment));
+  Alcotest.(check int)
+    "identity retained"
+    (Symbol_visibility.id entry)
+    (Symbol_visibility.id completed)
+
+let task_views_and_detached_snapshots () =
+  let module E = Symbol_visibility.Environment in
+  let root = E.create () in
+  let baseline = E.add root ~name:"Baseline" ~kind:Symbol_visibility.Class () in
+  let task = E.task_view root and other = E.task_view root in
+  let original = E.add task ~name:"F" ~kind:Symbol_visibility.Function () in
+  let hidden = E.add other ~name:"F" ~kind:Symbol_visibility.Function () in
+  let copied = E.copy task in
+  let shape = Symbol_visibility.{ parameters = []; variadic = false } in
+  List.iter
+    (fun target ->
+      Alcotest.(check bool)
+        "another writer cannot complete a visible provisional entry" true
+        (E.complete_function_header target ~entry:original
+           ~function_call_shape:shape
+        |> Result.is_error))
+    [ root; other ];
+  let completed =
+    E.complete_function_header task ~entry:original ~function_call_shape:shape
+    |> checked
+  in
+  let same_entries message expected actual =
+    Alcotest.(check bool)
+      message true
+      (List.length expected = List.length actual
+      && List.for_all2 ( == ) expected actual)
+  in
+  same_entries "root keeps publication order without replacing a shadow"
+    [ baseline; completed; hidden ]
+    (E.all root);
+  same_entries "copy keeps only the original visible immutable snapshots"
+    [ baseline; original ] (E.all copied);
+  same_entries "owner sees baseline and own completed entry"
+    [ baseline; completed ] (E.all task);
+  let copied_completion =
+    E.complete_function_header copied ~entry:original
+      ~function_call_shape:{ shape with variadic = true }
+    |> checked
+  in
+  Alcotest.(check bool)
+    "detached completion changes neither root nor owner" true
+    (Option.get (E.find_function copied "F") == copied_completion
+    && Option.get (E.find_function task "F") == completed);
+  let context = E.begin_local_context task in
+  ignore (E.add_local task context ~name:"Baseline" |> checked);
+  Alcotest.(check bool)
+    "local contexts belong to the view" true
+    (E.find_preprocessor task "Baseline" = Symbol_visibility.Shadowed_by_local
+    && E.find_preprocessor root "Baseline" = Symbol_visibility.Present baseline
+    && E.find_preprocessor other "Baseline" = Symbol_visibility.Present baseline
+    );
+  ignore (E.end_local_context task context |> checked);
+  let later = E.add root ~name:"Later" ~kind:Symbol_visibility.Class () in
+  Alcotest.(check bool)
+    "baseline updates are shared, snapshots stay detached" true
+    (E.find_preprocessor task "Later" = Symbol_visibility.Present later
+    && E.find_preprocessor copied "Later" = Symbol_visibility.Absent)
+
 let tests =
   [
+    Alcotest.test_case
+      "task views preserve writer ownership and detached copies" `Quick
+      task_views_and_detached_snapshots;
+    Alcotest.test_case
+      "provisional completion retains owner order and snapshots" `Quick
+      provisional_function_completion;
     Alcotest.test_case "source hash bits" `Quick source_kind_bits;
     Alcotest.test_case "session built-ins" `Quick session_builtins;
     Alcotest.test_case "import filtering" `Quick import_filtering;

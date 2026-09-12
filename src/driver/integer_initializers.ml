@@ -7,6 +7,11 @@ module Values = Map.Make (Seq.Value_id)
 module Arrays = Ir.Integer_array_initializers
 module Layout = Ir.Integer_initializer_layout
 module Updates = Integer_update_initializers
+module Destination = Ir.Initializer_fragment_destination
+module Default = Ir.Default_fragment_destination
+module Dimension = Ir.Dimension_fragment_destination
+module Offset = Ir.Offset_fragment_destination
+module Runtime = Ir.Runtime_call_context
 
 type classification = Prepared_constant of int64 | Scheduled
 
@@ -25,12 +30,20 @@ type static_item =
 type owner =
   | Global of Globals.slot * Typed.top_level_root_result
   | Static of Globals.static_slot * Typed.initializer_result
+  | Fragment of Destination.t
+  | Default of Default.t
+  | Dimension of Dimension.t
+  | Offset of Offset.t
 
 type t = {
   globals_ : Globals.t;
   items_ : item list;
   static_items_ : static_item list;
   copies_ : (owner * string * int) list;
+  fragment_items_ : Destination.t prepared_item list;
+  default_items_ : Default.t prepared_item list;
+  dimension_items_ : Dimension.t prepared_item list;
+  offset_items_ : Offset.t prepared_item list;
   steps : int;
 }
 
@@ -62,8 +75,10 @@ let value_instructions graph =
       | Ir.Opcode.Ic_end_exp | Ic_end -> false
       | _ -> true)
 
-let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
-    ~functions () =
+let prepare_internal ?fragment ?default ?dimension ?offset
+    ?(function_calls = []) ?(allow_zero_budget = false)
+    ?(retained_function_source = fun _ -> None) ?(on_progress = fun _ -> ())
+    ~max_steps ~span ~globals ~top_calls ~functions () =
   let invalid ?(notes = []) ?(at = span) code message =
     Error
       [
@@ -71,34 +86,55 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
           ~notes ~primary:at ();
       ]
   in
-  if max_steps <= 0 then
+  if max_steps < 0 || (max_steps = 0 && not allow_zero_budget) then
     invalid "HCIRVM0001" "max_initializer_steps must be greater than zero"
   else
     let work =
-      (Globals.slots globals
-      |> List.concat_map (fun slot ->
-          List.map
-            (fun root -> Global (slot, root))
-            (Globals.slot_initializers slot)))
-      @ (Globals.statics globals
-        |> List.concat_map (fun slot ->
-            List.map
-              (fun root -> Static (slot, root))
-              (Globals.static_initializers slot)))
-      |> List.stable_sort (fun left right ->
-          let index = function
-            | Global (slot, _) ->
-                Globals.slot_record slot
-                |> Sema.Global_record_classification.classified_record_source
-                |> Sema.Global_resolution.global_record_global
-                |> Sema.Global_type_resolution.global_item_index
-            | Static (slot, _) ->
-                Globals.static_frame slot
-                |> Sema.Function_frame_layout.function_item_index
-          in
-          Int.compare (index left) (index right))
+      match offset with
+      | Some destination
+        when Option.is_none dimension && Option.is_none fragment
+             && Option.is_none default -> [ Offset destination ]
+      | Some _ -> invalid_arg "conflicting offset preparation owners"
+      | None -> (
+          match (dimension, fragment, default) with
+          | Some destination, None, None -> [ Dimension destination ]
+          | Some _, _, _ ->
+              invalid_arg "conflicting dimension preparation owners"
+          | None, Some destination, None -> [ Fragment destination ]
+          | None, None, Some destination -> [ Default destination ]
+          | None, Some _, Some _ ->
+              invalid_arg "conflicting fragment preparation owners"
+          | None, None, None ->
+              (Globals.slots globals
+              |> List.concat_map (fun slot ->
+                  List.map
+                    (fun root -> Global (slot, root))
+                    (Globals.slot_initializers slot
+                    |> List.filter (fun root ->
+                        not (Globals.slot_root_executed slot root)))))
+              @ (Globals.statics globals
+                |> List.concat_map (fun slot ->
+                    List.map
+                      (fun root -> Static (slot, root))
+                      (Globals.static_initializers slot)))
+              |> List.stable_sort (fun left right ->
+                  let index = function
+                    | Fragment _ | Default _ | Dimension _ | Offset _ -> 0
+                    | Global (slot, _) ->
+                        Globals.slot_record slot
+                        |> Sema.Global_record_classification
+                           .classified_record_source
+                        |> Sema.Global_resolution.global_record_global
+                        |> Sema.Global_type_resolution.global_item_index
+                    | Static (slot, _) ->
+                        Globals.static_frame slot
+                        |> Sema.Function_frame_layout.function_item_index
+                  in
+                  Int.compare (index left) (index right)))
     in
-    let rec collect total updates reversed = function
+    let rec collect total updates reversed work =
+      on_progress total;
+      match work with
       | [] ->
           let updates = List.rev updates in
           let scalar_values =
@@ -118,7 +154,11 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
               updates
           in
           let* globals_ =
-            Globals.with_initial_values ~span globals scalar_values
+            if
+              Option.is_some fragment || Option.is_some default
+              || Option.is_some dimension || Option.is_some offset
+            then Ok globals
+            else Globals.with_initial_values ~span globals scalar_values
           in
           let global_values =
             List.filter_map
@@ -141,8 +181,13 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
               updates
           in
           let* globals_ =
-            Globals.with_array_initial_values ~span globals_ ~global_values
-              ~static_values
+            if
+              Option.is_some fragment || Option.is_some default
+              || Option.is_some dimension || Option.is_some offset
+            then Ok globals_
+            else
+              Globals.with_array_initial_values ~span globals_ ~global_values
+                ~static_values
           in
           let prepared = List.rev reversed in
           let items_ =
@@ -150,7 +195,8 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
               (fun item ->
                 match item.root_ with
                 | Global (_, root_) -> Some { item with root_ }
-                | Static _ -> None)
+                | Static _ | Fragment _ | Default _ | Dimension _ | Offset _ ->
+                    None)
               prepared
           in
           let static_items_ =
@@ -166,7 +212,8 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
                       Option.get (Globals.find_static globals_ symbol)
                     in
                     Some { item with root_ = (slot, root) }
-                | Global _ -> None)
+                | Global _ | Fragment _ | Default _ | Dimension _ | Offset _ ->
+                    None)
               prepared
           in
           let copies_ =
@@ -177,15 +224,71 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
                 | _ -> None)
               updates
           in
-          Ok { globals_; items_; static_items_; copies_; steps = total }
+          let fragment_items_ =
+            List.filter_map
+              (fun item ->
+                match item.root_ with
+                | Fragment root_ -> Some { item with root_ }
+                | _ -> None)
+              prepared
+          in
+          Ok
+            {
+              globals_;
+              items_;
+              static_items_;
+              copies_;
+              fragment_items_;
+              offset_items_ =
+                List.filter_map
+                  (fun item ->
+                    match item.root_ with
+                    | Offset root_ -> Some { item with root_ }
+                    | _ -> None)
+                  prepared;
+              dimension_items_ =
+                List.filter_map
+                  (fun item ->
+                    match item.root_ with
+                    | Dimension root_ -> Some { item with root_ }
+                    | _ -> None)
+                  prepared;
+              default_items_ =
+                List.filter_map
+                  (fun item ->
+                    match item.root_ with
+                    | Default root_ -> Some { item with root_ }
+                    | _ -> None)
+                  prepared;
+              steps = total;
+            }
       | root_ :: rest -> (
           let symbol, value, frame =
             match root_ with
+            | Offset destination ->
+                ( None,
+                  Typed.top_level_root_value (Offset.root destination),
+                  None )
+            | Dimension destination ->
+                ( None,
+                  Typed.top_level_root_value (Dimension.root destination),
+                  None )
+            | Default destination ->
+                ( Some (Default.symbol destination),
+                  Typed.top_level_root_value (Default.root destination),
+                  None )
+            | Fragment destination ->
+                ( Some (Globals.storage_symbol (Destination.storage destination)),
+                  Typed.top_level_root_value (Destination.root destination),
+                  None )
             | Global (slot, root) ->
-                (Globals.slot_symbol slot, Typed.top_level_root_value root, None)
+                ( Some (Globals.slot_symbol slot),
+                  Typed.top_level_root_value root,
+                  None )
             | Static (slot, root) ->
-                ( Globals.static_location slot
-                  |> Sema.Function_frame_layout.location_symbol,
+                ( Some
+                    (Globals.static_location slot
+                    |> Sema.Function_frame_layout.location_symbol),
                   Typed.initializer_value root,
                   Some (Globals.static_frame slot) )
           in
@@ -195,14 +298,23 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
             | _ -> span
           in
           let notes =
-            [
-              "initializer=" ^ Symbol.name symbol;
-              Printf.sprintf "initializer_symbol_id=%d"
-                (Symbol.id symbol |> Symbol.Id.to_int);
-            ]
+            match symbol with
+            | None ->
+                if Option.is_some offset then
+                  [ "aggregate-offset=runtime-expression" ]
+                else [ "dimension=runtime-expression" ]
+            | Some symbol ->
+                [
+                  "initializer=" ^ Symbol.name symbol;
+                  Printf.sprintf "initializer_symbol_id=%d"
+                    (Symbol.id symbol |> Symbol.Id.to_int);
+                ]
           in
           let operation =
             match root_ with
+            | Default _ | Dimension _ | Offset _ -> None
+            | Fragment destination ->
+                Some (Layout.operation (Destination.layout destination))
             | Global (slot, root) ->
                 Option.bind (Globals.slot_array_initializers slot)
                   (fun arrays -> Arrays.find arrays root)
@@ -233,13 +345,14 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
                   ((root_, Arrays.Bytes bytes, steps) :: updates)
                   reversed rest
           | Some Layout.Scalar_store | None -> (
-              let* value_graph_ =
-                Ir.Integer_program_lowering.lower ?frame ~globals ~top_calls
-                  ~function_calls ~span:at
+              let* value_lowered =
+                Ir.Integer_program_lowering.lower_complete ?frame ~globals
+                  ~top_calls ~function_calls ~span:at
                   [ Ir.Integer_program_lowering.Expression value ]
                 |> Result.map_error (fun errors ->
                     match root_ with
-                    | Global _ -> errors
+                    | Global _ | Fragment _ | Default _ | Dimension _ | Offset _
+                      -> errors
                     | Static _ ->
                         List.map
                           (fun (error : Common.Diagnostic.t) ->
@@ -254,6 +367,9 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
                             else error)
                           errors)
               in
+              let value_graph_ =
+                Ir.Integer_program_lowering.graph value_lowered
+              in
               let value_code = value_instructions value_graph_ in
               let constant =
                 List.for_all
@@ -265,6 +381,18 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
                 let rec check pure = function
                   | [] -> Ok ()
                   | (item : Seq.description) :: rest ->
+                      let* () =
+                        if Option.is_some offset then
+                          match item.opcode with
+                          | Ir.Opcode.Ic_rip ->
+                              invalid
+                                ~at:(Option.value item.span ~default:at)
+                                ~notes "HCRUN0006"
+                                "runtime offset preparation requires checked \
+                                 current-position lowering"
+                          | _ -> Ok ()
+                        else Ok ()
+                      in
                       let known id =
                         Option.value (Values.find_opt id pure) ~default:false
                       in
@@ -305,7 +433,8 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
                 check Values.empty code
               in
               let* () = guard ~constant value_code in
-              let guard_updates ~frame ~compiler_options ~terminal graph =
+              let guard_updates ~globals ~frame ~compiler_options ~terminal
+                  graph =
                 Updates.check_graph ~globals ~frame ~compiler_options ~terminal
                   graph
                 |> Result.map_error (fun (failure : Updates.failure) ->
@@ -320,6 +449,11 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
               in
               let destination_type, compiler_options =
                 match root_ with
+                | Offset destination -> (Offset.type_ destination, 0L)
+                | Dimension destination -> (Dimension.type_ destination, 0L)
+                | Default destination -> (Default.type_ destination, 0L)
+                | Fragment destination ->
+                    (Globals.storage_type (Destination.storage destination), 0L)
                 | Global (slot, _) -> (Globals.slot_type slot, 0L)
                 | Static (slot, _) ->
                     ( Globals.static_storage slot |> Globals.storage_type,
@@ -338,48 +472,211 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
                       "initializer has no unique checked declaration value sink"
               in
               let* () =
-                guard_updates ~frame ~compiler_options ~terminal
+                guard_updates ~globals ~frame ~compiler_options ~terminal
                   (Ir.X87_stack.graph value_graph_)
               in
-              let called code =
+              let called globals functions runtime code =
                 List.filter_map
                   (fun (item : Seq.description) ->
-                    match (item.opcode, item.payload) with
-                    | Ir.Opcode.Ic_call, Some (Seq.Symbol symbol) -> Some symbol
-                    | _ -> None)
+                    match runtime with
+                    | Some (context, owner) ->
+                        Runtime.find_start context ~owner item.instruction_id
+                        |> Option.map (fun call ->
+                            ( globals,
+                              functions,
+                              runtime,
+                              Runtime.symbol call,
+                              Runtime.call_opcode call <> Ir.Opcode.Ic_call,
+                              Runtime.retained_function call ))
+                    | None -> (
+                        match (item.opcode, item.payload) with
+                        | ( ( Ir.Opcode.Ic_call
+                            | Ic_call_indirect2
+                            | Ic_call_extern ),
+                            Some (Seq.Symbol symbol) ) ->
+                            Some
+                              ( globals,
+                                functions,
+                                runtime,
+                                symbol,
+                                item.opcode <> Ir.Opcode.Ic_call,
+                                None )
+                        | _ -> None))
                   code
               in
               let rec guard_callees visited = function
                 | [] -> Ok ()
-                | symbol :: rest
-                  when List.exists (fun other -> other == symbol) visited ->
-                    guard_callees visited rest
-                | symbol :: rest -> (
-                    match
+                | ( owner_globals,
+                    owner_functions,
+                    runtime,
+                    symbol,
+                    external_,
+                    reference )
+                  :: rest -> (
+                    let before =
+                      match root_ with
+                      | Global (slot, _) ->
+                          Some
+                            (Globals.slot_record slot
+                           |> Sema.Global_record_classification
+                              .classified_record_source
+                           |> Sema.Global_resolution.global_record_global
+                           |> Sema.Global_type_resolution.global_item_index)
+                      | Static (slot, _) ->
+                          Some
+                            (Globals.static_frame slot
+                           |> Sema.Function_frame_layout.function_item_index)
+                      (* The source callers pass no local definitions. Their source
+                         inspection callback exposes only admitted task bodies. *)
+                      | Fragment _ | Default _ | Dimension _ | Offset _ -> None
+                    in
+                    let find source_globals source_functions =
                       List.find_opt
                         (fun (function_ : VM.function_definition) ->
                           Ir.Function_body.callable_symbol function_.body
-                          == symbol)
-                        functions
-                    with
+                          == symbol
+                          && ((not external_) || source_globals != globals
+                             ||
+                             let aot =
+                               Option.fold ~none:false
+                                 ~some:(fun declaration ->
+                                   Sema.Function_resolution
+                                   .resolved_declaration_compilation_mode
+                                     declaration
+                                   = Sema.Function_resolution.Aot)
+                                 (Ir.Function_body.definition_declaration
+                                    function_.body)
+                             in
+                             aot
+                             || Option.fold ~none:true
+                                  ~some:(fun before ->
+                                    Sema.Function_frame_layout
+                                    .function_item_index function_.frame
+                                    < before)
+                                  before))
+                        source_functions
+                      |> Option.map (fun function_ ->
+                          ( source_globals,
+                            source_functions,
+                            (if source_globals == owner_globals then runtime
+                             else None),
+                            function_ ))
+                    in
+                    let source =
+                      match
+                        if external_ then find globals functions else None
+                      with
+                      | Some _ as source -> source
+                      | None -> find owner_globals owner_functions
+                    in
+                    let retained reference =
+                      Option.map
+                        (fun (source : VM.task_function_source) ->
+                          ( source.source_globals,
+                            source.source_functions,
+                            Some
+                              ( source.source_runtime_calls,
+                                Runtime.Function source.source_definition.body
+                              ),
+                            source.source_definition ))
+                        (retained_function_source reference)
+                    in
+                    let source =
+                      match reference with
+                      | Some reference -> retained reference
+                      | None -> (
+                          match source with
+                          | Some _ -> source
+                          | None ->
+                              Option.bind
+                                (Globals.retained_function_symbol owner_globals
+                                   symbol)
+                                retained)
+                    in
+                    match source with
+                    | None when external_ -> guard_callees visited rest
                     | None ->
                         invalid ~at ~notes "HCRUN0006"
                           "initializer call has no checked source definition"
-                    | Some function_ ->
+                    | Some (_, _, _, function_)
+                      when List.exists
+                             (fun body -> body == function_.body)
+                             visited -> guard_callees visited rest
+                    | Some (owner_globals, owner_functions, runtime, function_)
+                      ->
                         let code =
                           instructions (Ir.Function_body.body function_.body)
                         in
                         let* () = guard ~constant:false code in
                         let* () =
-                          guard_updates ~frame:(Some function_.frame)
+                          guard_updates ~globals:owner_globals
+                            ~frame:(Some function_.frame)
                             ~compiler_options:
                               (Ir.Function_body.compiler_options function_.body)
                             ~terminal:None
                             (Ir.Function_body.body function_.body)
                         in
-                        guard_callees (symbol :: visited) (called code @ rest))
+                        let runtime =
+                          Option.map
+                            (fun (context, _) ->
+                              (context, Runtime.Function function_.body))
+                            runtime
+                        in
+                        guard_callees
+                          (function_.body :: visited)
+                          (called owner_globals owner_functions runtime code
+                          @ rest))
               in
-              let* () = guard_callees [] (called value_code) in
+              let* () =
+                let value_calls =
+                  Ir.Integer_program_lowering.runtime_calls value_lowered
+                  |> List.filter_map (fun (description : Runtime.description) ->
+                      let selected =
+                        match description.source with
+                        | Runtime.Function_call target ->
+                            let source =
+                              Sema.Function_call_target_classification.source
+                                target
+                            in
+                            Some
+                              ( source |> Typed.direct_source
+                                |> Sema.Function_call_conversion_policy
+                                   .direct_source
+                                |> Sema.Function_call_resolution
+                                   .direct_target_symbol,
+                                Sema.Function_call_target_classification
+                                .call_access target,
+                                Typed.direct_outer_binding source )
+                        | Runtime.Top_level_call target ->
+                            let source =
+                              Sema.Top_level_function_call_target_classification
+                              .source target
+                            in
+                            Some
+                              ( Typed.top_level_direct_target_symbol source,
+                                Sema
+                                .Top_level_function_call_target_classification
+                                .call_access target,
+                                Typed.top_level_direct_outer_binding source )
+                        (* An expression cannot contain an implicit output statement. *)
+                        | Runtime.Function_output _ | Runtime.Top_level_output _
+                          -> None
+                      in
+                      Option.map
+                        (fun (symbol, access, binding) ->
+                          ( globals,
+                            functions,
+                            None,
+                            symbol,
+                            access
+                            <> Sema.Function_record_classification
+                               .Direct_executable_call,
+                            Option.bind binding
+                              (Globals.retained_function_binding globals) ))
+                        selected)
+                in
+                guard_callees [] value_calls
+              in
               if
                 Option.is_some frame
                 && List.exists
@@ -400,7 +697,8 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
                     && Sema.Compiler_option.is_enabled
                          ~mask:(Globals.static_compiler_options slot)
                          Sema.Compiler_option.Globals_on_data_heap
-                | Global _ -> false
+                | Global _ | Fragment _ | Default _ | Dimension _ | Offset _ ->
+                    false
               then
                 invalid ~at ~notes "HCRUN0006"
                   "nonconstant AOT static initialization with \
@@ -433,6 +731,7 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
                     value_graph_
                   |> Result.map_error
                        (List.map (fun (error : VM.error) ->
+                            on_progress (total + error.executed_steps);
                             Common.Diagnostic.make ~code:error.code
                               ~severity:Common.Diagnostic.Error
                               ~message:error.message
@@ -467,6 +766,89 @@ let prepare ?(function_calls = []) ~max_steps ~span ~globals ~top_calls
                       rest))
     in
     collect 0 [] [] work
+
+let prepare ?function_calls ?allow_zero_budget ?retained_function_source
+    ?on_progress ~max_steps ~span ~globals ~top_calls ~functions () =
+  prepare_internal ?function_calls ?allow_zero_budget ?retained_function_source
+    ?on_progress ~max_steps ~span ~globals ~top_calls ~functions ()
+
+type fragment_preparation = {
+  fragment_destination_ : Destination.t;
+  fragment_payload_ : Arrays.payload option;
+  fragment_steps_ : int;
+}
+
+let fragment_destination prepared = prepared.fragment_destination_
+let fragment_payload prepared = prepared.fragment_payload_
+let fragment_steps prepared = prepared.fragment_steps_
+
+let prepare_fragment ?retained_function_source ?on_progress ~max_steps
+    ~top_calls ~functions destination =
+  let* prepared =
+    prepare_internal ~fragment:destination ~allow_zero_budget:true
+      ?retained_function_source ?on_progress ~max_steps
+      ~span:(Destination.span destination)
+      ~globals:(Destination.globals destination)
+      ~top_calls ~functions ()
+  in
+  let payload =
+    match (prepared.fragment_items_, prepared.copies_) with
+    | [ item ], [] -> (
+        match item.classification_ with
+        | Prepared_constant bits -> Some (Arrays.Word bits)
+        | Scheduled -> None)
+    | [], [ (Fragment original, bytes, _) ] when original == destination ->
+        Some (Arrays.Bytes bytes)
+    | _ -> invalid_arg "fragment preparation lost its unique original work item"
+  in
+  Ok
+    {
+      fragment_destination_ = destination;
+      fragment_payload_ = payload;
+      fragment_steps_ = prepared.steps;
+    }
+
+let prepare_default ?retained_function_source ?on_progress ~max_steps ~top_calls
+    destination =
+  let* prepared =
+    prepare_internal ~default:destination ~allow_zero_budget:true
+      ?retained_function_source ?on_progress ~max_steps
+      ~span:(Default.span destination)
+      ~globals:(Default.globals destination)
+      ~top_calls ~functions:[] ()
+  in
+  match prepared.default_items_ with
+  | [ item ] when item.root_ == destination ->
+      Ok (item.classification_, prepared.steps)
+  | _ -> invalid_arg "default preparation lost its unique original work item"
+
+let prepare_dimension ?retained_function_source ?on_progress ~max_steps
+    ~top_calls destination =
+  let* prepared =
+    prepare_internal ~dimension:destination ~allow_zero_budget:true
+      ?retained_function_source ?on_progress ~max_steps
+      ~span:(Dimension.span destination)
+      ~globals:(Dimension.globals destination)
+      ~top_calls ~functions:[] ()
+  in
+  match prepared.dimension_items_ with
+  | [ item ] when item.root_ == destination ->
+      Ok (item.classification_, prepared.steps)
+  | _ -> invalid_arg "dimension preparation lost its original work item"
+
+let prepare_offset ?retained_function_source ?on_progress ~max_steps ~top_calls
+    destination =
+  let* prepared =
+    prepare_internal ~offset:destination ~allow_zero_budget:true
+      ?retained_function_source ?on_progress ~max_steps
+      ~span:(Offset.span destination)
+      ~globals:(Offset.globals destination)
+      ~top_calls ~functions:[] ()
+  in
+  match prepared.offset_items_ with
+  | [ item ] when item.root_ == destination ->
+      Ok (item.classification_, prepared.steps)
+  | _ -> invalid_arg "offset preparation lost its original work item"
 
 let global_human prepared =
   match prepared.items_ with
@@ -535,6 +917,11 @@ let human prepared =
              (fun (owner, bytes, steps) ->
                let symbol =
                  match owner with
+                 | Dimension _ | Offset _ ->
+                     invalid_arg "dimension cannot own copied bytes"
+                 | Default destination -> Default.symbol destination
+                 | Fragment destination ->
+                     Globals.storage_symbol (Destination.storage destination)
                  | Global (slot, _) -> Globals.slot_symbol slot
                  | Static (slot, _) ->
                      Globals.storage_symbol (Globals.static_storage slot)

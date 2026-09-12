@@ -29,6 +29,8 @@ val make_identifier :
   (event, string) result
 
 val make_dimension :
+  ?queries:Query_selection.t list ->
+  ?prepared:Compiler_record.declared_dimension ->
   dimension:Global_type_resolution.array_dimension ->
   event list ->
   (dimension_input, string) result
@@ -74,13 +76,27 @@ val dimension_opening_origin : resolved_dimension -> Symbol.origin
 val dimension_expression_origin : resolved_dimension -> Symbol.origin option
 val dimension_closing_origin : resolved_dimension -> Symbol.origin
 val dimension_occurrences : resolved_dimension -> occurrence list
+val dimension_queries : resolved_dimension -> Query_selection.t list option
 val occurrence_index : occurrence -> int
 val occurrence_dimension_index : occurrence -> int
 val occurrence_name : occurrence -> string
 val occurrence_origin : occurrence -> Symbol.origin
 val occurrence_resolution : occurrence -> resolution
+val occurrence_selection : occurrence -> Reference_selection.t option
+
+val make_selected_identifier :
+  selection:Reference_selection.t ->
+  name:string ->
+  origin:Symbol.origin ->
+  occurrence_index:int ->
+  dimension_index:int ->
+  (event, string) result
+
 val error_code : error -> string
 val error_kind : error -> error_kind
 val error_origin : error -> Symbol.origin option
 val error_message : error -> string
 val error_to_string : error -> string
+
+val dimension_prepared :
+  resolved_dimension -> Compiler_record.declared_dimension option

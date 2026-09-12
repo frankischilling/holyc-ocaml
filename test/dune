@@ -1,4 +1,19 @@
 (test
+ (name test_stateful_exe_cli)
+ (modules test_stateful_exe_cli)
+ (libraries unix yojson)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/stateful-exe-implicit-phases.hc}
+   %{dep:../examples/stateful-exe-aggregates.hc}
+   %{dep:../examples/stateful-exe-aggregate-phases.hc}
+   %{dep:../examples/stateful-exe-aggregate-offsets.hc}
+   %{dep:../examples/stateful-exe-runtime-aggregate-offsets.hc}
+   %{dep:../examples/stateful-exe-runtime-offset-positions.hc})))
+
+(test
  (name test_integer_program_cli)
  (modules test_integer_program_cli)
  (libraries holyc_lib unix yojson)
@@ -54,6 +69,16 @@
  (name test_main)
  (modules
   test_main
+  test_retained_aggregates
+  test_provisional_function_types
+  test_provisional_function_authority
+  test_direct_call_phases
+  test_call_activation
+  test_task_call_phases
+  test_provisional_function_resolution
+  test_provisional_function_classification
+  test_function_alias
+  test_task_function_alias
   test_integer_expression
   test_integer_program
   test_integer_functions
@@ -63,10 +88,35 @@
   test_integer_byte_updates
   test_integer_byte_signatures
   test_integer_narrow
+  test_stateful_exe
+  test_integer_task
+  test_task_stream
+  test_task_progress
+  test_task_parser_executor
+  test_aot_source_execution
+  test_jit_source_execution
+  test_task_declarations
+  test_source_promotion
+  test_live_initializer_leaves
+  test_partial_global_storage
+  test_live_initializer_execution
+  test_initializer_fragment_typing
+  test_live_initializer_layout
+  test_live_initializer_lowering
+  test_parameter_default_boundaries
+  test_provisional_function_parser
+  test_provisional_function_source
+  test_provisional_function_runtime
+  test_function_record_phase
+  test_parameter_default_execution
+  test_task_command_order
+  test_stream_parser
   test_integer_statics
   test_integer_static_initializers
   test_integer_pointers
   test_integer_arrays
+  test_integer_variadic
+  test_integer_extern_calls
   test_integer_bytes
   test_integer_strings
   test_integer_u0
@@ -104,6 +154,8 @@
   test_aggregate_member_index
   test_aggregate_layout_dump
   test_function_type_resolution
+  test_function_parameter_delimiters
+  test_variadic_header_termination
   test_global_type_resolution
   test_local_type_resolution
   test_function_binding_index
@@ -125,6 +177,11 @@
   test_global_dimension_binding
   test_function_default_binding
   test_function_resolution
+  test_completed_function_header
+  test_pending_function_header
+  test_pending_function_resolution
+  test_outer_function_versions
+  test_retained_header_typing
   test_function_header_analysis
   test_function_call_resolution
   test_function_call_conversion_policy

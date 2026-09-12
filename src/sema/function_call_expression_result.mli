@@ -214,7 +214,13 @@ val function_implicit_outputs : resolved_function -> implicit_output_result list
 val implicit_output_source :
   implicit_output_result -> Function_call_resolution.implicit_output_input
 
+val implicit_output_supplied_fixed_value :
+  implicit_output_result -> expression_result option
+
 val implicit_output_fixed_value : implicit_output_result -> expression_result
+(** Legacy supplied-value accessor. Raises [Invalid_argument] for an absent
+    value; use the corresponding supplied-value option accessor for general
+    calls. *)
 
 val implicit_output_arguments :
   implicit_output_result -> implicit_output_argument_result list
@@ -262,6 +268,12 @@ val return_conversion : return_result -> intrinsic_conversion
 val return_presence : return_result -> return_presence
 val direct_source : direct_call -> Function_call_conversion_policy.direct_call
 val direct_declaration : direct_call -> Function_resolution.resolved_declaration
+val direct_original_phase : direct_call -> Function_call_phase.t option
+
+val top_level_direct_original_phase :
+  top_level_direct_call -> Function_call_phase.t option
+
+val direct_outer_binding : direct_call -> Outer_environment.binding option
 val direct_fixed_results : direct_call -> fixed_result list
 val direct_variadic_results : direct_call -> expression_result list
 
@@ -322,6 +334,9 @@ val top_level_direct_source :
 
 val top_level_direct_declaration :
   top_level_direct_call -> Function_resolution.resolved_declaration
+
+val top_level_direct_outer_binding :
+  top_level_direct_call -> Outer_environment.binding option
 
 val top_level_direct_header :
   top_level_direct_call -> Function_type_resolution.resolved_function

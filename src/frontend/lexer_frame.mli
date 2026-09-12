@@ -1,4 +1,4 @@
-type kind = Root | Included | Definition | Predefined
+type kind = Root | Included | Definition | Predefined | Generated_stream
 type t
 
 val root :
@@ -32,6 +32,10 @@ val push_predefined :
   t
 
 val kind : t -> kind
+
+val push_stream :
+  caller:t -> source:Common.Source_file.t -> invocation_span:Common.Span.t -> t
+
 val source : t -> Common.Source_file.t
 val source_id : t -> Common.Source_id.t
 val canonical_path : t -> string
@@ -50,3 +54,7 @@ val include_stack : t -> Common.Diagnostic.related list
 val definition_trace : t -> Common.Diagnostic.related list
 val find_active_path : t -> string -> t option
 val find_active_definition : t -> int -> t option
+
+val find_active_definition_object : t -> Definition.t -> t option
+(** Match an exact publication, including across copied environments. Numeric
+    definition IDs alone are local to each environment. *)

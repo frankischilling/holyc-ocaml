@@ -452,6 +452,10 @@ let literals_and_module_values () =
                 Some "ICF_RES_NOT_USED"
             | Semantic_top_level_expression_tree.Implicit_output_fixed _
             | Semantic_top_level_expression_tree.Global_initializer _
+            | Semantic_top_level_expression_tree.Initializer_fragment _
+            | Semantic_top_level_expression_tree.Default_fragment _
+            | Semantic_top_level_expression_tree.Dimension_fragment _
+            | Semantic_top_level_expression_tree.Offset_fragment _
             | Semantic_top_level_expression_tree.Implicit_output_argument _
             | Semantic_top_level_expression_tree.Condition _
             | Semantic_top_level_expression_tree.Switch_selector _
@@ -680,6 +684,7 @@ let top_level_outer_globals_retain_checked_shapes () =
                   "the result and classifier share one binding" true
                   (selected == binding)
             | Semantic_top_level_identifier_resolution.Module_value _
+            | Semantic_top_level_identifier_resolution.Outer_function_value _
             | Semantic_top_level_identifier_resolution.Outer_type_required _ ->
                 Alcotest.fail "expected a typed outer classification");
             name)

@@ -14,6 +14,28 @@ type source =
   | Top_level_output of
       Sema.Top_level_implicit_output_argument_binding.bound_output
 
+let original_phase = function
+  | Function_call target ->
+      Sema.Function_call_target_classification.source target
+      |> Typed.direct_original_phase
+  | Top_level_call target ->
+      Sema.Top_level_function_call_target_classification.source target
+      |> Typed.top_level_direct_original_phase
+  | Function_output output ->
+      Sema.Implicit_output_argument_binding.bound_original_phase output
+  | Top_level_output output ->
+      Sema.Top_level_implicit_output_argument_binding.bound_original_phase
+        output
+
+let cleanup_slot_count source ~fixed_count ~variadic_count ~variadic =
+  let fixed =
+    match original_phase source with
+    | None -> fixed_count
+    | Some phase -> Sema.Function_call_phase.emission_fixed_count phase
+  in
+  let fixed = Int64.of_int fixed in
+  if variadic then Int64.add (Int64.succ fixed) variadic_count else fixed
+
 type description = {
   source : source;
   first : Seq.Instruction_id.t;
@@ -21,11 +43,12 @@ type description = {
   discard : Seq.Instruction_id.t option;
 }
 
-type provider = Print | Put_chars
+type provider = Print | Put_chars | Stream_print
 type owner = Entry | Function of Function_body.t
 type argument_role = Fixed of int | Variadic_count | Variadic of int
 
 type argument = {
+  prepared_default : bool;
   role : argument_role;
   producer : Seq.Instruction_id.t;
   value : Seq.Value_id.t;
@@ -48,6 +71,7 @@ type call = {
   variadic_count_ : int64 option;
   declaration_ : Functions.resolved_declaration;
   header_ : Headers.resolved_function;
+  retained_function_ : Retained_function.t option;
 }
 
 type graph_context = {
@@ -57,6 +81,10 @@ type graph_context = {
 }
 
 type t = {
+  typed_top_level : Typed.top_level_t;
+  dimension_dependencies_ :
+    Sema.Compiler_record.runtime_dimension_proposal list;
+  offset_dependencies_ : Sema.Compiler_record.aggregate_offset list;
   entry : X87_stack.t;
   initialization : Global_initialization.t;
   functions : Function_body.t list;
@@ -83,6 +111,18 @@ let argument_target_type argument = argument.target_type
 let variadic_count call = call.variadic_count_
 let declaration call = call.declaration_
 let header call = call.header_
+let call_original_phase call = original_phase call.description.source
+let retained_function call = call.retained_function_
+
+let compilation_mode context =
+  Typed.top_level_compilation_mode context.typed_top_level
+
+let original_phases context =
+  List.concat_map
+    (fun graph ->
+      Instructions.bindings graph.calls
+      |> List.filter_map (fun (_, call) -> call_original_phase call))
+    context.graphs
 
 let same_owner left right =
   match (left, right) with
@@ -104,6 +144,54 @@ let find_graph context owner =
 let find_start context ~owner id =
   Option.bind (find_graph context owner) (fun graph ->
       Instructions.find_opt id graph.calls)
+
+let entry_item_index context call =
+  let module Tree = Sema.Top_level_expression_tree in
+  let item statement =
+    statement |> Tree.statement_source
+    |> Sema.Top_level_outer_expression_binding.statement_item_index
+  in
+  match find_start context ~owner:Entry (first call) with
+  | Some original when original == call -> (
+      match call.description.source with
+      | Top_level_call target ->
+          let source =
+            target |> Sema.Top_level_function_call_target_classification.source
+            |> Typed.top_level_direct_source
+          in
+          Typed.top_level_source context.typed_top_level
+          |> Tree.statements
+          |> List.find_map (fun statement ->
+              if List.exists (( == ) source) (Tree.statement_calls statement)
+              then Some (item statement)
+              else None)
+      | Top_level_output output ->
+          Some
+            (output
+           |> Sema.Top_level_implicit_output_argument_binding.bound_source
+           |> Sema.Top_level_implicit_output_target_resolution.output_statement
+           |> Typed.top_level_statement_source |> item)
+      | Function_call _ | Function_output _ ->
+          Option.bind
+            (Global_initialization.find_storage context.initialization
+               (first call))
+            (fun region ->
+              Option.map Sema.Function_frame_layout.function_item_index
+                (Global_initialization.storage_frame region)))
+  | _ -> None
+
+let is_prepared_default context ~owner id =
+  Option.fold ~none:false
+    ~some:(fun graph ->
+      Instructions.exists
+        (fun _ call ->
+          List.exists
+            (fun argument ->
+              argument.prepared_default
+              && Seq.Instruction_id.equal argument.producer id)
+            call.arguments_)
+        graph.calls)
+    (find_graph context owner)
 
 let is_implicit_discard context ~owner id =
   Option.fold ~none:false
@@ -131,6 +219,10 @@ let fail ?span message =
 
 let require ?span condition message = if not condition then fail ?span message
 
+type fixed_value =
+  | Provided of Typed.expression_result
+  | Prepared_default of Prepared_parameter_default.t
+
 type shape = {
   source_description : description;
   selected_declaration : Functions.resolved_declaration;
@@ -138,22 +230,31 @@ type shape = {
   selected_record : Records.record;
   selected_symbol : Sema.Symbol.t;
   result_type : Type.t;
-  fixed : (Headers.parameter * Typed.expression_result) list;
+  fixed : (Headers.parameter * fixed_value) list;
   variadic : Typed.expression_result list;
   count_type : Type.t option;
   origin : Sema.Symbol.origin;
+  retained_function : Retained_function.t option;
 }
 
 let parameter_type parameter =
   parameter |> Headers.parameter_type_reference
   |> Sema.Type_reference.resolved_type
 
-let provided ?span = function
-  | Typed.Provided_result result -> result
-  | Typed.Declared_default_result _ ->
-      fail ?span "runtime call context cannot materialize an omitted default"
+let prepared_default ~globals ~header ~parameter ?span () =
+  match
+    Integer_globals.prepared_parameter_default globals ~header ~parameter
+  with
+  | Some prepared -> Prepared_default prepared
+  | None ->
+      fail ?span "runtime call has no original prepared default in its snapshot"
 
-let shape records description =
+let provided ~globals ~header ~parameter ?span = function
+  | Typed.Provided_result result -> Provided result
+  | Typed.Declared_default_result _ ->
+      prepared_default ~globals ~header ~parameter ?span ()
+
+let shape ~globals records description =
   let declaration, header, symbol, fixed, variadic, count, origin, implicit =
     match description.source with
     | Function_call target ->
@@ -175,7 +276,10 @@ let shape records description =
                 |> Sema.Function_call_conversion_policy.fixed_source
                 |> Resolution.fixed_parameter
               in
-              (parameter, provided ?span (Typed.fixed_path result)))
+              ( parameter,
+                provided ~globals
+                  ~header:(Resolution.direct_active_header direct)
+                  ~parameter ?span (Typed.fixed_path result) ))
             (Typed.direct_fixed_results typed)
         in
         ( Target.declaration target,
@@ -203,7 +307,11 @@ let shape records description =
                 result |> Typed.top_level_fixed_source
                 |> Resolution.fixed_parameter
               in
-              (parameter, provided ?span (Typed.top_level_fixed_path result)))
+              ( parameter,
+                provided ~globals
+                  ~header:(Typed.top_level_direct_header typed)
+                  ~parameter ?span
+                  (Typed.top_level_fixed_path result) ))
             (Typed.top_level_direct_fixed_results typed)
         in
         ( Target.declaration target,
@@ -227,12 +335,19 @@ let shape records description =
         require ?span
           (Typed.implicit_output_result_use typed = Typed.Result_not_used)
           "implicit output lost its checked discarded-result intent";
-        let target =
+        let declaration, symbol =
           match Target.output_binding source with
-          | Target.Module_function target -> target
-          | Target.Outer_function _ ->
-              fail ?span
-                "outer output target has no checked runtime declaration"
+          | Target.Module_function target ->
+              ( Target.module_declaration target,
+                Target.module_target_symbol target )
+          | Target.Outer_function binding -> (
+              let entry = Sema.Outer_environment.binding_entry binding in
+              match Sema.Outer_environment.entry_function_metadata entry with
+              | Some metadata ->
+                  ( Sema.Outer_environment.function_declaration metadata,
+                    Sema.Outer_environment.entry_symbol entry )
+              | None ->
+                  fail ?span "outer output has no selected runtime declaration")
         in
         let fixed =
           List.map
@@ -244,17 +359,24 @@ let shape records description =
                       (Bound.provided_conversion value = Bound.No_conversion)
                       "implicit output requires an unsupported argument \
                        conversion";
-                    Bound.provided_result value
-                | Bound.Defaulted_path _ ->
-                    fail ?span
-                      "implicit output default materialization is unsupported"
+                    Provided (Bound.provided_result value)
+                | Bound.Defaulted_path default ->
+                    require ?span
+                      (Bound.default_materialization default
+                      = Bound.Immediate_default)
+                      "implicit output requires unsupported default \
+                       materialization";
+                    prepared_default ~globals
+                      ~header:(Bound.bound_header output)
+                      ~parameter:(Bound.fixed_parameter slot)
+                      ?span ()
               in
               (Bound.fixed_parameter slot, value))
             (Bound.bound_fixed_slots output)
         in
-        ( Target.module_declaration target,
+        ( declaration,
           Bound.bound_header output,
-          Target.module_target_symbol target,
+          symbol,
           fixed,
           Bound.bound_variadic_values output,
           None,
@@ -267,21 +389,45 @@ let shape records description =
         let origin = Target.output_marker_origin source in
         let span = origin_span origin in
         require ?span
-          (match
-             Target.output_fixed_value source
-             |> Typed.top_level_root_source
-             |> Sema.Top_level_expression_tree.root_role
-           with
-          | Sema.Top_level_expression_tree.Implicit_output_fixed
-              { output_index; _ } -> output_index = Target.output_index source
-          | _ -> false)
+          (match Target.output_supplied_fixed_value source with
+          | Some root -> (
+              match
+                root |> Typed.top_level_root_source
+                |> Sema.Top_level_expression_tree.root_role
+              with
+              | Sema.Top_level_expression_tree.Implicit_output_fixed
+                  { output_index; _ } ->
+                  output_index = Target.output_index source
+              | _ -> false)
+          | None ->
+              Option.fold ~none:false
+                ~some:(fun ast ->
+                  ast.Frontend.Ast.fixed_argument
+                  = Frontend.Ast.Absent_fixed_argument
+                  && Option.fold ~none:false
+                       ~some:
+                         (List.exists (fun (index, original) ->
+                              index = Target.output_index source
+                              && original == ast))
+                       (Target.output_statement source
+                       |> Typed.top_level_statement_source
+                       |> Sema.Top_level_expression_tree
+                          .statement_implicit_outputs))
+                (Target.output_source_statement source))
           "top-level output does not retain its checked implicit root role";
-        let target =
+        let declaration, symbol =
           match Target.output_binding source with
-          | Target.Module_function target -> target
-          | Target.Outer_function _ ->
-              fail ?span
-                "outer output target has no checked runtime declaration"
+          | Target.Module_function target ->
+              ( Target.module_declaration target,
+                Target.module_target_symbol target )
+          | Target.Outer_function binding -> (
+              let entry = Sema.Outer_environment.binding_entry binding in
+              match Sema.Outer_environment.entry_function_metadata entry with
+              | Some metadata ->
+                  ( Sema.Outer_environment.function_declaration metadata,
+                    Sema.Outer_environment.entry_symbol entry )
+              | None ->
+                  fail ?span "outer output has no selected runtime declaration")
         in
         let fixed =
           List.map
@@ -293,17 +439,24 @@ let shape records description =
                       (Bound.provided_conversion value = Bound.No_conversion)
                       "implicit output requires an unsupported argument \
                        conversion";
-                    Bound.provided_result value
-                | Bound.Defaulted_path _ ->
-                    fail ?span
-                      "implicit output default materialization is unsupported"
+                    Provided (Bound.provided_result value)
+                | Bound.Defaulted_path default ->
+                    require ?span
+                      (Bound.default_materialization default
+                      = Bound.Immediate_default)
+                      "implicit output requires unsupported default \
+                       materialization";
+                    prepared_default ~globals
+                      ~header:(Bound.bound_header output)
+                      ~parameter:(Bound.fixed_parameter slot)
+                      ?span ()
               in
               (Bound.fixed_parameter slot, value))
             (Bound.bound_fixed_slots output)
         in
-        ( Target.module_declaration target,
+        ( declaration,
           Bound.bound_header output,
-          Target.module_target_symbol target,
+          symbol,
           fixed,
           List.map Typed.top_level_root_value
             (Bound.bound_variadic_roots output),
@@ -315,10 +468,66 @@ let shape records description =
   require ?span
     (Option.is_some description.discard = implicit)
     "call context discard identity does not match its checked statement source";
+  let outer_binding =
+    match description.source with
+    | Function_call target ->
+        Sema.Function_call_target_classification.source target
+        |> Typed.direct_outer_binding
+    | Top_level_call target ->
+        Sema.Top_level_function_call_target_classification.source target
+        |> Typed.top_level_direct_outer_binding
+    | Function_output output -> (
+        match
+          Sema.Implicit_output_target_resolution.output_binding
+            (Sema.Implicit_output_argument_binding.bound_source output)
+        with
+        | Sema.Implicit_output_target_resolution.Outer_function binding ->
+            Some binding
+        | _ -> None)
+    | Top_level_output output -> (
+        match
+          Sema.Top_level_implicit_output_target_resolution.output_binding
+            (Sema.Top_level_implicit_output_argument_binding.bound_source output)
+        with
+        | Sema.Top_level_implicit_output_target_resolution.Outer_function
+            binding -> Some binding
+        | _ -> None)
+  in
+  let retained_function =
+    Option.map
+      (fun binding ->
+        match Integer_globals.retained_function_binding globals binding with
+        | Some reference ->
+            let metadata = Retained_function.metadata reference in
+            require ?span
+              (Sema.Outer_environment.function_declaration metadata
+               == declaration
+              &&
+              match
+                Sema.Outer_environment.binding_entry binding
+                |> Sema.Outer_environment.entry_function_metadata
+              with
+              | Some expected -> expected == metadata
+              | None -> false)
+              "retained call does not own its selected task declaration";
+            reference
+        | None ->
+            fail ?span "retained call has no exact selected task function link")
+      outer_binding
+  in
   let classified =
-    Records.declarations records
-    |> List.find_opt (fun candidate ->
-        Records.classified_declaration_source candidate == declaration)
+    match original_phase description.source with
+    | Some phase -> Some (Sema.Function_call_phase.emission phase)
+    | None -> (
+        match retained_function with
+        | Some reference ->
+            Some
+              (Retained_function.metadata reference
+              |> Sema.Outer_environment.function_classified_declaration)
+        | None ->
+            Records.declarations records
+            |> List.find_opt (fun candidate ->
+                Records.classified_declaration_source candidate == declaration))
   in
   let selected_record =
     match classified with
@@ -327,10 +536,25 @@ let shape records description =
         fail ?span
           "call declaration does not belong to the supplied record snapshots"
   in
+  let retained_function =
+    match (original_phase description.source, retained_function) with
+    | Some phase, Some _ -> (
+        let emitted =
+          Sema.Function_call_phase.emission phase
+          |> Records.classified_declaration_source
+        in
+        match Integer_globals.retained_function_declaration globals emitted with
+        | Some reference -> Some reference
+        | None ->
+            fail ?span "call emission lacks its exact retained native record")
+    | _ -> retained_function
+  in
   require ?span
-    ( declaration |> Functions.resolved_declaration_site
-      |> Functions.declaration_site_function
-    |> fun expected -> expected == header )
+    (match original_phase description.source with
+    | None -> Functions.resolved_declaration_header declaration == header
+    | Some phase ->
+        Sema.Function_call_phase.selected phase == declaration
+        && Sema.Function_call_phase.arguments phase == header)
     "call header is not its selected declaration header";
   require ?span
     (Functions.resolved_declaration_identity_symbol declaration == symbol)
@@ -356,11 +580,7 @@ let shape records description =
          (fun parameter (actual, _) -> parameter == actual)
          parameters fixed)
     "call fixed values do not match the selected parameter identities";
-  let count_type =
-    header |> Headers.function_variadic_bindings
-    |> Option.map (fun bindings ->
-        bindings |> Headers.variadic_argc |> Headers.synthetic_binding_type)
-  in
+  let count_type = Headers.function_variadic_count_type header in
   require ?span
     (Option.is_some count_type || variadic = [])
     "nonvariadic call has a variadic argument tail";
@@ -385,12 +605,15 @@ let shape records description =
     selected_record;
     selected_symbol = symbol;
     result_type =
-      header |> Headers.function_return_type
-      |> Sema.Type_reference.resolved_type;
+      (match original_phase description.source with
+        | None -> header
+        | Some phase -> Sema.Function_call_phase.emission_header phase)
+      |> Headers.function_return_type |> Sema.Type_reference.resolved_type;
     fixed;
     variadic;
     count_type;
     origin;
+    retained_function;
   }
 
 let selected_opcode ?span record =
@@ -433,12 +656,13 @@ let approved_provider shape =
     && primitive shape.result_type 0 Sema.Primitive_type.U0
   in
   match (ordinary, Sema.Symbol.name shape.selected_symbol, parameter) with
-  | true, "Print", Some parameter
+  | true, (("Print" | "StreamPrint") as name), Some parameter
     when Headers.parameter_default parameter = None
          && Headers.parameter_register_requests parameter = []
          && primitive (parameter_type parameter) 1 Sema.Primitive_type.U8
          && Option.is_some shape.count_type
-         && Int64.equal flags (Flags.to_mask Flags.Variadic) -> Some Print
+         && Int64.equal flags (Flags.to_mask Flags.Variadic) ->
+      Some (if name = "Print" then Print else Stream_print)
   | true, "PutChars", Some parameter
     when Headers.parameter_default parameter = None
          && Headers.parameter_register_requests parameter = []
@@ -448,6 +672,7 @@ let approved_provider shape =
   | _ -> None
 
 type expected_argument = {
+  expected_default : bool;
   expected_role : argument_role;
   expected_source : Type.t;
   expected_target : Type.t;
@@ -484,7 +709,7 @@ let rec producer_origin result =
         origin_span (Resolution.binary_operator_origin binary)
     | _ -> own ()
 
-let rec producer_type result =
+let rec producer_type ~globals result =
   let span = origin_span (Typed.result_origin result) in
   let type_ =
     match Typed.result_type result with
@@ -510,6 +735,16 @@ let rec producer_type result =
     (match
        Typed.result_source result |> Resolution.argument_expression_kind
      with
+    | _ when Option.is_some (Typed.result_outer_binding result) -> (
+        match Global_address_lowering.prepare ~globals result with
+        | Ok (Some address) ->
+            require ?span
+              (List.length (Global_address_lowering.strides address) = rank)
+              "retained array argument disagrees with its exact task object \
+               rank"
+        | _ ->
+            fail ?span
+              "retained array argument has no checked task storage reference")
     | Resolution.Bound_identifier_expression identifier ->
         require ?span
           (Resolution.bound_identifier_is_ordinary_array identifier
@@ -547,7 +782,7 @@ let rec producer_type result =
                    (Typed.result_type base))
               "materialized call argument lost its checked remaining array \
                dimensions";
-            ignore (producer_type base)
+            ignore (producer_type ~globals base)
         | None -> fail ?span "materialized array index has no checked operands")
     | _ ->
         fail ?span
@@ -558,22 +793,34 @@ let rec producer_type result =
         fail ?span
           "materialized call argument cannot form its checked element pointer"
 
-let expected_arguments shape =
+let expected_arguments ~globals shape =
   let span = origin_span shape.origin in
   let actual role target value =
-    let source = producer_type value in
+    let source = producer_type ~globals value in
     {
       expected_role = role;
       expected_source = source;
       expected_target = Option.value target ~default:source;
       expected_origin = producer_origin value;
       expected_count = None;
+      expected_default = false;
     }
   in
   let fixed =
     List.mapi
       (fun i (parameter, value) ->
-        actual (Fixed i) (Some (parameter_type parameter)) value)
+        match value with
+        | Provided value ->
+            actual (Fixed i) (Some (parameter_type parameter)) value
+        | Prepared_default prepared ->
+            {
+              expected_role = Fixed i;
+              expected_source = Prepared_parameter_default.type_ prepared;
+              expected_target = parameter_type parameter;
+              expected_origin = span;
+              expected_count = Some (Prepared_parameter_default.bits prepared);
+              expected_default = true;
+            })
       shape.fixed
   in
   let variadic =
@@ -590,6 +837,7 @@ let expected_arguments shape =
             expected_target = type_;
             expected_origin = span;
             expected_count = Some (Int64.of_int (List.length shape.variadic));
+            expected_default = false;
           };
         ]
   in
@@ -607,11 +855,11 @@ type pending = {
   mutable expected : expected_argument list;
 }
 
-let graph_context ~records ~validate_source owner graph descriptions =
+let graph_context ~globals ~records ~validate_source owner graph descriptions =
   let pending_shapes =
     List.fold_left
       (fun map description ->
-        let shape = shape records description in
+        let shape = shape ~globals records description in
         let span = origin_span shape.origin in
         validate_source owner description span;
         require ?span
@@ -683,7 +931,7 @@ let graph_context ~records ~validate_source owner graph descriptions =
                   shape;
                   phase = Collecting;
                   pushes = [];
-                  expected = expected_arguments shape;
+                  expected = expected_arguments ~globals shape;
                 }
                 :: !stack
           | ( ( Opcode.Ic_call
@@ -721,7 +969,12 @@ let graph_context ~records ~validate_source owner graph descriptions =
                 )
                 "runtime cleanup differs from the selected flag policy";
               let bytes =
-                Int64.mul 8L (Int64.of_int (List.length pending.pushes))
+                Int64.mul 8L
+                  (cleanup_slot_count pending.shape.source_description.source
+                     ~fixed_count:(List.length pending.shape.fixed)
+                     ~variadic_count:
+                       (Int64.of_int (List.length pending.shape.variadic))
+                     ~variadic:(Option.is_some pending.shape.count_type))
               in
               require ?span
                 (item.payload = Some (Seq.Integer bytes))
@@ -760,7 +1013,13 @@ let graph_context ~records ~validate_source owner graph descriptions =
                   cleanup_opcode_ =
                     selected_cleanup pending.shape.selected_record;
                   cleanup_bytes_ =
-                    Int64.mul 8L (Int64.of_int (List.length pending.pushes));
+                    Int64.mul 8L
+                      (cleanup_slot_count
+                         pending.shape.source_description.source
+                         ~fixed_count:(List.length pending.shape.fixed)
+                         ~variadic_count:
+                           (Int64.of_int (List.length pending.shape.variadic))
+                         ~variadic:(Option.is_some pending.shape.count_type));
                   call_instruction_;
                   cleanup_instruction_;
                   result_value_;
@@ -772,6 +1031,7 @@ let graph_context ~records ~validate_source owner graph descriptions =
                       pending.shape.count_type;
                   declaration_ = pending.shape.selected_declaration;
                   header_ = pending.shape.selected_header;
+                  retained_function_ = pending.shape.retained_function;
                 }
               in
               calls := Instructions.add call.description.first call !calls;
@@ -841,6 +1101,7 @@ let graph_context ~records ~validate_source owner graph descriptions =
                 pending.pushes <-
                   {
                     role = expected.expected_role;
+                    prepared_default = expected.expected_default;
                     producer = item.instruction_id;
                     value;
                     source_type = expected.expected_source;
@@ -885,6 +1146,7 @@ let graph_context ~records ~validate_source owner graph descriptions =
 let create ~records ~function_sources ~top_level ~initialization ~entry
     ~entry_calls ~functions =
   try
+    let globals = Global_initialization.globals initialization in
     let provided = function
       | Typed.Provided_result value -> Some value
       | Typed.Declared_default_result _ -> None
@@ -1091,10 +1353,8 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
                 (Option.is_none (Global_initialization.storage_frame region))
                 "top-level entry call cannot belong to a static initializer";
               let root =
-                match
-                  Global_initialization.find initialization description.first
-                with
-                | Some region -> Global_initialization.root region
+                match Global_initialization.storage_root region with
+                | Some root -> root
                 | None ->
                     fail ?span
                       "global-initializer region has no exact source root"
@@ -1129,7 +1389,8 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
               require ?span
                 (List.exists (fun source -> source == root) roots)
                 "entry output root is foreign to its containing statement")
-            (Target.output_fixed_value target :: Target.output_arguments target)
+            (Option.to_list (Target.output_supplied_fixed_value target)
+            @ Target.output_arguments target)
     in
     let rec checked_functions seen = function
       | [] -> []
@@ -1140,14 +1401,31 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
           ignore
             (source_function ?span:(Function_body.span body)
                (Function_body.symbol body));
-          graph_context ~records ~validate_source (Function body)
+          graph_context ~globals ~records ~validate_source (Function body)
             (Function_body.body body) descriptions
           :: checked_functions (body :: seen) rest
     in
     let graphs =
-      graph_context ~records ~validate_source Entry (X87_stack.graph entry)
-        entry_calls
+      graph_context ~globals ~records ~validate_source Entry
+        (X87_stack.graph entry) entry_calls
       :: checked_functions [] functions
     in
-    Ok { entry; initialization; functions = List.map fst functions; graphs }
+    Ok
+      {
+        typed_top_level = top_level;
+        dimension_dependencies_ =
+          Dimension_requirements.top_level top_level
+          @ Dimension_requirements.functions function_sources;
+        offset_dependencies_ =
+          Offset_requirements.top_level top_level
+          @ Offset_requirements.functions function_sources;
+        entry;
+        initialization;
+        functions = List.map fst functions;
+        graphs;
+      }
   with Invalid error -> Error [ error ]
+
+let dimension_dependencies context = context.dimension_dependencies_
+let owns_top_level context typed = context.typed_top_level == typed
+let offset_dependencies value = value.offset_dependencies_

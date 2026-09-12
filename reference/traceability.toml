@@ -11008,7 +11008,7 @@ remaining = ["source optimizer emulation and broader differential coverage", "co
 id = "HC-SOURCE-INTEGER-CONTROL-FLOW"
 description = "Integer top-level statements and structured control flow run through the source driver and verified IR."
 sources = ["Compiler/PrsStmt.HC:459-565", "Compiler/OptLib.HC:229-484", "Compiler/PrsExp.HC:49-52,225-230,728-759"]
-implementation = ["src/driver/integer_source.ml", "src/driver/integer_program.ml", "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml", "bin/holyc.ml"]
+implementation = ["src/driver/integer_source.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml", "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml", "bin/holyc.ml"]
 tests = ["test/test_integer_program.ml", "test/test_integer_program_cli.ml", "test/cli/integer-program.hc"]
 documentation = ["docs/integer-programs.md", "README.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md"]
 status = "implemented"
@@ -11083,7 +11083,7 @@ sources = [
 implementation = [
   "src/driver/function_call_resolution.ml", "src/sema/function_call_resolution.ml",
   "src/sema/function_call_conversion_policy.ml", "src/sema/function_call_expression_result.ml",
-  "src/driver/integer_source.ml", "src/driver/integer_program.ml",
+  "src/driver/integer_source.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml",
   "src/ir/frame_address_lowering.ml", "src/ir/expression_lowering.ml",
   "src/ir/integer_program_lowering.ml", "src/ir/direct_call_lowering.ml",
   "src/ir/integer_interpreter.ml", "src/holyc_lib.ml", "bin/holyc.ml"
@@ -11139,7 +11139,7 @@ native_oracle_status = "hosted source and IR tests with pinned-source evidence; 
 id = "HC-SOURCE-INTEGER-GLOBAL-STORAGE"
 description = "Ordinary scalar I64/U64 code-heap globals share persistent storage across top-level code and direct function calls."
 sources = ["Compiler/PrsExp.HC:867-902 global address forms and scalar class", "Compiler/PrsStmt.HC:334-410 allocation, initial bytes and publication", "Kernel/KStart32.HC:17-29 configurable JIT variable fill", "Compiler/PrsVar.HC:51-112 initializer phase boundary", "Kernel/KLoad.HC:153-181 main entry order"]
-implementation = ["src/ir/integer_globals.ml", "src/ir/global_address_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/direct_call_lowering.ml", "src/ir/return_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_source.ml", "src/driver/integer_program.ml", "bin/holyc.ml"]
+implementation = ["src/ir/integer_globals.ml", "src/ir/global_address_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/direct_call_lowering.ml", "src/ir/return_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_source.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml", "bin/holyc.ml"]
 tests = ["test/test_integer_globals.ml", "test/test_integer_program_cli.ml", "examples/integer-globals.hc", "test/dune"]
 documentation = ["docs/integer-globals.md", "docs/integer-functions.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
 status = "implemented"
@@ -11163,7 +11163,7 @@ native_oracle_status = "hosted source and malformed-IR regressions plus pinned-s
 id = "HC-SOURCE-INTEGER-GLOBAL-INITIALIZERS"
 description = "Scalar I64/U64 declaration initializers retain checked roots, bounded constant initial images and source-ordered compile/load execution regions."
 sources = ["Compiler/PrsStmt.HC:409-433 publication before initialization", "Compiler/PrsVar.HC:51-112 constant preparation and nonconstant AOT IET_MAIN", "Compiler/CInit.HC:27-108 original-opcode constantness metadata", "Compiler/OptPass012.HC:66-68 constantness before rewrites", "Compiler/OptPass012.HC:403-430 constant division and divide-to-shift distinction", "Kernel/KLoad.HC:153-181 ordered main entries"]
-implementation = ["src/sema/top_level_expression_binding.ml", "src/sema/top_level_expression_tree.ml", "src/driver/global_initializer_binding.ml", "src/driver/top_level_expression_binding.ml", "src/driver/top_level_expression_tree.ml", "src/driver/integer_source.ml", "src/driver/integer_initializers.ml", "src/driver/integer_program.ml", "src/ir/integer_globals.ml", "src/ir/global_address_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/global_initialization.ml", "src/ir/integer_interpreter.ml", "bin/holyc.ml"]
+implementation = ["src/sema/top_level_expression_binding.ml", "src/sema/top_level_expression_tree.ml", "src/driver/global_initializer_binding.ml", "src/driver/top_level_expression_binding.ml", "src/driver/top_level_expression_tree.ml", "src/driver/integer_source.ml", "src/driver/integer_initializers.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml", "src/ir/integer_globals.ml", "src/ir/global_address_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/global_initialization.ml", "src/ir/integer_interpreter.ml", "bin/holyc.ml"]
 tests = ["test/test_integer_global_initializers.ml", "test/test_integer_globals.ml", "test/test_integer_program_cli.ml", "examples/integer-global-initializers.hc", "test/dune"]
 documentation = ["docs/integer-global-initializers.md", "docs/integer-globals.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
 status = "implemented"
@@ -11211,7 +11211,7 @@ native_oracle_status = "hosted source and malformed-IR regressions with pinned-s
 id = "HC-SOURCE-INTEGER-STATIC-LOCALS"
 description = "Persistent scalar I64/U64 static locals and constant initial images execute through the existing source program and CLI."
 sources = ["Compiler/PrsVar.HC:534-588 definition-time static code-heap allocation and AOT zero image", "Compiler/PrsExp.HC:776-784 canonical static addresses", "Compiler/PrsVar.HC:53-112,215-244 constant preparation and nonconstant phase boundary", "Compiler/PrsStmt.HC:160-184 containing-function publication"]
-implementation = ["src/ir/integer_statics.ml", "src/ir/integer_globals.ml", "src/ir/global_address_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/ir/global_initialization.ml", "src/driver/integer_initializers.ml", "src/driver/integer_program.ml", "src/holyc_lib.mli"]
+implementation = ["src/ir/integer_statics.ml", "src/ir/integer_globals.ml", "src/ir/global_address_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/ir/global_initialization.ml", "src/driver/integer_initializers.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml", "src/holyc_lib.mli"]
 tests = ["test/test_integer_statics.ml", "test/test_integer_functions.ml", "test/test_integer_globals.ml", "test/test_integer_updates.ml", "test/test_integer_program_cli.ml", "examples/integer-statics.hc", "test/dune"]
 documentation = ["docs/integer-statics.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/integer-global-initializers.md", "docs/integer-updates.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
 status = "implemented"
@@ -11232,7 +11232,7 @@ native_oracle_status = "hosted source, private producer and malformed-IR regress
 id = "HC-SOURCE-INTEGER-STATIC-INITIALIZERS"
 description = "Nonconstant scalar static initializers execute at their declaration phases through checked regions and direct calls."
 sources = ["Kernel/KTask.HC:338-351 JIT statement execution", "Compiler/PrsVar.HC:53-112,215-244 initializer phase and AOT option deferral", "Compiler/CMain.HC:82-90,513-531 MAIN ordering", "Kernel/KLoad.HC:158-165 MAIN calls", "Compiler/PrsStmt.HC:160-184 function publication"]
-implementation = ["src/ir/global_initialization.ml", "src/ir/global_address_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_initializers.ml", "src/driver/integer_program.ml"]
+implementation = ["src/ir/global_initialization.ml", "src/ir/global_address_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_initializers.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml"]
 tests = ["test/test_integer_static_initializers.ml", "test/test_integer_statics.ml", "test/test_integer_program_cli.ml", "examples/integer-static-initializers.hc", "test/dune"]
 documentation = ["docs/integer-static-initializers.md", "docs/integer-statics.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/integer-global-initializers.md", "docs/intermediate-representation.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/testing.md", "README.md", "CHANGELOG.md"]
 status = "implemented"
@@ -11314,7 +11314,7 @@ native_oracle_status = "hosted source, malformed IR and CLI regressions with pin
 id = "HC-SOURCE-OWNED-STRING-STORAGE"
 description = "Canonical string literal IR owns mutable terminated byte objects through the checked program execution path."
 sources = ["Compiler/CInit.HC:9", "Compiler/AsmInit.HC:197-206", "Compiler/PrsExp.HC:693-694", "Compiler/LexLib.HC:248-274", "Compiler/PrsLib.HC:143,298-308", "Compiler/PrsStmt.HC:150-189", "Compiler/OptPass789A.HC:1098-1105"]
-implementation = ["src/sema/type.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_program.ml", "bin/holyc.ml"]
+implementation = ["src/sema/type.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml", "bin/holyc.ml"]
 tests = ["test/test_integer_strings.ml", "test/test_integer_program_cli.ml", "examples/integer-strings.hc"]
 documentation = ["docs/integer-strings.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
 status = "implemented"
@@ -11337,7 +11337,7 @@ native_oracle_status = "pinned-source audit and hosted execution; mutability is 
 id = "HC-SOURCE-U0-CALL-EXECUTION"
 description = "Checked U0 source calls preserve effects and caller continuation with explicit no-value completion."
 sources = ["Compiler/PrsExp.HC:530-588", "Compiler/PrsStmt.HC:150-169,1110-1119", "Kernel/KExts.HC:83-84"]
-implementation = ["src/ir/integer_interpreter.ml", "src/ir/direct_call_lowering.ml", "src/ir/return_lowering.ml", "src/driver/integer_program.ml"]
+implementation = ["src/ir/integer_interpreter.ml", "src/ir/direct_call_lowering.ml", "src/ir/return_lowering.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml"]
 tests = ["test/test_integer_u0.ml", "test/test_integer_program_cli.ml", "examples/integer-u0.hc"]
 documentation = ["docs/integer-u0.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
 status = "implemented"
@@ -11358,7 +11358,7 @@ native_oracle_status = "pinned-source audit and hosted execution; native return 
 id = "HC-CAPTURED-RUNTIME-OUTPUT"
 description = "Checked Print/PutChars calls and implicit statements capture bytes through selected declaration snapshots and canonical call instructions."
 sources = ["Kernel/KExts.HC:83-84", "Compiler/PrsExp.HC:530-588", "Kernel/StrPrint.HC:364-365,390-411,433-434,869-895", "Kernel/KeyDev.HC:1-25"]
-implementation = ["src/driver/integer_source.ml", "src/driver/integer_program.ml", "src/driver/integer_program_report.ml", "src/driver/integer_execution_diagnostics.ml", "src/ir/direct_call_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/ir/integer_output.ml", "src/ir/integer_statics.ml", "src/holyc_lib.ml", "bin/holyc.ml", "bin/run_report.ml"]
+implementation = ["src/driver/integer_source.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml", "src/driver/integer_program_report.ml", "src/driver/integer_execution_diagnostics.ml", "src/ir/direct_call_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/ir/integer_output.ml", "src/ir/integer_statics.ml", "src/holyc_lib.ml", "bin/holyc.ml", "bin/run_report.ml"]
 tests = ["test/test_integer_output.ml", "test/test_integer_program.ml", "test/test_integer_program_cli.ml", "examples/integer-output.hc", "examples/integer-putchars.hc"]
 documentation = ["docs/integer-output.md", "docs/integer-programs.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
 status = "implemented"
@@ -11381,7 +11381,7 @@ native_oracle_status = "pinned-source audit and hosted execution; no new native 
 id = "HC-SOURCE-JOINED-DEFINITION-EXECUTION"
 description = "Canonical callable identities execute checked source definitions while frames and storage retain their exact definition owner."
 sources = ["Compiler/PrsStmt.HC:62-109,110-137,151-190", "Compiler/PrsExp.HC:545-586", "Compiler/LexLib.HC:157-180", "Compiler/PrsStmt.HC:124-135"]
-implementation = ["src/ir/function_body.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_program.ml", "src/driver/integer_initializers.ml", "src/sema/function_call_resolution.ml", "src/sema/function_call_conversion_policy.ml", "src/sema/function_call_expression_result.ml", "src/sema/function_frame_layout.ml"]
+implementation = ["src/ir/function_body.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml", "src/driver/integer_initializers.ml", "src/sema/function_call_resolution.ml", "src/sema/function_call_conversion_policy.ml", "src/sema/function_call_expression_result.ml", "src/sema/function_frame_layout.ml"]
 tests = ["test/test_integer_joined_definitions.ml", "test/test_integer_program_cli.ml", "examples/integer-joined-definitions.hc"]
 documentation = ["docs/integer-joined-definitions.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/intermediate-representation.md", "docs/integer-output.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
 status = "implemented"
@@ -11424,7 +11424,7 @@ native_oracle_status = "pinned-source audit and hosted execution; resource polic
 id = "HC-PERSISTENT-ARRAY-EXECUTION"
 description = "Fixed I64/U64/U8 global and static arrays retain checked shapes, ordered declaration leaves, direct byte-string copies and exact persistent aliases."
 sources = ["Compiler/PrsVar.HC:1-113,123-204,247-281,530-588", "Compiler/PrsStmt.HC:285-296,334-435", "Compiler/PrsExp.HC:679-685,1069-1098,1140-1151", "Compiler/LexLib.HC:248-275", "Compiler/OptLib.HC:96-179", "Compiler/OptPass012.HC:153-191,211-217,403-445,809-822"]
-implementation = ["src/sema/initializer_source.ml", "src/sema/global_array_layout.ml", "src/sema/closed_layout_expression.ml", "src/sema/function_frame_layout.ml", "src/sema/top_level_expression_tree.ml", "src/sema/function_call_resolution.ml", "src/driver/global_array_layout.ml", "src/driver/integer_initializers.ml", "src/driver/integer_program.ml", "src/ir/integer_storage_shape.ml", "src/ir/integer_initializer_layout.ml", "src/ir/integer_array_initializers.ml", "src/ir/initializer_publication.ml", "src/ir/integer_globals.ml", "src/ir/integer_statics.ml", "src/ir/global_initialization.ml", "src/ir/global_address_lowering.ml", "src/ir/integer_interpreter.ml"]
+implementation = ["src/sema/initializer_source.ml", "src/sema/global_array_layout.ml", "src/sema/closed_layout_expression.ml", "src/sema/function_frame_layout.ml", "src/sema/top_level_expression_tree.ml", "src/sema/function_call_resolution.ml", "src/driver/global_array_layout.ml", "src/driver/integer_initializers.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml", "src/ir/integer_storage_shape.ml", "src/ir/integer_initializer_layout.ml", "src/ir/integer_array_initializers.ml", "src/ir/initializer_publication.ml", "src/ir/integer_globals.ml", "src/ir/integer_statics.ml", "src/ir/global_initialization.ml", "src/ir/global_address_lowering.ml", "src/ir/integer_interpreter.ml"]
 tests = ["test/test_integer_persistent_arrays.ml", "test/test_integer_array_safety.ml", "test/test_initializer_leaf_evidence.ml", "test/test_persistent_extent_values.ml", "test/test_global_array_layout.ml", "test/test_function_frame_layout.ml", "test/test_integer_program_cli.ml", "examples/integer-persistent-arrays.hc"]
 documentation = ["docs/integer-persistent-arrays.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "CHANGELOG.md"]
 status = "implemented"
@@ -11486,6 +11486,53 @@ excluded = ["other primitive and aggregate storage", "pointer returns and genera
 native_oracle_status = "pinned-source audit and hosted execution; no new native TempleOS capture"
 
 [[feature]]
+id = "HC-AOT-SOURCE-EXECUTION"
+description = "Public AOT source execution connects real task streams to a complete isolated outer artifact and cumulative invocation reports."
+sources = ["Kernel/KTask.HC:337-344", "Compiler/PrsStmt.HC:805-841,1182-1211", "Compiler/PrsExp.HC:810-812", "Compiler/CMisc.HC:68-80"]
+implementation = ["src/driver/integer_source_execution.ml", "src/driver/integer_program.ml", "src/driver/integer_program_report.ml", "src/driver/integer_task.ml", "src/driver/integer_unit.ml", "src/driver/task_declarations.ml", "src/ir/integer_interpreter.ml", "bin/run_report.ml"]
+tests = ["test/test_aot_source_execution.ml", "test/test_task_progress.ml", "test/test_integer_program_cli.ml", "examples/stateful-exe-aot.hc"]
+documentation = ["docs/integer-task.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 635
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+semantics = "An early AOT frontend fork excludes outer declarations. The first actual parser stream entry installs missing checked providers once; real generated bytes resume outer parsing. Valid inactive source retains the ordinary single-unit path. Unavailable AOT reads fail at consumption with HCRUN0003 before later lookahead, including without directives."
+ownership = "An invocation-owned preparation ticket binds independently charged work to the exact isolated compiled bundle. Streams and isolated execution share cumulative budgets and output without sharing task storage or callable authority. Failed preflight is retryable; reached execution consumes the image. Reports freeze progress and list the outer artifact separately from checked task units."
+limits = "37 instructions, 10 preparation steps, 16 global bytes, 8 literal bytes, 3 generated bytes, 13 formatting-work units, 2 ordinary output bytes; exact/one-below controls. Source dimensions keep their separate limit; stream dimensions count as task preparation."
+excluded = ["shared outer JIT execution", "partial declaration/header/initializer admission", "partial array leaves", "remaining implicit-provider/default/later-call reads", "cross-command extern joins", "broader metadata", "general #exe completion", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted AOT execution; no new native TempleOS capture"
+
+[[feature]]
+id = "HC-TASK-PARSER-EXECUTOR"
+description = "A retained task implements the parser's stream callback with real VM execution and StreamPrint generation."
+sources = ["Kernel/KTask.HC:337-344", "Compiler/PrsStmt.HC:805-841,1182-1211", "Compiler/PrsExp.HC:810-812", "Compiler/CMisc.HC:68-80"]
+implementation = ["src/driver/integer_task.ml", "src/driver/task_declarations.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_task_parser_executor.ml", "test/test_task_stream.ml", "test/test_task_command_order.ml"]
+documentation = ["docs/integer-task.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 635
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+semantics = "Original command resume events invoke the shared compiler and VM; accepted sequences return exact buffers for parser injection. Identifier consumption rejects absent/unbound entries and unadmitted source from other commands before subsequent lookahead."
+ownership = "Callbacks advancing compilation or execution require the executor's exact original context and active task token; accepted/consumed executors cannot substitute contexts or route effects into another buffer. Exact source-abort cleanup survives earlier explicit buffer closure and rejects replay. Fault and exception cleanup preserves earlier ordinary effects and resource charges."
+limits = "22 task instructions including provider setup, 5 preparation steps, 8 persistent bytes, 7 literal bytes, 3 generated bytes, 12 formatting-work units, 2 ordinary output bytes; exact/one-below and nested-depth controls"
+excluded = ["runtime provider installation", "shared outer JIT command execution", "partial declaration/header/initializer admission", "remaining source-read phases and metadata", "extern joins", "whole-source invocation reports and artifact collection", "public #exe run facade", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted adapter execution; no new native TempleOS capture"
+
+[[feature]]
+id = "HC-TASK-COMMAND-ORDER"
+description = "Task source commands retain parser resume order and exact compiled-program association through VM admission."
+sources = ["Kernel/KTask.HC:337-344", "Compiler/PrsStmt.HC:805-841,1209-1211"]
+implementation = ["src/sema/task_command_order.ml", "src/driver/task_declarations.ml", "src/driver/integer_program.ml", "src/driver/integer_unit.ml", "src/ir/integer_globals.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_task_command_order.ml", "test/test_task_declarations.ml", "test/test_integer_task.ml"]
+documentation = ["docs/integer-task.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 635
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+semantics = "Exact resume events order commands within their parser-root family; nested task contexts precede suspended commands, foreign AOT parents require no task admission, and independent roots remain separate."
+admission = "Original source identities and exact compiled bundles are checked before effects. Admission consumes identities on success and reached faults; failed preflight remains retryable."
+excluded = ["partial declaration and initializer execution", "effectful dimensions", "remaining source-read phases and metadata", "extern joins", "production #exe orchestration", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted execution; no new native TempleOS capture"
+
+[[feature]]
 id = "HC-NARROW-INTEGER-EXECUTION"
 description = "I8/I16/U16/I32/U32 share generated storage descriptors, full register signatures, canonical updates and native computation/range evidence."
 sources = ["Kernel/KernelA.HH:1566-1571", "Compiler/BackLib.HC:281-309,509-534,550-572", "Compiler/OptPass789A.HC:710-717,779-782,1026-1030", "Compiler/PrsVar.HC:132-134,314", "Compiler/PrsExp.HC:116,149-161,586", "Compiler/OptLib.HC:9-14,101-122,196-202", "Compiler/OptPass012.HC:151-191", "Compiler/BackA.HC:373-423,447-453,604-658", "Compiler/BackB.HC:304-380", "Compiler/BackC.HC:539-600", "Compiler/OptPass3.HC:29-35,524-610", "Compiler/OptPass4.HC:389-397"]
@@ -11506,3 +11553,84 @@ reporting = "v1/v2 and dump schemas unchanged; original storage/call/return type
 verification_status = "2049 tests passed in 40.856 seconds plus CLI; 53 focused narrow groups pass. Independent native/source and integration reviews, formatting/generated/build/install, 82 checksums, 11 provenance scenarios and exact lexer/parser corpora passed. COM, bare-execution and folding regressions were reproduced before fixes. Committed-source and protected integration evidence tracked in issue 633."
 excluded = ["Bool, zero-sized and floating storage", "aggregates", "automatic array brace/string initialization", "pointer returns and general pointer conversions", "narrow word-cast/index producers", "full formatting/runtime linking", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader acceptance", "bootstrap"]
 native_oracle_status = "pinned-source audit and hosted execution; no new native TempleOS capture"
+
+[[feature]]
+id = "HC-PROVISIONAL-CALL-PHASES"
+description = "Admit original native declaration phases and retain separate selection, argument and emission facts for direct and implicit calls."
+sources = ["Compiler/LexLib.HC:209-218", "Compiler/PrsStmt.HC:90-117,805-841", "Compiler/PrsExp.HC:383-491,534-586,810,865"]
+implementation = ["src/driver/task_declarations.ml", "src/driver/integer_task.ml", "src/sema/function_record_phase.ml", "src/sema/source_activation.ml", "src/sema/task_command_order.ml", "src/sema/function_type_resolution.ml", "src/sema/function_call_resolution.ml", "src/sema/implicit_output_argument_rules.ml", "src/ir/integer_globals.ml", "src/ir/integer_interpreter.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml"]
+tests = ["test/test_task_call_phases.ml", "test/test_provisional_function_types.ml", "test/test_provisional_function_runtime.ml", "test/test_provisional_function_authority.ml", "test/test_function_record_phase.ml", "test/test_call_activation.ml", "test/test_direct_call_phases.ml", "test/test_task_parser_executor.ml", "test/test_stateful_exe_cli.ml", "examples/stateful-exe-implicit-phases.hc"]
+documentation = ["docs/provisional-function-members.md", "docs/reference-source-map.md"]
+status = "partial"
+issue = 635
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+semantics = "Declaration snapshots retain original argument counts and members during exact activation events, including reused native allocations. Variadic consumers use checked cursor count types without body-local synthetic bindings; fixed defaults retain original children."
+ownership = "Snapshot reads and admission require their exact live or replayed source phase. Admission separately checks task command order and actual native catalog heads; stale predecessors, alternate semantic roots and legacy-header bypasses reject without publication. Ordinary completed headers retain body authority separately. Hidden phase completion preserves visible lookup order."
+call_phases = "Direct identifier and implicit marker selection retain the admitted executable; argument capture follows name or empty-marker lookahead, emission follows closing-parenthesis lookahead, and saved defaults belong to the captured member owner. Failed replay revokes unadmitted phases. Malformed statements cannot supply binding identity."
+provider_setup = "Missing providers parse in the original suspended task context with caller locals cleared and restored. An opaque single-use token binds stack position, source manager, symbols, mode and event count; completion requires the exact accepted child sequence and admitted commands. Each provider declaration consumes one command unit."
+excluded = ["general native ABI mismatch behavior", "general callbacks and noninteger variadics", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted execution; direct post-name and implicit marker/emission gates pass; no new native capture"
+
+[[feature]]
+id = "HC-RETAINED-AGGREGATE-SIZES"
+description = "Original named aggregate publications retain completed primitive-member layout sizes for source queries across task streams."
+sources = ["Compiler/PrsStmt.HC:1-59", "Compiler/PrsVar.HC:660-682"]
+implementation = ["src/frontend/parser.ml", "src/sema/declaration_collection.ml", "src/sema/compiler_record.ml", "src/sema/aggregate_layout_core.ml", "src/sema/aggregate_layout.ml", "src/sema/source_aggregate_layout.ml", "src/sema/source_activation.ml", "src/driver/task_declarations.ml", "src/driver/aggregate_layout.ml", "src/driver/integer_source.ml", "src/driver/integer_task.ml", "src/driver/integer_unit.ml"]
+tests = ["test/test_retained_aggregates.ml", "test/test_stateful_exe_cli.ml", "examples/stateful-exe-aggregates.hc"]
+documentation = ["docs/retained-aggregates.md", "docs/integer-task.md", "docs/reference-source-map.md", "CHANGELOG.md"]
+status = "partial"
+issue = 635
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+semantics = "Packed completed classes/unions, closed member array extents and anonymous unions share the existing checked layout engine. Forward declarations supply zero-sized metadata. Original sizeof reads retain consumed values across replacement and separate directives."
+ownership = "Live parser publication/completion, exact namespace publication and AST item; immutable compiler record cached by original entry. Member bounds reuse checked command/member/AST/predecessor receipts without source reevaluation. No object or callable runtime authority is inferred from type metadata."
+source_gate = "Maintained two-stream fixture returns I64 42 in JIT and AOT, with 31 runtime steps and three preparation units. Exact combined limits and each one-below failure are checked through the CLI."
+excluded = ["native extern record reuse", "offset directive preparation", "inheritance", "aggregate-valued members", "callbacks and member metadata", "attached storage", "runtime-dependent member layout admission", "aggregate object execution", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted execution; no new native capture"
+
+[[feature]]
+id = "HC-AGGREGATE-LAYOUT-PHASES"
+description = "Original member phases advance retained class/union size snapshots before metadata and delimiter advancement."
+sources = ["Compiler/PrsStmt.HC:1-59", "Compiler/PrsVar.HC:408-494,660-721", "Compiler/PrsExp.HC:303-348"]
+implementation = ["src/frontend/parser.ml", "src/sema/compiler_record.ml", "src/sema/aggregate_layout_core.ml", "src/sema/source_aggregate_layout.ml", "src/sema/source_activation.ml", "src/driver/task_declarations.ml", "src/driver/integer_task.ml"]
+tests = ["test/test_retained_aggregates.ml", "test/test_stateful_exe_cli.ml", "examples/stateful-exe-aggregate-phases.hc"]
+documentation = ["docs/retained-aggregates.md", "docs/integer-task.md", "docs/reference-source-map.md", "CHANGELOG.md"]
+status = "partial"
+issue = 635
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+semantics = "Zero-sized name publication, primitive member placement after type/dimension lookahead and before metadata/delimiters, anonymous-union base stack, frozen partial sizeof reads and final phase-chain reconciliation. No prefix compilation or dimension reevaluation."
+ownership = "Live parser phase, exact aggregate publication and predecessor, final phase and namespace; immutable size snapshots carry a current-version guard for new live query reads. Consumed query values remain valid after later phases."
+source_gate = "Nested-stream fixture observes 0, 8 and 16 bytes and returns I64 42 in both modes at 35 runtime steps and three preparation units. Combined exact limits and each one-below failure are checked through the CLI."
+excluded = ["native extern record reuse", "runtime-dependent offset preparation", "inheritance", "aggregate-valued members", "callbacks and metadata", "attached storage", "runtime-dependent member layout admission", "member lookup", "aggregate object execution", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted execution; no new native capture"
+
+[[feature]]
+id = "HC-AGGREGATE-OFFSET-PREPARATION"
+description = "Prepare original closed aggregate offset expressions once and advance retained positions and negative padding at parser phases."
+sources = ["Compiler/PrsVar.HC:408-449", "Compiler/PrsStmt.HC:50-57", "Compiler/PrsExp.HC:303-348,1117-1178"]
+implementation = ["src/frontend/parser.ml", "src/sema/compiler_record.ml", "src/sema/source_aggregate_layout.ml", "src/sema/aggregate_layout_core.ml", "src/sema/source_activation.ml", "src/driver/task_declarations.ml", "src/driver/aggregate_layout.ml", "src/driver/integer_source.ml", "src/driver/integer_unit.ml", "src/driver/integer_source_execution.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_retained_aggregates.ml", "test/test_stateful_exe_cli.ml", "examples/stateful-exe-aggregate-offsets.hc"]
+documentation = ["docs/retained-aggregates.md", "docs/reference-source-map.md", "docs/integer-task.md", "CHANGELOG.md"]
+status = "partial"
+issue = 635
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+semantics = "Original expression lookahead precedes offset evaluation, position updates precede semicolon validation, and negative padding follows closing-brace lookahead. Closed integer/current-position/query expressions and floating raw bits use bounded numeric evaluation. Completed layout reuses checked values."
+ownership = "Original live phase, aggregate publication, namespace, expression and predecessor chain; preparation attempts cannot be repeated. Source activation charges original receipts at their exact journal events."
+source_gate = "The aggregate-offset CLI fixture returns I64 42 in both modes at 27 runtime steps and six preparation units, with zero dimension work. Exact limits and each one-below failure are checked."
+excluded = ["runtime offsets before JIT source activation", "ordinary AOT runtime offset relocation", "shared compiler-position writes before later $$ reads", "runtime F64 offsets", "native extern record reuse", "inheritance and aggregate-valued members", "callbacks and metadata", "attached storage", "runtime-dependent member admission", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted execution; no new native capture"
+
+[[feature]]
+id = "HC-AGGREGATE-RUNTIME-OFFSET"
+description = "Execute original typed integer aggregate offset fragments in their owning task and retain derived layout dependencies."
+sources = ["Compiler/PrsVar.HC:408-449", "Compiler/PrsExp.HC:707-721", "Compiler/PrsExp.HC:1117-1178", "Compiler/PrsStmt.HC:805-841", "Compiler/OptPass012.HC:693-706"]
+implementation = ["src/sema/offset_fragment.ml", "src/sema/compiler_record.ml", "src/driver/initializer_fragment_typing.ml", "src/driver/offset_fragment_lowering.ml", "src/driver/integer_initializers.ml", "src/driver/integer_task.ml", "src/driver/task_declarations.ml", "src/ir/offset_fragment_destination.ml", "src/ir/offset_fragment_program.ml", "src/ir/offset_requirements.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_retained_aggregates.ml", "test/runtime_offset_authority/test_runtime_offset_authority.ml", "test/test_stateful_exe_cli.ml", "examples/stateful-exe-runtime-aggregate-offsets.hc", "examples/stateful-exe-runtime-offset-positions.hc"]
+documentation = ["docs/retained-aggregates.md", "docs/reference-source-map.md", "docs/integer-task.md", "CHANGELOG.md"]
+status = "partial"
+issue = 635
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+semantics = "Integer runtime expressions use original task storage, selected call versions and query reads after expression lookahead. Boolean values are eager. Completed layout reuses the successful result, including negative and union positions."
+ownership = "Original phase and aggregate progress authorize a distinct typed fragment. Exact task, graph, call context, snapshot and preparation count authorize execution. Matching semantic metadata alone cannot authorize runtime execution or derived sizes. Failures and replay retain once-only work."
+source_gate = "The runtime aggregate-offset fixture returns I64 42 in JIT and outer AOT modes at 49 execution steps, three preparation units and zero dimension work. The original-position fixture returns 42 in both modes at 46 runtime steps, four preparation units and zero dimension work. Exact limits and each one-below failure are checked; later lookahead preserves the captured call argument."
+excluded = ["runtime offsets before JIT source activation", "ordinary AOT runtime offset relocation", "shared compiler-position writes before later $$ reads", "runtime F64 offsets", "full optimizer", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted execution; no new native capture"

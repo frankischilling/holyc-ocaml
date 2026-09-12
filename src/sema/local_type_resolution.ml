@@ -11,6 +11,7 @@ type array_dimension = {
   opening_origin : Symbol.origin;
   expression_origin : Symbol.origin option;
   source_expression : Frontend.Ast.expression option;
+  source_dimension : Frontend.Ast.array_dimension option;
   closing_origin : Symbol.origin;
 }
 
@@ -102,6 +103,9 @@ let array_dimension_expression_origin (dimension : array_dimension) =
 let array_dimension_source_expression (dimension : array_dimension) =
   dimension.source_expression
 
+let array_dimension_source (dimension : array_dimension) =
+  dimension.source_dimension
+
 let array_dimension_closing_origin (dimension : array_dimension) =
   dimension.closing_origin
 
@@ -144,10 +148,29 @@ let initializer_kind_name = function
 let make_register_request = Register_request.make
 
 let make_array_dimension ~index ~origin ~opening_origin ?expression_origin
-    ?source_expression ~closing_origin () =
+    ?source_expression ?source_dimension ~closing_origin () =
   if index < 0 then Error "semantic local array index cannot be negative"
   else if index > 0 && Option.is_none expression_origin then
     Error "only the first semantic local array dimension can be empty"
+  else if
+    Option.fold ~none:false
+      ~some:(fun (source : Frontend.Ast.array_dimension) ->
+        let source_origin = Closed_numeric_expression.origin in
+        source_origin source.location <> origin
+        || source_origin source.opening_bracket <> opening_origin
+        || source_origin source.closing_bracket <> closing_origin
+        || Option.map
+             (fun expression ->
+               source_origin (Frontend.Ast.expression_location expression))
+             source.dimension_expression
+           <> expression_origin
+        ||
+        match (source.dimension_expression, source_expression) with
+        | None, None -> false
+        | Some left, Some right -> left != right
+        | _ -> true)
+      source_dimension
+  then Error "local array dimension substituted its original source children"
   else
     Ok
       {
@@ -156,6 +179,7 @@ let make_array_dimension ~index ~origin ~opening_origin ?expression_origin
         opening_origin;
         expression_origin;
         source_expression;
+        source_dimension;
         closing_origin;
       }
 

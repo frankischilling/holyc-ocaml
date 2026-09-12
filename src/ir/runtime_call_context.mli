@@ -12,12 +12,19 @@ type description = {
   discard : Instruction_sequence.Instruction_id.t option;
 }
 
-type provider = Print | Put_chars
+val original_phase : source -> Sema.Function_call_phase.t option
+
+val cleanup_slot_count :
+  source -> fixed_count:int -> variadic_count:int64 -> variadic:bool -> int64
+
+type provider = Print | Put_chars | Stream_print
 type owner = Entry | Function of Function_body.t
 type argument_role = Fixed of int | Variadic_count | Variadic of int
 type argument
 type call
 type t
+
+val original_phases : t -> Sema.Function_call_phase.t list
 
 val create :
   records:Sema.Function_record_classification.t ->
@@ -49,6 +56,9 @@ val find_start :
 val is_implicit_discard :
   t -> owner:owner -> Instruction_sequence.Instruction_id.t -> bool
 
+val is_prepared_default :
+  t -> owner:owner -> Instruction_sequence.Instruction_id.t -> bool
+
 val provider : call -> provider option
 val symbol : call -> Sema.Symbol.t
 val return_type : call -> Sema.Type.t
@@ -74,3 +84,18 @@ val argument_target_type : argument -> Sema.Type.t
 val variadic_count : call -> int64 option
 val declaration : call -> Sema.Function_resolution.resolved_declaration
 val header : call -> Sema.Function_type_resolution.resolved_function
+val retained_function : call -> Retained_function.t option
+val compilation_mode : t -> Sema.Function_resolution.compilation_mode
+
+val entry_item_index : t -> call -> int option
+(** Original containing item for an entry call, including checked static
+    initializer regions. Function-body calls inherit the invoking entry's
+    publication boundary. Foreign calls have no item in this context. *)
+
+val dimension_dependencies :
+  t -> Sema.Compiler_record.runtime_dimension_proposal list
+
+val owns_top_level :
+  t -> Sema.Function_call_expression_result.top_level_t -> bool
+
+val offset_dependencies : t -> Sema.Compiler_record.aggregate_offset list

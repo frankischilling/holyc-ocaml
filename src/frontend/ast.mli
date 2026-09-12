@@ -379,7 +379,7 @@ and function_pointer_declarator = private {
   signature_parameters : function_parameter list;
   signature_empty_parameter_entries : empty_parameter_entry list;
   signature_variadic : variadic_marker option;
-  signature_closing_parenthesis : location;
+  signature_closing_parenthesis : location option;
   function_pointer_location : location;
 }
 
@@ -495,7 +495,7 @@ type function_prototype = private {
   parameters : function_parameter list;
   empty_parameter_entries : empty_parameter_entry list;
   variadic : variadic_marker option;
-  closing_parenthesis : location;
+  closing_parenthesis : location option;
   semicolon : location option;
   location : location;
 }
@@ -505,11 +505,18 @@ type implicit_output_target = Print_target | Put_chars_target
 type implicit_output_fixed_argument =
   | Marker_fixed_argument of expression
   | Expression_fixed_argument of expression
+  | Absent_fixed_argument
 
 type implicit_output_argument = private {
-  leading_comma : location;
+  leading_comma : location option;
   value : expression;
   location : location;
+}
+
+type implicit_output_omission = private {
+  parameter_index : int;
+  leading_comma : location option;
+  lookahead : location;
 }
 
 type implicit_output_statement = private {
@@ -517,6 +524,8 @@ type implicit_output_statement = private {
   marker : expression_literal;
   fixed_argument : implicit_output_fixed_argument;
   arguments : implicit_output_argument list;
+  omissions : implicit_output_omission list;
+  call_parentheses : (location * location) option;
   semicolon : location option;
   location : location;
 }
@@ -865,7 +874,7 @@ type function_definition = private {
   parameters : function_parameter list;
   empty_parameter_entries : empty_parameter_entry list;
   variadic : variadic_marker option;
-  closing_parenthesis : location;
+  closing_parenthesis : location option;
   body : statement option;
   location : location;
 }
@@ -1256,7 +1265,7 @@ val make_function_pointer_declarator :
   signature_parameters:function_parameter list ->
   signature_empty_parameter_entries:empty_parameter_entry list ->
   signature_variadic:variadic_marker option ->
-  signature_closing_parenthesis:location ->
+  signature_closing_parenthesis:location option ->
   function_pointer_location:location ->
   function_pointer_declarator
 
@@ -1276,7 +1285,7 @@ val make_function_prototype :
   parameters:function_parameter list ->
   empty_parameter_entries:empty_parameter_entry list ->
   variadic:variadic_marker option ->
-  closing_parenthesis:location ->
+  closing_parenthesis:location option ->
   semicolon:location option ->
   location:location ->
   function_prototype
@@ -1292,6 +1301,33 @@ val make_implicit_output_statement :
   marker:expression_literal ->
   fixed_argument:implicit_output_fixed_argument ->
   arguments:implicit_output_argument list ->
+  semicolon:location option ->
+  location:location ->
+  implicit_output_statement
+
+val make_implicit_output_omission :
+  parameter_index:int ->
+  leading_comma:location option ->
+  lookahead:location ->
+  implicit_output_omission
+
+val make_implicit_output_statement_with_omissions :
+  target:implicit_output_target ->
+  marker:expression_literal ->
+  fixed_argument:implicit_output_fixed_argument ->
+  arguments:implicit_output_argument list ->
+  omissions:implicit_output_omission list ->
+  semicolon:location option ->
+  location:location ->
+  implicit_output_statement
+
+val make_implicit_output_statement_with_syntax :
+  target:implicit_output_target ->
+  marker:expression_literal ->
+  fixed_argument:implicit_output_fixed_argument ->
+  arguments:implicit_output_argument list ->
+  omissions:implicit_output_omission list ->
+  call_parentheses:(location * location) option ->
   semicolon:location option ->
   location:location ->
   implicit_output_statement
@@ -1550,7 +1586,7 @@ val make_function_definition :
   parameters:function_parameter list ->
   empty_parameter_entries:empty_parameter_entry list ->
   variadic:variadic_marker option ->
-  closing_parenthesis:location ->
+  closing_parenthesis:location option ->
   body:statement option ->
   location:location ->
   function_definition
@@ -1559,3 +1595,19 @@ val statement_location : statement -> location
 
 val make_module :
   source:Common.Source_id.t -> span:Common.Span.t -> items:item list -> module_
+
+val valid_implicit_output_arguments :
+  fixed_argument:implicit_output_fixed_argument ->
+  arguments:implicit_output_argument list ->
+  omissions:implicit_output_omission list ->
+  bool
+
+val statement_implicit_outputs : statement -> implicit_output_statement list
+
+val make_implicit_output_argument_with_separator :
+  leading_comma:location option ->
+  value:expression ->
+  location:location ->
+  implicit_output_argument
+
+val valid_implicit_output_separators : implicit_output_statement -> bool

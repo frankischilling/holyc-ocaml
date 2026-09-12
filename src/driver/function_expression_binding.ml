@@ -11,24 +11,45 @@ let origin (identifier : Frontend.Ast.identifier) =
   origin_of_location identifier.location
 
 type state = {
+  queries :
+    (Frontend.Ast.expression -> (Sema.Query_selection.t, string) result) option;
   events_rev : Sema.Function_expression_binding.event list;
   declaration_index : int;
+  selections :
+    (Frontend.Ast.identifier -> (Sema.Reference_selection.t, string) result)
+    option;
 }
 
-let empty_state = { events_rev = []; declaration_index = 0 }
+let empty_state selections queries =
+  { events_rev = []; declaration_index = 0; selections; queries }
 
 let add_event state = function
   | Error _ as error -> error
   | Ok event -> Ok { state with events_rev = event :: state.events_rev }
 
 let add_identifier state (identifier : Frontend.Ast.identifier) =
-  Sema.Function_expression_binding.make_identifier ~name:identifier.spelling
-    ~origin:(origin identifier)
-  |> add_event state
+  let ( let* ) = Result.bind in
+  let* make =
+    match state.selections with
+    | None -> Ok Sema.Function_expression_binding.make_identifier
+    | Some select ->
+        select identifier
+        |> Result.map (fun selection ->
+            Sema.Function_expression_binding.make_selected_identifier ~selection)
+  in
+  make ~name:identifier.spelling ~origin:(origin identifier) |> add_event state
 
-let add_name_query state role ~name ~origin =
-  Sema.Function_expression_binding.make_name_query ~role ~name ~origin
-  |> add_event state
+let add_name_query state node role ~name ~origin =
+  let ( let* ) = Result.bind in
+  let* make =
+    match state.queries with
+    | None -> Ok Sema.Function_expression_binding.make_name_query
+    | Some select ->
+        select node
+        |> Result.map (fun selection ->
+            Sema.Function_expression_binding.make_selected_name_query ~selection)
+  in
+  make ~role ~name ~origin |> add_event state
 
 let add_publication state declaration_index declarator_index
     (identifier : Frontend.Ast.identifier) =
@@ -57,7 +78,8 @@ let rec fold_result apply state = function
       | Error _ as error -> error
       | Ok state -> fold_result apply state rest)
 
-let rec expression state = function
+let rec expression state node =
+  match node with
   | Frontend.Ast.Identifier_expression identifier ->
       add_identifier state identifier
   | Frontend.Ast.Parenthesized_expression grouped ->
@@ -82,21 +104,25 @@ let rec expression state = function
       | Ok state -> expression state index.index_value)
   | Frontend.Ast.Member_expression member -> expression state member.member_base
   | Frontend.Ast.Sizeof_expression sizeof ->
-      add_name_query state Sema.Function_expression_binding.Sizeof_root
+      add_name_query state node Sema.Function_expression_binding.Sizeof_root
         ~name:sizeof.sizeof_target.spelling
         ~origin:(origin sizeof.sizeof_target)
   | Frontend.Ast.Offset_expression offset ->
-      add_name_query state Sema.Function_expression_binding.Offset_root
+      add_name_query state node Sema.Function_expression_binding.Offset_root
         ~name:offset.offset_target.spelling
         ~origin:(origin offset.offset_target)
   | Frontend.Ast.Defined_expression defined -> (
       let operand = defined.defined_operand in
       match operand.defined_operand_kind with
       | Frontend.Ast.Defined_name ->
-          add_name_query state Sema.Function_expression_binding.Defined_operand
+          add_name_query state node
+            Sema.Function_expression_binding.Defined_operand
             ~name:operand.defined_operand_spelling
             ~origin:(origin_of_location operand.defined_operand_location)
-      | Frontend.Ast.Defined_non_name -> Ok state)
+      | Frontend.Ast.Defined_non_name -> (
+          match state.queries with
+          | None -> Ok state
+          | Some select -> select node |> Result.map (fun _ -> state)))
   | Frontend.Ast.Integer_literal _
   | Frontend.Ast.Float_literal _
   | Frontend.Ast.Character_literal _
@@ -175,6 +201,7 @@ let implicit_output state (output : Frontend.Ast.implicit_output_statement) =
     match output.fixed_argument with
     | Frontend.Ast.Marker_fixed_argument value
     | Frontend.Ast.Expression_fixed_argument value -> expression state value
+    | Frontend.Ast.Absent_fixed_argument -> Ok state
   in
   match fixed with
   | Error _ as error -> error
@@ -275,12 +302,12 @@ and switch_element state = function
   | Frontend.Ast.Switch_statement_element statement_ ->
       statement state statement_
 
-let events = function
+let events selections queries = function
   | None -> Ok []
   | Some body ->
       Result.map
         (fun state -> List.rev state.events_rev)
-        (statement empty_state body)
+        (statement (empty_state selections queries) body)
 
 type function_ast =
   | Prototype of Frontend.Ast.function_prototype
@@ -399,7 +426,8 @@ let validate_locals local_types indexed =
   in
   pair locals bindings
 
-let function_input table collected local_types indexed (item_index, ast) =
+let function_input selections queries table collected local_types indexed
+    (item_index, ast) =
   let collected_symbol = Sema.Function_collection.function_symbol collected in
   let collected_scope = Sema.Function_collection.function_scope collected in
   let collected_item = Sema.Function_collection.function_item_index collected in
@@ -447,14 +475,15 @@ let function_input table collected local_types indexed (item_index, ast) =
         match validate_locals local_types indexed with
         | Error _ as error -> error
         | Ok () -> (
-            match events body with
+            match events selections queries body with
             | Error _ as error -> error
             | Ok events ->
                 Sema.Function_expression_binding.make_function
                   ~symbol:collected_symbol ~scope:collected_scope ~item_index
                   events))
 
-let function_inputs table functions local_types bindings module_ =
+let function_inputs selections queries table functions local_types bindings
+    module_ =
   let rec pair inputs_rev functions local_types bindings ast =
     match (functions, local_types, bindings, ast) with
     | [], [], [], [] -> Ok (List.rev inputs_rev)
@@ -462,7 +491,10 @@ let function_inputs table functions local_types bindings module_ =
         local :: local_rest,
         indexed :: binding_rest,
         ast_function :: ast_rest ) -> (
-        match function_input table collected local indexed ast_function with
+        match
+          function_input selections queries table collected local indexed
+            ast_function
+        with
         | Error _ as error -> error
         | Ok input ->
             pair (input :: inputs_rev) function_rest local_rest binding_rest
@@ -477,7 +509,8 @@ let function_inputs table functions local_types bindings module_ =
     (Sema.Function_binding_index.functions bindings)
     (ast_functions module_)
 
-let resolve ~table ~declarations ~functions ~local_types ~bindings module_ =
+let resolve ~table ~declarations ~functions ~local_types ~bindings ?selections
+    ?queries module_ =
   let parent = Sema.Declaration_collection.scope declarations in
   let result =
     if not (Sema.Symbol_table.owns_scope table parent) then
@@ -485,7 +518,10 @@ let resolve ~table ~declarations ~functions ~local_types ~bindings module_ =
     else if Sema.Symbol_table.scope_kind parent <> Sema.Symbol_table.Module then
       Error "function expression binding requires a module declaration scope"
     else
-      match function_inputs table functions local_types bindings module_ with
+      match
+        function_inputs selections queries table functions local_types bindings
+          module_
+      with
       | Error _ as error -> error
       | Ok inputs ->
           Sema.Function_expression_binding.resolve ~table ~parent ~bindings

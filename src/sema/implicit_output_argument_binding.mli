@@ -54,12 +54,15 @@ val bind :
   table:Symbol_table.t ->
   policies:Function_call_conversion_policy.t ->
   ?outer_headers:Function_type_resolution.resolved_function list ->
+  ?call_phases:
+    (Frontend.Ast.implicit_output_statement ->
+    (Function_call_phase.t option, string) result) ->
   Implicit_output_target_resolution.t ->
   (t, error) result
 (** Bind implicit output values against each selected source-visible header. A
-    module target always has a checked header. An outer target is bound only
-    when [outer_headers] contains a checked header for the exact resolved outer
-    symbol; otherwise the result remains explicitly deferred. *)
+    module target always has a checked header. An outer target uses its exact
+    retained declaration metadata, or a checked header from [outer_headers] for
+    its resolved symbol. Without either, it remains explicitly deferred. *)
 
 val owns_table : t -> Symbol_table.t -> bool
 val policies : t -> Function_call_conversion_policy.t
@@ -121,3 +124,4 @@ val error_kind : error -> error_kind
 val error_origin : error -> Symbol.origin option
 val error_message : error -> string
 val error_to_string : error -> string
+val bound_original_phase : bound_output -> Function_call_phase.t option

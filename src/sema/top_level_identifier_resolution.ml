@@ -14,6 +14,10 @@ type module_value =
 type resolution =
   | Module_value of module_value
   | Outer_value of Outer_environment.binding
+  | Outer_function_value of {
+      binding : Outer_environment.binding;
+      metadata : Outer_environment.function_metadata;
+    }
   | Outer_type_required of Outer_environment.binding
 
 type leaf = {
@@ -165,11 +169,23 @@ let resolution_is_valid occurrence = function
           && Option.is_some
                (binding |> Outer_environment.binding_entry
               |> Outer_environment.entry_global_metadata))
+  | Outer_function_value { binding; metadata } -> (
+      match occurrence_outer_binding occurrence with
+      | None -> false
+      | Some selected ->
+          selected == binding
+          && Option.fold ~none:false
+               ~some:(fun retained -> retained == metadata)
+               (binding |> Outer_environment.binding_entry
+              |> Outer_environment.entry_function_metadata))
   | Outer_type_required binding -> (
       match occurrence_outer_binding occurrence with
       | None -> false
       | Some selected ->
           selected == binding
+          && Option.is_none
+               (binding |> Outer_environment.binding_entry
+              |> Outer_environment.entry_function_metadata)
           && Option.is_none
                (binding |> Outer_environment.binding_entry
               |> Outer_environment.entry_global_metadata))
@@ -247,7 +263,9 @@ let leaf_symbols_are_owned table leaves =
             Symbol_table.owns_symbol table
               (Module_expression_binding.publication_canonical_symbol
                  publication)
-        | Outer_value binding | Outer_type_required binding ->
+        | Outer_value binding
+        | Outer_type_required binding
+        | Outer_function_value { binding; _ } ->
             binding |> Outer_environment.binding_entry
             |> Outer_environment.entry_symbol
             |> Symbol_table.owns_symbol table

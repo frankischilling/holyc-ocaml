@@ -10,6 +10,7 @@ type argument_kind = Provided | Omitted
 type unresolved_expression_kind =
   | Identifier_expression
   | Current_position_expression
+  | Aggregate_position_expression of Offset_fragment.position
   | Offset_expression
   | Postfix_cast_expression
   | Call_expression
@@ -152,6 +153,7 @@ type argument_expression_kind =
 and argument_expression = {
   expression_kind : argument_expression_kind;
   expression_origin : Symbol.origin;
+  source_identifier : Module_expression_binding.occurrence option;
 }
 
 and prefix_expression = {
@@ -222,6 +224,7 @@ type callable = {
 }
 
 type call = {
+  original_phase : Function_call_phase.t option;
   index : int;
   callee_occurrence_index : int;
   callee_name : string;
@@ -268,21 +271,24 @@ type implicit_output_target = Print_output | Put_chars_output
 
 type implicit_output_fixed_source =
   | Marker_fixed_output
+  | Absent_fixed_output
   | Following_expression_output
 
 type implicit_output_argument = {
   index : int;
-  leading_comma_origin : Symbol.origin;
+  leading_comma_origin : Symbol.origin option;
   expression : argument_expression;
   origin : Symbol.origin;
 }
 
 type implicit_output_input = {
+  source_statement : Frontend.Ast.implicit_output_statement option;
+  implicit_source_calls : call list;
   index : int;
   target : implicit_output_target;
   marker_origin : Symbol.origin;
   fixed_source : implicit_output_fixed_source;
-  fixed_expression : argument_expression;
+  fixed_expression : argument_expression option;
   arguments : implicit_output_argument list;
   origin : Symbol.origin;
 }
@@ -351,6 +357,7 @@ type direct_call = {
   source : call;
   occurrence : Module_expression_binding.occurrence;
   declaration : Function_resolution.resolved_declaration;
+  outer_binding : Outer_environment.binding option;
   active_header : Function_type_resolution.resolved_function;
   target_symbol : Symbol.t;
   fixed_arguments : fixed_argument list;
@@ -473,6 +480,12 @@ let call_callee_form (call : call) = call.callee_form
 let call_callable (call : call) = call.callable
 let call_computed_callee (call : call) = call.computed_callee
 let call_origin (call : call) = call.origin
+let call_original_phase (call : call) = call.original_phase
+
+let emission_header call fallback =
+  Option.fold ~none:fallback ~some:Function_call_phase.emission_header
+    call.original_phase
+
 let call_syntax (call : call) = call.syntax
 let call_arguments (call : call) = call.arguments
 let condition_index (condition : condition_input) = condition.index
@@ -510,8 +523,11 @@ let implicit_output_marker_origin (output : implicit_output_input) =
 let implicit_output_fixed_source (output : implicit_output_input) =
   output.fixed_source
 
-let implicit_output_fixed_expression (output : implicit_output_input) =
+let implicit_output_supplied_fixed_expression (output : implicit_output_input) =
   output.fixed_expression
+
+let implicit_output_fixed_expression output =
+  Option.get (implicit_output_supplied_fixed_expression output)
 
 let implicit_output_arguments (output : implicit_output_input) =
   output.arguments
@@ -521,9 +537,12 @@ let implicit_output_origin (output : implicit_output_input) = output.origin
 let implicit_output_argument_index (argument : implicit_output_argument) =
   argument.index
 
-let implicit_output_argument_leading_comma_origin
+let implicit_output_argument_separator_origin
     (argument : implicit_output_argument) =
   argument.leading_comma_origin
+
+let implicit_output_argument_leading_comma_origin argument =
+  Option.get (implicit_output_argument_separator_origin argument)
 
 let implicit_output_argument_expression (argument : implicit_output_argument) =
   argument.expression
@@ -625,6 +644,7 @@ let fixed_value (fixed : fixed_argument) = fixed.value
 let direct_source (direct : direct_call) = direct.source
 let direct_occurrence (direct : direct_call) = direct.occurrence
 let direct_declaration (direct : direct_call) = direct.declaration
+let direct_outer_binding (direct : direct_call) = direct.outer_binding
 let direct_active_header (direct : direct_call) = direct.active_header
 let direct_target_symbol (direct : direct_call) = direct.target_symbol
 let direct_fixed_arguments (direct : direct_call) = direct.fixed_arguments
@@ -687,6 +707,7 @@ let implicit_output_target_name = function
   | Put_chars_output -> "PutChars"
 
 let implicit_output_fixed_source_name = function
+  | Absent_fixed_output -> "absent"
   | Marker_fixed_output -> "marker"
   | Following_expression_output -> "following-expression"
 
@@ -730,6 +751,7 @@ let direct_function_address_path compilation_mode declaration =
 let unresolved_expression_kind_name = function
   | Identifier_expression -> "identifier"
   | Current_position_expression -> "current-position"
+  | Aggregate_position_expression _ -> "aggregate-position"
   | Offset_expression -> "offset"
   | Postfix_cast_expression -> "postfix-cast"
   | Call_expression -> "call"
@@ -825,7 +847,21 @@ let error_message error =
 let error_to_string error = error.code ^ ": " ^ error_message error
 
 let make_argument_expression ~kind ~origin =
-  { expression_kind = kind; expression_origin = origin }
+  {
+    expression_kind = kind;
+    expression_origin = origin;
+    source_identifier = None;
+  }
+
+let make_source_identifier_expression ~occurrence =
+  {
+    expression_kind = Unresolved_expression Identifier_expression;
+    expression_origin = Module_expression_binding.occurrence_origin occurrence;
+    source_identifier = Some occurrence;
+  }
+
+let argument_expression_source_identifier expression =
+  expression.source_identifier
 
 let valid_origin = function
   | Symbol.Pinned_source { path; line } ->
@@ -1045,23 +1081,68 @@ let sizeof_bound_value target ~bound_aggregate_size ~members ~pointer_layers =
       (None, Some (Int64.of_int Primitive_type.pointer_byte_size), true)
   | _ -> (None, value, uses_pointer_size)
 
+let function_query_selection = function
+  | Module_query query -> Module_expression_binding.query_selection query
+  | Outer_query query -> Outer_expression_binding.query_selection query
+
+let sizeof_query_selection = function
+  | Sizeof_function_query query -> function_query_selection query
+  | Sizeof_top_level_query query ->
+      Top_level_outer_expression_binding.query_selection query
+
 let sizeof_value ~target_spelling ~members ~pointer_layers ~root_resolution
     ~bound_target ~bound_aggregate_size =
-  match bound_target with
-  | Some target ->
-      sizeof_bound_value target ~bound_aggregate_size ~members ~pointer_layers
-  | None when members <> [] || not (sizeof_root_is_unbound root_resolution) ->
-      (None, None, false)
+  match sizeof_query_selection root_resolution with
+  | Some selection -> (
+      match Query_selection.sizeof selection with
+      | Some (primitive, value, pointer) -> (primitive, Some value, pointer)
+      | None -> (None, None, false))
   | None -> (
-      match Primitive_type.of_spelling target_spelling with
-      | None -> (None, None, false)
-      | Some primitive ->
-          let uses_pointer_size = pointer_layers <> [] in
-          let byte_size =
-            if uses_pointer_size then Primitive_type.pointer_byte_size
-            else (Primitive_type.info primitive).byte_size
-          in
-          (Some primitive, Some (Int64.of_int byte_size), uses_pointer_size))
+      match bound_target with
+      | Some target ->
+          sizeof_bound_value target ~bound_aggregate_size ~members
+            ~pointer_layers
+      | None when members <> [] || not (sizeof_root_is_unbound root_resolution)
+        -> (None, None, false)
+      | None -> (
+          match Primitive_type.of_spelling target_spelling with
+          | None -> (None, None, false)
+          | Some primitive ->
+              let uses_pointer_size = pointer_layers <> [] in
+              let byte_size =
+                if uses_pointer_size then Primitive_type.pointer_byte_size
+                else (Primitive_type.info primitive).byte_size
+              in
+              (Some primitive, Some (Int64.of_int byte_size), uses_pointer_size)
+          ))
+
+let sizeof_source_matches (ast : Frontend.Ast.sizeof_expression)
+    ~keyword_spelling ~keyword_origin ~opening_origins ~target_spelling
+    ~target_origin ~members ~pointer_layers ~closing_origins =
+  let origin = Initializer_source.origin_of_location in
+  let same_list compare left right =
+    List.length left = List.length right && List.for_all2 compare left right
+  in
+  ast.sizeof_keyword_spelling = keyword_spelling
+  && origin ast.sizeof_keyword_location = keyword_origin
+  && List.map origin ast.sizeof_opening_parentheses = opening_origins
+  && ast.sizeof_target.spelling = target_spelling
+  && origin ast.sizeof_target.location = target_origin
+  && List.map origin ast.sizeof_closing_parentheses = closing_origins
+  && same_list
+       (fun (ast : Frontend.Ast.sizeof_member) checked ->
+         origin ast.sizeof_member_dot = checked.sizeof_member_dot_origin_
+         && ast.sizeof_member_name.spelling = checked.sizeof_member_name_
+         && origin ast.sizeof_member_name.location
+            = checked.sizeof_member_name_origin_
+         && origin ast.sizeof_member_location = checked.sizeof_member_origin_)
+       ast.sizeof_members members
+  && same_list
+       (fun (ast : Frontend.Ast.pointer_layer) checked ->
+         ast.depth = checked.sizeof_pointer_depth_
+         && ast.spelling = checked.sizeof_pointer_spelling_
+         && origin ast.location = checked.sizeof_pointer_origin_)
+       ast.sizeof_pointer_layers pointer_layers
 
 let make_sizeof_argument_expression ~keyword_spelling ~keyword_origin
     ~opening_origins ~target_spelling ~target_origin ~members ~pointer_layers
@@ -1138,6 +1219,18 @@ let make_sizeof_argument_expression ~keyword_spelling ~keyword_origin
     else if
       Option.is_some bound_target && sizeof_root_is_unbound root_resolution
     then Error "sizeof bound target does not match an unbound query"
+    else if
+      Option.fold ~none:false
+        ~some:(fun selection ->
+          match Query_selection.expression selection with
+          | Frontend.Ast.Sizeof_expression original ->
+              not
+                (sizeof_source_matches original ~keyword_spelling
+                   ~keyword_origin ~opening_origins ~target_spelling
+                   ~target_origin ~members ~pointer_layers ~closing_origins)
+          | _ -> true)
+        (sizeof_query_selection root_resolution)
+    then Error "sizeof source shape differs from its selected query"
     else
       let sizeof_primitive_, sizeof_known_value_, sizeof_uses_pointer_size_ =
         sizeof_value ~target_spelling ~members ~pointer_layers ~root_resolution
@@ -1602,22 +1695,32 @@ let defined_operand_resolution expression =
   expression.defined_operand_resolution_
 
 let defined_known_value expression =
-  match expression.defined_operand_resolution_ with
-  | Defined_non_name_false -> Some false
-  | Defined_function_query (Module_query query) -> (
-      match Module_expression_binding.query_resolution query with
-      | Module_expression_binding.Local_binding _
-      | Module_expression_binding.Module_binding _ -> Some true
-      | Module_expression_binding.Outer_candidate -> None)
-  | Defined_function_query (Outer_query query) -> (
-      match Outer_expression_binding.query_resolution query with
-      | Outer_expression_binding.Query_binding _ -> Some true
-      | Outer_expression_binding.Query_undefined -> Some false)
-  | Defined_top_level_query query -> (
-      match Top_level_outer_expression_binding.query_resolution query with
-      | Top_level_outer_expression_binding.Query_binding _ -> Some true
-      | Top_level_outer_expression_binding.Query_undefined -> Some false)
-  | Defined_top_level_name -> None
+  let selected =
+    match expression.defined_operand_resolution_ with
+    | Defined_function_query query -> function_query_selection query
+    | Defined_top_level_query query ->
+        Top_level_outer_expression_binding.query_selection query
+    | Defined_non_name_false | Defined_top_level_name -> None
+  in
+  match selected with
+  | Some selection -> Query_selection.presence selection
+  | None -> (
+      match expression.defined_operand_resolution_ with
+      | Defined_non_name_false -> Some false
+      | Defined_function_query (Module_query query) -> (
+          match Module_expression_binding.query_resolution query with
+          | Module_expression_binding.Local_binding _
+          | Module_expression_binding.Module_binding _ -> Some true
+          | Module_expression_binding.Outer_candidate -> None)
+      | Defined_function_query (Outer_query query) -> (
+          match Outer_expression_binding.query_resolution query with
+          | Outer_expression_binding.Query_binding _ -> Some true
+          | Outer_expression_binding.Query_undefined -> Some false)
+      | Defined_top_level_query query -> (
+          match Top_level_outer_expression_binding.query_resolution query with
+          | Top_level_outer_expression_binding.Query_binding _ -> Some true
+          | Top_level_outer_expression_binding.Query_undefined -> Some false)
+      | Defined_top_level_name -> None)
 
 let make_argument ~index ~kind ~expression ~origin =
   if index < 0 then Error "call argument index cannot be negative"
@@ -1641,8 +1744,8 @@ let validate_argument_indexes (arguments : argument list) =
   loop 0 arguments
 
 let make_call ~index ~callee_occurrence_index ~callee_name ~callee_origin
-    ?(callee_form = Identifier_callee) ?callable ?computed_callee ~origin
-    ~syntax (arguments : argument list) =
+    ?(callee_form = Identifier_callee) ?callable ?computed_callee
+    ?original_phase ~origin ~syntax (arguments : argument list) =
   if index < 0 then Error "function call index cannot be negative"
   else if callee_occurrence_index < 0 then
     Error "function call callee occurrence index cannot be negative"
@@ -1667,6 +1770,7 @@ let make_call ~index ~callee_occurrence_index ~callee_name ~callee_origin
     | Ok () ->
         Ok
           {
+            original_phase;
             index;
             callee_occurrence_index;
             callee_name;
@@ -1687,7 +1791,7 @@ let make_return ~index ~keyword_origin ~expression ~origin =
     Error "function return statement has an invalid source origin"
   else Ok { index; keyword_origin; expression; origin }
 
-let validate_initializer_expression ~leaf ~expression ~calls
+let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
     ?(callee_expressions = []) ?(call_expressions = []) () =
   let module Ast = Frontend.Ast in
   let origin = Initializer_source.origin_of_location in
@@ -1798,6 +1902,14 @@ let validate_initializer_expression ~leaf ~expression ~calls
         Module_expression_binding.occurrence_name occurrence = ast.spelling
         && Module_expression_binding.occurrence_origin occurrence
            = origin ast.location
+    | Ast.Identifier_expression ast, Unresolved_expression Identifier_expression
+      ->
+        Option.fold ~none:false
+          ~some:(fun occurrence ->
+            Module_expression_binding.occurrence_name occurrence = ast.spelling
+            && Module_expression_binding.occurrence_origin occurrence
+               = origin ast.location)
+          checked.source_identifier
     | Ast.Identifier_expression ast, Aggregate_offset_base_expression checked ->
         let occurrence = checked.aggregate_offset_base_occurrence_ in
         Module_expression_binding.occurrence_name occurrence = ast.spelling
@@ -1811,7 +1923,14 @@ let validate_initializer_expression ~leaf ~expression ~calls
         && Top_level_outer_expression_binding.occurrence_origin occurrence
            = origin ast.location
     | ( Ast.Current_position_expression _,
-        Unresolved_expression Current_position_expression ) -> true
+        Unresolved_expression Current_position_expression ) ->
+        Option.is_none offset_fragment
+    | ( Ast.Current_position_expression _,
+        Unresolved_expression (Aggregate_position_expression position) ) ->
+        Option.fold ~none:false
+          ~some:(fun fragment ->
+            Offset_fragment.position_matches position fragment ast)
+          offset_fragment
     | Ast.Sizeof_expression ast, Sizeof_expression checked ->
         ast.sizeof_keyword_spelling = checked.sizeof_keyword_spelling_
         && origin ast.sizeof_keyword_location = checked.sizeof_keyword_origin_
@@ -1901,6 +2020,11 @@ let validate_initializer_expression ~leaf ~expression ~calls
            | Ast.Parenthesized_call _ -> Parenthesized
            | Ast.Parenthesis_free_call -> Parenthesis_free)
         && callee_matches
+        && Option.fold ~none:true
+             ~some:(fun phase ->
+               Option.fold ~none:false ~some:(( == ) ast)
+                 (Function_call_phase.source phase))
+             checked.original_phase
         && (match
               List.find_opt
                 (fun (call, _) -> call == checked)
@@ -1929,14 +2053,22 @@ let validate_initializer_expression ~leaf ~expression ~calls
       (fun (call, _) -> List.exists (( == ) call) calls)
       (callee_expressions @ call_expressions)
   in
-  if
-    pairs_are_owned
-    && matches (Initializer_source.leaf_expression_ast leaf) expression
-    && !remaining = []
+  if pairs_are_owned && same_list matches sources expressions && !remaining = []
   then Ok ()
   else
     Error
       "initializer expression or calls do not match its retained source leaf"
+
+let validate_source_expression ~source ~expression ~calls ?offset_fragment
+    ?callee_expressions ?call_expressions () =
+  validate_source_expressions ~sources:[ source ] ~expressions:[ expression ]
+    ~calls ?offset_fragment ?callee_expressions ?call_expressions ()
+
+let validate_initializer_expression ~leaf ~expression ~calls ?callee_expressions
+    ?call_expressions () =
+  validate_source_expression
+    ~source:(Initializer_source.leaf_expression_ast leaf)
+    ~expression ~calls ?callee_expressions ?call_expressions ()
 
 let make_initializer ~index ~local ~expression ~origin =
   if index < 0 then Error "function initializer index cannot be negative"
@@ -2015,14 +2147,26 @@ let make_expression_statement ~index ~expression ~origin =
     Error "function expression statement has an invalid source origin"
   else Ok { index; expression; origin }
 
-let make_implicit_output_argument ~index ~leading_comma_origin ~expression
+let make_implicit_output_argument_input ~index ~leading_comma_origin ~expression
     ~origin =
   if index < 0 then Error "implicit output argument index cannot be negative"
-  else if not (valid_origin leading_comma_origin) then
-    Error "implicit output argument comma has an invalid source origin"
+  else if not (Option.fold ~none:true ~some:valid_origin leading_comma_origin)
+  then Error "implicit output argument comma has an invalid source origin"
   else if not (valid_origin origin) then
     Error "implicit output argument has an invalid source origin"
   else Ok { index; leading_comma_origin; expression; origin }
+
+let make_implicit_output_argument ~index ~leading_comma_origin ~expression
+    ~origin =
+  make_implicit_output_argument_input ~index
+    ~leading_comma_origin:(Some leading_comma_origin) ~expression ~origin
+
+let make_source_implicit_output_argument
+    ~(source : Frontend.Ast.implicit_output_argument) ~index ~expression =
+  let origin = Initializer_source.origin_of_location in
+  make_implicit_output_argument_input ~index
+    ~leading_comma_origin:(Option.map origin source.Frontend.Ast.leading_comma)
+    ~expression ~origin:(origin source.location)
 
 let validate_implicit_output_argument_indexes arguments =
   let rec loop expected = function
@@ -2034,21 +2178,36 @@ let validate_implicit_output_argument_indexes arguments =
   in
   loop 0 arguments
 
-let make_implicit_output ~index ~target ~marker_origin ~fixed_source
-    ~fixed_expression ~arguments ~origin =
+let make_implicit_output_input ~allow_source_arguments ~index ~target
+    ~marker_origin ~fixed_source ~fixed_expression ~arguments ~origin =
   if index < 0 then Error "function implicit output index cannot be negative"
   else if not (valid_origin marker_origin) then
     Error "function implicit output marker has an invalid source origin"
   else if not (valid_origin origin) then
     Error "function implicit output statement has an invalid source origin"
-  else if target = Put_chars_output && arguments <> [] then
-    Error "implicit PutChars output cannot have variadic arguments"
+  else if
+    (not allow_source_arguments) && target = Put_chars_output && arguments <> []
+  then Error "implicit PutChars output cannot have variadic arguments"
   else
     match validate_implicit_output_argument_indexes arguments with
     | Error _ as error -> error
+    | Ok ()
+      when (not allow_source_arguments)
+           && List.exists
+                (fun (argument : implicit_output_argument) ->
+                  Option.is_none argument.leading_comma_origin)
+                arguments ->
+        Error "adjacent implicit arguments require an original source statement"
+    | Ok ()
+      when fixed_source = Absent_fixed_output <> Option.is_none fixed_expression
+      ->
+        Error
+          "implicit output fixed source disagrees with its supplied expression"
     | Ok () ->
         Ok
           {
+            source_statement = None;
+            implicit_source_calls = [];
             index;
             target;
             marker_origin;
@@ -2057,6 +2216,103 @@ let make_implicit_output ~index ~target ~marker_origin ~fixed_source
             arguments;
             origin;
           }
+
+let make_implicit_output ~index ~target ~marker_origin ~fixed_source
+    ~fixed_expression ~arguments ~origin =
+  make_implicit_output_input ~allow_source_arguments:false ~index ~target
+    ~marker_origin ~fixed_source ~fixed_expression:(Some fixed_expression)
+    ~arguments ~origin
+
+let implicit_output_statement (output : implicit_output_input) =
+  output.source_statement
+
+let bind_implicit_output_source ~source ~calls (output : implicit_output_input)
+    =
+  let module Ast = Frontend.Ast in
+  let fixed, fixed_source =
+    match source.Ast.fixed_argument with
+    | Ast.Marker_fixed_argument value -> (Some value, Marker_fixed_output)
+    | Ast.Expression_fixed_argument value ->
+        (Some value, Following_expression_output)
+    | Ast.Absent_fixed_argument -> (None, Absent_fixed_output)
+  in
+  let target =
+    match source.target with
+    | Ast.Print_target -> Print_output
+    | Ast.Put_chars_target -> Put_chars_output
+  in
+  let origin = Initializer_source.origin_of_location in
+  if
+    output.source_statement <> None
+    || output.target <> target
+    || output.marker_origin <> origin source.marker.literal_location
+    || output.origin <> origin source.location
+    || (not
+          (Ast.valid_implicit_output_arguments
+             ~fixed_argument:source.fixed_argument ~arguments:source.arguments
+             ~omissions:source.omissions))
+    || output.fixed_source <> fixed_source
+    || Option.is_some output.fixed_expression <> Option.is_some fixed
+    || List.length output.arguments <> List.length source.arguments
+    || not
+         (List.for_all2
+            (fun (actual : implicit_output_argument)
+                 (expected : Ast.implicit_output_argument) ->
+              actual.leading_comma_origin
+              = Option.map origin expected.leading_comma
+              && actual.origin = origin expected.location)
+            output.arguments source.arguments)
+  then Error "implicit output does not match its original statement"
+  else
+    validate_source_expressions
+      ~sources:
+        (Option.to_list fixed
+        @ List.map
+            (fun (argument : Ast.implicit_output_argument) -> argument.value)
+            source.arguments)
+      ~expressions:
+        (Option.to_list output.fixed_expression
+        @ List.map
+            (fun (argument : implicit_output_argument) -> argument.expression)
+            output.arguments)
+      ~calls ()
+    |> Result.map (fun () ->
+        {
+          output with
+          source_statement = Some source;
+          implicit_source_calls = calls;
+        })
+
+let make_source_implicit_output_with_optional_fixed ~source ~calls ~index
+    ~fixed_expression ~arguments =
+  let module Ast = Frontend.Ast in
+  let target =
+    match source.Ast.target with
+    | Ast.Print_target -> Print_output
+    | Ast.Put_chars_target -> Put_chars_output
+  in
+  let fixed_source =
+    match source.fixed_argument with
+    | Ast.Marker_fixed_argument _ -> Marker_fixed_output
+    | Ast.Expression_fixed_argument _ -> Following_expression_output
+    | Ast.Absent_fixed_argument -> Absent_fixed_output
+  in
+  let origin = Initializer_source.origin_of_location in
+  if not (Ast.valid_implicit_output_separators source) then
+    Error "implicit argument separators do not match the original call syntax"
+  else
+    make_implicit_output_input ~allow_source_arguments:true ~index ~target
+      ~marker_origin:(origin source.marker.literal_location)
+      ~fixed_source ~fixed_expression ~arguments
+      ~origin:(origin source.location)
+    |> fun result ->
+    Result.bind result (fun output ->
+        bind_implicit_output_source ~source ~calls output)
+
+let make_source_implicit_output ~source ~calls ~index ~fixed_expression
+    ~arguments =
+  make_source_implicit_output_with_optional_fixed ~source ~calls ~index
+    ~fixed_expression:(Some fixed_expression) ~arguments
 
 let make_ranged_case_pattern ~start_expression ~ellipsis_origin ~end_expression
     =
@@ -2819,6 +3075,20 @@ let query_map queries =
 
 let rec validate_bound_evidence occurrence_by_index query_by_index expression =
   match argument_expression_kind expression with
+  | Unresolved_expression Identifier_expression
+    when Option.is_some expression.source_identifier -> (
+      let occurrence = Option.get expression.source_identifier in
+      match
+        Int_map.find_opt
+          (Module_expression_binding.occurrence_index occurrence)
+          occurrence_by_index
+      with
+      | Some expected when expected == occurrence -> Ok ()
+      | _ ->
+          Error
+            (invalid_input
+               "source identifier does not belong to its exact function \
+                occurrence"))
   | Parenthesized_expression grouped ->
       validate_bound_evidence occurrence_by_index query_by_index grouped
   | Prefix_expression prefix ->
@@ -3032,7 +3302,7 @@ let validate_expression_statements table parent visible declarations
   loop 0 statements
 
 let validate_implicit_outputs table parent visible declarations compilation_mode
-    outputs occurrences queries =
+    outputs occurrences queries calls =
   let occurrence_by_index = occurrence_map occurrences in
   let query_by_index = query_map queries in
   let validate_expression expression =
@@ -3058,15 +3328,34 @@ let validate_implicit_outputs table parent visible declarations compilation_mode
   let rec loop expected = function
     | [] -> Ok ()
     | (output : implicit_output_input) :: rest -> (
-        if output.index <> expected then
+        if
+          not
+            (List.for_all
+               (fun call -> List.exists (( == ) call) calls)
+               output.implicit_source_calls)
+        then
+          Error
+            (invalid_input
+               "implicit output calls do not belong to the exact function batch")
+        else if output.index <> expected then
           Error
             (invalid_input "function implicit output indexes are not contiguous")
-        else if output.target = Put_chars_output && output.arguments <> [] then
+        else if
+          output.target = Put_chars_output
+          && output.arguments <> []
+          && not
+               (Option.fold ~none:false
+                  ~some:Frontend.Ast.valid_implicit_output_separators
+                  output.source_statement)
+        then
           Error
             (invalid_input
                "implicit PutChars output cannot have variadic arguments")
         else
-          match validate_expression output.fixed_expression with
+          match
+            Option.fold ~none:(Ok ()) ~some:validate_expression
+              output.fixed_expression
+          with
           | Error _ as error -> error
           | Ok () -> (
               match validate_arguments 0 output.arguments with
@@ -3248,7 +3537,7 @@ let validate_function_input table parent visible declarations compilation_mode
                         match
                           validate_implicit_outputs table parent visible
                             declarations compilation_mode input.implicit_outputs
-                            occurrences queries
+                            occurrences queries input.calls
                         with
                         | Error _ as error -> error
                         | Ok () -> (
@@ -3280,6 +3569,20 @@ let validate_function_input table parent visible declarations compilation_mode
 
 let validate_function_inputs table parent expressions declarations
     compilation_mode outer inputs =
+  let rec unique seen = function
+    | [] -> true
+    | (output : implicit_output_input) :: rest -> (
+        match output.source_statement with
+        | None -> unique seen rest
+        | Some source ->
+            (not (List.exists (( == ) source) seen))
+            && unique (source :: seen) rest)
+  in
+  let unique_sources =
+    inputs
+    |> List.concat_map (fun (input : function_input) -> input.implicit_outputs)
+    |> unique []
+  in
   let rec pair visible publications expected inputs =
     match (expected, inputs) with
     | [], [] -> Ok ()
@@ -3322,10 +3625,14 @@ let validate_function_inputs table parent expressions declarations
           (invalid_input
              "function call inputs do not match module expression functions")
   in
-  pair String_map.empty
-    (Module_expression_binding.publications expressions)
-    (Module_expression_binding.functions expressions)
-    inputs
+  if not unique_sources then
+    Error
+      (invalid_input "implicit source statement appears twice in function batch")
+  else
+    pair String_map.empty
+      (Module_expression_binding.publications expressions)
+      (Module_expression_binding.functions expressions)
+      inputs
 
 let provided_or_default (call : call)
     (parameter : Function_type_resolution.parameter)
@@ -3388,6 +3695,14 @@ let bind_arguments call ~parameters ~is_variadic =
           in
           variadic 0L [] extras)
 
+let argument_header call declaration =
+  match call.original_phase with
+  | None -> Ok (Function_resolution.resolved_declaration_header declaration)
+  | Some phase when Function_call_phase.selected phase == declaration ->
+      Ok (Function_call_phase.arguments phase)
+  | Some _ ->
+      Error (invalid_input "original call has another selected declaration")
+
 let bind_direct_arguments call header =
   let parameters =
     Function_type_resolution.function_signature header
@@ -3396,7 +3711,7 @@ let bind_direct_arguments call header =
   bind_arguments call ~parameters
     ~is_variadic:
       (Option.is_some
-         (Function_type_resolution.function_variadic_bindings header))
+         (Function_type_resolution.function_variadic_count_type header))
 
 let bind_indirect_arguments call callable =
   let signature = callable_signature callable in
@@ -3732,8 +4047,8 @@ let bind_indexed_identifier_call occurrence (call : call) computed base
                            variadic_count;
                          }))))
 
-let resolve_call ?members ~before_item_index types declarations occurrence
-    (call : call) =
+let resolve_call ?members ?outer ~before_item_index types declarations
+    occurrence (call : call) =
   let indirect_or_deferred reason =
     match call.callable with
     | None -> Ok (Deferred_call { call; occurrence; reason })
@@ -3796,8 +4111,57 @@ let resolve_call ?members ~before_item_index types declarations occurrence
     match Module_expression_binding.occurrence_resolution occurrence with
     | Module_expression_binding.Local_binding binding ->
         indirect_or_deferred (Local_callee binding)
-    | Module_expression_binding.Outer_candidate ->
-        Ok (Deferred_call { call; occurrence; reason = Outer_callee })
+    | Module_expression_binding.Outer_candidate -> (
+        let selected =
+          Option.bind outer (fun outer ->
+              outer |> Outer_expression_binding.functions
+              |> List.find_map (fun function_ ->
+                  function_ |> Outer_expression_binding.function_occurrences
+                  |> List.find_opt (fun candidate ->
+                      Outer_expression_binding.occurrence_source candidate
+                      == occurrence)))
+        in
+        let metadata =
+          Option.bind selected (fun selected ->
+              match Outer_expression_binding.occurrence_resolution selected with
+              | Outer_expression_binding.Outer_binding binding ->
+                  binding |> Outer_environment.binding_entry
+                  |> Outer_environment.entry_function_metadata
+                  |> Option.map (fun metadata -> (binding, metadata))
+              | Outer_expression_binding.Local_binding _
+              | Outer_expression_binding.Module_binding _ -> None)
+        in
+        match metadata with
+        | None -> Ok (Deferred_call { call; occurrence; reason = Outer_callee })
+        | Some _ when call.callee_form <> Identifier_callee ->
+            Ok (Deferred_call { call; occurrence; reason = Outer_callee })
+        | Some _ when Option.is_some call.callable ->
+            Error
+              (invalid_input
+                 "outer direct function call unexpectedly carries a callback \
+                  header")
+        | Some (binding, metadata) -> (
+            let declaration = Outer_environment.function_declaration metadata in
+            let ( let* ) = Result.bind in
+            let* active_header = argument_header call declaration in
+            match bind_direct_arguments call active_header with
+            | Error _ as error -> error
+            | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
+                Ok
+                  (Direct_call
+                     {
+                       source = call;
+                       occurrence;
+                       declaration;
+                       active_header;
+                       outer_binding = Some binding;
+                       target_symbol =
+                         Function_resolution
+                         .resolved_declaration_identity_symbol declaration;
+                       fixed_arguments;
+                       variadic_arguments;
+                       variadic_count;
+                     })))
     | Module_expression_binding.Module_binding publication -> (
         match Module_expression_binding.publication_kind publication with
         | Module_expression_binding.Global_variable ->
@@ -3824,8 +4188,10 @@ let resolve_call ?members ~before_item_index types declarations occurrence
                 ( Int_map.find_opt number types,
                   Int_map.find_opt number declarations )
               with
-              | Some active_header, Some declaration
+              | Some _, Some declaration
                 when same_publication_target publication declaration -> (
+                  let ( let* ) = Result.bind in
+                  let* active_header = argument_header call declaration in
                   match bind_direct_arguments call active_header with
                   | Error _ as error -> error
                   | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
@@ -3835,6 +4201,7 @@ let resolve_call ?members ~before_item_index types declarations occurrence
                              source = call;
                              occurrence;
                              declaration;
+                             outer_binding = None;
                              active_header;
                              target_symbol =
                                Module_expression_binding
@@ -3853,7 +4220,7 @@ let resolve_call ?members ~before_item_index types declarations occurrence
                     (invalid_input
                        "function call publication has no active typed header")))
 
-let resolve_function ?members types declarations expected
+let resolve_function ?members ?outer types declarations expected
     (input : function_input) =
   let occurrences = Module_expression_binding.function_occurrences expected in
   let occurrence_by_index =
@@ -3899,20 +4266,22 @@ let resolve_function ?members types declarations expected
                  "function call lost its validated callee occurrence")
         | Some occurrence -> (
             match
-              resolve_call ?members ~before_item_index:input.item_index types
-                declarations occurrence call
+              resolve_call ?members ?outer ~before_item_index:input.item_index
+                types declarations occurrence call
             with
             | Error _ as error -> error
             | Ok call -> calls (call :: rev) rest))
   in
   calls [] input.calls
 
-let resolve_validated ?members types declarations expressions inputs =
+let resolve_validated ?members ?outer types declarations expressions inputs =
   let rec pair functions_rev by_symbol expected inputs =
     match (expected, inputs) with
     | [], [] -> Ok (List.rev functions_rev, by_symbol)
     | expected :: expected_rest, input :: input_rest -> (
-        match resolve_function ?members types declarations expected input with
+        match
+          resolve_function ?members ?outer types declarations expected input
+        with
         | Error _ as error -> error
         | Ok function_ ->
             pair
@@ -3973,8 +4342,8 @@ let resolve ~table ~parent ?members ~function_types ~functions ~expressions
             | Error _ as error -> error
             | Ok () -> (
                 match
-                  resolve_validated ?members types declarations expressions
-                    inputs
+                  resolve_validated ?members ?outer types declarations
+                    expressions inputs
                 with
                 | Error _ as error -> error
                 | Ok (functions_result, by_symbol) ->

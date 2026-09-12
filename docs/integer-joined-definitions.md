@@ -43,9 +43,16 @@ HCIR0027. A bound body requires its exact associated frame during VM preflight.
 Raw `Function_body.create` preserves its previous identity and frame contract;
 it exposes no unchecked alternate callable symbol.
 
-Every source call retains its selected declaration snapshot. In this example,
-the first call captures A and the second executes the source body, leaving G
-equal to 42 and capture equal to hexadecimal `41`:
+Every source call retains its selected declaration snapshot. An extern call
+can acquire the executable published by an exact later join, while keeping
+its original header, argument protocol and saved defaults. Equal names or
+symbol identifiers alone cannot establish this relationship: the selected
+declaration must be a strict ancestor in the checked predecessor chain.
+
+In this example, JIT captures A before the source definition is published;
+the second call executes that body. AOT links the image's source definitions
+before entry, so both calls execute the body and capture is empty. Both modes
+leave G equal to 42:
 
 ```c
 I64 G=0;
@@ -55,12 +62,20 @@ U0 PutChars(U64 word){G=42;}
 PutChars('B');G;
 ```
 
-Post-definition calls use ordinary IC_CALL. Earlier selected ordinary extern
-calls retain IC_CALL_INDIRECT2 in JIT or IC_CALL_EXTERN in AOT and the existing
-HCIRVM0014 execution boundary; approved hosted providers retain their checked
-behavior. Multiple supplied AOT bodies sharing a callable identity also fail
-explicitly. JIT resolved-definition shadowing and AOT import barriers keep the
-existing source-resolution rules.
+Post-definition calls use ordinary IC_CALL. Earlier selected extern calls
+retain IC_CALL_INDIRECT2 in JIT or IC_CALL_EXTERN in AOT and resolve their
+joined executable at invocation. A reached unresolved extern reports
+HCIRVM0030 during execution; unused bodies and skipped calls may retain
+unresolved externs. A published body incompatible with the captured return,
+fixed parameter, variadic signature or cleanup reports runtime HCIRVM0014, without
+falling back to a hosted provider. An approved provider remains available
+until a source definition is published. Multiple supplied AOT bodies sharing
+a callable identity still fail explicitly. A new JIT identity after a
+completed definition cannot replace an earlier call's joined body; AOT
+import barriers retain their existing source-resolution rules.
+
+See [extern call publication](integer-extern-calls.md) for forward calls,
+retained callers across task inputs and the remaining native linkage boundary.
 
 Static storage and initializer calls use the actual definition owner.
 Initializer arithmetic checks traverse the bound body, and JIT publication
@@ -81,7 +96,7 @@ The existing `holyc-ir-function-v1` body follows unchanged. Unjoined definitions
 and raw body dumps keep their existing form. Tests compare exact IDs and item
 positions and deterministic replay in both modes.
 
-## Source evidence and verification
+## Source evidence and historical verification
 
 The reference is `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 `Compiler/PrsStmt.HC:62-109` selects JIT/AOT joins; lines 110-137 replace the
@@ -92,7 +107,8 @@ names can trigger an optional header warning without preventing the join.
 Warning parity remains unfinished. These are pinned-source audits and hosted
 tests, with no new native capture.
 
-All four initial gates failed HCRUN0001 at the prior merge
+The following verification records the original #623 increment, before later
+extern publication work. All four initial gates failed HCRUN0001 at the prior merge
 `374a3184fd929521f4b5b36422b10abed4c3873f`. Fourteen maintained groups now cover
 those gates, repeated prototypes, I64/U64/U0, pointers, recursion, statics,
 initializer effects and faults, declaration snapshots, malformed provenance,
@@ -106,7 +122,10 @@ preceding capture exactly: 528/528 with zero errors. Parser JSON and normalized
 text match the committed AOT baseline: 25/528 standalone and 126/528 with the
 prelude. Final source CI and merge evidence is recorded in #623.
 
-General extern-slot publication, imports and runtime linking, user-defined
-variadic frames, full formatting, broader memory, stateful compilation/#exe,
-optimizer parity, native backends, TempleOS BIN/loader acceptance and bootstrap
-remain required work.
+Source-backed extern publication now includes retained task callers.
+[Source-defined variadic frames](task-implicit-output.md) execute supported
+integer tails, and [stateful compilation/#exe](integer-task.md) supports bounded
+task commands and generated source. Machine-address reads, native import and
+extern-slot linking, full native ABI/header-mismatch behavior, full formatting,
+broader memory, optimizer parity, native backends, TempleOS BIN/loader
+acceptance and bootstrap remain required work.

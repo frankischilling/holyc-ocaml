@@ -1,5 +1,34 @@
 # Testing holyc-ocaml
 
+The twelve `partial global storage` groups cover real nested StreamPrint reads
+and writes during open declarations, scalar/array/copied-row completion, mixed
+fresh and retained allocations, exact byte quotas, unknown-cell faults and
+retained-boundary promotion. Foreign namespaces, runtime rebinding, missing
+predecessors, replay, delayed publication and expired or incompletely observed
+parser contexts reject without allocation or runtime work. Completed-command
+initialization is covered; live execution between individual parser leaves and
+the public shared JIT facade remain pending.
+
+The twelve `live initializer leaves` groups cover original native lookahead
+boundaries, nested and flattened braces, unbraced rows, adjacent generated strings,
+copied rows and exact source nodes. Promotion during an initializer preserves
+semantic leaf identity through typed roots and actual IR publication offsets;
+the resulting programs execute to 42. Missing, replayed, delayed and cross-owner
+events reject, including equal source literals. Malformed separators retain
+reached leaves without completing the declaration. Callback rejection and
+exceptions stop later directives and revoke receipt lifetime. Existing source
+resource checks remain applicable; public shared JIT execution is still pending.
+
+The thirteen `source promotion` groups cover live JIT ledger adoption, exact
+source/frontend ownership, original predecessor and pending-resume checks,
+retained symbols, frozen unadmitted reads, checked dimensions and selected sizeof
+metadata. Exact and one-below preparation limits cover transfer and subsequent
+dimension work. Used runtimes with zero counters, sealed/AOT/analysis ledgers,
+finished parsers and out-of-date live observers cannot gain source authority.
+Real parser/StreamPrint integration covers nested buffers, generated function
+bodies and initializer operands. These internal task tests support the unfinished
+shared outer JIT connection; the fourteen public stateful-exe groups remain red.
+
 The `source narrow integers` groups cover #633's eight gates, all five width/
 signedness families, fourteen update opcodes, signed string copies, ABI slots,
 native read/range/bit proofs and forged checked IR. Bare expression and folding
@@ -733,8 +762,8 @@ Run the focused library suite with
 `opam exec -- dune exec test/test_main.exe -- test "source integer expression"`.
 Run all CLI golden rules with `opam exec -- dune runtest`. Check changed OCaml
 files directly with `opam exec -- ocamlformat --check FILE...` as well as the
-normal build and generated-source checks; the Windows Dune formatting alias can
-omit checks that run in Linux CI. Review new golden output before accepting it.
+normal build and generated-source checks. Quote Dune aliases in PowerShell so
+the shell passes them as arguments. Review new golden output before accepting it.
 
 ## Integer division and remainder
 

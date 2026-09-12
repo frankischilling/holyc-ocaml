@@ -1436,6 +1436,8 @@ let rec prepare_index_address ?frame ?globals result =
       with
       | Semantic_source.Bound_identifier_expression _
       | Semantic_source.Top_level_bound_identifier_expression _
+      | Semantic_source.Unresolved_expression
+          Semantic_source.Identifier_expression
         when Semantic_result.result_is_array_address result
              && Option.is_some globals -> (
           let* prepared =
@@ -1471,6 +1473,7 @@ let rec prepare_index_address ?frame ?globals result =
                           let module F = Sema.Function_frame_layout in
                           if
                             F.location_kind location <> F.Automatic_local
+                            && F.location_kind location <> F.Variadic_argv
                             || F.location_declarator_shape location <> F.Object
                             || storage_element_size
                                  (F.location_checked_type location)
@@ -1495,7 +1498,8 @@ let rec prepare_index_address ?frame ?globals result =
                               strides (F.location_dimensions location)
                             in
                             if
-                              bytes <> F.location_allocated_size location
+                              F.location_kind location <> F.Variadic_argv
+                              && bytes <> F.location_allocated_size location
                               || List.length strides
                                  <> Semantic_result.result_array_rank result
                             then
@@ -1681,7 +1685,7 @@ let validate_frame_assignment result left right =
        && Type.pointer_depth l = 0
        && Type.pointer_depth v = 0
       || scalar_pointer_type r && Type.equal r l
-         && Type.compatible_u8_pointer l v)
+         && Integer_scalar_storage.compatible_pointer l v)
 
 let compound_assignment = function
   | Opcode.Ic_add_equ
@@ -1823,7 +1827,9 @@ let plan ?frame ?globals ~allow_calls root =
                       ]
                 | _ -> unsupported := true)
             | Semantic_source.Bound_identifier_expression _
-            | Semantic_source.Top_level_bound_identifier_expression _ -> (
+            | Semantic_source.Top_level_bound_identifier_expression _
+            | Semantic_source.Unresolved_expression
+                Semantic_source.Identifier_expression -> (
                 match (checked_frame_scalar result, result_span result) with
                 | Error item, _ -> error := Some item
                 | Ok (Checked_type result_type), Some span -> (
@@ -1871,6 +1877,20 @@ let plan ?frame ?globals ~allow_calls root =
                 | Ok (span, result_type) ->
                     reversed :=
                       Current_position { result; span; result_type; conversion }
+                      :: !reversed)
+            | Semantic_source.Unresolved_expression
+                (Semantic_source.Aggregate_position_expression position) -> (
+                match
+                  checked_internal_i64_constant result
+                    ~description:"aggregate position expression"
+                    (Some (Sema.Offset_fragment.position_value position))
+                with
+                | Error item -> error := Some item
+                | Ok Deferred_constant -> unsupported := true
+                | Ok (Checked_constant (span, result_type, value)) ->
+                    reversed :=
+                      Integer_constant
+                        { result; span; result_type; value; conversion }
                       :: !reversed)
             | Semantic_source.Defined_expression defined -> (
                 match checked_defined result defined with
@@ -2334,8 +2354,7 @@ let plan ?frame ?globals ~allow_calls root =
                   conversion
             | Semantic_source.Aggregate_offset_base_expression _
             | Semantic_source.Unresolved_expression
-                ( Semantic_source.Identifier_expression
-                | Semantic_source.Offset_expression
+                ( Semantic_source.Offset_expression
                 | Semantic_source.Postfix_cast_expression
                 | Semantic_source.Call_expression ) -> unsupported := true)
         | Emit_index_stride step -> reversed := Index_stride step :: !reversed
@@ -3209,7 +3228,8 @@ let lower_store_initializer ?frame ?globals ?lower_call ~lower_address
     when (target_is_word && Type.pointer_depth value_type = 0)
          || Option.is_some frame
             && scalar_pointer_type target_type
-            && Type.compatible_u8_pointer target_type value_type -> (
+            && Integer_scalar_storage.compatible_pointer target_type value_type
+    -> (
       let* address_sequence, address_value, next_instruction, next_value =
         lower_address ~instruction_id ~value_id
       in
@@ -3342,6 +3362,32 @@ let lower_global_initializer ~globals ?lower_call ~instruction_id ~value_id root
   lower_store_initializer ~globals ?lower_call ~lower_address ~target_type ~span
     ~instruction_id ~value_id
     (Semantic_result.top_level_root_value root)
+
+let lower_fragment_initializer ?lower_call ~instruction_id ~value_id destination
+    =
+  let ( let* ) = Result.bind in
+  let module Destination = Initializer_fragment_destination in
+  let* prepared =
+    Global_address_lowering.prepare_fragment_initializer destination
+  in
+  let lower_address ~instruction_id ~value_id =
+    let* address =
+      Global_address_lowering.lower_prepared ~instruction_id ~value_id prepared
+    in
+    Ok
+      ( Global_address_lowering.sequence address,
+        Global_address_lowering.result_value address,
+        Global_address_lowering.next_instruction_id address,
+        Global_address_lowering.next_value_id address )
+  in
+  lower_store_initializer
+    ~globals:(Destination.globals destination)
+    ?lower_call ~lower_address
+    ~target_type:
+      (Integer_globals.storage_type (Destination.storage destination))
+    ~span:(Some (Destination.span destination))
+    ~instruction_id ~value_id
+    (Semantic_result.top_level_root_value (Destination.root destination))
 
 let lower_static_initializer ~globals ?root ?lower_call ~instruction_id
     ~value_id slot =

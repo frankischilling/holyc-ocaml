@@ -51,6 +51,10 @@ let location_text sources (location : Ast.location) =
   in
   primary ^ segments ^ generated_from ^ defined_at
 
+let optional_location_text sources = function
+  | Some location -> location_text sources location
+  | None -> "absent"
+
 let delimiter_kind_name = function
   | Ast.Comma -> "comma"
   | Ast.Semicolon -> "semicolon"
@@ -1193,6 +1197,8 @@ and print_implicit_output_statement buffer sources ~indent
     (literal_value_text statement.marker.literal_value)
     (location_text sources statement.marker.literal_location);
   (match statement.fixed_argument with
+  | Ast.Absent_fixed_argument ->
+      Printf.bprintf buffer "%sfixed_argument kind=absent\n" child_indent
   | Ast.Marker_fixed_argument expression ->
       Printf.bprintf buffer "%sfixed_argument kind=marker_expression\n"
         child_indent;
@@ -1205,11 +1211,32 @@ and print_implicit_output_statement buffer sources ~indent
     (fun index (argument : Ast.implicit_output_argument) ->
       Printf.bprintf buffer "%sargument index=%d span=%s\n" child_indent index
         (location_text sources argument.location);
-      Printf.bprintf buffer "%s  comma span=%s\n" child_indent
-        (location_text sources argument.leading_comma);
+      (match argument.leading_comma with
+      | Some comma ->
+          Printf.bprintf buffer "%s  comma span=%s\n" child_indent
+            (location_text sources comma)
+      | None -> Printf.bprintf buffer "%s  separator=adjacent\n" child_indent);
       print_expression buffer sources ~indent:(child_indent ^ "  ")
         argument.value)
     statement.arguments;
+  List.iter
+    (fun (omission : Ast.implicit_output_omission) ->
+      Printf.bprintf buffer "%somission parameter=%d lookahead=%s\n"
+        child_indent omission.parameter_index
+        (location_text sources omission.lookahead);
+      Option.iter
+        (fun comma ->
+          Printf.bprintf buffer "%s  comma span=%s\n" child_indent
+            (location_text sources comma))
+        omission.leading_comma)
+    statement.omissions;
+  Option.iter
+    (fun (opening, closing) ->
+      Printf.bprintf buffer "%scall_parentheses opening=%s closing=%s\n"
+        child_indent
+        (location_text sources opening)
+        (location_text sources closing))
+    statement.call_parentheses;
   match statement.semicolon with
   | None -> Printf.bprintf buffer "%ssemicolon omitted\n" child_indent
   | Some semicolon ->
@@ -1489,7 +1516,8 @@ and print_function_pointer buffer sources ~indent ~name
     (print_variadic_marker buffer sources ~indent:child_indent)
     function_pointer.signature_variadic;
   Printf.bprintf buffer "%ssignature_closing_parenthesis span=%s\n" child_indent
-    (location_text sources function_pointer.signature_closing_parenthesis)
+    (optional_location_text sources
+       function_pointer.signature_closing_parenthesis)
 
 and print_variadic_marker buffer sources ~indent
     (variadic : Ast.variadic_marker) =
@@ -1646,7 +1674,7 @@ let human sources module_ =
             (print_variadic_marker buffer sources ~indent:"    ")
             prototype.variadic;
           Printf.bprintf buffer "    closing_parenthesis span=%s\n"
-            (location_text sources prototype.closing_parenthesis);
+            (optional_location_text sources prototype.closing_parenthesis);
           Option.iter
             (fun semicolon ->
               Printf.bprintf buffer "    semicolon span=%s\n"
@@ -1678,7 +1706,7 @@ let human sources module_ =
             (print_variadic_marker buffer sources ~indent:"    ")
             definition.variadic;
           Printf.bprintf buffer "    closing_parenthesis span=%s\n"
-            (location_text sources definition.closing_parenthesis);
+            (optional_location_text sources definition.closing_parenthesis);
           Option.iter
             (fun body ->
               Printf.bprintf buffer "    body span=%s\n"
@@ -2175,7 +2203,10 @@ let implicit_output_argument_to_yojson sources
     (argument : Ast.implicit_output_argument) =
   `Assoc
     [
-      ("comma", location_to_yojson sources argument.leading_comma);
+      ( "comma",
+        Option.fold ~none:`Null
+          ~some:(location_to_yojson sources)
+          argument.leading_comma );
       ("expression", expression_to_yojson sources argument.value);
       ("location", location_to_yojson sources argument.location);
     ]
@@ -2189,6 +2220,7 @@ let implicit_output_statement_to_yojson sources
   in
   let fixed_argument =
     match statement.fixed_argument with
+    | Ast.Absent_fixed_argument -> `Assoc [ ("kind", `String "absent") ]
     | Ast.Marker_fixed_argument expression ->
         `Assoc
           [
@@ -2203,22 +2235,52 @@ let implicit_output_statement_to_yojson sources
           ]
   in
   `Assoc
-    [
-      ("kind", `String "implicit_output_statement");
-      ("target", `String (implicit_output_target_name statement.target));
-      ("marker", literal_to_yojson sources ~kind:marker_kind statement.marker);
-      ("fixed_argument", fixed_argument);
-      ( "arguments",
-        `List
-          (List.map
-             (implicit_output_argument_to_yojson sources)
-             statement.arguments) );
-      ( "semicolon",
-        match statement.semicolon with
-        | None -> `Null
-        | Some semicolon -> location_to_yojson sources semicolon );
-      ("location", location_to_yojson sources statement.location);
-    ]
+    ([
+       ("kind", `String "implicit_output_statement");
+       ("target", `String (implicit_output_target_name statement.target));
+       ("marker", literal_to_yojson sources ~kind:marker_kind statement.marker);
+       ("fixed_argument", fixed_argument);
+       ( "arguments",
+         `List
+           (List.map
+              (implicit_output_argument_to_yojson sources)
+              statement.arguments) );
+       ( "semicolon",
+         match statement.semicolon with
+         | None -> `Null
+         | Some semicolon -> location_to_yojson sources semicolon );
+       ("location", location_to_yojson sources statement.location);
+     ]
+    @ (match statement.call_parentheses with
+      | None -> []
+      | Some (opening, closing) ->
+          [
+            ( "call_parentheses",
+              `Assoc
+                [
+                  ("opening", location_to_yojson sources opening);
+                  ("closing", location_to_yojson sources closing);
+                ] );
+          ])
+    @
+    if statement.omissions = [] then []
+    else
+      [
+        ( "omissions",
+          `List
+            (List.map
+               (fun (omission : Ast.implicit_output_omission) ->
+                 `Assoc
+                   [
+                     ("parameter_index", `Int omission.parameter_index);
+                     ( "comma",
+                       match omission.leading_comma with
+                       | None -> `Null
+                       | Some comma -> location_to_yojson sources comma );
+                     ("lookahead", location_to_yojson sources omission.lookahead);
+                   ])
+               statement.omissions) );
+      ])
 
 let assembly_token_to_yojson sources (token : Ast.assembly_token) =
   let source = token.assembly_source_token in
@@ -3184,8 +3246,9 @@ and function_pointer_to_yojson sources ~name
       | Some variadic -> [ ("variadic", variadic_to_yojson sources variadic) ])
     @ [
         ( "signature_closing_parenthesis",
-          location_to_yojson sources
-            function_pointer.signature_closing_parenthesis );
+          match function_pointer.signature_closing_parenthesis with
+          | Some location -> location_to_yojson sources location
+          | None -> `Null );
         ( "location",
           location_to_yojson sources function_pointer.function_pointer_location
         );
@@ -3347,7 +3410,9 @@ let item_to_yojson sources = function
               [ ("variadic", variadic_to_yojson sources variadic) ])
         @ [
             ( "closing_parenthesis",
-              location_to_yojson sources prototype.closing_parenthesis );
+              match prototype.closing_parenthesis with
+              | Some location -> location_to_yojson sources location
+              | None -> `Null );
           ]
         @ (match prototype.semicolon with
           | None -> []
@@ -3384,7 +3449,9 @@ let item_to_yojson sources = function
               [ ("variadic", variadic_to_yojson sources variadic) ])
         @ [
             ( "closing_parenthesis",
-              location_to_yojson sources definition.closing_parenthesis );
+              match definition.closing_parenthesis with
+              | Some location -> location_to_yojson sources location
+              | None -> `Null );
             ( "body",
               match definition.body with
               | None -> `Null

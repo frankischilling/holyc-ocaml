@@ -99,6 +99,10 @@ let query_origin (query : query) =
   Function_expression_binding.query_origin query.query_source_
 
 let query_resolution (query : query) = query.query_resolution_
+
+let query_selection query =
+  Function_expression_binding.query_selection query.query_source_
+
 let symbol_number symbol = Symbol.id symbol |> Symbol.Id.to_int
 
 let publication_kind_name = function
@@ -368,6 +372,9 @@ let resolve_query environment source =
     match Function_expression_binding.query_resolution source with
     | Function_expression_binding.Function_binding binding ->
         Local_binding binding
+    | Function_expression_binding.Nonlocal_candidate
+      when Option.is_some (Function_expression_binding.query_selection source)
+      -> Outer_candidate
     | Function_expression_binding.Nonlocal_candidate -> (
         match
           String_map.find_opt
@@ -379,22 +386,75 @@ let resolve_query environment source =
   in
   { query_source_ = source; query_resolution_ }
 
+let resolve_selected_occurrence publications environment source =
+  match Function_expression_binding.occurrence_selection source with
+  | None -> Ok (resolve_occurrence environment source)
+  | Some selection -> (
+      match Function_expression_binding.occurrence_resolution source with
+      | Function_expression_binding.Function_binding _ ->
+          Ok (resolve_occurrence environment source)
+      | Function_expression_binding.Nonlocal_candidate ->
+          let selected =
+            match Reference_selection.kind selection with
+            | Reference_selection.Absent
+            | Reference_selection.Unavailable
+            | Reference_selection.Outer _ -> Ok Outer_candidate
+            | Reference_selection.Local ->
+                Error (invalid_input "selected local has no function binding")
+            | Reference_selection.Source
+                (_, Reference_selection.Function_declared) ->
+                Error
+                  (invalid_input
+                     "selected function header was still provisional")
+            | Reference_selection.Source (symbol, _) -> (
+                match
+                  List.find_opt
+                    (fun publication -> publication.source_symbol == symbol)
+                    publications
+                with
+                | Some publication -> Ok (Module_binding publication)
+                | None ->
+                    Error
+                      (invalid_input
+                         "selected source declaration is outside the visible \
+                          module prefix"))
+          in
+          Result.map (fun resolution -> { source; resolution }) selected)
+
 let resolve_validated expressions publications =
+  let ( let* ) = Result.bind in
+  let rec occurrences publications environment reversed = function
+    | [] -> Ok (List.rev reversed)
+    | source :: rest ->
+        let* occurrence =
+          resolve_selected_occurrence publications environment source
+        in
+        occurrences publications environment (occurrence :: reversed) rest
+  in
   let rec loop environment remaining_publications functions_rev by_symbol =
     function
-    | [] -> (List.rev functions_rev, by_symbol)
+    | [] -> Ok (List.rev functions_rev, by_symbol)
     | source :: rest ->
         let environment, remaining_publications =
           publish_through
             (Function_expression_binding.function_item_index source)
             environment remaining_publications
         in
+        let prefix =
+          List.filter
+            (fun publication ->
+              publication.item_index
+              <= Function_expression_binding.function_item_index source)
+            publications
+        in
+        let* occurrences =
+          occurrences prefix environment []
+            (Function_expression_binding.function_occurrences source)
+        in
         let function_ =
           {
             source;
-            occurrences =
-              Function_expression_binding.function_occurrences source
-              |> List.map (resolve_occurrence environment);
+            occurrences;
             queries =
               Function_expression_binding.function_queries source
               |> List.map (resolve_query environment);
@@ -426,18 +486,17 @@ let resolve ~table ~parent ~compilation_mode ~expressions publications =
         with
         | Error _ as error -> error
         | Ok () ->
-            let functions, by_symbol =
-              resolve_validated expressions publications
-            in
-            Ok
-              {
-                table;
-                parent;
-                compilation_mode;
-                publications;
-                functions;
-                by_symbol;
-              })
+            Result.map
+              (fun (functions, by_symbol) ->
+                {
+                  table;
+                  parent;
+                  compilation_mode;
+                  publications;
+                  functions;
+                  by_symbol;
+                })
+              (resolve_validated expressions publications))
 
 let find_function result symbol =
   if not (Symbol_table.owns_symbol result.table symbol) then None

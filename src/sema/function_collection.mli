@@ -34,12 +34,14 @@ val make_local :
   (binding, string) result
 
 val make_function :
+  ?completed_header:Frontend.Parser.completed_function_header ->
   symbol:Symbol.t ->
   item_index:int ->
   binding list ->
   (function_declaration, string) result
 
 val collect :
+  ?retained_headers:collected_function list ->
   table:Symbol_table.t ->
   parent:Symbol_table.scope ->
   function_declaration list ->
@@ -52,6 +54,10 @@ val function_symbol : collected_function -> Symbol.t
 val function_scope : collected_function -> Symbol_table.scope
 val function_item_index : collected_function -> int
 val function_entries : collected_function -> entry list
+
+val function_completed_header :
+  collected_function -> Frontend.Parser.completed_function_header option
+
 val entry_symbol : entry -> Symbol.t
 val entry_kind : entry -> binding_kind
 val entry_parameter_index : entry -> int option

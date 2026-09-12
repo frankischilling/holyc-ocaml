@@ -9,6 +9,7 @@ type limits = {
   global_bytes : int;
   literal_bytes : int;
   initializer_steps : int;
+  dimension_work : int;
   output_bytes : int;
   output_work : int;
 }
@@ -61,9 +62,13 @@ let render ~human ~session ~limits ?command_error ?report () =
       result
   in
   let executed_steps =
-    match result with
-    | Some result -> Some (VM.executed_steps result)
-    | None ->
+    let progress =
+      Option.bind report Holyc_lib.integer_program_report_progress
+    in
+    match (progress, result) with
+    | Some progress, _ -> Some progress.runtime.executed_steps
+    | None, Some result -> Some (VM.executed_steps result)
+    | None, None ->
         diagnostics
         |> List.concat_map (fun (diagnostic : Holyc_lib.Diagnostic.t) ->
             diagnostic.notes)
@@ -75,7 +80,15 @@ let render ~human ~session ~limits ?command_error ?report () =
                    (String.length note - String.length prefix))
             else None)
   in
-  let preparation = Option.map VM.compiled_initializer_steps result in
+  let preparation =
+    match report with
+    | Some report -> Holyc_lib.integer_program_report_preparation_work report
+    | None -> Option.map VM.compiled_initializer_steps result
+  in
+  let dimension_work =
+    Option.fold ~none:0 ~some:Holyc_lib.integer_program_report_dimension_work
+      report
+  in
   (if human then (
      Printf.printf
        "holyc-integer-program-v2 implementation=%s reference=%s\n\
@@ -92,6 +105,7 @@ let render ~human ~session ~limits ?command_error ?report () =
          ("global-byte-limit", limits.global_bytes);
          ("literal-byte-limit", limits.literal_bytes);
          ("initializer-step-limit", limits.initializer_steps);
+         ("dimension-work-limit", limits.dimension_work);
          ("output-byte-limit", limits.output_bytes);
          ("output-work-limit", limits.output_work);
        ];
@@ -101,6 +115,7 @@ let render ~human ~session ~limits ?command_error ?report () =
      in
      optional_int "steps" executed_steps;
      optional_int "compiled-initializer-steps" preparation;
+     Printf.printf "dimension-preparation-work=%d\n" dimension_work;
      Printf.printf "termination=%s\n" (Option.value termination ~default:"none");
      (match final_value with
      | None -> print_endline "final-value=none"
@@ -139,6 +154,8 @@ let render ~human ~session ~limits ?command_error ?report () =
          ("global_byte_limit", `Int limits.global_bytes);
          ("literal_byte_limit", `Int limits.literal_bytes);
          ("initializer_step_limit", `Int limits.initializer_steps);
+         ("dimension_work_limit", `Int limits.dimension_work);
+         ("dimension_preparation_work", `Int dimension_work);
          ("compiled_initializer_steps", optional (fun n -> `Int n) preparation);
          ("output_byte_limit", `Int limits.output_bytes);
          ("output_work_limit", `Int limits.output_work);

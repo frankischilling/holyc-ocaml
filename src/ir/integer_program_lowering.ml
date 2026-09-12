@@ -10,6 +10,7 @@ type statement =
       Sema.Top_level_implicit_output_argument_binding.bound_output
   | Initialize of Typed.initializer_result
   | Initialize_global of Typed.top_level_root_result
+  | Initialize_fragment of Initializer_fragment_destination.t
   | Initialize_static of Integer_globals.static_slot
   | Initialize_static_leaf of
       Integer_globals.static_slot * Typed.initializer_result
@@ -23,6 +24,7 @@ type statement =
   | Break of Common.Span.t
 
 type t = {
+  expression_source_ : (Integer_globals.t * Typed.expression_result) option;
   graph_ : X87_stack.t;
   initializer_regions_ : Global_initialization.region_description list;
   static_initializer_regions_ :
@@ -33,6 +35,13 @@ type t = {
 }
 
 let graph result = result.graph_
+
+let owns_expression result ~globals ~value =
+  match result.expression_source_ with
+  | Some (original_globals, original_value) ->
+      original_globals == globals && original_value == value
+  | None -> false
+
 let initializer_regions result = result.initializer_regions_
 let static_initializer_regions result = result.static_initializer_regions_
 let runtime_calls result = result.runtime_calls_
@@ -394,6 +403,44 @@ let lower_complete ?frame ?globals ?records ?(top_calls = [])
               fail at "HCRUN0004"
                 "global initializer requires program storage and a module entry"
           )
+      | Initialize_fragment destination -> (
+          let module Destination = Initializer_fragment_destination in
+          let at = Destination.span destination in
+          match (globals, frame) with
+          | Some globals, None when globals == Destination.globals destination
+            -> (
+              let first =
+                Sequence.Instruction_id.of_int !instruction_count |> checked_id
+              in
+              match
+                Expression_lowering.lower_fragment_initializer
+                  ~lower_call:direct_call ~instruction_id:first
+                  ~value_id:(Sequence.Value_id.of_int !value_count |> checked_id)
+                  destination
+              with
+              | Error errors -> lower_errors errors
+              | Ok Expression_lowering.Unsupported_expression ->
+                  fail at "HCRUN0003"
+                    "initializer fragment is outside integer program lowering"
+              | Ok (Expression_lowering.Lowered result) ->
+                  let operand = append_expression result in
+                  let last =
+                    Sequence.Instruction_id.of_int !instruction_count
+                    |> checked_id
+                  in
+                  instruction ~at ~operands:[ operand ] ~flags:0x200L
+                    Opcode.Ic_end_exp;
+                  initial_regions :=
+                    {
+                      Global_initialization.root = Destination.root destination;
+                      first;
+                      last;
+                    }
+                    :: !initial_regions)
+          | _ ->
+              fail at "HCRUN0004"
+                "initializer fragment requires its exact retained module \
+                 storage")
       | Publish_array prepared_root -> (
           match (globals, frame) with
           | Some _, None ->
@@ -597,6 +644,10 @@ let lower_complete ?frame ?globals ?records ?(top_calls = [])
         in
         {
           graph_ = graph;
+          expression_source_ =
+            (match (frame, globals, statements) with
+            | None, Some globals, [ Expression value ] -> Some (globals, value)
+            | _ -> None);
           initializer_regions_ = List.rev !initial_regions;
           static_initializer_regions_ = List.rev !static_regions;
           runtime_calls_ = List.rev !runtime_calls;

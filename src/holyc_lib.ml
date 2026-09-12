@@ -5,6 +5,11 @@ module Span = Common.Span
 module Diagnostic = Common.Diagnostic
 module Diagnostic_render = Common.Diagnostic_render
 module Session = Driver.Session
+module Integer_task = Driver.Integer_task
+module Task_declarations = Driver.Task_declarations
+module Semantic_compiler_record = Sema.Compiler_record
+module Semantic_provisional_function = Sema.Provisional_function
+module Semantic_function_record_phase = Sema.Function_record_phase
 module Version = Driver.Version
 module Corpus = Driver.Corpus
 module Primitive_type = Sema.Primitive_type
@@ -23,6 +28,8 @@ module Ir_effects = Ir.Effects
 module Ir_x87_stack = Ir.X87_stack
 module Ir_integer_globals = Ir.Integer_globals
 module Ir_global_address_lowering = Ir.Global_address_lowering
+module Ir_initializer_fragment_destination = Ir.Initializer_fragment_destination
+module Ir_initializer_fragment_program = Ir.Initializer_fragment_program
 module Ir_integer_interpreter = Ir.Integer_interpreter
 module Ir_runtime_call_context = Ir.Runtime_call_context
 module Ir_integer_program_lowering = Ir.Integer_program_lowering
@@ -106,11 +113,16 @@ module Semantic_top_level_identifier_resolution =
   Sema.Top_level_identifier_resolution
 
 module Semantic_outer_environment = Sema.Outer_environment
+module Semantic_reference_selection = Sema.Reference_selection
+module Semantic_query_selection = Sema.Query_selection
 module Semantic_outer_expression_binding = Sema.Outer_expression_binding
 module Semantic_global_initializer_binding = Sema.Global_initializer_binding
 module Semantic_global_dimension_binding = Sema.Global_dimension_binding
 module Semantic_global_array_layout = Sema.Global_array_layout
 module Semantic_initializer_source = Sema.Initializer_source
+module Semantic_initializer_fragment = Sema.Initializer_fragment
+module Semantic_default_fragment = Sema.Default_fragment
+module Ir_integer_initializer_layout = Ir.Integer_initializer_layout
 module Semantic_function_default_binding = Sema.Function_default_binding
 module Semantic_function_resolution = Sema.Function_resolution
 module Semantic_function_header_analysis = Sema.Function_header_analysis
@@ -257,6 +269,11 @@ let resolve_function_types session ~declarations ~aggregates ~functions module_
     ~table:(Session.semantic_symbols session)
     ~declarations ~aggregates ~functions module_
 
+let resolve_completed_function_header session ~namespace declaration =
+  Driver.Function_type_resolution.resolve_completed_header
+    ~table:(Session.semantic_symbols session)
+    ~namespace declaration
+
 let resolve_local_types session ~declarations ~aggregates ~functions module_ =
   Driver.Local_type_resolution.resolve
     ~table:(Session.semantic_symbols session)
@@ -362,14 +379,14 @@ let resolve_global_types session ~declarations ~aggregates module_ =
     ~table:(Session.semantic_symbols session)
     ~declarations ~aggregates module_
 
-let resolve_function_identities ?compiler_option_mask session ~declarations
-    ~functions ~compilation_mode module_ =
-  Driver.Function_resolution.resolve ?compiler_option_mask
+let resolve_function_identities ?previous ?compiler_option_mask session
+    ~declarations ~functions ~compilation_mode module_ =
+  Driver.Function_resolution.resolve ?previous ?compiler_option_mask
     ~table:(Session.semantic_symbols session)
     ~declarations ~functions ~compilation_mode module_
 
-let analyze_function_headers session ~functions inputs =
-  Sema.Function_header_analysis.analyze
+let analyze_function_headers ?previous_inputs session ~functions inputs =
+  Sema.Function_header_analysis.analyze ?previous_inputs
     ~table:(Session.semantic_symbols session)
     ~functions inputs
 
@@ -446,9 +463,9 @@ let decide_function_call_conversions session ~policies ~expressions =
     ~table:(Session.semantic_symbols session)
     ~policies expressions
 
-let classify_function_records ?compiler_option_mask _session ~resolution module_
-    =
-  Driver.Function_record_classification.classify ?compiler_option_mask
+let classify_function_records ?previous ?compiler_option_mask _session
+    ~resolution module_ =
+  Driver.Function_record_classification.classify ?previous ?compiler_option_mask
     ~resolution module_
 
 let resolve_global_records ?compiler_option_mask session ~declarations ~globals
@@ -473,13 +490,39 @@ let lower_integer_program = Driver.Integer_program.lower
 
 type integer_program = Driver.Integer_program.compiled
 
+type integer_program_compilation = Driver.Integer_program.compilation =
+  | Isolated of integer_program
+  | Stateful of Ir_integer_interpreter.t
+
+type integer_program_compilation_report =
+  Driver.Integer_program.compilation_report
+
+let compile_integer_program_report = Driver.Integer_program.compile_report
+
+let integer_program_compilation_result =
+  Driver.Integer_program.compilation_result
+
+let integer_program_compilation_units =
+  Driver.Integer_program.compilation_task_units
+
+let integer_program_compilation_progress =
+  Driver.Integer_program.compilation_progress
+
+let integer_program_compilation_dimension_work =
+  Driver.Integer_program.compilation_dimension_work
+
 let compile_integer_program = Driver.Integer_program.compile
+let compile_integer_ast = Driver.Integer_program.compile_ast
+let compile_integer_task_ast = Driver.Integer_program.compile_task_ast
 let integer_program_entry = Driver.Integer_program.entry
 let integer_program_globals = Driver.Integer_program.globals
 let integer_program_initialization = Driver.Integer_program.initialization
 
 let integer_program_initializer_preparation =
   Driver.Integer_program.initializer_preparation
+
+let integer_program_dimension_preparation_work =
+  Driver.Integer_program.dimension_preparation_work
 
 let integer_program_functions = Driver.Integer_program.functions
 let integer_program_runtime_calls = Driver.Integer_program.runtime_calls
@@ -494,5 +537,15 @@ let integer_program_report_outcome = Driver.Integer_program_report.outcome
 let integer_program_report_output_bytes =
   Driver.Integer_program_report.output_bytes
 
+let integer_program_report_dimension_work =
+  Driver.Integer_program_report.dimension_work
+
+let integer_program_report_preparation_work =
+  Driver.Integer_program_report.preparation_work
+
 let integer_program_report_output_work =
   Driver.Integer_program_report.output_work
+
+let integer_program_report_progress = Driver.Integer_program_report.progress
+let integer_program_report_program = Driver.Integer_program_report.program
+let integer_program_report_task_units = Driver.Integer_program_report.task_units

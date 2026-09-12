@@ -144,12 +144,38 @@ let events ~table ~declarations ~aggregates module_ =
 let expression ast =
   Sema.Closed_layout_expression.of_ast ~allow_floating:false ast
 
-let dimension (dimension : Frontend.Ast.array_dimension) =
-  {
-    Sema.Aggregate_layout.dimension_expression =
-      Option.map expression dimension.dimension_expression;
-    dimension_origin = origin dimension.location;
-  }
+let dimension ~table ?prepared (dimension : Frontend.Ast.array_dimension) =
+  let expression =
+    match prepared with
+    | None -> Ok (Option.map expression dimension.dimension_expression)
+    | Some prepared ->
+        Result.bind (prepared dimension) (fun checked ->
+            Result.map
+              (fun () ->
+                Some
+                  (Sema.Aggregate_layout.Integer_expression
+                     {
+                       value = Sema.Compiler_record.dimension_count checked;
+                       origin = origin dimension.location;
+                     }))
+              (Sema.Compiler_record.validate_dimension ~table ~dimension checked))
+  in
+  Result.map
+    (fun expression ->
+      {
+        Sema.Aggregate_layout.dimension_expression = expression;
+        dimension_origin = origin dimension.location;
+      })
+    expression
+
+let dimensions dimension values =
+  let rec loop reversed = function
+    | [] -> Ok (List.rev reversed)
+    | value :: rest ->
+        Result.bind (dimension value) (fun value ->
+            loop (value :: reversed) rest)
+  in
+  loop [] values
 
 let validate_member fact path declarator_index
     (declarator : Frontend.Ast.aggregate_member_declarator) =
@@ -181,33 +207,33 @@ let validate_member fact path declarator_index
     then Error "aggregate layout member does not match its array dimensions"
     else Ok ()
 
-let field fact path declarator_index
+let field ~dimension fact path declarator_index
     (declarator : Frontend.Ast.aggregate_member_declarator) =
-  Result.map
-    (fun () ->
-      let type_reference =
-        Sema.Member_type_resolution.member_type_reference fact
-      in
-      let member_is_function_pointer =
-        match Sema.Member_type_resolution.member_declarator_kind fact with
-        | Sema.Member_type_resolution.Object -> false
-        | Sema.Member_type_resolution.Function_pointer _ -> true
-      in
-      Sema.Aggregate_layout.Field
-        {
-          member_symbol = Sema.Member_type_resolution.member_symbol fact;
-          member_path = path;
-          member_declarator_index = declarator_index;
-          member_origin = origin declarator.member_declarator_location;
-          member_type =
-            Sema.Member_type_resolution.type_reference_type type_reference;
-          member_is_function_pointer;
-          member_dimensions =
-            List.map dimension declarator.member_array_dimensions;
-        })
-    (validate_member fact path declarator_index declarator)
+  let ( let* ) = Result.bind in
+  let* () = validate_member fact path declarator_index declarator in
+  let* member_dimensions =
+    dimensions dimension declarator.member_array_dimensions
+  in
+  let type_reference = Sema.Member_type_resolution.member_type_reference fact in
+  let member_is_function_pointer =
+    match Sema.Member_type_resolution.member_declarator_kind fact with
+    | Sema.Member_type_resolution.Object -> false
+    | Sema.Member_type_resolution.Function_pointer _ -> true
+  in
+  Ok
+    (Sema.Aggregate_layout.Field
+       {
+         member_symbol = Sema.Member_type_resolution.member_symbol fact;
+         member_path = path;
+         member_declarator_index = declarator_index;
+         member_origin = origin declarator.member_declarator_location;
+         member_type =
+           Sema.Member_type_resolution.type_reference_type type_reference;
+         member_is_function_pointer;
+         member_dimensions;
+       })
 
-let declaration_items path
+let declaration_items ~dimension path
     (declaration : Frontend.Ast.aggregate_member_declaration) facts =
   let rec loop index items_rev facts = function
     | [] -> Ok (List.rev items_rev, facts)
@@ -215,12 +241,12 @@ let declaration_items path
         match facts with
         | [] -> Error "aggregate layout is missing a resolved member"
         | fact :: fact_rest ->
-            Result.bind (field fact path index declarator) (fun item ->
-                loop (index + 1) (item :: items_rev) fact_rest rest))
+            Result.bind (field ~dimension fact path index declarator)
+              (fun item -> loop (index + 1) (item :: items_rev) fact_rest rest))
   in
   loop 0 [] facts declaration.Frontend.Ast.member_declarators
 
-let rec member_items path_prefix members facts =
+let rec member_items ~offset ~dimension path_prefix members facts =
   let rec loop member_index items_rev facts = function
     | [] -> Ok (List.rev items_rev, facts)
     | member :: rest ->
@@ -228,14 +254,12 @@ let rec member_items path_prefix members facts =
         let built =
           match member with
           | Frontend.Ast.Aggregate_member_declaration declaration ->
-              declaration_items path declaration facts
+              declaration_items ~dimension path declaration facts
           | Frontend.Ast.Aggregate_offset_directive directive ->
-              Ok
-                ( [
-                    Sema.Aggregate_layout.Offset_directive
-                      (expression directive.aggregate_offset_expression);
-                  ],
-                  facts )
+              Result.map
+                (fun prepared ->
+                  ([ Sema.Aggregate_layout.Offset_directive prepared ], facts))
+                (offset directive.aggregate_offset_expression)
           | Frontend.Ast.Anonymous_union_member anonymous_union ->
               Result.map
                 (fun (union_items, facts) ->
@@ -248,7 +272,8 @@ let rec member_items path_prefix members facts =
                         };
                     ],
                     facts ))
-                (member_items path anonymous_union.anonymous_union_members facts)
+                (member_items ~offset ~dimension path
+                   anonymous_union.anonymous_union_members facts)
           | Frontend.Ast.Empty_aggregate_member location ->
               Ok
                 ([ Sema.Aggregate_layout.Empty_member (origin location) ], facts)
@@ -301,13 +326,15 @@ let validate_definition ~table ~scope event header aggregate
   then Error "aggregate layout member scope does not belong to the module"
   else Ok ()
 
-let aggregate_input ~table ~scope event header aggregate definition =
+let aggregate_input ~offset ~dimension ~table ~scope event header aggregate
+    definition =
   Result.bind
     (validate_definition ~table ~scope event header aggregate definition)
     (fun () ->
       let facts = Sema.Member_type_resolution.aggregate_members aggregate in
-      Result.bind (member_items [] definition.Frontend.Ast.members facts)
-        (fun (items, remaining) ->
+      Result.bind
+        (member_items ~offset ~dimension [] definition.Frontend.Ast.members
+           facts) (fun (items, remaining) ->
           if remaining <> [] then
             Error "aggregate layout has extra resolved members"
           else
@@ -334,7 +361,7 @@ let aggregate_input ~table ~scope event header aggregate definition =
                 aggregate_items = items;
               }))
 
-let inputs ~table ~scope events headers aggregates =
+let inputs ~offset ~dimension ~table ~scope events headers aggregates =
   let rec loop inputs_rev events headers aggregates =
     match events with
     | [] ->
@@ -347,15 +374,34 @@ let inputs ~table ~scope events headers aggregates =
             match (headers, aggregates) with
             | header :: header_rest, aggregate :: aggregate_rest ->
                 Result.bind
-                  (aggregate_input ~table ~scope event header aggregate
-                     definition) (fun input ->
+                  (aggregate_input ~offset ~dimension ~table ~scope event header
+                     aggregate definition) (fun input ->
                     loop (input :: inputs_rev) rest header_rest aggregate_rest)
             | [], _ | _, [] ->
                 Error "aggregate layout is missing a definition input"))
   in
   loop [] events headers aggregates
 
-let layout ~table ~declarations ~aggregates ~headers ~members module_ =
+let layout ?offsets ?prepared ~table ~declarations ~aggregates ~headers ~members
+    module_ =
+  let dimension = dimension ~table ?prepared in
+  let offset ast =
+    match offsets with
+    | None -> Ok (expression ast)
+    | Some resolve ->
+        Result.bind (resolve ast) (fun checked ->
+            if
+              Sema.Compiler_record.aggregate_offset_expression checked != ast
+              || Sema.Compiler_record.aggregate_offset_table checked != table
+            then Error "aggregate layout offset has another original expression"
+            else
+              Ok
+                (Sema.Aggregate_layout.Integer_expression
+                   {
+                     value = Sema.Compiler_record.aggregate_offset_value checked;
+                     origin = origin (Frontend.Ast.expression_location ast);
+                   }))
+  in
   let scope = Sema.Declaration_collection.scope declarations in
   let result =
     if not (Sema.Symbol_table.owns_scope table scope) then
@@ -366,7 +412,7 @@ let layout ~table ~declarations ~aggregates ~headers ~members module_ =
       Result.bind (events ~table ~declarations ~aggregates module_)
         (fun events ->
           Result.bind
-            (inputs ~table ~scope events
+            (inputs ~offset ~dimension ~table ~scope events
                (Sema.Aggregate_header_resolution.headers headers)
                (Sema.Member_type_resolution.aggregates members))
             (fun inputs ->

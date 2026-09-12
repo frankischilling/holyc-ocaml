@@ -1,5 +1,24 @@
 # Reference source map
 
+[Outer JIT activation](integer-task.md) preserves the statement lookahead order
+in `Kernel/KTask.HC:337-344` and `Compiler/PrsStmt.HC:1209-1211`. Its original
+initializer/default receipts follow the declaration-time paths below. The first
+actual directive activates the source journal, and later source callbacks use
+the same retained task. Journaling, single-use authority, quota checks and
+separate compiled-unit inspection are hosted implementation controls. They do
+not establish native execution equivalence beyond the audited source behavior.
+
+[Partial task storage](integer-task.md) follows the pinned
+`Compiler/PrsStmt.HC:334-435` allocation and publication path. Global storage
+exists before initializer parsing, and the same address remains attached to the
+record afterward. Hosted unknown-cell diagnostics, namespace certificates and
+byte quotas are implementation controls. Live scalar and copied-row initializer
+execution follows `Compiler/PrsVar.HC:81-204`, retaining original leaves and
+delimiter receipts through completion. [Integer parameter defaults](integer-defaults.md)
+follow `Compiler/PrsVar.HC:631-656` and `Compiler/PrsExp.HC:455-468` for
+declaration-time evaluation and later saved-value materialization. The
+reference remains `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
+
 [Narrow integers](integer-narrow.md) in #633 follow `BackLib.HC:281-309,509-534,
 550-572` for memory width/extension and register transport, and
 `OptPass789A.HC:710-717,779-782,1026-1030` for parameter entry and returns.
@@ -180,7 +199,8 @@ for structured top-level control flow and `OptLib.HC:229-484` for conditional
 NOT, AND and OR branches. `PrsExp.HC:49-52,225-230,728-759` establishes
 comparison chains, parentheses and unary plus. The implementation is
 `src/ir/integer_program_lowering.ml` with the shared semantic preparation in
-`src/driver/integer_source.ml` and AST join in `src/driver/integer_program.ml`.
+`src/driver/integer_source.ml` and AST join in `src/driver/integer_unit.ml`.
+`src/driver/integer_program.ml` retains source parsing and isolated-unit APIs.
 Source and CLI tests are `test/test_integer_program.ml` and
 `test/test_integer_program_cli.ml`. [Integer programs](integer-programs.md)
 records the accepted domain and the remaining memory, call and native gaps.
@@ -503,7 +523,7 @@ This count covers ordinary identifier nodes represented by the current expressio
 
 `Compiler/PrsStmt.HC:PrsFunJoin` reads a bound function's parameter list but does not inspect the token that follows `)`. Every function branch in `PrsGlblVarLst` returns immediately after that call. A semicolon after a bound prototype is therefore optional, and the following token belongs to the next top-level item. The AST stores a written semicolon with its location and represents an omission as absent. It never fabricates punctuation or absorbs the next declaration. `Kernel/KernelC.HH:179-180` and `Demo/AcctExample/TOS/TOSExt.HC:306-307` contain consecutive prototypes with the first semicolon omitted. Supporting those forms makes `Kernel/KernelC.HH`, `Kernel/KMisc.HC`, and `TOSExt.HC` parse with the project prelude, while `MakeTOS.HC` advances into `TOSMisc.HC`. The parser-only report rises from 118 to 121 project-prelude parses and falls from 21,140 to 21,021 diagnostics.
 
-`Compiler/PrsVar.HC:PrsVarInit2` consumes an array initializer's opening brace only when one is present. For a fixed dimension it then reads exactly the declared element count and accepts a closing brace before returning. `Adam/DolDoc/DocHighlight.HC:3-7` uses this form for the 17-element `highlight_hash_type_colors` table. The AST represents the missing opening brace explicitly, retains nested fixed-dimension element groups, and records an optional written closing brace. The hosted parser uses positive literal bounds after definition expansion and caps each dimension at 1,000,000 elements; other constant expressions require the later constant-evaluation pass and receive `HCPARSE0159` instead of a guessed count. `HCPARSE0160` reports a missing element separator. This change makes `DocHighlight.HC` parse with the project prelude, raising that count from 121 to 122 and reducing diagnostics from 21,021 to 21,019. Storage emission and runtime initialization remain untested.
+`Compiler/PrsVar.HC:PrsVarInit2` consumes an array initializer's opening brace only when one is present. For a fixed dimension it then reads exactly the declared element count and accepts a closing brace before returning. `Adam/DolDoc/DocHighlight.HC:3-7` uses this form for the 17-element `highlight_hash_type_colors` table. The AST represents the missing opening brace explicitly, retains nested fixed-dimension element groups, and records an optional written closing brace. The parser caps each dimension at 1,000,000 positive elements. Ordinary source and task compilation supply the checked count after original dimension completion and before following lexer lookahead. An exact receipt echo binds this grammar-only projection; each cursor caches it by the original dimension without rewriting expressions or evaluating again. Callback-free and analysis-only parsing retain literal bounds after definition expansion. Missing or out-of-range grammar counts receive `HCPARSE0159`. `HCPARSE0160` reports a missing element separator. This change makes `DocHighlight.HC` parse with the project prelude, raising that count from 121 to 122 and reducing diagnostics from 21,021 to 21,019. Maintained integer-domain JIT/AOT and retained-task tests now cover unbraced array storage and execution; effectful extent preparation remains pending.
 
 After `PrsClass` returns at global scope, the class/union branch in `PrsStmt` takes the common semicolon path only when the current token is `;`. Otherwise it hands the completed aggregate type to `PrsGlblVarLst`; `PrsType` can encounter another `class` or `union` there. `Demo/Graphics/Pick3D.HC:27-38` relies on this path by placing `class PObj` immediately after the closing brace of `class PCSprite` without a semicolon. The OCaml AST retains a written definition semicolon as a source location and records this omission as absent. The parser accepts the omission only before an immediate `class` or `union`, leaving EOF and unrelated syntax on their existing diagnostic paths. The corpus phase totals do not change, but `Pick3D.HC` advances from `HCPARSE0115` at line 37 to unresolved `DCDepthBufAlloc` at line 83 and each corpus view loses one diagnostic.
 
@@ -895,6 +915,92 @@ The pinned lexer nests `/* ... */` comments. It consumes `//` through the end of
 - Allowed-root enforcement, active-path cycle diagnostics, and nesting and size limits are hosted security differences. They are not attributed to the native TempleOS lexer.
 - Ordinary dollar-delimited text remains comment trivia outside strings. Complete commands inside strings are retained as literal bytes but are not parsed or rendered. In a NUL-terminated saved DolDoc source, `$IB,...,BI=n$` and `$IS,...,BI=n$` select a numbered `CDocBin` record and become typed literal tokens. `$$` remains the HolyC current-position token. Other DolDoc commands are not interpreted by this slice.
 - Strict hosted decoding rejects truncated headers, truncated payloads, duplicate record numbers, and missing references. The pinned Git objects contain newline-normalized trailers whose declared sizes cannot reliably locate every following record. Corpus mode uses an explicit recovery path and marks shortened or missing records incomplete; it never presents those bytes as an intact oracle payload.
+
+## Provisional function calls and source activation
+
+At reference `c26482bb6ad3f80106d28504ec5db3c6a360732c`,
+`Compiler/LexLib.HC:209-218` resets a reused function's member and argument counts.
+`Compiler/PrsStmt.HC:90-117` saves the comparison header, replaces native members
+and derives the completed active count. `Compiler/PrsExp.HC:430-491` walks that
+count before recognizing the variadic member cursor. Call-only type projections
+therefore expose the checked variadic count type without requiring body-local
+synthetic bindings. The argument binder, direct lowerer and runtime call-shape
+validator share that distinction, including implicit output calls.
+
+The task ledger freezes native declaration snapshots at the original parser
+events so activation cannot replace them with later shared-record state.
+`test/test_task_call_phases.ml` checks original replay counts, record reuse and
+failed-activation rejection; `test/test_provisional_function_types.ml` checks
+variadic cursor publication and fixed defaults. Runtime admission validates the
+original live or replayed event and the actual native catalog head. The authority
+tests reject stale predecessors, alternate semantic roots and completed-header
+bypasses without changing catalog entries. Hidden header completion retains its
+lookup position. Fresh/reused provisional calls, reached UndefinedExtern and
+post-name argument-phase binding pass. Calls retain the admitted identifier
+reference, original argument/default cursor and separate emission metadata
+through semantic binding, lowering and runtime verification. Opaque native
+captures prevent replay from substituting a later snapshot. Failed replay
+revokes uncommitted call bindings. These are
+hosted source tests; see
+[provisional function members](provisional-function-members.md).
+
+`Compiler/PrsExp.HC:383-413` selects implicit `Print`/`PutChars` before
+empty-marker lookahead. The argument count and member cursor are captured at
+430-437, and emission follows closing-parenthesis lookahead at 534-586.
+Both implicit binders and `Ir.Runtime_call_context` carry these original phases
+through source execution. `examples/stateful-exe-implicit-phases.hc` exercises
+the path in both outer modes. Provider setup uses the original suspended parser
+stack and a consumed suspension token; task completion checks the exact accepted
+child sequence and admitted commands. The local-scope restoration follows
+`Compiler/PrsStmt.HC:805-841`. These are hosted execution and source observations,
+without a new native capture.
+
+## Retained aggregate metadata
+
+`Compiler/PrsStmt.HC:1-59` publishes named classes before name lookahead and
+finishes their sizes after member parsing. `Compiler/PrsVar.HC:660-682` assigns
+packed member offsets and union extents. The parser's original publication and
+completion receipts feed `Sema.Compiler_record`; `Driver.Task_declarations`
+retains the checked size for exact selected `sizeof` reads. Both the source
+adapter and ordinary semantic layout share `Sema.Aggregate_layout_core`.
+Original checked member bounds are reused without reevaluation. The retained
+aggregate API tests and `examples/stateful-exe-aggregates.hc` exercise replacement,
+separate directives, arrays and authority rejection. See
+[retained aggregate sizes](retained-aggregates.md) for the explicit remaining
+phase and storage limits. This is hosted source evidence, not a native capture.
+
+`Compiler/PrsVar.HC:408-494,660-721` places members after type/array lookahead,
+before metadata and delimiter advancement. Parser body/member/union receipts
+advance immutable partial snapshots through the same checked placement rules.
+`test/test_retained_aggregates.ml` verifies exact phase ancestry, stale-snapshot
+rejection and frozen reads. The aggregate-phase CLI fixture observes 0, 8 and
+16 bytes through the original nested streams, including closing lookahead.
+
+`Compiler/PrsVar.HC:408-449` evaluates `$$` expressions before semicolon
+validation, replacing the class position or union base and retaining negative
+padding. `Compiler/PrsStmt.HC:50-57` adds that padding after body lookahead.
+Original expression-phase receipts now prepare closed values once, including
+saved size queries, current positions and floating raw bits. Completed layout
+reuses those values, and source activation charges their saved work at the exact
+journal event. `examples/stateful-exe-aggregate-offsets.hc` and the retained
+aggregate tests cover these phases and their bounded preparation.
+
+Runtime integer offsets now retain a distinct typed source fragment and exact
+task execution. The original lookahead, selected function version and resulting
+layout dependency survive completion. The runtime-offset fixture returns 42 in
+both outer modes at 49 execution steps and three preparation units. Authority
+tests reject foreign tasks, replay, matching-but-unexecuted metadata and
+standalone functions whose layouts depend on those offsets. Boolean value
+evaluation remains eager in both typed IR and closed numeric preparation,
+following `Compiler/OptPass012.HC:693-706`; conditional branch lowering is a
+separate route. `Compiler/PrsExp.HC:707-721` fixes each aggregate `$$` value as an
+I64 immediate before token lookahead. Mixed typed offsets now retain those
+original token nodes, position values and runtime layout dependencies. The
+position fixture returns 42 in both modes at 46 runtime steps and four
+preparation units. `Compiler/PrsStmt.HC:805-841` keeps the same compiler position
+cell across nested source; reads after nested declarations remain explicitly
+guarded until those writes are modeled. Runtime F64 and ordinary pre-activation
+or AOT runtime offset evaluation also remain open.
 
 ## Bounded source expression evaluation
 
