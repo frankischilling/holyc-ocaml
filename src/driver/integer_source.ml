@@ -138,8 +138,8 @@ let prepare_unit ?environment:task_environment ?declaration_command
     |> checked
   in
   let* layouts =
-    Aggregate_layout.layout ~table ~declarations ~aggregates ~headers ~members
-      ast
+    Aggregate_layout.layout ?prepared ~table ~declarations ~aggregates ~headers
+      ~members ast
     |> checked
   in
   let* members =

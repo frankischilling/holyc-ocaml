@@ -955,6 +955,20 @@ child sequence and admitted commands. The local-scope restoration follows
 `Compiler/PrsStmt.HC:805-841`. These are hosted execution and source observations,
 without a new native capture.
 
+## Retained aggregate metadata
+
+`Compiler/PrsStmt.HC:1-59` publishes named classes before name lookahead and
+finishes their sizes after member parsing. `Compiler/PrsVar.HC:660-682` assigns
+packed member offsets and union extents. The parser's original publication and
+completion receipts feed `Sema.Compiler_record`; `Driver.Task_declarations`
+retains the checked size for exact selected `sizeof` reads. Both the source
+adapter and ordinary semantic layout share `Sema.Aggregate_layout_core`.
+Original checked member bounds are reused without reevaluation. The retained
+aggregate API tests and `examples/stateful-exe-aggregates.hc` exercise replacement,
+separate directives, arrays and authority rejection. See
+[retained aggregate sizes](retained-aggregates.md) for the explicit remaining
+phase and storage limits. This is hosted source evidence, not a native capture.
+
 ## Bounded source expression evaluation
 
 At pinned commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`,

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added retained size metadata for completed primitive-member classes and
+  unions. Original parser receipts bind publication and completion; member
+  bounds reuse their original checked counts. Separate streams and retained
+  function bodies preserve consumed sizes across type replacement. The public
+  fixture and exact runtime/preparation limits pass in JIT and AOT modes.
+  Partial definitions, dependent layouts and aggregate storage remain open.
+
 - Preserved native function snapshots at their original declaration events
   during source activation. Earlier replayed counts survive later header
   completion and reuse; inactive or failed replay cannot read a later phase.

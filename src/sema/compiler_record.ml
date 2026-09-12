@@ -287,6 +287,62 @@ let scalar_size type_ =
         Ok (Int64.of_int (Primitive_type.info primitive).byte_size)
     | Type.Aggregate _ -> Error "sizeof requires the selected aggregate layout"
 
+let complete_aggregate ?(dimensions = fun _ -> None) ~table ~namespace
+    publication receipt =
+  let source = receipt.Parser.aggregate_publication in
+  if
+    not
+      (Declaration_collection.namespace_owns_table namespace table
+      && Declaration_collection.namespace_owns_publication namespace publication
+      && Parser.aggregate_completion_is_current receipt
+      && Option.fold ~none:false ~some:(( == ) source)
+           (Declaration_collection.publication_source_aggregate publication))
+  then
+    Error
+      "aggregate metadata requires its original live publication and completion"
+  else
+    let symbol = Declaration_collection.publication_symbol publication in
+    let* byte_size =
+      match receipt.aggregate_item with
+      | Ast.Aggregate_forward_declaration forward
+        when forward.name == source.aggregate_name -> Ok 0L
+      | Ast.Aggregate_definition definition
+        when definition.name == source.aggregate_name ->
+          let member_dimensions (member : Ast.aggregate_member_declarator) =
+            let checked =
+              List.filter_map dimensions member.member_array_dimensions
+            in
+            let* _ =
+              declared_array_size ~table ~namespace
+                ~command:source.aggregate_header.declaration_command
+                ~name:member.member_name
+                ~dimensions:member.member_array_dimensions ~checked 1L
+            in
+            if
+              List.exists
+                (fun dimension -> dimension.prepared.runtime_dependencies <> [])
+                checked
+            then
+              Error
+                "retained aggregate runtime bounds require original runtime \
+                 layout admission"
+            else Ok (List.map dimension_count checked)
+          in
+          Source_aggregate_layout.layout ~dimensions:member_dimensions ~table
+            ~namespace ~symbol definition
+      | _ -> Error "aggregate completion has another original declaration"
+    in
+    Ok
+      {
+        table;
+        entry = source.aggregate_entry;
+        symbol;
+        primitive = None;
+        byte_size;
+        internal = false;
+        runtime_dimensions = [];
+      }
+
 let rebind_primitive ~table ~symbol record =
   if
     Option.is_none record.primitive

@@ -122,6 +122,16 @@ val published_scalar :
     Arrays consume their original ordered checked dimensions. Aggregate layouts
     and function-pointer signatures still need separate checked metadata. *)
 
+val complete_aggregate :
+  ?dimensions:(Frontend.Ast.array_dimension -> declared_dimension option) ->
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  Declaration_collection.publication ->
+  Frontend.Parser.completed_aggregate ->
+  (t, string) result
+(** Compute original completed aggregate metadata during its live callback. An
+    arbitrary layout or a matching symbol cannot supply the size. *)
+
 val bind_retained_scalar :
   table:Symbol_table.t ->
   entry:Frontend.Symbol_visibility.entry ->

@@ -28,6 +28,7 @@ type publication = {
   symbol : Symbol.t;
   source_global : Frontend.Parser.global_publication option;
   source_function : Frontend.Parser.function_publication option;
+  source_aggregate : Frontend.Parser.aggregate_publication option;
 }
 
 type namespace = {
@@ -115,6 +116,7 @@ let namespace_scope (namespace : namespace) = namespace.scope
 let publication_symbol (publication : publication) = publication.symbol
 let publication_source_global publication = publication.source_global
 let publication_source_function publication = publication.source_function
+let publication_source_aggregate publication = publication.source_aggregate
 
 let namespace_owns_publication (namespace : namespace)
     (publication : publication) =
@@ -140,6 +142,7 @@ let publish (namespace : namespace) ~name ~kind ~origin =
             symbol;
             source_global = None;
             source_function = None;
+            source_aggregate = None;
           })
   | _ ->
       Error
@@ -178,6 +181,26 @@ let publish_function namespace (source : Frontend.Parser.function_publication) =
     ~origin
   |> Result.map (fun publication ->
       { publication with source_function = Some source })
+
+let publish_aggregate namespace (source : Frontend.Parser.aggregate_publication)
+    =
+  let location = source.aggregate_name.location in
+  let origin =
+    Symbol.Source_location
+      {
+        span = location.span;
+        source_segments = location.source_segments;
+        generated_from = location.generated_from;
+        defined_at = location.defined_at;
+      }
+  in
+  if not (Frontend.Parser.aggregate_publication_is_current source) then
+    Error "aggregate publication requires its original callback"
+  else
+    publish namespace ~name:source.aggregate_name.spelling
+      ~kind:Symbol.Aggregate_type ~origin
+    |> Result.map (fun publication ->
+        { publication with source_aggregate = Some source })
 
 let view (namespace : namespace) publications =
   let rec validate previous seen entries_rev = function

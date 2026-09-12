@@ -114,6 +114,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                     validate ~in_function:false statement;
                     Some statement
                 | Ast.Global_variable _
+                | Ast.Aggregate_forward_declaration _
+                | Ast.Aggregate_definition _
                 | Ast.Global_declaration _
                 | Ast.Function_prototype _ -> None
                 | Ast.Function_definition definition ->
@@ -122,10 +124,7 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                     | None ->
                         fail definition.location.span "HCRUN0001"
                           "integer function definition has no source body");
-                    None
-                | _ ->
-                    fail ast.span "HCRUN0001"
-                      "declaration is outside integer program execution")
+                    None)
               ast.items
           in
           let* selections =

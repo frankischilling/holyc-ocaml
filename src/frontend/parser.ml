@@ -496,7 +496,32 @@ let dimension_completion_is_current receipt =
   && preparation.dimension_owner.dimensions_command.command_context
        .context_active
 
+type aggregate_activity = { mutable aggregate_active : bool }
+
+type aggregate_publication = {
+  aggregate_header : declaration_header;
+  aggregate_environment : Symbol_visibility.Environment.t;
+  aggregate_entry : Symbol_visibility.entry;
+  aggregate_name : Ast.identifier;
+  aggregate_kind : Ast.aggregate_kind;
+  aggregate_activity : aggregate_activity;
+}
+
+type completed_aggregate = {
+  aggregate_publication : aggregate_publication;
+  aggregate_item : Ast.item;
+  aggregate_completion_activity : aggregate_activity;
+}
+
+let aggregate_publication_is_current source =
+  source.aggregate_activity.aggregate_active
+
+let aggregate_completion_is_current source =
+  source.aggregate_completion_activity.aggregate_active
+
 type declaration_event =
+  | Aggregate_declared of aggregate_publication
+  | Aggregate_completed of completed_aggregate
   | Array_dimension_preparing of array_dimension_preparation
   | Array_dimension_completed of completed_array_dimension
   | Global_declared of global_publication
@@ -1675,11 +1700,10 @@ let publish_global cursor (name : Ast.identifier) =
     ()
 
 let publish_class cursor (name : Ast.identifier) =
-  ignore
-    (Symbol_visibility.Environment.add cursor.symbols ~name:name.spelling
-       ~kind:Symbol_visibility.Class
-       ~origin:(symbol_source_origin name.location)
-       ())
+  Symbol_visibility.Environment.add cursor.symbols ~name:name.spelling
+    ~kind:Symbol_visibility.Class
+    ~origin:(symbol_source_origin name.location)
+    ()
 
 let function_call_shape parameters variadic =
   let function_call_shape : Symbol_visibility.function_call_shape =
@@ -1717,6 +1741,38 @@ let declaration_header cursor ~modifiers ~binding ~type_specifier =
     binding;
     type_specifier;
   }
+
+let declare_aggregate cursor at ~modifiers ~binding ~aggregate_kind name =
+  let source =
+    {
+      aggregate_header =
+        declaration_header cursor ~modifiers ~binding
+          ~type_specifier:(Ast.Named_type_specifier name);
+      aggregate_environment = cursor.symbols;
+      aggregate_entry = publish_class cursor name;
+      aggregate_name = name;
+      aggregate_kind;
+      aggregate_activity = { aggregate_active = true };
+    }
+  in
+  Fun.protect
+    ~finally:(fun () -> source.aggregate_activity.aggregate_active <- false)
+    (fun () -> publish_declaration cursor at (Aggregate_declared source));
+  source
+
+let complete_aggregate cursor at source item =
+  let completed =
+    {
+      aggregate_publication = source;
+      aggregate_item = item;
+      aggregate_completion_activity = { aggregate_active = true };
+    }
+  in
+  Fun.protect
+    ~finally:(fun () ->
+      completed.aggregate_completion_activity.aggregate_active <- false)
+    (fun () -> publish_declaration cursor at (Aggregate_completed completed));
+  item
 
 let declare_function cursor header (prefix : parsed_declarator_prefix) opening =
   if not cursor.stop_on_error then None
@@ -4567,7 +4623,10 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
       Ast.make_identifier ~spelling:name_item.token.raw
         ~location:(token_location name_item.token)
     in
-    publish_class cursor name;
+    let publication =
+      declare_aggregate cursor name_item ~modifiers ~binding:None
+        ~aggregate_kind name
+    in
     match parse_aggregate_base cursor with
     | None -> None
     | Some base -> (
@@ -4683,7 +4742,8 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
                       ~attached_declarators ~semicolon
                       ~location:(location_from_expression_tokens tokens)
                   in
-                  Ast.Aggregate_definition definition)
+                  complete_aggregate cursor following_item publication
+                    (Ast.Aggregate_definition definition))
                 parsed_tail)
 
 let finish_function_parameter ?default_context cursor ~register_qualifiers
@@ -5307,6 +5367,10 @@ let parse_global cursor ~parse_function_definition =
           Ast.make_identifier ~spelling:name_item.token.raw
             ~location:(token_location name_item.token)
         in
+        let publication =
+          declare_aggregate cursor name_item ~modifiers ~binding:(Some binding)
+            ~aggregate_kind name
+        in
         let semicolon_item = peek cursor in
         if semicolon_item.token.kind <> Token_kind.Punctuation ';' then (
           report cursor semicolon_item ~code:"HCPARSE0108"
@@ -5360,8 +5424,9 @@ let parse_global cursor ~parse_function_definition =
               ~semicolon:(token_location semicolon_item.token)
               ~location
           in
-          publish_class cursor name;
-          Some (Ast.Aggregate_forward_declaration declaration)
+          Some
+            (complete_aggregate cursor semicolon_item publication
+               (Ast.Aggregate_forward_declaration declaration))
   | None -> (
       match aggregate_kind_of_token (peek cursor).token with
       | Some aggregate_kind ->

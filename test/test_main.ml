@@ -128,6 +128,7 @@ let () =
       ("task parser executor", Test_task_parser_executor.tests);
       ("AOT source execution", Test_aot_source_execution.tests);
       ("task declarations", Test_task_declarations.tests);
+      ("retained aggregates", Test_retained_aggregates.tests);
       ("source promotion", Test_source_promotion.tests);
       ("live initializer leaves", Test_live_initializer_leaves.tests);
       ("partial global storage", Test_partial_global_storage.tests);

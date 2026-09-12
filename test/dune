@@ -6,7 +6,8 @@
   (run
    %{test}
    %{exe:../bin/holyc.exe}
-   %{dep:../examples/stateful-exe-implicit-phases.hc})))
+   %{dep:../examples/stateful-exe-implicit-phases.hc}
+   %{dep:../examples/stateful-exe-aggregates.hc})))
 
 (test
  (name test_integer_program_cli)
@@ -64,6 +65,7 @@
  (name test_main)
  (modules
   test_main
+  test_retained_aggregates
   test_provisional_function_types
   test_provisional_function_authority
   test_direct_call_phases

@@ -63,6 +63,11 @@ type reading_dimensions = {
 }
 
 type source =
+  | Aggregate of {
+      publication : Parser.aggregate_publication;
+      mutable completed : Parser.completed_aggregate option;
+      mutable record : (Sema.Compiler_record.t, string) result option;
+    }
   | Global of {
       publication : Parser.global_publication;
       mutable completed : Ast.global_declarator option;
@@ -876,9 +881,11 @@ let selection_target ledger span = function
   | Visibility.Shadowed_by_local -> Selected_local
   | Visibility.Present entry -> (
       match Entries.find_opt ledger.entries entry with
+      | Some { source = Aggregate _; _ } -> Selected_unbound entry
       | Some assigned ->
           let stage =
             match assigned.source with
+            | Aggregate _ -> assert false
             | Global state ->
                 Global_selection (state.publication, state.completed)
             | Function state when state.publication.function_entry == entry ->
@@ -1510,9 +1517,20 @@ let read_sizeof ledger (root : Parser.query_root) target =
                  ~dimensions:
                    (selected_dimensions ledger source.global_dimensions)
                  publication)
-        | Selected_unbound entry ->
-            Session.primitive_for ledger.session entry
-            |> Option.map (fun binding -> Ok (Session.primitive_record binding))
+        | Selected_unbound entry -> (
+            match Entries.find_opt ledger.entries entry with
+            | Some { source = Aggregate state; _ } -> (
+                match state.record with
+                | Some record -> Some record
+                | None ->
+                    Some
+                      (Error
+                         "sizeof requires a completed retained aggregate; \
+                          partial class layout is not implemented"))
+            | _ ->
+                Session.primitive_for ledger.session entry
+                |> Option.map (fun binding ->
+                    Ok (Session.primitive_record binding)))
         | Selected_runtime _ -> (
             match root.query_lookup with
             | Visibility.Present entry ->
@@ -1670,6 +1688,8 @@ let assign ledger (name : Ast.identifier) kind source entry =
     fail name.location.span "task declaration publication order is exhausted";
   let publication =
     (match source with
+      | Aggregate state ->
+          Collection.publish_aggregate ledger.namespace state.publication
       | Global state ->
           Collection.publish_global ledger.namespace state.publication
       | Function state ->
@@ -1982,6 +2002,33 @@ let validate_global_dimensions ledger (publication : Parser.global_publication)
 let observe ledger event =
   protect (fun () ->
       match event with
+      | Parser.Aggregate_declared publication ->
+          validate_source ledger publication.aggregate_environment
+            publication.aggregate_header publication.aggregate_name;
+          if not (Parser.aggregate_publication_is_current publication) then
+            fail publication.aggregate_name.location.span
+              "aggregate publication is outside its original callback";
+          assign ledger publication.aggregate_name Sema.Symbol.Aggregate_type
+            (Aggregate { publication; completed = None; record = None })
+            publication.aggregate_entry
+      | Parser.Aggregate_completed receipt -> (
+          let publication = receipt.aggregate_publication in
+          validate_command ledger publication.aggregate_header;
+          let assigned = find ledger publication.aggregate_name in
+          match assigned.source with
+          | Aggregate state
+            when state.publication == publication
+                 && Option.is_none state.completed
+                 && Parser.aggregate_completion_is_current receipt ->
+              state.record <-
+                Some
+                  (Sema.Compiler_record.complete_aggregate ~table:ledger.table
+                     ~dimensions:(Dimensions.find_opt ledger.checked_dimensions)
+                     ~namespace:ledger.namespace assigned.publication receipt);
+              state.completed <- Some receipt
+          | _ ->
+              fail publication.aggregate_name.location.span
+                "aggregate completion is foreign, expired or repeated")
       | Parser.Array_dimension_preparing preparation ->
           prepare_dimension ledger preparation
       | Parser.Array_dimension_completed receipt ->
@@ -2439,6 +2486,7 @@ let seal ledger (ast : Ast.module_) =
                 assigned =
               let header =
                 match assigned.source with
+                | Aggregate state -> state.publication.aggregate_header
                 | Global state -> state.publication.global_header
                 | Function state -> state.publication.function_header
               in
@@ -2569,10 +2617,32 @@ let seal ledger (ast : Ast.module_) =
                           "function command substituted or lacks its completed \
                            body")
                 | Ast.Top_level_statement _ -> ()
-                | Ast.Aggregate_forward_declaration _
-                | Ast.Aggregate_definition _ ->
-                    fail ~code:"HCRUN0001" ast.span
-                      "declaration is outside integer program execution")
+                | ( Ast.Aggregate_forward_declaration _
+                  | Ast.Aggregate_definition _ ) as item -> (
+                    let name, kind =
+                      match item with
+                      | Ast.Aggregate_forward_declaration source ->
+                          (source.name, Collection.Aggregate_forward)
+                      | Ast.Aggregate_definition source ->
+                          (source.name, Collection.Aggregate_definition)
+                      | _ -> assert false
+                    in
+                    let assigned = find ledger name in
+                    match assigned.source with
+                    | Aggregate { completed = Some receipt; record; _ }
+                      when receipt.aggregate_item == item ->
+                        (match (ledger.authority, record) with
+                        | Task_runtime _, Some (Error message) ->
+                            fail ~code:"HCRUN0001" name.location.span message
+                        | Task_runtime _, None ->
+                            fail name.location.span
+                              "aggregate has no original preparation"
+                        | _ -> ());
+                        add item_index kind name assigned
+                    | _ ->
+                        fail name.location.span
+                          "aggregate command lacks its original completed \
+                           declaration"))
               ast.items;
             (match ledger.authority with
             | Source_compilation _ ->
@@ -2740,7 +2810,7 @@ let seal ledger (ast : Ast.module_) =
                            Option.iter
                              (Names.add initializers name)
                              (Names.find_opt ledger.initializers name)
-                       | Function _ -> ())
+                       | Function _ | Aggregate _ -> ())
                      !claimed;
                    initializers);
                 checked_dimensions =

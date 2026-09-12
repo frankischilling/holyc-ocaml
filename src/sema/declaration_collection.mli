@@ -79,6 +79,14 @@ val publish_function :
 val publication_source_function :
   publication -> Frontend.Parser.function_publication option
 
+val publish_aggregate :
+  namespace ->
+  Frontend.Parser.aggregate_publication ->
+  (publication, string) result
+
+val publication_source_aggregate :
+  publication -> Frontend.Parser.aggregate_publication option
+
 val namespace_owns_publication : namespace -> publication -> bool
 val namespace_owns_table : namespace -> Symbol_table.t -> bool
 

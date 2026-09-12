@@ -2328,7 +2328,7 @@ let aggregate_forward_provenance () =
 
 let aggregate_forward_failures () =
   List.iter
-    (fun (description, source, rejected_name, code, message_fragment) ->
+    (fun (description, source, published_name, code, message_fragment) ->
       let session, _, output = parse_string source in
       Alcotest.(check bool)
         (description ^ " has no AST")
@@ -2345,10 +2345,14 @@ let aggregate_forward_failures () =
             Symbol_visibility.Environment.find_preprocessor
               (Session.symbols session) name
           with
-          | Symbol_visibility.Absent -> ()
-          | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
-              Alcotest.failf "rejected aggregate %s became visible" name)
-        rejected_name)
+          | Symbol_visibility.Present entry ->
+              Alcotest.(check string)
+                "forward name is published before following-token validation"
+                "class"
+                (Symbol_visibility.kind_name (Symbol_visibility.kind entry))
+          | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+              Alcotest.failf "original forward publication %s was lost" name)
+        published_name)
     [
       ( "class name is missing",
         "extern class ;",

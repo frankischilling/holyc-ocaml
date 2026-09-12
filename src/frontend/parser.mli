@@ -460,7 +460,29 @@ and completed_array_dimension = private {
 val dimension_preparation_is_current : array_dimension_preparation -> bool
 val dimension_completion_is_current : completed_array_dimension -> bool
 
+type aggregate_activity
+
+type aggregate_publication = private {
+  aggregate_header : declaration_header;
+  aggregate_environment : Symbol_visibility.Environment.t;
+  aggregate_entry : Symbol_visibility.entry;
+  aggregate_name : Ast.identifier;
+  aggregate_kind : Ast.aggregate_kind;
+  aggregate_activity : aggregate_activity;
+}
+
+type completed_aggregate = private {
+  aggregate_publication : aggregate_publication;
+  aggregate_item : Ast.item;
+  aggregate_completion_activity : aggregate_activity;
+}
+
+val aggregate_publication_is_current : aggregate_publication -> bool
+val aggregate_completion_is_current : completed_aggregate -> bool
+
 type declaration_event = private
+  | Aggregate_declared of aggregate_publication
+  | Aggregate_completed of completed_aggregate
   | Array_dimension_preparing of array_dimension_preparation
   | Array_dimension_completed of completed_array_dimension
   | Global_declared of global_publication

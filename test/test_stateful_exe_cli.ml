@@ -132,6 +132,59 @@ let parameter_delimiters_source =
 
 let () =
   let executable = Sys.argv.(1) in
+  let aggregate_fixture = Sys.argv.(3) in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (steps, prep, status_code, reached_steps, reached_prep) ->
+          let status, output, errors =
+            capture executable
+              [
+                "run";
+                "--format=json";
+                "--report-version=2";
+                "--mode=" ^ mode;
+                "--step-limit=" ^ string_of_int steps;
+                "--initializer-step-limit=" ^ string_of_int prep;
+                aggregate_fixture;
+              ]
+          in
+          require
+            (status = Unix.WEXITED status_code && errors = "")
+            ("aggregate fixture failed: " ^ output ^ errors);
+          let open Yojson.Basic.Util in
+          let report = Yojson.Basic.from_string output in
+          require
+            (report |> member "executed_steps" |> to_int = reached_steps)
+            "aggregate runtime work";
+          require
+            (report
+            |> member "compiled_initializer_steps"
+            |> to_int = reached_prep)
+            "aggregate preparation work";
+          require
+            (report
+            |> member "dimension_preparation_work"
+            |> to_int = reached_prep)
+            "original aggregate bounds are charged once";
+          require
+            (report |> member "output_hex" |> to_string = "")
+            "aggregate stream bytes are not output";
+          if status_code = 0 then (
+            require
+              (report |> member "final_value" |> member "value" |> to_string
+             = "42")
+              "aggregate frozen size result";
+            require
+              (report |> member "diagnostics" |> to_list = [])
+              "aggregate successful diagnostics")
+          else
+            require
+              (report |> member "diagnostics" |> to_list |> List.hd
+             |> member "code" |> to_string = "HCIRVM0007")
+              "aggregate one-below diagnostic")
+        [ (31, 3, 0, 31, 3); (30, 3, 1, 30, 3); (31, 2, 1, 4, 2) ])
+    [ "jit"; "aot" ];
   let fixture = Sys.argv.(2) in
   List.iter
     (fun mode ->

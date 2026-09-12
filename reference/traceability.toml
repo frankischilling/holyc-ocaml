@@ -11570,3 +11570,19 @@ call_phases = "Direct identifier and implicit marker selection retain the admitt
 provider_setup = "Missing providers parse in the original suspended task context with caller locals cleared and restored. An opaque single-use token binds stack position, source manager, symbols, mode and event count; completion requires the exact accepted child sequence and admitted commands. Each provider declaration consumes one command unit."
 excluded = ["general native ABI mismatch behavior", "general callbacks and noninteger variadics", "native/BIN/loader acceptance", "bootstrap"]
 native_oracle_status = "pinned-source audit and hosted execution; direct post-name and implicit marker/emission gates pass; no new native capture"
+
+[[feature]]
+id = "HC-RETAINED-AGGREGATE-SIZES"
+description = "Original named aggregate publications retain completed primitive-member layout sizes for source queries across task streams."
+sources = ["Compiler/PrsStmt.HC:1-59", "Compiler/PrsVar.HC:660-682"]
+implementation = ["src/frontend/parser.ml", "src/sema/declaration_collection.ml", "src/sema/compiler_record.ml", "src/sema/aggregate_layout_core.ml", "src/sema/aggregate_layout.ml", "src/sema/source_aggregate_layout.ml", "src/sema/source_activation.ml", "src/driver/task_declarations.ml", "src/driver/aggregate_layout.ml", "src/driver/integer_source.ml", "src/driver/integer_task.ml", "src/driver/integer_unit.ml"]
+tests = ["test/test_retained_aggregates.ml", "test/test_stateful_exe_cli.ml", "examples/stateful-exe-aggregates.hc"]
+documentation = ["docs/retained-aggregates.md", "docs/integer-task.md", "docs/reference-source-map.md", "CHANGELOG.md"]
+status = "partial"
+issue = 635
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+semantics = "Packed completed classes/unions, closed member array extents and anonymous unions share the existing checked layout engine. Forward declarations supply zero-sized metadata. Original sizeof reads retain consumed values across replacement and separate directives."
+ownership = "Live parser publication/completion, exact namespace publication and AST item; immutable compiler record cached by original entry. Member bounds reuse checked command/member/AST/predecessor receipts without source reevaluation. No object or callable runtime authority is inferred from type metadata."
+source_gate = "Maintained two-stream fixture returns I64 42 in JIT and AOT, with 31 runtime steps and three preparation units. Exact combined limits and each one-below failure are checked through the CLI."
+excluded = ["partial definition queries", "native extern record reuse and partial mutation", "offset directive preparation", "inheritance", "aggregate-valued members", "callbacks and member metadata", "attached storage", "runtime-dependent member layout admission", "aggregate object execution", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted execution; no new native capture"

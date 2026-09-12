@@ -602,6 +602,9 @@ let execution_commands task span ~active =
     let open Frontend.Parser in
     let start =
       match event with
+      | Aggregate_declared p -> p.aggregate_header.declaration_command
+      | Aggregate_completed p ->
+          p.aggregate_publication.aggregate_header.declaration_command
       | Array_dimension_preparing preparation ->
           preparation.dimension_owner.dimensions_command
       | Array_dimension_completed completed ->
