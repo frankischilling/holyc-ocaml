@@ -14,6 +14,31 @@ let runtime_dimension_source value = value.proposal_source
 let runtime_dimension_count value = value.proposal_count
 let runtime_dimension_work value = value.proposal_work
 
+type aggregate_offset = {
+  offset_table : Symbol_table.t;
+  offset_namespace : Declaration_collection.namespace;
+  offset_phase : Parser.aggregate_phase;
+  offset_expression : Ast.expression;
+  offset_value : int64;
+  offset_work : int;
+  offset_runtime : bool;
+  offset_dependencies : aggregate_offset list;
+}
+
+let aggregate_offset_namespace offset = offset.offset_namespace
+let aggregate_offset_table offset = offset.offset_table
+let aggregate_offset_phase offset = offset.offset_phase
+let aggregate_offset_expression offset = offset.offset_expression
+let aggregate_offset_value offset = offset.offset_value
+let aggregate_offset_work offset = offset.offset_work
+
+let aggregate_offset_is_runtime offset =
+  offset.offset_runtime || offset.offset_dependencies <> []
+
+let aggregate_offset_runtime_dependencies offset =
+  (if offset.offset_runtime then [ offset ] else [])
+  @ offset.offset_dependencies
+
 type aggregate_stamp = { mutable current_stamp : unit ref }
 
 type t = {
@@ -24,6 +49,7 @@ type t = {
   byte_size : int64;
   internal : bool;
   runtime_dimensions : runtime_dimension_proposal list;
+  runtime_offsets : aggregate_offset list;
   aggregate_stamp : (aggregate_stamp * unit ref) option;
 }
 
@@ -35,6 +61,7 @@ type sizeof_owner =
       byte_size : int64;
       internal : bool;
       runtime_dimensions : runtime_dimension_proposal list;
+      runtime_offsets : aggregate_offset list;
     }
 
 type sizeof_read = { owner : sizeof_owner; root : Parser.query_root }
@@ -61,6 +88,7 @@ type dimension_preparation = {
   count : int64;
   work : int;
   runtime_dependencies : runtime_dimension_proposal list;
+  offset_dependencies : aggregate_offset list;
 }
 
 type declared_dimension = {
@@ -164,6 +192,11 @@ let validate_dimension ~table ~(dimension : Ast.array_dimension) checked =
 let dimension_runtime_dependencies checked =
   checked.prepared.runtime_dependencies
 
+let dimension_offset_dependencies checked = checked.prepared.offset_dependencies
+
+let dimension_preparation_offset_dependencies prepared =
+  prepared.offset_dependencies
+
 let dimension_preparation_runtime_dependencies prepared =
   prepared.runtime_dependencies
 
@@ -240,6 +273,7 @@ let seed_primitive ~table ~entry ~symbol ~primitive =
           byte_size = Int64.of_int info.byte_size;
           internal = true;
           runtime_dimensions = [];
+          runtime_offsets = [];
           aggregate_stamp = None;
         }
 
@@ -280,6 +314,7 @@ let seed_public_union ~table ~entry ~symbol
               byte_size = Int64.of_int info.byte_size;
               internal = false;
               runtime_dimensions = [];
+              runtime_offsets = [];
               aggregate_stamp = None;
             }
 
@@ -291,22 +326,6 @@ let scalar_size type_ =
     | Type.Primitive (_, primitive) ->
         Ok (Int64.of_int (Primitive_type.info primitive).byte_size)
     | Type.Aggregate _ -> Error "sizeof requires the selected aggregate layout"
-
-type aggregate_offset = {
-  offset_table : Symbol_table.t;
-  offset_namespace : Declaration_collection.namespace;
-  offset_phase : Parser.aggregate_phase;
-  offset_expression : Ast.expression;
-  offset_value : int64;
-  offset_work : int;
-}
-
-let aggregate_offset_namespace offset = offset.offset_namespace
-let aggregate_offset_table offset = offset.offset_table
-let aggregate_offset_phase offset = offset.offset_phase
-let aggregate_offset_expression offset = offset.offset_expression
-let aggregate_offset_value offset = offset.offset_value
-let aggregate_offset_work offset = offset.offset_work
 
 type aggregate_progress = {
   progress_namespace : Declaration_collection.namespace;
@@ -321,6 +340,15 @@ type aggregate_progress = {
   mutable progress_body_finished : bool;
   mutable progress_offset_attempt : Parser.aggregate_phase option;
   mutable progress_offsets : aggregate_offset list;
+}
+
+type runtime_aggregate_offset = {
+  runtime_progress : aggregate_progress;
+  runtime_phase : Parser.aggregate_phase;
+  runtime_table : Symbol_table.t;
+  runtime_expression : Ast.expression;
+  mutable runtime_finished : bool;
+  runtime_offset_dependencies : aggregate_offset list;
 }
 
 let begin_aggregate ~table ~namespace publication =
@@ -354,6 +382,7 @@ let begin_aggregate ~table ~namespace publication =
                 byte_size = 0L;
                 internal = false;
                 runtime_dimensions = [];
+                runtime_offsets = [];
                 aggregate_stamp = Some (stamp, stamp.current_stamp);
               };
         }
@@ -431,6 +460,16 @@ let advance_aggregate ~dimensions progress (phase : Parser.aggregate_phase) =
                   ~position:offset.offset_value
               in
               progress.progress_negative_offset <- negative_offset;
+              progress.progress_record <-
+                Result.map
+                  (fun record ->
+                    {
+                      record with
+                      runtime_offsets =
+                        aggregate_offset_runtime_dependencies offset
+                        @ record.runtime_offsets;
+                    })
+                  progress.progress_record;
               match scopes with
               | (Ast.Class_aggregate, _) :: _ ->
                   Ok
@@ -496,7 +535,14 @@ let advance_aggregate ~dimensions progress (phase : Parser.aggregate_phase) =
                   Source_aggregate_layout.place_member ~origin ~kind ~union_base
                     ~current_size:record.byte_size ~member_size
                 in
-                Ok { record with byte_size }
+                Ok
+                  {
+                    record with
+                    byte_size;
+                    runtime_offsets =
+                      record.runtime_offsets
+                      @ List.concat_map dimension_offset_dependencies checked;
+                  }
           in
           Ok (record, scopes)
     in
@@ -607,6 +653,13 @@ let complete_aggregate ?progress ?(dimensions = fun _ -> None) ~table ~namespace
         byte_size;
         internal = false;
         runtime_dimensions = [];
+        runtime_offsets =
+          Option.fold ~none:[]
+            ~some:(fun progress ->
+              match progress.progress_record with
+              | Ok record -> record.runtime_offsets
+              | Error _ -> [])
+            progress;
         aggregate_stamp = None;
       }
 
@@ -657,6 +710,8 @@ let published_scalar ?(dimensions = []) ~table ~namespace publication =
               internal = false;
               runtime_dimensions =
                 List.concat_map dimension_runtime_dependencies dimensions;
+              runtime_offsets =
+                List.concat_map dimension_offset_dependencies dimensions;
               aggregate_stamp = None;
             }
 
@@ -705,6 +760,11 @@ let declared_dimension_preparation dimension = dimension.prepared
 let declared_global_runtime_dependencies declaration =
   List.concat_map
     (fun dimension -> dimension.prepared.runtime_dependencies)
+    declaration.declared_dimensions
+
+let declared_global_offset_dependencies declaration =
+  List.concat_map
+    (fun dimension -> dimension.prepared.offset_dependencies)
     declaration.declared_dimensions
 
 let declared_global_owns_table declaration table =
@@ -789,6 +849,7 @@ let bind_retained_scalar ~table ~entry global =
             byte_size;
             internal = false;
             runtime_dimensions = [];
+            runtime_offsets = [];
             aggregate_stamp = None;
           }
 
@@ -909,6 +970,8 @@ let read_local_sizeof ~dimensions ~table ~namespace ~function_publication
                   internal;
                   runtime_dimensions =
                     List.concat_map dimension_runtime_dependencies dimensions;
+                  runtime_offsets =
+                    List.concat_map dimension_offset_dependencies dimensions;
                 };
             root;
           }
@@ -1031,6 +1094,14 @@ let query_runtime_dependencies selection =
       | Hash_record record -> record.runtime_dimensions
       | Local_record local -> local.runtime_dimensions)
 
+let query_runtime_offsets selection =
+  match selection.sizeof_read with
+  | None -> []
+  | Some read -> (
+      match read.owner with
+      | Hash_record record -> record.runtime_offsets
+      | Local_record local -> local.runtime_offsets)
+
 let query_constant selection =
   match query_presence selection with
   | Some present -> Some (if present then 1L else 0L)
@@ -1061,6 +1132,69 @@ let aggregate_offset_is_current ~table ~namespace progress
   match phase.phase_step with
   | Parser.Aggregate_offset_reached _ -> true
   | _ -> false
+
+let begin_runtime_aggregate_offset ~table ~namespace ~queries progress phase =
+  if not (aggregate_offset_is_current ~table ~namespace progress phase) then
+    Error "runtime offset requires its original unconsumed phase and aggregate"
+  else (
+    progress.progress_offset_attempt <- Some phase;
+    let* _ = progress.progress_record in
+    match phase.Parser.phase_step with
+    | Parser.Aggregate_offset_reached expression ->
+        let* () = validate_query_manifest ~table ~expression queries in
+        if
+          List.exists
+            (fun query ->
+              query.receipt.query_root.query_command
+              != progress.progress_source.aggregate_header.declaration_command
+              || query.receipt.query_root.query_environment
+                 != progress.progress_source.aggregate_environment)
+            queries
+        then Error "runtime offset has foreign source query reads"
+        else
+          Ok
+            {
+              runtime_progress = progress;
+              runtime_phase = phase;
+              runtime_table = table;
+              runtime_expression = expression;
+              runtime_finished = false;
+              runtime_offset_dependencies =
+                List.concat_map query_runtime_offsets queries;
+            }
+    | _ -> Error "runtime offset requires its original expression phase")
+
+let runtime_aggregate_offset_is_current preparation =
+  let progress = preparation.runtime_progress in
+  (not preparation.runtime_finished)
+  && (not progress.progress_finished)
+  && (not progress.progress_body_finished)
+  && Parser.aggregate_phase_is_current preparation.runtime_phase
+  && same_phase (Some preparation.runtime_phase)
+       progress.progress_offset_attempt
+  && same_phase preparation.runtime_phase.phase_predecessor
+       progress.progress_phase
+
+let finish_runtime_aggregate_offset preparation ~value ~work =
+  if work < 0 || not (runtime_aggregate_offset_is_current preparation) then
+    Error "runtime offset result has another, expired or consumed preparation"
+  else (
+    preparation.runtime_finished <- true;
+    let progress = preparation.runtime_progress in
+    let offset =
+      {
+        offset_table = preparation.runtime_table;
+        offset_namespace = progress.progress_namespace;
+        offset_phase = preparation.runtime_phase;
+        offset_expression = preparation.runtime_expression;
+        offset_value = value;
+        offset_work = work;
+        offset_runtime = true;
+        offset_dependencies = preparation.runtime_offset_dependencies;
+      }
+    in
+    progress.progress_offsets <- offset :: progress.progress_offsets;
+    Ok offset)
 
 let prepare_aggregate_offset ~table ~namespace ~max_work ~queries progress
     (phase : Parser.aggregate_phase) =
@@ -1133,6 +1267,9 @@ let prepare_aggregate_offset ~table ~namespace ~max_work ~queries progress
               offset_expression = expression;
               offset_value = value;
               offset_work = !work;
+              offset_runtime = false;
+              offset_dependencies =
+                List.concat_map query_runtime_offsets queries;
             }
           in
           progress.progress_offsets <- offset :: progress.progress_offsets;
@@ -1240,6 +1377,7 @@ let prepare_dimension ~table ~namespace ~max_work
           work = !work;
           runtime_dependencies =
             List.concat_map query_runtime_dependencies queries;
+          offset_dependencies = List.concat_map query_runtime_offsets queries;
         }
   in
   (result, !work)
@@ -1296,6 +1434,7 @@ let complete_runtime_dimension ~table ~receipt ~queries proposal =
       work = proposal.proposal_work;
       runtime_dependencies =
         proposal :: List.concat_map query_runtime_dependencies queries;
+      offset_dependencies = List.concat_map query_runtime_offsets queries;
     }
 
 let global_dimensions record =
@@ -1523,6 +1662,17 @@ let global_extent_runtime_dependencies extent =
             queries)
     extent.global_extent_dimensions
 
+let global_extent_offset_dependencies extent =
+  List.concat_map
+    (fun dimension ->
+      match dimension.extent_evaluation with
+      | Prepared_extent prepared -> dimension_offset_dependencies prepared
+      | Legacy_extent queries ->
+          Option.fold ~none:[]
+            ~some:(List.concat_map query_runtime_offsets)
+            queries)
+    extent.global_extent_dimensions
+
 let global_extent_dimensions extent =
   List.map (fun value -> value.extent_count) extent.global_extent_dimensions
 
@@ -1580,5 +1730,6 @@ let bind_retained_global ~table ~entry ~record ~extent =
             byte_size = Int64.mul byte_size extent.global_extent_count;
             internal = false;
             runtime_dimensions = global_extent_runtime_dependencies extent;
+            runtime_offsets = global_extent_offset_dependencies extent;
             aggregate_stamp = None;
           }

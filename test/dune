@@ -9,7 +9,8 @@
    %{dep:../examples/stateful-exe-implicit-phases.hc}
    %{dep:../examples/stateful-exe-aggregates.hc}
    %{dep:../examples/stateful-exe-aggregate-phases.hc}
-   %{dep:../examples/stateful-exe-aggregate-offsets.hc})))
+   %{dep:../examples/stateful-exe-aggregate-offsets.hc}
+   %{dep:../examples/stateful-exe-runtime-aggregate-offsets.hc})))
 
 (test
  (name test_integer_program_cli)

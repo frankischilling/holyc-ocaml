@@ -79,3 +79,10 @@ val check_suspended_completion :
   suspension:Frontend.Parser.suspension ->
   Frontend.Parser.completed_sequence ->
   (unit, string) result
+
+val check_offset :
+  ?require_admitted:bool ->
+  t ->
+  admitted:command list ->
+  Frontend.Parser.aggregate_phase ->
+  (unit, string) result

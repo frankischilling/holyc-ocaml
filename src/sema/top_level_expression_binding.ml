@@ -93,6 +93,7 @@ type input = {
   fragment_owner : Initializer_fragment.t option;
   default_owner : Default_fragment.t option;
   dimension_owner : Dimension_fragment.t option;
+  offset_owner : Offset_fragment.t option;
 }
 
 let make_statement ~statement_index ~item_index ~origin events =
@@ -111,6 +112,7 @@ let make_statement ~statement_index ~item_index ~origin events =
         fragment_owner = None;
         default_owner = None;
         dimension_owner = None;
+        offset_owner = None;
       }
 
 let make_source_statement ~source ~statement_index ~item_index events =
@@ -122,7 +124,7 @@ let make_source_statement ~source ~statement_index ~item_index events =
   |> Result.map (fun input -> { input with original_statement = Some source })
 
 let make_fragment_input ~leaf ~origin ~references ~source_queries
-    ~fragment_owner ~default_owner ~dimension_owner events =
+    ~fragment_owner ~default_owner ~dimension_owner ~offset_owner events =
   let same_leaf actual =
     match (leaf, actual) with
     | None, None -> true
@@ -187,6 +189,7 @@ let make_fragment_input ~leaf ~origin ~references ~source_queries
         fragment_owner;
         default_owner;
         dimension_owner;
+        offset_owner;
       }
 
 let make_initializer_fragment ~fragment events =
@@ -196,7 +199,7 @@ let make_initializer_fragment ~fragment events =
     ~references:(Initializer_fragment.references fragment)
     ~source_queries:(Initializer_fragment.queries fragment)
     ~fragment_owner:(Some fragment) ~default_owner:None ~dimension_owner:None
-    events
+    ~offset_owner:None events
 
 let make_default_fragment ~fragment events =
   make_fragment_input ~leaf:None
@@ -204,7 +207,7 @@ let make_default_fragment ~fragment events =
     ~references:(Default_fragment.references fragment)
     ~source_queries:(Default_fragment.queries fragment)
     ~fragment_owner:None ~default_owner:(Some fragment) ~dimension_owner:None
-    events
+    ~offset_owner:None events
 
 let make_dimension_fragment ~fragment events =
   make_fragment_input ~leaf:None
@@ -212,7 +215,15 @@ let make_dimension_fragment ~fragment events =
     ~references:(Dimension_fragment.references fragment)
     ~source_queries:(Dimension_fragment.queries fragment)
     ~fragment_owner:None ~default_owner:None ~dimension_owner:(Some fragment)
-    events
+    ~offset_owner:None events
+
+let make_offset_fragment ~fragment events =
+  make_fragment_input ~leaf:None
+    ~origin:(Offset_fragment.origin fragment)
+    ~references:(Offset_fragment.references fragment)
+    ~source_queries:(Offset_fragment.queries fragment)
+    ~fragment_owner:None ~default_owner:None ~offset_owner:(Some fragment)
+    ~dimension_owner:None events
 
 let make_global_initializer ~statement_index ~initializers ~global events =
   let symbol = Global_initializer_binding.global_symbol global in
@@ -289,6 +300,8 @@ let statement_default (statement : statement) = statement.source.default_owner
 
 let statement_dimension (statement : statement) =
   statement.source.dimension_owner
+
+let statement_offset (statement : statement) = statement.source.offset_owner
 
 let initializer_bindings result =
   List.find_map
@@ -732,6 +745,16 @@ let resolve ~table ~parent ~module_expressions inputs =
                   <> []
                || List.length inputs <> 1)
              input.dimension_owner
+        || Option.fold ~none:false
+             ~some:(fun fragment ->
+               (not (Offset_fragment.owns_table fragment table))
+               || Declaration_collection.namespace_scope
+                    (Offset_fragment.namespace fragment)
+                  != parent
+               || Module_expression_binding.publications module_expressions
+                  <> []
+               || List.length inputs <> 1)
+             input.offset_owner
         ||
         match input.fragment_owner with
         | None -> false

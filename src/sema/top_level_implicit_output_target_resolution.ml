@@ -369,6 +369,7 @@ let collect_legacy_statement_outputs expected_output statement =
         | Top_level_expression_tree.Global_initializer _
         | Top_level_expression_tree.Initializer_fragment _
         | Top_level_expression_tree.Dimension_fragment _
+        | Top_level_expression_tree.Offset_fragment _
         | Top_level_expression_tree.Default_fragment _
         | Top_level_expression_tree.Condition _
         | Top_level_expression_tree.Switch_selector _

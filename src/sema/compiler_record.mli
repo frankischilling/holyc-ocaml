@@ -124,6 +124,7 @@ val published_scalar :
 
 type aggregate_progress
 type aggregate_offset
+type runtime_aggregate_offset
 
 val aggregate_offset_namespace :
   aggregate_offset -> Declaration_collection.namespace
@@ -362,3 +363,36 @@ val query_runtime_dependencies : query_read -> runtime_dimension_proposal list
 
 val global_extent_runtime_dependencies :
   global_extent -> runtime_dimension_proposal list
+
+val aggregate_offset_is_runtime : aggregate_offset -> bool
+
+val begin_runtime_aggregate_offset :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  queries:query_read list ->
+  aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  (runtime_aggregate_offset, string) result
+
+val runtime_aggregate_offset_is_current : runtime_aggregate_offset -> bool
+
+val finish_runtime_aggregate_offset :
+  runtime_aggregate_offset ->
+  value:int64 ->
+  work:int ->
+  (aggregate_offset, string) result
+(** This produces semantic layout metadata, not task execution authority.
+    Runtime admission must independently match the original successful typed
+    execution and its cumulative preparation work. Closed-source charging must
+    reject runtime metadata. *)
+
+val query_runtime_offsets : query_read -> aggregate_offset list
+val dimension_offset_dependencies : declared_dimension -> aggregate_offset list
+
+val dimension_preparation_offset_dependencies :
+  dimension_preparation -> aggregate_offset list
+
+val declared_global_offset_dependencies :
+  declared_global -> aggregate_offset list
+
+val global_extent_offset_dependencies : global_extent -> aggregate_offset list

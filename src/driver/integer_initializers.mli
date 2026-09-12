@@ -89,3 +89,13 @@ val value_graph : item -> Ir.X87_stack.t
 val classification : item -> classification
 val item_steps : item -> int
 val human : t -> string
+
+val prepare_offset :
+  ?retained_function_source:
+    (Ir.Retained_function.t ->
+    Ir.Integer_interpreter.task_function_source option) ->
+  ?on_progress:(int -> unit) ->
+  max_steps:int ->
+  top_calls:Sema.Top_level_function_call_target_classification.t list ->
+  Ir.Offset_fragment_destination.t ->
+  (classification * int, Common.Diagnostic.t list) result

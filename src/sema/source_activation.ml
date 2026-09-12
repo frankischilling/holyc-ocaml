@@ -494,6 +494,11 @@ let dimension_admission activation preparation =
         original == preparation
     | _ -> false)
 
+let offset_admission activation phase =
+  admission activation (function
+    | Declaration (Parser.Aggregate_advanced original) -> original == phase
+    | _ -> false)
+
 let function_phase_admission activation event =
   let same_phase = function
     | Declaration original -> (

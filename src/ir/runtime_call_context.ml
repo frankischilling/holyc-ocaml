@@ -84,6 +84,7 @@ type t = {
   typed_top_level : Typed.top_level_t;
   dimension_dependencies_ :
     Sema.Compiler_record.runtime_dimension_proposal list;
+  offset_dependencies_ : Sema.Compiler_record.aggregate_offset list;
   entry : X87_stack.t;
   initialization : Global_initialization.t;
   functions : Function_body.t list;
@@ -1415,6 +1416,9 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
         dimension_dependencies_ =
           Dimension_requirements.top_level top_level
           @ Dimension_requirements.functions function_sources;
+        offset_dependencies_ =
+          Offset_requirements.top_level top_level
+          @ Offset_requirements.functions function_sources;
         entry;
         initialization;
         functions = List.map fst functions;
@@ -1424,3 +1428,4 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
 
 let dimension_dependencies context = context.dimension_dependencies_
 let owns_top_level context typed = context.typed_top_level == typed
+let offset_dependencies value = value.offset_dependencies_

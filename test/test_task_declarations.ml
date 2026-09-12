@@ -2716,16 +2716,16 @@ let checked_extent_failures () =
     "caught and replayed failure charges only reached visits" 2
     (VM.task_initializer_steps runtime)
 
-let checked_extent_short_circuit () =
-  let session, runtime, ledger = runtime_setup ~max_initializer_steps:4 () in
-  let output, _ = parse session ledger "U8 A[0&&(1/0)],B[1||(1/0)];" in
+let checked_extent_eager_boolean () =
+  let session, runtime, ledger = runtime_setup ~max_initializer_steps:10 () in
+  let output, _ = parse session ledger "U8 A[0&&(1+1)],B[1||(1+1)];" in
   let ast = Test_parser.expect_ast output in
   let command = D.seal ledger ast |> expect in
   Alcotest.(check int)
-    "skipped operands and groups consume no visits" 4
+    "both Boolean operands consume visits, but groups do not" 10
     (VM.task_initializer_steps runtime);
   Alcotest.(check int)
-    "completed source owns exact visits" 4
+    "completed source owns exact visits" 10
     (D.command_dimension_work command)
 
 let checked_extent_source_budget () =
@@ -3063,8 +3063,8 @@ let tests =
     Alcotest.test_case
       "checked extent failures retain work and consume attempts" `Quick
       checked_extent_failures;
-    Alcotest.test_case "checked extent short circuit counts evaluated visits"
-      `Quick checked_extent_short_circuit;
+    Alcotest.test_case "checked extent eager values count both operands" `Quick
+      checked_extent_eager_boolean;
     Alcotest.test_case
       "source dimensions preserve independent preparation allowances" `Quick
       checked_extent_source_budget;

@@ -287,8 +287,8 @@ let evaluate_eager_binary operator origin left right =
   | Less | Greater | Less_equal | Greater_equal | Equal | Not_equal ->
       Ok (boolean (compare_numbers operator left right))
   | Logical_xor -> Ok (boolean (truthy left <> truthy right))
-  | Logical_and | Logical_or ->
-      invalid_arg "short-circuit operators are evaluated separately"
+  | Logical_and -> Ok (boolean (truthy left && truthy right))
+  | Logical_or -> Ok (boolean (truthy left || truthy right))
 
 let rec evaluate_number ~query_origin ~query_value ~consume current_position
     expression =
@@ -317,17 +317,8 @@ let rec evaluate_number ~query_origin ~query_value ~consume current_position
             (evaluate_number current_position operand)
       | Binary_expression { operator; left; right; origin } ->
           Result.bind (evaluate_number current_position left) (fun left ->
-              match operator with
-              | Logical_and when not (truthy left) -> Ok (boolean false)
-              | Logical_or when truthy left -> Ok (boolean true)
-              | Logical_and | Logical_or ->
-                  Result.map
-                    (fun right -> boolean (truthy right))
-                    (evaluate_number current_position right)
-              | _ ->
-                  Result.bind (evaluate_number current_position right)
-                    (fun right ->
-                      evaluate_eager_binary operator origin left right)))
+              Result.bind (evaluate_number current_position right) (fun right ->
+                  evaluate_eager_binary operator origin left right)))
 
 let float_to_i64 origin value =
   if not (Float.is_finite value) then Error (non_finite origin)
@@ -554,7 +545,7 @@ let rec convert_ast ~allow_floating ~query_expression ~queries ast =
 
 let of_ast ?(allow_floating = true) ~query_expression ~queries ast =
   (* PrsExp/OptPass012 preserve operands for native comparison chains.
-     Reject those before evaluation, including inside short-circuit branches. *)
+     Reject those before evaluating either operand of Boolean value expressions. *)
   match comparison_chain_location ast with
   | Some location -> unsupported "unparenthesized chained comparison" location
   | None -> convert_ast ~allow_floating ~query_expression ~queries ast

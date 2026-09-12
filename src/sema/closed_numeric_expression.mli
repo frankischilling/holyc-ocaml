@@ -99,9 +99,9 @@ val evaluate_expression :
   'q expression ->
   (int64, error) result
 (** Shared numeric evaluation. Consume once per evaluated leaf or operator,
-    before doing its work; grouped expressions have no node, and short-circuit
-    operands that are not evaluated consume nothing. This is numeric work, not a
-    count of VM instructions and not a source-ownership certificate. *)
+    before doing its work; grouped expressions have no node. Boolean value
+    expressions evaluate both operands. This is numeric work, not a count of VM
+    instructions and not a source-ownership certificate. *)
 
 val equal :
   equal_query:('q -> 'q -> bool) -> 'q expression -> 'q expression -> bool

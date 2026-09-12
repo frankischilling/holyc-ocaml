@@ -985,6 +985,17 @@ reuses those values, and source activation charges their saved work at the exact
 journal event. `examples/stateful-exe-aggregate-offsets.hc` and the retained
 aggregate tests cover these phases and their bounded preparation.
 
+Runtime integer offsets now retain a distinct typed source fragment and exact
+task execution. The original lookahead, selected function version and resulting
+layout dependency survive completion. The runtime-offset fixture returns 42 in
+both outer modes at 49 execution steps and three preparation units. Authority
+tests reject foreign tasks, replay, matching-but-unexecuted metadata and
+standalone functions whose layouts depend on those offsets. Boolean value
+evaluation remains eager in both typed IR and closed numeric preparation,
+following `Compiler/OptPass012.HC:693-706`; conditional branch lowering is a
+separate route. Runtime F64, mixed `$$` expressions and ordinary pre-activation
+or AOT runtime offset evaluation remain open.
+
 ## Bounded source expression evaluation
 
 At pinned commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`,

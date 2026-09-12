@@ -69,11 +69,15 @@ offsets replace the current union base without changing the containing size.
 values. These phases follow `Compiler/PrsVar.HC:408-449`.
 
 Closed numeric expressions consume one preparation unit per evaluated leaf or
-operator. Short-circuited operands consume none. Offset preparation uses the
+operator. Boolean value expressions evaluate both operands. Offset preparation uses the
 initializer allowance, not the dimension-work counter. Floating results retain
 their raw `F64` bits, as in `LexExpression` at `Compiler/PrsExp.HC:1168-1178`.
-Runtime variables and calls still
-require a separate execution path.
+Integer task variables, updates and supported calls use a separate typed
+offset fragment, without a synthetic array bound or initializer. It retains
+the exact expression, selected references, queries, aggregate phase and task
+snapshot. Preparation uses the existing optimizer-domain checks; the scheduled
+IR executes once against the owning task. Expression lookahead can change a
+cell before execution, while a selected function keeps its original version.
 
 Negative offsets retain the greatest negative magnitude. After closing-brace
 lookahead, the body-completion phase adds that padding, before attached
@@ -96,10 +100,25 @@ saved and completed sizes combine to return 42.
 Both outer modes use 27 runtime steps and six preparation units. The CLI checks
 those combined limits and each one-below failure.
 
+`examples/stateful-exe-runtime-aggregate-offsets.hc` executes a selected function
+after a nested lookahead update, retains the resulting size in another function,
+and returns 42. Both outer modes use 49 runtime steps, three preparation units
+and zero dimension work. `#exe` still uses JIT task storage in outer AOT mode.
+
+Successful runtime offsets remain dependencies of partial and completed sizes,
+derived offsets, array bounds, member arrays, global extents and function frames.
+The VM requires the exact successful task execution, not matching size/work
+metadata. Standalone functions and foreign tasks cannot use those dependencies.
+Failed preparation and execution consume their original attempt; later layout
+completion never reevaluates the expression. The authority tests also reject
+substituted typed roots, preparation counts, snapshots and replay.
+
 ## Remaining work
 
-Runtime-dependent offsets, inheritance, aggregate-valued members, callbacks, member
-metadata, attached storage and runtime-dependent member bounds remain outside
+Runtime offsets before ordinary JIT source activation, ordinary AOT runtime
+offset relocation, mixed runtime/current-position expressions and runtime F64
+values still require separate support. Inheritance, aggregate-valued members,
+callbacks, member metadata, attached storage and general runtime-dependent member bounds remain outside
 retained layout execution. Native extern-record reuse still needs its own
 phase-aware admission. The supported partial sizes do not establish those
 dependent layouts, member lookup or aggregate object storage.

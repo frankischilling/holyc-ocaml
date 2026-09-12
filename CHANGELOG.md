@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added typed integer runtime offsets for retained task aggregates. Original
+  references, lookahead effects and function versions feed once-only execution;
+  derived sizes, bounds and functions retain its task dependency. The new CLI
+  fixture returns 42 in both outer modes at 49 runtime steps and three
+  preparation units. Closed numeric Boolean values now evaluate both operands,
+  matching the existing eager runtime value path.
+
 - Prepared closed aggregate `$$` offsets at their original parser phases.
   Class and union positions, negative padding and saved `sizeof` reads feed
   retained and completed layout without expression reevaluation. Source

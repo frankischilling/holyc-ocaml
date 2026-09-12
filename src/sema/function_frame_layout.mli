@@ -133,3 +133,6 @@ val error_to_string : error -> string
 
 val dimension_runtime_dependencies :
   dimension -> Compiler_record.runtime_dimension_proposal list
+
+val dimension_offset_dependencies :
+  dimension -> Compiler_record.aggregate_offset list

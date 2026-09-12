@@ -11,6 +11,7 @@ type root_role =
   | Initializer_fragment of Initializer_fragment.t
   | Default_fragment of Default_fragment.t
   | Dimension_fragment of Dimension_fragment.t
+  | Offset_fragment of Offset_fragment.t
   | Implicit_output_fixed of {
       output_index : int;
       target : Function_call_resolution.implicit_output_target;
@@ -183,3 +184,10 @@ val error_to_string : error -> string
 
 val statement_implicit_outputs :
   statement -> (int * Frontend.Ast.implicit_output_statement) list option
+
+val make_offset_root :
+  index:int ->
+  fragment:Offset_fragment.t ->
+  expression:Function_call_resolution.argument_expression ->
+  calls:call list ->
+  (root, error) result

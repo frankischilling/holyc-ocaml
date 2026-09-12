@@ -141,3 +141,8 @@ val make_source_statement :
   (input, string) result
 
 val statement_ast : statement -> Frontend.Ast.statement option
+
+val make_offset_fragment :
+  fragment:Offset_fragment.t -> event list -> (input, string) result
+
+val statement_offset : statement -> Offset_fragment.t option

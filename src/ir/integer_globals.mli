@@ -331,3 +331,11 @@ val check_suspended_completion :
   suspension:Frontend.Parser.suspension ->
   Frontend.Parser.completed_sequence ->
   (unit, string) result
+
+val offset_context : task_view -> Sema.Offset_fragment.t -> (t, string) result
+val is_offset_fragment : t -> bool
+
+val check_offset_source :
+  task_catalog -> Frontend.Parser.aggregate_phase -> (unit, string) result
+
+val offset_dependencies : t -> Sema.Compiler_record.aggregate_offset list

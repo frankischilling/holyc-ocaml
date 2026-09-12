@@ -570,3 +570,22 @@ val source_checked_offset_for :
   source_command ->
   Frontend.Ast.expression ->
   (Sema.Compiler_record.aggregate_offset, Common.Diagnostic.t list) result
+
+val offset_requires_runtime : Frontend.Parser.aggregate_phase -> bool
+
+val begin_runtime_offset :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  task_view:Ir.Integer_globals.task_view ->
+  Frontend.Parser.aggregate_phase ->
+  ( Sema.Offset_fragment.authority * Ir.Integer_interpreter.offset_attempt,
+    Common.Diagnostic.t list )
+  result
+
+val finish_runtime_offset :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  before:int ->
+  succeeded:bool ->
+  Frontend.Parser.aggregate_phase ->
+  (unit, Common.Diagnostic.t list) result

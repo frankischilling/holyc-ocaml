@@ -1372,3 +1372,12 @@ let build_dimension_fragment ~table ~expressions fragment =
     ~source_expression:(Sema.Dimension_fragment.expression fragment)
     ~make_root:
       (Sema.Top_level_expression_tree.make_dimension_root ~index:0 ~fragment)
+
+let build_offset_fragment ~table ~expressions fragment =
+  build_fragment ~table ~expressions
+    ~matches_source:(fun source ->
+      Option.fold ~none:false ~some:(( == ) fragment)
+        (Sema.Top_level_expression_binding.statement_offset source))
+    ~source_expression:(Sema.Offset_fragment.expression fragment)
+    ~make_root:
+      (Sema.Top_level_expression_tree.make_offset_root ~index:0 ~fragment)

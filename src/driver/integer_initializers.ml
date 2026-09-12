@@ -10,6 +10,7 @@ module Updates = Integer_update_initializers
 module Destination = Ir.Initializer_fragment_destination
 module Default = Ir.Default_fragment_destination
 module Dimension = Ir.Dimension_fragment_destination
+module Offset = Ir.Offset_fragment_destination
 module Runtime = Ir.Runtime_call_context
 
 type classification = Prepared_constant of int64 | Scheduled
@@ -32,6 +33,7 @@ type owner =
   | Fragment of Destination.t
   | Default of Default.t
   | Dimension of Dimension.t
+  | Offset of Offset.t
 
 type t = {
   globals_ : Globals.t;
@@ -41,6 +43,7 @@ type t = {
   fragment_items_ : Destination.t prepared_item list;
   default_items_ : Default.t prepared_item list;
   dimension_items_ : Dimension.t prepared_item list;
+  offset_items_ : Offset.t prepared_item list;
   steps : int;
 }
 
@@ -72,10 +75,10 @@ let value_instructions graph =
       | Ir.Opcode.Ic_end_exp | Ic_end -> false
       | _ -> true)
 
-let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
-    ?(allow_zero_budget = false) ?(retained_function_source = fun _ -> None)
-    ?(on_progress = fun _ -> ()) ~max_steps ~span ~globals ~top_calls ~functions
-    () =
+let prepare_internal ?fragment ?default ?dimension ?offset
+    ?(function_calls = []) ?(allow_zero_budget = false)
+    ?(retained_function_source = fun _ -> None) ?(on_progress = fun _ -> ())
+    ~max_steps ~span ~globals ~top_calls ~functions () =
   let invalid ?(notes = []) ?(at = span) code message =
     Error
       [
@@ -87,40 +90,47 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
     invalid "HCIRVM0001" "max_initializer_steps must be greater than zero"
   else
     let work =
-      match (dimension, fragment, default) with
-      | Some destination, None, None -> [ Dimension destination ]
-      | Some _, _, _ -> invalid_arg "conflicting dimension preparation owners"
-      | None, Some destination, None -> [ Fragment destination ]
-      | None, None, Some destination -> [ Default destination ]
-      | None, Some _, Some _ ->
-          invalid_arg "conflicting fragment preparation owners"
-      | None, None, None ->
-          (Globals.slots globals
-          |> List.concat_map (fun slot ->
-              List.map
-                (fun root -> Global (slot, root))
-                (Globals.slot_initializers slot
-                |> List.filter (fun root ->
-                    not (Globals.slot_root_executed slot root)))))
-          @ (Globals.statics globals
-            |> List.concat_map (fun slot ->
-                List.map
-                  (fun root -> Static (slot, root))
-                  (Globals.static_initializers slot)))
-          |> List.stable_sort (fun left right ->
-              let index = function
-                | Fragment _ | Default _ | Dimension _ -> 0
-                | Global (slot, _) ->
-                    Globals.slot_record slot
-                    |> Sema.Global_record_classification
-                       .classified_record_source
-                    |> Sema.Global_resolution.global_record_global
-                    |> Sema.Global_type_resolution.global_item_index
-                | Static (slot, _) ->
-                    Globals.static_frame slot
-                    |> Sema.Function_frame_layout.function_item_index
-              in
-              Int.compare (index left) (index right))
+      match offset with
+      | Some destination
+        when Option.is_none dimension && Option.is_none fragment
+             && Option.is_none default -> [ Offset destination ]
+      | Some _ -> invalid_arg "conflicting offset preparation owners"
+      | None -> (
+          match (dimension, fragment, default) with
+          | Some destination, None, None -> [ Dimension destination ]
+          | Some _, _, _ ->
+              invalid_arg "conflicting dimension preparation owners"
+          | None, Some destination, None -> [ Fragment destination ]
+          | None, None, Some destination -> [ Default destination ]
+          | None, Some _, Some _ ->
+              invalid_arg "conflicting fragment preparation owners"
+          | None, None, None ->
+              (Globals.slots globals
+              |> List.concat_map (fun slot ->
+                  List.map
+                    (fun root -> Global (slot, root))
+                    (Globals.slot_initializers slot
+                    |> List.filter (fun root ->
+                        not (Globals.slot_root_executed slot root)))))
+              @ (Globals.statics globals
+                |> List.concat_map (fun slot ->
+                    List.map
+                      (fun root -> Static (slot, root))
+                      (Globals.static_initializers slot)))
+              |> List.stable_sort (fun left right ->
+                  let index = function
+                    | Fragment _ | Default _ | Dimension _ | Offset _ -> 0
+                    | Global (slot, _) ->
+                        Globals.slot_record slot
+                        |> Sema.Global_record_classification
+                           .classified_record_source
+                        |> Sema.Global_resolution.global_record_global
+                        |> Sema.Global_type_resolution.global_item_index
+                    | Static (slot, _) ->
+                        Globals.static_frame slot
+                        |> Sema.Function_frame_layout.function_item_index
+                  in
+                  Int.compare (index left) (index right)))
     in
     let rec collect total updates reversed work =
       on_progress total;
@@ -146,7 +156,7 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
           let* globals_ =
             if
               Option.is_some fragment || Option.is_some default
-              || Option.is_some dimension
+              || Option.is_some dimension || Option.is_some offset
             then Ok globals
             else Globals.with_initial_values ~span globals scalar_values
           in
@@ -173,7 +183,7 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
           let* globals_ =
             if
               Option.is_some fragment || Option.is_some default
-              || Option.is_some dimension
+              || Option.is_some dimension || Option.is_some offset
             then Ok globals_
             else
               Globals.with_array_initial_values ~span globals_ ~global_values
@@ -185,7 +195,8 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
               (fun item ->
                 match item.root_ with
                 | Global (_, root_) -> Some { item with root_ }
-                | Static _ | Fragment _ | Default _ | Dimension _ -> None)
+                | Static _ | Fragment _ | Default _ | Dimension _ | Offset _ ->
+                    None)
               prepared
           in
           let static_items_ =
@@ -201,7 +212,8 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
                       Option.get (Globals.find_static globals_ symbol)
                     in
                     Some { item with root_ = (slot, root) }
-                | Global _ | Fragment _ | Default _ | Dimension _ -> None)
+                | Global _ | Fragment _ | Default _ | Dimension _ | Offset _ ->
+                    None)
               prepared
           in
           let copies_ =
@@ -227,6 +239,13 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
               static_items_;
               copies_;
               fragment_items_;
+              offset_items_ =
+                List.filter_map
+                  (fun item ->
+                    match item.root_ with
+                    | Offset root_ -> Some { item with root_ }
+                    | _ -> None)
+                  prepared;
               dimension_items_ =
                 List.filter_map
                   (fun item ->
@@ -246,6 +265,10 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
       | root_ :: rest -> (
           let symbol, value, frame =
             match root_ with
+            | Offset destination ->
+                ( None,
+                  Typed.top_level_root_value (Offset.root destination),
+                  None )
             | Dimension destination ->
                 ( None,
                   Typed.top_level_root_value (Dimension.root destination),
@@ -286,7 +309,7 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
           in
           let operation =
             match root_ with
-            | Default _ | Dimension _ -> None
+            | Default _ | Dimension _ | Offset _ -> None
             | Fragment destination ->
                 Some (Layout.operation (Destination.layout destination))
             | Global (slot, root) ->
@@ -325,7 +348,8 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
                   [ Ir.Integer_program_lowering.Expression value ]
                 |> Result.map_error (fun errors ->
                     match root_ with
-                    | Global _ | Fragment _ | Default _ | Dimension _ -> errors
+                    | Global _ | Fragment _ | Default _ | Dimension _ | Offset _
+                      -> errors
                     | Static _ ->
                         List.map
                           (fun (error : Common.Diagnostic.t) ->
@@ -354,6 +378,18 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
                 let rec check pure = function
                   | [] -> Ok ()
                   | (item : Seq.description) :: rest ->
+                      let* () =
+                        if Option.is_some offset then
+                          match item.opcode with
+                          | Ir.Opcode.Ic_rip ->
+                              invalid
+                                ~at:(Option.value item.span ~default:at)
+                                ~notes "HCRUN0006"
+                                "runtime offset preparation requires checked \
+                                 current-position lowering"
+                          | _ -> Ok ()
+                        else Ok ()
+                      in
                       let known id =
                         Option.value (Values.find_opt id pure) ~default:false
                       in
@@ -410,6 +446,7 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
               in
               let destination_type, compiler_options =
                 match root_ with
+                | Offset destination -> (Offset.type_ destination, 0L)
                 | Dimension destination -> (Dimension.type_ destination, 0L)
                 | Default destination -> (Default.type_ destination, 0L)
                 | Fragment destination ->
@@ -488,7 +525,7 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
                            |> Sema.Function_frame_layout.function_item_index)
                       (* The source callers pass no local definitions. Their source
                          inspection callback exposes only admitted task bodies. *)
-                      | Fragment _ | Default _ | Dimension _ -> None
+                      | Fragment _ | Default _ | Dimension _ | Offset _ -> None
                     in
                     let find source_globals source_functions =
                       List.find_opt
@@ -657,7 +694,8 @@ let prepare_internal ?fragment ?default ?dimension ?(function_calls = [])
                     && Sema.Compiler_option.is_enabled
                          ~mask:(Globals.static_compiler_options slot)
                          Sema.Compiler_option.Globals_on_data_heap
-                | Global _ | Fragment _ | Default _ | Dimension _ -> false
+                | Global _ | Fragment _ | Default _ | Dimension _ | Offset _ ->
+                    false
               then
                 invalid ~at ~notes "HCRUN0006"
                   "nonconstant AOT static initialization with \
@@ -795,6 +833,20 @@ let prepare_dimension ?retained_function_source ?on_progress ~max_steps
       Ok (item.classification_, prepared.steps)
   | _ -> invalid_arg "dimension preparation lost its original work item"
 
+let prepare_offset ?retained_function_source ?on_progress ~max_steps ~top_calls
+    destination =
+  let* prepared =
+    prepare_internal ~offset:destination ~allow_zero_budget:true
+      ?retained_function_source ?on_progress ~max_steps
+      ~span:(Offset.span destination)
+      ~globals:(Offset.globals destination)
+      ~top_calls ~functions:[] ()
+  in
+  match prepared.offset_items_ with
+  | [ item ] when item.root_ == destination ->
+      Ok (item.classification_, prepared.steps)
+  | _ -> invalid_arg "offset preparation lost its original work item"
+
 let global_human prepared =
   match prepared.items_ with
   | [] -> ""
@@ -862,7 +914,7 @@ let human prepared =
              (fun (owner, bytes, steps) ->
                let symbol =
                  match owner with
-                 | Dimension _ ->
+                 | Dimension _ | Offset _ ->
                      invalid_arg "dimension cannot own copied bytes"
                  | Default destination -> Default.symbol destination
                  | Fragment destination ->

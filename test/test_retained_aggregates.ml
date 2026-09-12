@@ -38,9 +38,6 @@ let boundaries () =
         (O.run ~mode {|#exe {class A {I64 x;};class B {A a;};}|}
         |> O.fault "HCRUN0001");
       ignore
-        (O.run ~mode {|#exe {I64 N=8;class A {$$=N;I64 x;};}|}
-        |> O.fault "HCRUN0004");
-      ignore
         (O.run ~mode {|#exe {class Bad {$$=-9223372036854775808;};}|}
         |> O.fault "HCRUN0004");
       ignore
@@ -362,7 +359,6 @@ let offsets () =
           {|#exe {class Bits {$$=0.0;I64 x;};StreamPrint("%d;",sizeof(Bits)+34);}|};
           {|#exe {class Bits {$$=1.0;};StreamPrint("%d;",sizeof(Bits)-4607182418800017366);}|};
           {|#exe {class Saved {I64 x;};class Span {$$=sizeof(Saved) #exe {class Saved {U8 y;};};I64 x;};StreamPrint("%d;",sizeof(Span)+sizeof(Saved)+25);}|};
-          {|#exe {class Span {$$=1||1/0;U8 x;};StreamPrint("%d;",sizeof(Span)+40);}|};
         ])
     Test_integer_globals.modes;
   List.iter
@@ -531,8 +527,79 @@ let offset_authority () =
     "original receipt charges once" 3
     (VM.task_initializer_steps runtime)
 
+let runtime_offsets () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source -> ignore (O.run ~mode source |> O.expect ""))
+        [
+          {|#exe {I64 N=8;class A {$$=N;I64 x;};StreamPrint("%d;",sizeof(A)+26);}|};
+          {|#exe {I64 N=7;class A {$$=++N;I64 x;};StreamPrint("%d;",sizeof(A)+N+18);}|};
+          {|#exe {I64 N=8;class A {$$=N++;I64 x;};StreamPrint("%d;",sizeof(A)+N+17);}|};
+          {|#exe {I64 N=7;I64 Next(){return ++N;};class A {$$=Next();I64 x;};StreamPrint("%d;",sizeof(A)+N+18);}|};
+          {|#exe {I64 N=6;I64 Next(){return ++N;};class A {$$=Next() #exe {N+=1;};I64 x;};StreamPrint("%d;",sizeof(A)+N+18);}|};
+          {|#exe {I64 N=7;I64 Next(){return ++N;};class A {$$=Next() #exe {I64 Next(){return 1;};};I64 x;};StreamPrint("%d;",sizeof(A)+N+18);}|};
+          {|#exe {I64 N=-8;class A {$$=N;I64 x;};StreamPrint("%d;",sizeof(A)+34);}|};
+          {|#exe {I64 N=8;union A {$$=N;I64 x;U8 y;};StreamPrint("%d;",sizeof(A)+26);}|};
+          {|#exe {I64 N=8;class A {U8 h;union {$$=N;I64 x;}U8 t;};StreamPrint("%d;",sizeof(A)+25);}|};
+          {|#exe {I64 N=8;class A {$$=N;I64 x;};I64 Saved(){return sizeof(A);};N=0;class A {U8 small;};StreamPrint("%d;",Saved()+sizeof(A)+25);}|};
+          {|#exe {I64 N=8;class A {$$=N;I64 x;};U8 Bytes[sizeof(A)];StreamPrint("%d;",sizeof(Bytes)+26);}|};
+          {|#exe {I64 N=8;class A {$$=N;I64 x;};class B {$$=sizeof(A);};StreamPrint("%d;",sizeof(B)+26);}|};
+          {|#exe {I64 N=8;class A {$$=N;I64 x;};class B {U8 bytes[sizeof(A)];};StreamPrint("%d;",sizeof(B)+26);}|};
+          {|#exe {I64 N=0;class A {$$=N && ++N;I64 x;};StreamPrint("%d;",sizeof(A)+N+33);}|};
+          {|#exe {I64 N=1;class A {$$=N || ++N;I64 x;};StreamPrint("%d;",sizeof(A)+N+31);}|};
+        ])
+    Test_integer_globals.modes;
+  ignore
+    (O.run {|I64 N=8;#exe {}class A {$$=N;I64 x;};sizeof(A)+26;|} |> O.expect "")
+
+let runtime_offset_failures () =
+  List.iter
+    (fun mode ->
+      let source =
+        {|#exe {extern U0 Print(U8 *fmt,...);I64 N=0;I64 Fail(){Print("A");return 1/N;};class A {$$=Fail();};}|}
+      in
+      let failed = O.run ~mode source in
+      ignore (O.fault ~output:"A" "HCIRVM0009" failed);
+      Alcotest.(check bool)
+        "failed offset retains runtime work" true
+        ((Option.get (integer_program_report_progress failed)).runtime
+           .executed_steps > 0);
+      ignore
+        (O.run ~mode {|#exe {I64 N=8;class A {U8 h;$$=$$+N;};}|}
+        |> O.fault "HCRUN0006");
+      ignore
+        (O.run ~mode {|#exe {class A {$$=1||1/0;};}|} |> O.fault "HCRUN0004");
+      let eager =
+        {|#exe {class A {$$=0&&(1+1);};StreamPrint("%d;",sizeof(A)+42);}|}
+      in
+      ignore (O.run ~mode ~max_initializer_steps:5 eager |> O.expect "");
+      let limited = O.run ~mode ~max_initializer_steps:4 eager in
+      ignore (O.fault "HCIRVM0007" limited);
+      Alcotest.(check (option int))
+        "eager Boolean preparation charges both operands" (Some 4)
+        (integer_program_report_preparation_work limited);
+      let malformed =
+        O.run ~mode
+          {|#exe {extern U0 Print(U8 *fmt,...);I64 Next(){Print("A");return 8;};class A {$$=Next()};}|}
+      in
+      Alcotest.(check bool)
+        "missing semicolon rejects after offset evaluation" true
+        (Result.is_error (integer_program_report_outcome malformed));
+      Alcotest.(check string)
+        "offset effects precede semicolon validation" "A"
+        (integer_program_report_output_bytes malformed);
+      ignore
+        (O.run ~mode {|#exe {I64 N=1;class A {$$=N+1.0;};}|}
+        |> O.fault "HCRUN0001"))
+    Test_integer_globals.modes
+
 let tests =
   [
+    Alcotest.test_case "runtime offsets use original typed task expressions"
+      `Quick runtime_offsets;
+    Alcotest.test_case "runtime offset failures preserve reached effects" `Quick
+      runtime_offset_failures;
     Alcotest.test_case "original offset phases drive retained layout" `Quick
       offsets;
     Alcotest.test_case "offset preparation is bounded and charged once" `Quick

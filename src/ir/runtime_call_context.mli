@@ -97,3 +97,5 @@ val dimension_dependencies :
 
 val owns_top_level :
   t -> Sema.Function_call_expression_result.top_level_t -> bool
+
+val offset_dependencies : t -> Sema.Compiler_record.aggregate_offset list

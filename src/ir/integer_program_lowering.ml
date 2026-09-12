@@ -24,6 +24,7 @@ type statement =
   | Break of Common.Span.t
 
 type t = {
+  expression_source_ : (Integer_globals.t * Typed.expression_result) option;
   graph_ : X87_stack.t;
   initializer_regions_ : Global_initialization.region_description list;
   static_initializer_regions_ :
@@ -34,6 +35,13 @@ type t = {
 }
 
 let graph result = result.graph_
+
+let owns_expression result ~globals ~value =
+  match result.expression_source_ with
+  | Some (original_globals, original_value) ->
+      original_globals == globals && original_value == value
+  | None -> false
+
 let initializer_regions result = result.initializer_regions_
 let static_initializer_regions result = result.static_initializer_regions_
 let runtime_calls result = result.runtime_calls_
@@ -636,6 +644,10 @@ let lower_complete ?frame ?globals ?records ?(top_calls = [])
         in
         {
           graph_ = graph;
+          expression_source_ =
+            (match (frame, globals, statements) with
+            | None, Some globals, [ Expression value ] -> Some (globals, value)
+            | _ -> None);
           initializer_regions_ = List.rev !initial_regions;
           static_initializer_regions_ = List.rev !static_regions;
           runtime_calls_ = List.rev !runtime_calls;

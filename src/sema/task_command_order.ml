@@ -322,6 +322,16 @@ let check_dimension ?(require_admitted = true) order ~admitted
       ~predecessor:
         (if require_admitted then start.command_predecessor else None)
 
+let check_offset ?(require_admitted = true) order ~admitted
+    (receipt : Parser.aggregate_phase) =
+  let start = receipt.phase_aggregate.aggregate_header.declaration_command in
+  if not (Parser.aggregate_phase_is_current receipt) then
+    Error "offset source callback is not current"
+  else
+    check_preparation order ~admitted ~start
+      ~predecessor:
+        (if require_admitted then start.command_predecessor else None)
+
 let contains_global command ~(publication : Parser.global_publication)
     ~(completed : Frontend.Ast.global_declarator) ~item_index ~declarator_index
     =

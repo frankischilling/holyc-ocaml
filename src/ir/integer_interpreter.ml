@@ -357,12 +357,22 @@ type dimension_attempt = {
   mutable dimension_work : int option;
 }
 
+type offset_attempt = {
+  offset_catalog : Integer_globals.task_catalog;
+  offset_authority : Sema.Offset_fragment.authority;
+  offset_receipt : Frontend.Parser.aggregate_phase;
+  offset_preparation_before : int;
+  mutable offset_state : initializer_attempt_state;
+  mutable offset_result : Sema.Compiler_record.aggregate_offset option;
+}
+
 type task_input = {
   input_context : Frontend.Parser.command_context;
   input_streams : task_stream list;
   input_failure : unit ref;
   input_seen_dimensions : Frontend.Parser.array_dimension_preparation list;
   input_dimensions : dimension_attempt list;
+  input_offsets : offset_attempt list;
   input_defaults : default_attempt list;
   input_initializers : task_initializer list;
   input_ready : bool;
@@ -403,6 +413,7 @@ type task_state = {
   mutable closed_dimensions : Sema.Compiler_record.dimension_preparation list;
   mutable completed_dimensions : Frontend.Parser.completed_array_dimension list;
   mutable dimensions : dimension_attempt list;
+  mutable runtime_offsets : offset_attempt list;
   mutable defaults : default_attempt list;
   mutable initializers : task_initializer list;
   mutable declared_admissions : admitted_publication list;
@@ -477,6 +488,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         call_phases = [];
         defaults = [];
         dimensions = [];
+        runtime_offsets = [];
         initializers = [];
         declared_admissions = [];
         source_promotion_open = true;
@@ -565,6 +577,9 @@ let input_has_active_work task =
   List.exists (fun attempt -> active attempt.default_state) task.defaults
   || List.exists (fun attempt -> active attempt.dimension_state) task.dimensions
   || List.exists
+       (fun attempt -> active attempt.offset_state)
+       task.runtime_offsets
+  || List.exists
        (fun state ->
          Option.fold ~none:false
            ~some:(fun attempt -> active attempt.attempt_state)
@@ -584,6 +599,8 @@ let completed_input task input =
            (fun receipt ->
              receipt.Frontend.Parser.dimension_preparation == preparation)
            task.completed_dimensions)
+  && input_prefix_complete input.input_offsets task.runtime_offsets
+       (fun attempt -> attempt.offset_state = Successful_initializer)
   && input_prefix_complete input.input_dimensions task.dimensions
        (fun attempt -> attempt.dimension_state = Successful_initializer)
   && input_prefix_complete input.input_defaults task.defaults (fun attempt ->
@@ -604,6 +621,7 @@ let observe_task_source_event task event =
               input_failure = task.failure_generation;
               input_seen_dimensions = task.seen_dimensions;
               input_dimensions = task.dimensions;
+              input_offsets = task.runtime_offsets;
               input_defaults = task.defaults;
               input_initializers = task.initializers;
               input_ready = not (input_has_active_work task);
@@ -668,7 +686,8 @@ let promote_task_source ?(offsets = []) ?(dimensions = [])
       | [] -> true
       | offset :: rest ->
           let phase = Record.aggregate_offset_phase offset in
-          Record.aggregate_offset_namespace offset == namespace
+          (not (Record.aggregate_offset_is_runtime offset))
+          && Record.aggregate_offset_namespace offset == namespace
           && (not (List.exists (( == ) phase) seen))
           && List.exists
                (function
@@ -690,6 +709,7 @@ let promote_task_source ?(offsets = []) ?(dimensions = [])
           let work = Record.dimension_preparation_work prepared in
           Record.dimension_preparation_namespace prepared == namespace
           && Record.dimension_preparation_runtime_dependencies prepared = []
+          && Record.dimension_preparation_offset_dependencies prepared = []
           && (not (List.exists (( == ) source) seen))
           && List.exists
                (function
@@ -798,6 +818,8 @@ let promote_task_source_activation ?(offsets = []) ?pending_runtime_dimension
              (List.for_all2
                 (fun phase offset ->
                   Sema.Compiler_record.aggregate_offset_phase offset == phase
+                  && (not
+                        (Sema.Compiler_record.aggregate_offset_is_runtime offset))
                   && Sema.Compiler_record.aggregate_offset_namespace offset
                      == namespace)
                 phases offsets))
@@ -807,6 +829,9 @@ let promote_task_source_activation ?(offsets = []) ?pending_runtime_dimension
             (fun original checked ->
               Sema.Compiler_record.dimension_preparation_source checked
               == original
+              && Sema.Compiler_record.dimension_preparation_offset_dependencies
+                   checked
+                 = []
               && Sema.Compiler_record.dimension_preparation_namespace checked
                  == namespace)
             closed_originals dimensions)
@@ -865,7 +890,8 @@ let charge_isolated_aggregate_offsets task ~table offsets =
   let rec valid seen = function
     | [] -> true
     | offset :: rest ->
-        Record.aggregate_offset_table offset == table
+        (not (Record.aggregate_offset_is_runtime offset))
+        && Record.aggregate_offset_table offset == table
         && (not
               (List.exists
                  (fun original ->
@@ -1520,8 +1546,35 @@ let validate_dimension_dependencies task dependencies =
       "runtime array extent requires its owning task's successful original \
        evaluation"
 
+let validate_offset_dependencies task dependencies =
+  if
+    List.for_all
+      (fun dependency ->
+        Option.fold ~none:false
+          ~some:(fun task ->
+            Integer_globals.task_catalog_owns_namespace task.catalog
+              (Sema.Compiler_record.aggregate_offset_namespace dependency)
+            && List.exists
+                 (fun attempt ->
+                   attempt.offset_catalog == task.catalog
+                   && attempt.offset_state = Successful_initializer
+                   && Option.fold ~none:false ~some:(( == ) dependency)
+                        attempt.offset_result)
+                 task.runtime_offsets)
+          task)
+      dependencies
+  then Ok ()
+  else
+    Error
+      "runtime aggregate layout requires its owning task's successful original \
+       evaluation"
+
 let admit_declared_global task declaration =
   let ( let* ) = Result.bind in
+  let* () =
+    validate_offset_dependencies (Some task)
+      (Sema.Compiler_record.declared_global_offset_dependencies declaration)
+  in
   let* () =
     validate_dimension_dependencies (Some task)
       (Sema.Compiler_record.declared_global_runtime_dependencies declaration)
@@ -1680,7 +1733,12 @@ let prepare_task_closed_dimension task ~table ~namespace ~preparation ~queries =
 
 let prepare_aggregate_offset_in_task task ~table ~namespace ~queries progress
     phase =
-  if
+  let dependencies =
+    List.concat_map Sema.Compiler_record.query_runtime_offsets queries
+  in
+  if Result.is_error (validate_offset_dependencies (Some task) dependencies)
+  then (Error "aggregate offset queries require their owning runtime layout", 0)
+  else if
     (not
        (Sema.Compiler_record.aggregate_offset_is_current ~table ~namespace
           progress phase))
@@ -1750,6 +1808,10 @@ let complete_task_dimension task ~namespace checked =
     validate_dimension_dependencies (Some task)
       (Record.dimension_runtime_dependencies checked)
   in
+  let* () =
+    validate_offset_dependencies (Some task)
+      (Record.dimension_offset_dependencies checked)
+  in
   let prepared = Record.declared_dimension_preparation checked in
   let success =
     List.exists (( == ) prepared) task.closed_dimensions
@@ -1780,6 +1842,61 @@ let complete_task_dimension task ~namespace checked =
 
 let task_dimension_is_completed task receipt =
   List.exists (( == ) receipt) task.completed_dimensions
+
+let begin_task_offset task authority =
+  let ( let* ) = Result.bind in
+  let fragment = Sema.Offset_fragment.authorized_fragment authority in
+  let receipt = Sema.Offset_fragment.receipt fragment in
+  let* () =
+    require_initializer_namespace task (Sema.Offset_fragment.namespace fragment)
+  in
+  let* () = Integer_globals.check_offset_source task.catalog receipt in
+  if
+    (not
+       (Sema.Compiler_record.runtime_aggregate_offset_is_current
+          (Sema.Offset_fragment.preparation authority)))
+    || (not
+          (Sema.Source_activation.offset_admission task.source_activation
+             receipt))
+    || (not (source_dimensions_ready task))
+    || List.exists (( == ) receipt) task.attempted_offsets
+  then Error "offset preparation has another source or consumed boundary"
+  else
+    let attempt =
+      {
+        offset_catalog = task.catalog;
+        offset_authority = authority;
+        offset_receipt = receipt;
+        offset_preparation_before = task.initializer_steps;
+        offset_state = Preparing_initializer;
+        offset_result = None;
+      }
+    in
+    task.runtime_offsets <- attempt :: task.runtime_offsets;
+    task.attempted_offsets <- receipt :: task.attempted_offsets;
+    task.source_promotion_open <- false;
+    Ok attempt
+
+let fail_task_offset task attempt =
+  if
+    attempt.offset_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.runtime_offsets))
+    || attempt.offset_state <> Preparing_initializer
+       && attempt.offset_state <> Executing_initializer
+  then Error "offset failure has another task or inactive attempt"
+  else (
+    attempt.offset_state <- Failed_initializer;
+    Ok ())
+
+let task_offset task receipt =
+  List.find_map
+    (fun attempt ->
+      if
+        attempt.offset_receipt == receipt
+        && attempt.offset_state = Successful_initializer
+      then attempt.offset_result
+      else None)
+    task.runtime_offsets
 
 let begin_task_dimension task authority =
   let ( let* ) = Result.bind in
@@ -2067,6 +2184,9 @@ let task_result task ~sequence =
     || List.exists
          (fun attempt -> attempt.dimension_state <> Successful_initializer)
          task.dimensions
+    || List.exists
+         (fun attempt -> attempt.offset_state <> Successful_initializer)
+         task.runtime_offsets
     || (not (Sema.Source_activation.finished task.source_activation))
     || (not
           (Sema.Source_activation.owns_context task.source_activation
@@ -5422,6 +5542,12 @@ let execute_function ?(max_literal_bytes = 1_048_576) ~max_steps
     |> Result.map_error (fun message ->
         [ make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0026" message ])
   in
+  let* () =
+    validate_offset_dependencies None
+      (Offset_requirements.frame frame @ Function.offset_dependencies function_)
+    |> Result.map_error (fun message ->
+        [ make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0026" message ])
+  in
   if max_steps <= 0 || max_frame_bytes <= 0 || max_literal_bytes <= 0 then
     Error
       [
@@ -5475,6 +5601,20 @@ let execute_program_with_output ?task ?isolated_budget
           functions
     in
     validate_dimension_dependencies task dependencies
+    |> Result.map_error (fun message ->
+        [ make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0026" message ])
+  in
+  let* () =
+    let dependencies =
+      Option.fold ~none:[] ~some:Integer_globals.offset_dependencies globals
+      @ Option.fold ~none:[] ~some:Runtime.offset_dependencies runtime_calls
+      @ List.concat_map
+          (fun (definition : function_definition) ->
+            Offset_requirements.frame definition.frame
+            @ Function.offset_dependencies definition.body)
+          functions
+    in
+    validate_offset_dependencies task dependencies
     |> Result.map_error (fun message ->
         [ make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0026" message ])
   in
@@ -6300,16 +6440,124 @@ let execute_task_dimension task attempt execution =
       attempt.dimension_state <- Successful_initializer;
       Ok ()
 
+let execute_task_offset task attempt execution =
+  let module Program = Offset_fragment_program in
+  let module Destination = Offset_fragment_destination in
+  let ( let* ) = Result.bind in
+  let destination = Program.execution_destination execution in
+  let fragment = Destination.fragment destination in
+  let span = Destination.span destination in
+  let invalid message =
+    Error
+      [
+        make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026" message;
+      ]
+  in
+  let* () =
+    if
+      attempt.offset_catalog != task.catalog
+      || (not (List.exists (( == ) attempt) task.runtime_offsets))
+      || attempt.offset_state <> Preparing_initializer
+      || (not
+            (Sema.Source_activation.offset_admission task.source_activation
+               attempt.offset_receipt))
+      || (not
+            (Sema.Compiler_record.runtime_aggregate_offset_is_current
+               (Sema.Offset_fragment.preparation attempt.offset_authority)))
+      || (not
+            (Frontend.Parser.aggregate_phase_is_current attempt.offset_receipt))
+      || Program.authority execution != attempt.offset_authority
+      || Sema.Offset_fragment.receipt fragment != attempt.offset_receipt
+      || Sema.Offset_fragment.authorized_fragment (Program.authority execution)
+         != fragment
+      || (not
+            (Integer_globals.owns_task_storage task.catalog
+               (Destination.globals destination)))
+      || (not
+            (Integer_globals.is_offset_fragment
+               (Destination.globals destination)))
+      || Integer_globals.byte_size (Destination.globals destination) <> 0
+      || Program.steps execution
+         <> task.initializer_steps - attempt.offset_preparation_before
+    then
+      invalid "offset execution has another task, source attempt or preparation"
+    else Ok ()
+  in
+  attempt.offset_state <- Executing_initializer;
+  let outcome =
+    let* () =
+      validate_dimension_dependencies (Some task)
+        (Dimension_requirements.top_level (Destination.typed destination))
+      |> Result.map_error (fun message ->
+          [
+            make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026"
+              message;
+          ])
+    in
+    match Program.code execution with
+    | Program.Scheduled program -> (
+        if task.steps >= task.max_steps then
+          Error
+            [
+              make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0007"
+                "the task cumulative execution step limit was exhausted";
+            ]
+        else
+          let* result =
+            execute_program_with_output ~task ~initializer_mode:true
+              ~capture_fragment_value:true
+              ~runtime_calls:(Program.runtime_calls program)
+              ~output:task.output
+              ~globals:(Destination.globals destination)
+              ~initialization:(Program.initialization program)
+              ~max_global_bytes:task.max_global_bytes
+              ~max_literal_bytes:task.max_literal_bytes
+              ~max_steps:(task.max_steps - task.steps)
+              ~max_frame_bytes:task.max_frame_bytes
+              ~max_call_depth:task.max_call_depth ~functions:[]
+              (Program.entry program)
+          in
+          match result.final_value_ with
+          | Some word -> Ok word.bits
+          | None ->
+              invalid "offset evaluation produced no checked parameter value")
+  in
+  match outcome with
+  | Error errors ->
+      ignore (fail_task_offset task attempt);
+      Error errors
+  | Ok bits -> (
+      let result =
+        Sema.Compiler_record.finish_runtime_aggregate_offset
+          (Sema.Offset_fragment.preparation attempt.offset_authority)
+          ~value:bits
+          ~work:(task.initializer_steps - attempt.offset_preparation_before)
+      in
+      match result with
+      | Error message ->
+          ignore (fail_task_offset task attempt);
+          invalid message
+      | Ok offset ->
+          attempt.offset_result <- Some offset;
+          attempt.offset_state <- Successful_initializer;
+          task.charged_offsets <- offset :: task.charged_offsets;
+          Ok ())
+
 let execute_task_program task ~runtime_calls ~globals ~initialization ~functions
     checked =
   task.source_promotion_open <- false;
   let result =
     if
       (not (source_dimensions_ready task))
-      || not
-           (List.for_all
-              (Sema.Source_activation.command_admission task.source_activation)
-              (Integer_globals.source_command_receipts globals))
+      || (not
+            (List.for_all
+               (Sema.Source_activation.command_admission task.source_activation)
+               (Integer_globals.source_command_receipts globals)))
+      || List.exists
+           (fun attempt ->
+             attempt.offset_state = Preparing_initializer
+             || attempt.offset_state = Executing_initializer)
+           task.runtime_offsets
     then
       Error
         [

@@ -42,6 +42,13 @@ val lower_complete :
   (t, Common.Diagnostic.t list) result
 
 val graph : t -> X87_stack.t
+
+val owns_expression :
+  t ->
+  globals:Integer_globals.t ->
+  value:Sema.Function_call_expression_result.expression_result ->
+  bool
+
 val publications : t -> Global_initialization.publication_description list
 
 val publication_evidence :

@@ -13,6 +13,7 @@ type dimension = {
   kind : dimension_kind;
   value : int64;
   runtime_dependencies : Compiler_record.runtime_dimension_proposal list;
+  offset_dependencies : Compiler_record.aggregate_offset list;
 }
 
 type frame_slot = { displacement : int64; size : int64 }
@@ -128,6 +129,7 @@ let location_alignment (location : location) = location.alignment
 let location_frame_slot (location : location) = location.frame_slot
 let dimension_kind (dimension : dimension) = dimension.kind
 let dimension_runtime_dependencies dimension = dimension.runtime_dependencies
+let dimension_offset_dependencies dimension = dimension.offset_dependencies
 let dimension_value (dimension : dimension) = dimension.value
 let frame_slot_displacement (slot : frame_slot) = slot.displacement
 let frame_slot_size (slot : frame_slot) = slot.size
@@ -515,6 +517,12 @@ let evaluate_dimensions table symbol semantic_dimensions inputs =
                              Compiler_record.dimension_runtime_dependencies
                                checked
                          | _ -> []);
+                       offset_dependencies =
+                         (match input.expression with
+                         | Prepared_dimension checked ->
+                             Compiler_record.dimension_offset_dependencies
+                               checked
+                         | _ -> []);
                      }
                     :: values_rev)
                     semantic_rest input_rest))
@@ -678,12 +686,14 @@ let parameter_location table aggregate_layouts typed_function binding evidence =
                          kind = Source_extent;
                          value = Int64.of_int value;
                          runtime_dependencies = [];
+                         offset_dependencies = [];
                        })
                      source_extent)
                 @ [
                     {
                       kind = Compiler_placeholder_extent;
                       runtime_dependencies = [];
+                      offset_dependencies = [];
                       value = Int64.of_int compiler_placeholder_extent;
                     };
                   ]

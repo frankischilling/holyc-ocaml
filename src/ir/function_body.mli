@@ -96,3 +96,5 @@ val human : t -> string
 
 val dimension_dependencies :
   t -> Sema.Compiler_record.runtime_dimension_proposal list
+
+val offset_dependencies : t -> Sema.Compiler_record.aggregate_offset list

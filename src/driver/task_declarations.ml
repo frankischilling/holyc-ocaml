@@ -255,6 +255,8 @@ type t = {
   mutable dimension_work : int;
   mutable offset_work : int;
   mutable offsets_rev : Sema.Compiler_record.aggregate_offset list;
+  mutable runtime_offset_completions :
+    (Parser.aggregate_phase * int * bool ref) list;
   mutable source_dimensions_rev :
     Sema.Compiler_record.dimension_preparation list;
   runtime_entries : VM.admitted_publication Entries.t;
@@ -356,6 +358,7 @@ let create_with_authority ?(max_dimension_work = 100_000)
               dimension_work = 0;
               offset_work = 0;
               offsets_rev = [];
+              runtime_offset_completions = [];
               source_dimensions_rev = [];
               runtime_entries = Entries.create 32;
               runtime_records = Entries.create 32;
@@ -1813,6 +1816,12 @@ let validate_dimension_owner ledger (owner : Parser.array_dimensions_owner) =
   if owner.dimensions_environment != ledger.symbols then
     fail span "array dimension belongs to another frontend environment"
 
+let offset_requires_runtime (phase : Parser.aggregate_phase) =
+  match phase.phase_step with
+  | Parser.Aggregate_offset_reached expression ->
+      Sema.Initializer_source.expression_identifier_nodes expression <> []
+  | _ -> false
+
 let dimension_requires_runtime
     (preparation : Parser.array_dimension_preparation) =
   Option.fold ~none:false
@@ -2038,6 +2047,15 @@ let observe ?offset_runtime ledger event =
               state.record <-
                 Some (Sema.Compiler_record.aggregate_metadata progress)
           | _ -> assert false)
+      | Parser.Aggregate_advanced phase
+        when (match ledger.authority with
+               | Task_runtime _ -> true
+               | _ -> false)
+             && offset_requires_runtime phase ->
+          if Option.is_some offset_runtime then
+            fail phase.phase_location.span
+              "runtime offset cannot borrow isolated authority";
+          validate_command ledger phase.phase_aggregate.aggregate_header
       | Parser.Aggregate_advanced phase -> (
           let publication = phase.phase_aggregate in
           validate_command ledger publication.aggregate_header;
@@ -3138,6 +3156,85 @@ let runtime_dimension_pending ledger ~runtime receipt =
       | _ ->
           fail span "runtime dimension lacks its original pending preparation")
   | _ -> fail span "runtime dimension has another prospective owner"
+
+let runtime_offset_progress ledger ~runtime phase =
+  let span = phase.Parser.phase_location.span in
+  require_initializer_runtime ledger runtime span;
+  if not (Parser.aggregate_phase_is_current phase) then
+    fail span "runtime offset is outside its original callback";
+  validate_command ledger phase.phase_aggregate.aggregate_header;
+  match (find ledger phase.phase_aggregate.aggregate_name).source with
+  | Aggregate { publication; progress = Some progress; _ }
+    when publication == phase.phase_aggregate -> progress
+  | _ -> fail span "runtime offset has no original aggregate progress"
+
+let begin_runtime_offset ledger ~runtime ~task_view phase =
+  protect (fun () ->
+      let span = phase.Parser.phase_location.span in
+      let progress = runtime_offset_progress ledger ~runtime phase in
+      if not (VM.task_owns_snapshot runtime task_view) then
+        fail span "runtime offset has another task snapshot";
+      let expression =
+        match phase.phase_step with
+        | Parser.Aggregate_offset_reached expression -> expression
+        | _ -> fail span "runtime offset requires an offset expression"
+      in
+      let environment, references, queries =
+        selected_fragment_transcript ledger ~task_view ~span expression
+      in
+      let fragment =
+        Sema.Offset_fragment.create ~table:ledger.table
+          ~namespace:ledger.namespace ~progress ~receipt:phase ~environment
+          ~references ~queries
+        |> checked span
+      in
+      let authority = Sema.Offset_fragment.authorize fragment |> checked span in
+      let attempt = VM.begin_task_offset runtime authority |> checked span in
+      ledger.runtime_offset_completions <-
+        (phase, VM.task_initializer_steps runtime, ref false)
+        :: ledger.runtime_offset_completions;
+      (authority, attempt))
+
+let finish_runtime_offset ledger ~runtime ~before ~succeeded phase =
+  protect (fun () ->
+      let span = phase.Parser.phase_location.span in
+      let progress = runtime_offset_progress ledger ~runtime phase in
+      let consumed =
+        match
+          List.find_opt
+            (fun (original, _, _) -> original == phase)
+            ledger.runtime_offset_completions
+        with
+        | Some (_, original_before, consumed)
+          when original_before = before && not !consumed -> consumed
+        | _ ->
+            fail span
+              "runtime offset completion is foreign, repeated or unprepared"
+      in
+      consumed := true;
+      let work = VM.task_initializer_steps runtime - before in
+      if work < 0 then fail span "runtime offset work moved backward";
+      ledger.offset_work <- ledger.offset_work + work;
+      if succeeded then (
+        let offset =
+          match VM.task_offset runtime phase with
+          | Some offset
+            when Sema.Compiler_record.aggregate_offset_work offset = work ->
+              offset
+          | _ ->
+              fail span
+                "runtime offset has no original successful typed execution"
+        in
+        ledger.offsets_rev <- offset :: ledger.offsets_rev;
+        Sema.Compiler_record.advance_aggregate
+          ~dimensions:(Dimensions.find_opt ledger.checked_dimensions)
+          progress phase
+        |> checked span;
+        match (find ledger phase.phase_aggregate.aggregate_name).source with
+        | Aggregate state ->
+            state.record <-
+              Some (Sema.Compiler_record.aggregate_metadata progress)
+        | _ -> assert false))
 
 let begin_runtime_dimension ledger ~runtime ~task_view receipt =
   protect (fun () ->

@@ -694,3 +694,23 @@ val check_task_suspended_completion :
   suspension:Frontend.Parser.suspension ->
   Frontend.Parser.completed_sequence ->
   (unit, string) result
+
+type offset_attempt
+
+val begin_task_offset :
+  task_state ->
+  Sema.Offset_fragment.authority ->
+  (offset_attempt, string) result
+
+val fail_task_offset : task_state -> offset_attempt -> (unit, string) result
+
+val task_offset :
+  task_state ->
+  Frontend.Parser.aggregate_phase ->
+  Sema.Compiler_record.aggregate_offset option
+
+val execute_task_offset :
+  task_state ->
+  offset_attempt ->
+  Offset_fragment_program.execution ->
+  (unit, error list) result

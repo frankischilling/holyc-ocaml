@@ -66,6 +66,7 @@ val dimension_preparations :
   t -> Frontend.Parser.array_dimension_preparation list
 
 val aggregate_offset_phases : t -> Frontend.Parser.aggregate_phase list
+val offset_admission : t option -> Frontend.Parser.aggregate_phase -> bool
 
 val aggregate_offset_preparing :
   t option -> Frontend.Parser.aggregate_phase -> bool

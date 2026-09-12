@@ -67,7 +67,11 @@ type task_view = {
   source_command : Sema.Task_command_order.command option;
 }
 
-type fragment_kind = Initializer_context | Default_context | Dimension_context
+type fragment_kind =
+  | Initializer_context
+  | Default_context
+  | Dimension_context
+  | Offset_context
 
 type t = {
   source_defaults : Prepared_parameter_default.t list;
@@ -148,6 +152,28 @@ let dimension_context view fragment =
 
 let is_dimension_fragment globals =
   globals.fragment_kind_ = Some Dimension_context
+
+let offset_context view fragment =
+  if view.environment != Sema.Offset_fragment.environment fragment then
+    Error "offset fragment has another retained task snapshot"
+  else
+    Ok
+      {
+        fragment_kind_ = Some Offset_context;
+        source_defaults = [];
+        declared_slots_ = [];
+        slots_ = [];
+        symbols = Symbols.empty;
+        statics_ = [];
+        mode = Resolution.Jit;
+        global_byte_size_ = 0;
+        global_cell_count_ = 0;
+        byte_size_ = 0;
+        task_view = Some view;
+        function_publications_ = [];
+      }
+
+let is_offset_fragment globals = globals.fragment_kind_ = Some Offset_context
 
 let is_initializer_fragment globals =
   globals.fragment_kind_ = Some Initializer_context
@@ -846,6 +872,10 @@ let check_function_phase_source catalog ~namespace ~event snapshot =
 
 let check_dimension_source ?require_admitted catalog receipt =
   Sema.Task_command_order.check_dimension ?require_admitted catalog.source_order
+    ~admitted:catalog.admitted_commands receipt
+
+let check_offset_source catalog receipt =
+  Sema.Task_command_order.check_offset catalog.source_order
     ~admitted:catalog.admitted_commands receipt
 
 let with_source_command view ~ast command =
@@ -1998,6 +2028,25 @@ let dimension_dependencies globals =
         @ List.concat_map
             (fun root ->
               Dimension_requirements.expression (Typed.initializer_value root))
+            (static_initializers slot))
+      globals.statics_
+
+let offset_dependencies globals =
+  List.concat_map
+    (fun slot ->
+      Option.fold ~none:[]
+        ~some:Sema.Compiler_record.global_extent_offset_dependencies slot.extent
+      @ List.concat_map
+          (fun root ->
+            Offset_requirements.expression (Typed.top_level_root_value root))
+          (slot_initializers slot))
+    globals.slots_
+  @ List.concat_map
+      (fun slot ->
+        Offset_requirements.frame (static_frame slot)
+        @ List.concat_map
+            (fun root ->
+              Offset_requirements.expression (Typed.initializer_value root))
             (static_initializers slot))
       globals.statics_
 

@@ -145,6 +145,54 @@ let () =
                 "--mode=" ^ mode;
                 "--step-limit=" ^ string_of_int steps;
                 "--initializer-step-limit=" ^ string_of_int prep;
+                Sys.argv.(6);
+              ]
+          in
+          require
+            (status = Unix.WEXITED expected_exit && errors = "")
+            ("runtime aggregate offsets: " ^ output ^ errors);
+          let open Yojson.Basic.Util in
+          let report = Yojson.Basic.from_string output in
+          require
+            (report |> member "executed_steps" |> to_int = reached_steps)
+            "runtime offset cumulative execution";
+          require
+            (report |> member "compiled_initializer_steps" |> to_int = prep)
+            "runtime offset cumulative preparation";
+          require
+            (report |> member "dimension_preparation_work" |> to_int = 0)
+            "runtime offsets do not charge dimensions";
+          require
+            (report |> member "output_hex" |> to_string = "")
+            "runtime offset capture";
+          if expected_exit = 0 then (
+            require
+              (report |> member "final_value" |> member "value" |> to_string
+             = "42")
+              "runtime offset result";
+            require
+              (report |> member "diagnostics" |> to_list = [])
+              "runtime offset diagnostics")
+          else
+            require
+              (report |> member "diagnostics" |> to_list |> List.hd
+             |> member "code" |> to_string = "HCIRVM0007")
+              "runtime offset bounded failure")
+        [ (49, 3, 0, 49); (48, 3, 1, 48); (49, 2, 1, 3) ])
+    [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (steps, prep, expected_exit, reached_steps) ->
+          let status, output, errors =
+            capture executable
+              [
+                "run";
+                "--format=json";
+                "--report-version=2";
+                "--mode=" ^ mode;
+                "--step-limit=" ^ string_of_int steps;
+                "--initializer-step-limit=" ^ string_of_int prep;
                 Sys.argv.(5);
               ]
           in
