@@ -67,6 +67,7 @@ let parse ?(session = Session.create ()) ?(mode = Preprocessor.Jit)
                commands =
                  {
                    query = None;
+                   call = None;
                    implicit_output = None;
                    reference = None;
                    declaration = None;
@@ -253,6 +254,7 @@ let selected_occurrence () =
   let commands : Parser.command_sink =
     {
       query = None;
+      call = None;
       implicit_output = None;
       reference =
         Some
@@ -433,6 +435,7 @@ let pending_command_order () =
   let commands : Parser.command_sink =
     {
       query = None;
+      call = None;
       implicit_output = None;
       reference = None;
       declaration = None;
@@ -485,6 +488,7 @@ let declaration_sink consume =
   Parser.
     {
       query = None;
+      call = None;
       implicit_output = None;
       reference = None;
       declaration = Some consume;
@@ -742,6 +746,7 @@ let buffered_function_header_selection () =
       let commands =
         {
           (declaration_sink consume) with
+          call = None;
           implicit_output = None;
           reference =
             Some
@@ -821,6 +826,7 @@ let buffered_selection_preserves_newer_function () =
             Ok ()
         | _ -> Ok ()))
       with
+      call = None;
       implicit_output = None;
       reference =
         Some
@@ -947,6 +953,7 @@ let command_receipt_ownership () =
            Ok ()))
       with
       Parser.checkpoint = Some checkpoint;
+      call = None;
       implicit_output = None;
       reference =
         Some
@@ -1141,6 +1148,7 @@ let query_consumption_order () =
   let commands : Parser.command_sink =
     {
       checkpoint = None;
+      call = None;
       implicit_output = None;
       reference = None;
       query = Some query;
@@ -1272,6 +1280,7 @@ let query_native_presence () =
   let commands : Parser.command_sink =
     {
       checkpoint = None;
+      call = None;
       implicit_output = None;
       reference = None;
       query = Some query;
@@ -1306,6 +1315,7 @@ let query_rejection_order () =
       let commands : Parser.command_sink =
         {
           checkpoint = None;
+          call = None;
           implicit_output = None;
           reference = None;
           declaration = None;
@@ -1627,6 +1637,7 @@ let implicit_target_before_lookahead () =
     {
       checkpoint = None;
       reference = None;
+      call = None;
       implicit_output =
         Some
           (fun selection ->

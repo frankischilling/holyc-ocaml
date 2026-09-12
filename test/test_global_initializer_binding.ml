@@ -37,6 +37,7 @@ let prepare ?(mode = Preprocessor.Jit) ?query ~path contents =
         let commands : Parser.command_sink =
           {
             checkpoint = None;
+            call = None;
             implicit_output = None;
             reference = None;
             query = Some query;

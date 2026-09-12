@@ -815,6 +815,19 @@ let check_function_header_source catalog ~namespace source =
       ~admitted:catalog.admitted_commands
       (Source.declared_function_source source)
 
+let check_function_phase_source catalog ~namespace ~event snapshot =
+  let module Native = Sema.Function_record_phase in
+  if
+    not
+      (task_catalog_owns_namespace catalog namespace
+      && Native.owns_namespace snapshot namespace
+      && Native.owns_table snapshot catalog.table
+      && Native.matches_event snapshot event)
+  then Error "native function phase has another source event or task namespace"
+  else
+    Sema.Task_command_order.check_function_publication catalog.source_order
+      ~admitted:catalog.admitted_commands (Native.source snapshot)
+
 let check_dimension_source ?require_admitted catalog receipt =
   Sema.Task_command_order.check_dimension ?require_admitted catalog.source_order
     ~admitted:catalog.admitted_commands receipt
@@ -859,8 +872,13 @@ let newest_publications publications =
         | Function_publication reference ->
             reference |> Retained_function.metadata
             |> Sema.Outer_environment.function_declaration
-            |> Sema.Function_resolution.resolved_declaration_completion_source
-            |> Option.is_some
+            |> fun declaration ->
+            Option.is_some
+              (Sema.Function_resolution.resolved_declaration_completion_source
+                 declaration)
+            || Option.is_some
+                 (Sema.Function_resolution.resolved_declaration_phase_current
+                    declaration)
         | _ -> false
       in
       if completion && List.exists same selected then
@@ -1265,6 +1283,9 @@ let function_publication_is_fresh catalog reference =
   let completion =
     Functions.resolved_declaration_completion_source declaration
   in
+  let phase_current =
+    Functions.resolved_declaration_phase_current declaration
+  in
   match Functions.resolved_declaration_retained_predecessor declaration with
   | None ->
       not
@@ -1276,8 +1297,8 @@ let function_publication_is_fresh catalog reference =
         List.find_map
           (function
             | Function_publication prior
-              when if Option.is_some completion then
-                     Retained_function.symbol prior == symbol
+              when if Option.is_some completion || Option.is_some phase_current
+                   then Retained_function.symbol prior == symbol
                    else
                      Sema.Symbol.name (Retained_function.symbol prior)
                      = Sema.Symbol.name symbol -> Some prior
@@ -1300,12 +1321,25 @@ let function_publication_is_fresh catalog reference =
                      (Retained_function.metadata prior)
             | None -> false)
           &&
-          match completion with
-          | None ->
+          match (phase_current, completion) with
+          | Some current, _ ->
+              current == predecessor
+              && Option.fold ~none:true
+                   ~some:(fun source ->
+                     List.exists
+                       (function
+                         | Function_publication retained ->
+                             Outer.function_declaration
+                               (Retained_function.metadata retained)
+                             == source
+                         | _ -> false)
+                       catalog.published)
+                   (Functions.resolved_declaration_phase_source declaration)
+          | None, None ->
               Functions.declaration_site_state
                 (Functions.resolved_declaration_site predecessor)
               = Functions.Unresolved_extern
-          | Some pending ->
+          | None, Some pending ->
               (pending == predecessor
               || Functions.is_joined_successor ~earlier:pending
                    ~later:predecessor)
@@ -1318,6 +1352,82 @@ let function_publication_is_fresh catalog reference =
                      | _ -> false)
                    catalog.published)
       | None -> false)
+
+let function_record_head catalog snapshot =
+  List.find_map
+    (function
+      | Function_publication reference ->
+          let declaration =
+            Retained_function.metadata reference
+            |> Sema.Outer_environment.function_declaration
+          in
+          let original =
+            Sema.Function_resolution.resolved_declaration_site declaration
+            |> Sema.Function_resolution.declaration_site_native_snapshot
+          in
+          if
+            Option.fold ~none:false
+              ~some:(Sema.Function_record_phase.same_identity snapshot)
+              original
+          then Some reference
+          else None
+      | _ -> None)
+    (List.rev catalog.published)
+
+let check_function_phase_current catalog snapshot declaration =
+  match
+    ( function_record_head catalog snapshot,
+      Sema.Function_resolution.resolved_declaration_phase_current declaration )
+  with
+  | None, None -> Ok ()
+  | Some retained, Some current
+    when Sema.Outer_environment.function_declaration
+           (Retained_function.metadata retained)
+         == current -> Ok ()
+  | _ -> Error "native function phase does not advance its actual catalog head"
+
+let publish_function_phase catalog ~namespace ~event ~snapshot ~records =
+  let module Functions = Sema.Function_resolution in
+  let module Records = Sema.Function_record_classification in
+  let module Native = Sema.Function_record_phase in
+  let ( let* ) = Result.bind in
+  let* classified =
+    match Records.declarations records with
+    | [ classified ] -> Ok classified
+    | _ -> Error "provisional admission requires one exact declaration"
+  in
+  let declaration = Records.classified_declaration_source classified in
+  let site = Functions.resolved_declaration_site declaration in
+  let* () =
+    if
+      not
+        (task_catalog_owns_namespace catalog namespace
+        && Native.owns_namespace snapshot namespace
+        && Native.owns_table snapshot catalog.table
+        && Native.matches_event snapshot event
+        && Functions.resolved_declaration_compilation_mode declaration
+           = Functions.Jit
+        && Functions.declaration_site_phase site = Functions.Provisional
+        && Option.fold ~none:false ~some:(( == ) snapshot)
+             (Functions.declaration_site_native_snapshot site))
+    then Error "provisional admission has another source event, phase or owner"
+    else Ok ()
+  in
+  let* () =
+    Sema.Task_command_order.check_function_publication catalog.source_order
+      ~admitted:catalog.admitted_commands (Native.source snapshot)
+  in
+  let* () = check_function_phase_current catalog snapshot declaration in
+  let* metadata =
+    Sema.Outer_environment.make_function_metadata ~records ~declaration
+    |> Result.map_error Sema.Outer_environment.error_to_string
+  in
+  let reference = Retained_function.create metadata in
+  if not (function_publication_is_fresh catalog reference) then
+    Error "provisional function predecessor is stale or already admitted"
+  else (
+    catalog.published <- catalog.published @ [ Function_publication reference ];
+    Ok reference)
 
 let publish_function_header catalog ~namespace ~source ~records =
   let module Functions = Sema.Function_resolution in
@@ -1352,6 +1462,34 @@ let publish_function_header catalog ~namespace ~source ~records =
     Sema.Task_command_order.check_function_header catalog.source_order
       ~admitted:catalog.admitted_commands
       (Source.declared_function_source source)
+  in
+  let* () =
+    match Functions.declaration_site_native_snapshot site with
+    | Some snapshot -> check_function_phase_current catalog snapshot declaration
+    | None ->
+        let publication =
+          (Source.declared_function_source source).function_publication
+        in
+        if
+          List.exists
+            (function
+              | Function_publication retained ->
+                  let snapshot =
+                    Retained_function.metadata retained
+                    |> Sema.Outer_environment.function_declaration
+                    |> Functions.resolved_declaration_site
+                    |> Functions.declaration_site_native_snapshot
+                  in
+                  Option.fold ~none:false
+                    ~some:(fun snapshot ->
+                      Sema.Function_record_phase.source snapshot == publication)
+                    snapshot
+              | _ -> false)
+            catalog.published
+        then
+          Error
+            "tracked native function source requires its original phase advance"
+        else Ok ()
   in
   let* () =
     if

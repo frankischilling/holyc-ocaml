@@ -230,6 +230,14 @@ let compile_report ?(max_dimension_work = 100_000)
                     Ok ()
                 | _ -> Ok ());
           query = Some (Task_declarations.observe_query ledger);
+          call =
+            (if is_jit then
+               Some
+                 {
+                   start = Task_declarations.observe_call_start ledger;
+                   emit = Task_declarations.observe_call_emission ledger;
+                 }
+             else None);
           implicit_output =
             Some
               (fun selection ->
@@ -259,35 +267,41 @@ let compile_report ?(max_dimension_work = 100_000)
           declaration =
             Some
               (fun event ->
-                let* () =
+                let* deferred_dimension =
                   match (is_jit, !task, event) with
                   | true, None, Parser.Array_dimension_preparing receipt
                     when Task_declarations.dimension_requires_runtime receipt ->
-                      ensure_task receipt.dimension_opening.span
-                      |> Result.map ignore
-                  | _ -> Ok ()
+                      let* () =
+                        Task_declarations.defer_source_runtime_dimension ledger
+                          ~preparation:receipt event
+                      in
+                      let* _ = ensure_task receipt.dimension_opening.span in
+                      Ok true
+                  | _ -> Ok false
                 in
-                let* () = Task_declarations.observe ledger event in
-                match (is_jit, !task, event) with
-                | true, Some task, _ -> Task.observe_initializer task event
-                | true, None, Parser.Parameter_default_completed receipt -> (
-                    match receipt.default_ast.value with
-                    | Frontend.Ast.Expression_default _ ->
-                        ensure_task receipt.default_ast.location.span
-                        |> Result.map ignore
-                    | Frontend.Ast.Lastclass_default _ -> Ok ())
-                | false, _, Parser.Parameter_default_completed receipt -> (
-                    match receipt.default_ast.value with
-                    | Frontend.Ast.Expression_default _ ->
-                        let* task =
+                if deferred_dimension then Ok ()
+                else
+                  let* () = Task_declarations.observe ledger event in
+                  match (is_jit, !task, event) with
+                  | true, Some task, _ -> Task.observe_initializer task event
+                  | true, None, Parser.Parameter_default_completed receipt -> (
+                      match receipt.default_ast.value with
+                      | Frontend.Ast.Expression_default _ ->
                           ensure_task receipt.default_ast.location.span
-                        in
-                        Task.prepare_source_default task ~session ~ledger
-                          receipt
-                    | Frontend.Ast.Lastclass_default _ -> Ok ())
-                | false, _, Parser.Function_header_completed header ->
-                    Task_declarations.complete_source_defaults ledger header
-                | _ -> Ok ());
+                          |> Result.map ignore
+                      | Frontend.Ast.Lastclass_default _ -> Ok ())
+                  | false, _, Parser.Parameter_default_completed receipt -> (
+                      match receipt.default_ast.value with
+                      | Frontend.Ast.Expression_default _ ->
+                          let* task =
+                            ensure_task receipt.default_ast.location.span
+                          in
+                          Task.prepare_source_default task ~session ~ledger
+                            receipt
+                      | Frontend.Ast.Lastclass_default _ -> Ok ())
+                  | false, _, Parser.Function_header_completed header ->
+                      Task_declarations.complete_source_defaults ledger header
+                  | _ -> Ok ());
           dimension_count =
             Some (Task_declarations.grammar_dimension_count ledger);
           command = (fun _ -> Ok ());

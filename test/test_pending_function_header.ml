@@ -114,7 +114,11 @@ let provisional_and_argument_faults () =
     (fun mode ->
       ignore
         (O.run ~mode "#exe {I64 F(I64 n)#exe {F(42);}{return n;}}"
-        |> O.fault "HCRUN0003");
+        |> O.fault "HCPARSE0025");
+      ignore
+        (O.run ~mode
+           "#exe {I64 F(I64 n)#exe {F(42#exe {PutChars('X');});}{return n;}}"
+        |> O.fault "HCPARSE0025");
       ignore
         (O.run ~mode
            "#exe {I64 Arg(){PutChars('A');return 1/0;}I64 F(I64 n){return \

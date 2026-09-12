@@ -7,6 +7,7 @@ let sink declaration : Parser.command_sink =
   {
     checkpoint = None;
     reference = None;
+    call = None;
     implicit_output = None;
     query = None;
     declaration = Some declaration;
@@ -51,6 +52,8 @@ let activity = function
       Some (fun () -> Parser.function_variadic_completion_is_current receipt)
   | Parser.Function_header_completed receipt ->
       Some (fun () -> Parser.function_header_is_current receipt)
+  | Parser.Function_body_completed (receipt, body) ->
+      Some (fun () -> Parser.function_body_completion_is_current receipt body)
   | _ -> None
 
 let same label left right = Alcotest.(check bool) label true (left == right)
@@ -228,6 +231,7 @@ let callback_failure exceptional target source expected_entries () =
           | Parser.Function_variadic_started receipt
           | Parser.Function_variadic_completed receipt ->
               receipt.variadic_marker.location.span
+          | Parser.Function_body_completed (_, body) -> body.location.span
           | _ -> Alcotest.fail "unexpected rejected declaration phase"
         in
         Error
@@ -339,4 +343,5 @@ let tests =
         ("completion", {|I64 F(I64 n=40,#exe {}I64 m);|}, 0);
         ("ellipsis", {|I64 F(...#exe {})#exe {};|}, 0);
         ("variadic", {|I64 F(...#exe {})#exe {};|}, 1);
+        ("body", {|I64 F(){return 42;};#exe {}|}, 0);
       ]

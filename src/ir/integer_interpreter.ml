@@ -699,13 +699,33 @@ let bind_source_activation task ~namespace activation =
     task.source_activation <- Some activation;
     Ok ())
 
-let promote_task_source_activation task ~namespace ~activation ~dimensions =
+let promote_task_source_activation ?pending_runtime_dimension task ~namespace
+    ~activation ~dimensions =
   let originals = Sema.Source_activation.dimension_preparations activation in
+  let pending_valid, closed_originals =
+    match pending_runtime_dimension with
+    | None -> (true, originals)
+    | Some pending -> (
+        let valid =
+          Frontend.Parser.dimension_preparation_is_current pending
+          && Option.fold ~none:false ~some:(( == ) pending)
+               (Sema.Source_activation.trailing_dimension_preparation activation)
+          && Option.fold ~none:false
+               ~some:(fun expression ->
+                 Sema.Initializer_source.expression_identifier_nodes expression
+                 <> [])
+               pending.dimension_expression
+        in
+        match List.rev originals with
+        | last :: rest when valid && last == pending -> (true, List.rev rest)
+        | _ -> (false, originals))
+  in
   if
     Option.is_some task.source_activation
     || (not (Sema.Source_activation.available activation))
     || (not (Sema.Source_activation.owns_namespace activation namespace))
-    || List.length originals <> List.length dimensions
+    || (not pending_valid)
+    || List.length closed_originals <> List.length dimensions
     || not
          (List.for_all2
             (fun original checked ->
@@ -713,7 +733,7 @@ let promote_task_source_activation task ~namespace ~activation ~dimensions =
               == original
               && Sema.Compiler_record.dimension_preparation_namespace checked
                  == namespace)
-            originals dimensions)
+            closed_originals dimensions)
   then
     Error "source activation requires its original checked dimension manifest"
   else
@@ -869,6 +889,9 @@ let check_function_header_source task ~namespace source =
   let header = Sema.Compiler_record.declared_function_source source in
   if
     (not (source_dimensions_ready task))
+    || (not
+          (Sema.Source_activation.default_completion task.source_activation
+             header))
     || not
          (Frontend.Parser.function_header_is_current header
          || Sema.Source_activation.function_header task.source_activation header
@@ -878,6 +901,55 @@ let check_function_header_source task ~namespace source =
       "pending header admission is outside its original live or active event"
   else
     Integer_globals.check_function_header_source task.catalog ~namespace source
+
+let function_record_head task snapshot =
+  Integer_globals.function_record_head task.catalog snapshot
+
+let check_function_phase_source task ~namespace ~event snapshot =
+  let module Parser = Frontend.Parser in
+  let module Native = Sema.Function_record_phase in
+  let live =
+    match event with
+    | Parser.Function_declared p -> Parser.function_publication_is_current p
+    | Parser.Function_parameter_declared p ->
+        Parser.function_parameter_is_current p
+    | Parser.Function_parameter_completed p ->
+        Parser.function_parameter_completion_is_current p
+    | Parser.Parameter_default_completed p ->
+        Parser.parameter_default_is_current p
+    | Parser.Function_variadic_started p ->
+        Parser.function_variadic_start_is_current p
+    | Parser.Function_variadic_completed p ->
+        Parser.function_variadic_completion_is_current p
+    | Parser.Function_header_completed p -> Parser.function_header_is_current p
+    | _ -> false
+  in
+  if
+    not
+      (source_dimensions_ready task
+      && Native.owns_namespace snapshot namespace
+      && Integer_globals.task_catalog_owns_namespace task.catalog namespace
+      && Native.matches_event snapshot event
+      && Sema.Source_activation.function_phase_admission task.source_activation
+           event
+      && (live
+         || Sema.Source_activation.declaration task.source_activation event))
+  then
+    Error
+      "native function admission is outside its original live or active phase"
+  else
+    Integer_globals.check_function_phase_source task.catalog ~namespace ~event
+      snapshot
+
+let admit_function_phase task ~namespace ~event ~snapshot ~records =
+  Result.bind (check_function_phase_source task ~namespace ~event snapshot)
+    (fun () ->
+      Result.map
+        (fun reference ->
+          task.declared_admissions <-
+            Admitted_function reference :: task.declared_admissions)
+        (Integer_globals.publish_function_phase task.catalog ~namespace ~event
+           ~snapshot ~records))
 
 let admit_function_header task ~namespace ~source ~records =
   Result.bind (check_function_header_source task ~namespace source) (fun () ->
@@ -1051,6 +1123,9 @@ let prepare_task_closed_dimension task ~table ~namespace ~preparation ~queries =
       | Ok () ->
           if
             (not (task_owns_table task table))
+            || (not
+                  (Sema.Source_activation.dimension_admission
+                     task.source_activation preparation))
             || (not (source_dimensions_ready task))
             || (not (dimension_predecessor_ready task preparation))
             || List.exists (( == ) preparation) task.seen_dimensions
@@ -1122,7 +1197,10 @@ let begin_task_dimension task authority =
   in
   let* () = Integer_globals.check_dimension_source task.catalog receipt in
   if
-    (not (source_dimensions_ready task))
+    (not
+       (Sema.Source_activation.dimension_admission task.source_activation
+          receipt))
+    || (not (source_dimensions_ready task))
     || (not (dimension_predecessor_ready task receipt))
     || List.exists (( == ) receipt) task.seen_dimensions
   then Error "dimension preparation has another source or consumed boundary"

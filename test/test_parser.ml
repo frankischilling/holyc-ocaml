@@ -20537,6 +20537,7 @@ let variadic_header_completed_children () =
         {
           checkpoint = None;
           reference = None;
+          call = None;
           implicit_output = None;
           query = None;
           dimension_count = None;

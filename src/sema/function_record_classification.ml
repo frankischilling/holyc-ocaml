@@ -188,17 +188,22 @@ let private_requested state =
 
 let signature_shape declaration =
   let site = Function_resolution.resolved_declaration_site declaration in
-  let function_ = Function_resolution.declaration_site_function site in
-  let signature = Function_type_resolution.function_signature function_ in
-  let argument_count =
-    Function_type_resolution.signature_parameters signature
-    |> List.length |> Int64.of_int
-  in
-  let variadic =
-    Function_type_resolution.function_variadic_bindings function_
-    |> Option.is_some
-  in
-  (argument_count, variadic)
+  match Function_resolution.declaration_site_native_snapshot site with
+  | Some snapshot ->
+      ( Int64.of_int (Option.get (Function_record_phase.argument_count snapshot)),
+        Function_record_phase.ellipsis_flag snapshot )
+  | None ->
+      let function_ = Function_resolution.declaration_site_function site in
+      let signature = Function_type_resolution.function_signature function_ in
+      let argument_count =
+        Function_type_resolution.signature_parameters signature
+        |> List.length |> Int64.of_int
+      in
+      let variadic =
+        Function_type_resolution.function_variadic_bindings function_
+        |> Option.is_some
+      in
+      (argument_count, variadic)
 
 let new_record state =
   {
@@ -215,6 +220,11 @@ let new_record state =
   }
 
 let apply_header declaration (state : declaration_state) (record : record) =
+  let provisional =
+    Function_resolution.declaration_site_phase
+      (Function_resolution.resolved_declaration_site declaration)
+    = Function_resolution.Provisional
+  in
   let argument_count, variadic = signature_shape declaration in
   let stored_flag_mask =
     record.stored_flag_mask |> add_stored variadic Stored_flag.Variadic
@@ -225,13 +235,19 @@ let apply_header declaration (state : declaration_state) (record : record) =
   let stored_flag_mask =
     stored_flag_mask
     |> add_stored
-         (Function_flag.derives_ret1 ~argument_count ~variadic)
+         ((not provisional)
+         && Function_flag.derives_ret1 ~argument_count ~variadic)
          Stored_flag.Ret1
   in
   let hash_flag_mask =
-    record.hash_flag_mask
-    |> set_hash (public_requested state) Hash_flag.Public
-    |> add_hash (private_requested state) Hash_flag.Private
+    if
+      Option.is_some
+        (Function_resolution.resolved_declaration_phase_source declaration)
+    then record.hash_flag_mask
+    else
+      record.hash_flag_mask
+      |> set_hash (public_requested state) Hash_flag.Public
+      |> add_hash (private_requested state) Hash_flag.Private
   in
   { record with stored_flag_mask; hash_flag_mask }
 
@@ -355,7 +371,8 @@ let known_staging_mask =
        (fun mask flag -> Int64.logor mask (Function_flag.Staging.to_mask flag))
        0L
 
-let source_staging_mask (header : Frontend.Parser.completed_function_header) =
+let publication_staging_mask
+    (publication : Frontend.Parser.function_publication) =
   let flag = function
     | Frontend.Ast.Public -> Function_flag.Modifier.Public
     | Frontend.Ast.Static -> Function_flag.Modifier.Static
@@ -364,7 +381,7 @@ let source_staging_mask (header : Frontend.Parser.completed_function_header) =
     | Frontend.Ast.Argument_pop -> Function_flag.Modifier.Argument_pop
     | Frontend.Ast.No_argument_pop -> Function_flag.Modifier.No_argument_pop
   in
-  let declaration = header.function_publication.function_header in
+  let declaration = publication.function_header in
   let mask =
     List.fold_left
       (fun mask (modifier : Frontend.Ast.declaration_modifier) ->
@@ -377,17 +394,23 @@ let source_staging_mask (header : Frontend.Parser.completed_function_header) =
       Function_flag.apply_modifier ~mask Function_flag.Modifier.Underscore_name
   | _ -> mask
 
-let source_import_name kind (header : Frontend.Parser.completed_function_header)
-    =
+let source_staging_mask (header : Frontend.Parser.completed_function_header) =
+  publication_staging_mask header.function_publication
+
+let publication_import_name kind
+    (publication : Frontend.Parser.function_publication) =
   if kind <> Function_resolution.Import then None
   else
-    let publication = header.function_publication in
     match publication.function_header.binding with
     | Some { target = Frontend.Ast.Symbol_binding_target target; _ } ->
         Some target.spelling
     | Some { target = Frontend.Ast.No_binding_target; _ } ->
         Some publication.function_name.spelling
     | _ -> None
+
+let source_import_name kind (header : Frontend.Parser.completed_function_header)
+    =
+  publication_import_name kind header.function_publication
 
 let validate_state declaration (state : declaration_state) =
   let unknown_staging =
@@ -406,7 +429,15 @@ let validate_state declaration (state : declaration_state) =
   in
   let source_state_matches =
     match Function_resolution.declaration_site_header_source site with
-    | None -> true
+    | None -> (
+        match Function_resolution.declaration_site_native_snapshot site with
+        | None -> true
+        | Some snapshot ->
+            let source = Function_record_phase.source snapshot in
+            state.compiler_option_mask
+            = Function_resolution.declaration_site_compiler_option_mask site
+            && state.staging_mask = publication_staging_mask source
+            && state.import_name = publication_import_name kind source)
     | Some source ->
         let header = Compiler_record.declared_function_source source in
         state.compiler_option_mask
@@ -414,7 +445,16 @@ let validate_state declaration (state : declaration_state) =
         && state.staging_mask = source_staging_mask header
         && state.import_name = source_import_name kind header
   in
-  if not (Int64.equal unknown_staging 0L) then
+  if
+    Option.fold ~none:false
+      ~some:(fun snapshot ->
+        Option.is_none (Function_record_phase.argument_count snapshot))
+      (Function_resolution.declaration_site_native_snapshot site)
+  then
+    Error
+      "function record classification requires its checked native argument \
+       count"
+  else if not (Int64.equal unknown_staging 0L) then
     Error "function record classification received unknown parser staging bits"
   else if not source_state_matches then
     Error

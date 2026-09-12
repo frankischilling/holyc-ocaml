@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Preserved native function snapshots at their original declaration events
+  during source activation. Earlier replayed counts survive later header
+  completion and reuse; inactive or failed replay cannot read a later phase.
+  Provisional variadic argument binding and call-shape checks now use checked
+  cursor metadata without requiring body-local synthetic symbols, including
+  implicit output. Retained tasks now admit original provisional phases against
+  their actual native catalog head. Stale, foreign and alternate-root admissions
+  reject; hidden header completion preserves the visible shadow. Fresh/reused
+  provisional calls and reached UndefinedExtern pass. Separate argument and
+  emission phase binding remains unfinished in #635.
+  Completed-header admission also requires its exact journal event; a still-live
+  parser callback cannot bypass unstarted, misplaced or failed replay.
+
 - Added native variadic signature termination without a closing parenthesis.
   AST and semantic signatures preserve an absent token explicitly; definitions,
   prototypes and callback declarators own the following token. Retained headers

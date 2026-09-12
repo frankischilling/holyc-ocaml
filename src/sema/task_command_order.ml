@@ -292,11 +292,15 @@ let check_declaration order ~admitted ~(publication : Parser.global_publication)
   check_preparation order ~admitted
     ~start:publication.global_header.declaration_command ~predecessor
 
-let check_function_header order ~admitted
-    (header : Parser.completed_function_header) =
-  let start = header.function_publication.function_header.declaration_command in
+let check_function_publication order ~admitted
+    (publication : Parser.function_publication) =
+  let start = publication.function_header.declaration_command in
   check_preparation order ~admitted ~start
     ~predecessor:start.command_predecessor
+
+let check_function_header order ~admitted
+    (header : Parser.completed_function_header) =
+  check_function_publication order ~admitted header.function_publication
 
 let check_dimension ?(require_admitted = true) order ~admitted
     (receipt : Parser.array_dimension_preparation) =

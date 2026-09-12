@@ -290,6 +290,20 @@ let runtime_dimensions () =
       "I64 N=2;I64 A[N];I64 F(I64 x=sizeof A+26){return x;};F();";
     ]
 
+let runtime_dimension_activation () =
+  ignore (run "I64 N=2;I64 A[N];42;" |> Output.expect "");
+  let source = "I64 Closed[2];I64 N=0;I64 A[++N+1];N+sizeof A+25;" in
+  let report = run source in
+  ignore (Output.expect "" report);
+  let work = (Option.get (integer_program_report_progress report)).runtime in
+  ignore
+    (run ~max_steps:work.executed_steps
+       ~max_initializer_steps:work.initializer_steps source
+    |> Output.expect "");
+  ignore
+    (run ~max_initializer_steps:(work.initializer_steps - 1) source
+    |> Output.fault "HCIRVM0007")
+
 let runtime_dimension_failures () =
   List.iter
     (fun (code, body) ->
@@ -387,11 +401,14 @@ let original_read_timing () =
   ignore
     (run {|I64 F(){return 42;}#exe {StreamPrint("%d;",F());}|}
     |> Output.fault "HCIRVM0030");
+  ignore
+    (run
+       {|I64 N=0;I64 F(I64 x=F(#exe {N=42;Print("late");StreamPrint("1");})){return x;};|}
+    |> Output.fault ~output:"late" "HCPARSE0025");
   List.iter
     (fun source -> ignore (run source |> Output.fault "HCRUN0003"))
     [
       {|I64 F(){return Future;}#exe {Print("late");I64 Future=42;}F();|};
-      {|I64 N=0;I64 F(I64 x=F(#exe {N=42;Print("late");StreamPrint("1");})){return x;};|};
       {|I64 F(){I64 N=40;#exe {StreamPrint("%d;",N+2);}return 42;};F();|};
     ]
 
@@ -429,6 +446,9 @@ let tests =
       `Quick original_read_timing;
     Alcotest.test_case "runtime dimensions execute at declaration time" `Quick
       runtime_dimensions;
+    Alcotest.test_case
+      "runtime dimension activates from its original complete trace" `Quick
+      runtime_dimension_activation;
     Alcotest.test_case "runtime dimension faults preserve reached effects"
       `Quick runtime_dimension_failures;
     Alcotest.test_case "runtime dimensions share exact task allowances" `Quick

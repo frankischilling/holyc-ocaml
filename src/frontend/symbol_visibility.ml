@@ -49,6 +49,7 @@ type entry = {
   kind : kind;
   origin : origin;
   function_call_shape : function_call_shape option;
+  alias_original : entry option;
 }
 
 let id entry = entry.id
@@ -56,6 +57,7 @@ let name entry = entry.name
 let kind entry = entry.kind
 let origin entry = entry.origin
 let function_call_shape entry = entry.function_call_shape
+let function_alias_original entry = entry.alias_original
 
 let kind_name = function
   | Export_system_symbol -> "export-system-symbol"
@@ -176,8 +178,8 @@ module Environment = struct
     environment.local_contexts <- [];
     Fun.protect ~finally:(fun () -> environment.local_contexts <- contexts) run
 
-  let add ?(origin = Session_registration) ?function_call_shape environment
-      ~name ~kind () =
+  let add_entry ?(origin = Session_registration) ?function_call_shape
+      ?alias_original environment ~name ~kind () =
     if String.length name = 0 then invalid_arg "symbol name cannot be empty";
     if Option.is_some function_call_shape && kind <> Function then
       invalid_arg "only function symbols may carry a function call shape";
@@ -191,6 +193,7 @@ module Environment = struct
         kind;
         origin;
         function_call_shape;
+        alias_original;
       }
     in
     environment.store.next_entry_id <- environment.store.next_entry_id + 1;
@@ -202,6 +205,35 @@ module Environment = struct
     Hashtbl.replace environment.store.entries_by_name name (entry :: existing);
     environment.store.entries_rev <- entry :: environment.store.entries_rev;
     entry
+
+  let add ?origin ?function_call_shape environment ~name ~kind () =
+    add_entry ?origin ?function_call_shape environment ~name ~kind ()
+
+  let validate_function_alias environment ~original_entry =
+    if original_entry.kind <> Function then
+      Error "function alias requires an original function entry"
+    else if not (same_owner environment.owner original_entry.owner) then
+      Error "original function entry belongs to another frontend owner"
+    else if
+      not (List.exists (( == ) original_entry) environment.store.entries_rev)
+    then Error "original function entry does not belong to this environment"
+    else if environment.store.next_entry_id = max_int then
+      Error "symbol visibility identity space is exhausted"
+    else Ok ()
+
+  let add_function_alias ?function_call_shape environment ~original_entry () =
+    match validate_function_alias environment ~original_entry with
+    | Error message -> Error message
+    | Ok () ->
+        let function_call_shape =
+          match function_call_shape with
+          | Some shape -> Some shape
+          | None -> original_entry.function_call_shape
+        in
+        Ok
+          (add_entry ~origin:original_entry.origin ?function_call_shape
+             ~alias_original:original_entry environment
+             ~name:original_entry.name ~kind:Function ())
 
   let local_shadow environment name =
     List.exists

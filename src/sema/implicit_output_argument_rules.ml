@@ -111,7 +111,7 @@ let plan ?(omissions = []) ?(absent_initial = false) header values =
   | Ok (fixed_slots, extras) -> (
       let variadic =
         Option.is_some
-          (Function_type_resolution.function_variadic_bindings header)
+          (Function_type_resolution.function_variadic_count_type header)
       in
       match (variadic, extras) with
       | false, provided :: _ ->

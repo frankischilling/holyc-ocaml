@@ -36,6 +36,7 @@ and parameter = {
 }
 
 and signature = {
+  signature_provisional_call_ : Function_record_phase.checked_call_shape option;
   signature_opening_origin_ : Symbol.origin;
   signature_parameters_ : parameter list;
   signature_variadic_origin_ : Symbol.origin option;
@@ -91,6 +92,11 @@ let function_scope function_ = function_.function_scope_
 let function_item_index function_ = function_.function_item_index_
 let function_return_type function_ = function_.function_return_type_
 let function_signature function_ = function_.function_signature_
+
+let function_provisional_call function_ =
+  function_.function_signature_.signature_provisional_call_
+
+let signature_provisional_call signature = signature.signature_provisional_call_
 
 let function_parameter_bindings function_ =
   function_.function_parameter_bindings_
@@ -231,6 +237,8 @@ let source_parameter_matches (source : Frontend.Ast.function_parameter) ~origin
       | Frontend.Ast.Expression_default expression ->
           value.expression_origin
           = source_location (Frontend.Ast.expression_location expression)
+          && value.contains_string_literal
+             = Frontend.Expression_facts.contains_string_literal expression
       | _ -> false)
   | Some source, Some (Lastclass_default value) -> (
       value.origin = source_location source.location
@@ -284,7 +292,10 @@ let make_parameter ?source ~index ~origin ?(register_requests = []) ?name
 let make_function_pointer ~origin ~opening_origin ~indirection_origins
     ~closing_origin ~signature =
   let depth = List.length indirection_origins in
-  if depth = 0 then
+  if Option.is_some signature.signature_provisional_call_ then
+    Error
+      "provisional call evidence cannot become an ordinary callback signature"
+  else if depth = 0 then
     Error "semantic callback signature requires at least one indirection layer"
   else if depth > Type.max_pointer_depth then
     Error
@@ -332,6 +343,7 @@ let make_signature ~opening_origin ~parameters ?variadic_origin
         | Ok () ->
             Ok
               {
+                signature_provisional_call_ = None;
                 signature_opening_origin_ = opening_origin;
                 signature_parameters_ = parameters;
                 signature_variadic_origin_ = variadic_origin;
@@ -461,7 +473,10 @@ let validate_variadic_bindings signature bindings =
 
 let make_function_record completed_header ~symbol ~scope ~item_index
     ~return_type ~signature ~parameter_bindings ~variadic_bindings =
-  if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Function) then
+  if Option.is_some signature.signature_provisional_call_ then
+    Error
+      "provisional call evidence cannot authorize an ordinary function record"
+  else if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Function) then
     Error "semantic function type owner must be a function symbol"
   else if Symbol_table.scope_kind scope <> Symbol_table.Function then
     Error "semantic function type requires a function scope"
@@ -585,7 +600,10 @@ let validate_function ~table ~parent previous_item seen_symbols seen_scopes
     function_ =
   let symbol_number = symbol_number function_.function_symbol_ in
   let scope_number = scope_number function_.function_scope_ in
-  if function_.function_item_index_ <= previous_item then
+  if Option.is_some (function_provisional_call function_) then
+    Error
+      "provisional call evidence cannot enter ordinary function type resolution"
+  else if function_.function_item_index_ <= previous_item then
     Error "semantic function types must follow module source order"
   else if Int_set.mem symbol_number seen_symbols then
     Error "semantic function type owner is repeated"
@@ -660,7 +678,8 @@ let same_source left right =
   | Some _, None | None, Some _ -> false
 
 let rec same_signature left right =
-  left.signature_opening_origin_ = right.signature_opening_origin_
+  same_source left.signature_provisional_call_ right.signature_provisional_call_
+  && left.signature_opening_origin_ = right.signature_opening_origin_
   && left.signature_variadic_origin_ = right.signature_variadic_origin_
   && List.equal Register_request.equal
        left.signature_variadic_register_requests_
@@ -846,3 +865,250 @@ let resolve ?(retained_headers = []) ~table ~parent function_declarations =
               validate item_index seen_symbols seen_scopes rest)
     in
     validate (-1) Int_set.empty Int_set.empty function_declarations
+
+let source_registers_match sources requests =
+  List.length sources = List.length requests
+  && List.for_all2
+       (fun (source : Frontend.Ast.register_qualifier) request ->
+         source_location source.location = Register_request.origin request
+         && source.spelling = Register_request.spelling request
+         && (match (source.kind, Register_request.kind request) with
+           | Frontend.Ast.Reg, Register_request.Allocate
+           | Frontend.Ast.Noreg, Register_request.Disable -> true
+           | _ -> false)
+         && (match (source.position, Register_request.position request) with
+           | Frontend.Ast.Before_type, Register_request.Before_type
+           | Frontend.Ast.After_type, Register_request.After_type -> true
+           | _ -> false)
+         &&
+         match
+           (source.explicit_register, Register_request.explicit_register request)
+         with
+         | None, None -> true
+         | Some source, Some request ->
+             source.spelling
+             = Register_request.explicit_register_spelling request
+             && source_location source.location
+                = Register_request.explicit_register_origin request
+         | _ -> false)
+       sources requests
+
+let source_builtin_matches type_specifier pointer_layers reference =
+  match Source_type_reference.builtin type_specifier pointer_layers with
+  | Error _ -> false
+  | Ok expected -> same_type_reference expected reference
+
+let rec source_signature_matches ~opening ~parameters ~variadic ~closing
+    signature =
+  signature_opening_origin signature = source_location opening
+  && signature_closing_origin signature = Option.map source_location closing
+  && signature_variadic_origin signature
+     = Option.map
+         (fun (marker : Frontend.Ast.variadic_marker) ->
+           source_location marker.location)
+         variadic
+  && source_registers_match
+       (Option.fold ~none:[]
+          ~some:(fun (marker : Frontend.Ast.variadic_marker) ->
+            marker.register_qualifiers)
+          variadic)
+       (signature_variadic_register_requests signature)
+  && List.length parameters = List.length (signature_parameters signature)
+  && List.for_all2
+       (fun (source : Frontend.Ast.function_parameter) parameter ->
+         Option.fold ~none:false ~some:(( == ) source)
+           (parameter_source parameter)
+         && source_builtin_matches source.type_specifier source.pointer_layers
+              (parameter_type_reference parameter)
+         && source_registers_match source.register_qualifiers
+              (parameter_register_requests parameter)
+         && parameter_delimiter_origin parameter
+            = Option.map
+                (fun (delimiter : Frontend.Ast.declaration_delimiter) ->
+                  source_location delimiter.location)
+                source.delimiter
+         &&
+         match
+           (source.function_pointer, parameter_declarator_kind parameter)
+         with
+         | None, Object -> true
+         | Some source, Function_pointer pointer ->
+             function_pointer_origin pointer
+             = source_location source.function_pointer_location
+             && function_pointer_opening_origin pointer
+                = source_location source.declarator_opening_parenthesis
+             && function_pointer_closing_origin pointer
+                = source_location source.declarator_closing_parenthesis
+             && function_pointer_indirection_origins pointer
+                = List.map
+                    (fun (layer : Frontend.Ast.pointer_layer) ->
+                      source_location layer.location)
+                    source.indirection_layers
+             && source_signature_matches
+                  ~opening:source.signature_opening_parenthesis
+                  ~parameters:source.signature_parameters
+                  ~variadic:source.signature_variadic
+                  ~closing:source.signature_closing_parenthesis
+                  (function_pointer_signature pointer)
+         | _ -> false)
+       parameters
+       (signature_parameters signature)
+
+let validate_provisional_source_types shape =
+  let module A = Frontend.Ast in
+  let ( let* ) = Result.bind in
+  let type_source type_specifier pointers =
+    Result.map
+      (fun _ -> ())
+      (Source_type_reference.builtin type_specifier pointers)
+  in
+  let rec callback = function
+    | None -> Ok ()
+    | Some (pointer : A.function_pointer_declarator) ->
+        List.fold_left
+          (fun result (parameter : A.function_parameter) ->
+            let* () = result in
+            let* () =
+              type_source parameter.type_specifier parameter.pointer_layers
+            in
+            callback parameter.function_pointer)
+          (Ok ()) pointer.signature_parameters
+  in
+  let snapshot = Function_record_phase.shape_snapshot shape in
+  let native = Function_record_phase.native_source snapshot in
+  let* () =
+    type_source native.function_header.type_specifier
+      native.function_pointer_layers
+  in
+  List.fold_left
+    (fun result member ->
+      let* () = result in
+      let source = Provisional_function.member_source member in
+      let* () =
+        type_source source.parameter_type_specifier
+          source.parameter_pointer_layers
+      in
+      callback source.parameter_function_pointer)
+    (Ok ())
+    (Function_record_phase.native_members snapshot)
+
+let make_provisional_function ~table ~namespace ~shape ~scope ~return_type
+    ~parameters ~variadic_register_requests =
+  let module N = Function_record_phase in
+  let module P = Provisional_function in
+  let ( let* ) = Result.bind in
+  let snapshot = N.shape_snapshot shape in
+  let publication = N.publication snapshot in
+  let symbol = Declaration_collection.publication_symbol publication in
+  let parent = Declaration_collection.namespace_scope namespace in
+  let native = N.native_source snapshot in
+  let* () =
+    if
+      (not (N.owns_table snapshot table && N.owns_namespace snapshot namespace))
+      || (not
+            (Declaration_collection.namespace_owns_publication namespace
+               publication))
+      || (not (Symbol_table.owns_scope table scope))
+      || Symbol_table.scope_kind scope <> Symbol_table.Function
+      || not
+           (Option.fold ~none:false ~some:(( == ) parent)
+              (Symbol_table.parent scope))
+    then
+      Error
+        "provisional call types require their original namespace and owning \
+         scope"
+    else Ok ()
+  in
+  let* () = validate_provisional_source_types shape in
+  let* originals =
+    let rec collect rev = function
+      | [] -> Ok (List.rev rev)
+      | member :: rest -> (
+          match P.member_completion member with
+          | Some completed ->
+              collect (completed.Frontend.Parser.parameter_ast :: rev) rest
+          | None ->
+              Error "native fixed member has no checked source type completion")
+    in
+    collect [] (N.fixed_members shape)
+  in
+  let marker =
+    Option.map
+      (fun p -> p.Frontend.Parser.variadic_marker)
+      (N.variadic_tail shape)
+  in
+  let signature =
+    {
+      signature_provisional_call_ = Some shape;
+      signature_opening_origin_ =
+        source_location native.function_opening_parenthesis;
+      signature_parameters_ = parameters;
+      signature_variadic_origin_ =
+        Option.map
+          (fun (m : Frontend.Ast.variadic_marker) -> source_location m.location)
+          marker;
+      signature_variadic_register_requests_ = variadic_register_requests;
+      signature_closing_origin_ = None;
+    }
+  in
+  let* () =
+    if
+      (not
+         (source_builtin_matches native.function_header.type_specifier
+            native.function_pointer_layers return_type))
+      || Type_reference.spelling return_type
+         <> Frontend.Ast.type_specifier_spelling
+              native.function_header.type_specifier
+      || Type_reference.spelling_origin return_type
+         <> source_location
+              (Frontend.Ast.type_specifier_location
+                 native.function_header.type_specifier)
+      || Type_reference.pointer_origins return_type
+         <> List.map
+              (fun (p : Frontend.Ast.pointer_layer) ->
+                source_location p.location)
+              native.function_pointer_layers
+      || (not
+            (List.mapi (fun index p -> parameter_index p = index) parameters
+            |> List.for_all Fun.id))
+      || not
+           (source_signature_matches
+              ~opening:native.function_opening_parenthesis ~parameters:originals
+              ~variadic:marker ~closing:None signature)
+    then
+      Error
+        "provisional call type projection substituted original native members \
+         or return type"
+    else Ok ()
+  in
+  let* () = validate_type_reference ~table ~parent return_type in
+  let* () = validate_signature_types ~table ~parent signature in
+  Ok
+    {
+      function_symbol_ = symbol;
+      function_scope_ = scope;
+      function_item_index_ = 0;
+      function_return_type_ = return_type;
+      function_signature_ = signature;
+      function_parameter_bindings_ = [];
+      function_variadic_bindings_ = None;
+      function_completed_header_ = None;
+      function_header_reused_ = false;
+    }
+
+let function_variadic_count_type function_ =
+  match function_provisional_call function_ with
+  | None ->
+      Option.map
+        (fun bindings -> bindings.variadic_argc_.synthetic_type)
+        function_.function_variadic_bindings_
+  | Some shape ->
+      Option.map
+        (fun _ ->
+          match
+            Type.make_primitive ~form:Type.Internal_storage
+              ~primitive:Primitive_type.I64 ~pointer_depth:0
+          with
+          | Ok type_ -> type_
+          | Error _ -> assert false)
+        (Function_record_phase.variadic_tail shape)

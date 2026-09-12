@@ -916,6 +916,30 @@ The pinned lexer nests `/* ... */` comments. It consumes `//` through the end of
 - Ordinary dollar-delimited text remains comment trivia outside strings. Complete commands inside strings are retained as literal bytes but are not parsed or rendered. In a NUL-terminated saved DolDoc source, `$IB,...,BI=n$` and `$IS,...,BI=n$` select a numbered `CDocBin` record and become typed literal tokens. `$$` remains the HolyC current-position token. Other DolDoc commands are not interpreted by this slice.
 - Strict hosted decoding rejects truncated headers, truncated payloads, duplicate record numbers, and missing references. The pinned Git objects contain newline-normalized trailers whose declared sizes cannot reliably locate every following record. Corpus mode uses an explicit recovery path and marks shortened or missing records incomplete; it never presents those bytes as an intact oracle payload.
 
+## Provisional function calls and source activation
+
+At reference `c26482bb6ad3f80106d28504ec5db3c6a360732c`,
+`Compiler/LexLib.HC:209-218` resets a reused function's member and argument counts.
+`Compiler/PrsStmt.HC:90-117` saves the comparison header, replaces native members
+and derives the completed active count. `Compiler/PrsExp.HC:430-491` walks that
+count before recognizing the variadic member cursor. Call-only type projections
+therefore expose the checked variadic count type without requiring body-local
+synthetic bindings. The argument binder, direct lowerer and runtime call-shape
+validator share that distinction, including implicit output calls.
+
+The task ledger freezes native declaration snapshots at the original parser
+events so activation cannot replace them with later shared-record state.
+`test/test_task_call_phases.ml` checks original replay counts, record reuse and
+failed-activation rejection; `test/test_provisional_function_types.ml` checks
+variadic cursor publication and fixed defaults. Runtime admission validates the
+original live or replayed event and the actual native catalog head. The authority
+tests reject stale predecessors, alternate semantic roots and completed-header
+bypasses without changing catalog entries. Hidden header completion retains its
+lookup position. Fresh/reused provisional calls and reached UndefinedExtern now
+pass; separate post-name argument-phase binding remains open in #635. These are
+hosted source tests; see
+[provisional function members](provisional-function-members.md).
+
 ## Bounded source expression evaluation
 
 At pinned commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`,

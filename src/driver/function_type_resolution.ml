@@ -792,3 +792,69 @@ let resolve_completed_header_with_collection ~table ~namespace declaration =
 let resolve_completed_header ~table ~namespace declaration =
   Result.map snd
     (resolve_completed_header_with_collection ~table ~namespace declaration)
+
+let resolve_provisional_call ?scope ~table ~namespace shape =
+  let module N = Sema.Function_record_phase in
+  let module P = Sema.Provisional_function in
+  let ( let* ) = Result.bind in
+  let snapshot = N.shape_snapshot shape in
+  let parent = Sema.Declaration_collection.namespace_scope namespace in
+  let* () =
+    if not (N.owns_table snapshot table && N.owns_namespace snapshot namespace)
+    then
+      Error
+        "provisional function call belongs to a different table or namespace"
+    else
+      match scope with
+      | None -> Ok ()
+      | Some scope ->
+          if
+            Sema.Symbol_table.owns_scope table scope
+            && Sema.Symbol_table.scope_kind scope = Sema.Symbol_table.Function
+            && Option.fold ~none:false ~some:(( == ) parent)
+                 (Sema.Symbol_table.parent scope)
+          then Ok ()
+          else Error "provisional function call has a foreign owning scope"
+  in
+  (* The native cursor, not the source header length, chooses the parameters.
+     Resolve original children before allocating the call's empty owning scope.
+     Selected named aggregate types need their own retained source evidence. *)
+  let* () =
+    Sema.Function_type_resolution.validate_provisional_source_types shape
+  in
+  let visible = String_map.empty in
+  let native = N.native_source snapshot in
+  let* return_type =
+    make_type_reference visible native.function_header.type_specifier
+      native.function_pointer_layers
+  in
+  let rec parameters index rev = function
+    | [] -> Ok (List.rev rev)
+    | member :: rest ->
+        let* original =
+          match P.member_completion member with
+          | Some completed -> Ok completed.Frontend.Parser.parameter_ast
+          | None ->
+              Error "native fixed member has no checked source type completion"
+        in
+        let* parameter = parameter_fact visible index original in
+        parameters (index + 1) (parameter :: rev) rest
+  in
+  let* parameters = parameters 0 [] (N.fixed_members shape) in
+  let* variadic_register_requests =
+    Register_request.of_list
+      (Option.fold ~none:[]
+         ~some:(fun source ->
+           source.Frontend.Parser.variadic_marker.register_qualifiers)
+         (N.variadic_tail shape))
+  in
+  let* scope =
+    match scope with
+    | Some scope -> Ok scope
+    | None ->
+        Sema.Symbol_table.create_scope table ~parent
+          ~kind:Sema.Symbol_table.Function ~name:native.function_name.spelling
+          ()
+  in
+  Sema.Function_type_resolution.make_provisional_function ~table ~namespace
+    ~shape ~scope ~return_type ~parameters ~variadic_register_requests

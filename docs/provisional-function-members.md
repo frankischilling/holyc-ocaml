@@ -2,8 +2,9 @@
 
 Named headers now publish original member phases while parameter parsing is
 still in progress. The task declaration ledger validates and retains those
-phases before accepting a completed header. Runtime admission of provisional
-calls remains unfinished.
+phases before accepting a completed header. Retained JIT tasks admit those
+original native phases for provisional calls. Separate argument and emission
+phase binding remains unfinished.
 
 For `I64 F(I64 n=#exe {}40)#exe {}{return n;}`, the first directive sees n's
 original type and name before its default has been parsed. The second sees the
@@ -32,6 +33,34 @@ Rejected, repeated, foreign and expired events leave it unchanged. An original
 JIT source activation can replay the phases once. Legacy delayed ledger metadata
 replay creates no live provisional source authority.
 
+The ledger also keeps the immutable native snapshot observed at each original
+declaration event. During source activation, a snapshot read returns only that
+event's retained phase. A later completed or reused header cannot change an
+earlier replayed argument count or member list. Reads before activation starts,
+at another declaration's event or after failed activation reject. Reading a
+snapshot does not admit a callable or execute code.
+
+Provisional call type projections carry a checked variadic cursor without
+allocating body-local `argc` or `argv` symbols. Direct and implicit-output
+argument binding and lowering, plus runtime call-shape checks, use the cursor's
+count type. A flag alone
+does not permit a variadic tail before its original members exist. Fixed
+defaults retain their original parameter children, and omitted variadic values
+remain errors. These consumers still require the separate call and runtime
+authority described below.
+
+Runtime admission checks the original live declaration callback or its exact
+activation event, the task's namespace and command order, and the actual current
+catalog head. Failed replay cannot reuse a still-live callback. A reused native
+allocation cannot become a second semantic identity by omitting its predecessor
+or using an ordinary completed-header declaration. Rejections preserve the
+catalog. Header completion retains the original ordinary typed header for body
+frames and a separate callable projection for native members.
+
+A suspended header may finish after nested code creates a newer same-name
+function. Its hidden native head advances separately from visible name lookup;
+completion does not move it ahead of the newer function.
+
 ## Native evidence and remaining runtime work
 
 Reference: TempleOS `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
@@ -55,7 +84,23 @@ outer header is suspended. Runtime integration must preserve active counts,
 partial members, successfully saved defaults, flags, return metadata and
 executable lineage without creating a fabricated completed source signature.
 
-The following source-derived execution gate is still open in both outer modes:
+Direct calls have three distinct source phases: identifier selection before
+name lookahead, argument-count/member capture after that lookahead, and emission
+after closing-parenthesis lookahead. `PrsExp.HC:810,865,430-434,534-586` reads the
+selected record at those boundaries. The parser and ledger retain original
+call-start and emission receipts, but semantic binding and execution still need
+their separate traversal and emission metadata. Cleanup uses the current
+emission argument count plus the captured variadic count and hidden count slot;
+it cannot always be inferred from the number of values originally pushed.
+
+Completed-header runtime admission uses the same journal boundary as provisional
+phases. A header already recorded in the activation journal can publish only at
+its own active event, even if its original parser callback remains live. Checks
+before replay, at another event and after replay failure reject before catalog
+publication. Headers observed after the journal was sealed retain the ordinary
+live-callback path and its source-order checks.
+
+The following source-derived execution gate passes in both outer modes:
 
 ```c
 #exe {
@@ -68,9 +113,17 @@ The following source-derived execution gate is still open in both outer modes:
 
 Its expected outer result is I64 42 with empty ordinary output. The conditional
 consumer skips the call; an ordinary Boolean value expression `0&&F();` is eager
-and is a different requirement. The source transcript does not by itself admit
-either form. Reached UndefinedExtern behavior, general partial records and the
-complete compiler/native/BIN/loader/bootstrap objective remain required.
+and is a different requirement. Reached and eager calls now report UndefinedExtern
+(`HCIRVM0030`). Fresh and reused provisional headers, calls during default
+preparation, and the existing post-close executable-selection cases pass.
+
+Argument-phase binding remains open. In
+`extern I64 F();if(0&&F#exe {extern I64 F(I64 n);}(40)){}`, the parser correctly
+captures one argument after name lookahead, but semantic binding still uses the
+zero-argument header retained at identifier selection. That acceptance test
+remains failing. General partial records, separate emission return/flags/cleanup
+metadata, and the complete compiler/native/BIN/loader/bootstrap objective remain
+required.
 
 Run focused source tests with
 `opam exec -- dune exec -j 1 test/test_main.exe -- test 'provisional function'`.

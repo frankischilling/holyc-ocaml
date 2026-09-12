@@ -63,6 +63,7 @@ let parse_fixture text =
     {
       checkpoint = None;
       reference = None;
+      call = None;
       implicit_output = None;
       query = None;
       dimension_count = None;

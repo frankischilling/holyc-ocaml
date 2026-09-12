@@ -219,6 +219,7 @@ let prepare_isolated task contents =
   let commands : Parser.command_sink =
     {
       checkpoint = Some (Task_declarations.observe_command ledger);
+      call = None;
       implicit_output = None;
       reference = None;
       query = Some (Task_declarations.observe_query ledger);

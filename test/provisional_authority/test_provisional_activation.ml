@@ -74,6 +74,7 @@ let activation_replays_original_phases () =
       checkpoint = Some checkpoint;
       declaration = Some declaration;
       reference = None;
+      call = None;
       implicit_output = None;
       query = None;
       dimension_count = None;

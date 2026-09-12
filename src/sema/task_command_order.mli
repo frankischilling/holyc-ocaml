@@ -1,6 +1,12 @@
 type t
 type command
 
+val check_function_publication :
+  t ->
+  admitted:command list ->
+  Frontend.Parser.function_publication ->
+  (unit, string) result
+
 val check_function_header :
   t ->
   admitted:command list ->

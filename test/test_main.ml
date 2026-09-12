@@ -138,6 +138,20 @@ let () =
       ("parameter default boundaries", Test_parameter_default_boundaries.tests);
       ("provisional function parser", Test_provisional_function_parser.tests);
       ("provisional function source", Test_provisional_function_source.tests);
+      ("provisional function runtime", Test_provisional_function_runtime.tests);
+      ("function record phase", Test_function_record_phase.tests);
+      ("provisional function types", Test_provisional_function_types.tests);
+      ( "provisional function authority",
+        Test_provisional_function_authority.tests );
+      ("direct call phases", Test_direct_call_phases.tests);
+      ("call activation", Test_call_activation.tests);
+      ("task call phases", Test_task_call_phases.tests);
+      ( "provisional function resolution",
+        Test_provisional_function_resolution.tests );
+      ( "provisional function classification",
+        Test_provisional_function_classification.tests );
+      ("function alias", Test_function_alias.tests);
+      ("task function alias", Test_task_function_alias.tests);
       ("parameter default execution", Test_parameter_default_execution.tests);
       ("stream parser", Test_stream_parser.tests);
       ("source integer statics", Test_integer_statics.tests);

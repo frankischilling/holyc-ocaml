@@ -38,6 +38,7 @@ let accepted_root () =
                 sequence := Some receipt;
                 Ok ()
             | _ -> Ok ());
+      call = None;
       implicit_output = None;
       reference = Some (Declarations.observe_reference ledger);
       declaration = Some (Declarations.observe ledger);
@@ -120,6 +121,7 @@ let empty_input ?(before_completion = fun _ -> ()) session task =
             | _ -> ());
             VM.observe_task_source_event task event
             |> Result.map_error (fun _ -> []));
+      call = None;
       implicit_output = None;
       reference = None;
       declaration = None;
@@ -176,6 +178,7 @@ let delayed_input_start () =
             | Parser.Sequence_started _ -> start := Some event
             | _ -> ());
             Ok ());
+      call = None;
       implicit_output = None;
       reference = None;
       declaration = None;

@@ -27,6 +27,7 @@ let parse_source ?sources ?symbols ?observe ?checkpoint ?reference
       checkpoint =
         Some (Option.value checkpoint ~default:(D.observe_command ledger));
       reference;
+      call = None;
       implicit_output;
       query = Some (Option.value query ~default:(D.observe_query ledger));
       declaration = Some consume;
@@ -336,6 +337,7 @@ let nested_publication_views () =
             Result.bind (D.observe_command ledger event) (fun () ->
                 checkpoint event));
       query = None;
+      call = None;
       implicit_output = None;
       reference = None;
       declaration = Some consume;
@@ -621,6 +623,7 @@ let nested_receipt_views () =
         {
           checkpoint = Some checkpoint;
           query = None;
+          call = None;
           implicit_output = None;
           reference = None;
           declaration = Some (D.observe ledger);
@@ -992,6 +995,7 @@ let selected_runtime_source session runtime ledger contents =
                     execute receipt.command_ast |> Result.map ignore
                 | _ -> Ok ()));
       query = Some (D.observe_query ledger);
+      call = None;
       implicit_output = None;
       reference = Some (D.observe_reference ledger);
       declaration = Some (D.observe ledger);
@@ -2338,6 +2342,7 @@ let nested_dimension_receipts () =
           (fun event ->
             Result.bind (D.observe_command ledger event) (fun () ->
                 checkpoint event));
+      call = None;
       implicit_output = None;
       reference = None;
       query = None;
@@ -2959,6 +2964,7 @@ let nested_grammar_dimensions () =
       let commands : Parser.command_sink =
         {
           checkpoint = Some (D.observe_command ledger);
+          call = None;
           implicit_output = None;
           reference = None;
           query = Some (D.observe_query ledger);

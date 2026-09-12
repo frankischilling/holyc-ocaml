@@ -389,6 +389,10 @@ let observe_initializer task event =
         Task_declarations.complete_initializer_runtime task.declarations
           ~runtime:task.state event
     | _ -> Ok ())
+  |> fun prepared ->
+  Result.bind prepared (fun () ->
+      Task_declarations.admit_function_phase task.declarations
+        ~runtime:task.state event)
   |> Result.map_error
        (List.map (fun (error : Common.Diagnostic.t) ->
             if
@@ -686,6 +690,29 @@ let execution_commands task span ~active =
                 Ok ()
             | _ -> Ok ());
       query = Some query;
+      call =
+        Some
+          {
+            start =
+              (fun receipt ->
+                let* () =
+                  reading
+                    (Frontend.Parser.selected_command
+                       receipt.Frontend.Parser.call_reference)
+                      .command_context
+                in
+                Task_declarations.observe_call_start task.declarations receipt);
+            emit =
+              (fun receipt ->
+                let* () =
+                  reading
+                    (Frontend.Parser.selected_command
+                       receipt.Frontend.Parser.call_start.call_reference)
+                      .command_context
+                in
+                Task_declarations.observe_call_emission task.declarations
+                  receipt);
+          };
       implicit_output =
         Some
           (fun selection ->

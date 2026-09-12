@@ -34,6 +34,26 @@ val check_task_namespace :
 val bind_task_namespace :
   task_catalog -> Sema.Declaration_collection.namespace -> (unit, string) result
 
+val function_record_head :
+  task_catalog ->
+  Sema.Function_record_phase.snapshot ->
+  Retained_function.t option
+
+val check_function_phase_source :
+  task_catalog ->
+  namespace:Sema.Declaration_collection.namespace ->
+  event:Frontend.Parser.declaration_event ->
+  Sema.Function_record_phase.snapshot ->
+  (unit, string) result
+
+val publish_function_phase :
+  task_catalog ->
+  namespace:Sema.Declaration_collection.namespace ->
+  event:Frontend.Parser.declaration_event ->
+  snapshot:Sema.Function_record_phase.snapshot ->
+  records:Sema.Function_record_classification.t ->
+  (Retained_function.t, string) result
+
 val publish_function_header :
   task_catalog ->
   namespace:Sema.Declaration_collection.namespace ->

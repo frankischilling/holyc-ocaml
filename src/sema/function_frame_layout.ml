@@ -886,7 +886,12 @@ let validate_function_identity table parent previous_item seen_symbols input =
   let local_scope = Local_type_resolution.function_scope local in
   let local_item = Local_type_resolution.function_item_index local in
   let key = symbol_number symbol in
-  if item < 0 || item <= previous_item then
+  if Option.is_some (Function_type_resolution.function_provisional_call typed)
+  then
+    Error
+      (invalid_input ~origin:(Symbol.origin symbol)
+         "provisional call types cannot authorize a function body frame")
+  else if item < 0 || item <= previous_item then
     Error
       (invalid_input ~origin:(Symbol.origin symbol)
          "function frame inputs are outside module source order")

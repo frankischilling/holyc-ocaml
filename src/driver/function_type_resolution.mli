@@ -7,6 +7,17 @@ val resolve :
   Frontend.Ast.module_ ->
   (Sema.Function_type_resolution.t, string) result
 
+val resolve_provisional_call :
+  ?scope:Sema.Symbol_table.scope ->
+  table:Sema.Symbol_table.t ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Sema.Function_record_phase.checked_call_shape ->
+  (Sema.Function_type_resolution.resolved_function, string) result
+(** Type the exact native member cursor while preserving explicit call-only
+    evidence. Type and ownership failures precede scope allocation. An existing
+    owning function scope can be reused across phases; no parameter or synthetic
+    locals are created, and this projection cannot authorize a function body. *)
+
 val resolve_completed_header :
   table:Sema.Symbol_table.t ->
   namespace:Sema.Declaration_collection.namespace ->

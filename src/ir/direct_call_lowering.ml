@@ -121,10 +121,7 @@ let call_shape ?globals target =
   let variadic_count = Resolution.direct_variadic_count direct in
   let variadic_results = Result.direct_variadic_results typed in
   let variadic_count_type =
-    header |> Sema.Function_type_resolution.function_variadic_bindings
-    |> Option.map (fun bindings ->
-        bindings |> Sema.Function_type_resolution.variadic_argc
-        |> Sema.Function_type_resolution.synthetic_binding_type)
+    Sema.Function_type_resolution.function_variadic_count_type header
   in
   if
     not
@@ -184,10 +181,7 @@ let top_level_call_shape ?globals target =
   let variadic_count = Result.top_level_direct_variadic_count typed in
   let variadic_results = Result.top_level_direct_variadic_results typed in
   let variadic_count_type =
-    header |> Sema.Function_type_resolution.function_variadic_bindings
-    |> Option.map (fun bindings ->
-        bindings |> Sema.Function_type_resolution.variadic_argc
-        |> Sema.Function_type_resolution.synthetic_binding_type)
+    Sema.Function_type_resolution.function_variadic_count_type header
   in
   if
     not
@@ -610,10 +604,8 @@ let lower_output ?frame ?globals ?lower_call ?outer_binding ~records
                 else
                   let variadic_count_type =
                     header
-                    |> Sema.Function_type_resolution.function_variadic_bindings
-                    |> Option.map (fun bindings ->
-                        bindings |> Sema.Function_type_resolution.variadic_argc
-                        |> Sema.Function_type_resolution.synthetic_binding_type)
+                    |> Sema.Function_type_resolution
+                       .function_variadic_count_type
                   in
                   if
                     Option.is_none variadic_count_type

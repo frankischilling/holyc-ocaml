@@ -61,6 +61,15 @@
  (name test_main)
  (modules
   test_main
+  test_provisional_function_types
+  test_provisional_function_authority
+  test_direct_call_phases
+  test_call_activation
+  test_task_call_phases
+  test_provisional_function_resolution
+  test_provisional_function_classification
+  test_function_alias
+  test_task_function_alias
   test_integer_expression
   test_integer_program
   test_integer_functions
@@ -88,6 +97,8 @@
   test_parameter_default_boundaries
   test_provisional_function_parser
   test_provisional_function_source
+  test_provisional_function_runtime
+  test_function_record_phase
   test_parameter_default_execution
   test_task_command_order
   test_stream_parser

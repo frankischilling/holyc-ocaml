@@ -13,3 +13,9 @@ val classify_completed_header :
   resolution:Sema.Function_resolution.t ->
   Sema.Compiler_record.declared_function ->
   (Sema.Function_record_classification.t, string) result
+
+val classify_publication :
+  ?previous:Sema.Function_record_classification.classified_declaration list ->
+  resolution:Sema.Function_resolution.t ->
+  Frontend.Parser.function_publication ->
+  (Sema.Function_record_classification.t, string) result

@@ -136,9 +136,8 @@ let classify ?previous ?compiler_option_mask ~resolution module_ =
   in
   pair [] declarations ast
 
-let classify_completed_header ?previous ~resolution source =
-  let header = Sema.Compiler_record.declared_function_source source in
-  let publication = header.function_publication in
+let classify_publication ?previous ~resolution
+    (publication : Frontend.Parser.function_publication) =
   match Sema.Function_resolution.declarations resolution with
   | [ declaration ] ->
       let site =
@@ -176,3 +175,7 @@ let classify_completed_header ?previous ~resolution source =
                 ~staging_mask ~compiler_option_mask ?import_name ();
             ])
   | _ -> Error "completed header classification requires its single declaration"
+
+let classify_completed_header ?previous ~resolution source =
+  let header = Sema.Compiler_record.declared_function_source source in
+  classify_publication ?previous ~resolution header.function_publication

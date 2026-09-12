@@ -104,6 +104,27 @@ val make_function_with_completed_header :
   variadic_bindings:variadic_bindings option ->
   (function_declaration, string) result
 
+val make_provisional_function :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  shape:Function_record_phase.checked_call_shape ->
+  scope:Symbol_table.scope ->
+  return_type:Type_reference.t ->
+  parameters:parameter list ->
+  variadic_register_requests:Register_request.t list ->
+  (resolved_function, string) result
+(** Call-only type projection of the checked native member cursor. It retains
+    explicit provisional provenance and cannot enter ordinary body resolution.
+*)
+
+val validate_provisional_source_types :
+  Function_record_phase.checked_call_shape -> (unit, string) result
+(** Preflight all current native member heads, including members outside the
+    active argument count and recursive callbacks. Named types require retained
+    selection evidence and are unavailable until that evidence is integrated. *)
+
+val function_variadic_count_type : resolved_function -> Type.t option
+
 val resolve :
   ?retained_headers:resolved_function list ->
   table:Symbol_table.t ->
@@ -119,6 +140,13 @@ val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int
 val function_return_type : resolved_function -> Type_reference.t
 val function_signature : resolved_function -> signature
+
+val function_provisional_call :
+  resolved_function -> Function_record_phase.checked_call_shape option
+
+val signature_provisional_call :
+  signature -> Function_record_phase.checked_call_shape option
+
 val function_parameter_bindings : resolved_function -> parameter_binding list
 val function_variadic_bindings : resolved_function -> variadic_bindings option
 

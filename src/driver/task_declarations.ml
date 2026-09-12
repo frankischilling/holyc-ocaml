@@ -42,6 +42,7 @@ end)
 type dimension_evaluation =
   | Observed_dimension
   | Failed_dimension
+  | Deferred_runtime_dimension
   | Awaiting_runtime_dimension
   | Executing_dimension of VM.dimension_attempt * int
   | Proposed_runtime_dimension of
@@ -70,6 +71,9 @@ type source =
   | Function of {
       publication : Parser.function_publication;
       mutable provisional_source : Sema.Provisional_function.t option;
+      mutable native_record : Sema.Function_record_phase.t option;
+      mutable runtime_phase :
+        Sema.Function_record_classification.classified_declaration option;
       mutable defaults_rev : Parser.completed_parameter_default list;
       mutable header : Parser.completed_function_header option;
       mutable declared_header : Sema.Compiler_record.declared_function option;
@@ -115,6 +119,15 @@ type reference_target =
 type selected_reference = {
   selection : Parser.reference_selection;
   target : reference_target;
+  native_record : Sema.Function_record_phase.t option;
+}
+
+type selected_call = {
+  start : Parser.call_start;
+  native_record : Sema.Function_record_phase.t option;
+  arguments : Sema.Function_record_phase.snapshot option;
+  mutable emission :
+    (Parser.completed_call * Sema.Function_record_phase.snapshot option) option;
 }
 
 type selected_implicit_output = {
@@ -183,6 +196,11 @@ type command_sequence = {
 }
 
 type t = {
+  call_journal : Sema.Source_activation.call_journal;
+  mutable calls : selected_call list;
+  mutable native_functions : Sema.Function_record_phase.registry option;
+  mutable native_function_events :
+    (Parser.declaration_event * Sema.Function_record_phase.snapshot) list;
   mutable implicit_outputs : selected_implicit_output list;
   mutable source_default_attempts :
     (Parser.completed_parameter_default
@@ -281,6 +299,11 @@ let create_with_authority ?(max_dimension_work = 100_000) authority session =
         Result.map
           (fun () ->
             {
+              call_journal =
+                Sema.Source_activation.create_call_journal ~namespace ();
+              calls = [];
+              native_functions = None;
+              native_function_events = [];
               source_default_attempts = [];
               source_defaults_runtime = None;
               prepared_source_defaults = [];
@@ -362,18 +385,41 @@ let promote_source_with_activation ~activate ledger ~runtime session ~source =
              | Closed | Aborted -> false)
            && ledger.commands = [] ->
         (if activate then
-           Sema.Source_activation.create ~namespace:ledger.namespace
-             ~context:active.context
+           Sema.Source_activation.create ~calls:ledger.call_journal
+             ~namespace:ledger.namespace ~context:active.context
              ~observed_events:(List.length ledger.source_events_rev)
              (List.rev ledger.activation_events_rev)
            |> fun result ->
            Result.bind result (fun activation ->
-               VM.promote_task_source_activation runtime
-                 ~namespace:ledger.namespace ~activation
-                 ~dimensions:(List.rev ledger.source_dimensions_rev)
-               |> Result.map (fun () ->
-                   ledger.activation <- Some activation;
-                   ledger.dimension_work <- 0))
+               let pending_runtime_dimension =
+                 Names.fold
+                   (fun _ state found ->
+                     match state.pending with
+                     | Some
+                         {
+                           preparation;
+                           evaluation = Deferred_runtime_dimension;
+                         } -> preparation :: found
+                     | _ -> found)
+                   ledger.dimension_owners []
+               in
+               let pending_runtime_dimension =
+                 match pending_runtime_dimension with
+                 | [] -> Ok None
+                 | [ preparation ] -> Ok (Some preparation)
+                 | _ ->
+                     Error
+                       "source activation has multiple deferred runtime \
+                        dimensions"
+               in
+               Result.bind pending_runtime_dimension
+                 (fun pending_runtime_dimension ->
+                   VM.promote_task_source_activation ?pending_runtime_dimension
+                     runtime ~namespace:ledger.namespace ~activation
+                     ~dimensions:(List.rev ledger.source_dimensions_rev)
+                   |> Result.map (fun () ->
+                       ledger.activation <- Some activation;
+                       ledger.dimension_work <- 0)))
          else
            VM.promote_task_source runtime ~namespace:ledger.namespace
              ~events:(List.rev ledger.source_events_rev)
@@ -435,6 +481,27 @@ let frontend_origin symbol =
           defined_at = location.defined_at;
         }
 
+let function_alias_source ledger reference =
+  let header_symbol =
+    Ir.Retained_function.metadata reference
+    |> Sema.Outer_environment.function_declaration
+    |> Sema.Function_resolution.resolved_declaration_header
+    |> Sema.Function_type_resolution.function_symbol
+  in
+  Names.fold
+    (fun _ assigned found ->
+      match (found, assigned.source) with
+      | Some _, _ -> found
+      | None, Function state
+        when Collection.publication_symbol assigned.publication == header_symbol
+        ->
+          Some
+            (match state.header with
+            | Some header -> header.Parser.completed_entry
+            | None -> state.publication.function_entry)
+      | None, _ -> None)
+    ledger.names None
+
 let observe_admission ledger receipt =
   let publications = VM.admission_publications receipt in
   if
@@ -473,7 +540,12 @@ let observe_admission ledger receipt =
               Error
                 "partial storage cannot masquerade as a completed command \
                  admission"
-          | VM.Admitted_function _ -> Ok ()
+          | VM.Admitted_function reference -> (
+              match function_alias_source ledger reference with
+              | None -> Ok ()
+              | Some original_entry ->
+                  Visibility.Environment.validate_function_alias ledger.symbols
+                    ~original_entry)
           | VM.Admitted_global (reference, slot) ->
               if
                 Ir.Retained_global.symbol reference
@@ -544,9 +616,23 @@ let observe_admission ledger receipt =
                 (Visibility.Function, Some shape)
           in
           let entry =
-            Visibility.Environment.add ledger.symbols
-              ~name:(Sema.Symbol.name symbol) ~kind
-              ~origin:(frontend_origin symbol) ?function_call_shape ()
+            let original =
+              match publication with
+              | VM.Admitted_function reference ->
+                  function_alias_source ledger reference
+              | _ -> None
+            in
+            match original with
+            | Some original_entry ->
+                (* The complete batch was checked above. Entry publication does
+                   not remove original entries or invoke user callbacks. *)
+                Visibility.Environment.add_function_alias ?function_call_shape
+                  ledger.symbols ~original_entry ()
+                |> Result.get_ok
+            | None ->
+                Visibility.Environment.add ledger.symbols
+                  ~name:(Sema.Symbol.name symbol) ~kind
+                  ~origin:(frontend_origin symbol) ?function_call_shape ()
           in
           Entries.add ledger.runtime_entries entry publication;
           match publication with
@@ -802,6 +888,15 @@ let selection_target ledger span = function
           | Some publication -> Selected_runtime publication
           | None -> Selected_unbound entry))
 
+let rec native_record_for_entry ledger entry =
+  match Entries.find_opt ledger.entries entry with
+  | Some { source = Function state; _ } -> state.native_record
+  | Some _ -> None
+  | None ->
+      Option.bind
+        (Visibility.function_alias_original entry)
+        (native_record_for_entry ledger)
+
 let observe_reference ledger selection =
   protect (fun () ->
       let identifier = Parser.selected_identifier selection in
@@ -822,7 +917,13 @@ let observe_reference ledger selection =
         selection_target ledger identifier.location.span
           (Parser.selected_lookup selection)
       in
-      Names.add ledger.references identifier { selection; target })
+      let native_record =
+        match Parser.selected_lookup selection with
+        | Visibility.Present entry -> native_record_for_entry ledger entry
+        | _ -> None
+      in
+      Names.add ledger.references identifier
+        { selection; target; native_record })
 
 let observe_reference ledger selection =
   Result.map
@@ -830,6 +931,173 @@ let observe_reference ledger selection =
       record_activation_event ledger
         (Sema.Source_activation.Reference selection))
     (observe_reference ledger selection)
+
+let call_reference ledger reference =
+  let identifier = Parser.selected_identifier reference in
+  let span = identifier.location.span in
+  let start = Parser.selected_command reference in
+  let sequence = active_sequence ledger start.command_context in
+  (match sequence.phase with
+  | Reading original when original == start -> ()
+  | _ -> fail span "call does not belong to the active parser command");
+  match Names.find_opt ledger.references identifier with
+  | Some original when original.selection == reference -> original
+  | _ -> fail span "call lacks its exact observed identifier selection"
+
+let observe_call_start ledger start =
+  protect (fun () ->
+      let span =
+        (Parser.selected_identifier start.Parser.call_reference).location.span
+      in
+      if not (Parser.call_start_is_current start) then
+        fail span "call start is outside its original parser callback";
+      let reference = call_reference ledger start.call_reference in
+      if List.exists (fun call -> call.start == start) ledger.calls then
+        fail span "call start was already observed";
+      let snapshot =
+        Option.map Sema.Function_record_phase.snapshot reference.native_record
+      in
+      let native_record, arguments, shape =
+        match snapshot with
+        | None -> (None, None, None)
+        | Some snapshot -> (
+            match Sema.Function_record_phase.call_shape snapshot with
+            | Error message ->
+                (* Legacy providers and earlier session compilations can leave
+                 an untracked native predecessor. Only their exact unchanged
+                 completed ordinary header keeps legacy grammar; this creates
+                 neither a native count nor native emission evidence. *)
+                let ordinary_runtime_header retained =
+                  let function_ =
+                    Ir.Retained_function.metadata retained
+                    |> Sema.Outer_environment.function_declaration
+                    |> Sema.Function_resolution.resolved_declaration_header
+                  in
+                  if
+                    Option.is_some
+                      (Sema.Function_type_resolution.function_provisional_call
+                         function_)
+                  then None
+                  else
+                    Sema.Function_type_resolution.function_completed_header
+                      function_
+                in
+                let legacy_header =
+                  match (ledger.authority, reference.target) with
+                  | ( Source_compilation _,
+                      Selected_source
+                        { stage = Function_selection (header, _); _ } ) ->
+                      Some header
+                  | ( Task_runtime _,
+                      Selected_source
+                        {
+                          stage = Function_selection (header, _);
+                          admitted = Some (VM.Admitted_function retained);
+                          _;
+                        } ) ->
+                      Option.bind (ordinary_runtime_header retained)
+                        (fun current ->
+                          if current == header then Some header else None)
+                  | ( Task_runtime _,
+                      Selected_runtime (VM.Admitted_function retained) ) ->
+                      ordinary_runtime_header retained
+                  | _ -> None
+                in
+                let legacy_header =
+                  Sema.Function_record_phase.unavailable_reason snapshot
+                  = Some "previous native function record is untracked"
+                  && Option.fold ~none:false
+                       ~some:(fun header ->
+                         Sema.Function_record_phase.native_source snapshot
+                         == header.Parser.function_publication
+                         && Option.fold ~none:false ~some:(( == ) header)
+                              (Sema.Provisional_function.completed_header
+                                 (Sema.Function_record_phase.source_snapshot
+                                    snapshot)))
+                       legacy_header
+                in
+                if legacy_header then (None, None, None) else fail span message
+            | Ok shape ->
+                ( reference.native_record,
+                  Some snapshot,
+                  Some
+                    Visibility.
+                      {
+                        parameters =
+                          List.map
+                            (fun member ->
+                              let source =
+                                Sema.Provisional_function.member_source member
+                              in
+                              {
+                                parameter_name =
+                                  Option.map
+                                    (fun (name : Ast.identifier) ->
+                                      name.spelling)
+                                    source.parameter_name;
+                                has_default =
+                                  Option.is_some
+                                    (Sema.Provisional_function
+                                     .member_default_source member);
+                              })
+                            (Sema.Function_record_phase.fixed_members shape);
+                        variadic =
+                          Option.is_some
+                            (Sema.Function_record_phase.variadic_tail shape);
+                      } ))
+      in
+      (match ledger.authority with
+      | Source_compilation _ ->
+          Sema.Source_activation.capture_call_start ledger.call_journal
+            ~events_rev:ledger.activation_events_rev start
+          |> checked span
+          |> record_activation_event ledger
+      | _ -> ());
+      ledger.calls <-
+        { start; native_record; arguments; emission = None } :: ledger.calls;
+      shape)
+
+let observe_call_emission ledger receipt =
+  protect (fun () ->
+      let start = receipt.Parser.call_start in
+      let span =
+        (Parser.selected_identifier start.call_reference).location.span
+      in
+      if not (Parser.call_emission_is_current receipt) then
+        fail span "call emission is outside its original parser callback";
+      ignore (call_reference ledger start.call_reference);
+      let call =
+        match List.find_opt (fun call -> call.start == start) ledger.calls with
+        | Some call when Option.is_none call.emission -> call
+        | _ -> fail span "call emission lacks an unfinished original call start"
+      in
+      let snapshot =
+        Option.map Sema.Function_record_phase.snapshot call.native_record
+      in
+      (match ledger.authority with
+      | Source_compilation _ ->
+          Sema.Source_activation.capture_call_emission ledger.call_journal
+            ~events_rev:ledger.activation_events_rev receipt
+          |> checked span
+          |> record_activation_event ledger
+      | _ -> ());
+      call.emission <- Some (receipt, snapshot))
+
+let call_record_snapshots ledger receipt =
+  protect (fun () ->
+      let span =
+        (Parser.selected_identifier receipt.Parser.call_start.call_reference)
+          .location
+          .span
+      in
+      match
+        List.find_opt
+          (fun call -> call.start == receipt.call_start)
+          ledger.calls
+      with
+      | Some { arguments; emission = Some (original, snapshot); _ }
+        when original == receipt -> (arguments, snapshot)
+      | _ -> fail span "call phases lack their exact observed completion")
 
 let validate_source_reference ledger selection =
   let identifier = Parser.selected_identifier selection in
@@ -1169,11 +1437,35 @@ let assign ledger (name : Ast.identifier) kind source entry =
   (match source with
   | Function state when Parser.function_publication_is_current state.publication
     ->
-      state.provisional_source <-
-        Some
-          (Sema.Provisional_function.create ~table:ledger.table
-             ~namespace:ledger.namespace publication state.publication
-          |> checked name.location.span)
+      if
+        Parser.context_mode
+          state.publication.function_header.declaration_command.command_context
+        = Frontend.Preprocessor.Jit
+      then
+        let registry =
+          match ledger.native_functions with
+          | Some registry -> registry
+          | None ->
+              let registry =
+                Sema.Function_record_phase.create_registry
+                  ~mode:Frontend.Preprocessor.Jit ~table:ledger.table
+                  ~namespace:ledger.namespace
+                |> checked name.location.span
+              in
+              ledger.native_functions <- Some registry;
+              registry
+        in
+        state.native_record <-
+          Some
+            (Sema.Function_record_phase.begin_header registry publication
+               state.publication
+            |> checked name.location.span)
+      else
+        state.provisional_source <-
+          Some
+            (Sema.Provisional_function.create ~table:ledger.table
+               ~namespace:ledger.namespace publication state.publication
+            |> checked name.location.span)
   | _ -> ());
   let assigned =
     { publication; source; ordinal = ledger.next_ordinal; claimed = false }
@@ -1191,6 +1483,46 @@ let find ledger (name : Ast.identifier) =
   | None ->
       fail name.location.span
         "source declaration has no assigned parser publication"
+
+let function_record_snapshot ledger publication =
+  protect (fun () ->
+      let span = publication.Parser.function_name.location.span in
+      if not (Sema.Source_activation.finished ledger.activation) then
+        match
+          List.find_opt
+            (fun (event, snapshot) ->
+              Sema.Source_activation.declaration ledger.activation event
+              && Sema.Function_record_phase.source snapshot == publication)
+            ledger.native_function_events
+        with
+        | Some (_, snapshot) -> snapshot
+        | None ->
+            fail span
+              "native function phase is outside its original activation event"
+      else
+        match Names.find_opt ledger.names publication.function_name with
+        | Some { source = Function state; _ }
+          when state.publication == publication -> (
+            match state.native_record with
+            | Some record -> Sema.Function_record_phase.snapshot record
+            | None -> fail span "function has no observed JIT native record")
+        | _ ->
+            fail span
+              "native function record belongs to another source publication")
+
+let observe_function_source span native source event =
+  match (native, source) with
+  | Some record, None ->
+      Sema.Function_record_phase.observe record event |> checked span
+  | None, Some source ->
+      Sema.Provisional_function.observe source event |> checked span
+  | _ -> fail span "provisional member lacks its original declaration callback"
+
+let require_function_record_snapshot ledger publication =
+  match function_record_snapshot ledger publication with
+  | Ok snapshot -> snapshot
+  | Error (diagnostic :: _) -> raise (Invalid diagnostic)
+  | Error [] -> assert false
 
 let validate_dimension_owner ledger (owner : Parser.array_dimensions_owner) =
   let start = owner.dimensions_command in
@@ -1210,8 +1542,8 @@ let dimension_requires_runtime
       Sema.Initializer_source.expression_identifier_nodes expression <> [])
     preparation.dimension_expression
 
-let prepare_dimension ledger (preparation : Parser.array_dimension_preparation)
-    =
+let prepare_dimension ?(defer_runtime = false) ledger
+    (preparation : Parser.array_dimension_preparation) =
   let owner = preparation.dimension_owner in
   validate_dimension_owner ledger owner;
   let span = preparation.dimension_opening.span in
@@ -1243,6 +1575,9 @@ let prepare_dimension ledger (preparation : Parser.array_dimension_preparation)
   | Semantic_analysis -> pending.evaluation <- Observed_dimension
   | Task_runtime _ when dimension_requires_runtime preparation ->
       pending.evaluation <- Awaiting_runtime_dimension
+  | Source_compilation _
+    when defer_runtime && dimension_requires_runtime preparation ->
+      pending.evaluation <- Deferred_runtime_dimension
   | Source_compilation _ when dimension_requires_runtime preparation ->
       fail ~code:"HCRUN0006" span
         "runtime AOT dimensions require output relocation and callable \
@@ -1328,7 +1663,10 @@ let complete_dimension ledger (receipt : Parser.completed_array_dimension) =
   let prepared =
     match (Option.get state.pending).evaluation with
     | Observed_dimension -> None
-    | Failed_dimension | Awaiting_runtime_dimension | Executing_dimension _ ->
+    | Failed_dimension
+    | Deferred_runtime_dimension
+    | Awaiting_runtime_dimension
+    | Executing_dimension _ ->
         fail span "array dimension preparation did not succeed"
     | Proposed_runtime_dimension (proposal, queries) ->
         Some
@@ -1498,6 +1836,8 @@ let observe ledger event =
                {
                  publication;
                  provisional_source = None;
+                 native_record = None;
+                 runtime_phase = None;
                  defaults_rev = [];
                  header = None;
                  declared_header = None;
@@ -1521,14 +1861,9 @@ let observe ledger event =
           validate_command ledger publication.function_header;
           let span = publication.function_name.location.span in
           match (find ledger publication.function_name).source with
-          | Function state when state.publication == publication -> (
-              match state.provisional_source with
-              | Some source ->
-                  Sema.Provisional_function.observe source event |> checked span
-              | None ->
-                  fail span
-                    "provisional member lacks its original declaration callback"
-              )
+          | Function state when state.publication == publication ->
+              observe_function_source span state.native_record
+                state.provisional_source event
           | _ -> fail span "provisional member belongs to another function")
       | Parser.Parameter_default_completed receipt -> (
           let publication = receipt.default_function in
@@ -1552,12 +1887,8 @@ let observe ledger event =
               then
                 fail span
                   "parameter default is skipped, repeated or out of order";
-              (match state.provisional_source with
-              | Some source ->
-                  Sema.Provisional_function.observe source event |> checked span
-              | None ->
-                  fail span
-                    "parameter default lacks its original provisional member");
+              observe_function_source span state.native_record
+                state.provisional_source event;
               state.defaults_rev <- receipt :: state.defaults_rev
           | _ ->
               fail span
@@ -1648,11 +1979,12 @@ let observe ledger event =
                     |> checked publication.function_name.location.span)
                 else None
               in
-              Option.iter
-                (fun source ->
-                  Sema.Provisional_function.observe source event
-                  |> checked publication.function_name.location.span)
-                state.provisional_source;
+              if
+                Option.is_some state.native_record
+                || Option.is_some state.provisional_source
+              then
+                observe_function_source publication.function_name.location.span
+                  state.native_record state.provisional_source event;
               state.declared_header <- declared_header;
               state.header <- Some header;
               Entries.add ledger.entries header.completed_entry assigned
@@ -1670,7 +2002,13 @@ let observe ledger event =
                  && Option.is_none state.body
                  && Option.fold ~none:false
                       ~some:(fun saved -> saved == header)
-                      state.header -> state.body <- Some body
+                      state.header ->
+              Option.iter
+                (fun record ->
+                  Sema.Function_record_phase.observe record event
+                  |> checked body.location.span)
+                state.native_record;
+              state.body <- Some body
           | _ ->
               fail publication.function_name.location.span
                 "function body completion is foreign, repeated or out of order"))
@@ -1678,8 +2016,64 @@ let observe ledger event =
 let observe ledger event =
   Result.map
     (fun () ->
+      let publication =
+        match event with
+        | Parser.Function_declared publication -> Some publication
+        | Parser.Function_parameter_declared member ->
+            Some member.parameter_function
+        | Parser.Function_parameter_completed member ->
+            Some member.parameter_publication.parameter_function
+        | Parser.Parameter_default_completed receipt ->
+            Some receipt.default_function
+        | Parser.Function_variadic_started receipt
+        | Parser.Function_variadic_completed receipt ->
+            Some receipt.variadic_function
+        | Parser.Function_header_completed header
+        | Parser.Function_body_completed (header, _) ->
+            Some header.function_publication
+        | _ -> None
+      in
+      Option.iter
+        (fun publication ->
+          match
+            Names.find_opt ledger.names publication.Parser.function_name
+          with
+          | Some { source = Function { native_record = Some record; _ }; _ } ->
+              ledger.native_function_events <-
+                (event, Sema.Function_record_phase.snapshot record)
+                :: ledger.native_function_events
+          | _ -> ())
+        publication;
       record_activation_event ledger (Sema.Source_activation.Declaration event))
     (observe ledger event)
+
+let defer_source_runtime_dimension ledger ~preparation event =
+  protect (fun () ->
+      match event with
+      | Parser.Array_dimension_preparing original when original == preparation
+        ->
+          let context =
+            preparation.dimension_owner.dimensions_command.command_context
+          in
+          let span = preparation.dimension_opening.span in
+          if
+            (match ledger.authority with
+              | Source_compilation _ -> false
+              | _ -> true)
+            || (not (dimension_requires_runtime preparation))
+            || Parser.context_mode context <> Frontend.Preprocessor.Jit
+            || Option.is_some (Parser.context_parent context)
+            || not (Parser.dimension_preparation_is_current preparation)
+          then
+            fail span
+              "deferred dimension requires its original live JIT source \
+               callback";
+          prepare_dimension ~defer_runtime:true ledger preparation;
+          record_activation_event ledger
+            (Sema.Source_activation.Declaration event)
+      | _ ->
+          fail preparation.dimension_opening.span
+            "deferred runtime dimension requires its exact preparation event")
 
 let admit_global ledger ~runtime (publication : Parser.global_publication) =
   protect (fun () ->
@@ -2390,6 +2784,127 @@ let retained_function_headers ~table ~ast (command : command) =
         fail ast.Ast.span "retained headers belong to another source command";
       (command.namespace, command.function_headers))
 
+let native_publication_event = function
+  | Parser.Function_declared p -> Some p
+  | Parser.Function_parameter_declared p -> Some p.parameter_function
+  | Parser.Function_parameter_completed p ->
+      Some p.parameter_publication.parameter_function
+  | Parser.Parameter_default_completed p -> Some p.default_function
+  | Parser.Function_variadic_started p | Parser.Function_variadic_completed p ->
+      Some p.variadic_function
+  | _ -> None
+
+let admit_function_phase ledger ~runtime event =
+  protect (fun () ->
+      match native_publication_event event with
+      | None -> ()
+      | Some publication -> (
+          let span = publication.function_name.location.span in
+          require_initializer_runtime ledger runtime span;
+          let assigned = find ledger publication.function_name in
+          match assigned.source with
+          | Function state when state.publication == publication ->
+              let eligible =
+                match publication.function_header.binding with
+                | None -> true
+                | Some
+                    {
+                      Ast.kind = Ast.Extern;
+                      spelling = "extern";
+                      target = Ast.No_binding_target;
+                      _;
+                    } -> true
+                | _ -> false
+              in
+              if eligible && Option.is_some state.native_record then
+                let snapshot =
+                  require_function_record_snapshot ledger publication
+                in
+                if
+                  Sema.Function_record_phase.unavailable_reason snapshot
+                  <> Some "previous native function record is untracked"
+                then (
+                  VM.check_function_phase_source runtime
+                    ~namespace:ledger.namespace ~event snapshot
+                  |> checked span;
+                  let module R = Sema.Function_resolution in
+                  let module C = Sema.Function_record_classification in
+                  let current =
+                    VM.function_record_head runtime snapshot
+                    |> Option.map (fun reference ->
+                        Ir.Retained_function.metadata reference
+                        |> Sema.Outer_environment
+                           .function_classified_declaration)
+                  in
+                  let scope =
+                    Option.map
+                      (fun prior ->
+                        C.classified_declaration_source prior
+                        |> R.resolved_declaration_site
+                        |> R.declaration_site_function
+                        |> Sema.Function_type_resolution.function_scope)
+                      state.runtime_phase
+                  in
+                  let shape =
+                    Sema.Function_record_phase.call_shape snapshot
+                    |> checked span
+                  in
+                  let function_ =
+                    Function_type_resolution.resolve_provisional_call ?scope
+                      ~table:ledger.table ~namespace:ledger.namespace shape
+                    |> checked span
+                  in
+                  let fact =
+                    match current with
+                    | None ->
+                        R.make_provisional_declaration ~table:ledger.table
+                          ~namespace:ledger.namespace
+                          ~compiler_option_mask:
+                            Sema.Compiler_option.initial_mask ~function_
+                    | Some current ->
+                        let current = C.classified_declaration_source current in
+                        let earlier =
+                          R.resolved_declaration_site current
+                          |> R.declaration_site_native_snapshot |> Option.get
+                        in
+                        let transition =
+                          Sema.Function_record_phase.transition ~earlier
+                            ~later:snapshot
+                          |> checked span
+                        in
+                        let pending =
+                          Option.map C.classified_declaration_source
+                            state.runtime_phase
+                        in
+                        R.make_provisional_advance ?pending ~table:ledger.table
+                          ~namespace:ledger.namespace
+                          ~compiler_option_mask:
+                            Sema.Compiler_option.initial_mask ~current
+                          ~transition ~function_ ()
+                  in
+                  let fact = fact |> checked span in
+                  let previous = Option.to_list current in
+                  let resolution =
+                    R.resolve
+                      ~previous:
+                        (List.map C.classified_declaration_source previous)
+                      ~table:ledger.table
+                      ~parent:(Collection.namespace_scope ledger.namespace)
+                      ~compilation_mode:R.Jit [ fact ]
+                    |> checked span
+                  in
+                  let records =
+                    Function_record_classification.classify_publication
+                      ~previous ~resolution publication
+                    |> checked span
+                  in
+                  VM.admit_function_phase runtime ~namespace:ledger.namespace
+                    ~event ~snapshot ~records
+                  |> checked span;
+                  state.runtime_phase <- Some (List.hd (C.declarations records)))
+          | _ ->
+              fail span "native phase lacks its original function publication"))
+
 let admit_function_header ledger ~runtime header =
   let ( let* ) = Result.bind in
   let* source = declared_function_header ledger header in
@@ -2401,6 +2916,11 @@ let admit_function_header ledger ~runtime header =
       VM.check_function_header_source runtime ~namespace:ledger.namespace source
       |> checked span;
       let assigned = find ledger header.function_publication.function_name in
+      let pending_native =
+        match assigned.source with
+        | Function state -> state.runtime_phase
+        | _ -> None
+      in
       let function_ =
         match assigned.source with
         | Function state -> (
@@ -2440,15 +2960,69 @@ let admit_function_header ledger ~runtime header =
             |> Option.to_list
         | [] -> []
       in
-      let fact =
-        Sema.Function_resolution.make_pending_declaration ~table:ledger.table
-          ~namespace:ledger.namespace
-          ~compiler_option_mask:Sema.Compiler_option.initial_mask ~source
-          ~function_
-        |> checked span
+      let native_current, fact =
+        match pending_native with
+        | Some pending ->
+            let module R = Sema.Function_resolution in
+            let module C = Sema.Function_record_classification in
+            let snapshot =
+              require_function_record_snapshot ledger
+                header.function_publication
+            in
+            let current =
+              match VM.function_record_head runtime snapshot with
+              | Some reference ->
+                  Ir.Retained_function.metadata reference
+                  |> Sema.Outer_environment.function_classified_declaration
+              | None ->
+                  fail span
+                    "completed native header has no admitted current record"
+            in
+            let current_declaration = C.classified_declaration_source current in
+            let earlier =
+              R.resolved_declaration_site current_declaration
+              |> R.declaration_site_native_snapshot |> Option.get
+            in
+            let transition =
+              Sema.Function_record_phase.transition ~earlier ~later:snapshot
+              |> checked span
+            in
+            let callable_function =
+              Sema.Function_record_phase.call_shape snapshot
+              |> checked span
+              |> Function_type_resolution.resolve_provisional_call
+                   ~scope:
+                     (Sema.Function_type_resolution.function_scope function_)
+                   ~table:ledger.table ~namespace:ledger.namespace
+              |> checked span
+            in
+            ( Some current,
+              R.make_header_advance ~table:ledger.table
+                ~namespace:ledger.namespace
+                ~pending:(C.classified_declaration_source pending)
+                ~current:current_declaration ~transition ~source ~function_
+                ~callable_function )
+        | None ->
+            ( None,
+              Sema.Function_resolution.make_pending_declaration
+                ~table:ledger.table ~namespace:ledger.namespace
+                ~compiler_option_mask:Sema.Compiler_option.initial_mask ~source
+                ~function_ )
+      in
+      let fact = fact |> checked span in
+      let classified_previous =
+        match native_current with
+        | Some current when not (List.exists (( == ) current) previous) ->
+            current :: previous
+        | _ -> previous
       in
       let resolution =
         Sema.Function_resolution.resolve
+          ~record_heads:
+            (Option.to_list native_current
+            |> List.map
+                 Sema.Function_record_classification
+                 .classified_declaration_source)
           ~previous:
             (List.map
                Sema.Function_record_classification.classified_declaration_source
@@ -2459,13 +3033,20 @@ let admit_function_header ledger ~runtime header =
         |> checked span
       in
       let records =
-        Function_record_classification.classify_completed_header ~previous
-          ~resolution source
+        Function_record_classification.classify_completed_header
+          ~previous:classified_previous ~resolution source
         |> checked span
       in
       VM.admit_function_header runtime ~namespace:ledger.namespace ~source
         ~records
-      |> checked span)
+      |> checked span;
+      match assigned.source with
+      | Function state when Option.is_some pending_native ->
+          state.runtime_phase <-
+            Some
+              (List.hd
+                 (Sema.Function_record_classification.declarations records))
+      | _ -> ())
 
 let begin_default_attempt ledger ~runtime receipt =
   protect (fun () ->
@@ -2805,7 +3386,8 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
         | Some activation -> activation
         | None ->
             let activation =
-              Sema.Source_activation.create ~namespace:ledger.namespace ~context
+              Sema.Source_activation.create ~calls:ledger.call_journal
+                ~namespace:ledger.namespace ~context
                 ~observed_events:(List.length ledger.source_events_rev)
                 (List.rev ledger.activation_events_rev)
               |> checked span
@@ -2826,6 +3408,23 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
     ]
   in
   Sema.Source_activation.run activation ~invalid (function
+    | Sema.Source_activation.Call_start start ->
+        protect (fun () ->
+            if
+              (not (Sema.Source_activation.call_start ledger.activation start))
+              || not
+                   (List.exists (fun call -> call.start == start) ledger.calls)
+            then fail span "call start lacks its original activation event")
+    | Sema.Source_activation.Call_emission receipt ->
+        let* () =
+          protect (fun () ->
+              if
+                not
+                  (Sema.Source_activation.call_emission ledger.activation
+                     receipt)
+              then fail span "call emission lacks its original activation event")
+        in
+        call_record_snapshots ledger receipt |> Result.map ignore
     | Sema.Source_activation.Implicit_output selection ->
         let* () =
           protect (fun () ->
@@ -2881,11 +3480,8 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
               match original.target with
               | Selected_source selected ->
                   let admitted =
-                    match selected.stage with
-                    | Provisional_function_selection _ -> None
-                    | _ ->
-                        VM.admitted_publication_for_symbol runtime
-                          (Collection.publication_symbol selected.publication)
+                    VM.admitted_publication_for_symbol runtime
+                      (Collection.publication_symbol selected.publication)
                   in
                   Selected_source { selected with admitted }
               | target -> target
@@ -2896,23 +3492,50 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
         let* () =
           protect (fun () ->
               match event with
-              | Parser.Array_dimension_preparing preparation
-                when ledger.source_dimensions_rev <> [] -> (
-                  let before = VM.task_initializer_steps runtime in
-                  let result = VM.charge_source_dimension runtime preparation in
-                  ledger.dimension_work <-
-                    ledger.dimension_work
-                    + VM.task_initializer_steps runtime
-                    - before;
-                  match result with
-                  | Ok () -> ()
-                  | Error message ->
-                      if String.starts_with ~prefix:"HCIRVM0007:" message then
-                        fail ~code:"HCIRVM0007"
-                          preparation.dimension_opening.span
-                          "the bounded array dimension preparation work limit \
-                           was exhausted"
-                      else fail preparation.dimension_opening.span message)
+              | Parser.Array_dimension_preparing preparation -> (
+                  let deferred =
+                    Option.bind
+                      (Names.find_opt ledger.dimension_owners
+                         preparation.dimension_owner.dimensions_name)
+                      (fun state ->
+                        Option.bind state.pending (fun pending ->
+                            if
+                              pending.preparation == preparation
+                              && pending.evaluation = Deferred_runtime_dimension
+                            then Some pending
+                            else None))
+                  in
+                  match deferred with
+                  | Some pending ->
+                      if
+                        not
+                          (Sema.Source_activation.dimension_preparing
+                             ledger.activation preparation)
+                      then
+                        fail preparation.dimension_opening.span
+                          "deferred dimension lacks its original activation \
+                           event";
+                      pending.evaluation <- Awaiting_runtime_dimension
+                  | None when ledger.source_dimensions_rev <> [] -> (
+                      let before = VM.task_initializer_steps runtime in
+                      let result =
+                        VM.charge_source_dimension runtime preparation
+                      in
+                      ledger.dimension_work <-
+                        ledger.dimension_work
+                        + VM.task_initializer_steps runtime
+                        - before;
+                      match result with
+                      | Ok () -> ()
+                      | Error message ->
+                          if String.starts_with ~prefix:"HCIRVM0007:" message
+                          then
+                            fail ~code:"HCIRVM0007"
+                              preparation.dimension_opening.span
+                              "the bounded array dimension preparation work \
+                               limit was exhausted"
+                          else fail preparation.dimension_opening.span message)
+                  | None -> ())
               | Parser.Global_completed (publication, completed) ->
                   let boundary =
                     Names.find ledger.storage_boundaries publication.global_name

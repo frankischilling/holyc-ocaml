@@ -3681,7 +3681,7 @@ let bind_direct_arguments call header =
   bind_arguments call ~parameters
     ~is_variadic:
       (Option.is_some
-         (Function_type_resolution.function_variadic_bindings header))
+         (Function_type_resolution.function_variadic_count_type header))
 
 let bind_indirect_arguments call callable =
   let signature = callable_signature callable in

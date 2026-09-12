@@ -1,10 +1,31 @@
-type event =
+type event = Frontend.Parser.source_observation =
   | Command of Frontend.Parser.command_event
   | Declaration of Frontend.Parser.declaration_event
   | Reference of Frontend.Parser.reference_selection
+  | Call_start of Frontend.Parser.call_start
+  | Call_emission of Frontend.Parser.completed_call
   | Implicit_output of Frontend.Parser.implicit_output_selection
 
 type t
+type call_journal
+
+val create_call_journal :
+  namespace:Declaration_collection.namespace -> unit -> call_journal
+
+val capture_call_start :
+  call_journal ->
+  events_rev:event list ->
+  Frontend.Parser.call_start ->
+  (event, string) result
+
+val capture_call_emission :
+  call_journal ->
+  events_rev:event list ->
+  Frontend.Parser.completed_call ->
+  (event, string) result
+
+val call_start : t option -> Frontend.Parser.call_start -> bool
+val call_emission : t option -> Frontend.Parser.completed_call -> bool
 
 val function_declaration :
   t option -> Frontend.Parser.function_publication -> bool
@@ -19,6 +40,7 @@ val implicit_output :
   t option -> Frontend.Parser.implicit_output_selection -> bool
 
 val create :
+  ?calls:call_journal ->
   namespace:Declaration_collection.namespace ->
   context:Frontend.Parser.command_context ->
   observed_events:int ->
@@ -31,6 +53,11 @@ val command_events : t -> Frontend.Parser.command_event list
 
 val dimension_preparations :
   t -> Frontend.Parser.array_dimension_preparation list
+
+val trailing_dimension_preparation :
+  t -> Frontend.Parser.array_dimension_preparation option
+(** The exact final observation, only if it is a dimension preparation. This
+    structural query grants no evaluation or activation authority. *)
 
 val before_dimension : t -> Frontend.Parser.array_dimension_preparation -> bool
 
@@ -61,6 +88,20 @@ val reference : t option -> Frontend.Parser.reference_selection -> bool
 val finished : t option -> bool
 val owns_context : t option -> Frontend.Parser.command_context -> bool
 val global_admission : t option -> Frontend.Parser.global_publication -> bool
+
+val dimension_admission :
+  t option -> Frontend.Parser.array_dimension_preparation -> bool
+(** Journaled preparations require their exact active event, including after
+    replay fails. Later unjournaled preparations retain the normal live path. *)
+
+val function_phase_admission :
+  t option -> Frontend.Parser.declaration_event -> bool
+(** Journaled declaration/member/default/variadic/header phases require the
+    exact active original receipt, even after failure or exception revokes
+    replay. Unjournaled phases remain eligible for the caller's live checks.
+    Other event kinds, including body completion, grant no authority through
+    this API. *)
+
 val command_admission : t option -> Frontend.Parser.completed_command -> bool
 
 val default_completion :

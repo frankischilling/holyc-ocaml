@@ -1,9 +1,48 @@
 type t
 
+val observe_call_start :
+  t ->
+  Frontend.Parser.call_start ->
+  ( Frontend.Symbol_visibility.function_call_shape option,
+    Common.Diagnostic.t list )
+  result
+
+val observe_call_emission :
+  t -> Frontend.Parser.completed_call -> (unit, Common.Diagnostic.t list) result
+
+val call_record_snapshots :
+  t ->
+  Frontend.Parser.completed_call ->
+  ( Sema.Function_record_phase.snapshot option
+    * Sema.Function_record_phase.snapshot option,
+    Common.Diagnostic.t list )
+  result
+(** Original argument-traversal and emission snapshots of the selected native
+    record. A missing native snapshot retains legacy metadata only. These
+    observations do not admit a runtime function or authorize execution. *)
+
+val function_record_snapshot :
+  t ->
+  Frontend.Parser.function_publication ->
+  (Sema.Function_record_phase.snapshot, Common.Diagnostic.t list) result
+(** Read the immutable native record phase for this ledger's exact original JIT
+    publication. During source activation, only the active declaration's
+    original snapshot is available; later mutations of the shared native record
+    cannot replace it. Before activation starts and after failed activation,
+    reads reject. Outside activation, this reads the current observed record.
+    Metadata-only replay and ordinary AOT source grant no native record. This
+    supplies no call, command or runtime admission. *)
+
 val admit_function_header :
   t ->
   runtime:Ir.Integer_interpreter.task_state ->
   Frontend.Parser.completed_function_header ->
+  (unit, Common.Diagnostic.t list) result
+
+val admit_function_phase :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.declaration_event ->
   (unit, Common.Diagnostic.t list) result
 
 val declared_function_header :
@@ -29,6 +68,16 @@ val validate_implicit_output :
 
 val dimension_requires_runtime :
   Frontend.Parser.array_dimension_preparation -> bool
+
+val defer_source_runtime_dimension :
+  t ->
+  preparation:Frontend.Parser.array_dimension_preparation ->
+  Frontend.Parser.declaration_event ->
+  (unit, Common.Diagnostic.t list) result
+(** Retain an original [Array_dimension_preparing] event in ordinary JIT source
+    before activation. It performs no evaluation or work charge. Activation
+    makes that exact pending preparation available to the runtime once. An event
+    for another preparation or declaration rejects without mutation. *)
 
 val begin_runtime_dimension :
   t ->

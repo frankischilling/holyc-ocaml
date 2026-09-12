@@ -21,6 +21,7 @@ let parse ?(observe = fun _ _ _ -> ())
     {
       checkpoint = None;
       reference = None;
+      call = None;
       implicit_output = None;
       query = None;
       dimension_count = None;
@@ -267,6 +268,7 @@ let lookahead () =
         {
           checkpoint = None;
           reference = None;
+          call = None;
           implicit_output = None;
           query = None;
           dimension_count = None;
@@ -386,6 +388,7 @@ let activation () =
             | _ -> ());
             Ok ());
       reference = None;
+      call = None;
       implicit_output = None;
       query = None;
       dimension_count = None;

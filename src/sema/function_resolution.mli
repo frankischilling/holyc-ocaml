@@ -1,11 +1,58 @@
 type compilation_mode = Jit | Aot
 type declaration_kind = Extern | Bound_extern | Import | Intern | Definition
 type state = Unresolved_extern | Imported | Resolved
+type phase = Legacy | Provisional | Completed_header | Completed_body
 type declaration
 type declaration_site
 type identity
 type resolved_declaration
 type t
+
+val make_provisional_declaration :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  compiler_option_mask:int64 ->
+  function_:Function_type_resolution.resolved_function ->
+  (declaration, string) result
+
+val make_provisional_advance :
+  ?pending:resolved_declaration ->
+  compiler_option_mask:int64 ->
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  current:resolved_declaration ->
+  transition:Function_record_phase.transition ->
+  function_:Function_type_resolution.resolved_function ->
+  unit ->
+  (declaration, string) result
+(** Advance a current native record. [pending] identifies a repeated source
+    phase; omitting it requires a new source publication and retains its own
+    options and scope. Successful resolution consumes the current head once. *)
+
+val make_header_advance :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  pending:resolved_declaration ->
+  current:resolved_declaration ->
+  transition:Function_record_phase.transition ->
+  source:Compiler_record.declared_function ->
+  function_:Function_type_resolution.resolved_function ->
+  callable_function:Function_type_resolution.resolved_function ->
+  (declaration, string) result
+(** Finish an exact provisional source with its ordinary typed header. Calls
+    retain the independently checked current native projection, including nested
+    replacement members. This does not complete the body. *)
+
+val declaration_site_phase : declaration_site -> phase
+
+val declaration_site_native_snapshot :
+  declaration_site -> Function_record_phase.snapshot option
+
+val resolved_declaration_phase_source :
+  resolved_declaration -> resolved_declaration option
+
+val resolved_declaration_phase_current :
+  resolved_declaration -> resolved_declaration option
 
 val make_declaration :
   function_:Function_type_resolution.resolved_function ->

@@ -12,6 +12,7 @@ type command_context = {
   mutable context_active : bool;
   mutable context_event_count : int;
   mutable context_accepted_ast : Ast.module_ option;
+  context_observation_id : int;
 }
 
 and command_start = {
@@ -69,6 +70,45 @@ let selected_identifier selection = selection.identifier
 let selected_environment selection = selection.environment
 let selected_lookup selection = selection.lookup
 let selected_command selection = selection.selected_command
+
+type call_activity = {
+  mutable call_active : bool;
+  mutable call_captured : bool;
+}
+
+type call_start = {
+  call_reference : reference_selection;
+  call_callee : Ast.expression;
+  call_opening_parenthesis : Ast.location option;
+  call_activity : call_activity;
+}
+
+type completed_call = {
+  call_start : call_start;
+  call_expression : Ast.expression;
+  emission_activity : call_activity;
+}
+
+let call_start_is_current receipt = receipt.call_activity.call_active
+let call_emission_is_current receipt = receipt.emission_activity.call_active
+
+let claim_call_activity activity =
+  if (not activity.call_active) || activity.call_captured then false
+  else (
+    activity.call_captured <- true;
+    true)
+
+let claim_call_start receipt = claim_call_activity receipt.call_activity
+let claim_call_emission receipt = claim_call_activity receipt.emission_activity
+
+type direct_call_sink = {
+  start :
+    call_start ->
+    ( Symbol_visibility.function_call_shape option,
+      Common.Diagnostic.t list )
+    result;
+  emit : completed_call -> (unit, Common.Diagnostic.t list) result;
+}
 
 type implicit_output_selection = {
   output_target : Ast.implicit_output_target;
@@ -337,7 +377,10 @@ let parameter_default_is_current receipt =
        .command_context
        .context_active
 
-type function_header_activity = { mutable function_header_active : bool }
+type function_header_activity = {
+  mutable function_header_active : bool;
+  mutable function_body_active : Ast.function_definition option;
+}
 
 type completed_function_header = {
   function_publication : function_publication;
@@ -353,6 +396,13 @@ type completed_function_header = {
 
 let function_header_is_current receipt =
   receipt.header_activity.function_header_active
+  && receipt.function_publication.function_header.declaration_command
+       .command_context
+       .context_active
+
+let function_body_completion_is_current receipt definition =
+  Option.fold ~none:false ~some:(( == ) definition)
+    receipt.header_activity.function_body_active
   && receipt.function_publication.function_header.declaration_command
        .command_context
        .context_active
@@ -411,11 +461,68 @@ type declaration_event =
   | Function_body_completed of
       completed_function_header * Ast.function_definition
 
+type source_observation =
+  | Command of command_event
+  | Declaration of declaration_event
+  | Reference of reference_selection
+  | Call_start of call_start
+  | Call_emission of completed_call
+  | Implicit_output of implicit_output_selection
+
+module Context_observations = Ephemeron.K1.Make (struct
+  type t = command_context
+
+  let equal left right = left == right
+  let hash context = context.context_observation_id
+end)
+
+type observations = {
+  mutable events_rev : source_observation list;
+  mutable count : int;
+}
+
+let context_observations = Context_observations.create 16
+let next_observation_id = ref 0
+
+let fresh_observation_id () =
+  incr next_observation_id;
+  !next_observation_id
+
+let record_observation context event =
+  match Context_observations.find_opt context_observations context with
+  | None -> ()
+  | Some observations ->
+      observations.events_rev <- event :: observations.events_rev;
+      observations.count <- observations.count + 1
+
+let same_observation left right =
+  match (left, right) with
+  | Command left, Command right -> left == right
+  | Declaration left, Declaration right -> left == right
+  | Reference left, Reference right -> left == right
+  | Call_start left, Call_start right -> left == right
+  | Call_emission left, Call_emission right -> left == right
+  | Implicit_output left, Implicit_output right -> left == right
+  | _ -> false
+
+let source_observations_match context ~events_rev =
+  Option.map
+    (fun observations ->
+      List.length events_rev = observations.count
+      && List.for_all2 same_observation events_rev observations.events_rev)
+    (Context_observations.find_opt context_observations context)
+
+let source_observation_count context =
+  Option.map
+    (fun observations -> observations.count)
+    (Context_observations.find_opt context_observations context)
+
 type command_sink = {
   checkpoint :
     (command_event -> (unit, Common.Diagnostic.t list) result) option;
   reference :
     (reference_selection -> (unit, Common.Diagnostic.t list) result) option;
+  call : direct_call_sink option;
   implicit_output :
     (implicit_output_selection -> (unit, Common.Diagnostic.t list) result)
     option;
@@ -474,6 +581,8 @@ type cursor = {
   reference :
     (reference_selection -> (unit, Common.Diagnostic.t list) result) option;
   references : reference_selection Identifier_table.t;
+  call : direct_call_sink option;
+  mutable pending_calls : completed_call list;
   implicit_output :
     (implicit_output_selection -> (unit, Common.Diagnostic.t list) result)
     option;
@@ -992,6 +1101,8 @@ let report ?(secondary = []) cursor item ~code ~message =
 let publish_declaration cursor at event =
   Option.iter
     (fun consume ->
+      record_observation (Option.get cursor.current_command).command_context
+        (Declaration event);
       match consume event with
       | Ok () -> ()
       | Error diagnostics ->
@@ -1042,6 +1153,8 @@ let expression_identifier cursor item =
       Identifier_table.add cursor.references identifier selection;
       Option.iter
         (fun reference ->
+          record_observation selection.selected_command.command_context
+            (Reference selection);
           match reference selection with
           | Ok () -> ()
           | Error diagnostics ->
@@ -1062,6 +1175,73 @@ let identifier_lookup cursor identifier =
   | None ->
       Symbol_visibility.Environment.find_preprocessor cursor.symbols
         identifier.Ast.spelling
+
+let call_result cursor item = function
+  | Ok value -> value
+  | Error diagnostics ->
+      cursor.diagnostics_rev <-
+        List.rev_append diagnostics cursor.diagnostics_rev;
+      if not (has_error diagnostics) then
+        report cursor item ~code:"HCPARSE0161"
+          ~message:"call consumer failed without an error diagnostic";
+      raise Stop_command
+
+let start_direct_call cursor item callee opening =
+  match (cursor.call, callee) with
+  | Some consume, Ast.Identifier_expression identifier -> (
+      match Identifier_table.find_opt cursor.references identifier with
+      | Some reference ->
+          let receipt =
+            {
+              call_reference = reference;
+              call_callee = callee;
+              call_opening_parenthesis = opening;
+              call_activity = { call_active = true; call_captured = false };
+            }
+          in
+          let shape =
+            Fun.protect
+              ~finally:(fun () -> receipt.call_activity.call_active <- false)
+              (fun () ->
+                record_observation reference.selected_command.command_context
+                  (Call_start receipt);
+                call_result cursor item (consume.start receipt))
+          in
+          (Some receipt, shape)
+      | None -> (None, None))
+  | _ -> (None, None)
+
+let retain_direct_call cursor start expression =
+  Option.iter
+    (fun call_start ->
+      cursor.pending_calls <-
+        {
+          call_start;
+          call_expression = expression;
+          emission_activity = { call_active = false; call_captured = false };
+        }
+        :: cursor.pending_calls)
+    start
+
+let emit_direct_call cursor item expression =
+  match
+    List.find_opt
+      (fun receipt -> receipt.call_expression == expression)
+      cursor.pending_calls
+  with
+  | None -> ()
+  | Some receipt ->
+      cursor.pending_calls <-
+        List.filter (fun pending -> pending != receipt) cursor.pending_calls;
+      receipt.emission_activity.call_active <- true;
+      Fun.protect
+        ~finally:(fun () -> receipt.emission_activity.call_active <- false)
+        (fun () ->
+          let consume = Option.get cursor.call in
+          record_observation
+            receipt.call_start.call_reference.selected_command.command_context
+            (Call_emission receipt);
+          call_result cursor item (consume.emit receipt))
 
 let publish_query cursor item event =
   Option.iter
@@ -1552,7 +1732,8 @@ let complete_function_header cursor at publication
           variadic = parsed.variadic;
           variadic_publication = parsed.variadic_publication;
           closing_parenthesis = parsed.closing_parenthesis;
-          header_activity = { function_header_active = true };
+          header_activity =
+            { function_header_active = true; function_body_active = None };
         }
       in
       Fun.protect
@@ -2017,10 +2198,38 @@ and parse_expression_prefix cursor ~context ~depth ~allow_parenthesis_free_call
       let allow_parenthesis_free_call =
         allow_parenthesis_free_call && operator_kind <> Ast.Address_of
       in
-      match
-        parse_expression ~allow_parenthesis_free_call cursor ~context
-          ~depth:(depth + 1) ~minimum_binding_power:max_int
-      with
+      let direct_function_address =
+        operator_kind = Ast.Address_of
+        && depth + 1 < max_expression_depth
+        &&
+        let operand = peek cursor in
+        match operand.token.kind with
+        | Token_kind.Identifier | Token_kind.Keyword _ -> (
+            let lookup =
+              match operand.selection with
+              | Some (_, lookup) -> lookup
+              | None ->
+                  Symbol_visibility.Environment.find_preprocessor cursor.symbols
+                    operand.token.raw
+            in
+            match lookup with
+            | Symbol_visibility.Present entry ->
+                Symbol_visibility.kind entry = Symbol_visibility.Function
+            | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+                false)
+        | _ -> false
+      in
+      let operand =
+        if direct_function_address then
+          (* PrsExp.HC:621-654 returns the function address before ordinary
+             modifiers. In particular, a following cast applies to that address,
+             and does not enter the direct function-call grammar. *)
+          parse_expression_atom cursor ~context ~depth:(depth + 1)
+        else
+          parse_expression ~allow_parenthesis_free_call cursor ~context
+            ~depth:(depth + 1) ~minimum_binding_power:max_int
+      in
+      match operand with
       | None -> None
       | Some (operand : parsed_expression) ->
           let tokens = operator_item.token :: operand.tokens in
@@ -2522,8 +2731,9 @@ and parse_defined_expression cursor ~context : parsed_expression option =
         complete_query cursor operand_item query node;
         Some { node; tokens }
 
-and parse_parenthesis_free_call cursor ~depth (callee : parsed_expression)
-    (shape : Symbol_visibility.function_call_shape) : parsed_expression option =
+and parse_parenthesis_free_call ?start cursor ~depth
+    (callee : parsed_expression) (shape : Symbol_visibility.function_call_shape)
+    : parsed_expression option =
   let callee_name =
     match callee.node with
     | Ast.Identifier_expression identifier -> identifier.spelling
@@ -2556,6 +2766,7 @@ and parse_parenthesis_free_call cursor ~depth (callee : parsed_expression)
                ~arguments:(List.rev arguments_rev)
                ~location:(location_from_expression_tokens tokens))
         in
+        retain_direct_call cursor start node;
         Some ({ node; tokens } : parsed_expression)
     | parameter :: parameters -> (
         if parameter.Symbol_visibility.has_default then
@@ -2595,8 +2806,9 @@ and parse_parenthesis_free_call cursor ~depth (callee : parsed_expression)
     (Ast.expression_location callee.node)
     shape.parameters
 
-and parse_call_suffix cursor ~context ~depth (callee : parsed_expression)
-    opening : parsed_expression option =
+and parse_call_suffix ?start ?shape cursor ~context ~depth
+    (callee : parsed_expression) opening ~opening_location :
+    parsed_expression option =
   let build arguments_rev interior_tokens_rev closing =
     let suffix_tokens = List.rev (closing.token :: interior_tokens_rev) in
     let tokens = callee.tokens @ (opening.token :: suffix_tokens) in
@@ -2606,18 +2818,119 @@ and parse_call_suffix cursor ~context ~depth (callee : parsed_expression)
            ~syntax:
              (Ast.Parenthesized_call
                 {
-                  opening_parenthesis = token_location opening.token;
+                  opening_parenthesis = opening_location;
                   closing_parenthesis = token_location closing.token;
                 })
            ~arguments:(List.rev arguments_rev)
            ~location:(location_from_expression_tokens tokens))
     in
+    retain_direct_call cursor start node;
     Some ({ node; tokens } : parsed_expression)
   in
   let omitted_argument delimiter =
     Ast.make_call_argument ~value:Ast.Omitted_call_argument
       ~following_comma:None
       ~location:(location_before_token delimiter.token)
+  in
+  let parse_supplied_shape (shape : Symbol_visibility.function_call_shape) =
+    let missing_close item =
+      expression_failure cursor item ~code:"HCPARSE0025"
+        ~message:
+          (Printf.sprintf "expected ')' to close a call in %s, but found %s"
+             (expression_context_name context)
+             (token_description item.token))
+    in
+    let close arguments_rev tokens_rev =
+      let item = peek cursor in
+      if item.token.kind = Token_kind.Punctuation ')' then
+        build arguments_rev tokens_rev (take cursor)
+      else missing_close item
+    in
+    let add_comma argument comma =
+      Ast.make_call_argument ~value:argument.Ast.call_argument_value
+        ~following_comma:(Some (token_location comma.token))
+        ~location:argument.call_argument_location
+    in
+    let missing_comma item =
+      expression_failure cursor item ~code:"HCPARSE0024"
+        ~message:
+          (Printf.sprintf "expected ',' after a call argument, but found %s"
+             (token_description item.token))
+    in
+    let rec variadic arguments_rev tokens_rev =
+      match
+        parse_expression cursor ~context:Call_argument_expression
+          ~depth:(depth + 1) ~minimum_binding_power:0
+      with
+      | None -> None
+      | Some (expression : parsed_expression) ->
+          let argument =
+            Ast.make_call_argument
+              ~value:(Ast.Provided_call_argument expression.node)
+              ~following_comma:None
+              ~location:(Ast.expression_location expression.node)
+          in
+          let tokens_rev = List.rev_append expression.tokens tokens_rev in
+          let following = peek cursor in
+          if following.token.kind = Token_kind.Punctuation ',' then
+            let comma = take cursor in
+            variadic
+              (add_comma argument comma :: arguments_rev)
+              (comma.token :: tokens_rev)
+          else close (argument :: arguments_rev) tokens_rev
+    in
+    let rec fixed arguments_rev tokens_rev = function
+      | [] ->
+          let item = peek cursor in
+          if shape.variadic && item.token.kind <> Token_kind.Punctuation ')'
+          then variadic arguments_rev tokens_rev
+          else close arguments_rev tokens_rev
+      | parameter :: remaining -> (
+          let item = peek cursor in
+          let argument =
+            if
+              parameter.Symbol_visibility.has_default
+              && (item.token.kind = Token_kind.Punctuation ')'
+                 || item.token.kind = Token_kind.Punctuation ',')
+            then Some (omitted_argument item, tokens_rev)
+            else
+              Option.map
+                (fun (expression : parsed_expression) ->
+                  ( Ast.make_call_argument
+                      ~value:(Ast.Provided_call_argument expression.node)
+                      ~following_comma:None
+                      ~location:(Ast.expression_location expression.node),
+                    List.rev_append expression.tokens tokens_rev ))
+                (parse_expression cursor ~context:Call_argument_expression
+                   ~depth:(depth + 1) ~minimum_binding_power:0)
+          in
+          match argument with
+          | None -> None
+          | Some (argument, tokens_rev) ->
+              let following = peek cursor in
+              if remaining <> [] then
+                if following.token.kind = Token_kind.Punctuation ',' then
+                  let comma = take cursor in
+                  fixed
+                    (add_comma argument comma :: arguments_rev)
+                    (comma.token :: tokens_rev)
+                    remaining
+                else if following.token.kind = Token_kind.Punctuation ')' then
+                  fixed (argument :: arguments_rev) tokens_rev remaining
+                else missing_comma following
+              else if
+                shape.variadic
+                && following.token.kind <> Token_kind.Punctuation ')'
+              then
+                if following.token.kind = Token_kind.Punctuation ',' then
+                  let comma = take cursor in
+                  variadic
+                    (add_comma argument comma :: arguments_rev)
+                    (comma.token :: tokens_rev)
+                else missing_comma following
+              else close (argument :: arguments_rev) tokens_rev)
+    in
+    fixed [] [] shape.parameters
   in
   let rec parse_arguments arguments_rev interior_tokens_rev after_comma =
     let item = peek cursor in
@@ -2690,7 +3003,9 @@ and parse_call_suffix cursor ~context ~depth (callee : parsed_expression)
                        "expected ',' or ')' after a call argument, but found %s"
                        (token_description following.token))))
   in
-  parse_arguments [] [] false
+  match shape with
+  | Some shape -> parse_supplied_shape shape
+  | None -> parse_arguments [] [] false
 
 and parse_postfix_cast_suffix cursor ~context (operand : parsed_expression)
     opening type_specifier : parsed_expression option =
@@ -2817,6 +3132,7 @@ and parse_expression_tail cursor ~context ~depth ~minimum_binding_power
     ~allow_parenthesis_free_call (left : parsed_expression) :
     parsed_expression option =
   let item = peek cursor in
+  emit_direct_call cursor item left.node;
   let direct_function =
     match left.node with
     | Ast.Identifier_expression identifier -> (
@@ -2833,21 +3149,35 @@ and parse_expression_tail cursor ~context ~depth ~minimum_binding_power
   in
   if allow_parenthesis_free_call then
     match direct_function with
-    | Direct_function_without_shape entry
-      when item.token.kind <> Token_kind.Punctuation '(' ->
-        expression_failure cursor item ~code:"HCPARSE0106"
-          ~message:
-            (Printf.sprintf
-               "cannot parse direct call to %S because its fixed-parameter \
-                shape is unavailable"
-               (Symbol_visibility.name entry))
-    | Direct_function_with_shape shape
+    | (Direct_function_without_shape _ | Direct_function_with_shape _)
       when item.token.kind <> Token_kind.Punctuation '(' -> (
-        match parse_parenthesis_free_call cursor ~depth left shape with
-        | None -> None
-        | Some call ->
-            parse_expression_tail cursor ~context ~depth ~minimum_binding_power
-              ~allow_parenthesis_free_call call)
+        let start, supplied = start_direct_call cursor item left.node None in
+        let shape =
+          match (supplied, direct_function) with
+          | Some shape, _ | None, Direct_function_with_shape shape -> Some shape
+          | _ -> None
+        in
+        match shape with
+        | None ->
+            let entry =
+              match direct_function with
+              | Direct_function_without_shape entry -> entry
+              | _ -> assert false
+            in
+            expression_failure cursor item ~code:"HCPARSE0106"
+              ~message:
+                (Printf.sprintf
+                   "cannot parse direct call to %S because its fixed-parameter \
+                    shape is unavailable"
+                   (Symbol_visibility.name entry))
+        | Some shape -> (
+            match
+              parse_parenthesis_free_call ?start cursor ~depth left shape
+            with
+            | None -> None
+            | Some call ->
+                parse_expression_tail cursor ~context ~depth
+                  ~minimum_binding_power ~allow_parenthesis_free_call call))
     | Not_a_direct_function
     | Direct_function_without_shape _
     | Direct_function_with_shape _ ->
@@ -2861,17 +3191,16 @@ and parse_expression_modifiers cursor ~context ~depth ~minimum_binding_power
     ~allow_parenthesis_free_call (left : parsed_expression) :
     parsed_expression option =
   let item = peek cursor in
-  let direct_function_shape =
+  let is_direct_function =
     match left.node with
     | Ast.Identifier_expression identifier -> (
         match identifier_lookup cursor identifier with
         | Symbol_visibility.Present entry
-          when Symbol_visibility.kind entry = Symbol_visibility.Function ->
-            Symbol_visibility.function_call_shape entry
+          when Symbol_visibility.kind entry = Symbol_visibility.Function -> true
         | Symbol_visibility.Absent
         | Symbol_visibility.Shadowed_by_local
-        | Symbol_visibility.Present _ -> None)
-    | _ -> None
+        | Symbol_visibility.Present _ -> false)
+    | _ -> false
   in
   let restricted_term = restricted_modifier_term left.node in
   let invalid_direct_restricted_suffix =
@@ -2897,40 +3226,47 @@ and parse_expression_modifiers cursor ~context ~depth ~minimum_binding_power
     match item.token.kind with
     | Token_kind.Punctuation '(' -> (
         let opening = take cursor in
-        let first = peek cursor in
+        let opening_location = token_location opening.token in
         let suffix =
-          match
-            (direct_function_shape, type_specifier_of_item cursor first)
-          with
-          | Some _, _ -> parse_call_suffix cursor ~context ~depth left opening
-          | None, Some type_specifier ->
-              parse_postfix_cast_suffix cursor ~context left opening
-                type_specifier
-          | None, None -> (
-              match restricted_term with
-              | Some (term_name, code) ->
-                  if first.token.kind = Token_kind.Identifier then
-                    expression_failure
-                      ~secondary:opening.context.definition_trace cursor first
-                      ~code:"HCPARSE0020"
-                      ~message:
-                        (Printf.sprintf
-                           "postfix cast target %s after %s is not a visible \
-                            type"
-                           (token_description first.token)
-                           term_name)
-                  else
-                    expression_failure
-                      ~secondary:opening.context.definition_trace cursor first
-                      ~code
-                      ~message:
-                        (Printf.sprintf
-                           "expected a postfix cast target after %s in %s, but \
-                            found %s"
-                           term_name
-                           (expression_context_name context)
-                           (token_description first.token))
-              | None -> parse_call_suffix cursor ~context ~depth left opening)
+          if is_direct_function then
+            let start, shape =
+              start_direct_call cursor item left.node (Some opening_location)
+            in
+            parse_call_suffix ?start ?shape cursor ~context ~depth left opening
+              ~opening_location
+          else
+            let first = peek cursor in
+            match type_specifier_of_item cursor first with
+            | Some type_specifier ->
+                parse_postfix_cast_suffix cursor ~context left opening
+                  type_specifier
+            | None -> (
+                match restricted_term with
+                | Some (term_name, code) ->
+                    if first.token.kind = Token_kind.Identifier then
+                      expression_failure
+                        ~secondary:opening.context.definition_trace cursor first
+                        ~code:"HCPARSE0020"
+                        ~message:
+                          (Printf.sprintf
+                             "postfix cast target %s after %s is not a visible \
+                              type"
+                             (token_description first.token)
+                             term_name)
+                    else
+                      expression_failure
+                        ~secondary:opening.context.definition_trace cursor first
+                        ~code
+                        ~message:
+                          (Printf.sprintf
+                             "expected a postfix cast target after %s in %s, \
+                              but found %s"
+                             term_name
+                             (expression_context_name context)
+                             (token_description first.token))
+                | None ->
+                    parse_call_suffix cursor ~context ~depth left opening
+                      ~opening_location)
         in
         match suffix with
         | None -> None
@@ -5210,6 +5546,8 @@ let parse_implicit_output_statement cursor ~boundary : parsed_statement option =
     (fun () ->
       Option.iter
         (fun observe ->
+          record_observation selection.output_command.command_context
+            (Implicit_output selection);
           match observe selection with
           | Ok () -> ()
           | Error diagnostics ->
@@ -8283,8 +8621,13 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
           in
           Option.iter
             (fun header ->
-              publish_declaration cursor opening
-                (Function_body_completed (header, definition)))
+              header.header_activity.function_body_active <- Some definition;
+              Fun.protect
+                ~finally:(fun () ->
+                  header.header_activity.function_body_active <- None)
+                (fun () ->
+                  publish_declaration cursor opening
+                    (Function_body_completed (header, definition))))
             !completed_header;
           Ast.Function_definition definition)
         parsed_body
@@ -8349,10 +8692,16 @@ let read_commands ?commands ?stream_opener cursor =
       context_accepted_ast = None;
       context_active = true;
       context_event_count = 0;
+      context_observation_id = fresh_observation_id ();
     }
   in
+  if Option.is_some cursor.call then
+    Context_observations.add context_observations context
+      { events_rev = []; count = 0 };
   let checkpoint event =
     context.context_event_count <- context.context_event_count + 1;
+    if Option.is_some (Option.bind commands (fun sink -> sink.checkpoint)) then
+      record_observation context (Command event);
     consume_checkpoint event
   in
   let notify event = if not (checkpoint event) then raise Stop_command in
@@ -8455,9 +8804,9 @@ let read_commands ?commands ?stream_opener cursor =
         succeeded := true);
       ast)
 
-let make_cursor ?reference ?implicit_output ?query ?declaration ?dimension_count
-    ~command_stack ~stream ~sources ~source ~symbols ~compilation_mode
-    ~stop_on_error () =
+let make_cursor ?reference ?call ?implicit_output ?query ?declaration
+    ?dimension_count ~command_stack ~stream ~sources ~source ~symbols
+    ~compilation_mode ~stop_on_error () =
   if Option.is_some dimension_count && Option.is_none declaration then
     invalid_arg "an array count reader requires a declaration observer";
   {
@@ -8470,6 +8819,8 @@ let make_cursor ?reference ?implicit_output ?query ?declaration ?dimension_count
     compilation_mode;
     stop_on_error;
     reference;
+    call;
+    pending_calls = [];
     implicit_output;
     references = Identifier_table.create 32;
     query;
@@ -8520,6 +8871,7 @@ let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
                             make_cursor ~command_stack ~stream ~sources ~source
                               ~symbols:execution.symbols
                               ?reference:execution.commands.reference
+                              ?call:execution.commands.call
                               ?implicit_output:
                                 execution.commands.implicit_output
                               ?query:execution.commands.query
@@ -8556,6 +8908,8 @@ let parse ?commands ?execute_stream ~sources ~definitions ~symbols ~config
       ?reference:
         (Option.bind commands (fun (commands : command_sink) ->
              commands.reference))
+      ?call:
+        (Option.bind commands (fun (commands : command_sink) -> commands.call))
       ?implicit_output:
         (Option.bind commands (fun (commands : command_sink) ->
              commands.implicit_output))

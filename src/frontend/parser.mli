@@ -84,6 +84,53 @@ val selected_lookup : reference_selection -> Symbol_visibility.lookup
 
 val selected_command : reference_selection -> command_start
 
+type call_activity
+
+type call_start = private {
+  call_reference : reference_selection;
+  call_callee : Ast.expression;
+  call_opening_parenthesis : Ast.location option;
+  call_activity : call_activity;
+}
+
+type completed_call = private {
+  call_start : call_start;
+  call_expression : Ast.expression;
+  emission_activity : call_activity;
+}
+
+val call_start_is_current : call_start -> bool
+
+val call_emission_is_current : completed_call -> bool
+(** True only during each receipt's original synchronous callback. The start
+    retains the original identifier selection, including its command and
+    environment, and the exact callee and opening location children. Emission
+    retains the complete original call expression and argument children. *)
+
+val claim_call_start : call_start -> bool
+
+val claim_call_emission : completed_call -> bool
+(** Claim one receipt during its original callback, at most once across all
+    journals. Callers must finish journal preflight before claiming. *)
+
+type direct_call_sink = {
+  start :
+    call_start ->
+    ( Symbol_visibility.function_call_shape option,
+      Common.Diagnostic.t list )
+    result;
+  emit : completed_call -> (unit, Common.Diagnostic.t list) result;
+}
+(** Direct function start follows name lookahead and precedes lookahead inside
+    an opening parenthesis. A supplied shape fixes argument traversal at that
+    phase; [None] preserves legacy grammar. Emission follows the existing tail
+    lookahead after closing-parenthesis consumption (or the parenthesis-free
+    arguments), before any subsequent expression processing. Neither callback
+    adds a lexer read. The frontend retains source evidence only; checked
+    metadata selection, template classification and runtime admission belong to
+    the consumer. A provider requiring checked evidence must reject its absence
+    instead of returning [None]. *)
+
 type implicit_output_selection
 
 val implicit_target : implicit_output_selection -> Ast.implicit_output_target
@@ -355,6 +402,10 @@ val function_header_is_current : completed_function_header -> bool
 (** True only during this exact header's original completion callback. The
     callback follows closing-parenthesis lookahead and precedes body parsing. *)
 
+val function_body_completion_is_current :
+  completed_function_header -> Ast.function_definition -> bool
+(** Only the exact original body during its completion callback is current. *)
+
 type array_dimensions_owner = private {
   dimensions_command : command_start;
   dimensions_environment : Symbol_visibility.Environment.t;
@@ -421,11 +472,29 @@ type declaration_event = private
           witness. Runtime validation, installation and replay admission remain
           the consumer's work. *)
 
+type source_observation =
+  | Command of command_event
+  | Declaration of declaration_event
+  | Reference of reference_selection
+  | Call_start of call_start
+  | Call_emission of completed_call
+  | Implicit_output of implicit_output_selection
+
+val source_observations_match :
+  command_context -> events_rev:source_observation list -> bool option
+
+val source_observation_count : command_context -> int option
+(** Call-aware contexts retain the original ordered observations of enabled
+    consumers. Equality requires the exact event payloads. [None] denotes a
+    legacy context without a call sink and never establishes call authority.
+    Observations are recorded before each consumer is invoked. *)
+
 type command_sink = {
   checkpoint :
     (command_event -> (unit, Common.Diagnostic.t list) result) option;
   reference :
     (reference_selection -> (unit, Common.Diagnostic.t list) result) option;
+  call : direct_call_sink option;
   implicit_output :
     (implicit_output_selection -> (unit, Common.Diagnostic.t list) result)
     option;

@@ -530,11 +530,7 @@ let shape ~globals records description =
          (fun parameter (actual, _) -> parameter == actual)
          parameters fixed)
     "call fixed values do not match the selected parameter identities";
-  let count_type =
-    header |> Headers.function_variadic_bindings
-    |> Option.map (fun bindings ->
-        bindings |> Headers.variadic_argc |> Headers.synthetic_binding_type)
-  in
+  let count_type = Headers.function_variadic_count_type header in
   require ?span
     (Option.is_some count_type || variadic = [])
     "nonvariadic call has a variadic argument tail";

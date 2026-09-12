@@ -1,6 +1,7 @@
 type compilation_mode = Jit | Aot
 type declaration_kind = Extern | Bound_extern | Import | Intern | Definition
 type state = Unresolved_extern | Imported | Resolved
+type phase = Legacy | Provisional | Completed_header | Completed_body
 
 type declaration_site = {
   function_ : Function_type_resolution.resolved_function;
@@ -10,6 +11,8 @@ type declaration_site = {
   state : state;
   header_source : Compiler_record.declared_function option;
   pending_header : bool;
+  phase : phase;
+  native_snapshot : Function_record_phase.snapshot option;
 }
 
 type identity = {
@@ -30,6 +33,10 @@ type resolved_declaration = {
   joined_predecessor : resolved_declaration option;
   completion_source : resolved_declaration option;
   mutable completed : bool;
+  phase_source : resolved_declaration option;
+  phase_current : resolved_declaration option;
+  mutable phase_consumed : bool;
+  mutable head_consumed : bool;
 }
 
 type declaration = {
@@ -41,6 +48,12 @@ type declaration = {
   pending_header : bool;
   completion_predecessor : resolved_declaration option;
   completion_current : resolved_declaration option;
+  phase : phase;
+  native_snapshot : Function_record_phase.snapshot option;
+  phase_source : resolved_declaration option;
+  phase_current : resolved_declaration option;
+  transition : Function_record_phase.transition option;
+  callable_function : Function_type_resolution.resolved_function option;
 }
 
 type t = {
@@ -65,6 +78,10 @@ let declaration_site_compiler_option_mask (site : declaration_site) =
 
 let declaration_site_state (site : declaration_site) = site.state
 let declaration_site_is_pending (site : declaration_site) = site.pending_header
+let declaration_site_phase (site : declaration_site) = site.phase
+
+let declaration_site_native_snapshot (site : declaration_site) =
+  site.native_snapshot
 
 let declaration_site_header_source (site : declaration_site) =
   site.header_source
@@ -76,6 +93,12 @@ let resolved_declaration_site (declaration : resolved_declaration) =
   declaration.site
 
 let resolved_declaration_header declaration = declaration.header
+
+let resolved_declaration_phase_source (declaration : resolved_declaration) =
+  declaration.phase_source
+
+let resolved_declaration_phase_current (declaration : resolved_declaration) =
+  declaration.phase_current
 
 let resolved_declaration_completion_source declaration =
   declaration.completion_source
@@ -138,7 +161,13 @@ let effective_kind compiler_option_mask kind =
 
 let make_declaration_with_options ~compiler_option_mask ~function_ ~kind =
   let symbol = Function_type_resolution.function_symbol function_ in
-  if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Function) then
+  if
+    Option.is_some
+      (Function_type_resolution.function_provisional_call function_)
+  then
+    Error
+      "provisional call types cannot authorize an ordinary function declaration"
+  else if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Function) then
     Error "semantic function identity requires a function symbol"
   else
     Ok
@@ -151,6 +180,12 @@ let make_declaration_with_options ~compiler_option_mask ~function_ ~kind =
         pending_header = false;
         completion_predecessor = None;
         completion_current = None;
+        phase = Legacy;
+        native_snapshot = None;
+        phase_source = None;
+        phase_current = None;
+        transition = None;
+        callable_function = None;
       }
 
 let make_declaration ~function_ ~kind =
@@ -166,8 +201,8 @@ let source_origin (location : Frontend.Ast.location) =
       defined_at = location.defined_at;
     }
 
-let source_kind (source : Frontend.Parser.completed_function_header) =
-  match source.function_publication.function_header.binding with
+let publication_kind (source : Frontend.Parser.function_publication) =
+  match source.function_header.binding with
   | None -> Ok Definition
   | Some binding -> (
       match (binding.kind, binding.spelling, binding.target) with
@@ -181,6 +216,9 @@ let source_kind (source : Frontend.Parser.completed_function_header) =
       | Frontend.Ast.Intern, "_intern", Frontend.Ast.Expression_binding_target _
         -> Ok Intern
       | _ -> Error "pending function header has an inconsistent source binding")
+
+let source_kind (source : Frontend.Parser.completed_function_header) =
+  publication_kind source.function_publication
 
 let source_registers_match sources requests =
   List.length sources = List.length requests
@@ -328,7 +366,180 @@ let make_pending_declaration ~table ~namespace ~compiler_option_mask ~source
     let* declaration =
       make_declaration_with_options ~compiler_option_mask ~function_ ~kind
     in
-    Ok { declaration with header_source = Some source; pending_header = true }
+    Ok
+      {
+        declaration with
+        header_source = Some source;
+        pending_header = true;
+        phase = Completed_header;
+      }
+
+let provisional_snapshot ~table ~namespace ~function_ =
+  match Function_type_resolution.function_provisional_call function_ with
+  | Some shape ->
+      let snapshot = Function_record_phase.shape_snapshot shape in
+      if
+        Function_record_phase.owns_table snapshot table
+        && Function_record_phase.owns_namespace snapshot namespace
+      then Ok snapshot
+      else
+        Error "provisional function requires its original namespace and table"
+  | None ->
+      Error "provisional function requires its checked native call projection"
+
+let make_provisional_declaration ~table ~namespace ~compiler_option_mask
+    ~function_ =
+  let ( let* ) = Result.bind in
+  let* snapshot = provisional_snapshot ~table ~namespace ~function_ in
+  let* kind = publication_kind (Function_record_phase.source snapshot) in
+  if
+    Int64.logand compiler_option_mask (Int64.lognot Compiler_option.known_mask)
+    <> 0L
+  then Error "provisional function has unknown compiler options"
+  else if
+    Option.is_some
+      (Provisional_function.completed_header
+         (Function_record_phase.source_snapshot snapshot))
+  then
+    Error
+      "completed source header requires explicit header transition authority"
+  else
+    Ok
+      {
+        function_;
+        source_kind = kind;
+        kind = effective_kind compiler_option_mask kind;
+        compiler_option_mask;
+        header_source = None;
+        pending_header = true;
+        completion_predecessor = None;
+        completion_current = None;
+        phase = Provisional;
+        native_snapshot = Some snapshot;
+        phase_source = None;
+        phase_current = None;
+        transition = None;
+        callable_function = None;
+      }
+
+let validate_phase_current ~table ~namespace ~current ~transition =
+  let module N = Function_record_phase in
+  let earlier = N.transition_earlier transition in
+  let later = N.transition_later transition in
+  if
+    current.head_consumed
+    || current.compilation_mode <> Jit
+    || (not (N.owns_table later table && N.owns_namespace later namespace))
+    || not
+         (Option.fold ~none:false ~some:(( == ) earlier)
+            current.site.native_snapshot)
+  then Error "function phase requires its exact unconsumed current native head"
+  else Ok later
+
+let validate_phase_source ~(pending : resolved_declaration)
+    ~(current : resolved_declaration) snapshot =
+  if
+    pending.phase_consumed
+    || pending.site.phase <> Provisional
+    || pending.identity_symbol != current.identity_symbol
+    || (not
+          (pending == current
+          || is_joined_successor ~earlier:pending ~later:current))
+    || not
+         (Option.fold ~none:false
+            ~some:(fun original ->
+              Function_record_phase.source original
+              == Function_record_phase.source snapshot)
+            pending.site.native_snapshot)
+  then Error "function phase requires its exact unconsumed provisional source"
+  else Ok ()
+
+let make_provisional_advance ?pending ~compiler_option_mask ~table ~namespace
+    ~current ~transition ~function_ () =
+  let ( let* ) = Result.bind in
+  let* snapshot =
+    validate_phase_current ~table ~namespace ~current ~transition
+  in
+  let* declaration =
+    make_provisional_declaration ~table ~namespace ~compiler_option_mask
+      ~function_
+  in
+  let* () =
+    if
+      not
+        (Option.fold ~none:false ~some:(( == ) snapshot)
+           declaration.native_snapshot)
+    then
+      Error "function phase projection differs from the checked later snapshot"
+    else
+      match pending with
+      | Some pending ->
+          let* () = validate_phase_source ~pending ~current snapshot in
+          if
+            pending.site.compiler_option_mask <> compiler_option_mask
+            || Function_type_resolution.function_scope function_
+               != Function_type_resolution.function_scope pending.site.function_
+          then
+            Error "function phase must retain original options and source scope"
+          else Ok ()
+      | None ->
+          if
+            List.exists
+              (fun prior ->
+                Function_type_resolution.function_symbol prior
+                == Function_type_resolution.function_symbol function_)
+              current.source_history
+          then Error "repeated source projection requires explicit phase source"
+          else Ok ()
+  in
+  Ok
+    {
+      declaration with
+      phase_source = pending;
+      phase_current = Some current;
+      transition = Some transition;
+    }
+
+let make_header_advance ~table ~namespace ~pending ~current ~transition ~source
+    ~function_ ~callable_function =
+  let ( let* ) = Result.bind in
+  let* snapshot =
+    validate_phase_current ~table ~namespace ~current ~transition
+  in
+  let* () = validate_phase_source ~pending ~current snapshot in
+  let* () = validate_header_source ~table ~namespace ~source ~function_ in
+  let* callable =
+    provisional_snapshot ~table ~namespace ~function_:callable_function
+  in
+  let header = Compiler_record.declared_function_source source in
+  if
+    callable != snapshot
+    || Function_type_resolution.function_scope callable_function
+       != Function_type_resolution.function_scope function_
+    || header.function_publication != Function_record_phase.source snapshot
+    || not
+         (Option.fold ~none:false ~some:(( == ) header)
+            (Provisional_function.completed_header
+               (Function_record_phase.source_snapshot snapshot)))
+  then
+    Error
+      "header phase requires exact completed source and current native \
+       projection"
+  else
+    let* declaration =
+      make_pending_declaration ~table ~namespace
+        ~compiler_option_mask:pending.site.compiler_option_mask ~source
+        ~function_
+    in
+    Ok
+      {
+        declaration with
+        native_snapshot = Some snapshot;
+        phase_source = Some pending;
+        phase_current = Some current;
+        transition = Some transition;
+        callable_function = Some callable_function;
+      }
 
 let make_completion_declaration_against ~table ~namespace
     ~(pending : resolved_declaration) ~(current : resolved_declaration)
@@ -339,7 +550,8 @@ let make_completion_declaration_against ~table ~namespace
       if function_ != pending.site.function_ then
         Error "function completion requires its exact retained typed header"
       else if
-        current.compilation_mode <> pending.compilation_mode
+        current.head_consumed
+        || current.compilation_mode <> pending.compilation_mode
         || current.identity_symbol != pending.identity_symbol
         || not
              (current == pending
@@ -357,6 +569,12 @@ let make_completion_declaration_against ~table ~namespace
             pending_header = false;
             completion_predecessor = Some pending;
             completion_current = Some current;
+            phase = Completed_body;
+            native_snapshot = current.site.native_snapshot;
+            phase_source = None;
+            phase_current = None;
+            transition = None;
+            callable_function = None;
           }
   | _ -> Error "function completion requires an uncompleted pending declaration"
 
@@ -378,7 +596,9 @@ let validate_declaration ~table ~parent ~compilation_mode previous_item
   let item_index = Function_type_resolution.function_item_index function_ in
   let symbol_number = symbol_number symbol in
   let scope_number = scope_number scope in
-  if compilation_mode = Jit && declaration.kind = Import then
+  if compilation_mode = Aot && Option.is_some declaration.native_snapshot then
+    Error "native function phase evidence requires JIT compilation mode"
+  else if compilation_mode = Jit && declaration.kind = Import then
     Error "semantic function imports require AOT compilation mode"
   else if item_index <= previous_item then
     Error "semantic function identities must follow module source order"
@@ -448,6 +668,12 @@ let may_join compilation_mode state =
   | Jit -> state = Unresolved_extern
   | Aot -> state <> Imported
 
+let may_join_ordinary compilation_mode state (earlier : declaration_site)
+    (later : declaration_site) =
+  may_join compilation_mode state
+  && Option.is_none earlier.native_snapshot
+  && Option.is_none later.native_snapshot
+
 let resolve_validated ~previous compilation_mode
     (declarations : declaration list) =
   let declaration_count = List.length declarations in
@@ -465,10 +691,15 @@ let resolve_validated ~previous compilation_mode
       kind = declaration.kind;
       compiler_option_mask = declaration.compiler_option_mask;
       state =
-        (if declaration.pending_header then Unresolved_extern
+        (if declaration.pending_header then
+           match declaration.phase_current with
+           | Some current -> current.site.state
+           | None -> Unresolved_extern
          else state_after declaration.kind);
       header_source = declaration.header_source;
       pending_header = declaration.pending_header;
+      phase = declaration.phase;
+      native_snapshot = declaration.native_snapshot;
     }
   in
   let add_identity ?predecessor ?(completion = false) ?(update_name = true)
@@ -512,12 +743,16 @@ let resolve_validated ~previous compilation_mode
               Symbol.name prior.identity_symbol = Symbol.name symbol)
             previous
         with
-        | Some prior when may_join compilation_mode prior.site.state ->
-            (add_identity ~predecessor:prior site, Some prior.site)
+        | Some prior
+          when may_join_ordinary compilation_mode prior.site.state prior.site
+                 site -> (add_identity ~predecessor:prior site, Some prior.site)
         | _ -> (add_identity site, None))
     | Some identity_index -> (
         match pending.(identity_index) with
-        | Some identity when may_join compilation_mode identity.state ->
+        | Some identity
+          when may_join_ordinary compilation_mode identity.state
+                 (List.hd identity.sites_rev)
+                 site ->
             let replaced_header = List.hd identity.sites_rev in
             pending.(identity_index) <-
               Some
@@ -535,13 +770,19 @@ let resolve_validated ~previous compilation_mode
     (fun declaration_index declaration ->
       let site = site_of declaration in
       let identity_index, replaced_header =
-        match declaration.completion_current with
-        | Some predecessor ->
+        match (declaration.completion_current, declaration.phase_current) with
+        | Some predecessor, _ ->
             ( add_identity ~predecessor ~completion:true
                 ~update_name:(List.memq predecessor previous)
                 site,
               None )
-        | None -> join_or_add site
+        | None, Some predecessor ->
+            ( add_identity ~predecessor
+                ~completion:(Option.is_some declaration.phase_source)
+                ~update_name:(List.memq predecessor previous)
+                site,
+              None )
+        | None, None -> join_or_add site
       in
       sites.(declaration_index) <- Some site;
       declaration_identity.(declaration_index) <- identity_index;
@@ -592,7 +833,8 @@ let resolve_validated ~previous compilation_mode
             header =
               (match source.completion_current with
               | Some current -> current.header
-              | None -> site.function_);
+              | None ->
+                  Option.value source.callable_function ~default:site.function_);
             compilation_mode;
             source_history = declaration_history.(declaration_index);
             identity_symbol = identity.symbol;
@@ -601,6 +843,10 @@ let resolve_validated ~previous compilation_mode
             joined_predecessor;
             completion_source = source.completion_predecessor;
             completed = false;
+            phase_source = source.phase_source;
+            phase_current = source.phase_current;
+            phase_consumed = false;
+            head_consumed = false;
           }
         in
         latest_declaration_by_identity.(identity_index) <- Some declaration;
@@ -612,6 +858,26 @@ let resolve ?(previous = []) ?(record_heads = []) ~table ~parent
     ~compilation_mode declarations =
   let ( let* ) = Result.bind in
   let* () = validate ~table ~parent ~compilation_mode declarations in
+  let* () =
+    let unchecked_native_join (declaration : declaration) =
+      Option.is_none declaration.phase_current
+      && Option.is_none declaration.completion_current
+      && Option.fold ~none:false
+           ~some:(fun snapshot ->
+             List.exists
+               (fun prior ->
+                 Option.fold ~none:false
+                   ~some:(Function_record_phase.same_identity snapshot)
+                   prior.site.native_snapshot)
+               (previous @ record_heads))
+           declaration.native_snapshot
+    in
+    if List.exists unchecked_native_join declarations then
+      Error
+        "shared native function identity requires an explicit checked \
+         transition"
+    else Ok ()
+  in
   let exact_completion (declaration : declaration) prior =
     match
       (declaration.completion_predecessor, declaration.completion_current)
@@ -623,6 +889,19 @@ let resolve ?(previous = []) ?(record_heads = []) ~table ~parent
            || is_joined_successor ~earlier:pending ~later:current)
     | _ -> false
   in
+  let exact_phase (declaration : declaration) prior =
+    match (declaration.phase_current, declaration.transition) with
+    | Some current, Some transition ->
+        current == prior
+        && Option.fold ~none:false
+             ~some:
+               (( == ) (Function_record_phase.transition_earlier transition))
+             current.site.native_snapshot
+    | _ -> false
+  in
+  let exact_advance declaration prior =
+    exact_completion declaration prior || exact_phase declaration prior
+  in
   let rec validate_completions earlier_names = function
     | [] -> Ok ()
     | (declaration : declaration) :: rest ->
@@ -631,13 +910,39 @@ let resolve ?(previous = []) ?(record_heads = []) ~table ~parent
             (Function_type_resolution.function_symbol declaration.function_)
         in
         let* () =
+          match (declaration.phase_current, declaration.transition) with
+          | None, None -> Ok ()
+          | Some current, Some transition -> (
+              if
+                compilation_mode <> Jit || current.head_consumed
+                || List.mem name earlier_names
+                || (not (List.memq current (previous @ record_heads)))
+                || (not (exact_phase declaration current))
+                || not
+                     (Option.fold ~none:false
+                        ~some:
+                          (( == )
+                             (Function_record_phase.transition_later transition))
+                        declaration.native_snapshot)
+              then
+                Error
+                  "function phase requires its exact live current predecessor"
+              else
+                match declaration.phase_source with
+                | None -> Ok ()
+                | Some pending ->
+                    validate_phase_source ~pending ~current
+                      (Function_record_phase.transition_later transition))
+          | _ -> Error "function phase has incomplete transition authority"
+        in
+        let* () =
           match
             (declaration.completion_predecessor, declaration.completion_current)
           with
           | None, None -> Ok ()
           | Some pending, Some current ->
               if
-                pending.completed
+                pending.completed || current.head_consumed
                 || (not pending.site.pending_header)
                 || pending.compilation_mode <> compilation_mode
                 || declaration.function_ != pending.site.function_
@@ -665,7 +970,7 @@ let resolve ?(previous = []) ?(record_heads = []) ~table ~parent
           List.exists
             (fun (declaration : declaration) ->
               let current = declaration.function_ in
-              (not (exact_completion declaration prior))
+              (not (exact_advance declaration prior))
               && List.exists
                    (fun previous ->
                      Function_type_resolution.function_symbol current
@@ -679,9 +984,10 @@ let resolve ?(previous = []) ?(record_heads = []) ~table ~parent
           compilation_mode <> Jit
           && not
                (List.exists
-                  (fun declaration -> exact_completion declaration prior)
+                  (fun declaration -> exact_advance declaration prior)
                   declarations)
           || prior.compilation_mode <> compilation_mode
+          || (Option.is_some prior.site.native_snapshot && prior.head_consumed)
           || repeated_source
           || (not (Symbol_table.owns_symbol table symbol))
           || (not (Symbol_table.owns_symbol table source))
@@ -721,7 +1027,16 @@ let resolve ?(previous = []) ?(record_heads = []) ~table ~parent
     (fun (declaration : declaration) ->
       Option.iter
         (fun pending -> pending.completed <- true)
-        declaration.completion_predecessor)
+        declaration.completion_predecessor;
+      Option.iter
+        (fun pending -> pending.phase_consumed <- true)
+        declaration.phase_source;
+      Option.iter
+        (fun current -> current.head_consumed <- true)
+        declaration.phase_current;
+      Option.iter
+        (fun current -> current.head_consumed <- true)
+        declaration.completion_current)
     declarations;
   Ok resolution
 
