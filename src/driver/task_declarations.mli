@@ -463,6 +463,16 @@ val reference_resolver :
     view of the owning runtime's catalog. Different snapshots of that catalog
     remain valid. Repeated identifier walks reuse the same outer binding. *)
 
+val call_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  task_view:Ir.Integer_globals.task_view ->
+  command ->
+  ( Frontend.Ast.call_expression ->
+    (Sema.Function_call_phase.t option, string) result,
+    Common.Diagnostic.t list )
+  result
+
 val create :
   ?runtime:Ir.Integer_interpreter.task_state -> Session.t -> (t, string) result
 

@@ -750,6 +750,22 @@ let create_task_catalog ~table =
 
 let task_catalog_owns_table catalog table = catalog.table == table
 
+let task_catalog_contains_function catalog reference =
+  List.exists
+    (function
+      | Function_publication original ->
+          Retained_function.same original reference
+      | _ -> false)
+    catalog.published
+
+let call_command_is_admitted catalog start =
+  List.exists
+    (fun command ->
+      List.exists
+        (fun receipt -> receipt.Frontend.Parser.command_start == start)
+        (Sema.Task_command_order.command_receipts command))
+    catalog.admitted_commands
+
 let task_catalog_owns_namespace catalog namespace =
   Option.fold ~none:false ~some:(( == ) namespace) catalog.namespace
 
@@ -1070,6 +1086,18 @@ let retained_function_symbol globals symbol =
       List.find_map
         (fun (_, reference) ->
           if Retained_function.symbol reference == symbol then Some reference
+          else None)
+        view.function_entries)
+
+let retained_function_declaration globals declaration =
+  Option.bind globals.task_view (fun view ->
+      List.find_map
+        (fun (_, reference) ->
+          if
+            Retained_function.metadata reference
+            |> Sema.Outer_environment.function_declaration
+            |> fun original -> original == declaration
+          then Some reference
           else None)
         view.function_entries)
 

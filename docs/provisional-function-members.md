@@ -88,10 +88,21 @@ Direct calls have three distinct source phases: identifier selection before
 name lookahead, argument-count/member capture after that lookahead, and emission
 after closing-parenthesis lookahead. `PrsExp.HC:810,865,430-434,534-586` reads the
 selected record at those boundaries. The parser and ledger retain original
-call-start and emission receipts, but semantic binding and execution still need
-their separate traversal and emission metadata. Cleanup uses the current
+call-start and emission receipts. Opaque captures read the native record during
+those original callbacks, and runtime activation consumes the saved captures.
+The VM freezes the exact admitted function reference at identifier selection;
+copying its metadata does not create another valid reference. Semantic binding
+uses the captured argument projection, while lowering and runtime verification
+use the separate emission classification, return type and executable. Cleanup uses the current
 emission argument count plus the captured variadic count and hidden count slot;
 it cannot always be inferred from the number of values originally pushed.
+
+Each call binding belongs to its exact task, namespace, source command and AST.
+Failed replay or an exception revokes an uncommitted binding even after its
+emission was captured; previously admitted command effects remain retained.
+Rejected captures leave the original authentic capture usable. Defaults follow
+the original native member and completed parameter, including members installed
+by a nested header whose source symbol differs from the suspended publication.
 
 Completed-header runtime admission uses the same journal boundary as provisional
 phases. A header already recorded in the activation journal can publish only at
@@ -117,13 +128,17 @@ and is a different requirement. Reached and eager calls now report UndefinedExte
 (`HCIRVM0030`). Fresh and reused provisional headers, calls during default
 preparation, and the existing post-close executable-selection cases pass.
 
-Argument-phase binding remains open. In
-`extern I64 F();if(0&&F#exe {extern I64 F(I64 n);}(40)){}`, the parser correctly
-captures one argument after name lookahead, but semantic binding still uses the
-zero-argument header retained at identifier selection. That acceptance test
-remains failing. General partial records, separate emission return/flags/cleanup
-metadata, and the complete compiler/native/BIN/loader/bootstrap objective remain
-required.
+Argument-phase binding now accepts
+`extern I64 F();if(0&&F#exe {extern I64 F(I64 n);}(40)){}`. The parser correctly
+captures one argument after name lookahead, and semantic binding uses that
+original cursor. Moving the directive inside the opening parenthesis preserves
+the earlier zero count and rejects the surplus argument. Post-close extern
+completion supplies the joined body; a previously resolved call keeps its
+original executable when a fresh same-name definition appears. All ten runtime
+gates pass in both outer modes, including replaced defaults and differing
+argument/emission counts. General partial records and the complete
+compiler/native/BIN/loader/bootstrap objective remain required under #635 and
+the wider compiler milestones.
 
 Run focused source tests with
 `opam exec -- dune exec -j 1 test/test_main.exe -- test 'provisional function'`.

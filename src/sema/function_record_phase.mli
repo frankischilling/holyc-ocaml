@@ -4,6 +4,29 @@ type snapshot
 type native_identity
 type checked_call_shape
 type transition
+type call_start_snapshot
+type call_emission_snapshot
+
+val capture_call_start :
+  t -> Frontend.Parser.call_start -> (call_start_snapshot, string) result
+
+val capture_call_emission :
+  call_start_snapshot ->
+  Frontend.Parser.completed_call ->
+  (call_emission_snapshot, string) result
+
+val call_start_receipt : call_start_snapshot -> Frontend.Parser.call_start
+val call_argument_snapshot : call_start_snapshot -> snapshot
+
+val call_emission_receipt :
+  call_emission_snapshot -> Frontend.Parser.completed_call
+
+val call_emission_snapshot : call_emission_snapshot -> snapshot
+
+val call_emission_arguments : call_emission_snapshot -> call_start_snapshot
+(** Immutable native snapshots captured only at the original live call events.
+    Replaying these receipts cannot resample a later mutable record. These are
+    source evidence; the owning VM independently admits runtime authority. *)
 
 val transition :
   earlier:snapshot -> later:snapshot -> (transition, string) result
@@ -58,6 +81,11 @@ val owns_table : snapshot -> Symbol_table.t -> bool
 val owns_namespace : snapshot -> Declaration_collection.namespace -> bool
 val native_identity : snapshot -> native_identity
 val same_identity : snapshot -> snapshot -> bool
+val same_revision : snapshot -> snapshot -> bool
+
+val same_cursor : snapshot -> snapshot -> bool
+(** Exact native member slots, owner, active count and variadic flag; completed
+    body bookkeeping may change without changing the argument cursor. *)
 
 val native_source : snapshot -> Frontend.Parser.function_publication
 (** Latest header installed on the shared record; distinct from this snapshot's

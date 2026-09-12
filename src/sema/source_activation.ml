@@ -442,6 +442,36 @@ let default_completion activation header =
         original == header
     | _ -> false)
 
+let call_start_admission activation start =
+  admission activation (function
+    | Call_start original -> original == start
+    | _ -> false)
+
+let reference_admission activation receipt =
+  admission activation (function
+    | Reference original -> original == receipt
+    | _ -> false)
+
+let call_binding_available activation receipt ~committed =
+  committed
+  ||
+  match activation with
+  | None -> true
+  | Some t ->
+      (not
+         (List.exists
+            (function
+              | Call_emission original -> original == receipt
+              | _ -> false)
+            t.events))
+      || t.finished
+      || (current t && Option.is_some t.active)
+
+let call_emission_admission activation receipt =
+  admission activation (function
+    | Call_emission original -> original == receipt
+    | _ -> false)
+
 let initializer_completion activation start =
   admission activation (function
     | Declaration (Parser.Global_completed (original, _)) ->

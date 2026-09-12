@@ -1,4 +1,7 @@
 val build :
+  ?call_phases:
+    (Frontend.Ast.call_expression ->
+    (Sema.Function_call_phase.t option, string) result) ->
   table:Sema.Symbol_table.t ->
   declarations:Sema.Declaration_collection.t ->
   compilation_mode:Sema.Outer_environment.compilation_mode ->

@@ -531,6 +531,9 @@ let identifier_value_for_typed_value value =
     ?function_address_path:value.function_address_path ()
 
 type state = {
+  call_phases :
+    Frontend.Ast.call_expression ->
+    (Sema.Function_call_phase.t option, string) result;
   member_index : Sema.Aggregate_member_index.t option;
   before_item_index : int;
   next_occurrence : int;
@@ -560,9 +563,10 @@ type state = {
   defined_queries : Sema.Function_call_resolution.defined_function_query list;
 }
 
-let empty_state member_index before_item_index visible_aggregates typed_values
-    global_values occurrences defined_queries locals =
+let empty_state call_phases member_index before_item_index visible_aggregates
+    typed_values global_values occurrences defined_queries locals =
   {
+    call_phases;
     member_index;
     before_item_index;
     next_occurrence = 0;
@@ -1237,6 +1241,8 @@ let record_call state call =
 
 let collect_call visible locals globals occurrences defined_queries state
     (call : Frontend.Ast.call_expression) =
+  let ( let* ) = Result.bind in
+  let* original_phase = state.call_phases call in
   let member_index = state.member_index in
   let before_item_index = state.before_item_index in
   match identifier_callee 0 call.call_callee with
@@ -1266,7 +1272,7 @@ let collect_call visible locals globals occurrences defined_queries state
                     ~callee_occurrence_index:state.next_occurrence
                     ~callee_name:callee.spelling
                     ~callee_origin:(origin callee.location) ~callee_form
-                    ?callable
+                    ?callable ?original_phase
                     ~origin:(origin call.call_location)
                     ~syntax:(call_syntax call) arguments
                 with
@@ -1931,8 +1937,8 @@ let function_header = function
   | Prototype prototype -> (prototype.name, None)
   | Definition definition -> (definition.name, definition.body)
 
-let function_input table member_index visible_aggregates global_values
-    defined_queries expected typed locals (item_index, ast) =
+let function_input call_phases table member_index visible_aggregates
+    global_values defined_queries expected typed locals (item_index, ast) =
   let symbol = Sema.Module_expression_binding.function_symbol expected in
   let scope = Sema.Module_expression_binding.function_scope expected in
   let expected_item =
@@ -1958,8 +1964,8 @@ let function_input table member_index visible_aggregates global_values
         in
         let collected =
           let state =
-            empty_state member_index item_index visible_aggregates typed_values
-              global_values
+            empty_state call_phases member_index item_index visible_aggregates
+              typed_values global_values
               (occurrence_map expected_occurrences)
               defined_queries
               (Sema.Local_type_resolution.function_locals locals)
@@ -2010,8 +2016,8 @@ let publish_aggregates_before visible publications item_index =
   in
   loop visible publications
 
-let function_inputs table member_index function_types local_types global_values
-    expressions outer module_ =
+let function_inputs call_phases table member_index function_types local_types
+    global_values expressions outer module_ =
   let rec pair inputs_rev visible publications expected typed locals ast =
     match (expected, typed, locals, ast) with
     | [], [], [], [] -> Ok (List.rev inputs_rev)
@@ -2051,8 +2057,8 @@ let function_inputs table member_index function_types local_types global_values
         | Error _ as error -> error
         | Ok defined_queries -> (
             match
-              function_input table member_index visible global_values
-                defined_queries expected typed locals ast
+              function_input call_phases table member_index visible
+                global_values defined_queries expected typed locals ast
             with
             | Error _ as error -> error
             | Ok input ->
@@ -2068,8 +2074,9 @@ let function_inputs table member_index function_types local_types global_values
     (Sema.Local_type_resolution.functions local_types)
     (ast_functions module_)
 
-let resolve ~table ~declarations ?members ~function_types ~local_types
-    ~global_types ~functions ~expressions ?outer module_ =
+let resolve ?(call_phases = fun _ -> Ok None) ~table ~declarations ?members
+    ~function_types ~local_types ~global_types ~functions ~expressions ?outer
+    module_ =
   let parent = Sema.Declaration_collection.scope declarations in
   let result =
     if not (Sema.Symbol_table.owns_scope table parent) then
@@ -2098,8 +2105,8 @@ let resolve ~table ~declarations ?members ~function_types ~local_types
           | Error _ as error -> error
           | Ok module_values -> (
               match
-                function_inputs table members function_types local_types
-                  module_values expressions outer module_
+                function_inputs call_phases table members function_types
+                  local_types module_values expressions outer module_
               with
               | Error _ as error -> error
               | Ok inputs ->

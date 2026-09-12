@@ -24,6 +24,10 @@ type task_publication = private
 
 val create_task_catalog : table:Sema.Symbol_table.t -> task_catalog
 val task_catalog_owns_table : task_catalog -> Sema.Symbol_table.t -> bool
+val task_catalog_contains_function : task_catalog -> Retained_function.t -> bool
+
+val call_command_is_admitted :
+  task_catalog -> Frontend.Parser.command_start -> bool
 
 val task_catalog_owns_namespace :
   task_catalog -> Sema.Declaration_collection.namespace -> bool
@@ -132,6 +136,11 @@ val retained_function_binding :
   t -> Sema.Outer_environment.binding -> Retained_function.t option
 
 val retained_function_symbol : t -> Sema.Symbol.t -> Retained_function.t option
+
+val retained_function_declaration :
+  t ->
+  Sema.Function_resolution.resolved_declaration ->
+  Retained_function.t option
 (** Source inspection for initializer guards; runtime authority still requires
     the exact selected binding and sealed call site. *)
 

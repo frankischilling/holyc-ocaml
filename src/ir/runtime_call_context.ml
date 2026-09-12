@@ -14,6 +14,24 @@ type source =
   | Top_level_output of
       Sema.Top_level_implicit_output_argument_binding.bound_output
 
+let original_phase = function
+  | Function_call target ->
+      Sema.Function_call_target_classification.source target
+      |> Typed.direct_original_phase
+  | Top_level_call target ->
+      Sema.Top_level_function_call_target_classification.source target
+      |> Typed.top_level_direct_original_phase
+  | Function_output _ | Top_level_output _ -> None
+
+let cleanup_slot_count source ~fixed_count ~variadic_count ~variadic =
+  let fixed =
+    match original_phase source with
+    | None -> fixed_count
+    | Some phase -> Sema.Function_call_phase.emission_fixed_count phase
+  in
+  let fixed = Int64.of_int fixed in
+  if variadic then Int64.add (Int64.succ fixed) variadic_count else fixed
+
 type description = {
   source : source;
   first : Seq.Instruction_id.t;
@@ -88,10 +106,18 @@ let argument_target_type argument = argument.target_type
 let variadic_count call = call.variadic_count_
 let declaration call = call.declaration_
 let header call = call.header_
+let call_original_phase call = original_phase call.description.source
 let retained_function call = call.retained_function_
 
 let compilation_mode context =
   Typed.top_level_compilation_mode context.typed_top_level
+
+let original_phases context =
+  List.concat_map
+    (fun graph ->
+      Instructions.bindings graph.calls
+      |> List.filter_map (fun (_, call) -> call_original_phase call))
+    context.graphs
 
 let same_owner left right =
   match (left, right) with
@@ -485,15 +511,18 @@ let shape ~globals records description =
       outer_binding
   in
   let classified =
-    match retained_function with
-    | Some reference ->
-        Some
-          (Retained_function.metadata reference
-          |> Sema.Outer_environment.function_classified_declaration)
-    | None ->
-        Records.declarations records
-        |> List.find_opt (fun candidate ->
-            Records.classified_declaration_source candidate == declaration)
+    match original_phase description.source with
+    | Some phase -> Some (Sema.Function_call_phase.emission phase)
+    | None -> (
+        match retained_function with
+        | Some reference ->
+            Some
+              (Retained_function.metadata reference
+              |> Sema.Outer_environment.function_classified_declaration)
+        | None ->
+            Records.declarations records
+            |> List.find_opt (fun candidate ->
+                Records.classified_declaration_source candidate == declaration))
   in
   let selected_record =
     match classified with
@@ -502,9 +531,25 @@ let shape ~globals records description =
         fail ?span
           "call declaration does not belong to the supplied record snapshots"
   in
+  let retained_function =
+    match (original_phase description.source, retained_function) with
+    | Some phase, Some _ -> (
+        let emitted =
+          Sema.Function_call_phase.emission phase
+          |> Records.classified_declaration_source
+        in
+        match Integer_globals.retained_function_declaration globals emitted with
+        | Some reference -> Some reference
+        | None ->
+            fail ?span "call emission lacks its exact retained native record")
+    | _ -> retained_function
+  in
   require ?span
-    ( declaration |> Functions.resolved_declaration_header |> fun expected ->
-      expected == header )
+    (match original_phase description.source with
+    | None -> Functions.resolved_declaration_header declaration == header
+    | Some phase ->
+        Sema.Function_call_phase.selected phase == declaration
+        && Sema.Function_call_phase.arguments phase == header)
     "call header is not its selected declaration header";
   require ?span
     (Functions.resolved_declaration_identity_symbol declaration == symbol)
@@ -555,8 +600,10 @@ let shape ~globals records description =
     selected_record;
     selected_symbol = symbol;
     result_type =
-      header |> Headers.function_return_type
-      |> Sema.Type_reference.resolved_type;
+      (match original_phase description.source with
+        | None -> header
+        | Some phase -> Sema.Function_call_phase.emission_header phase)
+      |> Headers.function_return_type |> Sema.Type_reference.resolved_type;
     fixed;
     variadic;
     count_type;
@@ -917,7 +964,12 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                 )
                 "runtime cleanup differs from the selected flag policy";
               let bytes =
-                Int64.mul 8L (Int64.of_int (List.length pending.pushes))
+                Int64.mul 8L
+                  (cleanup_slot_count pending.shape.source_description.source
+                     ~fixed_count:(List.length pending.shape.fixed)
+                     ~variadic_count:
+                       (Int64.of_int (List.length pending.shape.variadic))
+                     ~variadic:(Option.is_some pending.shape.count_type))
               in
               require ?span
                 (item.payload = Some (Seq.Integer bytes))
@@ -956,7 +1008,13 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                   cleanup_opcode_ =
                     selected_cleanup pending.shape.selected_record;
                   cleanup_bytes_ =
-                    Int64.mul 8L (Int64.of_int (List.length pending.pushes));
+                    Int64.mul 8L
+                      (cleanup_slot_count
+                         pending.shape.source_description.source
+                         ~fixed_count:(List.length pending.shape.fixed)
+                         ~variadic_count:
+                           (Int64.of_int (List.length pending.shape.variadic))
+                         ~variadic:(Option.is_some pending.shape.count_type));
                   call_instruction_;
                   cleanup_instruction_;
                   result_value_;

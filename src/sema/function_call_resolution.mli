@@ -333,6 +333,7 @@ val make_call :
   ?callee_form:callee_form ->
   ?callable:callable ->
   ?computed_callee:argument_expression ->
+  ?original_phase:Function_call_phase.t ->
   origin:Symbol.origin ->
   syntax:call_syntax ->
   argument list ->
@@ -623,6 +624,18 @@ val call_callee_form : call -> callee_form
 val call_callable : call -> callable option
 val call_computed_callee : call -> argument_expression option
 val call_origin : call -> Symbol.origin
+val call_original_phase : call -> Function_call_phase.t option
+
+val emission_header :
+  call ->
+  Function_type_resolution.resolved_function ->
+  Function_type_resolution.resolved_function
+
+val argument_header :
+  call ->
+  Function_resolution.resolved_declaration ->
+  (Function_type_resolution.resolved_function, error) result
+
 val call_syntax : call -> call_syntax
 val call_arguments : call -> argument list
 val condition_index : condition_input -> int

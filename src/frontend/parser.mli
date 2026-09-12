@@ -83,6 +83,7 @@ val selected_lookup : reference_selection -> Symbol_visibility.lookup
     entry objects, not environment-local numeric IDs. *)
 
 val selected_command : reference_selection -> command_start
+val reference_selection_is_current : reference_selection -> bool
 
 type call_activity
 

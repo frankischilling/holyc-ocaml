@@ -371,7 +371,20 @@ type task_input = {
     (Frontend.Parser.completed_sequence * (t, string) result) option;
 }
 
+type task_call_start = {
+  call_capture : Sema.Function_record_phase.call_start_snapshot;
+  call_start : Frontend.Parser.call_start;
+  call_namespace : Sema.Declaration_collection.namespace;
+  call_selected : Retained_function.t;
+  call_arguments : Sema.Function_type_resolution.resolved_function;
+  mutable call_completed : bool;
+}
+
 type task_state = {
+  mutable call_selections :
+    (Frontend.Parser.reference_selection * Retained_function.t) list;
+  mutable call_starts : task_call_start list;
+  mutable call_phases : Sema.Function_call_phase.t list;
   mutable inputs : task_input list;
   mutable failure_generation : unit ref;
   mutable seen_dimensions : Frontend.Parser.array_dimension_preparation list;
@@ -442,6 +455,9 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
     let output = Output.create ~max_output_bytes ~max_output_work in
     Ok
       {
+        call_starts = [];
+        call_selections = [];
+        call_phases = [];
         defaults = [];
         dimensions = [];
         initializers = [];
@@ -904,6 +920,196 @@ let check_function_header_source task ~namespace source =
 
 let function_record_head task snapshot =
   Integer_globals.function_record_head task.catalog snapshot
+
+let observe_task_function_selection task ~namespace ~selection ~selected =
+  let module A = Sema.Source_activation in
+  let module P = Frontend.Parser in
+  let module N = Sema.Function_record_phase in
+  let module F = Sema.Function_resolution in
+  let snapshot =
+    Retained_function.metadata selected
+    |> Sema.Outer_environment.function_declaration
+    |> F.resolved_declaration_site |> F.declaration_site_native_snapshot
+  in
+  let matches =
+    Option.fold ~none:true
+      ~some:(fun snapshot ->
+        let rec original entry =
+          match Frontend.Symbol_visibility.function_alias_original entry with
+          | Some source -> original source
+          | None -> entry
+        in
+        let source_matches =
+          match P.selected_lookup selection with
+          | Frontend.Symbol_visibility.Present entry ->
+              let entry = original entry in
+              entry == (N.source snapshot).function_entry
+              || Option.fold ~none:false
+                   ~some:(fun header -> entry == header.P.completed_entry)
+                   (Sema.Provisional_function.completed_header
+                      (N.source_snapshot snapshot))
+          | _ -> false
+        in
+        source_matches
+        && Option.fold ~none:false
+             ~some:(Retained_function.same selected)
+             (function_record_head task snapshot))
+      snapshot
+  in
+  if
+    not
+      (Integer_globals.task_catalog_owns_namespace task.catalog namespace
+      && matches
+      && Integer_globals.task_catalog_contains_function task.catalog selected
+      && A.reference_admission task.source_activation selection
+      && (P.reference_selection_is_current selection
+         || A.reference task.source_activation selection)
+      && not
+           (List.exists
+              (fun (original, _) -> original == selection)
+              task.call_selections))
+  then Error "function selection requires its original admitted task reference"
+  else (
+    task.call_selections <- (selection, selected) :: task.call_selections;
+    Ok ())
+
+let capture_task_call_start task ~namespace ~capture ~selected ~arguments =
+  let module A = Sema.Source_activation in
+  let module N = Sema.Function_record_phase in
+  let module F = Sema.Function_resolution in
+  let module P = Frontend.Parser in
+  let start = N.call_start_receipt capture in
+  let declaration =
+    Retained_function.metadata selected
+    |> Sema.Outer_environment.function_declaration
+  in
+  let selected_snapshot =
+    F.resolved_declaration_site declaration
+    |> F.declaration_site_native_snapshot
+  in
+  let snapshot =
+    Option.map N.shape_snapshot
+      (Sema.Function_type_resolution.function_provisional_call arguments)
+  in
+  let rec original_entry entry =
+    match Frontend.Symbol_visibility.function_alias_original entry with
+    | Some source -> original_entry source
+    | None -> entry
+  in
+  let selected_source_matches snapshot =
+    match P.selected_lookup start.P.call_reference with
+    | Frontend.Symbol_visibility.Present entry ->
+        let entry = original_entry entry in
+        entry == (N.source snapshot).function_entry
+        || Option.fold ~none:false
+             ~some:(fun header -> entry == header.P.completed_entry)
+             (Sema.Provisional_function.completed_header
+                (N.source_snapshot snapshot))
+    | _ -> false
+  in
+  if
+    not
+      (Integer_globals.task_catalog_owns_namespace task.catalog namespace
+      && List.exists
+           (fun (original, retained) ->
+             original == start.P.call_reference
+             && Retained_function.same retained selected)
+           task.call_selections
+      && A.call_start_admission task.source_activation start
+      && (P.call_start_is_current start
+         || A.call_start task.source_activation start)
+      && not
+           (List.exists
+              (fun original -> original.call_start == start)
+              task.call_starts))
+  then Error "call arguments are outside their original task event"
+  else
+    match (selected_snapshot, snapshot) with
+    | Some selected_snapshot, Some snapshot
+      when N.owns_namespace snapshot namespace
+           && snapshot == N.call_argument_snapshot capture
+           && selected_source_matches selected_snapshot
+           && N.same_identity selected_snapshot snapshot -> (
+        match function_record_head task snapshot with
+        | None -> Error "call arguments have no admitted native function"
+        | Some current
+          when Option.fold ~none:false ~some:(N.same_cursor snapshot)
+                 (Retained_function.metadata current
+                 |> Sema.Outer_environment.function_declaration
+                 |> F.resolved_declaration_site
+                 |> F.declaration_site_native_snapshot) ->
+            let pending =
+              {
+                call_capture = capture;
+                call_start = start;
+                call_namespace = namespace;
+                call_selected = selected;
+                call_arguments = arguments;
+                call_completed = false;
+              }
+            in
+            task.call_starts <- pending :: task.call_starts;
+            Ok pending
+        | Some _ ->
+            Error "call arguments do not match the current native cursor")
+    | _ -> Error "call arguments differ from their selected native allocation"
+
+let capture_task_call_emission task ~table ~capture pending =
+  let module A = Sema.Source_activation in
+  let module P = Frontend.Parser in
+  let receipt = Sema.Function_record_phase.call_emission_receipt capture in
+  let snapshot = Sema.Function_record_phase.call_emission_snapshot capture in
+  if
+    not
+      (Integer_globals.task_catalog_owns_table task.catalog table
+      && Sema.Function_record_phase.call_emission_arguments capture
+         == pending.call_capture
+      && List.exists (( == ) pending) task.call_starts
+      && (not pending.call_completed)
+      && receipt.P.call_start == pending.call_start
+      && A.call_emission_admission task.source_activation receipt
+      && (P.call_emission_is_current receipt
+         || A.call_emission task.source_activation receipt))
+  then Error "call emission is outside its original task event"
+  else
+    match function_record_head task snapshot with
+    | None -> Error "call emission has no admitted native function"
+    | Some current ->
+        let emission =
+          Retained_function.metadata current
+          |> Sema.Outer_environment.function_classified_declaration
+        in
+        if
+          not
+            (Option.fold ~none:false
+               ~some:(Sema.Function_record_phase.same_cursor snapshot)
+               (Sema.Function_record_classification
+                .classified_declaration_source emission
+               |> Sema.Function_resolution.resolved_declaration_site
+               |> Sema.Function_resolution.declaration_site_native_snapshot))
+        then Error "call emission does not match the current native cursor"
+        else
+          Result.map
+            (fun phase ->
+              pending.call_completed <- true;
+              task.call_phases <- phase :: task.call_phases;
+              phase)
+            (Sema.Function_call_phase.create ~table
+               ~namespace:pending.call_namespace ~receipt
+               ~selected:
+                 (Retained_function.metadata pending.call_selected
+                 |> Sema.Outer_environment.function_declaration)
+               ~arguments:pending.call_arguments ~emission_snapshot:snapshot
+               ~emission)
+
+let owns_call_phase task phase =
+  List.exists (( == ) phase) task.call_phases
+  &&
+  let receipt = Sema.Function_call_phase.receipt phase in
+  Sema.Source_activation.call_binding_available task.source_activation receipt
+    ~committed:
+      (Integer_globals.call_command_is_admitted task.catalog
+         (Frontend.Parser.selected_command receipt.call_start.call_reference))
 
 let check_function_phase_source task ~namespace ~event snapshot =
   let module Parser = Frontend.Parser in
@@ -3392,8 +3598,12 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
               match description.payload with
               | Some (Sequence.Integer bytes)
                 when bytes
-                     = Int64.mul 8L
-                         (Int64.of_int (Array.length callee.parameter_types)) ->
+                     = Option.fold
+                         ~none:
+                           (Int64.mul 8L
+                              (Int64.of_int
+                                 (Array.length callee.parameter_types)))
+                         ~some:Runtime.cleanup_bytes site ->
                   calls := { call with phase = Needs_end } :: rest;
                   call_instruction description Call_cleanup
               | _ ->
@@ -4884,6 +5094,25 @@ let execute_program_with_output ?task ?isolated_budget
     | Some task, None | None, Some task -> Some task
     | None, None -> None
     | Some _, Some _ -> invalid_arg "execution has two accounting owners"
+  in
+  let* () =
+    let phases =
+      Option.fold ~none:[] ~some:Runtime.original_phases runtime_calls
+    in
+    if
+      List.for_all
+        (fun phase ->
+          Option.fold ~none:false
+            ~some:(fun task -> owns_call_phase task phase)
+            accounting)
+        phases
+    then Ok ()
+    else
+      Error
+        [
+          make_error ~stage:Preflight ~executed_steps:0 "HCIRVM0014"
+            "original call phases lack their owning runtime admission";
+        ]
   in
   if
     max_steps <= 0 || max_frame_bytes <= 0 || max_call_depth <= 0

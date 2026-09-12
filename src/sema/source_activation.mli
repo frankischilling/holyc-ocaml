@@ -26,6 +26,15 @@ val capture_call_emission :
 
 val call_start : t option -> Frontend.Parser.call_start -> bool
 val call_emission : t option -> Frontend.Parser.completed_call -> bool
+val call_start_admission : t option -> Frontend.Parser.call_start -> bool
+
+val reference_admission :
+  t option -> Frontend.Parser.reference_selection -> bool
+
+val call_binding_available :
+  t option -> Frontend.Parser.completed_call -> committed:bool -> bool
+
+val call_emission_admission : t option -> Frontend.Parser.completed_call -> bool
 
 val function_declaration :
   t option -> Frontend.Parser.function_publication -> bool

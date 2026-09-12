@@ -45,8 +45,24 @@ let create ~publication ~header ~receipt ~bits =
   Ok { publication; header; receipt; source; type_; bits }
 
 let matches value ~header ~parameter =
-  Headers.function_symbol header
-  == Sema.Declaration_collection.publication_symbol value.publication
+  (match Headers.function_provisional_call header with
+    | None ->
+        Headers.function_symbol header
+        == Sema.Declaration_collection.publication_symbol value.publication
+    | Some shape ->
+        Option.fold ~none:false
+          ~some:(fun member ->
+            (Sema.Provisional_function.member_source member).parameter_function
+            == value.receipt.default_function
+            && Option.fold ~none:false ~some:(( == ) value.receipt)
+                 (Sema.Provisional_function.member_default_source member)
+            && Option.fold ~none:false
+                 ~some:(fun completed ->
+                   completed.Frontend.Parser.parameter_ast == value.source)
+                 (Sema.Provisional_function.member_completion member))
+          (List.nth_opt
+             (Sema.Function_record_phase.fixed_members shape)
+             (Headers.parameter_index parameter)))
   && List.exists (( == ) parameter)
        (Headers.signature_parameters (Headers.function_signature header))
   && Headers.parameter_index parameter = value.receipt.default_parameter_index

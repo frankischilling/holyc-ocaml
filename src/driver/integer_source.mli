@@ -13,6 +13,9 @@ val prepare_unit :
   ?implicit_selections:
     (Frontend.Ast.implicit_output_statement ->
     (Sema.Reference_selection.t, string) result) ->
+  ?call_phases:
+    (Frontend.Ast.call_expression ->
+    (Sema.Function_call_phase.t option, string) result) ->
   ?include_global_initializers:bool ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->

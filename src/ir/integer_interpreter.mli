@@ -34,6 +34,32 @@ type error = private {
 type t
 type report
 type task_state
+type task_call_start
+
+val observe_task_function_selection :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  selection:Frontend.Parser.reference_selection ->
+  selected:Retained_function.t ->
+  (unit, string) result
+
+val capture_task_call_start :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  capture:Sema.Function_record_phase.call_start_snapshot ->
+  selected:Retained_function.t ->
+  arguments:Sema.Function_type_resolution.resolved_function ->
+  (task_call_start, string) result
+
+val capture_task_call_emission :
+  task_state ->
+  table:Sema.Symbol_table.t ->
+  capture:Sema.Function_record_phase.call_emission_snapshot ->
+  task_call_start ->
+  (Sema.Function_call_phase.t, string) result
+
+val owns_call_phase : task_state -> Sema.Function_call_phase.t -> bool
+
 type task_stream
 type task_admission
 type initializer_attempt

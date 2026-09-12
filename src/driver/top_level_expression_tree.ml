@@ -8,6 +8,9 @@ let origin (location : Frontend.Ast.location) =
     }
 
 type state = {
+  call_phases :
+    Frontend.Ast.call_expression ->
+    (Sema.Function_call_phase.t option, string) result;
   module_expressions : Sema.Module_expression_binding.t;
   item_index : int;
   occurrences : Sema.Top_level_outer_expression_binding.occurrence array;
@@ -31,11 +34,12 @@ type state = {
   switch_cases_rev : Sema.Top_level_expression_tree.switch_case list;
 }
 
-let initial_state ~next_occurrence ~next_query ~next_root ~next_call
-    ~next_expression_statement ~next_output ~next_condition ~next_selector
-    ~next_case ~next_local_declaration ~next_return ~module_expressions
-    ~item_index occurrences queries =
+let initial_state ?(call_phases = fun _ -> Ok None) ~next_occurrence ~next_query
+    ~next_root ~next_call ~next_expression_statement ~next_output
+    ~next_condition ~next_selector ~next_case ~next_local_declaration
+    ~next_return ~module_expressions ~item_index occurrences queries =
   {
+    call_phases;
     module_expressions;
     item_index;
     occurrences = Array.of_list occurrences;
@@ -645,12 +649,14 @@ and call_expression state source (call : Frontend.Ast.call_expression) =
                           .Dereferenced_identifier_callee
                             _ -> None
                       in
+                      let ( let* ) = Result.bind in
+                      let* original_phase = state.call_phases call in
                       match
                         Sema.Function_call_resolution.make_call
                           ~index:call_index ~callee_occurrence_index
                           ~callee_name:callee_identifier.spelling
                           ~callee_origin:(origin callee_identifier.location)
-                          ~callee_form ?computed_callee
+                          ~callee_form ?computed_callee ?original_phase
                           ~origin:(origin call.call_location)
                           ~syntax:(call_syntax call) arguments
                       with
@@ -1163,7 +1169,8 @@ let statement_input counters expected (item_index, ast) =
       Sema.Top_level_outer_expression_binding.statement_queries expected
     in
     let state =
-      initial_state ~next_occurrence:counters.next_occurrence
+      initial_state ~call_phases:counters.call_phases
+        ~next_occurrence:counters.next_occurrence
         ~next_query:counters.next_query ~next_root:counters.next_root
         ~next_call:counters.next_call
         ~next_expression_statement:counters.next_expression_statement
@@ -1223,7 +1230,7 @@ let statement_input counters expected (item_index, ast) =
               Error (Sema.Top_level_expression_tree.error_to_string error)
           | Ok prepared -> Ok (state, prepared))
 
-let build_statements ~table source module_ =
+let build_statements ?call_phases ~table source module_ =
   let rec loop counters rev expected ast =
     match (expected, ast) with
     | [], [] -> Ok (List.rev rev)
@@ -1239,8 +1246,8 @@ let build_statements ~table source module_ =
       source |> Sema.Top_level_outer_expression_binding.source
       |> Sema.Top_level_expression_binding.module_expressions
     in
-    initial_state ~next_occurrence:0 ~next_query:0 ~next_root:0 ~next_call:0
-      ~next_expression_statement:0 ~next_output:0 ~next_condition:0
+    initial_state ?call_phases ~next_occurrence:0 ~next_query:0 ~next_root:0
+      ~next_call:0 ~next_expression_statement:0 ~next_output:0 ~next_condition:0
       ~next_selector:0 ~next_case:0 ~next_local_declaration:0 ~next_return:0
       ~module_expressions ~item_index:0 [] []
   in
@@ -1251,7 +1258,8 @@ let build_statements ~table source module_ =
         (Sema.Top_level_outer_expression_binding.statements source)
         ast
 
-let build ~table ~declarations ~compilation_mode ~expressions module_ =
+let build ?call_phases ~table ~declarations ~compilation_mode ~expressions
+    module_ =
   let parent = Sema.Declaration_collection.scope declarations in
   let environment =
     Sema.Top_level_outer_expression_binding.environment expressions
@@ -1275,7 +1283,7 @@ let build ~table ~declarations ~compilation_mode ~expressions module_ =
       | Error error ->
           Error (Top_level_statement_validation.error_to_string error)
       | Ok () -> (
-          match build_statements ~table expressions module_ with
+          match build_statements ?call_phases ~table expressions module_ with
           | Error _ as error -> error
           | Ok statements ->
               Sema.Top_level_expression_tree.create ~table ~source:expressions

@@ -383,13 +383,10 @@ let lower_supported ?frame ?globals ?lower_call ~span ~instruction_id ~value_id
                       in
                       let symbol_payload = Some (Sequence.Symbol symbol) in
                       let cleanup_bytes =
-                        let argument_count =
-                          Int64.of_int (List.length arguments)
-                        in
                         let slot_count =
-                          if Option.is_some variadic_count_type then
-                            Int64.add (Int64.succ argument_count) variadic_count
-                          else argument_count
+                          Runtime_call_context.cleanup_slot_count source
+                            ~fixed_count:(List.length arguments) ~variadic_count
+                            ~variadic:(Option.is_some variadic_count_type)
                         in
                         Int64.mul slot_count 8L
                       in

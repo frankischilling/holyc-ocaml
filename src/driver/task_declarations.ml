@@ -124,8 +124,12 @@ type selected_reference = {
 
 type selected_call = {
   start : Parser.call_start;
-  native_record : Sema.Function_record_phase.t option;
+  capture : Sema.Function_record_phase.call_start_snapshot option;
+  mutable emission_capture :
+    Sema.Function_record_phase.call_emission_snapshot option;
   arguments : Sema.Function_record_phase.snapshot option;
+  mutable runtime_start : VM.task_call_start option;
+  mutable runtime_phase : Sema.Function_call_phase.t option;
   mutable emission :
     (Parser.completed_call * Sema.Function_record_phase.snapshot option) option;
 }
@@ -150,6 +154,7 @@ type reading_query = {
 }
 
 type command = {
+  calls : Sema.Function_call_phase.t list;
   namespace : Collection.namespace;
   function_headers :
     (Sema.Compiler_record.declared_function
@@ -897,6 +902,16 @@ let rec native_record_for_entry ledger entry =
         (Visibility.function_alias_original entry)
         (native_record_for_entry ledger)
 
+let capture_runtime_reference ledger selection target =
+  match (ledger_runtime ledger, target) with
+  | ( Some runtime,
+      ( Selected_source { admitted = Some (VM.Admitted_function selected); _ }
+      | Selected_runtime (VM.Admitted_function selected) ) ) ->
+      VM.observe_task_function_selection runtime ~namespace:ledger.namespace
+        ~selection ~selected
+      |> checked (Parser.selected_identifier selection).location.span
+  | _ -> ()
+
 let observe_reference ledger selection =
   protect (fun () ->
       let identifier = Parser.selected_identifier selection in
@@ -923,7 +938,8 @@ let observe_reference ledger selection =
         | _ -> None
       in
       Names.add ledger.references identifier
-        { selection; target; native_record })
+        { selection; target; native_record };
+      capture_runtime_reference ledger selection target)
 
 let observe_reference ledger selection =
   Result.map
@@ -943,6 +959,58 @@ let call_reference ledger reference =
   match Names.find_opt ledger.references identifier with
   | Some original when original.selection == reference -> original
   | _ -> fail span "call lacks its exact observed identifier selection"
+
+let capture_runtime_call_start ledger call =
+  match (ledger_runtime ledger, call.capture) with
+  | Some runtime, Some capture ->
+      let snapshot =
+        Sema.Function_record_phase.call_argument_snapshot capture
+      in
+      let identifier = Parser.selected_identifier call.start.call_reference in
+      let reference = Names.find ledger.references identifier in
+      let retained =
+        match reference.target with
+        | Selected_source { admitted = Some (VM.Admitted_function retained); _ }
+        | Selected_runtime (VM.Admitted_function retained) -> retained
+        | _ ->
+            fail identifier.location.span
+              "native call lacks its selected runtime function"
+      in
+      let scope =
+        Ir.Retained_function.metadata retained
+        |> Sema.Outer_environment.function_declaration
+        |> Sema.Function_resolution.resolved_declaration_header
+        |> Sema.Function_type_resolution.function_scope
+      in
+      let arguments =
+        Sema.Function_record_phase.call_shape snapshot
+        |> checked identifier.location.span
+        |> Function_type_resolution.resolve_provisional_call ~scope
+             ~table:ledger.table ~namespace:ledger.namespace
+        |> checked identifier.location.span
+      in
+      call.runtime_start <-
+        Some
+          (VM.capture_task_call_start runtime ~namespace:ledger.namespace
+             ~capture ~selected:retained ~arguments
+          |> checked identifier.location.span)
+  | _ -> ()
+
+let capture_runtime_call_emission ledger call =
+  match (ledger_runtime ledger, call.runtime_start, call.emission_capture) with
+  | Some runtime, Some pending, Some capture ->
+      let span =
+        (Parser.selected_identifier call.start.call_reference).location.span
+      in
+      call.runtime_phase <-
+        Some
+          (VM.capture_task_call_emission runtime ~table:ledger.table ~capture
+             pending
+          |> checked span)
+  | Some _, None, Some _ ->
+      fail (Parser.selected_identifier call.start.call_reference).location.span
+        "native emission lacks its original runtime argument capture"
+  | _ -> ()
 
 let observe_call_start ledger start =
   protect (fun () ->
@@ -1053,8 +1121,26 @@ let observe_call_start ledger start =
           |> checked span
           |> record_activation_event ledger
       | _ -> ());
-      ledger.calls <-
-        { start; native_record; arguments; emission = None } :: ledger.calls;
+      let capture =
+        Option.map
+          (fun record ->
+            Sema.Function_record_phase.capture_call_start record start
+            |> checked span)
+          native_record
+      in
+      let call =
+        {
+          start;
+          capture;
+          emission_capture = None;
+          arguments;
+          emission = None;
+          runtime_start = None;
+          runtime_phase = None;
+        }
+      in
+      capture_runtime_call_start ledger call;
+      ledger.calls <- call :: ledger.calls;
       shape)
 
 let observe_call_emission ledger receipt =
@@ -1071,8 +1157,15 @@ let observe_call_emission ledger receipt =
         | Some call when Option.is_none call.emission -> call
         | _ -> fail span "call emission lacks an unfinished original call start"
       in
+      call.emission_capture <-
+        Option.map
+          (fun capture ->
+            Sema.Function_record_phase.capture_call_emission capture receipt
+            |> checked span)
+          call.capture;
       let snapshot =
-        Option.map Sema.Function_record_phase.snapshot call.native_record
+        Option.map Sema.Function_record_phase.call_emission_snapshot
+          call.emission_capture
       in
       (match ledger.authority with
       | Source_compilation _ ->
@@ -1081,6 +1174,7 @@ let observe_call_emission ledger receipt =
           |> checked span
           |> record_activation_event ledger
       | _ -> ());
+      capture_runtime_call_emission ledger call;
       call.emission <- Some (receipt, snapshot))
 
 let call_record_snapshots ledger receipt =
@@ -2403,6 +2497,18 @@ let seal ledger (ast : Ast.module_) =
               ledger.dimensions;
             let command =
               {
+                calls =
+                  List.filter_map
+                    (fun call ->
+                      if
+                        List.exists
+                          (fun entry ->
+                            entry.receipt.command_start
+                            == Parser.selected_command call.start.call_reference)
+                          original_commands
+                      then call.runtime_phase
+                      else None)
+                    ledger.calls;
                 namespace = ledger.namespace;
                 function_headers =
                   List.filter_map
@@ -3414,7 +3520,11 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
               (not (Sema.Source_activation.call_start ledger.activation start))
               || not
                    (List.exists (fun call -> call.start == start) ledger.calls)
-            then fail span "call start lacks its original activation event")
+            then fail span "call start lacks its original activation event";
+            let call =
+              List.find (fun call -> call.start == start) ledger.calls
+            in
+            capture_runtime_call_start ledger call)
     | Sema.Source_activation.Call_emission receipt ->
         let* () =
           protect (fun () ->
@@ -3424,7 +3534,14 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
                      receipt)
               then fail span "call emission lacks its original activation event")
         in
-        call_record_snapshots ledger receipt |> Result.map ignore
+        let* _ = call_record_snapshots ledger receipt in
+        protect (fun () ->
+            let call =
+              List.find
+                (fun call -> call.start == receipt.call_start)
+                ledger.calls
+            in
+            capture_runtime_call_emission ledger call)
     | Sema.Source_activation.Implicit_output selection ->
         let* () =
           protect (fun () ->
@@ -3487,6 +3604,7 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
               | target -> target
             in
             Names.replace ledger.references identifier { original with target };
+            capture_runtime_reference ledger selection target;
             validate_execution_target selection target)
     | Sema.Source_activation.Declaration event ->
         let* () =
@@ -3765,6 +3883,29 @@ let reference_resolver ~table ~ast ~task_view command =
             let result = resolve identifier in
             Names.add cache identifier result;
             result)
+
+let call_resolver ~table ~ast ~task_view (command : command) =
+  protect (fun () ->
+      if
+        command.table != table || command.ast != ast
+        || not
+             (Option.fold ~none:false
+                ~some:(fun runtime -> VM.task_owns_snapshot runtime task_view)
+                command.runtime)
+      then
+        fail ast.Ast.span "original calls belong to another task or source AST";
+      fun source ->
+        match
+          List.find_opt
+            (fun phase -> Sema.Function_call_phase.source phase == source)
+            command.calls
+        with
+        | None -> Ok None
+        | Some phase
+          when Option.fold ~none:false
+                 ~some:(fun runtime -> VM.owns_call_phase runtime phase)
+                 command.runtime -> Ok (Some phase)
+        | Some _ -> Error "original call lacks its owning runtime capture")
 
 let implicit_output_resolver ~table ~ast ~task_view (command : command) =
   let module Selection = Sema.Reference_selection in

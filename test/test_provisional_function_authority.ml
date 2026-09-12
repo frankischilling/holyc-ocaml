@@ -843,3 +843,225 @@ let tests =
         "VM rejects legacy header for tracked joined native source" `Quick
         vm_tracked_native_cannot_use_legacy_header;
     ]
+
+let vm_call_authority replay_failure () =
+  let session = Session.create () in
+  let table = Session.semantic_symbols session in
+  let namespace = C.create_namespace ~table () |> checked in
+  let runtime = VM.create_task_state ~table () |> checked in
+  let registry =
+    N.create_registry ~mode:Preprocessor.Jit ~table ~namespace |> checked
+  in
+  let journal = Activation.create_call_journal ~namespace () in
+  let events = ref [] and observed = ref 0 and snapshots = ref [] in
+  let native = ref None and selected = ref None and start_capture = ref None in
+  let alternate_start = ref None and alternate_emission = ref None in
+  let pending = ref None and saved_phase = ref None and exercised = ref false in
+  let replay = Option.is_some replay_failure in
+  if not replay then VM.bind_task_namespace runtime namespace |> checked;
+  let admit event snapshot =
+    let records, _ = vm_phase_records ~table ~namespace runtime snapshot in
+    VM.admit_function_phase runtime ~namespace ~event ~snapshot ~records
+    |> checked
+  in
+  let freeze selection =
+    let retained =
+      VM.function_record_head runtime (N.snapshot (Option.get !native))
+      |> Option.get
+    in
+    vm_reject "copied metadata is not an admitted reference"
+      (VM.observe_task_function_selection runtime ~namespace ~selection
+         ~selected:(Retained.create (Retained.metadata retained)));
+    VM.observe_task_function_selection runtime ~namespace ~selection
+      ~selected:retained
+    |> checked;
+    selected := Some retained
+  in
+  let capture_start capture =
+    let retained = Option.get !selected in
+    let scope =
+      Retained.metadata retained |> Outer.function_declaration
+      |> R.resolved_declaration_header |> H.function_scope
+    in
+    let arguments =
+      N.call_shape (N.call_argument_snapshot capture)
+      |> checked
+      |> FD.resolve_provisional_call ~scope ~table ~namespace
+      |> checked
+    in
+    let attempt selected =
+      VM.capture_task_call_start runtime ~namespace ~capture ~selected
+        ~arguments
+    in
+    let before =
+      VM.function_record_head runtime (N.call_argument_snapshot capture)
+    in
+    vm_reject "call cannot substitute a fresh retained identity"
+      (attempt (Retained.create (Retained.metadata retained)));
+    vm_same_head "forged call leaves the catalog intact" before
+      (VM.function_record_head runtime (N.call_argument_snapshot capture));
+    pending := Some (attempt retained |> checked);
+    vm_reject "call start is single use" (attempt retained)
+  in
+  let capture_emission capture =
+    vm_reject
+      "another capture of the same receipt cannot replace original arguments"
+      (VM.capture_task_call_emission runtime ~table
+         ~capture:(Option.get !alternate_emission)
+         (Option.get !pending));
+    let phase =
+      VM.capture_task_call_emission runtime ~table ~capture
+        (Option.get !pending)
+      |> checked
+    in
+    saved_phase := Some phase;
+    Alcotest.(check bool)
+      "captured call is available at its active event" true
+      (VM.owns_call_phase runtime phase);
+    vm_reject "emission is single use"
+      (VM.capture_task_call_emission runtime ~table ~capture
+         (Option.get !pending))
+  in
+  let declaration event =
+    events := Activation.Declaration event :: !events;
+    if not !exercised then (
+      (match event with
+      | Parser.Function_declared publication ->
+          let publication_ =
+            C.publish_function namespace publication |> checked
+          in
+          native :=
+            Some (N.begin_header registry publication_ publication |> checked)
+      | _ ->
+          let record = Option.get !native in
+          if N.event_belongs record event then N.observe record event |> checked);
+      let snapshot = N.snapshot (Option.get !native) in
+      snapshots := (event, snapshot) :: !snapshots;
+      if not replay then admit event snapshot);
+    Ok ()
+  in
+  let commands =
+    {
+      (Test_provisional_function_parser.sink declaration) with
+      Parser.checkpoint =
+        Some
+          (fun event ->
+            incr observed;
+            events := Activation.Command event :: !events;
+            if not replay then
+              VM.observe_task_source_event runtime event |> checked;
+            Ok ());
+      reference =
+        Some
+          (fun selection ->
+            events := Activation.Reference selection :: !events;
+            if not replay then freeze selection;
+            Ok ());
+      call =
+        Some
+          {
+            start =
+              (fun start ->
+                let capture =
+                  N.capture_call_start (Option.get !native) start |> checked
+                in
+                start_capture := Some capture;
+                alternate_start :=
+                  Some
+                    (N.capture_call_start (Option.get !native) start |> checked);
+                if replay then
+                  events :=
+                    (Activation.capture_call_start journal ~events_rev:!events
+                       start
+                    |> checked)
+                    :: !events
+                else capture_start capture;
+                Ok None);
+            emit =
+              (fun receipt ->
+                let capture =
+                  N.capture_call_emission (Option.get !start_capture) receipt
+                  |> checked
+                in
+                alternate_emission :=
+                  Some
+                    (N.capture_call_emission
+                       (Option.get !alternate_start)
+                       receipt
+                    |> checked);
+                if replay then (
+                  events :=
+                    (Activation.capture_call_emission journal
+                       ~events_rev:!events receipt
+                    |> checked)
+                    :: !events;
+                  let activation =
+                    Activation.create ~calls:journal ~namespace
+                      ~context:
+                        (Parser.selected_command
+                           receipt.call_start.call_reference)
+                          .command_context ~observed_events:!observed
+                      (List.rev !events)
+                    |> checked
+                  in
+                  VM.promote_task_source_activation runtime ~namespace
+                    ~activation ~dimensions:[]
+                  |> checked;
+                  let exception Abort_replay in
+                  let run () =
+                    Activation.run activation ~invalid:"inactive" (function
+                      | Activation.Declaration event ->
+                          admit event (List.assq event !snapshots);
+                          Ok ()
+                      | Activation.Reference selection ->
+                          freeze selection;
+                          Ok ()
+                      | Activation.Call_start _ ->
+                          capture_start (Option.get !start_capture);
+                          Ok ()
+                      | Activation.Call_emission _ ->
+                          capture_emission capture;
+                          if Option.get replay_failure then raise Abort_replay
+                          else Error "failed after capture"
+                      | _ -> Ok ())
+                  in
+                  (try vm_reject "replay fails after call capture" (run ())
+                   with Abort_replay -> ());
+                  Alcotest.(check bool)
+                    "failed replay revokes its uncommitted call" false
+                    (VM.owns_call_phase runtime (Option.get !saved_phase));
+                  vm_reject "failed replay cannot restart"
+                    (Activation.run activation ~invalid:"consumed" (fun _ ->
+                         Ok ()));
+                  vm_reject "still-live emission cannot revive failed replay"
+                    (VM.capture_task_call_emission runtime ~table ~capture
+                       (Option.get !pending)))
+                else capture_emission capture;
+                exercised := true;
+                Ok ());
+          };
+    }
+  in
+  let _, _, parsed, _, _, _ =
+    Test_stream_parser.parse ~session ~same_task:true ~commands
+      "I64 F(I64 n=F());"
+  in
+  ignore (Test_parser.expect_ast parsed);
+  Alcotest.(check bool) "call boundary exercised" true !exercised;
+  vm_reject "expired source start cannot manufacture another token"
+    (N.capture_call_start (Option.get !native)
+       (N.call_start_receipt (Option.get !start_capture)))
+
+let tests =
+  tests
+  @ [
+      Alcotest.test_case
+        "VM call requires the original admitted identifier selection" `Quick
+        (vm_call_authority None);
+      Alcotest.test_case "VM failed replay revokes captured uncommitted calls"
+        `Quick
+        (vm_call_authority (Some false));
+      Alcotest.test_case
+        "VM replay exception revokes captured uncommitted calls" `Quick
+        (vm_call_authority (Some true));
+    ]

@@ -935,8 +935,12 @@ variadic cursor publication and fixed defaults. Runtime admission validates the
 original live or replayed event and the actual native catalog head. The authority
 tests reject stale predecessors, alternate semantic roots and completed-header
 bypasses without changing catalog entries. Hidden header completion retains its
-lookup position. Fresh/reused provisional calls and reached UndefinedExtern now
-pass; separate post-name argument-phase binding remains open in #635. These are
+lookup position. Fresh/reused provisional calls, reached UndefinedExtern and
+post-name argument-phase binding pass. Calls retain the admitted identifier
+reference, original argument/default cursor and separate emission metadata
+through semantic binding, lowering and runtime verification. Opaque native
+captures prevent replay from substituting a later snapshot. Failed replay
+revokes uncommitted call bindings. These are
 hosted source tests; see
 [provisional function members](provisional-function-members.md).
 

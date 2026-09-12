@@ -114,6 +114,17 @@ let owns_namespace snapshot namespace =
 
 let native_identity snapshot = snapshot.identity
 let same_identity left right = left.identity == right.identity
+
+let same_revision left right =
+  same_identity left right && left.revision == right.revision
+
+let same_cursor left right =
+  same_identity left right
+  && left.native_state.owner == right.native_state.owner
+  && left.native_state.slots == right.native_state.slots
+  && left.native_state.arguments = right.native_state.arguments
+  && left.native_state.ellipsis = right.native_state.ellipsis
+
 let native_source snapshot = snapshot.native_state.owner
 
 let native_members snapshot =
@@ -165,6 +176,65 @@ let snapshot record =
       in
       record.cached <- Some cached;
       cached
+
+type call_start_snapshot = {
+  call_record : t;
+  original_start : Parser.call_start;
+  argument_snapshot : snapshot;
+}
+
+type call_emission_snapshot = {
+  original_arguments : call_start_snapshot;
+  original_emission : Parser.completed_call;
+  emission_snapshot : snapshot;
+}
+
+let call_start_receipt token = token.original_start
+let call_argument_snapshot token = token.argument_snapshot
+let call_emission_receipt token = token.original_emission
+let call_emission_snapshot token = token.emission_snapshot
+let call_emission_arguments token = token.original_arguments
+
+let capture_call_start record start =
+  let captured = snapshot record in
+  let rec original entry =
+    match Visibility.function_alias_original entry with
+    | Some source -> original source
+    | None -> entry
+  in
+  let selected =
+    match Parser.selected_lookup start.Parser.call_reference with
+    | Visibility.Present entry ->
+        let entry = original entry in
+        entry == (source captured).function_entry
+        || Option.fold ~none:false
+             ~some:(fun header -> entry == header.Parser.completed_entry)
+             (P.completed_header captured.source_state)
+    | _ -> false
+  in
+  if not (Parser.call_start_is_current start && selected) then
+    Error "native call capture requires its original live selected record"
+  else
+    Ok
+      {
+        call_record = record;
+        original_start = start;
+        argument_snapshot = captured;
+      }
+
+let capture_call_emission arguments receipt =
+  if
+    not
+      (Parser.call_emission_is_current receipt
+      && receipt.Parser.call_start == arguments.original_start)
+  then Error "native emission capture requires its original live call"
+  else
+    Ok
+      {
+        original_arguments = arguments;
+        original_emission = receipt;
+        emission_snapshot = snapshot arguments.call_record;
+      }
 
 let create_registry ~mode ~table ~namespace =
   if mode <> Frontend.Preprocessor.Jit then

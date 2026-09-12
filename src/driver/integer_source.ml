@@ -44,7 +44,7 @@ let message_diagnostic ~span message =
   | _ -> diagnostic ~span "HCEVAL0003" message
 
 let prepare_unit ?environment:task_environment ?declaration_command
-    ?source_command ?selections ?implicit_selections
+    ?source_command ?selections ?implicit_selections ?call_phases
     ?(include_global_initializers = false) session ~config ~span ast =
   let table = Session.semantic_symbols session in
   let* () =
@@ -332,8 +332,8 @@ let prepare_unit ?environment:task_environment ?declaration_command
         |> checked |> Result.map Option.some
   in
   let* calls =
-    Function_call_resolution.resolve ~table ~declarations ~function_types
-      ~members ~local_types ~global_types ~functions
+    Function_call_resolution.resolve ?call_phases ~table ~declarations
+      ~function_types ~members ~local_types ~global_types ~functions
       ~expressions:module_expressions ?outer ast
     |> checked
   in
@@ -379,8 +379,8 @@ let prepare_unit ?environment:task_environment ?declaration_command
     | Frontend.Preprocessor.Aot -> Sema.Outer_environment.Aot
   in
   let* expressions =
-    Top_level_expression_tree.build ~table ~declarations ~compilation_mode
-      ~expressions ast
+    Top_level_expression_tree.build ?call_phases ~table ~declarations
+      ~compilation_mode ~expressions ast
     |> checked
   in
   let* identifiers =

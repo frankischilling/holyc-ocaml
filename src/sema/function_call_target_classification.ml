@@ -25,23 +25,30 @@ let call_origin source =
 let classify ~records source =
   let declaration = Function_call_expression_result.direct_declaration source in
   let classified =
-    match Function_call_expression_result.direct_outer_binding source with
-    | None ->
-        records |> Function_record_classification.declarations
-        |> List.find_opt (fun classified ->
-            Function_record_classification.classified_declaration_source
-              classified
-            == declaration)
-    | Some binding ->
-        let metadata =
-          binding |> Outer_environment.binding_entry
-          |> Outer_environment.entry_function_metadata
-        in
-        Option.bind metadata (fun metadata ->
-            if Outer_environment.function_declaration metadata == declaration
-            then
-              Some (Outer_environment.function_classified_declaration metadata)
-            else None)
+    match Function_call_expression_result.direct_original_phase source with
+    | Some phase when Function_call_phase.selected phase == declaration ->
+        Some (Function_call_phase.emission phase)
+    | Some _ -> None
+    | None -> (
+        match Function_call_expression_result.direct_outer_binding source with
+        | None ->
+            records |> Function_record_classification.declarations
+            |> List.find_opt (fun classified ->
+                Function_record_classification.classified_declaration_source
+                  classified
+                == declaration)
+        | Some binding ->
+            let metadata =
+              binding |> Outer_environment.binding_entry
+              |> Outer_environment.entry_function_metadata
+            in
+            Option.bind metadata (fun metadata ->
+                if
+                  Outer_environment.function_declaration metadata == declaration
+                then
+                  Some
+                    (Outer_environment.function_classified_declaration metadata)
+                else None))
   in
   match classified with
   | None ->

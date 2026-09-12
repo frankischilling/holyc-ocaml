@@ -461,6 +461,11 @@ let direct_declaration (call : direct_call) =
   call.source |> Function_call_conversion_policy.direct_source
   |> Function_call_resolution.direct_declaration
 
+let direct_original_phase (call : direct_call) =
+  call.source |> Function_call_conversion_policy.direct_source
+  |> Function_call_resolution.direct_source
+  |> Function_call_resolution.call_original_phase
+
 let direct_outer_binding (call : direct_call) =
   call.source |> Function_call_conversion_policy.direct_source
   |> Function_call_resolution.direct_outer_binding
@@ -540,6 +545,10 @@ let top_level_direct_source (call : top_level_direct_call) =
 
 let top_level_direct_declaration (call : top_level_direct_call) =
   call.top_level_direct_declaration
+
+let top_level_direct_original_phase (call : top_level_direct_call) =
+  call.top_level_direct_source |> Top_level_expression_tree.call_source
+  |> Function_call_resolution.call_original_phase
 
 let top_level_direct_outer_binding (call : top_level_direct_call) =
   call.top_level_direct_outer_binding
@@ -2087,7 +2096,9 @@ let rec type_expression table members policies ~before_item_index ~context
               | Ok (Some (Function_call_resolution.Direct_call direct as call))
                 -> (
                   let source_type =
-                    direct |> Function_call_resolution.direct_active_header
+                    Function_call_resolution.emission_header
+                      (Function_call_resolution.direct_source direct)
+                      (Function_call_resolution.direct_active_header direct)
                     |> Function_type_resolution.function_return_type
                     |> Type_reference.resolved_type
                   in
@@ -2947,7 +2958,14 @@ and type_top_level_direct_call table members policies ~before_item_index
   else if Option.is_some (Function_call_resolution.call_callable source_call)
   then invalid "top-level direct call unexpectedly carries a callback header"
   else
-    let header = Function_resolution.resolved_declaration_header declaration in
+    let ( let* ) = Result.bind in
+    let* header =
+      Function_call_resolution.argument_header source_call declaration
+      |> Result.map_error (fun error ->
+          invalid_top_level_input
+            ?origin:(Function_call_resolution.error_origin error)
+            (Function_call_resolution.error_message error))
+    in
     match Function_call_resolution.bind_direct_arguments source_call header with
     | Error error ->
         Error
@@ -2962,7 +2980,8 @@ and type_top_level_direct_call table members policies ~before_item_index
         | Error _ as error -> error
         | Ok (fixed_results, variadic_results, state) -> (
             let source_type =
-              header |> Function_type_resolution.function_return_type
+              Function_call_resolution.emission_header source_call header
+              |> Function_type_resolution.function_return_type
               |> Type_reference.resolved_type
             in
             match known_type table source_type with

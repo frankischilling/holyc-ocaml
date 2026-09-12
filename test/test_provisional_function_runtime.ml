@@ -82,6 +82,26 @@ let hidden_outer_completion () =
         |> O.expect ""))
     Test_integer_globals.modes
 
+let replaced_argument_default () =
+  List.iter
+    (fun mode ->
+      ignore
+        (O.run ~mode
+           "#exe {extern I64 F();if(0&&F#exe {extern I64 F(I64 \
+            n=40);}()){}StreamPrint(\"42;\");}"
+        |> O.expect ""))
+    Test_integer_globals.modes
+
+let changed_emission_count () =
+  List.iter
+    (fun mode ->
+      ignore
+        (O.run ~mode
+           "#exe {extern I64 F();if(0&&F(#exe {extern I64 F(I64 \
+            n);})){}StreamPrint(\"42;\");}"
+        |> O.expect ""))
+    Test_integer_globals.modes
+
 let tests =
   [
     Alcotest.test_case "fresh provisional calls validate in skipped branches"
@@ -102,4 +122,9 @@ let tests =
       count_after_name_lookahead;
     Alcotest.test_case "hidden outer completion preserves the visible shadow"
       `Quick hidden_outer_completion;
+    Alcotest.test_case "post-name defaults retain the replacement member owner"
+      `Quick replaced_argument_default;
+    Alcotest.test_case
+      "emission fixed count stays separate from pushed arguments" `Quick
+      changed_emission_count;
   ]

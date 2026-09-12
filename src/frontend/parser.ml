@@ -64,12 +64,14 @@ type reference_selection = {
   environment : Symbol_visibility.Environment.t;
   lookup : Symbol_visibility.lookup;
   selected_command : command_start;
+  mutable reference_active : bool;
 }
 
 let selected_identifier selection = selection.identifier
 let selected_environment selection = selection.environment
 let selected_lookup selection = selection.lookup
 let selected_command selection = selection.selected_command
+let reference_selection_is_current selection = selection.reference_active
 
 type call_activity = {
   mutable call_active : bool;
@@ -1148,6 +1150,7 @@ let expression_identifier cursor item =
           environment;
           lookup;
           selected_command = Option.get cursor.current_command;
+          reference_active = false;
         }
       in
       Identifier_table.add cursor.references identifier selection;
@@ -1155,7 +1158,12 @@ let expression_identifier cursor item =
         (fun reference ->
           record_observation selection.selected_command.command_context
             (Reference selection);
-          match reference selection with
+          selection.reference_active <- true;
+          match
+            Fun.protect
+              ~finally:(fun () -> selection.reference_active <- false)
+              (fun () -> reference selection)
+          with
           | Ok () -> ()
           | Error diagnostics ->
               cursor.diagnostics_rev <-

@@ -223,6 +223,7 @@ type callable = {
 }
 
 type call = {
+  original_phase : Function_call_phase.t option;
   index : int;
   callee_occurrence_index : int;
   callee_name : string;
@@ -478,6 +479,12 @@ let call_callee_form (call : call) = call.callee_form
 let call_callable (call : call) = call.callable
 let call_computed_callee (call : call) = call.computed_callee
 let call_origin (call : call) = call.origin
+let call_original_phase (call : call) = call.original_phase
+
+let emission_header call fallback =
+  Option.fold ~none:fallback ~some:Function_call_phase.emission_header
+    call.original_phase
+
 let call_syntax (call : call) = call.syntax
 let call_arguments (call : call) = call.arguments
 let condition_index (condition : condition_input) = condition.index
@@ -1735,8 +1742,8 @@ let validate_argument_indexes (arguments : argument list) =
   loop 0 arguments
 
 let make_call ~index ~callee_occurrence_index ~callee_name ~callee_origin
-    ?(callee_form = Identifier_callee) ?callable ?computed_callee ~origin
-    ~syntax (arguments : argument list) =
+    ?(callee_form = Identifier_callee) ?callable ?computed_callee
+    ?original_phase ~origin ~syntax (arguments : argument list) =
   if index < 0 then Error "function call index cannot be negative"
   else if callee_occurrence_index < 0 then
     Error "function call callee occurrence index cannot be negative"
@@ -1761,6 +1768,7 @@ let make_call ~index ~callee_occurrence_index ~callee_name ~callee_origin
     | Ok () ->
         Ok
           {
+            original_phase;
             index;
             callee_occurrence_index;
             callee_name;
@@ -2003,6 +2011,9 @@ let validate_source_expressions ~sources ~expressions ~calls
            | Ast.Parenthesized_call _ -> Parenthesized
            | Ast.Parenthesis_free_call -> Parenthesis_free)
         && callee_matches
+        && Option.fold ~none:true
+             ~some:(fun phase -> Function_call_phase.source phase == ast)
+             checked.original_phase
         && (match
               List.find_opt
                 (fun (call, _) -> call == checked)
@@ -3673,6 +3684,14 @@ let bind_arguments call ~parameters ~is_variadic =
           in
           variadic 0L [] extras)
 
+let argument_header call declaration =
+  match call.original_phase with
+  | None -> Ok (Function_resolution.resolved_declaration_header declaration)
+  | Some phase when Function_call_phase.selected phase == declaration ->
+      Ok (Function_call_phase.arguments phase)
+  | Some _ ->
+      Error (invalid_input "original call has another selected declaration")
+
 let bind_direct_arguments call header =
   let parameters =
     Function_type_resolution.function_signature header
@@ -4112,9 +4131,8 @@ let resolve_call ?members ?outer ~before_item_index types declarations
                   header")
         | Some (binding, metadata) -> (
             let declaration = Outer_environment.function_declaration metadata in
-            let active_header =
-              Function_resolution.resolved_declaration_header declaration
-            in
+            let ( let* ) = Result.bind in
+            let* active_header = argument_header call declaration in
             match bind_direct_arguments call active_header with
             | Error _ as error -> error
             | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
@@ -4161,9 +4179,8 @@ let resolve_call ?members ?outer ~before_item_index types declarations
               with
               | Some _, Some declaration
                 when same_publication_target publication declaration -> (
-                  let active_header =
-                    Function_resolution.resolved_declaration_header declaration
-                  in
+                  let ( let* ) = Result.bind in
+                  let* active_header = argument_header call declaration in
                   match bind_direct_arguments call active_header with
                   | Error _ as error -> error
                   | Ok (fixed_arguments, variadic_arguments, variadic_count) ->
