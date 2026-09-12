@@ -33,6 +33,14 @@ let member_extent ~origin ~element_size ~counts =
   Layout.member_extent ~origin ~element_size ~counts
   |> Result.map_error Layout.error_to_string
 
+let finish_size ~origin ~size ~negative_offset =
+  Layout.finish_size ~origin ~size ~negative_offset
+  |> Result.map_error Layout.error_to_string
+
+let negative_offset ~origin ~previous ~position =
+  Layout.negative_offset ~origin ~previous ~position
+  |> Result.map_error Layout.error_to_string
+
 let origin (location : Ast.location) =
   Symbol.Source_location
     {
@@ -58,7 +66,14 @@ module Members = Hashtbl.Make (struct
   let hash = Hashtbl.hash
 end)
 
-let layout ~dimensions ~table ~namespace ~symbol
+module Offsets = Hashtbl.Make (struct
+  type t = Ast.aggregate_offset_directive
+
+  let equal left right = left == right
+  let hash = Hashtbl.hash
+end)
+
+let layout ~offsets ~dimensions ~table ~namespace ~symbol
     (definition : Ast.aggregate_definition) =
   if Option.is_some definition.base then
     Error "retained aggregate bases require original selected layout metadata"
@@ -73,6 +88,7 @@ let layout ~dimensions ~table ~namespace ~symbol
             backing.backing_pointer_layers
           |> Result.map ignore
     in
+    let offset_values = Offsets.create 8 in
     let rec facts path members =
       map_result
         (fun (index, member) ->
@@ -106,10 +122,10 @@ let layout ~dimensions ~table ~namespace ~symbol
                 (List.mapi (fun i m -> (i, m)) declaration.member_declarators)
           | Ast.Anonymous_union_member union ->
               facts path union.anonymous_union_members
-          | Ast.Aggregate_offset_directive _ ->
-              Error
-                "retained aggregate offsets require original expression \
-                 preparation"
+          | Ast.Aggregate_offset_directive directive ->
+              let* value = offsets directive.aggregate_offset_expression in
+              Offsets.add offset_values directive value;
+              Ok []
           | Ast.Empty_aggregate_member _ -> Ok [])
         (List.mapi (fun i m -> (i, m)) members)
       |> Result.map List.concat
@@ -135,7 +151,16 @@ let layout ~dimensions ~table ~namespace ~symbol
           match member with
           | Ast.Empty_aggregate_member location ->
               [ Layout.Empty_member (origin location) ]
-          | Ast.Aggregate_offset_directive _ -> assert false
+          | Ast.Aggregate_offset_directive directive ->
+              let value = Offsets.find offset_values directive in
+              [
+                Layout.Offset_directive
+                  (Layout.Integer_expression
+                     {
+                       value;
+                       origin = origin directive.aggregate_offset_location;
+                     });
+              ]
           | Ast.Anonymous_union_member union ->
               [
                 Layout.Anonymous_union

@@ -60,9 +60,45 @@ their command, member name, AST identity and predecessor chain. The later
 semantic layout validates and reuses the same counts. It does not reevaluate
 the original expressions or resolve their queries against a newer type.
 
+## Offset expressions
+
+`$$=expression;` evaluates its original expression after expression lookahead
+and before semicolon validation. Class offsets replace the current size. Union
+offsets replace the current union base without changing the containing size.
+`$$` reads that current position; saved `sizeof` queries keep their original
+values. These phases follow `Compiler/PrsVar.HC:408-449`.
+
+Closed numeric expressions consume one preparation unit per evaluated leaf or
+operator. Short-circuited operands consume none. Offset preparation uses the
+initializer allowance, not the dimension-work counter. Floating results retain
+their raw `F64` bits, as in `LexExpression` at `Compiler/PrsExp.HC:1168-1178`.
+Runtime variables and calls still
+require a separate execution path.
+
+Negative offsets retain the greatest negative magnitude. After closing-brace
+lookahead, the body-completion phase adds that padding, before attached
+declarators and the final declaration delimiter. A query during closing-brace
+lookahead sees the unpadded size. The shared layout checker rejects unrepresentable
+magnitudes and final-size overflow.
+
+Preparation receipts belong to the original aggregate, namespace, expression
+and predecessor phase. Failed attempts consume the boundary too. Completed
+layout reuses the checked bits. JIT source activation charges saved work at the
+original offset event without evaluating the expression again.
+Ordinary AOT offsets share the detached directive task's preparation allowance
+at their original source events, without importing outer source names into that
+task. Completed-source compilation checks those same receipts and does not
+charge them again.
+
+`examples/stateful-exe-aggregate-offsets.hc` moves a class position from one byte
+to eight, observes that partial size, then appends an eight-byte member. Its
+saved and completed sizes combine to return 42.
+Both outer modes use 27 runtime steps and six preparation units. The CLI checks
+those combined limits and each one-below failure.
+
 ## Remaining work
 
-Offset directives, inheritance, aggregate-valued members, callbacks, member
+Runtime-dependent offsets, inheritance, aggregate-valued members, callbacks, member
 metadata, attached storage and runtime-dependent member bounds remain outside
 retained layout execution. Native extern-record reuse still needs its own
 phase-aware admission. The supported partial sizes do not establish those

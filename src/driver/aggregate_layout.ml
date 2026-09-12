@@ -246,7 +246,7 @@ let declaration_items ~dimension path
   in
   loop 0 [] facts declaration.Frontend.Ast.member_declarators
 
-let rec member_items ~dimension path_prefix members facts =
+let rec member_items ~offset ~dimension path_prefix members facts =
   let rec loop member_index items_rev facts = function
     | [] -> Ok (List.rev items_rev, facts)
     | member :: rest ->
@@ -256,12 +256,10 @@ let rec member_items ~dimension path_prefix members facts =
           | Frontend.Ast.Aggregate_member_declaration declaration ->
               declaration_items ~dimension path declaration facts
           | Frontend.Ast.Aggregate_offset_directive directive ->
-              Ok
-                ( [
-                    Sema.Aggregate_layout.Offset_directive
-                      (expression directive.aggregate_offset_expression);
-                  ],
-                  facts )
+              Result.map
+                (fun prepared ->
+                  ([ Sema.Aggregate_layout.Offset_directive prepared ], facts))
+                (offset directive.aggregate_offset_expression)
           | Frontend.Ast.Anonymous_union_member anonymous_union ->
               Result.map
                 (fun (union_items, facts) ->
@@ -274,7 +272,7 @@ let rec member_items ~dimension path_prefix members facts =
                         };
                     ],
                     facts ))
-                (member_items ~dimension path
+                (member_items ~offset ~dimension path
                    anonymous_union.anonymous_union_members facts)
           | Frontend.Ast.Empty_aggregate_member location ->
               Ok
@@ -328,14 +326,15 @@ let validate_definition ~table ~scope event header aggregate
   then Error "aggregate layout member scope does not belong to the module"
   else Ok ()
 
-let aggregate_input ~dimension ~table ~scope event header aggregate definition =
+let aggregate_input ~offset ~dimension ~table ~scope event header aggregate
+    definition =
   Result.bind
     (validate_definition ~table ~scope event header aggregate definition)
     (fun () ->
       let facts = Sema.Member_type_resolution.aggregate_members aggregate in
       Result.bind
-        (member_items ~dimension [] definition.Frontend.Ast.members facts)
-        (fun (items, remaining) ->
+        (member_items ~offset ~dimension [] definition.Frontend.Ast.members
+           facts) (fun (items, remaining) ->
           if remaining <> [] then
             Error "aggregate layout has extra resolved members"
           else
@@ -362,7 +361,7 @@ let aggregate_input ~dimension ~table ~scope event header aggregate definition =
                 aggregate_items = items;
               }))
 
-let inputs ~dimension ~table ~scope events headers aggregates =
+let inputs ~offset ~dimension ~table ~scope events headers aggregates =
   let rec loop inputs_rev events headers aggregates =
     match events with
     | [] ->
@@ -375,7 +374,7 @@ let inputs ~dimension ~table ~scope events headers aggregates =
             match (headers, aggregates) with
             | header :: header_rest, aggregate :: aggregate_rest ->
                 Result.bind
-                  (aggregate_input ~dimension ~table ~scope event header
+                  (aggregate_input ~offset ~dimension ~table ~scope event header
                      aggregate definition) (fun input ->
                     loop (input :: inputs_rev) rest header_rest aggregate_rest)
             | [], _ | _, [] ->
@@ -383,9 +382,26 @@ let inputs ~dimension ~table ~scope events headers aggregates =
   in
   loop [] events headers aggregates
 
-let layout ?prepared ~table ~declarations ~aggregates ~headers ~members module_
-    =
+let layout ?offsets ?prepared ~table ~declarations ~aggregates ~headers ~members
+    module_ =
   let dimension = dimension ~table ?prepared in
+  let offset ast =
+    match offsets with
+    | None -> Ok (expression ast)
+    | Some resolve ->
+        Result.bind (resolve ast) (fun checked ->
+            if
+              Sema.Compiler_record.aggregate_offset_expression checked != ast
+              || Sema.Compiler_record.aggregate_offset_table checked != table
+            then Error "aggregate layout offset has another original expression"
+            else
+              Ok
+                (Sema.Aggregate_layout.Integer_expression
+                   {
+                     value = Sema.Compiler_record.aggregate_offset_value checked;
+                     origin = origin (Frontend.Ast.expression_location ast);
+                   }))
+  in
   let scope = Sema.Declaration_collection.scope declarations in
   let result =
     if not (Sema.Symbol_table.owns_scope table scope) then
@@ -396,7 +412,7 @@ let layout ?prepared ~table ~declarations ~aggregates ~headers ~members module_
       Result.bind (events ~table ~declarations ~aggregates module_)
         (fun events ->
           Result.bind
-            (inputs ~dimension ~table ~scope events
+            (inputs ~offset ~dimension ~table ~scope events
                (Sema.Aggregate_header_resolution.headers headers)
                (Sema.Member_type_resolution.aggregates members))
             (fun inputs ->

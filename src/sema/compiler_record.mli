@@ -123,6 +123,16 @@ val published_scalar :
     and function-pointer signatures still need separate checked metadata. *)
 
 type aggregate_progress
+type aggregate_offset
+
+val aggregate_offset_namespace :
+  aggregate_offset -> Declaration_collection.namespace
+
+val aggregate_offset_table : aggregate_offset -> Symbol_table.t
+val aggregate_offset_phase : aggregate_offset -> Frontend.Parser.aggregate_phase
+val aggregate_offset_expression : aggregate_offset -> Frontend.Ast.expression
+val aggregate_offset_value : aggregate_offset -> int64
+val aggregate_offset_work : aggregate_offset -> int
 
 val begin_aggregate :
   table:Symbol_table.t ->
@@ -192,6 +202,25 @@ type query_role = Query_source.role =
   | Defined_operand
 
 type query_read
+
+val aggregate_offset_is_current :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  bool
+
+val prepare_aggregate_offset :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  max_work:int ->
+  queries:query_read list ->
+  aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  (aggregate_offset, string) result * int
+(** Evaluate once at the original live offset phase. Failed attempts also
+    consume the boundary. Work counts evaluated numeric nodes, including failure
+    work. *)
 
 val complete_query :
   ?sizeof_read:sizeof_read ->

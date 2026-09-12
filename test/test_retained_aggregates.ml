@@ -38,7 +38,17 @@ let boundaries () =
         (O.run ~mode {|#exe {class A {I64 x;};class B {A a;};}|}
         |> O.fault "HCRUN0001");
       ignore
-        (O.run ~mode {|#exe {class A {$$=8;I64 x;};}|} |> O.fault "HCRUN0001");
+        (O.run ~mode {|#exe {I64 N=8;class A {$$=N;I64 x;};}|}
+        |> O.fault "HCRUN0004");
+      ignore
+        (O.run ~mode {|#exe {class Bad {$$=-9223372036854775808;};}|}
+        |> O.fault "HCRUN0004");
+      ignore
+        (O.run ~mode {|#exe {class Bad {$$=9223372036854775807;I64 x;};}|}
+        |> O.fault "HCRUN0001");
+      ignore
+        (O.run ~mode {|#exe {class Bad {$$=-1;$$=9223372036854775807;};}|}
+        |> O.fault "HCRUN0001");
       ignore
         (O.run ~mode {|#exe {class A {U0 x[9223372036854775807][2];};}|}
         |> O.fault "HCRUN0001");
@@ -202,7 +212,7 @@ let phase_authority () =
        ~config:(Preprocessor.Config.create () |> checked)
        source
     |> Test_parser.expect_ast);
-  Alcotest.(check int) "all member and union boundaries observed" 7 !phases;
+  Alcotest.(check int) "all member and union boundaries observed" 9 !phases;
   let phase = Option.get !last in
   Alcotest.(check bool)
     "phase lifetime ends on return" false
@@ -334,8 +344,202 @@ let failed_forward () =
         (Parser.aggregate_publication_is_current source)
   | _ -> Alcotest.fail "malformed forward acquired completion"
 
+let offsets () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source -> ignore (O.run ~mode source |> O.expect ""))
+        [
+          {|#exe {class Span {U8 first;$$=8;I64 last;};StreamPrint("%d;",sizeof(Span)+26);}|};
+          {|#exe {class Span {U8 first;$$=$$+7;I64 last;};StreamPrint("%d;",sizeof(Span)+26);}|};
+          {|#exe {class Span {I64 first;$$=sizeof(Span)+8;I64 last;};StreamPrint("%d;",sizeof(Span)+18);}|};
+          {|#exe {class Back {$$=-8;I64 word;};StreamPrint("%d;",sizeof(Back)+34);}|};
+          {|#exe {union Wide {$$=8;I64 word;U8 byte;};StreamPrint("%d;",sizeof(Wide)+26);}|};
+          {|#exe {class Mixed {U8 head;union {$$=$$+7;I64 word;U8 byte;}U8 tail;};StreamPrint("%d;",sizeof(Mixed)+25);}|};
+          {|#exe {class Mixed {I64 head;union {$$=-8;I64 word;}U8 tail;};StreamPrint("%d;",sizeof(Mixed)+25);}|};
+          {|#exe {I64 Seen=0;class Span {U8 first;$$=8 #exe {Seen=sizeof(Span);};#exe {Seen+=sizeof(Span);}I64 last;};StreamPrint("%d;",Seen+sizeof(Span)+17);}|};
+          {|#exe {I64 Seen=0;class Back {$$=-8;U8 x;}#exe {Seen=sizeof(Back);};StreamPrint("%d;",Seen+sizeof(Back)+48);}|};
+          {|#exe {class Bits {$$=0.0;I64 x;};StreamPrint("%d;",sizeof(Bits)+34);}|};
+          {|#exe {class Bits {$$=1.0;};StreamPrint("%d;",sizeof(Bits)-4607182418800017366);}|};
+          {|#exe {class Saved {I64 x;};class Span {$$=sizeof(Saved) #exe {class Saved {U8 y;};};I64 x;};StreamPrint("%d;",sizeof(Span)+sizeof(Saved)+25);}|};
+          {|#exe {class Span {$$=1||1/0;U8 x;};StreamPrint("%d;",sizeof(Span)+40);}|};
+        ])
+    Test_integer_globals.modes;
+  List.iter
+    (fun source -> ignore (O.run source |> O.expect ""))
+    [
+      {|class Span {$$=8;I64 x;};#exe {StreamPrint("%d;",sizeof(Span)+26);}|};
+      {|I64 Seen=0;class Span {$$=8;#exe {Seen=sizeof(Span);}I64 x;};Seen+sizeof(Span)+18;|};
+    ]
+
+let offset_limits () =
+  List.iter
+    (fun mode ->
+      let source =
+        {|#exe {class Span {$$=1+7;I64 x;};StreamPrint("%d;",sizeof(Span)+26);}|}
+      in
+      let report = O.run ~mode ~max_initializer_steps:3 source in
+      ignore (O.expect "" report);
+      Alcotest.(check int)
+        "offset work shares task preparation" 3
+        (Option.get (integer_program_report_progress report)).runtime
+          .initializer_steps;
+      Alcotest.(check int)
+        "offset work is not dimension work" 0
+        (integer_program_report_dimension_work report);
+      let failed = O.run ~mode ~max_initializer_steps:2 source in
+      ignore (O.fault "HCIRVM0007" failed);
+      Alcotest.(check int)
+        "failed preparation retains reached work" 2
+        (Option.get (integer_program_report_progress failed)).runtime
+          .initializer_steps)
+    Test_integer_globals.modes;
+  let source =
+    {|class Span {$$=1+7;I64 x;};#exe {StreamPrint("%d;",sizeof(Span)+26);}|}
+  in
+  ignore (O.run ~max_initializer_steps:3 source |> O.expect "");
+  ignore (O.run ~max_initializer_steps:2 source |> O.fault "HCIRVM0007");
+  List.iter
+    (fun mode ->
+      let source = {|class Span {$$=1+7;I64 x;};sizeof(Span)+26;|} in
+      let report = O.run ~mode ~max_initializer_steps:3 source in
+      ignore (O.expect "" report);
+      Alcotest.(check (option int))
+        "ordinary offset work is reported" (Some 3)
+        (integer_program_report_preparation_work report);
+      ignore
+        (O.run ~mode ~max_initializer_steps:2 source |> O.fault "HCIRVM0007"))
+    Test_integer_globals.modes;
+  let source = {|class Span {$$=1+7;I64 x;};#exe {I64 N=0;}sizeof(Span)+26;|} in
+  ignore
+    (O.run ~mode:Preprocessor.Aot ~max_initializer_steps:6 source |> O.expect "");
+  ignore
+    (O.run ~mode:Preprocessor.Aot ~max_initializer_steps:5 source
+    |> O.fault "HCIRVM0007");
+  let source =
+    {|class Span {$$=1+7;I64 x;};#exe {extern U0 Print(U8 *fmt,...);Print("A");I64 N=0;Print("B");}sizeof(Span)+26;|}
+  in
+  ignore
+    (O.run ~mode:Preprocessor.Aot ~max_initializer_steps:6 source
+    |> O.expect "AB");
+  let failed = O.run ~mode:Preprocessor.Aot ~max_initializer_steps:5 source in
+  ignore (O.fault ~output:"A" "HCIRVM0007" failed);
+  Alcotest.(check (option int))
+    "AOT offsets share the budget before later directives" (Some 5)
+    (integer_program_report_preparation_work failed);
+  let source = {|class Span {$$=1+7;I64 x;};I64 N=42;N;|} in
+  let failed = O.run ~mode:Preprocessor.Aot ~max_initializer_steps:5 source in
+  ignore (O.fault "HCIRVM0007" failed);
+  Alcotest.(check (option int))
+    "ordinary failure retains offset and initializer work" (Some 5)
+    (integer_program_report_preparation_work failed);
+  let source =
+    {|I64 Seen=0;class Span {$$=1+7;I64 x;};#exe {Seen=sizeof(Span);}Seen+26;|}
+  in
+  ignore (O.run ~max_initializer_steps:6 source |> O.expect "");
+  ignore (O.run ~max_initializer_steps:5 source |> O.fault "HCIRVM0007")
+
+let offset_authority () =
+  let session = Session.create () in
+  let table = Session.semantic_symbols session in
+  let namespace = C.create_namespace ~table () |> checked in
+  let other = C.create_namespace ~table () |> checked in
+  let progress = ref None and last = ref None in
+  let saved = ref None in
+  let last_progress = ref None in
+  let seen = ref 0 in
+  let prepare namespace allowance current phase =
+    Record.prepare_aggregate_offset ~table ~namespace ~max_work:allowance
+      ~queries:[] current phase
+  in
+  let reject label result =
+    Alcotest.(check bool) label true (Result.is_error result)
+  in
+  let declaration = function
+    | Parser.Aggregate_declared source ->
+        let publication = C.publish_aggregate namespace source |> checked in
+        progress :=
+          Some (Record.begin_aggregate ~table ~namespace publication |> checked);
+        Ok ()
+    | Parser.Aggregate_advanced phase ->
+        let current = Option.get !progress in
+        (match phase.phase_step with
+        | Parser.Aggregate_offset_reached _
+          when phase.phase_aggregate.aggregate_name.spelling = "Failed" ->
+            let result, work = prepare namespace 2 current phase in
+            reject "bounded offset preparation fails" result;
+            Alcotest.(check int) "failed offset retains reached work" 2 work;
+            let result, work = prepare namespace 3 current phase in
+            reject "failed live attempt cannot obtain a new allowance" result;
+            Alcotest.(check int) "failed retry spends nothing" 0 work
+        | Parser.Aggregate_offset_reached _ ->
+            let foreign, work = prepare other 3 current phase in
+            reject "foreign namespace cannot prepare original offset" foreign;
+            Alcotest.(check int) "foreign preparation spends nothing" 0 work;
+            let result, work = prepare namespace 3 current phase in
+            let prepared = checked result in
+            saved := Some prepared;
+            Alcotest.(check int)
+              "original offset consumes three numeric nodes" 3 work;
+            Alcotest.(check int64)
+              "original current position" 8L
+              (Record.aggregate_offset_value prepared);
+            let duplicate, work = prepare namespace 3 current phase in
+            reject "same live offset cannot evaluate twice" duplicate;
+            Alcotest.(check int) "duplicate preparation spends nothing" 0 work;
+            incr seen;
+            last_progress := Some current;
+            last := Some phase
+        | _ -> ());
+        ignore
+          (Record.advance_aggregate ~dimensions:(fun _ -> None) current phase
+          |> checked);
+        Ok ()
+    | _ -> Ok ()
+  in
+  let source =
+    Session.add_source session ~path:"offset-authority.hc"
+      ~contents:
+        "class Span {U8 first;$$=$$+7;I64 last;};class Failed {$$=1+2;};"
+  in
+  ignore
+    (Parser.parse
+       ~commands:(Test_provisional_function_parser.sink declaration)
+       ~sources:(Session.sources session) ~symbols:(Session.symbols session)
+       ~definitions:(Session.definitions session)
+       ~config:(Preprocessor.Config.create () |> checked)
+       source
+    |> Test_parser.expect_ast);
+  Alcotest.(check int) "one original offset preparation" 1 !seen;
+  let result, work =
+    prepare namespace 3 (Option.get !last_progress) (Option.get !last)
+  in
+  reject "expired phase cannot prepare again" result;
+  Alcotest.(check int) "expired phase spends nothing" 0 work;
+  let module VM = Ir_integer_interpreter in
+  let runtime =
+    VM.create_task_state ~table ~max_initializer_steps:3 () |> checked
+  in
+  let offsets = [ Option.get !saved ] in
+  let foreign_table = Session.semantic_symbols (Session.create ()) in
+  reject "isolated offset rejects a foreign source table"
+    (VM.charge_isolated_aggregate_offsets runtime ~table:foreign_table offsets);
+  ignore (VM.charge_isolated_aggregate_offsets runtime ~table offsets |> checked);
+  reject "isolated offset cannot charge twice"
+    (VM.charge_isolated_aggregate_offsets runtime ~table offsets);
+  Alcotest.(check int)
+    "original receipt charges once" 3
+    (VM.task_initializer_steps runtime)
+
 let tests =
   [
+    Alcotest.test_case "original offset phases drive retained layout" `Quick
+      offsets;
+    Alcotest.test_case "offset preparation is bounded and charged once" `Quick
+      offset_limits;
+    Alcotest.test_case
+      "offset preparation authenticates its original live phase" `Quick
+      offset_authority;
     Alcotest.test_case "completed layouts survive directives and replacements"
       `Quick source_gates;
     Alcotest.test_case "dependent layouts remain explicit" `Quick boundaries;

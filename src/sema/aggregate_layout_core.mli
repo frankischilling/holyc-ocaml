@@ -187,6 +187,18 @@ end) : sig
     counts:int64 list ->
     (int64, error) result
 
+  val finish_size :
+    origin:Symbol.origin ->
+    size:int64 ->
+    negative_offset:int64 ->
+    (int64, error) result
+
+  val negative_offset :
+    origin:Symbol.origin ->
+    previous:int64 ->
+    position:int64 ->
+    (int64, error) result
+
   val layout :
     table:Symbol_table.t ->
     parent:Symbol_table.scope ->

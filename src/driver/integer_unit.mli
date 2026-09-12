@@ -2,6 +2,7 @@ type 'a checked = { value : 'a; diagnostics : Common.Diagnostic.t list }
 type compiled
 
 val compile_source_output :
+  ?initializer_progress:(int -> unit) ->
   source_command:Task_declarations.source_command ->
   max_initializer_steps:int ->
   Session.t ->

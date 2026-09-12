@@ -11600,5 +11600,21 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 semantics = "Zero-sized name publication, primitive member placement after type/dimension lookahead and before metadata/delimiters, anonymous-union base stack, frozen partial sizeof reads and final phase-chain reconciliation. No prefix compilation or dimension reevaluation."
 ownership = "Live parser phase, exact aggregate publication and predecessor, final phase and namespace; immutable size snapshots carry a current-version guard for new live query reads. Consumed query values remain valid after later phases."
 source_gate = "Nested-stream fixture observes 0, 8 and 16 bytes and returns I64 42 in both modes at 35 runtime steps and three preparation units. Combined exact limits and each one-below failure are checked through the CLI."
-excluded = ["native extern record reuse", "offset directive preparation", "inheritance", "aggregate-valued members", "callbacks and metadata", "attached storage", "runtime-dependent member layout admission", "member lookup", "aggregate object execution", "native/BIN/loader acceptance", "bootstrap"]
+excluded = ["native extern record reuse", "runtime-dependent offset preparation", "inheritance", "aggregate-valued members", "callbacks and metadata", "attached storage", "runtime-dependent member layout admission", "member lookup", "aggregate object execution", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted execution; no new native capture"
+
+[[feature]]
+id = "HC-AGGREGATE-OFFSET-PREPARATION"
+description = "Prepare original closed aggregate offset expressions once and advance retained positions and negative padding at parser phases."
+sources = ["Compiler/PrsVar.HC:408-449", "Compiler/PrsStmt.HC:50-57", "Compiler/PrsExp.HC:303-348,1117-1178"]
+implementation = ["src/frontend/parser.ml", "src/sema/compiler_record.ml", "src/sema/source_aggregate_layout.ml", "src/sema/aggregate_layout_core.ml", "src/sema/source_activation.ml", "src/driver/task_declarations.ml", "src/driver/aggregate_layout.ml", "src/driver/integer_source.ml", "src/driver/integer_unit.ml", "src/driver/integer_source_execution.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_retained_aggregates.ml", "test/test_stateful_exe_cli.ml", "examples/stateful-exe-aggregate-offsets.hc"]
+documentation = ["docs/retained-aggregates.md", "docs/reference-source-map.md", "docs/integer-task.md", "CHANGELOG.md"]
+status = "partial"
+issue = 635
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+semantics = "Original expression lookahead precedes offset evaluation, position updates precede semicolon validation, and negative padding follows closing-brace lookahead. Closed integer/current-position/query expressions and floating raw bits use bounded numeric evaluation. Completed layout reuses checked values."
+ownership = "Original live phase, aggregate publication, namespace, expression and predecessor chain; preparation attempts cannot be repeated. Source activation charges original receipts at their exact journal events."
+source_gate = "The aggregate-offset CLI fixture returns I64 42 in both modes at 27 runtime steps and six preparation units, with zero dimension work. Exact limits and each one-below failure are checked."
+excluded = ["runtime-dependent offsets", "native extern record reuse", "inheritance and aggregate-valued members", "callbacks and metadata", "attached storage", "runtime-dependent member admission", "native/BIN/loader acceptance", "bootstrap"]
 native_oracle_status = "pinned-source audit and hosted execution; no new native capture"

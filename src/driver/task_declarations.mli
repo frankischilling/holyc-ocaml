@@ -240,6 +240,7 @@ type query
 
 val create_source :
   ?max_dimension_work:int ->
+  ?max_offset_work:int ->
   Session.t ->
   source:Common.Source_file.t ->
   (t, string) result
@@ -499,6 +500,7 @@ val observe_command :
     from resume events, without admitting or executing those commands. *)
 
 val observe :
+  ?offset_runtime:Ir.Integer_interpreter.task_state ->
   t ->
   Frontend.Parser.declaration_event ->
   (unit, Common.Diagnostic.t list) result
@@ -549,3 +551,22 @@ val observe_implicit_emission :
   (unit, Common.Diagnostic.t list) result
 
 val parser_suspension : t -> (Frontend.Parser.suspension, string) result
+val offset_work : t -> int
+val source_offset_work : source_command -> int
+
+val source_offsets :
+  source_command -> Sema.Compiler_record.aggregate_offset list
+
+val checked_offset_for :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  Frontend.Ast.expression ->
+  (Sema.Compiler_record.aggregate_offset, Common.Diagnostic.t list) result
+
+val source_checked_offset_for :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  Frontend.Ast.expression ->
+  (Sema.Compiler_record.aggregate_offset, Common.Diagnostic.t list) result

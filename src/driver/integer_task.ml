@@ -82,6 +82,10 @@ let output_work task = VM.task_output_work task.state
 let generated_bytes task = VM.task_generated_bytes task.state
 let executed_steps task = VM.task_executed_steps task.state
 let initializer_steps task = VM.task_initializer_steps task.state
+
+let observe_source_offset task ledger event =
+  Task_declarations.observe ~offset_runtime:task.state ledger event
+
 let dimension_work task = Task_declarations.dimension_work task.declarations
 
 let progress task =

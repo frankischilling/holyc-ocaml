@@ -409,6 +409,9 @@ type task_state = {
   mutable source_promotion_open : bool;
   mutable source_activation : Sema.Source_activation.t option;
   mutable deferred_dimensions : Sema.Compiler_record.dimension_preparation list;
+  mutable deferred_offsets : Sema.Compiler_record.aggregate_offset list;
+  mutable charged_offsets : Sema.Compiler_record.aggregate_offset list;
+  mutable attempted_offsets : Frontend.Parser.aggregate_phase list;
   mutable source_execution_failed : bool;
   mutable source_result : (Frontend.Parser.completed_sequence * t) option;
   catalog : Integer_globals.task_catalog;
@@ -479,6 +482,9 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         source_promotion_open = true;
         source_activation = None;
         deferred_dimensions = [];
+        deferred_offsets = [];
+        charged_offsets = [];
+        attempted_offsets = [];
         seen_dimensions = [];
         closed_dimensions = [];
         completed_dimensions = [];
@@ -571,6 +577,7 @@ let completed_input task input =
   && input.input_streams == task.streams
   && Sema.Source_activation.finished task.source_activation
   && task.deferred_dimensions = []
+  && task.deferred_offsets = []
   && input_prefix_complete input.input_seen_dimensions task.seen_dimensions
        (fun preparation ->
          List.exists
@@ -646,11 +653,35 @@ let start_task_compilation task = task.source_promotion_open <- false
 let bind_task_namespace task namespace =
   Integer_globals.bind_task_namespace task.catalog namespace
 
-let promote_task_source ?(dimensions = []) ?(completed_dimensions = []) task
-    ~namespace ~events ~dimension_steps =
+let promote_task_source ?(offsets = []) ?(dimensions = [])
+    ?(completed_dimensions = []) task ~namespace ~events ~dimension_steps =
   let module Record = Sema.Compiler_record in
   let originals = List.map Record.dimension_preparation_source dimensions in
   let completions = List.map Record.dimension_receipt completed_dimensions in
+  let offset_work =
+    List.fold_left
+      (fun total offset -> total + Record.aggregate_offset_work offset)
+      0 offsets
+  in
+  let offsets_valid =
+    let rec loop seen = function
+      | [] -> true
+      | offset :: rest ->
+          let phase = Record.aggregate_offset_phase offset in
+          Record.aggregate_offset_namespace offset == namespace
+          && (not (List.exists (( == ) phase) seen))
+          && List.exists
+               (function
+                 | Frontend.Parser.Command_started start ->
+                     start
+                     == phase.phase_aggregate.aggregate_header
+                          .declaration_command
+                 | _ -> false)
+               events
+          && loop (phase :: seen) rest
+    in
+    loop [] offsets
+  in
   let manifest_valid =
     let rec preparations total seen = function
       | [] -> total = dimension_steps
@@ -701,9 +732,12 @@ let promote_task_source ?(dimensions = []) ?(completed_dimensions = []) task
   in
   if not task.source_promotion_open then
     Error "source promotion requires a fresh task runtime"
-  else if dimension_steps < 0 || dimension_steps > task.max_initializer_steps
+  else if
+    dimension_steps < 0
+    || dimension_steps > task.max_initializer_steps
+    || offset_work > task.max_initializer_steps - dimension_steps
   then Error "source dimension work exceeds the task preparation allowance"
-  else if not manifest_valid then
+  else if (not manifest_valid) || not offsets_valid then
     Error "source promotion requires its original closed dimension manifest"
   else
     Result.bind (Integer_globals.check_task_namespace task.catalog namespace)
@@ -713,7 +747,8 @@ let promote_task_source ?(dimensions = []) ?(completed_dimensions = []) task
     |> fun result ->
     Result.bind result (fun () -> bind_task_namespace task namespace)
     |> Result.map (fun () ->
-        task.initializer_steps <- dimension_steps;
+        task.initializer_steps <- dimension_steps + offset_work;
+        task.charged_offsets <- offsets;
         task.seen_dimensions <- originals;
         task.closed_dimensions <- dimensions;
         task.completed_dimensions <- completions;
@@ -729,8 +764,8 @@ let bind_source_activation task ~namespace activation =
     task.source_activation <- Some activation;
     Ok ())
 
-let promote_task_source_activation ?pending_runtime_dimension task ~namespace
-    ~activation ~dimensions =
+let promote_task_source_activation ?(offsets = []) ?pending_runtime_dimension
+    task ~namespace ~activation ~dimensions =
   let originals = Sema.Source_activation.dimension_preparations activation in
   let pending_valid, closed_originals =
     match pending_runtime_dimension with
@@ -755,6 +790,17 @@ let promote_task_source_activation ?pending_runtime_dimension task ~namespace
     || (not (Sema.Source_activation.available activation))
     || (not (Sema.Source_activation.owns_namespace activation namespace))
     || (not pending_valid)
+    || (let phases =
+          Sema.Source_activation.aggregate_offset_phases activation
+        in
+        List.length phases <> List.length offsets
+        || not
+             (List.for_all2
+                (fun phase offset ->
+                  Sema.Compiler_record.aggregate_offset_phase offset == phase
+                  && Sema.Compiler_record.aggregate_offset_namespace offset
+                     == namespace)
+                phases offsets))
     || List.length closed_originals <> List.length dimensions
     || not
          (List.for_all2
@@ -772,15 +818,80 @@ let promote_task_source_activation ?pending_runtime_dimension task ~namespace
       ~dimension_steps:0
     |> Result.map (fun () ->
         task.source_activation <- Some activation;
+        task.deferred_offsets <- offsets;
         task.deferred_dimensions <- dimensions)
 
+let charge_source_aggregate_offset task phase =
+  match task.deferred_offsets with
+  | offset :: rest
+    when (not task.source_execution_failed)
+         && Sema.Compiler_record.aggregate_offset_phase offset == phase
+         && Sema.Source_activation.aggregate_offset_preparing
+              task.source_activation phase ->
+      let work = Sema.Compiler_record.aggregate_offset_work offset in
+      let remaining = task.max_initializer_steps - task.initializer_steps in
+      task.initializer_steps <- task.initializer_steps + min work remaining;
+      task.deferred_offsets <- rest;
+      task.charged_offsets <- offset :: task.charged_offsets;
+      if work > remaining then (
+        task.source_execution_failed <- true;
+        task.failure_generation <- ref ();
+        Error
+          "HCIRVM0007: the bounded aggregate offset preparation work limit was \
+           exhausted")
+      else Ok ()
+  | _ ->
+      Error
+        "aggregate offset charge is foreign, repeated or outside its \
+         activation event"
+
 let source_dimensions_ready task =
+  (match (task.deferred_offsets, task.source_activation) with
+    | [], _ -> true
+    | next :: _, Some activation ->
+        Sema.Source_activation.before_aggregate_offset activation
+          (Sema.Compiler_record.aggregate_offset_phase next)
+    | _ -> false)
+  &&
   match (task.deferred_dimensions, task.source_activation) with
   | [], _ -> true
   | next :: _, Some activation ->
       Sema.Source_activation.before_dimension activation
         (Sema.Compiler_record.dimension_preparation_source next)
   | _ -> false
+
+let charge_isolated_aggregate_offsets task ~table offsets =
+  let module Record = Sema.Compiler_record in
+  let rec valid seen = function
+    | [] -> true
+    | offset :: rest ->
+        Record.aggregate_offset_table offset == table
+        && (not
+              (List.exists
+                 (fun original ->
+                   Record.aggregate_offset_phase original
+                   == Record.aggregate_offset_phase offset)
+                 seen))
+        && valid (offset :: seen) rest
+  in
+  if not (valid task.charged_offsets offsets) then
+    Error "isolated offsets have a foreign table or repeated preparation"
+  else (
+    task.source_promotion_open <- false;
+    task.charged_offsets <- offsets @ task.charged_offsets;
+    let rec charge = function
+      | [] -> Ok ()
+      | offset :: rest ->
+          let work = Record.aggregate_offset_work offset in
+          let remaining = task.max_initializer_steps - task.initializer_steps in
+          task.initializer_steps <- task.initializer_steps + min work remaining;
+          if work > remaining then
+            Error
+              "HCIRVM0007: the bounded aggregate offset preparation work limit \
+               was exhausted"
+          else charge rest
+    in
+    charge offsets)
 
 let dimension_predecessor_ready task
     (preparation : Frontend.Parser.array_dimension_preparation) =
@@ -1567,6 +1678,68 @@ let prepare_task_closed_dimension task ~table ~namespace ~preparation ~queries =
             | Error _ -> ());
             (result, work)))
 
+let prepare_aggregate_offset_in_task task ~table ~namespace ~queries progress
+    phase =
+  if
+    (not
+       (Sema.Compiler_record.aggregate_offset_is_current ~table ~namespace
+          progress phase))
+    || (not (source_dimensions_ready task))
+    || List.exists (( == ) phase) task.attempted_offsets
+    || List.exists
+         (fun offset ->
+           Sema.Compiler_record.aggregate_offset_phase offset == phase)
+         task.charged_offsets
+  then (Error "aggregate offset lacks its live task source boundary", 0)
+  else (
+    task.source_promotion_open <- false;
+    task.attempted_offsets <- phase :: task.attempted_offsets;
+    let result, work =
+      Sema.Compiler_record.prepare_aggregate_offset ~table ~namespace ~queries
+        ~max_work:(task.max_initializer_steps - task.initializer_steps)
+        progress phase
+    in
+    task.initializer_steps <- task.initializer_steps + work;
+    (match result with
+    | Ok offset -> task.charged_offsets <- offset :: task.charged_offsets
+    | Error _ -> ());
+    (result, work))
+
+let prepare_task_aggregate_offset task ~table ~namespace ~queries progress phase
+    =
+  match require_initializer_namespace task namespace with
+  | Error message -> (Error message, 0)
+  | Ok () when not (task_owns_table task table) ->
+      (Error "aggregate offset belongs to another task table", 0)
+  | Ok () ->
+      prepare_aggregate_offset_in_task task ~table ~namespace ~queries progress
+        phase
+
+let prepare_isolated_aggregate_offset task ~table ~namespace ~queries progress
+    phase =
+  if
+    Frontend.Parser.context_mode
+      phase.Frontend.Parser.phase_aggregate.aggregate_header.declaration_command
+        .command_context
+    <> Frontend.Preprocessor.Aot
+  then (Error "isolated aggregate offsets require their original AOT source", 0)
+  else
+    prepare_aggregate_offset_in_task task ~table ~namespace ~queries progress
+      phase
+
+let settle_isolated_aggregate_offsets task ~table offsets =
+  if
+    List.exists
+      (fun offset ->
+        Sema.Compiler_record.aggregate_offset_table offset != table)
+      offsets
+  then Error "isolated offset settlement has a foreign source table"
+  else
+    charge_isolated_aggregate_offsets task ~table
+      (List.filter
+         (fun offset -> not (List.exists (( == ) offset) task.charged_offsets))
+         offsets)
+
 let complete_task_dimension task ~namespace checked =
   let module Record = Sema.Compiler_record in
   let ( let* ) = Result.bind in
@@ -1882,6 +2055,7 @@ let task_result task ~sequence =
   if
     task.streams <> [] || task.source_execution_failed
     || task.deferred_dimensions <> []
+    || task.deferred_offsets <> []
     || List.exists
          (fun preparation ->
            not

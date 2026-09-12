@@ -65,12 +65,18 @@ val command_events : t -> Frontend.Parser.command_event list
 val dimension_preparations :
   t -> Frontend.Parser.array_dimension_preparation list
 
+val aggregate_offset_phases : t -> Frontend.Parser.aggregate_phase list
+
+val aggregate_offset_preparing :
+  t option -> Frontend.Parser.aggregate_phase -> bool
+
 val trailing_dimension_preparation :
   t -> Frontend.Parser.array_dimension_preparation option
 (** The exact final observation, only if it is a dimension preparation. This
     structural query grants no evaluation or activation authority. *)
 
 val before_dimension : t -> Frontend.Parser.array_dimension_preparation -> bool
+val before_aggregate_offset : t -> Frontend.Parser.aggregate_phase -> bool
 
 val dimension_preparing :
   t option -> Frontend.Parser.array_dimension_preparation -> bool

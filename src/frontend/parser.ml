@@ -528,7 +528,8 @@ and aggregate_step =
     }
   | Aggregate_union_entered
   | Aggregate_union_left
-  | Aggregate_offset_reached
+  | Aggregate_offset_reached of Ast.expression
+  | Aggregate_body_finished
 
 and aggregate_phase = {
   phase_aggregate : aggregate_publication;
@@ -4407,7 +4408,7 @@ and parse_aggregate_offset_directive cursor ~aggregate ~recovery_depth :
     | Some expression ->
         let semicolon_item = peek cursor in
         advance_aggregate cursor semicolon_item aggregate
-          Aggregate_offset_reached;
+          (Aggregate_offset_reached expression.node);
         if semicolon_item.token.kind <> Token_kind.Punctuation ';' then
           aggregate_member_failure cursor semicolon_item ~recovery_depth
             ~code:"HCPARSE0143"
@@ -4736,6 +4737,8 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
               None
           | Ok parsed_members ->
               let following_item = peek cursor in
+              advance_aggregate cursor following_item publication
+                Aggregate_body_finished;
               let parsed_tail =
                 match following_item.token.kind with
                 | Token_kind.Punctuation ';' ->

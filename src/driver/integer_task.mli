@@ -2,6 +2,12 @@ type t
 type command
 type stream
 
+val observe_source_offset :
+  t ->
+  Task_declarations.t ->
+  Frontend.Parser.declaration_event ->
+  (unit, Common.Diagnostic.t list) result
+
 val prepare_source_default :
   t ->
   session:Session.t ->

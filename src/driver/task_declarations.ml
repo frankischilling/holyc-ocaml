@@ -186,6 +186,7 @@ type command = {
   queries : query Query_expressions.t;
   dimensions : Parser.completed_array_dimension Dimensions.t;
   checked_dimensions : Sema.Compiler_record.declared_dimension Dimensions.t;
+  offsets : Sema.Compiler_record.aggregate_offset list;
   initializers : (Ast.global_initializer * Sema.Initializer_source.t) Names.t;
   source_order : Sema.Task_command_order.command option;
 }
@@ -250,7 +251,10 @@ type t = {
   mutable activation_events_rev : Sema.Source_activation.event list;
   mutable activation : Sema.Source_activation.t option;
   max_dimension_work : int;
+  max_offset_work : int;
   mutable dimension_work : int;
+  mutable offset_work : int;
+  mutable offsets_rev : Sema.Compiler_record.aggregate_offset list;
   mutable source_dimensions_rev :
     Sema.Compiler_record.dimension_preparation list;
   runtime_entries : VM.admitted_publication Entries.t;
@@ -290,7 +294,8 @@ let origin (name : Ast.identifier) =
       defined_at = location.defined_at;
     }
 
-let create_with_authority ?(max_dimension_work = 100_000) authority session =
+let create_with_authority ?(max_dimension_work = 100_000)
+    ?(max_offset_work = 100_000) authority session =
   let runtime =
     match authority with
     | Task_runtime runtime -> Some runtime
@@ -347,7 +352,10 @@ let create_with_authority ?(max_dimension_work = 100_000) authority session =
               activation_events_rev = [];
               activation = None;
               max_dimension_work;
+              max_offset_work;
               dimension_work = 0;
+              offset_work = 0;
+              offsets_rev = [];
               source_dimensions_rev = [];
               runtime_entries = Entries.create 32;
               runtime_records = Entries.create 32;
@@ -370,8 +378,9 @@ let create ?runtime session =
     | Some runtime -> Task_runtime runtime)
     session
 
-let create_source ?(max_dimension_work = 100_000) session ~source =
-  if max_dimension_work <= 0 then
+let create_source ?(max_dimension_work = 100_000) ?(max_offset_work = 100_000)
+    session ~source =
+  if max_dimension_work <= 0 || max_offset_work <= 0 then
     Error "source preparation limit must be positive"
   else
     match
@@ -379,8 +388,8 @@ let create_source ?(max_dimension_work = 100_000) session ~source =
         (Common.Source_file.id source)
     with
     | Some registered when registered == source ->
-        create_with_authority ~max_dimension_work (Source_compilation source)
-          session
+        create_with_authority ~max_dimension_work ~max_offset_work
+          (Source_compilation source) session
     | _ -> Error "ordinary source ledger requires its exact registered input"
 
 let promote_source_with_activation ~activate ledger ~runtime session ~source =
@@ -435,13 +444,16 @@ let promote_source_with_activation ~activate ledger ~runtime session ~source =
                Result.bind pending_runtime_dimension
                  (fun pending_runtime_dimension ->
                    VM.promote_task_source_activation ?pending_runtime_dimension
+                     ~offsets:(List.rev ledger.offsets_rev)
                      runtime ~namespace:ledger.namespace ~activation
                      ~dimensions:(List.rev ledger.source_dimensions_rev)
                    |> Result.map (fun () ->
                        ledger.activation <- Some activation;
+                       ledger.offset_work <- 0;
                        ledger.dimension_work <- 0)))
          else
            VM.promote_task_source runtime ~namespace:ledger.namespace
+             ~offsets:(List.rev ledger.offsets_rev)
              ~events:(List.rev ledger.source_events_rev)
              ~dimensions:(List.rev ledger.source_dimensions_rev)
              ~completed_dimensions:
@@ -475,6 +487,7 @@ let requires_query_metadata ledger =
   | _ -> true
 
 let dimension_work ledger = ledger.dimension_work
+let offset_work ledger = ledger.offset_work
 
 let selected_dimensions ledger dimensions =
   List.filter_map (Dimensions.find_opt ledger.checked_dimensions) dimensions
@@ -2000,7 +2013,7 @@ let validate_global_dimensions ledger (publication : Parser.global_publication)
       fail publication.global_name.location.span
         "global publication is missing its original completed array dimensions"
 
-let observe ledger event =
+let observe ?offset_runtime ledger event =
   protect (fun () ->
       match event with
       | Parser.Aggregate_declared publication -> (
@@ -2031,6 +2044,65 @@ let observe ledger event =
           let assigned = find ledger publication.aggregate_name in
           match assigned.source with
           | Aggregate { progress = Some progress; _ } as source -> (
+              Option.iter
+                (fun runtime ->
+                  match (ledger.authority, phase.phase_step) with
+                  | Source_compilation _, Parser.Aggregate_offset_reached _ -> (
+                      match ledger.source_defaults_runtime with
+                      | Some previous when previous != runtime ->
+                          fail phase.phase_location.span
+                            "source preparation belongs to another directive \
+                             task"
+                      | _ -> ledger.source_defaults_runtime <- Some runtime)
+                  | _ ->
+                      fail phase.phase_location.span
+                        "isolated offset requires its original source phase")
+                offset_runtime;
+              (match (phase.phase_step, ledger.authority) with
+              | ( Parser.Aggregate_offset_reached expression,
+                  (Source_compilation _ | Task_runtime _) ) -> (
+                  let queries =
+                    Sema.Query_selection.source_queries expression
+                    |> List.map (fun expression ->
+                        match
+                          Query_expressions.find_opt ledger.queries expression
+                        with
+                        | Some query ->
+                            Sema.Query_selection.checked_read
+                              query.query_selection
+                        | None ->
+                            fail phase.phase_location.span
+                              "aggregate offset lacks its original query read")
+                  in
+                  let result, work =
+                    match (ledger.authority, offset_runtime) with
+                    | Task_runtime task, _ ->
+                        VM.prepare_task_aggregate_offset task
+                          ~table:ledger.table ~namespace:ledger.namespace
+                          ~queries progress phase
+                    | Source_compilation _, Some runtime ->
+                        VM.prepare_isolated_aggregate_offset runtime
+                          ~table:ledger.table ~namespace:ledger.namespace
+                          ~queries progress phase
+                    | _ ->
+                        Sema.Compiler_record.prepare_aggregate_offset
+                          ~table:ledger.table ~namespace:ledger.namespace
+                          ~queries
+                          ~max_work:(ledger.max_offset_work - ledger.offset_work)
+                          progress phase
+                  in
+                  ledger.offset_work <- ledger.offset_work + work;
+                  match result with
+                  | Ok offset ->
+                      ledger.offsets_rev <- offset :: ledger.offsets_rev
+                  | Error message ->
+                      let code =
+                        if String.starts_with ~prefix:"HCIRVM0007:" message then
+                          "HCIRVM0007"
+                        else "HCRUN0004"
+                      in
+                      fail ~code phase.phase_location.span message)
+              | _ -> ());
               Sema.Compiler_record.advance_aggregate
                 ~dimensions:(Dimensions.find_opt ledger.checked_dimensions)
                 progress phase
@@ -2337,7 +2409,7 @@ let observe ledger event =
               fail publication.function_name.location.span
                 "function body completion is foreign, repeated or out of order"))
 
-let observe ledger event =
+let observe ?offset_runtime ledger event =
   Result.map
     (fun () ->
       let publication =
@@ -2369,7 +2441,7 @@ let observe ledger event =
           | _ -> ())
         publication;
       record_activation_event ledger (Sema.Source_activation.Declaration event))
-    (observe ledger event)
+    (observe ?offset_runtime ledger event)
 
 let defer_source_runtime_dimension ledger ~preparation event =
   protect (fun () ->
@@ -2854,6 +2926,20 @@ let seal ledger (ast : Ast.module_) =
                         (Dimensions.find_opt ledger.checked_dimensions dimension);
                       checked)
                     dimensions (Dimensions.create 16);
+                offsets =
+                  List.filter
+                    (fun offset ->
+                      let phase =
+                        Sema.Compiler_record.aggregate_offset_phase offset
+                      in
+                      List.exists
+                        (fun assigned ->
+                          match assigned.source with
+                          | Aggregate state ->
+                              state.publication == phase.phase_aggregate
+                          | _ -> false)
+                        !claimed)
+                    ledger.offsets_rev;
               }
             in
             List.iter (fun entry -> entry.sealed <- true) original_commands;
@@ -3893,6 +3979,26 @@ let activate_source ledger ~runtime ~span ~declaration ~command =
         let* () =
           protect (fun () ->
               match event with
+              | Parser.Aggregate_advanced
+                  ({ phase_step = Parser.Aggregate_offset_reached _; _ } as
+                   phase) -> (
+                  let before = VM.task_initializer_steps runtime in
+                  let result =
+                    VM.charge_source_aggregate_offset runtime phase
+                  in
+                  ledger.offset_work <-
+                    ledger.offset_work
+                    + VM.task_initializer_steps runtime
+                    - before;
+                  match result with
+                  | Ok () -> ()
+                  | Error message ->
+                      let code =
+                        if String.starts_with ~prefix:"HCIRVM0007:" message then
+                          "HCIRVM0007"
+                        else "HCRUN0004"
+                      in
+                      fail ~code phase.phase_location.span message)
               | Parser.Array_dimension_preparing preparation -> (
                   let deferred =
                     Option.bind
@@ -4054,6 +4160,34 @@ let command_dimension_work (command : command) =
     (fun _ dimension count ->
       count + Sema.Compiler_record.dimension_work dimension)
     command.checked_dimensions 0
+
+let checked_offset_for ~table ~ast (command : command) expression =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span
+          "aggregate offset seal belongs to another table or source AST";
+      match
+        List.find_opt
+          (fun offset ->
+            Sema.Compiler_record.aggregate_offset_expression offset
+            == expression)
+          command.offsets
+      with
+      | Some offset -> offset
+      | None ->
+          fail ast.span
+            "aggregate offset has no original preparation in this command")
+
+let source_checked_offset_for ~table ~ast (Source_command command) expression =
+  checked_offset_for ~table ~ast command expression
+
+let source_offset_work (Source_command command) =
+  List.fold_left
+    (fun total offset ->
+      total + Sema.Compiler_record.aggregate_offset_work offset)
+    0 command.offsets
+
+let source_offsets (Source_command command) = command.offsets
 
 let seal_source ledger ast =
   match ledger.authority with

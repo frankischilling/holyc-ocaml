@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Prepared closed aggregate `$$` offsets at their original parser phases.
+  Class and union positions, negative padding and saved `sizeof` reads feed
+  retained and completed layout without expression reevaluation. Source
+  activation charges the original receipts once. The CLI fixture returns 42 in
+  both modes at 27 runtime steps and six preparation units, with one-below checks.
+
 - Added partial class/union size queries at original member parsing phases.
   Name lookahead starts at zero; each primitive member advances the retained
   size before metadata and delimiter advancement. Anonymous unions share the

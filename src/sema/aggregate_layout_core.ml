@@ -294,6 +294,16 @@ struct
           })
         (checked_negative_magnitude origin position)
 
+  let finish_size ~origin ~size ~negative_offset =
+    checked_add origin "the final aggregate size" size negative_offset
+
+  let negative_offset ~origin ~previous ~position =
+    Result.map
+      (fun state -> state.negative_offset)
+      (update_negative_offset origin
+         { size = 0L; negative_offset = previous; members_rev = [] }
+         position)
+
   let place_member ~origin ~kind ~union_base ~current_size ~member_size =
     if Int64.compare member_size 0L < 0 then
       Error (invalid_input ~origin "the member storage size cannot be negative")

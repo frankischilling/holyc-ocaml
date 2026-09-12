@@ -68,19 +68,28 @@ let dimension_preparations t =
       | _ -> None)
     t.events
 
+let aggregate_offset_phases t =
+  List.filter_map
+    (function
+      | Declaration
+          (Parser.Aggregate_advanced
+             ({ phase_step = Parser.Aggregate_offset_reached _; _ } as phase))
+        -> Some phase
+      | _ -> None)
+    t.events
+
 let trailing_dimension_preparation t =
   match List.rev t.events with
   | Declaration (Parser.Array_dimension_preparing preparation) :: _ ->
       Some preparation
   | _ -> None
 
-let before_dimension t preparation =
+let before_event t matches =
   if not (current t) then false
   else
     let rec scan = function
       | [] -> false
-      | Declaration (Parser.Array_dimension_preparing p) :: _
-        when p == preparation -> false
+      | event :: _ when matches event -> false
       | event :: rest ->
           if
             Option.fold ~none:false
@@ -90,6 +99,17 @@ let before_dimension t preparation =
           else scan rest
     in
     scan t.events
+
+let before_dimension t preparation =
+  before_event t (function
+    | Declaration (Parser.Array_dimension_preparing original) ->
+        original == preparation
+    | _ -> false)
+
+let before_aggregate_offset t phase =
+  before_event t (function
+    | Declaration (Parser.Aggregate_advanced original) -> original == phase
+    | _ -> false)
 
 let event_context = function
   | Command (Parser.Sequence_started context | Parser.Sequence_aborted context)
@@ -419,6 +439,11 @@ let dimension_preparing activation receipt =
   allows activation (function
     | Declaration (Parser.Array_dimension_preparing original) ->
         original == receipt
+    | _ -> false)
+
+let aggregate_offset_preparing activation receipt =
+  allows activation (function
+    | Declaration (Parser.Aggregate_advanced original) -> original == receipt
     | _ -> false)
 
 let dimension_completed activation receipt =

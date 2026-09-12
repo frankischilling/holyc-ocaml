@@ -57,6 +57,7 @@ val outcome :
 val output_bytes : report -> string
 val output_work : report -> int
 val dimension_work : report -> int
+val preparation_work : report -> int option
 val progress : report -> Integer_task.progress option
 val program : report -> Integer_unit.compiled option
 val task_units : report -> Integer_unit.compiled list

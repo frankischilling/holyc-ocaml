@@ -106,6 +106,26 @@ let prepare_unit ?environment:task_environment ?declaration_command
       resolve
   in
   let mode = Frontend.Preprocessor.Config.compilation_mode config in
+  let offsets =
+    let resolve =
+      match (declaration_command, source_command) with
+      | Some command, None ->
+          Some (Task_declarations.checked_offset_for ~table ~ast command)
+      | None, Some command ->
+          Some (Task_declarations.source_checked_offset_for ~table ~ast command)
+      | _ -> None
+    in
+    Option.map
+      (fun resolve expression ->
+        resolve expression
+        |> Result.map_error (fun errors ->
+            String.concat "; "
+              (List.map
+                 (fun error ->
+                   error.Common.Diagnostic.code ^ ": " ^ error.message)
+                 errors)))
+      resolve
+  in
   let checked result =
     Result.map_error
       (fun message -> [ message_diagnostic ~span message ])
@@ -138,8 +158,8 @@ let prepare_unit ?environment:task_environment ?declaration_command
     |> checked
   in
   let* layouts =
-    Aggregate_layout.layout ?prepared ~table ~declarations ~aggregates ~headers
-      ~members ast
+    Aggregate_layout.layout ?offsets ?prepared ~table ~declarations ~aggregates
+      ~headers ~members ast
     |> checked
   in
   let* members =

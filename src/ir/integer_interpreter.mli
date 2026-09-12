@@ -297,6 +297,7 @@ val start_task_compilation : task_state -> unit
     unit, including a unit with no preparation work or runtime effects. *)
 
 val promote_task_source :
+  ?offsets:Sema.Compiler_record.aggregate_offset list ->
   ?dimensions:Sema.Compiler_record.dimension_preparation list ->
   ?completed_dimensions:Sema.Compiler_record.declared_dimension list ->
   task_state ->
@@ -305,10 +306,11 @@ val promote_task_source :
   dimension_steps:int ->
   (unit, string) result
 (** Internal source-ledger join. A fresh runtime imports already validated
-    command receipts and their reached dimension work atomically. Failed
+    command receipts and their reached dimension/offset work atomically. Failed
     preflight leaves the runtime unchanged; success consumes promotion once. *)
 
 val promote_task_source_activation :
+  ?offsets:Sema.Compiler_record.aggregate_offset list ->
   ?pending_runtime_dimension:Frontend.Parser.array_dimension_preparation ->
   task_state ->
   namespace:Sema.Declaration_collection.namespace ->
@@ -316,14 +318,51 @@ val promote_task_source_activation :
   dimensions:Sema.Compiler_record.dimension_preparation list ->
   (unit, string) result
 (** Bind the complete activation journal and its checked preparation manifest
-    atomically. Each closed dimension is charged at its original active event.
-    One runtime-dependent preparation may be deferred only when it is the exact
-    final observation and its original parser callback is live. It is neither
-    evaluated nor charged here; replay requires normal runtime authority. *)
+    atomically. Each closed dimension and offset is charged at its original
+    active event. One runtime-dependent preparation may be deferred only when it
+    is the exact final observation and its original parser callback is live. It
+    is neither evaluated nor charged here; replay requires normal runtime
+    authority. *)
 
 val charge_source_dimension :
   task_state ->
   Frontend.Parser.array_dimension_preparation ->
+  (unit, string) result
+
+val charge_source_aggregate_offset :
+  task_state -> Frontend.Parser.aggregate_phase -> (unit, string) result
+
+val charge_isolated_aggregate_offsets :
+  task_state ->
+  table:Sema.Symbol_table.t ->
+  Sema.Compiler_record.aggregate_offset list ->
+  (unit, string) result
+(** Charge the source compiler's checked offsets before isolated initializer
+    preparation. The isolated source table may differ from the directive task's
+    table. Duplicate or foreign-table receipts fail without additional work. *)
+
+val prepare_task_aggregate_offset :
+  task_state ->
+  table:Sema.Symbol_table.t ->
+  namespace:Sema.Declaration_collection.namespace ->
+  queries:Sema.Compiler_record.query_read list ->
+  Sema.Compiler_record.aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  (Sema.Compiler_record.aggregate_offset, string) result * int
+
+val prepare_isolated_aggregate_offset :
+  task_state ->
+  table:Sema.Symbol_table.t ->
+  namespace:Sema.Declaration_collection.namespace ->
+  queries:Sema.Compiler_record.query_read list ->
+  Sema.Compiler_record.aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  (Sema.Compiler_record.aggregate_offset, string) result * int
+
+val settle_isolated_aggregate_offsets :
+  task_state ->
+  table:Sema.Symbol_table.t ->
+  Sema.Compiler_record.aggregate_offset list ->
   (unit, string) result
 
 val bind_task_source_program :

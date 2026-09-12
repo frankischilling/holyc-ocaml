@@ -12,7 +12,20 @@ val member_extent :
   counts:int64 list ->
   (int64, string) result
 
+val finish_size :
+  origin:Symbol.origin ->
+  size:int64 ->
+  negative_offset:int64 ->
+  (int64, string) result
+
+val negative_offset :
+  origin:Symbol.origin ->
+  previous:int64 ->
+  position:int64 ->
+  (int64, string) result
+
 val layout :
+  offsets:(Frontend.Ast.expression -> (int64, string) result) ->
   dimensions:
     (Frontend.Ast.aggregate_member_declarator -> (int64 list, string) result) ->
   table:Symbol_table.t ->

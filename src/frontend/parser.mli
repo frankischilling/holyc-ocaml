@@ -479,7 +479,8 @@ type aggregate_step =
     }
   | Aggregate_union_entered
   | Aggregate_union_left
-  | Aggregate_offset_reached
+  | Aggregate_offset_reached of Ast.expression
+  | Aggregate_body_finished
 
 type aggregate_publication = private {
   aggregate_header : declaration_header;

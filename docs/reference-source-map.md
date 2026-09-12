@@ -976,6 +976,15 @@ advance immutable partial snapshots through the same checked placement rules.
 rejection and frozen reads. The aggregate-phase CLI fixture observes 0, 8 and
 16 bytes through the original nested streams, including closing lookahead.
 
+`Compiler/PrsVar.HC:408-449` evaluates `$$` expressions before semicolon
+validation, replacing the class position or union base and retaining negative
+padding. `Compiler/PrsStmt.HC:50-57` adds that padding after body lookahead.
+Original expression-phase receipts now prepare closed values once, including
+saved size queries, current positions and floating raw bits. Completed layout
+reuses those values, and source activation charges their saved work at the exact
+journal event. `examples/stateful-exe-aggregate-offsets.hc` and the retained
+aggregate tests cover these phases and their bounded preparation.
+
 ## Bounded source expression evaluation
 
 At pinned commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`,

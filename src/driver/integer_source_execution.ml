@@ -20,6 +20,8 @@ type compilation_report = {
     (compilation Unit.checked, Common.Diagnostic.t list) result;
   source_span : Common.Span.t;
   source_dimension_work : int;
+  source_offset_work : int;
+  source_initializer_work : int;
   task : Task.t option;
   compilation_progress_ : Task.progress option;
   task_units_ : Unit.compiled list;
@@ -31,6 +33,8 @@ type report = {
   output_bytes_ : string;
   output_work_ : int;
   dimension_work_ : int;
+  source_offset_work_ : int;
+  source_initializer_work_ : int;
   progress_ : Task.progress option;
   program_ : Unit.compiled option;
   task_units_ : Unit.compiled list;
@@ -64,6 +68,20 @@ let outcome report = report.outcome_
 let output_bytes report = report.output_bytes_
 let output_work report = report.output_work_
 let dimension_work report = report.dimension_work_
+
+let preparation_work report =
+  match report.progress_ with
+  | Some progress -> Some progress.runtime.initializer_steps
+  | None -> (
+      match report.outcome_ with
+      | Ok result ->
+          Some
+            (report.source_offset_work_
+            + VM.compiled_initializer_steps result.Unit.value)
+      | Error _ when report.source_offset_work_ > 0 ->
+          Some (report.source_offset_work_ + report.source_initializer_work_)
+      | Error _ -> None)
+
 let progress report = report.progress_
 let program report = report.program_
 let task_units (report : report) = report.task_units_
@@ -117,6 +135,8 @@ let compile_report ?(max_dimension_work = 100_000)
   let task = ref None in
   let completed_sequence = ref None in
   let source_dimension_work = ref 0 in
+  let source_offset_work = ref 0 in
+  let source_initializer_work = ref 0 in
   let span = Integer_source.source_span source in
   let compilation_outcome_ =
     let* () =
@@ -132,7 +152,8 @@ let compile_report ?(max_dimension_work = 100_000)
         ]
     else
       let* ledger =
-        Task_declarations.create_source ~max_dimension_work session ~source
+        Task_declarations.create_source ~max_dimension_work
+          ~max_offset_work:max_initializer_steps session ~source
         |> Result.map_error (fun message ->
             [ Integer_source.diagnostic ~span "HCRUN0004" message ])
       in
@@ -271,7 +292,16 @@ let compile_report ?(max_dimension_work = 100_000)
                 in
                 if deferred_dimension then Ok ()
                 else
-                  let* () = Task_declarations.observe ledger event in
+                  let* () =
+                    match (is_jit, event) with
+                    | ( false,
+                        Parser.Aggregate_advanced
+                          ({ phase_step = Parser.Aggregate_offset_reached _; _ }
+                           as phase) ) ->
+                        let* task = ensure_task phase.phase_location.span in
+                        Task.observe_source_offset task ledger event
+                    | _ -> Task_declarations.observe ledger event
+                  in
                   match (is_jit, !task, event) with
                   | true, Some task, _ -> Task.observe_initializer task event
                   | true, None, Parser.Parameter_default_completed receipt -> (
@@ -307,6 +337,9 @@ let compile_report ?(max_dimension_work = 100_000)
       source_dimension_work :=
         if is_jit && Option.is_some !task then 0
         else Task_declarations.dimension_work ledger;
+      source_offset_work :=
+        if is_jit && Option.is_some !task then 0
+        else Task_declarations.offset_work ledger;
       match parsed.ast with
       | None -> Error parsed.diagnostics
       | Some _ when is_jit && Option.is_some !task ->
@@ -323,6 +356,8 @@ let compile_report ?(max_dimension_work = 100_000)
           (match !task with
             | None ->
                 Unit.compile_source_output ~source_command
+                  ~initializer_progress:(fun steps ->
+                    source_initializer_work := steps)
                   ~max_initializer_steps session ~config parsed
             | Some task ->
                 Task.compile_isolated task ~source_command session ~config
@@ -334,6 +369,8 @@ let compile_report ?(max_dimension_work = 100_000)
     compilation_outcome_;
     source_span = span;
     source_dimension_work = !source_dimension_work;
+    source_offset_work = !source_offset_work;
+    source_initializer_work = !source_initializer_work;
     task = !task;
     compilation_progress_ = Option.map Task.progress !task;
     task_units_ = Option.fold ~none:[] ~some:Task.compiled_units !task;
@@ -406,5 +443,7 @@ let run ?max_dimension_work ?max_initializer_steps ?max_global_bytes
     program_;
     dimension_work_ =
       compilation.source_dimension_work + task_dimensions progress_;
+    source_offset_work_ = compilation.source_offset_work;
+    source_initializer_work_ = compilation.source_initializer_work;
     task_units_ = compilation.task_units_;
   }

@@ -540,6 +540,9 @@ let integer_program_report_output_bytes =
 let integer_program_report_dimension_work =
   Driver.Integer_program_report.dimension_work
 
+let integer_program_report_preparation_work =
+  Driver.Integer_program_report.preparation_work
+
 let integer_program_report_output_work =
   Driver.Integer_program_report.output_work
 

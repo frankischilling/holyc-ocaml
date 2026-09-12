@@ -8,7 +8,8 @@
    %{exe:../bin/holyc.exe}
    %{dep:../examples/stateful-exe-implicit-phases.hc}
    %{dep:../examples/stateful-exe-aggregates.hc}
-   %{dep:../examples/stateful-exe-aggregate-phases.hc})))
+   %{dep:../examples/stateful-exe-aggregate-phases.hc}
+   %{dep:../examples/stateful-exe-aggregate-offsets.hc})))
 
 (test
  (name test_integer_program_cli)

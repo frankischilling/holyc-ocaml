@@ -292,6 +292,22 @@ let scalar_size type_ =
         Ok (Int64.of_int (Primitive_type.info primitive).byte_size)
     | Type.Aggregate _ -> Error "sizeof requires the selected aggregate layout"
 
+type aggregate_offset = {
+  offset_table : Symbol_table.t;
+  offset_namespace : Declaration_collection.namespace;
+  offset_phase : Parser.aggregate_phase;
+  offset_expression : Ast.expression;
+  offset_value : int64;
+  offset_work : int;
+}
+
+let aggregate_offset_namespace offset = offset.offset_namespace
+let aggregate_offset_table offset = offset.offset_table
+let aggregate_offset_phase offset = offset.offset_phase
+let aggregate_offset_expression offset = offset.offset_expression
+let aggregate_offset_value offset = offset.offset_value
+let aggregate_offset_work offset = offset.offset_work
+
 type aggregate_progress = {
   progress_namespace : Declaration_collection.namespace;
   progress_publication : Declaration_collection.publication;
@@ -301,6 +317,10 @@ type aggregate_progress = {
   mutable progress_record : (t, string) result;
   mutable progress_finished : bool;
   progress_stamp : aggregate_stamp;
+  mutable progress_negative_offset : int64;
+  mutable progress_body_finished : bool;
+  mutable progress_offset_attempt : Parser.aggregate_phase option;
+  mutable progress_offsets : aggregate_offset list;
 }
 
 let begin_aggregate ~table ~namespace publication =
@@ -320,6 +340,10 @@ let begin_aggregate ~table ~namespace publication =
           progress_scopes = [ (source.aggregate_kind, 0L) ];
           progress_finished = false;
           progress_stamp = stamp;
+          progress_negative_offset = 0L;
+          progress_body_finished = false;
+          progress_offset_attempt = None;
+          progress_offsets = [];
           progress_record =
             Ok
               {
@@ -379,12 +403,53 @@ let advance_aggregate ~dimensions progress (phase : Parser.aggregate_phase) =
           match scopes with
           | _ :: (_ :: _ as rest) -> Ok (progress.progress_record, rest)
           | _ -> Error "aggregate union phase has no original enclosing scope")
-      | Parser.Aggregate_offset_reached ->
-          Ok
-            ( Error
-                "retained aggregate offsets require original expression \
-                 preparation",
-              scopes )
+      | Parser.Aggregate_body_finished ->
+          if progress.progress_body_finished || List.length scopes <> 1 then
+            Error "aggregate body completion has no original enclosing scope"
+          else (
+            progress.progress_body_finished <- true;
+            let record =
+              let* record = progress.progress_record in
+              let* byte_size =
+                Source_aggregate_layout.finish_size
+                  ~origin:
+                    (Closed_numeric_expression.origin phase.phase_location)
+                  ~size:record.byte_size
+                  ~negative_offset:progress.progress_negative_offset
+              in
+              Ok { record with byte_size }
+            in
+            Ok (record, scopes))
+      | Parser.Aggregate_offset_reached _ -> (
+          match progress.progress_offsets with
+          | offset :: _ when offset.offset_phase == phase -> (
+              let* negative_offset =
+                Source_aggregate_layout.negative_offset
+                  ~origin:
+                    (Closed_numeric_expression.origin phase.phase_location)
+                  ~previous:progress.progress_negative_offset
+                  ~position:offset.offset_value
+              in
+              progress.progress_negative_offset <- negative_offset;
+              match scopes with
+              | (Ast.Class_aggregate, _) :: _ ->
+                  Ok
+                    ( Result.map
+                        (fun record ->
+                          { record with byte_size = offset.offset_value })
+                        progress.progress_record,
+                      scopes )
+              | (Ast.Union_aggregate, _) :: rest ->
+                  Ok
+                    ( progress.progress_record,
+                      (Ast.Union_aggregate, offset.offset_value) :: rest )
+              | [] -> assert false)
+          | _ ->
+              Ok
+                ( Error
+                    "retained aggregate offsets require original expression \
+                     preparation",
+                  scopes ))
       | Parser.Aggregate_member_prepared member ->
           let record =
             let* record = progress.progress_record in
@@ -509,8 +574,19 @@ let complete_aggregate ?progress ?(dimensions = fun _ -> None) ~table ~namespace
                  layout admission"
             else Ok (List.map dimension_count checked)
           in
-          Source_aggregate_layout.layout ~dimensions:member_dimensions ~table
-            ~namespace ~symbol definition
+          let offsets expression =
+            match
+              Option.bind progress (fun progress ->
+                  List.find_opt
+                    (fun offset -> offset.offset_expression == expression)
+                    progress.progress_offsets)
+            with
+            | Some offset -> Ok offset.offset_value
+            | None ->
+                Error "aggregate offset lacks its original checked preparation"
+          in
+          Source_aggregate_layout.layout ~offsets ~dimensions:member_dimensions
+            ~table ~namespace ~symbol definition
       | _ -> Error "aggregate completion has another original declaration"
     in
     let* () =
@@ -970,6 +1046,103 @@ let validate_query_manifest ~table ~expression queries =
     | _ -> Error "query manifest lacks its exact ordered source reads or table"
   in
   loop (Query_source.source_queries expression) queries
+
+let aggregate_offset_is_current ~table ~namespace progress
+    (phase : Parser.aggregate_phase) =
+  progress.progress_namespace == namespace
+  && Declaration_collection.namespace_owns_table namespace table
+  && (not progress.progress_finished)
+  && (not progress.progress_body_finished)
+  && phase.phase_aggregate == progress.progress_source
+  && Parser.aggregate_phase_is_current phase
+  && same_phase phase.phase_predecessor progress.progress_phase
+  && (not (same_phase (Some phase) progress.progress_offset_attempt))
+  &&
+  match phase.phase_step with
+  | Parser.Aggregate_offset_reached _ -> true
+  | _ -> false
+
+let prepare_aggregate_offset ~table ~namespace ~max_work ~queries progress
+    (phase : Parser.aggregate_phase) =
+  let module Numeric = Closed_numeric_expression in
+  let work = ref 0 in
+  let result =
+    if
+      (not (aggregate_offset_is_current ~table ~namespace progress phase))
+      || max_work < 0
+    then
+      Error
+        "aggregate offset preparation is foreign, expired, repeated or out of \
+         order"
+    else
+      match phase.phase_step with
+      | Parser.Aggregate_offset_reached expression ->
+          progress.progress_offset_attempt <- Some phase;
+          let* record = progress.progress_record in
+          let* () = validate_query_manifest ~table ~expression queries in
+          let* () =
+            if
+              List.for_all
+                (fun query ->
+                  query.receipt.query_root.query_command
+                  == progress.progress_source.aggregate_header
+                       .declaration_command
+                  && query.receipt.query_root.query_environment
+                     == progress.progress_source.aggregate_environment
+                  && query_runtime_dependencies query = [])
+                queries
+            then Ok ()
+            else
+              Error
+                "aggregate offset queries require their original closed \
+                 command reads"
+          in
+          let current_position =
+            match progress.progress_scopes with
+            | (Ast.Union_aggregate, base) :: _ -> base
+            | _ -> record.byte_size
+          in
+          let numeric =
+            Numeric.of_ast ~allow_floating:true ~query_expression ~queries
+              expression
+          in
+          let consume () =
+            if !work >= max_work then
+              Error
+                (Numeric.make_error "HCIRVM0007"
+                   (Numeric.Invalid_input
+                      "aggregate offset preparation work limit")
+                   "the bounded aggregate offset preparation work limit was \
+                    exhausted")
+            else (
+              incr work;
+              Ok ())
+          in
+          let* value =
+            Numeric.evaluate_expression ~consume
+              ~query_origin:(fun query -> query.origin)
+              ~query_value:query_constant ~context:Numeric.Aggregate_offset
+              ~current_position numeric
+            |> Result.map_error Numeric.error_to_string
+          in
+          let offset =
+            {
+              offset_table = table;
+              offset_namespace = namespace;
+              offset_phase = phase;
+              offset_expression = expression;
+              offset_value = value;
+              offset_work = !work;
+            }
+          in
+          progress.progress_offsets <- offset :: progress.progress_offsets;
+          Ok offset
+      | _ ->
+          Error
+            "aggregate offset preparation requires its original expression \
+             phase"
+  in
+  (result, !work)
 
 let prepare_dimension ~table ~namespace ~max_work
     ~(preparation : Parser.array_dimension_preparation) ~queries =

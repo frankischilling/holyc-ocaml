@@ -921,13 +921,34 @@ let compile_ast_internal ?task_view ?initializer_progress ?declaration_command
 let compile_ast ?max_initializer_steps session ~config ast =
   compile_ast_internal ?max_initializer_steps session ~config ast
 
-let compile_source_output ~source_command ~max_initializer_steps session ~config
-    parsed =
-  compile_parsed_with_limit ~source_command ~max_initializer_steps session
-    ~config parsed
+let compile_source_output ?initializer_progress ~source_command
+    ~max_initializer_steps session ~config parsed =
+  let offset_work = Task_declarations.source_offset_work source_command in
+  if offset_work > max_initializer_steps then
+    Error
+      [
+        Integer_source.diagnostic
+          ~span:(Option.get parsed.Frontend.Parser.ast).span "HCIRVM0007"
+          "the bounded aggregate offset preparation work limit was exhausted";
+      ]
+  else
+    compile_parsed_with_limit ?initializer_progress ~source_command
+      ~allow_zero_initializer_budget:(offset_work > 0)
+      ~max_initializer_steps:(max_initializer_steps - offset_work)
+      session ~config parsed
 
 let compile_source_in_task_budget ~task ~source_command session ~config parsed =
   let module VM = Ir.Integer_interpreter in
+  let* () =
+    VM.settle_isolated_aggregate_offsets task
+      ~table:(Session.semantic_symbols session)
+      (Task_declarations.source_offsets source_command)
+    |> Result.map_error (fun message ->
+        [
+          Integer_source.message_diagnostic
+            ~span:(Option.get parsed.Frontend.Parser.ast).span message;
+        ])
+  in
   let before = VM.task_initializer_steps task in
   let preparation = VM.begin_isolated_preparation task in
   let compiled =

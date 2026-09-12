@@ -81,8 +81,8 @@ let render ~human ~session ~limits ?command_error ?report () =
             else None)
   in
   let preparation =
-    match Option.bind report Holyc_lib.integer_program_report_progress with
-    | Some progress -> Some progress.runtime.initializer_steps
+    match report with
+    | Some report -> Holyc_lib.integer_program_report_preparation_work report
     | None -> Option.map VM.compiled_initializer_steps result
   in
   let dimension_work =

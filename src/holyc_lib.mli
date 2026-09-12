@@ -1012,6 +1012,9 @@ val integer_program_report_output_bytes : integer_program_report -> string
 val integer_program_report_output_work : integer_program_report -> int
 val integer_program_report_dimension_work : integer_program_report -> int
 
+val integer_program_report_preparation_work :
+  integer_program_report -> int option
+
 val integer_program_report_progress :
   integer_program_report -> Integer_task.progress option
 (** Immutable cumulative invocation observations when AOT parsing reached a

@@ -2,7 +2,8 @@
 
 Primitive-member classes and unions retain checked size metadata during member
 parsing and across directives. Original member bounds are prepared once, and consumed
-`sizeof` values survive type replacement. See
+`sizeof` values survive type replacement. Closed `$$` offset expressions also
+prepare once at the original phase and share the initializer allowance. See
 [retained aggregate sizes](retained-aggregates.md) for source evidence, receipt
 ownership, CLI limits and the remaining dependent-layout and storage work.
 

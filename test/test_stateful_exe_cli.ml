@@ -132,6 +132,54 @@ let parameter_delimiters_source =
 
 let () =
   let executable = Sys.argv.(1) in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (steps, prep, expected_exit, reached_steps) ->
+          let status, output, errors =
+            capture executable
+              [
+                "run";
+                "--format=json";
+                "--report-version=2";
+                "--mode=" ^ mode;
+                "--step-limit=" ^ string_of_int steps;
+                "--initializer-step-limit=" ^ string_of_int prep;
+                Sys.argv.(5);
+              ]
+          in
+          require
+            (status = Unix.WEXITED expected_exit && errors = "")
+            ("aggregate offsets: " ^ output ^ errors);
+          let open Yojson.Basic.Util in
+          let report = Yojson.Basic.from_string output in
+          require
+            (report |> member "executed_steps" |> to_int = reached_steps)
+            "offset runtime work";
+          require
+            (report |> member "compiled_initializer_steps" |> to_int = prep)
+            "offset preparation work";
+          require
+            (report |> member "dimension_preparation_work" |> to_int = 0)
+            "offsets are not dimensions";
+          require
+            (report |> member "output_hex" |> to_string = "")
+            "offset output capture";
+          if expected_exit = 0 then (
+            require
+              (report |> member "final_value" |> member "value" |> to_string
+             = "42")
+              "offset result";
+            require
+              (report |> member "diagnostics" |> to_list = [])
+              "offset diagnostics")
+          else
+            require
+              (report |> member "diagnostics" |> to_list |> List.hd
+             |> member "code" |> to_string = "HCIRVM0007")
+              "offset bounded failure")
+        [ (27, 6, 0, 27); (26, 6, 1, 26); (27, 5, 1, 4) ])
+    [ "jit"; "aot" ];
   let phase_fixture = Sys.argv.(4) in
   List.iter
     (fun mode ->
