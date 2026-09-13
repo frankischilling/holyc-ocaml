@@ -158,6 +158,7 @@ let function_phases () =
         List.filter
           (function
             | Parser.Parameter_default_completed _
+            | Parser.Function_position_written _
             | Parser.Function_parameter_declared _
             | Parser.Function_parameter_completed _
             | Parser.Function_variadic_started _
@@ -282,7 +283,7 @@ let phase_order_and_replay () =
   in
   let ast = Test_parser.expect_ast output in
   match events with
-  | [ declared; header; body ] ->
+  | [ declared; position; header; body ] ->
       let initial, completion =
         match List.rev !checkpoints with
         | first :: second :: rest -> ([ first; second ], rest)
@@ -294,6 +295,8 @@ let phase_order_and_replay () =
       reject "body cannot precede declaration" (D.observe ledger body);
       reject "header cannot precede declaration" (D.observe ledger header);
       ignore (D.observe ledger declared |> expect);
+      reject "expired position cannot mint live compiler-state evidence"
+        (D.observe ledger position);
       reject "provisional replay cannot allocate another symbol"
         (D.observe ledger declared);
       reject "body cannot precede header" (D.observe ledger body);
@@ -311,7 +314,7 @@ let phase_order_and_replay () =
         (fun event -> ignore (D.observe_command ledger event |> expect))
         completion;
       ignore (D.seal ledger ast |> expect)
-  | _ -> Alcotest.fail "expected three function events"
+  | _ -> Alcotest.fail "expected declaration, position, header and body events"
 
 let nested_publication_views () =
   let session, ledger = setup () in

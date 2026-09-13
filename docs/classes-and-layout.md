@@ -75,7 +75,8 @@ The index is immutable and lookup is pure. TempleOS increments `CMemberLst.use_c
 Retained task execution has a separate [original aggregate-position path](retained-aggregates.md)
 for mixed integer runtime offsets. It preserves each `$$` token's captured
 position through later lookahead, including shared aggregate writes from nested
-declarations. Function/frame writes remain guarded. The callback-free
+declarations. Named JIT header writes are captured; automatic-frame and callback
+writes remain guarded. The callback-free
 closed-layout evaluator described above retains its separate contract.
 
 `holyc dump-layout FILE` runs declaration collection, aggregate reconciliation, header and direct-member type resolution, closed layout, and member-index validation as one checked pipeline. It emits schema `holyc-aggregate-layout-v1` as human text or JSON. Both forms record the exact TempleOS reference commit and keep aggregates and direct members in source order.

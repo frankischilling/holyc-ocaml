@@ -28,6 +28,7 @@ let parse ?(on_enter = fun () -> ()) declaration source =
 
 let event_name = function
   | Parser.Function_declared _ -> "function"
+  | Parser.Function_position_written _ -> "position"
   | Parser.Function_parameter_declared _ -> "parameter"
   | Parser.Parameter_default_completed _ -> "default"
   | Parser.Function_parameter_completed _ -> "completion"
@@ -38,6 +39,8 @@ let event_name = function
   | _ -> "member"
 
 let activity = function
+  | Parser.Function_position_written receipt ->
+      Some (fun () -> Parser.function_position_is_current receipt)
   | Parser.Function_declared receipt ->
       Some (fun () -> Parser.function_publication_is_current receipt)
   | Parser.Function_parameter_declared receipt ->
@@ -224,6 +227,8 @@ let callback_failure exceptional target source expected_entries () =
           match event with
           | Parser.Function_declared receipt ->
               receipt.function_name.location.span
+          | Parser.Function_position_written receipt ->
+              receipt.position_function.function_name.location.span
           | Parser.Function_parameter_declared receipt ->
               receipt.parameter_function.function_name.location.span
           | Parser.Function_parameter_completed receipt ->
@@ -282,6 +287,7 @@ let tests =
       (phase_order {|I64 F(I64 n=#exe {}40)#exe {}{return n;}|}
          [
            "function";
+           "position";
            "parameter";
            "exe";
            "default";
@@ -293,12 +299,22 @@ let tests =
     Alcotest.test_case "variadic flag precedes lookahead and members follow it"
       `Quick
       (phase_order {|I64 F(...#exe {})#exe {}{return argc;}|}
-         [ "function"; "ellipsis"; "exe"; "variadic"; "exe"; "header"; "body" ]);
+         [
+           "function";
+           "position";
+           "ellipsis";
+           "exe";
+           "variadic";
+           "exe";
+           "header";
+           "body";
+         ]);
     Alcotest.test_case "type lookahead precedes original member publication"
       `Quick
       (phase_order {|I64 F(I64 n#exe {}=#exe {}40){return n;}|}
          [
            "function";
+           "position";
            "exe";
            "parameter";
            "exe";
@@ -310,20 +326,29 @@ let tests =
     Alcotest.test_case "omitted variadic close preserves native member phase"
       `Quick
       (phase_order {|I64 F(...#exe {}{return argc;}|}
-         [ "function"; "ellipsis"; "exe"; "variadic"; "header"; "body" ]);
+         [
+           "function";
+           "position";
+           "ellipsis";
+           "exe";
+           "variadic";
+           "header";
+           "body";
+         ]);
     Alcotest.test_case "empty parameter entries allocate no members" `Quick
-      (phase_order {|extern I64 F(;;;);|} [ "function"; "header" ]);
+      (phase_order {|extern I64 F(;;;);|} [ "function"; "position"; "header" ]);
     Alcotest.test_case "nested source sees exact pending parameter phases"
       `Quick nested_observer;
     Alcotest.test_case "prototype receipts preserve recursive original children"
       `Quick exact_prototype;
     Alcotest.test_case
       "member survives malformed delimiter without false completion" `Quick
-      (malformed {|I64 F(I64 n:#exe {});|} [ "function"; "parameter" ]);
+      (malformed {|I64 F(I64 n:#exe {});|}
+         [ "function"; "position"; "parameter" ]);
     Alcotest.test_case "default completes before malformed delimiter rejection"
       `Quick
       (malformed {|I64 F(I64 n=40:#exe {});|}
-         [ "function"; "parameter"; "default" ]);
+         [ "function"; "position"; "parameter"; "default" ]);
   ]
   @ List.concat_map
       (fun (target, source, entries) ->
@@ -339,6 +364,7 @@ let tests =
           [ false; true ])
       [
         ("function", {|I64 F(#exe {}I64 n);|}, 0);
+        ("position", {|I64 F(#exe {}I64 n);|}, 1);
         ("parameter", {|I64 F(I64 n=#exe {}40);|}, 0);
         ("completion", {|I64 F(I64 n=40,#exe {}I64 m);|}, 0);
         ("ellipsis", {|I64 F(...#exe {})#exe {};|}, 0);

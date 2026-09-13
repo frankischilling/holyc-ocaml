@@ -676,6 +676,8 @@ let execution_commands task span ~active =
             .declaration_command
       | Function_declared publication ->
           publication.function_header.declaration_command
+      | Function_position_written p ->
+          p.position_function.function_header.declaration_command
       | Function_parameter_declared p ->
           p.parameter_function.function_header.declaration_command
       | Function_parameter_completed p ->

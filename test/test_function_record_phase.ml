@@ -6,7 +6,8 @@ module A = Holyc_lib__Sema.Source_activation
 
 let checked = Test_declaration_collection.checked
 
-let fixture ?(session = Session.create ()) ?(inspect = fun _ _ -> ()) source =
+let fixture ?(session = Session.create ()) ?(inspect = fun _ _ -> ())
+    ?(inspect_position = fun _ _ -> ()) source =
   let table = Session.semantic_symbols session in
   let namespace = C.create_namespace ~table () |> checked in
   let registry =
@@ -20,6 +21,9 @@ let fixture ?(session = Session.create ()) ?(inspect = fun _ _ -> ()) source =
         let record = N.begin_header registry publication source |> checked in
         records := (source, record) :: !records;
         inspect record event
+    | Parser.Function_position_written receipt ->
+        let record = List.assq receipt.position_function !records in
+        inspect_position record event
     | _ ->
         List.iter
           (fun (_, record) ->
@@ -45,6 +49,61 @@ let fixture ?(session = Session.create ()) ?(inspect = fun _ _ -> ()) source =
   in
   ignore (Test_parser.expect_ast parsed);
   (registry, List.rev !records, List.rev !samples)
+
+let original_header_positions () =
+  let module R = Semantic_compiler_record in
+  List.iter
+    (fun (source, expected) ->
+      let session = Session.create () in
+      let positions =
+        R.create_compiler_positions ~sources:(Session.sources session)
+      in
+      let foreign_positions =
+        R.create_compiler_positions
+          ~sources:(Session.sources (Session.create ()))
+      in
+      let records = ref [] and writes = ref [] and values = ref [] in
+      let reject label result =
+        Alcotest.(check bool) label true (Result.is_error result)
+      in
+      let inspect record = function
+        | Parser.Function_declared _ -> records := record :: !records
+        | Parser.Function_position_written receipt ->
+            let before = N.snapshot record in
+            List.iter
+              (fun other ->
+                if other != record then
+                  reject
+                    "same native lineage cannot borrow another source iteration"
+                    (N.position_at other receipt))
+              !records;
+            reject "foreign manager does not consume the write"
+              (R.record_function_position foreign_positions record receipt);
+            values := (N.position_at record receipt |> checked) :: !values;
+            R.record_function_position positions record receipt |> checked;
+            Alcotest.(check bool)
+              "position capture does not mutate the native record" true
+              (N.snapshot record == before);
+            reject "original write, including unknown size, is recorded once"
+              (R.record_function_position positions record receipt);
+            writes := (record, receipt) :: !writes
+        | _ -> ()
+      in
+      ignore (fixture ~session ~inspect ~inspect_position:inspect source);
+      Alcotest.(check (list (option int64)))
+        "original native size at every iteration" expected (List.rev !values);
+      List.iter
+        (fun (record, receipt) ->
+          reject "finished parser cannot resample a native position"
+            (N.position_at record receipt))
+        !writes)
+    [
+      ( "extern I64 F(I64 old);I64 F(I64 x, #exe {I64 F(I64 y){return y;};} \
+         I64 z,);",
+        List.map Option.some [ 0L; 0L; 0L; 0L; 8L ] );
+      ( "extern I64 F();I64 F(I64 x, #exe {I64 F(){I64 local;};} I64 z);",
+        [ Some 0L; Some 0L; Some 0L; None ] );
+    ]
 
 let count label expected snapshot =
   Alcotest.(check (option int))
@@ -824,6 +883,8 @@ let nested_event_snapshot_authority () =
 
 let tests =
   [
+    Alcotest.test_case "header positions retain original source and native size"
+      `Quick original_header_positions;
     Alcotest.test_case "fresh and reused headers clear active count" `Quick
       fresh_and_reused;
     Alcotest.test_case "ellipsis uses actual native member cursor" `Quick

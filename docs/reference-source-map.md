@@ -1002,7 +1002,7 @@ cell across nested source. `Compiler/PrsVar.HC:424-449,661-673,690-722` supplies
 the aggregate writes and iteration boundaries. Original write identities now
 connect nested aggregate layouts to each later closed or runtime `$$` read.
 The shared-position fixture returns 42 in both modes at 34 runtime steps and
-three preparation units. Function/frame writes remain guarded. Runtime F64 and ordinary pre-activation
+three preparation units. Named JIT header writes now capture the independent native size at original iteration receipts. `PrsFunNew` (`Compiler/PrsLib.HC:62-77`), `ClassMemberLstDel` (`Compiler/LexLib.HC:209-220`) and `PrsFunJoin` (`Compiler/PrsStmt.HC:67-143`) supply reset behavior; `PrsVarLst` and `PrsDotDotDot` supply size increments. Automatic-frame, callback and ordinary AOT header writes remain guarded. Runtime F64 and ordinary pre-activation
 or AOT runtime offset evaluation also remain open.
 
 ## Bounded source expression evaluation

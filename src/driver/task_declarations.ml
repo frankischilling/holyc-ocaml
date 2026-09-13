@@ -2272,6 +2272,21 @@ let observe ?offset_runtime ledger event =
                  body = None;
                })
             publication.function_entry
+      | Parser.Function_position_written receipt -> (
+          let publication = receipt.position_function in
+          validate_command ledger publication.function_header;
+          let span = publication.function_name.location.span in
+          if not (Parser.function_position_is_current receipt) then
+            fail span "function position write is outside its original callback";
+          match (find ledger publication.function_name).source with
+          | Function state when state.publication == publication ->
+              Option.iter
+                (fun record ->
+                  Sema.Compiler_record.record_function_position
+                    ledger.compiler_positions record receipt
+                  |> checked span)
+                state.native_record
+          | _ -> fail span "function position belongs to another declaration")
       | ( Parser.Function_parameter_declared _
         | Parser.Function_parameter_completed _
         | Parser.Function_variadic_started _

@@ -18,6 +18,7 @@ type slot =
 
 type native_state = {
   owner : Parser.function_publication;
+  header_size : int64 option;
   slots : slot list;
   members : int option;
   arguments : int option;
@@ -136,6 +137,32 @@ let native_members snapshot =
 
 let argument_count snapshot = snapshot.native_state.arguments
 let member_count snapshot = snapshot.native_state.members
+
+let position_at record receipt =
+  let source = P.source (P.snapshot record.transcript) in
+  if
+    (not (Parser.function_position_is_current receipt))
+    || receipt.Parser.position_function != source
+    || not
+         (match
+            ( receipt.position_predecessor,
+              P.members (P.snapshot record.transcript) |> List.rev )
+          with
+         | None, [] -> true
+         | Some predecessor, member :: _ ->
+             Option.fold ~none:false ~some:(( == ) predecessor)
+               (P.member_completion member)
+         | _ -> false)
+  then
+    Error
+      "function position requires its original live iteration and member cursor"
+  else Ok record.native.state.header_size
+
+let add_header_bytes size count =
+  Option.bind size (fun size ->
+      if size > Int64.sub Int64.max_int count then None
+      else Some (Int64.add size count))
+
 let saved_previous_argument_count snapshot = snapshot.snapshot_saved_arguments
 let ellipsis_flag snapshot = snapshot.native_state.ellipsis
 let is_extern snapshot = snapshot.native_state.extern
@@ -363,6 +390,7 @@ let begin_header ?activation registry publication source =
                       slots = [];
                       members = Some 0;
                       arguments = Some 0;
+                      header_size = Some 0L;
                     }
                   in
                   advance_native prior.native state;
@@ -377,6 +405,7 @@ let begin_header ?activation registry publication source =
                   let state =
                     {
                       owner = source;
+                      header_size = (if unknown then None else Some 0L);
                       slots = [];
                       members = (if unknown then None else Some 0);
                       arguments = (if unknown then None else Some 0);
@@ -479,6 +508,7 @@ let invalid_insertion state =
     state with
     arguments = None;
     members = None;
+    header_size = None;
     extern = None;
     unavailable = Some "native MemberAdd rejects a duplicate member name";
   }
@@ -505,7 +535,12 @@ let observe ?activation record event =
         let extern =
           if Option.is_some state.unavailable then None else Some false
         in
-        advance_native record.native { state with extern; members };
+        let header_size =
+          if Option.fold ~none:true ~some:body_preserves_members definition.body
+          then state.header_size
+          else None
+        in
+        advance_native record.native { state with extern; members; header_size };
         record.latest_phase_event <- None;
         record.phase_revision <- record.native.revision;
         Ok ())
@@ -538,6 +573,7 @@ let observe ?activation record event =
                     state with
                     slots = state.slots @ [ inserted ];
                     members = Option.map succ state.members;
+                    header_size = add_header_bytes state.header_size 8L;
                   }
             | Parser.Parameter_default_completed receipt ->
                 if
@@ -576,7 +612,11 @@ let observe ?activation record event =
                   if member_collides with_argc.slots (Some "argv") then
                     invalid_insertion with_argc
                   else
-                    { with_argc with slots = with_argc.slots @ [ Argv source ] }
+                    {
+                      with_argc with
+                      slots = with_argc.slots @ [ Argv source ];
+                      header_size = add_header_bytes state.header_size 16L;
+                    }
             | Parser.Function_header_completed header ->
                 record.aliases <- header.completed_entry :: record.aliases;
                 let bounded_binding =
@@ -591,11 +631,17 @@ let observe ?activation record event =
                       } -> true
                   | Some _ -> false
                 in
-                if bounded_binding then { state with arguments = state.members }
+                if bounded_binding then
+                  {
+                    state with
+                    arguments = state.members;
+                    header_size = Option.map (fun _ -> 0L) state.header_size;
+                  }
                 else
                   {
                     state with
                     arguments = state.members;
+                    header_size = None;
                     extern = None;
                     unavailable =
                       Some

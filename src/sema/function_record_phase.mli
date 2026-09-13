@@ -9,6 +9,11 @@ type call_emission_snapshot
 type implicit_arguments_snapshot
 type implicit_emission_snapshot
 
+val position_at :
+  t -> Frontend.Parser.function_position_write -> (int64 option, string) result
+(** Capture the live native size at its original parameter iteration. Unknown
+    body/frame state remains None; argument counts cannot replace this value. *)
+
 val capture_implicit_arguments :
   t ->
   Frontend.Parser.implicit_output_selection ->

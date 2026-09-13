@@ -132,14 +132,23 @@ val create_compiler_positions :
   sources:Common.Source_manager.t -> compiler_positions
 (** Original shared compiler-cell writes for one source manager. Outer AOT and
     nested JIT ledgers share this registry while retaining separate namespaces.
-    Entries require live, ordered aggregate phases; numeric values cannot be
-    supplied by callers. Function/frame writes remain unavailable. *)
+    Entries require live original aggregate or named JIT header phases; numeric
+    values cannot be supplied by callers. Automatic-frame and unnamed callback
+    writes remain unavailable. *)
 
 val compiler_positions_own_sources :
   compiler_positions -> Common.Source_manager.t -> bool
 
 val compiler_position_value : compiler_position -> int64
 val compiler_position_dependencies : compiler_position -> aggregate_offset list
+
+val record_function_position :
+  compiler_positions ->
+  Function_record_phase.t ->
+  Frontend.Parser.function_position_write ->
+  (unit, string) result
+(** Capture a named JIT function's original native header size. The record
+    supplies the value internally; this does not grant executable authority. *)
 
 val aggregate_offset_namespace :
   aggregate_offset -> Declaration_collection.namespace

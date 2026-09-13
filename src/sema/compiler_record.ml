@@ -74,7 +74,7 @@ end)
 
 type compiler_positions = {
   positions_sources : Common.Source_manager.t;
-  positions : compiler_position Position_sources.t;
+  positions : compiler_position option Position_sources.t;
 }
 
 let create_compiler_positions ~sources =
@@ -85,6 +85,27 @@ let compiler_positions_own_sources positions sources =
 
 let compiler_position_value position = position.position_value
 let compiler_position_dependencies position = position.position_dependencies
+
+let record_function_position positions record receipt =
+  let sources =
+    receipt.Parser.position_function.function_header.declaration_sources
+  in
+  if not (compiler_positions_own_sources positions sources) then
+    Error "function position belongs to another source manager"
+  else if Position_sources.mem positions.positions receipt.position_source then
+    Error "function position write already has original layout evidence"
+  else
+    Function_record_phase.position_at record receipt
+    |> Result.map (fun value ->
+        Position_sources.add positions.positions receipt.position_source
+          (Option.map
+             (fun position_value ->
+               {
+                 position_source = receipt.position_source;
+                 position_value;
+                 position_dependencies = [];
+               })
+             value))
 
 type aggregate_stamp = { mutable current_stamp : unit ref }
 
@@ -638,11 +659,12 @@ let advance_aggregate ~dimensions progress (phase : Parser.aggregate_phase) =
           Error "compiler position write already has original layout evidence"
         else (
           Position_sources.add positions source
-            {
-              position_source = source;
-              position_value = value;
-              position_dependencies = record.runtime_offsets;
-            };
+            (Some
+               {
+                 position_source = source;
+                 position_value = value;
+                 position_dependencies = record.runtime_offsets;
+               });
           Ok ())
 
 let complete_aggregate ?progress ?(dimensions = fun _ -> None) ~table ~namespace
@@ -1229,8 +1251,12 @@ let resolve_position_reads progress phase =
           Position_sources.find_opt
             progress.progress_compiler_positions.positions source
         with
-        | Some position when position.position_source == source ->
+        | Some (Some position) when position.position_source == source ->
             collect ((expression, position) :: rev) rest
+        | Some None ->
+            Error
+              "aggregate position requires original function/frame \
+               compiler-state writes"
         | _ ->
             Error
               "aggregate position lacks its original shared compiler-state \

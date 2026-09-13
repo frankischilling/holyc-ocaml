@@ -580,6 +580,7 @@ let function_publication_timing () =
   | ( Ast.Function_definition definition :: _,
       [
         Parser.Function_declared provisional;
+        Parser.Function_position_written position;
         Parser.Function_parameter_declared member;
         Parser.Parameter_default_completed default;
         Parser.Function_parameter_completed completed;
@@ -589,6 +590,10 @@ let function_publication_timing () =
       Alcotest.(check bool)
         "header retains exact provisional publication" true
         (header.function_publication == provisional);
+      Alcotest.(check bool)
+        "position iteration keeps the original function" true
+        (position.position_function == provisional
+        && position.position_predecessor = None);
       Alcotest.(check bool)
         "default precedes completed header" true
         (default.default_function == provisional
@@ -630,6 +635,7 @@ let function_completion_preserves_shadow () =
   ignore (P.expect_ast output);
   match List.rev !events with
   | Parser.Function_declared provisional
+    :: Parser.Function_position_written _
     :: Parser.Function_parameter_declared member
     :: Parser.Parameter_default_completed default
     :: Parser.Function_parameter_completed completed

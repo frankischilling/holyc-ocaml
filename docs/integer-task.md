@@ -6,8 +6,9 @@ parsing and across directives. Original member bounds are prepared once, and con
 prepare once at the original phase and share the initializer allowance. Integer
 runtime offsets execute their original typed fragment against task storage.
 Mixed `$$` expressions retain original parser-token position evidence, including
-aggregate writes from nested declarations. Function/frame writes remain guarded;
-later lookahead cannot change an already captured position.
+aggregate writes from nested declarations and named JIT header writes.
+Automatic-frame and callback writes remain guarded. Later lookahead cannot
+change an already captured position.
 Their derived sizes retain the successful execution dependency. See
 [retained aggregate sizes](retained-aggregates.md) for source evidence, receipt
 ownership, CLI limits and the remaining dependent-layout and storage work.

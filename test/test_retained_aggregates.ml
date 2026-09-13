@@ -613,11 +613,8 @@ let runtime_offset_failures () =
             (String.ends_with ~suffix:"function/frame compiler-state writes"
                diagnostic.message))
         [
-          {|N+ #exe {Print("A");I64 Noise(I64 x){return x;};} $$|};
           {|1+ #exe {Print("A");I64 Noise(){I64 x;return 0;};} $$|};
-          {|1+ #exe {Print("A");I64 Noise(I64 x #exe {class Nested {$$=50;};},I64 y){return 0;};} $$|};
-          {|N+ #exe {Print("A");I64 Noise(I64 x #exe {class Nested {$$=50;};};I64 y){return 0;};} $$|};
-          {|1+ #exe {Print("A");I64 Noise( #exe {class Nested {$$=50;};} I64 x){return 0;};} $$|};
+          {|N+ #exe {Print("A");I64 Noise(){I64 x,y;return 0;};} $$|};
         ];
       ignore
         (O.run ~mode {|#exe {class A {$$=1||1/0;};}|} |> O.fault "HCRUN0004");
@@ -713,8 +710,48 @@ let shared_offset_positions () =
         |> O.expect ""))
     Test_integer_globals.modes
 
+let function_offset_positions () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (parameters, expected) ->
+          ignore
+            (O.run ~mode
+               ("#exe {class A {$$=1+ #exe {I64 Noise(" ^ parameters
+              ^ "){return 0;};} $$;};StreamPrint(\"%d;\",sizeof(A)+"
+               ^ string_of_int (41 - expected)
+               ^ ");}")
+            |> O.expect ""))
+        [
+          ("", 0);
+          ("I64 x", 0);
+          ("I64 x,I64 y", 8);
+          ("I64 x,I64 y,", 16);
+          ("I64 x;I64 y;", 16);
+          ("I64 x;;I64 y", 8);
+          ("...", 0);
+          ("I64 x,...", 8);
+          ("I64 x #exe {class Nested {$$=50;};},I64 y", 8);
+          ("I64 x #exe {class Nested {$$=50;};};I64 y", 8);
+          ("#exe {class Nested {$$=50;};} I64 x", 0);
+        ];
+      List.iter
+        (fun source -> ignore (O.run ~mode source |> O.expect ""))
+        [
+          {|#exe {class A {$$=1+ #exe {extern I64 Noise(I64 x,I64 y); } $$;};StreamPrint("%d;",sizeof(A)+33);}|};
+          {|#exe {I64 N=7;class A {$$=N+ #exe {I64 Noise(I64 x,I64 y){return x;};} $$;};StreamPrint("%d;",sizeof(A)+27);}|};
+          {|#exe {extern I64 Noise();class A {$$=1+ #exe {extern I64 Noise(I64 x, #exe {I64 Noise(I64 y){return y;};} I64 z); } $$;};StreamPrint("%d;",sizeof(A)+41);}|};
+        ])
+    Test_integer_globals.modes;
+  ignore
+    (O.run
+       {|class A {$$=1+ #exe {I64 Noise(I64 x,I64 y){return x;};} $$;};sizeof(A)+33;|}
+    |> O.expect "")
+
 let tests =
   [
+    Alcotest.test_case "named function iterations capture original native sizes"
+      `Quick function_offset_positions;
     Alcotest.test_case "nested declarations share original compiler positions"
       `Quick shared_offset_positions;
     Alcotest.test_case "runtime offsets retain aggregate current positions"

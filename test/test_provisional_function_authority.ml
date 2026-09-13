@@ -860,9 +860,12 @@ let vm_call_authority replay_failure () =
   let replay = Option.is_some replay_failure in
   if not replay then VM.bind_task_namespace runtime namespace |> checked;
   let admit event snapshot =
-    let records, _ = vm_phase_records ~table ~namespace runtime snapshot in
-    VM.admit_function_phase runtime ~namespace ~event ~snapshot ~records
-    |> checked
+    match event with
+    | Parser.Function_position_written _ -> ()
+    | _ ->
+        let records, _ = vm_phase_records ~table ~namespace runtime snapshot in
+        VM.admit_function_phase runtime ~namespace ~event ~snapshot ~records
+        |> checked
   in
   let freeze selection =
     let retained =
@@ -1086,6 +1089,7 @@ let vm_implicit_authority ?(malformed = false) replay_failure () =
   let published = ref None and active = ref None in
   let admit event snapshot =
     match event with
+    | Parser.Function_position_written _ -> ()
     | Parser.Function_header_completed header ->
         let source =
           CR.declare_function ?activation:!active ~table ~namespace

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Aggregate `$$` expressions now capture named JIT function sizes at original
+  parameter iterations. Fresh and reused headers, delimiter lookahead and
+  nested replacement retain separate function-size and argument-count state.
+  The new CLI fixture returns 42 in both outer modes at 46 runtime steps and
+  three preparation units. Automatic frames, unnamed callbacks and ordinary
+  AOT function-record positions remain unsupported.
+
 - Function parameter iteration now invalidates unmodeled compiler-position
   writes after delimiter lookahead. A nested aggregate inside a header cannot
   supply a stale value to a later outer `$$` read. Empty semicolons and final

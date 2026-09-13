@@ -15,6 +15,7 @@ val max_aggregate_depth : int
 val max_initializer_depth : int
 
 type command_context
+type compiler_position_source
 type suspension
 
 val suspend_context : command_context -> (suspension, string) result
@@ -381,6 +382,19 @@ val function_parameter_completion_is_current :
     before lookahead beyond the parameter delimiter or closing parenthesis. *)
 
 type function_variadic_activity
+type function_position_activity
+
+type function_position_write = private {
+  position_function : function_publication;
+  position_source : compiler_position_source;
+  position_predecessor : completed_function_parameter option;
+  position_activity : function_position_activity;
+}
+
+val function_position_is_current : function_position_write -> bool
+(** Original PrsVarLst iteration write after opening/delimiter lookahead, before
+    empty-semicolon or parameter input. This identifies a write without
+    supplying its numeric value or runtime authority. *)
 
 type function_variadic_publication = private {
   variadic_function : function_publication;
@@ -492,8 +506,6 @@ type aggregate_publication = private {
   aggregate_activity : aggregate_activity;
 }
 
-type compiler_position_source
-
 type aggregate_phase = private {
   phase_aggregate : aggregate_publication;
   phase_predecessor : aggregate_phase option;
@@ -533,6 +545,7 @@ type declaration_event = private
   | Global_initializer_delimiter_completed of completed_initializer_delimiter
   | Global_completed of global_publication * Ast.global_declarator
   | Function_declared of function_publication
+  | Function_position_written of function_position_write
   | Function_parameter_declared of function_parameter_publication
   | Parameter_default_completed of completed_parameter_default
   | Function_parameter_completed of completed_function_parameter

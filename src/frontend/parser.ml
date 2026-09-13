@@ -399,6 +399,26 @@ let function_parameter_completion_is_current receipt =
        .command_context
        .context_active
 
+type function_position_activity = bool ref
+
+type function_position_write = {
+  position_function : function_publication;
+  position_source : compiler_position_source;
+  position_predecessor : completed_function_parameter option;
+  position_activity : function_position_activity;
+}
+
+let function_position_is_current receipt =
+  let context =
+    receipt.position_function.function_header.declaration_command
+      .command_context
+  in
+  !(receipt.position_activity)
+  && context.context_active
+  && Option.fold ~none:false
+       ~some:(( == ) receipt.position_source)
+       context.context_compiler_position.position_source
+
 type function_variadic_activity = {
   mutable function_variadic_start_active : bool;
   mutable function_variadic_completion_active : bool;
@@ -584,6 +604,7 @@ type declaration_event =
   | Global_initializer_delimiter_completed of completed_initializer_delimiter
   | Global_completed of global_publication * Ast.global_declarator
   | Function_declared of function_publication
+  | Function_position_written of function_position_write
   | Function_parameter_declared of function_parameter_publication
   | Parameter_default_completed of completed_parameter_default
   | Function_parameter_completed of completed_function_parameter
@@ -5288,16 +5309,34 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
 and parse_function_parameters ?default_owner ?(reset_position = true) cursor
     parameters_rev empty_entries_rev tokens_rev ~function_pointer_depth :
     parsed_parameter_list option =
-  (* PrsVarLst writes the frame position after opening/delimiter lookahead,
-     before skipping empty semicolons. A nested aggregate cannot supply that
-     unmodeled frame write to a later outer offset read. *)
+  (* PrsVarLst writes the native function size after opening/delimiter
+     lookahead, before skipping empty semicolons. Named headers supply original
+     semantic evidence; callback/frame writes remain unavailable. *)
   ignore (peek cursor);
-  if reset_position then
-    Option.iter
-      (fun command ->
-        command.command_context.context_compiler_position.position_source <-
-          None)
-      cursor.current_command;
+  (if reset_position then
+     match (default_owner, cursor.current_command) with
+     | Some (position_function, _, completions), Some command ->
+         let state = command.command_context.context_compiler_position in
+         let position_source = ref state.next_position in
+         state.next_position <- state.next_position + 1;
+         state.position_source <- Some position_source;
+         let receipt =
+           {
+             position_function;
+             position_source;
+             position_predecessor = List.nth_opt !completions 0;
+             position_activity = ref true;
+           }
+         in
+         Fun.protect
+           ~finally:(fun () -> receipt.position_activity := false)
+           (fun () ->
+             publish_declaration cursor (peek cursor)
+               (Function_position_written receipt))
+     | _, Some command ->
+         command.command_context.context_compiler_position.position_source <-
+           None
+     | _ -> ());
   let parameter_completions () =
     match default_owner with
     | None -> []

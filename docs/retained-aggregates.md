@@ -98,15 +98,34 @@ ledgers share these writes while keeping their namespaces separate.
 semicolon lookahead. Empty semicolons and consecutive offset directives remain
 inside the current iteration. Anonymous-union return resets it to the enclosing
 layout; final negative padding does not write the cell. Global declarations do
-not change it. Function/frame writes still produce `HCRUN0004` for a later
-offset read, preserving already reached output. Ordinary `$$` in a called
+not change it. Automatic-frame and unnamed callback writes still produce
+`HCRUN0004` for a later offset read, preserving already reached output. Ordinary `$$` in a called
 function still means an instruction pointer and remains outside VM execution.
 
-Function parameter-list entry and each delimiter that begins a new iteration
-invalidate aggregate position evidence after lookahead. A nested aggregate in
-an earlier parameter cannot bypass the unsupported frame-position guard.
+Named JIT function parameter-list entry and each delimiter that begins a new
+iteration capture the original native function size after lookahead. Fresh and
+reused headers start at zero (`PrsFunNew`, `ClassMemberLstDel`). Fixed parameters
+add eight bytes and variadic slots add sixteen. Header completion resets the
+function size to zero after closing lookahead, without rewriting the compiler
+cell. A suspended reused header therefore reads the current native size, not
+eight times its original or current argument count.
+
+Each write identifies its original function and preceding parameter completion.
+Semantic capture validates the live receipt, shared source manager and exact
+native record. It reads the value internally and records the write once,
+including unavailable values. Capturing the cell does not mutate the function
+record or grant call authority. Completed bodies with automatic locals keep
+their size unavailable to a suspended header until frame writes are modeled.
+
+Unmodeled writes cannot reuse an earlier aggregate value.
 Empty semicolons do not begin a new iteration, and an undelimited final parameter
 does not reset the cell before closing-parenthesis lookahead.
+
+`holyc run examples/stateful-exe-function-positions.hc` returns 42 in both modes
+at 46 runtime steps, three preparation units and zero dimension work. The
+runtime offset combines captures before and after a nested function header,
+then calls that retained function. Ordinary AOT function headers still need
+their native record model; `#exe` uses the supported JIT record in either mode.
 
 `holyc run examples/stateful-exe-shared-positions.hc` returns 42 in JIT and AOT
 modes with 34 runtime steps, three preparation units and zero dimension work.
