@@ -998,8 +998,11 @@ I64 immediate before token lookahead. Mixed typed offsets now retain those
 original token nodes, position values and runtime layout dependencies. The
 position fixture returns 42 in both modes at 46 runtime steps and four
 preparation units. `Compiler/PrsStmt.HC:805-841` keeps the same compiler position
-cell across nested source; reads after nested declarations remain explicitly
-guarded until those writes are modeled. Runtime F64 and ordinary pre-activation
+cell across nested source. `Compiler/PrsVar.HC:424-449,661-673,690-722` supplies
+the aggregate writes and iteration boundaries. Original write identities now
+connect nested aggregate layouts to each later closed or runtime `$$` read.
+The shared-position fixture returns 42 in both modes at 34 runtime steps and
+three preparation units. Function/frame writes remain guarded. Runtime F64 and ordinary pre-activation
 or AOT runtime offset evaluation also remain open.
 
 ## Bounded source expression evaluation

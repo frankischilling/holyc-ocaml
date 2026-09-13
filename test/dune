@@ -11,7 +11,8 @@
    %{dep:../examples/stateful-exe-aggregate-phases.hc}
    %{dep:../examples/stateful-exe-aggregate-offsets.hc}
    %{dep:../examples/stateful-exe-runtime-aggregate-offsets.hc}
-   %{dep:../examples/stateful-exe-runtime-offset-positions.hc})))
+   %{dep:../examples/stateful-exe-runtime-offset-positions.hc}
+   %{dep:../examples/stateful-exe-shared-positions.hc})))
 
 (test
  (name test_integer_program_cli)

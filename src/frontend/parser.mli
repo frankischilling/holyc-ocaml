@@ -481,6 +481,7 @@ type aggregate_step =
   | Aggregate_union_left
   | Aggregate_offset_reached of Ast.expression
   | Aggregate_body_finished
+  | Aggregate_position_reset
 
 type aggregate_publication = private {
   aggregate_header : declaration_header;
@@ -491,18 +492,19 @@ type aggregate_publication = private {
   aggregate_activity : aggregate_activity;
 }
 
+type compiler_position_source
+
 type aggregate_phase = private {
   phase_aggregate : aggregate_publication;
   phase_predecessor : aggregate_phase option;
   phase_step : aggregate_step;
   phase_location : Ast.location;
   phase_activity : aggregate_activity;
-  phase_nested_declarations : int;
-  phase_position_reads : (Ast.expression * bool) list;
+  phase_written_position : compiler_position_source option;
+  phase_position_reads : (Ast.expression * compiler_position_source option) list;
 }
-(** Position reads retain exact original nodes. A false read flag records an
-    intervening nested declaration whose shared native position writes are not
-    yet modeled; semantic preparation must reject that read. *)
+(** Position reads retain their exact original nodes and the last shared-cell
+    write. None records an unmodeled function/frame write, not numeric zero. *)
 
 val aggregate_phase_is_current : aggregate_phase -> bool
 (** Body entry precedes opening-brace lookahead. Member placement follows

@@ -344,7 +344,8 @@ let rec closed_expression_error = function
   | Aggregate_layout.Integer_expression _
   | Aggregate_layout.Unsigned_integer_expression _
   | Aggregate_layout.Floating_expression _ -> None
-  | Aggregate_layout.Current_position_expression origin ->
+  | Aggregate_layout.Current_position_expression origin
+  | Aggregate_layout.Captured_position_expression (origin, _) ->
       Some (origin, "a current-position expression is not closed")
   | Aggregate_layout.Unary_expression { operand; _ } ->
       closed_expression_error operand

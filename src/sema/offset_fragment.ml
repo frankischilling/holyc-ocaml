@@ -7,13 +7,14 @@ type t = {
   environment_ : Outer_environment.t;
   references_ : (Frontend.Ast.identifier * Reference_selection.t) list;
   queries_ : Query_selection.t list;
-  position_value_ : int64;
-  position_dependencies_ : Compiler_record.aggregate_offset list;
+  position_reads_ :
+    (Frontend.Ast.expression * Compiler_record.compiler_position) list;
 }
 
 type position = {
   position_fragment_ : t;
   position_source_ : Frontend.Ast.expression;
+  position_value_ : Compiler_record.compiler_position;
 }
 
 type authority = {
@@ -95,8 +96,9 @@ let create ~table ~namespace ~progress ~receipt ~environment ~references
   let* () =
     Query_selection.validate_manifest ~table ~expression:expression_ queries
   in
-  let* position_value_, position_dependencies_ =
-    Compiler_record.aggregate_offset_position ~table ~namespace progress receipt
+  let* position_reads_ =
+    Compiler_record.aggregate_offset_positions ~table ~namespace progress
+      receipt
   in
   Ok
     {
@@ -108,31 +110,30 @@ let create ~table ~namespace ~progress ~receipt ~environment ~references
       environment_ = environment;
       references_ = references;
       queries_ = queries;
-      position_value_;
-      position_dependencies_;
+      position_reads_;
     }
 
 let position_for fragment source =
   match
-    List.find_opt
-      (fun (node, _) -> node == source)
-      fragment.receipt_.Frontend.Parser.phase_position_reads
+    List.find_opt (fun (node, _) -> node == source) fragment.position_reads_
   with
-  | Some (_, true) ->
-      Ok { position_fragment_ = fragment; position_source_ = source }
-  | Some (_, false) ->
-      Error
-        "aggregate position requires the intervening nested declaration's \
-         compiler-state capture"
+  | Some (_, value) ->
+      Ok
+        {
+          position_fragment_ = fragment;
+          position_source_ = source;
+          position_value_ = value;
+        }
   | _ -> Error "current position is not an original offset expression node"
 
 let position_matches position fragment source =
   position.position_fragment_ == fragment && position.position_source_ == source
 
-let position_value position = position.position_fragment_.position_value_
+let position_value position =
+  Compiler_record.compiler_position_value position.position_value_
 
 let position_dependencies position =
-  position.position_fragment_.position_dependencies_
+  Compiler_record.compiler_position_dependencies position.position_value_
 
 let reference_for fragment identifier =
   match

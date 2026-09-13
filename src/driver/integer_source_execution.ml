@@ -151,8 +151,12 @@ let compile_report ?(max_dimension_work = 100_000)
             "max_dimension_work must be greater than zero";
         ]
     else
+      let compiler_positions =
+        Sema.Compiler_record.create_compiler_positions
+          ~sources:(Session.sources session)
+      in
       let* ledger =
-        Task_declarations.create_source ~max_dimension_work
+        Task_declarations.create_source ~compiler_positions ~max_dimension_work
           ~max_offset_work:max_initializer_steps session ~source
         |> Result.map_error (fun message ->
             [ Integer_source.diagnostic ~span "HCRUN0004" message ])
@@ -173,9 +177,10 @@ let compile_report ?(max_dimension_work = 100_000)
               match task_session with
               | Some task_session ->
                   fun () ->
-                    Task.create ~max_steps ~max_initializer_steps
-                      ~max_global_bytes ~max_literal_bytes ~max_frame_bytes
-                      ~max_call_depth ~max_output_bytes ~max_output_work
+                    Task.create ~compiler_positions ~max_steps
+                      ~max_initializer_steps ~max_global_bytes
+                      ~max_literal_bytes ~max_frame_bytes ~max_call_depth
+                      ~max_output_bytes ~max_output_work
                       ~max_generated_bytes:
                         (Frontend.Preprocessor.Config.max_generated_bytes config)
                       task_session

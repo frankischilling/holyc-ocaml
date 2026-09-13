@@ -59,6 +59,33 @@ let aggregate_offset_runtime_dependencies offset =
   (if offset.offset_runtime then [ offset ] else [])
   @ offset.offset_dependencies
 
+type compiler_position = {
+  position_source : Parser.compiler_position_source;
+  position_value : int64;
+  position_dependencies : aggregate_offset list;
+}
+
+module Position_sources = Hashtbl.Make (struct
+  type t = Parser.compiler_position_source
+
+  let equal = ( == )
+  let hash = Hashtbl.hash
+end)
+
+type compiler_positions = {
+  positions_sources : Common.Source_manager.t;
+  positions : compiler_position Position_sources.t;
+}
+
+let create_compiler_positions ~sources =
+  { positions_sources = sources; positions = Position_sources.create 32 }
+
+let compiler_positions_own_sources positions sources =
+  positions.positions_sources == sources
+
+let compiler_position_value position = position.position_value
+let compiler_position_dependencies position = position.position_dependencies
+
 type aggregate_stamp = { mutable current_stamp : unit ref }
 
 type t = {
@@ -348,6 +375,7 @@ let scalar_size type_ =
     | Type.Aggregate _ -> Error "sizeof requires the selected aggregate layout"
 
 type aggregate_progress = {
+  progress_compiler_positions : compiler_positions;
   progress_namespace : Declaration_collection.namespace;
   progress_publication : Declaration_collection.publication;
   progress_source : Parser.aggregate_publication;
@@ -371,16 +399,29 @@ type runtime_aggregate_offset = {
   runtime_offset_dependencies : aggregate_offset list;
 }
 
-let begin_aggregate ~table ~namespace publication =
+let begin_aggregate ?compiler_positions ~table ~namespace publication =
   match Declaration_collection.publication_source_aggregate publication with
   | Some source
-    when Declaration_collection.namespace_owns_table namespace table
+    when Option.fold ~none:true
+           ~some:(fun positions ->
+             compiler_positions_own_sources positions
+               source.aggregate_header.declaration_sources)
+           compiler_positions
+         && Declaration_collection.namespace_owns_table namespace table
          && Declaration_collection.namespace_owns_publication namespace
               publication
          && Parser.aggregate_publication_is_current source ->
       let stamp = { current_stamp = ref () } in
+      let compiler_positions =
+        match compiler_positions with
+        | Some positions -> positions
+        | None ->
+            create_compiler_positions
+              ~sources:source.aggregate_header.declaration_sources
+      in
       Ok
         {
+          progress_compiler_positions = compiler_positions;
           progress_namespace = namespace;
           progress_publication = publication;
           progress_source = source;
@@ -425,10 +466,17 @@ let advance_aggregate ~dimensions progress (phase : Parser.aggregate_phase) =
     || not (same_phase phase.phase_predecessor progress.progress_phase)
   then
     Error "aggregate layout phase is foreign, expired, repeated or out of order"
+  else if
+    Option.fold ~none:false
+      ~some:
+        (Position_sources.mem progress.progress_compiler_positions.positions)
+      phase.phase_written_position
+  then Error "compiler position write already has original layout evidence"
   else
     let scopes = progress.progress_scopes in
     let* record, scopes =
       match phase.phase_step with
+      | Parser.Aggregate_position_reset -> Ok (progress.progress_record, scopes)
       | Parser.Aggregate_body_started base ->
           if Option.is_some progress.progress_phase then
             Error "aggregate body has already started"
@@ -575,7 +623,27 @@ let advance_aggregate ~dimensions progress (phase : Parser.aggregate_phase) =
         (fun record ->
           { record with aggregate_stamp = Some (stamp, stamp.current_stamp) })
         record;
-    Ok ()
+    match phase.phase_written_position with
+    | None -> Ok ()
+    | Some _ when Result.is_error progress.progress_record -> Ok ()
+    | Some source ->
+        let* record = progress.progress_record in
+        let value =
+          match scopes with
+          | (Ast.Union_aggregate, base) :: _ -> base
+          | _ -> record.byte_size
+        in
+        let positions = progress.progress_compiler_positions.positions in
+        if Position_sources.mem positions source then
+          Error "compiler position write already has original layout evidence"
+        else (
+          Position_sources.add positions source
+            {
+              position_source = source;
+              position_value = value;
+              position_dependencies = record.runtime_offsets;
+            };
+          Ok ())
 
 let complete_aggregate ?progress ?(dimensions = fun _ -> None) ~table ~namespace
     publication receipt =
@@ -1153,19 +1221,34 @@ let aggregate_offset_is_current ~table ~namespace progress
   | Parser.Aggregate_offset_reached _ -> true
   | _ -> false
 
+let resolve_position_reads progress phase =
+  let rec collect rev = function
+    | [] -> Ok (List.rev rev)
+    | (expression, Some source) :: rest -> (
+        match
+          Position_sources.find_opt
+            progress.progress_compiler_positions.positions source
+        with
+        | Some position when position.position_source == source ->
+            collect ((expression, position) :: rev) rest
+        | _ ->
+            Error
+              "aggregate position lacks its original shared compiler-state \
+               write")
+    | (_, None) :: _ ->
+        Error
+          "aggregate position requires original function/frame compiler-state \
+           writes"
+  in
+  collect [] phase.Parser.phase_position_reads
+
 let begin_runtime_aggregate_offset ~table ~namespace ~queries progress phase =
   if not (aggregate_offset_is_current ~table ~namespace progress phase) then
     Error "runtime offset requires its original unconsumed phase and aggregate"
   else (
     progress.progress_offset_attempt <- Some phase;
     let* record = progress.progress_record in
-    let* () =
-      if List.for_all snd phase.Parser.phase_position_reads then Ok ()
-      else
-        Error
-          "aggregate current position after nested declarations requires \
-           shared compiler-position capture"
-    in
+    let* positions = resolve_position_reads progress phase in
     match phase.Parser.phase_step with
     | Parser.Aggregate_offset_reached expression ->
         let* () = validate_query_manifest ~table ~expression queries in
@@ -1188,21 +1271,17 @@ let begin_runtime_aggregate_offset ~table ~namespace ~queries progress phase =
               runtime_finished = false;
               runtime_offset_dependencies =
                 merge_offset_dependencies record.runtime_offsets
-                  (List.concat_map query_runtime_offsets queries);
+                  (List.concat_map query_runtime_offsets queries
+                  @ List.concat_map
+                      (fun (_, p) -> p.position_dependencies)
+                      positions);
             }
     | _ -> Error "runtime offset requires its original expression phase")
 
-let aggregate_offset_position ~table ~namespace progress phase =
+let aggregate_offset_positions ~table ~namespace progress phase =
   if not (aggregate_offset_is_current ~table ~namespace progress phase) then
     Error "aggregate position requires its original unconsumed offset phase"
-  else
-    let* record = progress.progress_record in
-    let value =
-      match progress.progress_scopes with
-      | (Ast.Union_aggregate, base) :: _ -> base
-      | _ -> record.byte_size
-    in
-    Ok (value, record.runtime_offsets)
+  else resolve_position_reads progress phase
 
 let runtime_aggregate_offset_is_current preparation =
   let progress = preparation.runtime_progress in
@@ -1253,13 +1332,7 @@ let prepare_aggregate_offset ~table ~namespace ~max_work ~queries progress
       | Parser.Aggregate_offset_reached expression ->
           progress.progress_offset_attempt <- Some phase;
           let* record = progress.progress_record in
-          let* () =
-            if List.for_all snd phase.phase_position_reads then Ok ()
-            else
-              Error
-                "aggregate current position after nested declarations requires \
-                 shared compiler-position capture"
-          in
+          let* positions = resolve_position_reads progress phase in
           let* () = validate_query_manifest ~table ~expression queries in
           let* () =
             if
@@ -1284,8 +1357,13 @@ let prepare_aggregate_offset ~table ~namespace ~max_work ~queries progress
             | _ -> record.byte_size
           in
           let numeric =
-            Numeric.of_ast ~allow_floating:true ~query_expression ~queries
-              expression
+            Numeric.of_ast ~allow_floating:true
+              ~position_value:(fun source ->
+                List.find_opt
+                  (fun (original, _) -> original == source)
+                  positions
+                |> Option.map (fun (_, position) -> position.position_value))
+              ~query_expression ~queries expression
           in
           let consume () =
             if !work >= max_work then
@@ -1317,7 +1395,10 @@ let prepare_aggregate_offset ~table ~namespace ~max_work ~queries progress
               offset_runtime = false;
               offset_dependencies =
                 merge_offset_dependencies record.runtime_offsets
-                  (List.concat_map query_runtime_offsets queries);
+                  (List.concat_map query_runtime_offsets queries
+                  @ List.concat_map
+                      (fun (_, p) -> p.position_dependencies)
+                      positions);
             }
           in
           progress.progress_offsets <- offset :: progress.progress_offsets;
@@ -1379,7 +1460,8 @@ let prepare_dimension ~table ~namespace ~max_work
               | Numeric.Binary_expression { left; right; _ } ->
                   let* () = closed left in
                   closed right
-              | Numeric.Current_position_expression _ ->
+              | Numeric.Current_position_expression _
+              | Numeric.Captured_position_expression _ ->
                   Error
                     "array preparation requires unresolved current-position \
                      evidence"
@@ -1603,7 +1685,8 @@ let evaluate_global_dimension ~table ~record ~dimension ~queries =
     | Numeric.Integer_expression _
     | Numeric.Unsigned_integer_expression _
     | Numeric.Floating_expression _ -> Ok ()
-    | Numeric.Current_position_expression _ ->
+    | Numeric.Current_position_expression _
+    | Numeric.Captured_position_expression _ ->
         Error "requires unresolved current-position layout evidence"
     | Numeric.Dependency_expression { detail; _ } ->
         Error ("requires unresolved closed layout evidence: " ^ detail)

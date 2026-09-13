@@ -217,6 +217,7 @@ type command_sequence = {
 }
 
 type t = {
+  compiler_positions : Sema.Compiler_record.compiler_positions;
   call_journal : Sema.Source_activation.call_journal;
   mutable calls : selected_call list;
   mutable native_functions : Sema.Function_record_phase.registry option;
@@ -296,7 +297,7 @@ let origin (name : Ast.identifier) =
       defined_at = location.defined_at;
     }
 
-let create_with_authority ?(max_dimension_work = 100_000)
+let create_with_authority ?compiler_positions ?(max_dimension_work = 100_000)
     ?(max_offset_work = 100_000) authority session =
   let runtime =
     match authority with
@@ -304,10 +305,20 @@ let create_with_authority ?(max_dimension_work = 100_000)
     | _ -> None
   in
   let table = Session.semantic_symbols session in
+  let compiler_positions =
+    match compiler_positions with
+    | Some positions -> positions
+    | None ->
+        Sema.Compiler_record.create_compiler_positions
+          ~sources:(Session.sources session)
+  in
   if
-    Option.fold ~none:false
-      ~some:(fun task -> not (VM.task_owns_table task table))
-      runtime
+    (not
+       (Sema.Compiler_record.compiler_positions_own_sources compiler_positions
+          (Session.sources session)))
+    || Option.fold ~none:false
+         ~some:(fun task -> not (VM.task_owns_table task table))
+         runtime
   then Error "task declaration runtime belongs to another semantic table"
   else
     let module_name =
@@ -326,6 +337,7 @@ let create_with_authority ?(max_dimension_work = 100_000)
         Result.map
           (fun () ->
             {
+              compiler_positions;
               call_journal =
                 Sema.Source_activation.create_call_journal ~namespace ();
               calls = [];
@@ -374,15 +386,15 @@ let create_with_authority ?(max_dimension_work = 100_000)
             })
           binding)
 
-let create ?runtime session =
-  create_with_authority
+let create ?compiler_positions ?runtime session =
+  create_with_authority ?compiler_positions
     (match runtime with
     | None -> Semantic_analysis
     | Some runtime -> Task_runtime runtime)
     session
 
-let create_source ?(max_dimension_work = 100_000) ?(max_offset_work = 100_000)
-    session ~source =
+let create_source ?compiler_positions ?(max_dimension_work = 100_000)
+    ?(max_offset_work = 100_000) session ~source =
   if max_dimension_work <= 0 || max_offset_work <= 0 then
     Error "source preparation limit must be positive"
   else
@@ -391,8 +403,8 @@ let create_source ?(max_dimension_work = 100_000) ?(max_offset_work = 100_000)
         (Common.Source_file.id source)
     with
     | Some registered when registered == source ->
-        create_with_authority ~max_dimension_work ~max_offset_work
-          (Source_compilation source) session
+        create_with_authority ?compiler_positions ~max_dimension_work
+          ~max_offset_work (Source_compilation source) session
     | _ -> Error "ordinary source ledger requires its exact registered input"
 
 let promote_source_with_activation ~activate ledger ~runtime session ~source =
@@ -2040,6 +2052,7 @@ let observe ?offset_runtime ledger event =
           | Aggregate state ->
               let progress =
                 Sema.Compiler_record.begin_aggregate ~table:ledger.table
+                  ~compiler_positions:ledger.compiler_positions
                   ~namespace:ledger.namespace assigned.publication
                 |> checked publication.aggregate_name.location.span
               in

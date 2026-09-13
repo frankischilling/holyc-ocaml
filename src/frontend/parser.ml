@@ -3,6 +3,13 @@ type output = {
   diagnostics : Common.Diagnostic.t list;
 }
 
+type compiler_position_source = int ref
+
+type compiler_position_state = {
+  mutable position_source : compiler_position_source option;
+  mutable next_position : int;
+}
+
 type command_context = {
   context_sources : Common.Source_manager.t;
   context_source : Common.Source_file.t;
@@ -11,7 +18,7 @@ type command_context = {
   context_parent : command_position option;
   mutable context_active : bool;
   mutable context_event_count : int;
-  mutable context_nested_declarations : int;
+  context_compiler_position : compiler_position_state;
   mutable context_accepted_ast : Ast.module_ option;
   context_observation_id : int;
   context_stack : command_position ref list ref;
@@ -531,6 +538,7 @@ and aggregate_step =
   | Aggregate_union_left
   | Aggregate_offset_reached of Ast.expression
   | Aggregate_body_finished
+  | Aggregate_position_reset
 
 and aggregate_phase = {
   phase_aggregate : aggregate_publication;
@@ -538,8 +546,8 @@ and aggregate_phase = {
   phase_step : aggregate_step;
   phase_location : Ast.location;
   phase_activity : aggregate_activity;
-  phase_nested_declarations : int;
-  phase_position_reads : (Ast.expression * bool) list;
+  phase_written_position : compiler_position_source option;
+  phase_position_reads : (Ast.expression * compiler_position_source option) list;
 }
 
 type completed_aggregate = {
@@ -699,7 +707,8 @@ end)
 
 type offset_position_capture = {
   capture_aggregate : aggregate_publication;
-  mutable capture_positions_rev : (Ast.expression * bool) list;
+  mutable capture_positions_rev :
+    (Ast.expression * compiler_position_source option) list;
 }
 
 type cursor = {
@@ -1233,26 +1242,11 @@ let report ?(secondary = []) cursor item ~code ~message =
   if cursor.stop_on_error then raise Stop_command
 
 let publish_declaration cursor at event =
-  (* Nested source uses the same native compiler position cell. Until those
-     writes have their own semantic captures, an outer $$ read must not silently
-     use its preceding layout after a nested declaration. *)
-  List.iter
-    (fun position ->
-      let context =
-        match !position with
-        | Before_first_command context -> context
-        | Reading_command command -> command.command_context
-        | Awaiting_resume completed -> completed.command_start.command_context
-      in
-      if
-        not
-          (Option.fold ~none:false
-             ~some:(fun command -> command.command_context == context)
-             cursor.current_command)
-      then
-        context.context_nested_declarations <-
-          context.context_nested_declarations + 1)
-    !(cursor.command_stack);
+  (match (event, cursor.current_command) with
+  | Function_declared _, Some command ->
+      (* Function/automatic-frame writes need their own original frame evidence. *)
+      command.command_context.context_compiler_position.position_source <- None
+  | _ -> ());
   Option.iter
     (fun consume ->
       record_observation (Option.get cursor.current_command).command_context
@@ -1837,6 +1831,21 @@ let declare_aggregate cursor at ~modifiers ~binding ~aggregate_kind name =
   source
 
 let advance_aggregate ?(positions = []) cursor at source step =
+  let state =
+    source.aggregate_header.declaration_command.command_context
+      .context_compiler_position
+  in
+  let written =
+    match step with
+    | Aggregate_position_reset
+    | Aggregate_member_prepared _
+    | Aggregate_offset_reached _ ->
+        let position = ref state.next_position in
+        state.next_position <- state.next_position + 1;
+        state.position_source <- Some position;
+        Some position
+    | _ -> None
+  in
   let phase =
     {
       phase_aggregate = source;
@@ -1844,9 +1853,7 @@ let advance_aggregate ?(positions = []) cursor at source step =
       phase_step = step;
       phase_location = token_location at.token;
       phase_activity = { aggregate_active = true; aggregate_last_phase = None };
-      phase_nested_declarations =
-        source.aggregate_header.declaration_command.command_context
-          .context_nested_declarations;
+      phase_written_position = written;
       phase_position_reads = positions;
     }
   in
@@ -1961,6 +1968,10 @@ let complete_function_header cursor at publication
     publication
 
 let publish_local cursor ~spelling source =
+  (match (source, cursor.current_command) with
+  | Local_variable _, Some command ->
+      command.command_context.context_compiler_position.position_source <- None
+  | _ -> ());
   match cursor.local_context with
   | None -> invalid_arg "local declaration parsed outside a function context"
   | Some context -> (
@@ -2525,15 +2536,9 @@ and parse_expression_atom cursor ~context ~depth : parsed_expression option =
           let context =
             aggregate.aggregate_header.declaration_command.command_context
           in
-          let unchanged =
-            Option.fold ~none:false
-              ~some:(fun phase ->
-                phase.phase_nested_declarations
-                = context.context_nested_declarations)
-              aggregate.aggregate_activity.aggregate_last_phase
-          in
           capture.capture_positions_rev <-
-            (node, unchanged) :: capture.capture_positions_rev)
+            (node, context.context_compiler_position.position_source)
+            :: capture.capture_positions_rev)
         cursor.offset_position_capture;
       Some { node; tokens = [ item.token ] }
   | Token_kind.Keyword Keyword.Sizeof, _ ->
@@ -4362,11 +4367,13 @@ let aggregate_member_failure cursor item ~recovery_depth ~code ~message =
   report cursor item ~code ~message;
   Error { recovery_depth }
 
-let rec parse_aggregate_members cursor ~aggregate
+let rec parse_aggregate_members ?(reset_position = true) cursor ~aggregate
     ~(opening_brace : Ast.location) ~depth ~parse_member_function_pointer
     members_rev tokens_rev :
     (parsed_aggregate_members, aggregate_parse_failure) result =
   let item = peek cursor in
+  if reset_position then
+    advance_aggregate cursor item aggregate Aggregate_position_reset;
   match item.token.kind with
   | Token_kind.Punctuation '}' ->
       let closing_item = take cursor in
@@ -4390,8 +4397,8 @@ let rec parse_aggregate_members cursor ~aggregate
       Error { recovery_depth = depth + 1 }
   | Token_kind.Punctuation ';' ->
       let semicolon_item = take cursor in
-      parse_aggregate_members cursor ~aggregate ~opening_brace ~depth
-        ~parse_member_function_pointer
+      parse_aggregate_members ~reset_position:false cursor ~aggregate
+        ~opening_brace ~depth ~parse_member_function_pointer
         (Ast.Empty_aggregate_member (token_location semicolon_item.token)
         :: members_rev)
         (semicolon_item.token :: tokens_rev)
@@ -4402,8 +4409,8 @@ let rec parse_aggregate_members cursor ~aggregate
       with
       | Error failure -> Error failure
       | Ok member ->
-          parse_aggregate_members cursor ~aggregate ~opening_brace ~depth
-            ~parse_member_function_pointer
+          parse_aggregate_members ~reset_position:false cursor ~aggregate
+            ~opening_brace ~depth ~parse_member_function_pointer
             (member.node :: members_rev)
             (List.rev_append member.tokens tokens_rev))
   | Token_kind.Keyword Keyword.Class ->
@@ -4419,8 +4426,8 @@ let rec parse_aggregate_members cursor ~aggregate
       with
       | Error failure -> Error failure
       | Ok member ->
-          parse_aggregate_members cursor ~aggregate ~opening_brace ~depth
-            ~parse_member_function_pointer
+          parse_aggregate_members ~reset_position:false cursor ~aggregate
+            ~opening_brace ~depth ~parse_member_function_pointer
             (member.node :: members_rev)
             (List.rev_append member.tokens tokens_rev))
   | _ -> (
@@ -4524,6 +4531,8 @@ and parse_anonymous_union_member cursor ~aggregate ~depth
       | Ok parsed_members ->
           let following_item = peek cursor in
           advance_aggregate cursor following_item aggregate Aggregate_union_left;
+          advance_aggregate cursor following_item aggregate
+            Aggregate_position_reset;
           let semicolon_item =
             if (peek cursor).token.kind = Token_kind.Punctuation ';' then
               Some (take cursor)
@@ -9014,7 +9023,18 @@ let read_commands ?commands ?stream_opener cursor =
       context_accepted_ast = None;
       context_active = true;
       context_event_count = 0;
-      context_nested_declarations = 0;
+      context_compiler_position =
+        (match saved_stack with
+        | [] -> { position_source = None; next_position = 0 }
+        | parent :: _ ->
+            let parent_context =
+              match !parent with
+              | Before_first_command context -> context
+              | Reading_command command -> command.command_context
+              | Awaiting_resume completed ->
+                  completed.command_start.command_context
+            in
+            parent_context.context_compiler_position);
       context_observation_id = fresh_observation_id ();
       context_stack = cursor.command_stack;
       context_position = None;

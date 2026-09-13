@@ -382,7 +382,7 @@ let completion_is_single_use () =
 
 let standalone_dependencies () =
   List.iter
-    (fun tail ->
+    (fun (tail, expected_dependencies) ->
       let session = Session.create () in
       let source =
         Session.add_source session ~path:"owned-offset.hc"
@@ -406,10 +406,10 @@ let standalone_dependencies () =
       Alcotest.(check bool) "function actually compiled" true (definitions <> []);
       List.iter
         (fun (definition : VM.function_definition) ->
-          Alcotest.(check bool)
-            "derived offsets do not multiply the same dependency" true
-            (List.length (Ir_function_body.offset_dependencies definition.body)
-            <= 1);
+          Alcotest.(check int)
+            "each independent runtime offset is retained once"
+            expected_dependencies
+            (List.length (Ir_function_body.offset_dependencies definition.body));
           match
             VM.execute_function ~max_steps:100 ~max_frame_bytes:1024
               ~frame:definition.frame ~arguments:[] definition.body
@@ -425,17 +425,27 @@ let standalone_dependencies () =
                      error.VM.code = "HCIRVM0026" && error.executed_steps = 0)
                    errors))
         definitions)
-    [
-      "I64 F(){return sizeof(Span)+26;};";
-      "I64 F(){U8 A[sizeof(Span)];return 42;};";
-      "I64 F(){static U8 A[sizeof(Span)];return 42;};";
-      "U8 A[sizeof(Span)];I64 F(){return sizeof(A)+26;};";
-      "class B {$$=sizeof(Span);};I64 F(){return sizeof(B)+26;};";
-      "class B {$$=sizeof(Span);"
-      ^ String.concat "" (List.init 20 (fun _ -> "$$=$$+sizeof(Span);"))
-      ^ "};I64 F(){return sizeof(B)-294;};";
-      "class B {U8 data[sizeof(Span)];};I64 F(){return sizeof(B)+26;};";
-    ]
+    (List.map
+       (fun tail -> (tail, 1))
+       [
+         "I64 F(){return sizeof(Span)+26;};";
+         "I64 F(){U8 A[sizeof(Span)];return 42;};";
+         "I64 F(){static U8 A[sizeof(Span)];return 42;};";
+         "U8 A[sizeof(Span)];I64 F(){return sizeof(A)+26;};";
+         "class B {$$=sizeof(Span);};I64 F(){return sizeof(B)+26;};";
+         "class B {$$=sizeof(Span);"
+         ^ String.concat "" (List.init 20 (fun _ -> "$$=$$+sizeof(Span);"))
+         ^ "};I64 F(){return sizeof(B)-294;};";
+         "class B {U8 data[sizeof(Span)];};I64 F(){return sizeof(B)+26;};";
+       ]
+    @ [
+        ( "class B {$$=1+ #exe {class Noise {$$=N;};} $$;};I64 F(){return \
+           sizeof(B)+33;};",
+          1 );
+        ( "class B {$$=N+ #exe {class Noise {$$=N;};} $$;};I64 F(){return \
+           sizeof(B)+26;};",
+          2 );
+      ])
 
 let () =
   Alcotest.run "runtime offset authority"

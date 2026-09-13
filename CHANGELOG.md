@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Retained aggregate offsets now observe shared compiler-position writes from
+  nested declarations. Each `$$` read keeps its original value and runtime
+  dependencies, including across outer AOT and directive JIT namespaces. The
+  shared-position CLI fixture returns 42 in both modes at 34 runtime steps and
+  three preparation units. Function/frame writes remain unsupported.
+
 - Added original aggregate-position evidence to mixed integer runtime `$$`
   offsets, including calls, unions and negative positions. Later lookahead
   preserves captured values. Closed and runtime reads after nested declarations

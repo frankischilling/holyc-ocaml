@@ -19,9 +19,10 @@ and command = {
   mutable frontend_pending : bool;
 }
 
-let create ?max_steps ?max_initializer_steps ?max_global_bytes
-    ?max_literal_bytes ?max_frame_bytes ?max_call_depth ?max_output_bytes
-    ?max_output_work ?max_generated_bytes ?max_stream_depth session =
+let create ?compiler_positions ?max_steps ?max_initializer_steps
+    ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
+    ?max_output_bytes ?max_output_work ?max_generated_bytes ?max_stream_depth
+    session =
   let session = Session.task_frontend session in
   let config =
     match Frontend.Preprocessor.Config.create ~compilation_mode:Jit () with
@@ -35,7 +36,7 @@ let create ?max_steps ?max_initializer_steps ?max_global_bytes
     ()
   |> fun result ->
   Result.bind result (fun state ->
-      Task_declarations.create ~runtime:state session
+      Task_declarations.create ?compiler_positions ~runtime:state session
       |> Result.map (fun declarations ->
           {
             session;

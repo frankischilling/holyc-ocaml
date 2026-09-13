@@ -88,11 +88,24 @@ it. Earlier runtime layout dependencies remain attached to the capture.
 
 The native compiler position cell is shared with nested declarations
 (`PrsStreamBlk` in `Compiler/PrsStmt.HC:805-841` does not save that cell).
-A `$$` read after an intervening nested declaration is therefore rejected with
-`HCRUN0004` until those writes are captured. This guard applies to closed and
-runtime offsets and preserves already reached output. Reads captured before
-the nested declaration remain valid. Ordinary `$$` in a called function still
-means an instruction pointer and remains outside integer VM execution.
+Each aggregate write now carries an opaque parser identity. The shared semantic
+registry records its checked class size or union base, including runtime layout
+dependencies. Each `$$` token keeps the preceding write, so two reads in one
+expression can observe different nested declarations. Outer AOT and nested JIT
+ledgers share these writes while keeping their namespaces separate.
+
+`PrsVarLst` resets the cell after opening lookahead and after ordinary member
+semicolon lookahead. Empty semicolons and consecutive offset directives remain
+inside the current iteration. Anonymous-union return resets it to the enclosing
+layout; final negative padding does not write the cell. Global declarations do
+not change it. Function/frame writes still produce `HCRUN0004` for a later
+offset read, preserving already reached output. Ordinary `$$` in a called
+function still means an instruction pointer and remains outside VM execution.
+
+`holyc run examples/stateful-exe-shared-positions.hc` returns 42 in JIT and AOT
+modes with 34 runtime steps, three preparation units and zero dimension work.
+The fixture captures values before and after a nested runtime offset. Derived
+layouts retain the nested task dependency and cannot execute in an unrelated VM.
 
 Negative offsets retain the greatest negative magnitude. After closing-brace
 lookahead, the body-completion phase adds that padding, before attached

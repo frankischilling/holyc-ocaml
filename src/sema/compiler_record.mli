@@ -125,6 +125,21 @@ val published_scalar :
 type aggregate_progress
 type aggregate_offset
 type runtime_aggregate_offset
+type compiler_position
+type compiler_positions
+
+val create_compiler_positions :
+  sources:Common.Source_manager.t -> compiler_positions
+(** Original shared compiler-cell writes for one source manager. Outer AOT and
+    nested JIT ledgers share this registry while retaining separate namespaces.
+    Entries require live, ordered aggregate phases; numeric values cannot be
+    supplied by callers. Function/frame writes remain unavailable. *)
+
+val compiler_positions_own_sources :
+  compiler_positions -> Common.Source_manager.t -> bool
+
+val compiler_position_value : compiler_position -> int64
+val compiler_position_dependencies : compiler_position -> aggregate_offset list
 
 val aggregate_offset_namespace :
   aggregate_offset -> Declaration_collection.namespace
@@ -136,6 +151,7 @@ val aggregate_offset_value : aggregate_offset -> int64
 val aggregate_offset_work : aggregate_offset -> int
 
 val begin_aggregate :
+  ?compiler_positions:compiler_positions ->
   table:Symbol_table.t ->
   namespace:Declaration_collection.namespace ->
   Declaration_collection.publication ->
@@ -376,14 +392,14 @@ val begin_runtime_aggregate_offset :
 
 val runtime_aggregate_offset_is_current : runtime_aggregate_offset -> bool
 
-val aggregate_offset_position :
+val aggregate_offset_positions :
   table:Symbol_table.t ->
   namespace:Declaration_collection.namespace ->
   aggregate_progress ->
   Frontend.Parser.aggregate_phase ->
-  (int64 * aggregate_offset list, string) result
-(** Read the original offset phase's preceding class size or union base and its
-    runtime dependencies. These immutable facts grant no execution authority. *)
+  ((Frontend.Ast.expression * compiler_position) list, string) result
+(** Resolve original token reads against immutable shared compiler-state writes.
+    These facts retain layout dependencies but grant no execution authority. *)
 
 val finish_runtime_aggregate_offset :
   runtime_aggregate_offset ->

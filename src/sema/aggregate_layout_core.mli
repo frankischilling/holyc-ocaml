@@ -47,6 +47,7 @@ end) : sig
     | Unsigned_integer_expression of { value : int64; origin : Symbol.origin }
     | Floating_expression of { value : float; origin : Symbol.origin }
     | Current_position_expression of Symbol.origin
+    | Captured_position_expression of Symbol.origin * int64
     | Unary_expression of {
         operator : unary_operator;
         operand : 'query generic_expression;

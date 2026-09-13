@@ -139,7 +139,15 @@ let phase_authority () =
   let table = Session.semantic_symbols session in
   let namespace = C.create_namespace ~table () |> checked in
   let other = C.create_namespace ~table () |> checked in
+  let compiler_positions =
+    Record.create_compiler_positions ~sources:(Session.sources session)
+  in
+  let foreign_positions =
+    Record.create_compiler_positions
+      ~sources:(Session.sources (Session.create ()))
+  in
   let publication = ref None and progress = ref None and skipped = ref None in
+  let duplicate_writer = ref None in
   let foreign = ref None and last = ref None and phases = ref 0 in
   let reject = Test_task_declarations.reject in
   let advance = Record.advance_aggregate ~dimensions:(fun _ -> None) in
@@ -148,9 +156,18 @@ let phase_authority () =
         let pub = C.publish_aggregate namespace source |> checked in
         reject "partial metadata cannot use another namespace"
           (Record.begin_aggregate ~table ~namespace:other pub);
+        reject "compiler positions require their original source manager"
+          (Record.begin_aggregate ~compiler_positions:foreign_positions ~table
+             ~namespace pub);
         publication := Some pub;
         progress :=
-          Some (Record.begin_aggregate ~table ~namespace pub |> checked);
+          Some
+            (Record.begin_aggregate ~compiler_positions ~table ~namespace pub
+            |> checked);
+        duplicate_writer :=
+          Some
+            (Record.begin_aggregate ~compiler_positions ~table ~namespace pub
+            |> checked);
         skipped := Some (Record.begin_aggregate ~table ~namespace pub |> checked);
         Ok ()
     | Parser.Aggregate_advanced phase ->
@@ -167,6 +184,20 @@ let phase_authority () =
              live"
             (advance (Option.get !skipped) phase);
         ignore (advance current phase |> checked);
+        Option.iter
+          (fun duplicate ->
+            if Option.is_none phase.phase_written_position then
+              ignore (advance duplicate phase |> checked)
+            else
+              let snapshot = Record.aggregate_metadata duplicate |> checked in
+              reject
+                "another layout cannot overwrite an original position write"
+                (advance duplicate phase);
+              Alcotest.(check bool)
+                "duplicate write leaves layout unchanged" true
+                (Record.aggregate_metadata duplicate |> checked == snapshot);
+              duplicate_writer := None)
+          !duplicate_writer;
         let after = Record.aggregate_metadata current |> checked in
         reject "live phase cannot be applied twice" (advance current phase);
         Alcotest.(check bool)
@@ -209,7 +240,8 @@ let phase_authority () =
        ~config:(Preprocessor.Config.create () |> checked)
        source
     |> Test_parser.expect_ast);
-  Alcotest.(check int) "all member and union boundaries observed" 9 !phases;
+  Alcotest.(check int)
+    "member, union and position boundaries observed" 16 !phases;
   let phase = Option.get !last in
   Alcotest.(check bool)
     "phase lifetime ends on return" false
@@ -578,11 +610,11 @@ let runtime_offset_failures () =
           let diagnostic = O.fault ~output:"A" "HCRUN0004" failed in
           Alcotest.(check bool)
             "shared compiler-position guard was reached" true
-            (String.ends_with ~suffix:"shared compiler-position capture"
+            (String.ends_with ~suffix:"function/frame compiler-state writes"
                diagnostic.message))
         [
-          {|N+ #exe {Print("A");class Noise {$$=50;};} $$|};
-          {|1+ #exe {Print("A");class Noise {$$=50;};} $$|};
+          {|N+ #exe {Print("A");I64 Noise(I64 x){return x;};} $$|};
+          {|1+ #exe {Print("A");I64 Noise(){I64 x;return 0;};} $$|};
         ];
       ignore
         (O.run ~mode {|#exe {class A {$$=1||1/0;};}|} |> O.fault "HCRUN0004");
@@ -647,8 +679,39 @@ let runtime_offset_positions () =
     (O.run {|I64 N=7;#exe {}class A {U8 h;$$=$$+N;I64 x;};sizeof(A)+26;|}
     |> O.expect "")
 
+let shared_offset_positions () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source -> ignore (O.run ~mode source |> O.expect ""))
+        [
+          {|#exe {I64 N=7;class A {U8 h;$$=N+ #exe {class Noise {$$=50;};} $$;};StreamPrint("%d;",sizeof(A)-15);}|};
+          {|#exe {class A {U8 h;$$=1+ #exe {class Noise {$$=50;};} $$;};StreamPrint("%d;",sizeof(A)-9);}|};
+          {|#exe {class A {U8 h;$$=$$+ #exe {class Noise {$$=50;};} $$;};StreamPrint("%d;",sizeof(A)-9);}|};
+          {|#exe {I64 N=1;class A {U8 h;$$=N+$$+ #exe {class Noise {$$=50;};} $$;};StreamPrint("%d;",sizeof(A)-10);}|};
+          {|#exe {class A {U8 h;$$= #exe {I64 N=50;} $$+41;};StreamPrint("%d;",sizeof(A));}|};
+          {|#exe {class A {U8 h;#exe {class Noise {$$=50;};} $$=$$;};StreamPrint("%d;",sizeof(A)+41);}|};
+          {|#exe {class A {U8 h;$$=8;#exe {class Noise {$$=50;};} $$=$$;};StreamPrint("%d;",sizeof(A)-8);}|};
+          {|#exe {class A {U8 h;;#exe {class Noise {$$=50;};} $$=$$;};StreamPrint("%d;",sizeof(A)-8);}|};
+          {|#exe {class A {#exe {class Noise {$$=50;};} $$=$$;};StreamPrint("%d;",sizeof(A)+42);}|};
+          {|#exe {class A {$$=1+ #exe {class Noise {U8 h;union {$$=50;U8 y;}U8 t;};} $$;};StreamPrint("%d;",sizeof(A)-11);}|};
+          {|#exe {class A {$$=1+ #exe {class Noise {$$=-8;U8 x;};} $$;};StreamPrint("%d;",sizeof(A)+42);}|};
+          {|#exe {I64 N=50;class A {$$=1+ #exe {class Noise {$$=N;};} $$;};StreamPrint("%d;",sizeof(A)-9);}|};
+        ])
+    Test_integer_globals.modes;
+  (* Outer AOT and directive JIT have separate namespaces but one compiler cell. *)
+  List.iter
+    (fun mode ->
+      ignore
+        (O.run ~mode
+           {|class A {$$=1+ #exe {class Noise {$$=50;};} $$;};sizeof(A)-9;|}
+        |> O.expect ""))
+    Test_integer_globals.modes
+
 let tests =
   [
+    Alcotest.test_case "nested declarations share original compiler positions"
+      `Quick shared_offset_positions;
     Alcotest.test_case "runtime offsets retain aggregate current positions"
       `Quick runtime_offset_positions;
     Alcotest.test_case "runtime offsets use original typed task expressions"

@@ -59,6 +59,7 @@ val execute_isolated :
     the public source driver activates and resumes outer JIT commands. *)
 
 val create :
+  ?compiler_positions:Sema.Compiler_record.compiler_positions ->
   ?max_steps:int ->
   ?max_initializer_steps:int ->
   ?max_global_bytes:int ->

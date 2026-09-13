@@ -1734,34 +1734,45 @@ let prepare_task_closed_dimension task ~table ~namespace ~preparation ~queries =
 let prepare_aggregate_offset_in_task task ~table ~namespace ~queries progress
     phase =
   let dependencies =
-    List.concat_map Sema.Compiler_record.query_runtime_offsets queries
+    Sema.Compiler_record.aggregate_offset_positions ~table ~namespace progress
+      phase
+    |> Result.map (fun positions ->
+        List.concat_map Sema.Compiler_record.query_runtime_offsets queries
+        @ List.concat_map
+            (fun (_, position) ->
+              Sema.Compiler_record.compiler_position_dependencies position)
+            positions)
+    |> fun result ->
+    Result.bind result (validate_offset_dependencies (Some task))
   in
-  if Result.is_error (validate_offset_dependencies (Some task) dependencies)
-  then (Error "aggregate offset queries require their owning runtime layout", 0)
-  else if
-    (not
-       (Sema.Compiler_record.aggregate_offset_is_current ~table ~namespace
-          progress phase))
-    || (not (source_dimensions_ready task))
-    || List.exists (( == ) phase) task.attempted_offsets
-    || List.exists
-         (fun offset ->
-           Sema.Compiler_record.aggregate_offset_phase offset == phase)
-         task.charged_offsets
-  then (Error "aggregate offset lacks its live task source boundary", 0)
-  else (
-    task.source_promotion_open <- false;
-    task.attempted_offsets <- phase :: task.attempted_offsets;
-    let result, work =
-      Sema.Compiler_record.prepare_aggregate_offset ~table ~namespace ~queries
-        ~max_work:(task.max_initializer_steps - task.initializer_steps)
-        progress phase
-    in
-    task.initializer_steps <- task.initializer_steps + work;
-    (match result with
-    | Ok offset -> task.charged_offsets <- offset :: task.charged_offsets
-    | Error _ -> ());
-    (result, work))
+  match dependencies with
+  | Error message -> (Error message, 0)
+  | Ok () ->
+      if
+        (not
+           (Sema.Compiler_record.aggregate_offset_is_current ~table ~namespace
+              progress phase))
+        || (not (source_dimensions_ready task))
+        || List.exists (( == ) phase) task.attempted_offsets
+        || List.exists
+             (fun offset ->
+               Sema.Compiler_record.aggregate_offset_phase offset == phase)
+             task.charged_offsets
+      then (Error "aggregate offset lacks its live task source boundary", 0)
+      else (
+        task.source_promotion_open <- false;
+        task.attempted_offsets <- phase :: task.attempted_offsets;
+        let result, work =
+          Sema.Compiler_record.prepare_aggregate_offset ~table ~namespace
+            ~queries
+            ~max_work:(task.max_initializer_steps - task.initializer_steps)
+            progress phase
+        in
+        task.initializer_steps <- task.initializer_steps + work;
+        (match result with
+        | Ok offset -> task.charged_offsets <- offset :: task.charged_offsets
+        | Error _ -> ());
+        (result, work))
 
 let prepare_task_aggregate_offset task ~table ~namespace ~queries progress phase
     =

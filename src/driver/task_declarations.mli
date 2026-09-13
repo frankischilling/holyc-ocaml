@@ -239,6 +239,7 @@ val source_defaults :
 type query
 
 val create_source :
+  ?compiler_positions:Sema.Compiler_record.compiler_positions ->
   ?max_dimension_work:int ->
   ?max_offset_work:int ->
   Session.t ->
@@ -475,7 +476,10 @@ val call_resolver :
   result
 
 val create :
-  ?runtime:Ir.Integer_interpreter.task_state -> Session.t -> (t, string) result
+  ?compiler_positions:Sema.Compiler_record.compiler_positions ->
+  ?runtime:Ir.Integer_interpreter.task_state ->
+  Session.t ->
+  (t, string) result
 
 val observe_admission :
   t -> Ir.Integer_interpreter.task_admission -> (unit, string) result

@@ -48,6 +48,7 @@ struct
     | Unsigned_integer_expression of { value : int64; origin : Symbol.origin }
     | Floating_expression of { value : float; origin : Symbol.origin }
     | Current_position_expression of Symbol.origin
+    | Captured_position_expression of Symbol.origin * int64
     | Unary_expression of {
         operator : unary_operator;
         operand : 'query generic_expression;
@@ -469,6 +470,7 @@ struct
     | Unsigned_integer_expression _
     | Floating_expression _
     | Current_position_expression _
+    | Captured_position_expression _
     | Dependency_expression _
     | Unsupported_expression _ -> Ok ()
 

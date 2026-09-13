@@ -36,6 +36,7 @@ type 'query expression =
   | Unsigned_integer_expression of { value : int64; origin : Symbol.origin }
   | Floating_expression of { value : float; origin : Symbol.origin }
   | Current_position_expression of Symbol.origin
+  | Captured_position_expression of Symbol.origin * int64
   | Unary_expression of {
       operator : unary_operator;
       operand : 'query expression;
@@ -140,6 +141,7 @@ let expression_origin ~query_origin = function
   | Unsigned_integer_expression { origin; _ }
   | Floating_expression { origin; _ }
   | Current_position_expression origin
+  | Captured_position_expression (origin, _)
   | Unary_expression { origin; _ }
   | Binary_expression { origin; _ }
   | Dependency_expression { origin; _ }
@@ -308,6 +310,7 @@ let rec evaluate_number ~query_origin ~query_value ~consume current_position
       | Unsigned_integer_expression { value; _ } -> Ok (Unsigned_integer value)
       | Floating_expression { value; _ } -> Ok (Floating value)
       | Current_position_expression _ -> Ok (Integer current_position)
+      | Captured_position_expression (_, value) -> Ok (Integer value)
       | Dependency_expression { dependency_kind; detail; origin } ->
           Error (unresolved origin dependency_kind detail)
       | Unsupported_expression { description; origin } ->
@@ -455,8 +458,11 @@ let rec comparison_chain_location = function
       comparison_chain_location grouped.grouped_expression
   | _ -> None
 
-let rec convert_ast ~allow_floating ~query_expression ~queries ast =
-  let convert = convert_ast ~allow_floating ~query_expression ~queries in
+let rec convert_ast ~position_value ~allow_floating ~query_expression ~queries
+    ast =
+  let convert =
+    convert_ast ~position_value ~allow_floating ~query_expression ~queries
+  in
   match ast with
   | Frontend.Ast.Sizeof_expression _
   | Frontend.Ast.Offset_expression _
@@ -476,8 +482,11 @@ let rec convert_ast ~allow_floating ~query_expression ~queries ast =
       dependency Identifier_dependency
         (Printf.sprintf "`%s`" identifier.spelling)
         identifier.location
-  | Frontend.Ast.Current_position_expression operator ->
-      Current_position_expression (origin operator.operator_location)
+  | Frontend.Ast.Current_position_expression operator -> (
+      match position_value ast with
+      | Some value ->
+          Captured_position_expression (origin operator.operator_location, value)
+      | None -> Current_position_expression (origin operator.operator_location))
   | Frontend.Ast.Sizeof_expression sizeof ->
       dependency Sizeof_dependency
         (Printf.sprintf "for `%s`" sizeof.sizeof_target.spelling)
@@ -543,9 +552,11 @@ let rec convert_ast ~allow_floating ~query_expression ~queries ast =
   | Frontend.Ast.Member_expression member ->
       unsupported "member expression" member.member_location
 
-let of_ast ?(allow_floating = true) ~query_expression ~queries ast =
+let of_ast ?(allow_floating = true) ?(position_value = fun _ -> None)
+    ~query_expression ~queries ast =
   (* PrsExp/OptPass012 preserve operands for native comparison chains.
      Reject those before evaluating either operand of Boolean value expressions. *)
   match comparison_chain_location ast with
   | Some location -> unsupported "unparenthesized chained comparison" location
-  | None -> convert_ast ~allow_floating ~query_expression ~queries ast
+  | None ->
+      convert_ast ~position_value ~allow_floating ~query_expression ~queries ast
