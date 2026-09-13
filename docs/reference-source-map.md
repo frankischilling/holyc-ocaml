@@ -1002,7 +1002,21 @@ cell across nested source. `Compiler/PrsVar.HC:424-449,661-673,690-722` supplies
 the aggregate writes and iteration boundaries. Original write identities now
 connect nested aggregate layouts to each later closed or runtime `$$` read.
 The shared-position fixture returns 42 in both modes at 34 runtime steps and
-three preparation units. Named JIT header writes now capture the independent native size at original iteration receipts. `PrsFunNew` (`Compiler/PrsLib.HC:62-77`), `ClassMemberLstDel` (`Compiler/LexLib.HC:209-220`) and `PrsFunJoin` (`Compiler/PrsStmt.HC:67-143`) supply reset behavior; `PrsVarLst` and `PrsDotDotDot` supply size increments. Automatic-frame, callback and ordinary AOT header writes remain guarded. Runtime F64 and ordinary pre-activation
+three preparation units. Named JIT header writes capture the independent native
+size at original iteration receipts. `PrsFunNew` (`Compiler/PrsLib.HC:62-77`),
+`ClassMemberLstDel` (`Compiler/LexLib.HC:209-220`) and `PrsFunJoin`
+(`Compiler/PrsStmt.HC:67-143`) supply reset behavior; `PrsVarLst` and
+`PrsDotDotDot` supply size increments. Named JIT local writes now retain original
+allocation history: `PrsStmt.HC:1158-1164` dispatches the local list before its
+type is consumed, and `PrsVar.HC:526-528,590-618,701-724` supplies member counting,
+downward size alignment, initializer and delimiter boundaries. Static locals
+allocate separate storage (`PrsVar.HC:533-589`). `LexLib.HC:103-149` preserves
+member collision rules. Primitive locals, pointers and checked closed extents
+feed captures while preserving the argument cursor and original layout
+dependencies. The frame-position fixture returns 42 in both modes at 27 runtime
+steps and three preparation units. Runtime-sized or aggregate-valued frame
+positions, unnamed callbacks and ordinary AOT header writes remain guarded.
+Runtime F64 and ordinary pre-activation
 or AOT runtime offset evaluation also remain open.
 
 ## Bounded source expression evaluation

@@ -384,17 +384,31 @@ val function_parameter_completion_is_current :
 type function_variadic_activity
 type function_position_activity
 
+type function_local_allocation = private {
+  allocation_function : function_publication;
+  allocation_local : local_publication;
+  allocation_storage : Ast.local_storage;
+  allocation_predecessor : function_local_allocation option;
+  allocation_activity : function_position_activity;
+}
+
+val function_local_allocation_is_current : function_local_allocation -> bool
+(** Original local declaration after type/dimension lookahead and before its
+    initializer. The predecessor belongs to this function's parser cursor. *)
+
 type function_position_write = private {
   position_function : function_publication;
   position_source : compiler_position_source;
   position_predecessor : completed_function_parameter option;
+  position_is_local : bool;
+  position_local_predecessor : function_local_allocation option;
   position_activity : function_position_activity;
 }
 
 val function_position_is_current : function_position_write -> bool
 (** Original PrsVarLst iteration write after opening/delimiter lookahead, before
-    empty-semicolon or parameter input. This identifies a write without
-    supplying its numeric value or runtime authority. *)
+    parameter or local type input. This identifies a write without supplying its
+    numeric value or runtime authority. *)
 
 type function_variadic_publication = private {
   variadic_function : function_publication;
@@ -546,6 +560,7 @@ type declaration_event = private
   | Global_completed of global_publication * Ast.global_declarator
   | Function_declared of function_publication
   | Function_position_written of function_position_write
+  | Function_local_allocated of function_local_allocation
   | Function_parameter_declared of function_parameter_publication
   | Parameter_default_completed of completed_parameter_default
   | Function_parameter_completed of completed_function_parameter

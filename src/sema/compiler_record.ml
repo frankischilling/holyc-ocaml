@@ -72,19 +72,62 @@ module Position_sources = Hashtbl.Make (struct
   let hash = Hashtbl.hash
 end)
 
+module Local_allocations = Hashtbl.Make (struct
+  type t = Parser.function_local_allocation
+
+  let equal = ( == )
+  let hash receipt = Hashtbl.hash receipt.Parser.allocation_local.local_spelling
+end)
+
 type compiler_positions = {
   positions_sources : Common.Source_manager.t;
   positions : compiler_position option Position_sources.t;
+  allocations : (int64 * aggregate_offset list) option Local_allocations.t;
+  allocated_sizes : (int64 * aggregate_offset list) option Local_allocations.t;
 }
 
 let create_compiler_positions ~sources =
-  { positions_sources = sources; positions = Position_sources.create 32 }
+  {
+    positions_sources = sources;
+    positions = Position_sources.create 32;
+    allocations = Local_allocations.create 32;
+    allocated_sizes = Local_allocations.create 32;
+  }
 
 let compiler_positions_own_sources positions sources =
   positions.positions_sources == sources
 
 let compiler_position_value position = position.position_value
 let compiler_position_dependencies position = position.position_dependencies
+
+let rec native_size positions = function
+  | Function_record_phase.Size_value value ->
+      Option.map (fun value -> (value, [])) value
+  | Function_record_phase.Size_add (size, bytes) ->
+      Option.bind (native_size positions size) (fun (size, dependencies) ->
+          if size > Int64.sub Int64.max_int bytes then None
+          else Some (Int64.add size bytes, dependencies))
+  | Function_record_phase.Size_local (size, receipt) -> (
+      match Local_allocations.find_opt positions.allocated_sizes receipt with
+      | Some value -> value
+      | None ->
+          let value =
+            Option.bind (native_size positions size)
+              (fun (size, dependencies) ->
+                Option.bind
+                  (Local_allocations.find_opt positions.allocations receipt)
+                  (Option.map (fun (bytes, inherited) ->
+                       let alignment =
+                         if bytes >= 8L then -8L
+                         else if bytes >= 4L then -4L
+                         else if bytes >= 2L then -2L
+                         else -1L
+                       in
+                       ( Int64.logand (Int64.sub size bytes) alignment,
+                         merge_offset_dependencies dependencies inherited ))))
+          in
+          Local_allocations.add positions.allocated_sizes receipt value;
+          value)
 
 let record_function_position positions record receipt =
   let sources =
@@ -95,17 +138,17 @@ let record_function_position positions record receipt =
   else if Position_sources.mem positions.positions receipt.position_source then
     Error "function position write already has original layout evidence"
   else
-    Function_record_phase.position_at record receipt
+    Function_record_phase.size_at record receipt
     |> Result.map (fun value ->
         Position_sources.add positions.positions receipt.position_source
           (Option.map
-             (fun position_value ->
+             (fun (position_value, position_dependencies) ->
                {
                  position_source = receipt.position_source;
                  position_value;
-                 position_dependencies = [];
+                 position_dependencies;
                })
-             value))
+             (native_size positions value)))
 
 type aggregate_stamp = { mutable current_stamp : unit ref }
 
@@ -317,6 +360,85 @@ let declared_array_size ~table ~namespace ~command ~name ~dimensions ~checked
   in
   loop 0 None size dimensions checked
 
+let scalar_size type_ =
+  if Type.pointer_depth type_ > 0 then
+    Ok (Int64.of_int Primitive_type.pointer_byte_size)
+  else
+    match Type.base type_ with
+    | Type.Primitive (_, primitive) ->
+        Ok (Int64.of_int (Primitive_type.info primitive).byte_size)
+    | Type.Aggregate _ -> Error "sizeof requires the selected aggregate layout"
+
+let record_local_allocation ~table ~namespace ~dimensions positions record
+    receipt =
+  let local = receipt.Parser.allocation_local in
+  let snapshot = Function_record_phase.snapshot record in
+  if
+    (not
+       (compiler_positions_own_sources positions
+          receipt.allocation_function.function_header.declaration_sources))
+    || (not (Function_record_phase.owns_table snapshot table))
+    || not (Function_record_phase.owns_namespace snapshot namespace)
+  then
+    Error
+      "local allocation belongs to another source manager, table or namespace"
+  else if
+    (not (Function_record_phase.local_allocation_is_next record receipt))
+    || Local_allocations.mem positions.allocations receipt
+  then Error "local allocation is foreign, expired, repeated or out of order"
+  else
+    let* allocation =
+      match local.local_source with
+      | Parser.Local_variable source ->
+          let* extent =
+            if dimensions = [] && source.local_array_dimensions <> [] then
+              Ok None
+            else
+              declared_array_size ~table ~namespace ~command:local.local_command
+                ~name:source.local_name
+                ~dimensions:source.local_array_dimensions ~checked:dimensions 1L
+              |> Result.map Option.some
+          in
+          if receipt.allocation_storage = Ast.Static_local then
+            Ok (Some (0L, []))
+          else if
+            List.concat_map dimension_runtime_dependencies dimensions <> []
+          then Ok None
+          else
+            let base =
+              match
+                Source_type_reference.builtin source.local_type_specifier
+                  source.local_pointer_layers
+              with
+              | Error _ -> None
+              | Ok reference -> (
+                  match source.local_function_pointer with
+                  | Some pointer -> (
+                      match
+                        Source_type_reference.pointer_depth
+                          pointer.indirection_layers
+                      with
+                      | Ok depth when depth > 0 ->
+                          Some (Int64.of_int Primitive_type.pointer_byte_size)
+                      | _ -> None)
+                  | None ->
+                      scalar_size (Type_reference.resolved_type reference)
+                      |> Result.to_option)
+            in
+            Ok
+              (Option.bind base (fun base ->
+                   Option.map
+                     (fun extent ->
+                       ( Int64.mul base extent,
+                         List.concat_map dimension_offset_dependencies
+                           dimensions ))
+                     extent))
+      | _ -> Error "frame allocation requires its original local variable"
+    in
+    let* () = Function_record_phase.observe_local_allocation record receipt in
+    Local_allocations.add positions.allocations receipt allocation;
+    Ok ()
+
 let seed_primitive ~table ~entry ~symbol ~primitive =
   if
     (not (Symbol_table.owns_symbol table symbol))
@@ -385,15 +507,6 @@ let seed_public_union ~table ~entry ~symbol
               runtime_offsets = [];
               aggregate_stamp = None;
             }
-
-let scalar_size type_ =
-  if Type.pointer_depth type_ > 0 then
-    Ok (Int64.of_int Primitive_type.pointer_byte_size)
-  else
-    match Type.base type_ with
-    | Type.Primitive (_, primitive) ->
-        Ok (Int64.of_int (Primitive_type.info primitive).byte_size)
-    | Type.Aggregate _ -> Error "sizeof requires the selected aggregate layout"
 
 type aggregate_progress = {
   progress_compiler_positions : compiler_positions;

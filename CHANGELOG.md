@@ -2,11 +2,19 @@
 
 ## Unreleased
 
+- Aggregate `$$` expressions now capture named JIT local declaration positions
+  from original native allocation history. Primitive locals, pointers, closed
+  array extents, static storage and nested body replacement preserve their
+  separate size and argument-cursor effects. The frame-position fixture returns
+  42 in both modes at 27 runtime steps and three preparation units. Runtime-sized
+  and aggregate-valued frames, unnamed callbacks and ordinary AOT records remain
+  unsupported.
+
 - Aggregate `$$` expressions now capture named JIT function sizes at original
   parameter iterations. Fresh and reused headers, delimiter lookahead and
   nested replacement retain separate function-size and argument-count state.
   The new CLI fixture returns 42 in both outer modes at 46 runtime steps and
-  three preparation units. Automatic frames, unnamed callbacks and ordinary
+  three preparation units. General frames, unnamed callbacks and ordinary
   AOT function-record positions remain unsupported.
 
 - Function parameter iteration now invalidates unmodeled compiler-position
@@ -18,7 +26,7 @@
   nested declarations. Each `$$` read keeps its original value and runtime
   dependencies, including across outer AOT and directive JIT namespaces. The
   shared-position CLI fixture returns 42 in both modes at 34 runtime steps and
-  three preparation units. Function/frame writes remain unsupported.
+  three preparation units. General function/frame writes remain incomplete.
 
 - Added original aggregate-position evidence to mixed integer runtime `$$`
   offsets, including calls, unions and negative positions. Later lookahead

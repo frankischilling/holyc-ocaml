@@ -401,10 +401,26 @@ let function_parameter_completion_is_current receipt =
 
 type function_position_activity = bool ref
 
+type function_local_allocation = {
+  allocation_function : function_publication;
+  allocation_local : local_publication;
+  allocation_storage : Ast.local_storage;
+  allocation_predecessor : function_local_allocation option;
+  allocation_activity : function_position_activity;
+}
+
+let function_local_allocation_is_current receipt =
+  !(receipt.allocation_activity)
+  && receipt.allocation_function.function_header.declaration_command
+       .command_context
+       .context_active
+
 type function_position_write = {
   position_function : function_publication;
   position_source : compiler_position_source;
   position_predecessor : completed_function_parameter option;
+  position_is_local : bool;
+  position_local_predecessor : function_local_allocation option;
   position_activity : function_position_activity;
 }
 
@@ -605,6 +621,7 @@ type declaration_event =
   | Global_completed of global_publication * Ast.global_declarator
   | Function_declared of function_publication
   | Function_position_written of function_position_write
+  | Function_local_allocated of function_local_allocation
   | Function_parameter_declared of function_parameter_publication
   | Parameter_default_completed of completed_parameter_default
   | Function_parameter_completed of completed_function_parameter
@@ -763,6 +780,8 @@ type cursor = {
   mutable lookahead : located_token list;
   mutable diagnostics_rev : Common.Diagnostic.t list;
   mutable local_context : Symbol_visibility.Environment.local_context option;
+  mutable local_function : function_publication option;
+  mutable local_allocations : function_local_allocation list;
   mutable local_publications : local_publication list;
 }
 
@@ -1265,7 +1284,7 @@ let report ?(secondary = []) cursor item ~code ~message =
 let publish_declaration cursor at event =
   (match (event, cursor.current_command) with
   | Function_declared _, Some command ->
-      (* Function/automatic-frame writes need their own original frame evidence. *)
+      (* A publication is not a PrsVarLst position write. *)
       command.command_context.context_compiler_position.position_source <- None
   | _ -> ());
   Option.iter
@@ -1989,10 +2008,6 @@ let complete_function_header cursor at publication
     publication
 
 let publish_local cursor ~spelling source =
-  (match (source, cursor.current_command) with
-  | Local_variable _, Some command ->
-      command.command_context.context_compiler_position.position_source <- None
-  | _ -> ());
   match cursor.local_context with
   | None -> invalid_arg "local declaration parsed outside a function context"
   | Some context -> (
@@ -2014,13 +2029,14 @@ let publish_local cursor ~spelling source =
             cursor.current_command
       | Error message -> invalid_arg message)
 
-let with_function_local_context cursor parameters variadic run =
+let with_function_local_context cursor function_ parameters variadic run =
   if Option.is_some cursor.local_context then
     invalid_arg "function local contexts cannot be nested";
   let context =
     Symbol_visibility.Environment.begin_local_context cursor.symbols
   in
   cursor.local_context <- Some context;
+  cursor.local_function <- function_;
   List.iter
     (fun (parameter : Ast.function_parameter) ->
       Option.iter
@@ -2036,6 +2052,8 @@ let with_function_local_context cursor parameters variadic run =
     variadic;
   Fun.protect run ~finally:(fun () ->
       cursor.local_context <- None;
+      cursor.local_function <- None;
+      cursor.local_allocations <- [];
       cursor.local_publications <- [];
       match
         Symbol_visibility.Environment.end_local_context cursor.symbols context
@@ -5311,7 +5329,7 @@ and parse_function_parameters ?default_owner ?(reset_position = true) cursor
     parsed_parameter_list option =
   (* PrsVarLst writes the native function size after opening/delimiter
      lookahead, before skipping empty semicolons. Named headers supply original
-     semantic evidence; callback/frame writes remain unavailable. *)
+     semantic evidence; unnamed callback writes remain unavailable. *)
   ignore (peek cursor);
   (if reset_position then
      match (default_owner, cursor.current_command) with
@@ -5325,6 +5343,8 @@ and parse_function_parameters ?default_owner ?(reset_position = true) cursor
              position_function;
              position_source;
              position_predecessor = List.nth_opt !completions 0;
+             position_is_local = false;
+             position_local_predecessor = None;
              position_activity = ref true;
            }
          in
@@ -6889,6 +6909,26 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                      local_function_pointer = function_pointer;
                    });
               let equals_item = peek cursor in
+              Option.iter
+                (fun allocation_function ->
+                  let receipt =
+                    {
+                      allocation_function;
+                      allocation_local = List.hd cursor.local_publications;
+                      allocation_storage = storage;
+                      allocation_predecessor =
+                        List.nth_opt cursor.local_allocations 0;
+                      allocation_activity = ref true;
+                    }
+                  in
+                  Fun.protect
+                    ~finally:(fun () -> receipt.allocation_activity := false)
+                    (fun () ->
+                      publish_declaration cursor equals_item
+                        (Function_local_allocated receipt));
+                  cursor.local_allocations <-
+                    receipt :: cursor.local_allocations)
+                cursor.local_function;
               let parsed_initializer =
                 if equals_item.token.kind <> Token_kind.Punctuation '=' then
                   Some (None, [])
@@ -6997,6 +7037,30 @@ let parse_local_declaration cursor ~boundary : parsed_statement option =
     | _ -> (Ast.Automatic_local, [], [])
   in
   let type_item = peek cursor in
+  (match (cursor.local_function, cursor.current_command) with
+  | Some position_function, Some command ->
+      let state = command.command_context.context_compiler_position in
+      let position_source = ref state.next_position in
+      state.next_position <- state.next_position + 1;
+      state.position_source <- Some position_source;
+      let receipt =
+        {
+          position_function;
+          position_source;
+          position_predecessor = None;
+          position_is_local = true;
+          position_local_predecessor = List.nth_opt cursor.local_allocations 0;
+          position_activity = ref true;
+        }
+      in
+      Fun.protect
+        ~finally:(fun () -> receipt.position_activity := false)
+        (fun () ->
+          publish_declaration cursor type_item
+            (Function_position_written receipt))
+  | _, Some command ->
+      command.command_context.context_compiler_position.position_source <- None
+  | _ -> ());
   match type_specifier_of_item cursor type_item with
   | Some type_specifier ->
       let type_item = take cursor in
@@ -8975,8 +9039,8 @@ let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
           parsed_parameters.variadic;
       let completed_header = ref None in
       let parsed_body =
-        with_function_local_context cursor parsed_parameters.parameters
-          parsed_parameters.variadic (fun () ->
+        with_function_local_context cursor provisional
+          parsed_parameters.parameters parsed_parameters.variadic (fun () ->
             let body_item = peek cursor in
             completed_header :=
               complete_function_header cursor body_item provisional
@@ -9230,6 +9294,8 @@ let make_cursor ?reference ?call ?implicit_output ?query ?declaration
     lookahead = [];
     diagnostics_rev = [];
     local_context = None;
+    local_function = None;
+    local_allocations = [];
     local_publications = [];
   }
 

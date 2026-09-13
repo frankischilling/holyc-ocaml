@@ -16,10 +16,16 @@ type slot =
   | Argc of Parser.function_variadic_publication
   | Argv of Parser.function_variadic_publication
 
+type size =
+  | Size_value of int64 option
+  | Size_add of size * int64
+  | Size_local of size * Parser.function_local_allocation
+
 type native_state = {
   owner : Parser.function_publication;
-  header_size : int64 option;
+  header_size : size;
   slots : slot list;
+  body_names : string list;
   members : int option;
   arguments : int option;
   ellipsis : bool;
@@ -46,6 +52,7 @@ and t = {
   saved_arguments : int option;
   mutable aliases : Visibility.entry list;
   mutable body : Ast.function_definition option;
+  mutable locals : Parser.function_local_allocation list;
   mutable latest_phase_event : phase_event option;
   mutable phase_revision : revision;
   mutable cached : snapshot option;
@@ -138,30 +145,52 @@ let native_members snapshot =
 let argument_count snapshot = snapshot.native_state.arguments
 let member_count snapshot = snapshot.native_state.members
 
-let position_at record receipt =
+let size_at record receipt =
   let source = P.source (P.snapshot record.transcript) in
   if
     (not (Parser.function_position_is_current receipt))
     || receipt.Parser.position_function != source
     || not
-         (match
-            ( receipt.position_predecessor,
-              P.members (P.snapshot record.transcript) |> List.rev )
-          with
-         | None, [] -> true
-         | Some predecessor, member :: _ ->
-             Option.fold ~none:false ~some:(( == ) predecessor)
-               (P.member_completion member)
-         | _ -> false)
+         (if receipt.position_is_local then
+            Option.is_some (P.completed_header (P.snapshot record.transcript))
+            && Option.is_none record.body
+            &&
+            match (receipt.position_local_predecessor, record.locals) with
+            | None, [] -> true
+            | Some a, b :: _ -> a == b
+            | _ -> false
+          else
+            match
+              ( receipt.position_predecessor,
+                P.members (P.snapshot record.transcript) |> List.rev )
+            with
+            | None, [] -> true
+            | Some predecessor, member :: _ ->
+                Option.fold ~none:false ~some:(( == ) predecessor)
+                  (P.member_completion member)
+            | _ -> false)
   then
     Error
       "function position requires its original live iteration and member cursor"
   else Ok record.native.state.header_size
 
-let add_header_bytes size count =
+let add_bytes size count =
   Option.bind size (fun size ->
       if size > Int64.sub Int64.max_int count then None
       else Some (Int64.add size count))
+
+let rec constant_size = function
+  | Size_value value -> value
+  | Size_add (size, count) -> add_bytes (constant_size size) count
+  | Size_local _ -> None
+
+let position_at record receipt =
+  Result.map constant_size (size_at record receipt)
+
+let add_header_bytes size count =
+  match size with
+  | Size_value value -> Size_value (add_bytes value count)
+  | _ -> Size_add (size, count)
 
 let saved_previous_argument_count snapshot = snapshot.snapshot_saved_arguments
 let ellipsis_flag snapshot = snapshot.native_state.ellipsis
@@ -388,9 +417,10 @@ let begin_header ?activation registry publication source =
                       old with
                       owner = source;
                       slots = [];
+                      body_names = [];
                       members = Some 0;
                       arguments = Some 0;
-                      header_size = Some 0L;
+                      header_size = Size_value (Some 0L);
                     }
                   in
                   advance_native prior.native state;
@@ -405,8 +435,10 @@ let begin_header ?activation registry publication source =
                   let state =
                     {
                       owner = source;
-                      header_size = (if unknown then None else Some 0L);
+                      header_size =
+                        Size_value (if unknown then None else Some 0L);
                       slots = [];
+                      body_names = [];
                       members = (if unknown then None else Some 0);
                       arguments = (if unknown then None else Some 0);
                       ellipsis = false;
@@ -432,6 +464,7 @@ let begin_header ?activation registry publication source =
                 saved_arguments;
                 aliases = [ source.function_entry ];
                 body = None;
+                locals = [];
                 latest_phase_event = Some (Initial_publication source);
                 phase_revision = native.revision;
                 cached = None;
@@ -442,31 +475,48 @@ let begin_header ?activation registry publication source =
 
 let event_belongs record event =
   match event with
+  | Parser.Function_local_allocated receipt ->
+      receipt.allocation_function == P.source (P.snapshot record.transcript)
   | Parser.Function_body_completed (header, _) ->
       header.function_publication == P.source (P.snapshot record.transcript)
   | _ -> P.event_belongs record.transcript event
 
-(* These source forms cannot add native body members. Other forms deliberately
-   remain unavailable for a suspended header's later member_cnt assignment. *)
-let rec body_preserves_members = function
+(* Preserve the observed member state only when every body declaration has its
+   original allocation receipt and no unmodeled member-producing form occurs. *)
+let rec body_preserves_members locals = function
   | Ast.Block_statement block ->
-      List.for_all body_preserves_members block.block_statements
+      List.for_all (body_preserves_members locals) block.block_statements
   | Ast.Sequence_statement sequence ->
       List.for_all
-        (fun element -> body_preserves_members element.Ast.sequence_statement)
+        (fun element ->
+          body_preserves_members locals element.Ast.sequence_statement)
         sequence.sequence_elements
   | Ast.If_statement conditional ->
-      body_preserves_members conditional.if_then_branch
+      body_preserves_members locals conditional.if_then_branch
       && Option.fold ~none:true
-           ~some:(fun clause -> body_preserves_members clause.Ast.else_branch)
+           ~some:(fun clause ->
+             body_preserves_members locals clause.Ast.else_branch)
            conditional.if_else_clause
-  | Ast.While_statement loop -> body_preserves_members loop.while_body
-  | Ast.Do_while_statement loop -> body_preserves_members loop.do_body
+  | Ast.While_statement loop -> body_preserves_members locals loop.while_body
+  | Ast.Do_while_statement loop -> body_preserves_members locals loop.do_body
   | Ast.For_statement loop ->
-      body_preserves_members loop.for_initializer
-      && Option.fold ~none:true ~some:body_preserves_members loop.for_update
-      && body_preserves_members loop.for_body
-  | Ast.Lock_statement lock -> body_preserves_members lock.lock_body
+      body_preserves_members locals loop.for_initializer
+      && Option.fold ~none:true
+           ~some:(body_preserves_members locals)
+           loop.for_update
+      && body_preserves_members locals loop.for_body
+  | Ast.Lock_statement lock -> body_preserves_members locals lock.lock_body
+  | Ast.Local_declaration_statement declaration ->
+      List.for_all
+        (fun (local : Ast.local_declarator) ->
+          List.exists
+            (fun receipt ->
+              match receipt.Parser.allocation_local.local_source with
+              | Parser.Local_variable source ->
+                  source.local_name == local.local_name
+              | _ -> false)
+            locals)
+        declaration.local_declarators
   | Ast.Break_statement _
   | Ast.Empty_statement _
   | Ast.Expression_statement _
@@ -477,7 +527,6 @@ let rec body_preserves_members = function
   | Ast.Return_statement _ -> true
   | Ast.Assembly_block_statement _
   | Ast.Inline_assembly_statement _
-  | Ast.Local_declaration_statement _
   | Ast.Switch_statement _
   | Ast.Try_catch_statement _ -> false
 
@@ -508,14 +557,59 @@ let invalid_insertion state =
     state with
     arguments = None;
     members = None;
-    header_size = None;
+    header_size = Size_value None;
     extern = None;
     unavailable = Some "native MemberAdd rejects a duplicate member name";
   }
 
+let native_member_collides state name =
+  member_collides state.slots name
+  ||
+  match name with
+  | None | Some ("pad" | "reserved" | "_anon_") -> false
+  | Some spelling -> List.mem spelling state.body_names
+
+let local_allocation_is_next record receipt =
+  Parser.function_local_allocation_is_current receipt
+  && receipt.Parser.allocation_function
+     == P.source (P.snapshot record.transcript)
+  && Option.is_none record.body
+  && Option.is_some (P.completed_header (P.snapshot record.transcript))
+  &&
+  match (receipt.allocation_predecessor, record.locals) with
+  | None, [] -> true
+  | Some a, b :: _ -> a == b
+  | _ -> false
+
+let observe_local_allocation record receipt =
+  let state = record.native.state in
+  if not (local_allocation_is_next record receipt) then
+    Error
+      "native local allocation lacks its original live function and predecessor"
+  else (
+    record.locals <- receipt :: record.locals;
+    let spelling = receipt.allocation_local.local_spelling in
+    let next =
+      if native_member_collides state (Some spelling) then
+        invalid_insertion state
+      else
+        {
+          state with
+          body_names = spelling :: state.body_names;
+          members = Option.map (( + ) 1) state.members;
+          header_size = Size_local (state.header_size, receipt);
+        }
+    in
+    advance_native record.native next;
+    record.latest_phase_event <- None;
+    record.phase_revision <- record.native.revision;
+    Ok ())
+
 let observe ?activation record event =
   let state = record.native.state in
   match event with
+  | Parser.Function_local_allocated receipt ->
+      observe_local_allocation record receipt
   | Parser.Function_body_completed (header, definition) ->
       if
         (not (event_belongs record event))
@@ -528,7 +622,10 @@ let observe ?activation record event =
       else (
         record.body <- Some definition;
         let members =
-          if Option.fold ~none:true ~some:body_preserves_members definition.body
+          if
+            Option.fold ~none:true
+              ~some:(body_preserves_members record.locals)
+              definition.body
           then state.members
           else None
         in
@@ -536,9 +633,12 @@ let observe ?activation record event =
           if Option.is_some state.unavailable then None else Some false
         in
         let header_size =
-          if Option.fold ~none:true ~some:body_preserves_members definition.body
+          if
+            Option.fold ~none:true
+              ~some:(body_preserves_members record.locals)
+              definition.body
           then state.header_size
-          else None
+          else Size_value None
         in
         advance_native record.native { state with extern; members; header_size };
         record.latest_phase_event <- None;
@@ -566,7 +666,7 @@ let observe ?activation record event =
             match event with
             | Parser.Function_parameter_declared source ->
                 let inserted = Concrete (member source) in
-                if member_collides state.slots (slot_name inserted) then
+                if native_member_collides state (slot_name inserted) then
                   invalid_insertion state
                 else
                   {
@@ -603,13 +703,13 @@ let observe ?activation record event =
             | Parser.Function_variadic_started _ ->
                 { state with ellipsis = true }
             | Parser.Function_variadic_completed source ->
-                if member_collides state.slots (Some "argc") then
+                if native_member_collides state (Some "argc") then
                   invalid_insertion state
                 else
                   let with_argc =
                     { state with slots = state.slots @ [ Argc source ] }
                   in
-                  if member_collides with_argc.slots (Some "argv") then
+                  if native_member_collides with_argc (Some "argv") then
                     invalid_insertion with_argc
                   else
                     {
@@ -635,13 +735,16 @@ let observe ?activation record event =
                   {
                     state with
                     arguments = state.members;
-                    header_size = Option.map (fun _ -> 0L) state.header_size;
+                    header_size =
+                      Size_value
+                        (if Option.is_some state.unavailable then None
+                         else Some 0L);
                   }
                 else
                   {
                     state with
                     arguments = state.members;
-                    header_size = None;
+                    header_size = Size_value None;
                     extern = None;
                     unavailable =
                       Some

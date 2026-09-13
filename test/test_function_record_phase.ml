@@ -7,7 +7,10 @@ module A = Holyc_lib__Sema.Source_activation
 let checked = Test_declaration_collection.checked
 
 let fixture ?(session = Session.create ()) ?(inspect = fun _ _ -> ())
-    ?(inspect_position = fun _ _ -> ()) source =
+    ?(inspect_position = fun _ _ -> ())
+    ?(allocate =
+      fun _ _ record receipt ->
+        N.observe_local_allocation record receipt |> checked) source =
   let table = Session.semantic_symbols session in
   let namespace = C.create_namespace ~table () |> checked in
   let registry =
@@ -24,6 +27,10 @@ let fixture ?(session = Session.create ()) ?(inspect = fun _ _ -> ())
     | Parser.Function_position_written receipt ->
         let record = List.assq receipt.position_function !records in
         inspect_position record event
+    | Parser.Function_local_allocated receipt ->
+        let record = List.assq receipt.allocation_function !records in
+        allocate table namespace record receipt;
+        inspect record event
     | _ ->
         List.iter
           (fun (_, record) ->
@@ -49,6 +56,102 @@ let fixture ?(session = Session.create ()) ?(inspect = fun _ _ -> ())
   in
   ignore (Test_parser.expect_ast parsed);
   (registry, List.rev !records, List.rev !samples)
+
+let original_local_allocations () =
+  let module R = Semantic_compiler_record in
+  let session = Session.create () in
+  let positions =
+    R.create_compiler_positions ~sources:(Session.sources session)
+  in
+  let foreign_session = Session.create () in
+  let foreign_positions =
+    R.create_compiler_positions ~sources:(Session.sources foreign_session)
+  in
+  let foreign_table = Session.semantic_symbols foreign_session in
+  let foreign_namespace =
+    C.create_namespace ~table:foreign_table () |> checked
+  in
+  let records = ref [] and saved = ref [] in
+  let reject label result =
+    Alcotest.(check bool) label true (Result.is_error result)
+  in
+  let allocate table namespace record receipt =
+    let capture ?(positions = positions) ?(table = table)
+        ?(namespace = namespace) record =
+      R.record_local_allocation ~table ~namespace ~dimensions:[] positions
+        record receipt
+    in
+    let before = N.snapshot record in
+    reject "foreign manager preflight"
+      (capture ~positions:foreign_positions record);
+    reject "foreign table preflight" (capture ~table:foreign_table record);
+    reject "foreign namespace preflight"
+      (capture ~namespace:foreign_namespace record);
+    List.iter
+      (fun other ->
+        if other != record then
+          reject "original allocation cannot borrow another native record"
+            (capture other))
+      !records;
+    Alcotest.(check bool)
+      "failed captures preserve the native revision" true
+      (N.snapshot record == before);
+    capture record |> checked;
+    Alcotest.(check bool)
+      "body allocation preserves the argument cursor" true
+      (N.same_cursor before (N.snapshot record));
+    reject "original allocation is single use" (capture record);
+    saved := (table, namespace, record, receipt) :: !saved
+  in
+  let inspect record = function
+    | Parser.Function_declared _ -> records := record :: !records
+    | _ -> ()
+  in
+  ignore
+    (fixture ~session ~allocate ~inspect
+       "extern I64 F();I64 F(){U8 a;I16 b;}I64 G(){U8 x;}");
+  Alcotest.(check int) "three original local allocations" 3 (List.length !saved);
+  List.iter
+    (fun (table, namespace, record, receipt) ->
+      reject "expired local cannot enter a fresh position registry"
+        (R.record_local_allocation ~table ~namespace ~dimensions:[]
+           (R.create_compiler_positions ~sources:(Session.sources session))
+           record receipt))
+    !saved
+
+let local_allocation_release () =
+  let saved = ref None in
+  let allocate _ _ record receipt =
+    saved := Some (record, receipt);
+    failwith "stop original allocation"
+  in
+  (try
+     ignore (fixture ~allocate "I64 F(){U8 a;}");
+     Alcotest.fail "allocation callback should stop parsing"
+   with Failure message ->
+     Alcotest.(check string)
+       "original callback exception" "stop original allocation" message);
+  let record, receipt = Option.get !saved in
+  Alcotest.(check bool)
+    "exception releases original local activity" false
+    (Parser.function_local_allocation_is_current receipt);
+  Alcotest.(check bool)
+    "expired allocation has no delayed native authority" true
+    (Result.is_error (N.observe_local_allocation record receipt));
+  let count = ref 0 in
+  let allocate _ _ record receipt =
+    incr count;
+    if !count = 2 then (
+      let before = N.snapshot record in
+      Alcotest.(check bool)
+        "skipped original predecessor cannot be repaired by a later local" true
+        (Result.is_error (N.observe_local_allocation record receipt));
+      Alcotest.(check bool)
+        "skipped-predecessor rejection preserves state" true
+        (N.snapshot record == before))
+  in
+  ignore (fixture ~allocate "I64 F(){U8 a;U8 b;}");
+  Alcotest.(check int) "both original allocation callbacks reached" 2 !count
 
 let original_header_positions () =
   let module R = Semantic_compiler_record in
@@ -102,7 +205,7 @@ let original_header_positions () =
          I64 z,);",
         List.map Option.some [ 0L; 0L; 0L; 0L; 8L ] );
       ( "extern I64 F();I64 F(I64 x, #exe {I64 F(){I64 local;};} I64 z);",
-        [ Some 0L; Some 0L; Some 0L; None ] );
+        [ Some 0L; Some 0L; Some 0L; Some 0L; None ] );
     ]
 
 let count label expected snapshot =
@@ -378,10 +481,10 @@ let unknown_body_members () =
   in
   let outer = N.snapshot (snd (List.hd records)) in
   Alcotest.(check (option int))
-    "body local prevents guessing resumed native count" None
+    "original body allocation contributes its native member count" (Some 3)
     (N.argument_count outer);
   Alcotest.(check bool)
-    "unmodeled body count cannot grant a call shape" true
+    "body members do not grant executable argument metadata" true
     (Result.is_error (N.call_shape outer))
 
 let activation_replay () =
@@ -493,6 +596,21 @@ let duplicate_native_members () =
     (List.length (fixed final))
 
 let nested_native_duplicates () =
+  List.iter
+    (fun parameter ->
+      let _, records, _ =
+        fixture
+          ("I64 F(I64 n,#exe {I64 F(){U8 " ^ parameter ^ ";}}I64 " ^ parameter
+         ^ ");")
+      in
+      let final = N.snapshot (snd (List.hd records)) in
+      Alcotest.(check (option int))
+        "resumed header checks original body member names" None
+        (N.member_count final);
+      Alcotest.(check bool)
+        "body member collision cannot grant callable metadata" true
+        (Result.is_error (N.call_shape final)))
+    [ "m"; "argc" ];
   let _, records, _ =
     fixture "I64 F(I64 n,#exe {extern I64 F(I64 m);}I64 m);"
   in
@@ -909,8 +1027,14 @@ let tests =
       `Quick sticky_flag_without_tail;
     Alcotest.test_case "missing native source phases reject successors" `Quick
       missing_events;
-    Alcotest.test_case "body locals make resumed native count unavailable"
-      `Quick unknown_body_members;
+    Alcotest.test_case
+      "body locals retain counts without granting argument metadata" `Quick
+      unknown_body_members;
+    Alcotest.test_case
+      "local allocations require original live source and ownership" `Quick
+      original_local_allocations;
+    Alcotest.test_case "local allocation exceptions release original authority"
+      `Quick local_allocation_release;
     Alcotest.test_case "original source activation updates native phases once"
       `Quick activation_replay;
     Alcotest.test_case "bound lifecycle requires separate executable evidence"

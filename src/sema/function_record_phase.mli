@@ -9,10 +9,28 @@ type call_emission_snapshot
 type implicit_arguments_snapshot
 type implicit_emission_snapshot
 
+(** Original native allocation history. Local byte sizes are resolved from
+    checked source evidence by Compiler_record, separately from call metadata.
+*)
+type size = private
+  | Size_value of int64 option
+  | Size_add of size * int64
+  | Size_local of size * Frontend.Parser.function_local_allocation
+
+val size_at :
+  t -> Frontend.Parser.function_position_write -> (size, string) result
+
+val local_allocation_is_next :
+  t -> Frontend.Parser.function_local_allocation -> bool
+
+val observe_local_allocation :
+  t -> Frontend.Parser.function_local_allocation -> (unit, string) result
+
 val position_at :
   t -> Frontend.Parser.function_position_write -> (int64 option, string) result
-(** Capture the live native size at its original parameter iteration. Unknown
-    body/frame state remains None; argument counts cannot replace this value. *)
+(** Read constant-only size history at its original live iteration. Local
+    allocation history returns None here and requires Compiler_record
+    resolution. Argument counts cannot replace this value. *)
 
 val capture_implicit_arguments :
   t ->

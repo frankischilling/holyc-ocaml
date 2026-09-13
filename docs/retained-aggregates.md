@@ -98,7 +98,7 @@ ledgers share these writes while keeping their namespaces separate.
 semicolon lookahead. Empty semicolons and consecutive offset directives remain
 inside the current iteration. Anonymous-union return resets it to the enclosing
 layout; final negative padding does not write the cell. Global declarations do
-not change it. Automatic-frame and unnamed callback writes still produce
+not change it. Unavailable frame layouts and unnamed callback writes produce
 `HCRUN0004` for a later offset read, preserving already reached output. Ordinary `$$` in a called
 function still means an instruction pointer and remains outside VM execution.
 
@@ -110,12 +110,38 @@ function size to zero after closing lookahead, without rewriting the compiler
 cell. A suspended reused header therefore reads the current native size, not
 eight times its original or current argument count.
 
-Each write identifies its original function and preceding parameter completion.
+Each write identifies its original function and preceding parameter completion
+or local allocation.
 Semantic capture validates the live receipt, shared source manager and exact
 native record. It reads the value internally and records the write once,
 including unavailable values. Capturing the cell does not mutate the function
-record or grant call authority. Completed bodies with automatic locals keep
-their size unavailable to a suspended header until frame writes are modeled.
+record or grant call authority.
+
+Named JIT local declarations write the current native size before consuming
+their type. Their original allocation receipts retain the local declaration,
+storage kind and preceding allocation. `PrsVarLst` (`Compiler/PrsVar.HC:526-528,
+590-618,701-724`) counts each member, then subtracts an automatic object's byte
+size and rounds downward to eight, four, two or one bytes according to that
+size. A static local leaves the automatic size unchanged. Comma-separated
+declarators remain in one iteration; the next declaration writes the new size.
+Initializer and delimiter lookahead can overwrite the shared cell independently
+of this allocation history. A nested replacement can also reset the actual
+native function record while an outer body is suspended.
+
+Primitive locals, pointers and arrays with original checked closed extents
+contribute their native sizes. Allocation-derived offset dependencies remain
+attached. Runtime-sized arrays and aggregate-valued locals leave the position
+unavailable; their runtime dimension and selected-layout dependencies need a
+separate extension. Local member counts are retained without granting callable
+parameter metadata. A resumed header that treats body members as arguments
+remains rejected. Unnamed callback and ordinary AOT record positions remain
+outside this path.
+
+`holyc run examples/stateful-exe-frame-positions.hc` returns I64 42 in both
+outer modes at 27 runtime steps, three preparation units and zero dimension
+work. It captures the position before a fifth automatic local after four
+different primitive allocations, then calls that retained function. Exact
+limits and both one-below failures are covered by the CLI suite.
 
 Unmodeled writes cannot reuse an earlier aggregate value.
 Empty semicolons do not begin a new iteration, and an undelimited final parameter

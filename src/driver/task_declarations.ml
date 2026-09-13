@@ -2272,6 +2272,28 @@ let observe ?offset_runtime ledger event =
                  body = None;
                })
             publication.function_entry
+      | Parser.Function_local_allocated receipt -> (
+          let publication = receipt.allocation_function in
+          validate_command ledger publication.function_header;
+          let span = publication.function_name.location.span in
+          if not (Parser.function_local_allocation_is_current receipt) then
+            fail span "local allocation is outside its original callback";
+          match (find ledger publication.function_name).source with
+          | Function state when state.publication == publication ->
+              Option.iter
+                (fun record ->
+                  let dimensions =
+                    match receipt.allocation_local.local_source with
+                    | Parser.Local_variable source ->
+                        selected_dimensions ledger source.local_array_dimensions
+                    | _ -> []
+                  in
+                  Sema.Compiler_record.record_local_allocation
+                    ~table:ledger.table ~namespace:ledger.namespace ~dimensions
+                    ledger.compiler_positions record receipt
+                  |> checked span)
+                state.native_record
+          | _ -> fail span "local allocation belongs to another declaration")
       | Parser.Function_position_written receipt -> (
           let publication = receipt.position_function in
           validate_command ledger publication.function_header;

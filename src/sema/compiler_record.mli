@@ -132,9 +132,10 @@ val create_compiler_positions :
   sources:Common.Source_manager.t -> compiler_positions
 (** Original shared compiler-cell writes for one source manager. Outer AOT and
     nested JIT ledgers share this registry while retaining separate namespaces.
-    Entries require live original aggregate or named JIT header phases; numeric
-    values cannot be supplied by callers. Automatic-frame and unnamed callback
-    writes remain unavailable. *)
+    Entries require live original aggregate or named JIT header/local phases;
+    numeric values cannot be supplied by callers. Runtime-sized and aggregate
+    frames, unnamed callback and ordinary AOT record writes remain unavailable.
+*)
 
 val compiler_positions_own_sources :
   compiler_positions -> Common.Source_manager.t -> bool
@@ -142,13 +143,27 @@ val compiler_positions_own_sources :
 val compiler_position_value : compiler_position -> int64
 val compiler_position_dependencies : compiler_position -> aggregate_offset list
 
+val record_local_allocation :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  dimensions:declared_dimension list ->
+  compiler_positions ->
+  Function_record_phase.t ->
+  Frontend.Parser.function_local_allocation ->
+  (unit, string) result
+(** Consume an original live local allocation after checking source manager,
+    table, namespace, function and predecessor. Checked dimensions retain their
+    original owner and order. Unsupported layouts are recorded as unavailable;
+    neither a byte size nor executable authority can be supplied by a caller. *)
+
 val record_function_position :
   compiler_positions ->
   Function_record_phase.t ->
   Frontend.Parser.function_position_write ->
   (unit, string) result
-(** Capture a named JIT function's original native header size. The record
-    supplies the value internally; this does not grant executable authority. *)
+(** Capture a named JIT function's original native header or local position. The
+    record supplies the value internally; this does not grant executable
+    authority. *)
 
 val aggregate_offset_namespace :
   aggregate_offset -> Declaration_collection.namespace

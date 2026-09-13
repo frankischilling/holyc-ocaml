@@ -612,10 +612,7 @@ let runtime_offset_failures () =
             "shared compiler-position guard was reached" true
             (String.ends_with ~suffix:"function/frame compiler-state writes"
                diagnostic.message))
-        [
-          {|1+ #exe {Print("A");I64 Noise(){I64 x;return 0;};} $$|};
-          {|N+ #exe {Print("A");I64 Noise(){I64 x,y;return 0;};} $$|};
-        ];
+        [ {|N+ #exe {Print("A");I64 Noise(){I64 x[N];I64 y;return 0;};} $$|} ];
       ignore
         (O.run ~mode {|#exe {class A {$$=1||1/0;};}|} |> O.fault "HCRUN0004");
       let eager =
@@ -748,8 +745,74 @@ let function_offset_positions () =
        {|class A {$$=1+ #exe {I64 Noise(I64 x,I64 y){return x;};} $$;};sizeof(A)+33;|}
     |> O.expect "")
 
+let local_offset_positions () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (body, expected) ->
+          ignore
+            (O.run ~mode
+               ("#exe {class A {$$=100+ #exe {I64 Noise(){" ^ body
+              ^ "return 0;};} $$;};StreamPrint(\"%d;\",sizeof(A)+Noise()-"
+               ^ string_of_int (58 + expected)
+               ^ ");}")
+            |> O.expect ""))
+        [
+          ("U8 a;", 0);
+          ("U8 a,b,c;", 0);
+          ("U8 a;U8 b;U8 c;", -2);
+          ("U8 a;U16 b;I32 c;I64 d;U8 e;", -16);
+          ("U8 a[3];U16 b[3];U8 c;", -12);
+          ("U8 a;static I64 b=0;U8 c;", -1);
+          ("U8 a;I64 *b;U8 c;", -16);
+          ("U8 a #exe {class Nested {$$=19;};};", 19);
+          ("U8 a #exe {class Nested {$$=19;};},b;", 19);
+          ("U8 a #exe {class Nested {$$=19;};};U8 b;", -1);
+          ("U8 #exe {class Nested {$$=19;};} a;", 19);
+          ("#exe {class Nested {$$=19;};} U8 a;", 0);
+          ("U8 a;{U16 b;}U8 c;", -4);
+          ("U8 a=1;I64 b=2;U8 c;", -16);
+        ])
+    Test_integer_globals.modes
+
+let reentrant_local_positions () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source -> ignore (O.run ~mode source |> O.expect ""))
+        [
+          {|#exe {extern I64 Noise();class A {$$=50+ #exe {I64 Noise(){U8 a;#exe {I64 Noise(){I64 x;return 0;};} U8 b;return 0;};} $$;};StreamPrint("%d;",sizeof(A));}|};
+        ])
+    Test_integer_globals.modes
+
+let local_position_dependencies () =
+  List.iter
+    (fun mode ->
+      ignore
+        (O.run ~mode
+           {|#exe {I64 N=3;class Bound {$$=N;};class A {$$=46+ #exe {I64 Noise(){U8 a[sizeof(Bound)];U8 b;return 0;};} $$;};StreamPrint("%d;",sizeof(A)+Noise());}|}
+        |> O.expect "");
+      let diagnostic =
+        O.run ~mode
+          {|#exe {extern I64 Noise();class A {$$=50+ #exe {extern I64 Noise(I64 x, #exe {I64 Noise(){I64 y;return 0;};} I64 z); } $$;};StreamPrint("%d;",sizeof(A));}|}
+        |> O.fault "HCRUN0004"
+      in
+      Alcotest.(check string)
+        "body members cannot replace callable parameter evidence"
+        "native argument count exceeds checked concrete member cursor"
+        diagnostic.message)
+    Test_integer_globals.modes
+
 let tests =
   [
+    Alcotest.test_case
+      "local declarations capture original downward allocation positions" `Quick
+      local_offset_positions;
+    Alcotest.test_case "reentrant bodies read actual native allocation history"
+      `Quick reentrant_local_positions;
+    Alcotest.test_case
+      "local positions retain layout dependencies and argument boundaries"
+      `Quick local_position_dependencies;
     Alcotest.test_case "named function iterations capture original native sizes"
       `Quick function_offset_positions;
     Alcotest.test_case "nested declarations share original compiler positions"
