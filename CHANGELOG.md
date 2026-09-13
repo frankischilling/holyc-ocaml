@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Function parameter iteration now invalidates unmodeled compiler-position
+  writes after delimiter lookahead. A nested aggregate inside a header cannot
+  supply a stale value to a later outer `$$` read. Empty semicolons and final
+  undelimited parameters preserve their distinct source boundaries.
+
 - Retained aggregate offsets now observe shared compiler-position writes from
   nested declarations. Each `$$` read keeps its original value and runtime
   dependencies, including across outer AOT and directive JIT namespaces. The

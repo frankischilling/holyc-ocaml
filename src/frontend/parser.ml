@@ -5285,9 +5285,19 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
                            else None);
                       })
 
-and parse_function_parameters ?default_owner cursor parameters_rev
-    empty_entries_rev tokens_rev ~function_pointer_depth :
+and parse_function_parameters ?default_owner ?(reset_position = true) cursor
+    parameters_rev empty_entries_rev tokens_rev ~function_pointer_depth :
     parsed_parameter_list option =
+  (* PrsVarLst writes the frame position after opening/delimiter lookahead,
+     before skipping empty semicolons. A nested aggregate cannot supply that
+     unmodeled frame write to a later outer offset read. *)
+  ignore (peek cursor);
+  if reset_position then
+    Option.iter
+      (fun command ->
+        command.command_context.context_compiler_position.position_source <-
+          None)
+      cursor.current_command;
   let parameter_completions () =
     match default_owner with
     | None -> []
@@ -5393,7 +5403,8 @@ and parse_function_parameters ?default_owner cursor parameters_rev
           ~preceding_parameter_count:(List.length parameters_rev)
           ~delimiter
       in
-      parse_function_parameters ?default_owner cursor parameters_rev
+      parse_function_parameters ?default_owner ~reset_position:false cursor
+        parameters_rev
         (empty_entry :: empty_entries_rev)
         (semicolon.token :: tokens_rev)
         ~function_pointer_depth
@@ -5417,8 +5428,10 @@ and parse_function_parameters ?default_owner cursor parameters_rev
       | Some parameter ->
           let tokens_rev = List.rev_append parameter.tokens tokens_rev in
           let parameters_rev = parameter.node :: parameters_rev in
-          parse_function_parameters ?default_owner cursor parameters_rev
-            empty_entries_rev tokens_rev ~function_pointer_depth)
+          parse_function_parameters ?default_owner
+            ~reset_position:(Option.is_some parameter.node.delimiter)
+            cursor parameters_rev empty_entries_rev tokens_rev
+            ~function_pointer_depth)
 
 let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
     ~binding ~type_item ~return_type (prefix : parsed_declarator_prefix) =

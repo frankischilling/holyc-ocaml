@@ -615,6 +615,9 @@ let runtime_offset_failures () =
         [
           {|N+ #exe {Print("A");I64 Noise(I64 x){return x;};} $$|};
           {|1+ #exe {Print("A");I64 Noise(){I64 x;return 0;};} $$|};
+          {|1+ #exe {Print("A");I64 Noise(I64 x #exe {class Nested {$$=50;};},I64 y){return 0;};} $$|};
+          {|N+ #exe {Print("A");I64 Noise(I64 x #exe {class Nested {$$=50;};};I64 y){return 0;};} $$|};
+          {|1+ #exe {Print("A");I64 Noise( #exe {class Nested {$$=50;};} I64 x){return 0;};} $$|};
         ];
       ignore
         (O.run ~mode {|#exe {class A {$$=1||1/0;};}|} |> O.fault "HCRUN0004");
@@ -697,6 +700,8 @@ let shared_offset_positions () =
           {|#exe {class A {$$=1+ #exe {class Noise {U8 h;union {$$=50;U8 y;}U8 t;};} $$;};StreamPrint("%d;",sizeof(A)-11);}|};
           {|#exe {class A {$$=1+ #exe {class Noise {$$=-8;U8 x;};} $$;};StreamPrint("%d;",sizeof(A)+42);}|};
           {|#exe {I64 N=50;class A {$$=1+ #exe {class Noise {$$=N;};} $$;};StreamPrint("%d;",sizeof(A)-9);}|};
+          {|#exe {class A {$$=1+ #exe {I64 Noise(I64 x #exe {class Nested {$$=50;};}){return 0;};} $$;};StreamPrint("%d;",sizeof(A)-9);}|};
+          {|#exe {class A {$$=1+ #exe {I64 Noise(I64 x;; #exe {class Nested {$$=50;};} I64 y){return 0;};} $$;};StreamPrint("%d;",sizeof(A)-9);}|};
         ])
     Test_integer_globals.modes;
   (* Outer AOT and directive JIT have separate namespaces but one compiler cell. *)
