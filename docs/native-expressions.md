@@ -8,6 +8,7 @@ can use the encoder but cannot execute its output through this bridge.
 ```text
 opam exec -- dune exec --root . -- bin/holyc.exe eval-native --format=json examples/native-integer-expression.hc
 opam exec -- dune exec --root . -- bin/holyc.exe eval-native --mode=aot --format=json examples/native-integer-expression.hc
+opam exec -- dune exec --root . -- bin/holyc.exe eval-native --format=json examples/native-integer-predicates.hc
 ```
 
 The fixture contains `(6*7);`. It lowers to five IR instructions and emits
@@ -18,24 +19,41 @@ success; it does not truncate the value into the process exit status.
 both execute the checked expression immediately. AOT mode does not produce an
 object, executable or TempleOS BIN file.
 
+The predicate fixture combines all six comparisons, logical NOT and arithmetic.
+It returns I64 42 in both modes from 38 IR instructions and 272 emitted bytes.
+Its 51 machine instructions use three registers and include the actual flag
+producers, condition-byte writes and full-width zero extension.
+
 ## Supported domain
 
 After preprocessing, the input must be exactly one ordinary expression
 statement. Parentheses and unary plus retain the existing lowering behavior.
 The native compiler admits internal I64/U64 literals, unary minus, bitwise
-complement, addition, subtraction, multiplication, bitwise AND, OR and XOR.
+complement, addition, subtraction, multiplication, bitwise AND, OR and XOR,
+the six comparisons (`==`, `!=`, `<`, `>=`, `>`, `<=`), and logical NOT (`!`).
 Arithmetic retains the low 64 bits. Declared result type and intermediate
 computation class remain distinct: complement returns I64 but may retain an
 unsigned computation class consumed by its parent operation.
+
+Each comparison returns I64 zero or one. Ordered comparisons use unsigned
+order when either operand has a forwarded U64 computation class; equality
+compares all 64 bits. For example, `(~0x8000000000000000)<-1` is true because
+the complement forwards U64. An ordinary parenthesized comparison produces
+its own I64 class for an enclosing operation. Logical NOT tests all 64 bits
+and preserves the operand's forwarded class: `!~0xFFFFFFFFFFFFFFFF` is U64 one.
 
 The verified IR must contain one entry block with no graph edges, zero flags,
 and exactly one final `IC_RETURN_VAL`, `IC_RET` pair. Every instruction is
 preflighted, including unused producers. Narrow/public primitive producers,
 conversions, floating point, pointers, memory, declarations, calls, branches,
-division, remainder, shifts and comparisons remain outside this native gate.
+division, remainder, shifts, binary logical operations and comparison chains
+remain outside this native gate.
 They receive diagnostics from their first unsupported source or IR stage.
 Raw division and shift interpretation remain available through `eval`;
 their native optimizer policies remain separate work in #585 and #574.
+Comparison chains retain their cumulative class and shared-middle-value
+requirements. Supporting individual comparisons does not admit `IC_AND_AND`
+or the conversions used by chain lowering.
 
 The allocator uses only RAX, RCX, RDX and R8 through R11, which are volatile
 in both supported host conventions. It reuses registers after their final
@@ -43,6 +61,13 @@ operand use and preserves shared/duplicate values. It rejects an expression
 requiring spills. There are no stack frames, stack arguments, saved-register
 prologues, relocations or host calls in the generated image. This leaf bridge
 does not establish a general HolyC calling convention implementation.
+
+Predicates read the input registers with CMP or TEST before a destination can
+overwrite either operand. SETcc consumes those flags without an intervening
+flag-changing instruction. MOVZX then normalizes all 64 result bits, including
+when the destination previously held a nonzero high byte or a high-bit value.
+The allocator can reuse either dying comparison input or select another free
+register while shared inputs remain live.
 
 ## API and limits
 
@@ -65,6 +90,8 @@ count before constructing its maps, then checks planned code size before
 allocating bytes. The five-instruction, 25-byte fixture succeeds at both
 exact limits; either corresponding one-below limit fails. These counts are
 compiler resource bounds, not measured CPU cycles or a native timeout.
+The `1<2;` fixture requires five IR instructions and 31 code bytes; `!0;`
+requires four and 21. Both have exact-limit and one-below API/CLI controls.
 
 | Diagnostic | Meaning |
 | --- | --- |
@@ -119,6 +146,14 @@ supplies the original multiplication context. This allocator and its
 two-operand multiplication are a hosted subset, not a reproduction of
 TempleOS's instruction selection or optimization pipeline.
 
+Issue #644 adds CMP (`OpCodes.DD:376`), TEST (`:461`), MOVZX (`:893`) and
+the signed/unsigned SETcc forms (`:981-994`). `BackB.HC:10-27` supplies the
+logical-NOT TEST/SETZ/MOVZX consumer. `BackB.HC:102-200` selects comparison
+order, and `OptPass012.HC:153-179,725-822` separates complement, NOT and
+comparison result classes. `OptLib.HC:103-122,171` supplies the forwarded
+operand classes. The hosted selector implements comparison results with
+CMP/SETcc/MOVZX while retaining the same zero/one and signedness rules.
+
 `test/test_native_expression.ml` runs under ordinary `dune runtest` without
 entering native code. It checks exact bytes, source/type rules, sharing,
 register pressure, immutable exports, malformed/dead instructions and
@@ -135,6 +170,11 @@ interpreter, including exact result types and all return bits. It repeats
 execution after mutating exported copies. The separate CLI suite exercises
 the checked-in fixture in both modes, full-width reporting, source and
 configuration failures, limits and the unchanged interpreter command.
+Predicate coverage adds a separate deterministic source generator, signed/
+unsigned boundary cases, complement forwarding, normalized high bits, all
+condition codes, extended byte registers and shared-input lifetimes. The
+maintained predicate fixture and small exact-byte CLI cases use the public
+command in both preprocessing modes.
 Success-path repetition does not establish injected OS-failure coverage.
 These tests execute the hosted encoder, not the TempleOS reference compiler.
 

@@ -8,6 +8,15 @@ the original multiplication paths. `Backend.X86_64_expression` retains
 `Sema.Integer_computation_class` rules while using its own bounded host-leaf
 allocator. Hosted differential execution is distinct from a TempleOS capture.
 
+Issue #644 extends that path with the six comparisons and logical NOT.
+`OpCodes.DD:376,461,893,981-994` provides CMP, TEST, MOVZX and SETcc forms.
+`BackB.HC:10-27,102-200` supplies the NOT normalization and comparison-order
+consumers. `OptLib.HC:103-122,171` and `OptPass012.HC:153-179,725-822`
+distinguish forwarded operand classes from each operation's result class.
+The native compiler compares both intact inputs before materializing its
+destination, requires I64 comparison results, and preserves U64 NOT results.
+The predicate fixture and ordinary/native/CLI suites cover these connections.
+
 [Narrow integers](integer-narrow.md) in #633 follow `BackLib.HC:281-309,509-534,
 550-572` for memory width/extension and register transport, and
 `OptPass789A.HC:710-717,779-782,1026-1030` for parameter entry and returns.

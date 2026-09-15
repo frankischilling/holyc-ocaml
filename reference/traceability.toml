@@ -11525,11 +11525,33 @@ status = "implemented"
 issue = 642
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 source_gate = "(6*7); in JIT and AOT preprocessing modes: five IR instructions, 25 code bytes, MOV/MOV/IMUL/RET, I64 42 in RAX and process exit zero"
-domain = "one verified entry block, internal I64/U64 only, zero flags, immediate/negation/complement/add/sub/mul/and/or/xor and exact final return pair; declared type and computation class retained separately"
+domain = "one verified entry block, internal I64/U64 only, zero flags, immediate/negation/complement/add/sub/mul/and/or/xor, six comparisons and logical NOT, with exact final return pair; declared type and computation class retained separately"
 registers = "RAX, RCX, RDX, R8, R9, R10, R11; deterministic last-use reuse, shared operands preserved, pressure beyond the leaf allocator rejected, no spills or frame"
 limits = "positive IR/code limits validated before parsing; maximum 100000 IR instructions and 16777216 emitted bytes; preflight before register allocation and code planning before byte allocation"
 execution = "opaque image and fresh exported copies; explicit native entry; RW copy then RX protection and cache synchronization; full uint64_t return, mapping released before OCaml allocation; Windows/Linux x86-64 only; Linux READ_IMPLIES_EXEC refused"
 reporting = "holyc-native-expression-v1 with implementation/reference revisions, host, mode, limits, complete machine bytes/counts, register peak, diagnostics and exact decimal/hex strings; existing eval/run unchanged"
 verification_boundary = "ordinary nonexecuting encoder tests; explicit native-tests API/CLI and 500 fixed-seed source comparisons against integer VM plus boundary/shared/repeated execution; injected OS failure paths remain untested"
-excluded = ["narrow/public integer producers", "division/remainder/shift/comparison semantics", "conversions and x87", "spills, frames, calls and general HolyC ABI", "branches and memory", "relocations and object/BIN emission", "arbitrary native bytes", "CPU timeout and native fault recovery", "actual TempleOS loader acceptance", "bootstrap"]
+excluded = ["narrow/public integer producers", "division/remainder/shift semantics", "binary logical operations and comparison chains", "conversions and x87", "spills, frames, calls and general HolyC ABI", "branches and memory", "relocations and object/BIN emission", "arbitrary native bytes", "CPU timeout and native fault recovery", "actual TempleOS loader acceptance", "bootstrap"]
 native_oracle_status = "hosted own-encoder execution and pinned-source audit; no new TempleOS compiler capture or optimizer parity claim"
+
+[[feature]]
+id = "HC-NATIVE-INTEGER-PREDICATES"
+description = "Six checked integer comparisons and logical NOT reach the own encoder and explicit hosted native execution."
+sources = [
+  "Compiler/OpCodes.DD:376,461,893,981-994 CMP/TEST/MOVZX/SETcc forms",
+  "Compiler/BackB.HC:10-27 logical NOT normalization,102-200 comparison order and result",
+  "Compiler/OptLib.HC:103-122,171 forwarded computation classes",
+  "Compiler/OptPass012.HC:153-179 complement/NOT,725-822 comparison result classes"
+]
+implementation = ["src/backend/x86_64_encoder.ml", "src/backend/x86_64_encoder.mli", "src/backend/x86_64_expression.ml", "src/backend/x86_64_expression.mli"]
+tests = ["test/test_native_expression.ml", "test/native/test_native_execution.ml", "test/native/test_native_cli.ml", "test/native/dune", "examples/native-integer-predicates.hc"]
+documentation = ["docs/native-expressions.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "REFERENCE_SOURCES.md", "ROADMAP.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 644
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "native-integer-predicates.hc combines all six relations, NOT and arithmetic; I64 42, 38 IR instructions, 272 code bytes, 51 machine instructions and three registers in JIT/AOT preprocessing modes"
+semantics = "ordered comparison uses both forwarded operand classes; any U64 selects unsigned order; comparison result is internal I64 zero/one; NOT preserves its forwarded I64/U64 operand class and tests all bits"
+allocation = "CMP/TEST precedes destination mutation; SETcc consumes live flags; MOVZX clears all high bits; either dying input may be reused while shared values stay intact"
+limits = "existing IR and byte budgets; exact 5 IR/31 bytes for 1<2 and 4 IR/21 bytes for !0, with one-below rejection before executable allocation"
+verification_boundary = "ordinary byte/source/type/liveness/rejection tests and explicit native differential/API/CLI tests; generated opcode facts, runtime bridge and report schema unchanged"
+excluded = ["binary logical operations and comparison chains", "casts and non-word producers", "division/remainder/shifts", "control-flow branches, frames, calls and memory", "optimizer parity and native TempleOS capture"]

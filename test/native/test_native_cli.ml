@@ -23,8 +23,9 @@ let with_file suffix contents action =
 
 let compiler =
   require
-    (Array.length Sys.argv = 3)
-    "usage: test_native_cli.exe <holyc.exe> <native-integer-expression.hc>";
+    (Array.length Sys.argv = 4)
+    "usage: test_native_cli.exe <holyc.exe> <native-integer-expression.hc> \
+     <native-integer-predicates.hc>";
   Sys.argv.(1)
 
 let invoke arguments =
@@ -331,6 +332,58 @@ let full_width_values () =
       ("0xFFFFFFFFFFFFFFFF;", "18446744073709551615");
     ]
 
+let predicate_values () =
+  List.iter
+    (fun mode ->
+      let report = native_json ~mode 0 Sys.argv.(3) in
+      check_success report;
+      check_word report "I64" "42" "0x000000000000002a";
+      let image = member "image" report in
+      require
+        (integer "ir_instructions" image = 38
+        && integer "byte_count" image = 272
+        && integer "machine_instructions" image = 51
+        && integer "register_peak" image = 3)
+        "predicate fixture must execute its arithmetic, six relations and NOT")
+    [ "jit"; "aot" ];
+  List.iter
+    (fun (text, type_, decimal, bits) ->
+      with_file ".hc" text (fun source ->
+          List.iter
+            (fun mode ->
+              let report = native_json ~mode 0 source in
+              check_success report;
+              check_word report type_ decimal bits)
+            [ "jit"; "aot" ]))
+    [
+      ("-1<0;", "I64", "1", "0x0000000000000001");
+      ("-1>=0;", "I64", "0", "0x0000000000000000");
+      ("-1>0;", "I64", "0", "0x0000000000000000");
+      ("-1<=0;", "I64", "1", "0x0000000000000001");
+      ("0xFFFFFFFFFFFFFFFF==-1;", "I64", "1", "0x0000000000000001");
+      ("0xFFFFFFFFFFFFFFFF!=-1;", "I64", "0", "0x0000000000000000");
+      ("(~0x8000000000000000)<-1;", "I64", "1", "0x0000000000000001");
+      ("(~0x8000000000000000)>-1;", "I64", "0", "0x0000000000000000");
+      ("(0xFFFFFFFFFFFFFFFF>1)<-1;", "I64", "0", "0x0000000000000000");
+      ("(0x7FFFFFFFFFFFFFFF+1)<0;", "I64", "1", "0x0000000000000001");
+      ("!0x100000000;", "I64", "0", "0x0000000000000000");
+      ("!0x8000000000000000;", "U64", "0", "0x0000000000000000");
+      ("!~0xFFFFFFFFFFFFFFFF;", "U64", "1", "0x0000000000000001");
+      ("!!0x8000000000000000;", "U64", "1", "0x0000000000000001");
+      ( "(!0xFFFFFFFFFFFFFFFF)+0xFFFFFFFFFFFFFFFF;",
+        "U64",
+        "18446744073709551615",
+        "0xffffffffffffffff" );
+      ( "(0xFFFFFFFFFFFFFFFF==0xFFFFFFFFFFFFFFFF)*0x8000000000000000;",
+        "U64",
+        "9223372036854775808",
+        "0x8000000000000000" );
+      ( "(0xFFFFFFFFFFFFFFFF!=0xFFFFFFFFFFFFFFFF)*0x8000000000000000;",
+        "U64",
+        "0",
+        "0x0000000000000000" );
+    ]
+
 let check_diagnostic ~source ~code report =
   require
     (member "command_error" report = `Null)
@@ -378,7 +431,12 @@ let unsupported_sources () =
       ("7%2;", "HCBACK0002");
       ("1<<2;", "HCBACK0002");
       ("8>>1;", "HCBACK0002");
-      ("1<2;", "HCBACK0002");
+      ("1&&2;", "HCBACK0002");
+      ("1||2;", "HCBACK0002");
+      ("1^^2;", "HCBACK0002");
+      ("1<2<3;", "HCBACK0002");
+      ("(~0x8000000000000000)>0>-1;", "HCBACK0002");
+      ("!1.0;", "HCBACK0002");
       ("(6*);", "HCPARSE0018");
       ("6*7", "HCPARSE0047");
     ];
@@ -432,6 +490,51 @@ let budgets () =
           check_multiply maximum;
           check_limits maximum 100000 16777216)
         [ "jit"; "aot" ])
+
+let predicate_budgets () =
+  List.iter
+    (fun (text, hex, ir, bytes, machine, peak) ->
+      with_file ".hc" text (fun source ->
+          List.iter
+            (fun mode ->
+              let options ir bytes =
+                [
+                  "--ir-instruction-limit=" ^ string_of_int ir;
+                  "--code-byte-limit=" ^ string_of_int bytes;
+                ]
+              in
+              let report =
+                native_json ~mode ~options:(options ir bytes) 0 source
+              in
+              check_success report;
+              check_limits report ir bytes;
+              check_word report "I64" "1" "0x0000000000000001";
+              let image = member "image" report in
+              require
+                (string "bytes_hex" image = hex
+                && integer "byte_count" image = bytes
+                && integer "ir_instructions" image = ir
+                && integer "machine_instructions" image = machine
+                && integer "register_peak" image = peak)
+                "predicate image must retain its flag producer, SETcc and MOVZX";
+              List.iter
+                (fun (ir, bytes, code) ->
+                  let report =
+                    native_json ~mode ~options:(options ir bytes) 1 source
+                  in
+                  check_limits report ir bytes;
+                  ignore (check_diagnostic ~source ~code report))
+                [ (ir - 1, bytes, "HCBACK0001"); (ir, bytes - 1, "HCBACK0005") ])
+            [ "jit"; "aot" ]))
+    [
+      ( "1<2;",
+        "48b8010000000000000048b902000000000000004839c80f9cc0480fb6c0c3",
+        5,
+        31,
+        6,
+        2 );
+      ("!0;", "48b800000000000000004885c00f94c0480fb6c0c3", 4, 21, 5, 1);
+    ]
 
 let check_command_error report code fragment =
   require
@@ -588,8 +691,10 @@ let existing_eval_contract () =
 let () =
   multiplication_and_modes ();
   full_width_values ();
+  predicate_values ();
   unsupported_sources ();
   budgets ();
+  predicate_budgets ();
   invalid_configuration ();
   invalid_options ();
   existing_eval_contract ()

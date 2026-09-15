@@ -3,12 +3,17 @@ module Facts = Generated.Opcode_keywords
 type register = Rax | Rcx | Rdx | R8 | R9 | R10 | R11
 type unary = Neg | Not
 type binary = Add | Sub | Imul | And | Or | Xor
+type condition = E | NE | L | GE | G | LE | B | AE | A | BE
 
 type instruction =
   | Mov_imm64 of register * int64
   | Mov of register * register
   | Unary of unary * register
   | Binary of binary * register * register
+  | Cmp of register * register
+  | Test of register
+  | Setcc of condition * register
+  | Movzx8 of register * register
   | Ret
 
 let registers = [ Rax; Rcx; Rdx; R8; R9; R10; R11 ]
@@ -61,7 +66,32 @@ let multiply = source_form "IMUL2" 694
 let bitwise_and = source_form "AND" 353
 let bitwise_or = source_form "OR" 399
 let bitwise_xor = source_form "XOR" 501
+let compare = source_form "CMP" 376
+let test = source_form "TEST" 461
+let movzx_byte = source_form "MOVZX" 893
+let set_equal = source_form "SETE" 983
+let set_not_equal = source_form "SETNE" 984
+let set_less = source_form "SETL" 991
+let set_greater_equal = source_form "SETGE" 992
+let set_greater = source_form "SETG" 994
+let set_less_equal = source_form "SETLE" 993
+let set_below = source_form "SETB" 981
+let set_above_equal = source_form "SETAE" 982
+let set_above = source_form "SETA" 986
+let set_below_equal = source_form "SETBE" 985
 let return = source_form "RET" 961
+
+let condition_form = function
+  | E -> set_equal
+  | NE -> set_not_equal
+  | L -> set_less
+  | GE -> set_greater_equal
+  | G -> set_greater
+  | LE -> set_less_equal
+  | B -> set_below
+  | AE -> set_above_equal
+  | A -> set_above
+  | BE -> set_below_equal
 
 let form = function
   | Mov_imm64 _ -> mov_immediate
@@ -74,13 +104,20 @@ let form = function
   | Binary (And, _, _) -> bitwise_and
   | Binary (Or, _, _) -> bitwise_or
   | Binary (Xor, _, _) -> bitwise_xor
+  | Cmp _ -> compare
+  | Test _ -> test
+  | Setcc (condition, _) -> condition_form condition
+  | Movzx8 _ -> movzx_byte
   | Ret -> return
 
 let size instruction =
   let opcode_bytes = List.length (form instruction).opcode_bytes in
   match instruction with
   | Mov_imm64 _ -> opcode_bytes + 1 + 8
-  | Mov _ | Unary _ | Binary _ -> opcode_bytes + 1 + 1
+  | Mov _ | Unary _ | Binary _ | Cmp _ | Test _ | Movzx8 _ ->
+      opcode_bytes + 1 + 1
+  | Setcc (_, destination) ->
+      opcode_bytes + 1 + if register_number destination < 8 then 0 else 1
   | Ret -> opcode_bytes
 
 let write buffer position instruction =
@@ -122,6 +159,23 @@ let write buffer position instruction =
       modrm ~reg:(register_number destination) ~rm:(register_number source)
   | Binary (_, destination, source) ->
       modrm ~reg:(register_number source) ~rm:(register_number destination)
+  | Cmp (left, right) ->
+      (* CMP RM64,R64 sets flags for left-right without changing either input. *)
+      modrm ~reg:(register_number right) ~rm:(register_number left)
+  | Test register ->
+      let register = register_number register in
+      modrm ~reg:register ~rm:register
+  | Setcc (_, destination) ->
+      let destination = register_number destination in
+      (* SETcc takes RM8, not a slash-group extension. Its generated slash
+         value is SV_NONE; the ModR/M reg field is zero. Asm.HC:484-502
+         supplies REX.B for extended byte registers. AL/CL/DL need no prefix. *)
+      if destination >= 8 then byte 0x41;
+      opcodes ();
+      byte (0xc0 lor (destination land 7))
+  | Movzx8 (destination, source) ->
+      (* MOVZX R64,RM8 reads only the source byte and clears all higher bits. *)
+      modrm ~reg:(register_number destination) ~rm:(register_number source)
   | Ret -> opcodes ()
 
 let encode instruction =

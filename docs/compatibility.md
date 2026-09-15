@@ -6,6 +6,10 @@ execution. The register-only internal I64/U64 subset preserves all return bits
 and rejects unsupported operations before executable allocation. This is a
 bounded hosted native gate; it does not complete the HolyC ABI, optimizer,
 assembler, object/BIN writer, loader or bootstrap.
+Issue #644 extends that subset with six I64/U64 comparisons and logical NOT.
+Comparisons return I64 zero/one using the original operand computation classes;
+NOT retains the operand's forwarded I64/U64 class. Binary logical operations
+and comparison chains remain rejected by the native compiler.
 
 [Narrow integer execution](integer-narrow.md) in #633 adds I8/I16/U16/I32/U32
 storage, fixed arrays, references, canonical updates and numeric signatures.

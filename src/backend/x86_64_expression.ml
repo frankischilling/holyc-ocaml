@@ -68,6 +68,8 @@ type operation =
   | Load_immediate of value * int64
   | Apply_unary of Encoder.unary * value * value
   | Apply_binary of Encoder.binary * value * value * value
+  | Apply_comparison of Encoder.condition * value * value * value
+  | Apply_logical_not of value * value
   | Return_value of value
   | Return
 
@@ -80,6 +82,8 @@ type kind =
   | Immediate_kind
   | Unary_kind of Encoder.unary
   | Binary_kind of Encoder.binary
+  | Comparison_kind of Encoder.condition * Encoder.condition
+  | Logical_not_kind
   | Return_value_kind
   | Return_kind
 
@@ -87,12 +91,19 @@ let opcode_kind = function
   | Opcode.Ic_imm_i64 -> Some Immediate_kind
   | Opcode.Ic_unary_minus -> Some (Unary_kind Encoder.Neg)
   | Opcode.Ic_com -> Some (Unary_kind Encoder.Not)
+  | Opcode.Ic_not -> Some Logical_not_kind
   | Opcode.Ic_add -> Some (Binary_kind Encoder.Add)
   | Opcode.Ic_sub -> Some (Binary_kind Encoder.Sub)
   | Opcode.Ic_mul -> Some (Binary_kind Encoder.Imul)
   | Opcode.Ic_and -> Some (Binary_kind Encoder.And)
   | Opcode.Ic_or -> Some (Binary_kind Encoder.Or)
   | Opcode.Ic_xor -> Some (Binary_kind Encoder.Xor)
+  | Opcode.Ic_equ_equ -> Some (Comparison_kind (Encoder.E, Encoder.E))
+  | Opcode.Ic_not_equ -> Some (Comparison_kind (Encoder.NE, Encoder.NE))
+  | Opcode.Ic_less -> Some (Comparison_kind (Encoder.L, Encoder.B))
+  | Opcode.Ic_greater_equ -> Some (Comparison_kind (Encoder.GE, Encoder.AE))
+  | Opcode.Ic_greater -> Some (Comparison_kind (Encoder.G, Encoder.A))
+  | Opcode.Ic_less_equ -> Some (Comparison_kind (Encoder.LE, Encoder.BE))
   | Opcode.Ic_return_val -> Some Return_value_kind
   | Opcode.Ic_ret -> Some Return_kind
   | _ -> None
@@ -209,7 +220,11 @@ let preflight ~count instructions =
         | Return_value_kind | Return_kind ->
             malformed description
               "return instructions must be the exact terminal pair"
-        | Immediate_kind | Unary_kind _ | Binary_kind _ -> ()
+        | Immediate_kind
+        | Unary_kind _
+        | Binary_kind _
+        | Comparison_kind _
+        | Logical_not_kind -> ()
       else if position = count - 2 then (
         if kind <> Return_value_kind then
           malformed description "penultimate instruction must be IC_RETURN_VAL")
@@ -257,6 +272,16 @@ let preflight ~count instructions =
               define description position result target_type computation_type
             in
             Apply_unary (unary, input, result)
+        | Logical_not_kind, ([ operand_id ], Some result, Some target_type, None)
+          ->
+            let _ = checked_word description target_type in
+            let input = operand description position operand_id in
+            let computation_type = Computation.forward input.computation_type in
+            require_type description computation_type target_type;
+            let result =
+              define description position result target_type computation_type
+            in
+            Apply_logical_not (input, result)
         | ( Binary_kind binary,
             ([ left_id; right_id ], Some result, Some target_type, None) ) ->
             let _ = checked_word description target_type in
@@ -270,6 +295,27 @@ let preflight ~count instructions =
                 (Computation.forward target_type)
             in
             Apply_binary (binary, left, right, result)
+        | ( Comparison_kind (signed, unsigned),
+            ([ left_id; right_id ], Some result, Some target_type, None) ) ->
+            if checked_word description target_type <> I64 then
+              malformed description "comparison must declare internal I64";
+            let left = operand description position left_id in
+            let right = operand description position right_id in
+            (* COM may declare I64 while forwarding U64. Select the condition
+               from the operand computation classes before the comparison
+               produces its independent I64 Boolean result. *)
+            let condition =
+              match
+                checked_word description (promoted_type description left right)
+              with
+              | I64 -> signed
+              | U64 -> unsigned
+            in
+            let result =
+              define description position result target_type
+                (Computation.forward target_type)
+            in
+            Apply_comparison (condition, left, right, result)
         | Return_value_kind, ([ operand_id ], None, Some target_type, None) ->
             let word = checked_word description target_type in
             let input = operand description position operand_id in
@@ -386,6 +432,26 @@ let allocate ~max_code_bytes prepared =
           else (
             emit (Encoder.Mov (target, registers.(left)));
             emit (Encoder.Binary (binary, target, registers.(right))));
+          assign position destination result
+      | Apply_comparison (condition, left, right, result) ->
+          let left = locate instruction.span left in
+          let right = locate instruction.span right in
+          let destination = first_fit instruction.span position in
+          let target = registers.(destination) in
+          (* Both values are still intact when CMP produces the flags. Only
+             then may SETcc overwrite a dying input, including the right one.
+             MOVZX clears every stale bit above the selected low byte. *)
+          emit (Encoder.Cmp (registers.(left), registers.(right)));
+          emit (Encoder.Setcc (condition, target));
+          emit (Encoder.Movzx8 (target, target));
+          assign position destination result
+      | Apply_logical_not (input, result) ->
+          let source = locate instruction.span input in
+          let destination = first_fit instruction.span position in
+          let target = registers.(destination) in
+          emit (Encoder.Test registers.(source));
+          emit (Encoder.Setcc (Encoder.E, target));
+          emit (Encoder.Movzx8 (target, target));
           assign position destination result
       | Return_value input ->
           let source = locate instruction.span input in

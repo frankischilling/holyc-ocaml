@@ -164,12 +164,38 @@ let decoded_mnemonics code =
     if not (List.mem number [ 0; 1; 2; 8; 9; 10; 11 ]) then
       Alcotest.failf "native code uses nonvolatile or stack register %d" number
   in
+  let setcc = function
+    | 0x92 -> "setb"
+    | 0x93 -> "setae"
+    | 0x94 -> "sete"
+    | 0x95 -> "setne"
+    | 0x96 -> "setbe"
+    | 0x97 -> "seta"
+    | 0x9c -> "setl"
+    | 0x9d -> "setge"
+    | 0x9e -> "setle"
+    | 0x9f -> "setg"
+    | opcode -> Alcotest.failf "unsupported SETcc opcode 0x%02x" opcode
+  in
   let rec decode offset reversed =
     if offset = length then List.rev reversed
     else if byte offset = 0xc3 then (
       Alcotest.(check int)
         "RET is the last machine instruction" length (offset + 1);
       List.rev ("ret" :: reversed))
+    else if byte offset = 0x0f || byte offset = 0x41 then (
+      (* Only SETcc omits REX.W. Low registers need no prefix; the extended
+         low-byte registers need REX.B alone, never a high-byte register. *)
+      let extended = byte offset = 0x41 in
+      let opcode_offset = offset + if extended then 1 else 0 in
+      Alcotest.(check int)
+        "byte-result opcode starts with 0F" 0x0f (byte opcode_offset);
+      let mnemonic = setcc (byte (opcode_offset + 1)) in
+      let modrm = byte (opcode_offset + 2) in
+      Alcotest.(check int) "SETcc addresses a register" 3 (modrm lsr 6);
+      Alcotest.(check int) "SETcc retains the /0 field" 0 ((modrm lsr 3) land 7);
+      register ((modrm land 7) + if extended then 8 else 0);
+      decode (opcode_offset + 3) (mnemonic :: reversed))
     else
       let rex = byte offset in
       if not (List.mem rex [ 0x48; 0x49; 0x4c; 0x4d ]) then
@@ -196,12 +222,13 @@ let decoded_mnemonics code =
               | 2 -> "not"
               | 3 -> "neg"
               | _ -> Alcotest.fail "unexpected unary opcode extension")
-          | 0x0f ->
+          | 0x0f -> (
               register reg;
-              Alcotest.(check int)
-                "two-byte opcode is IMUL" 0xaf
-                (byte (offset + 2));
-              "imul"
+              match byte (offset + 2) with
+              | 0xaf -> "imul"
+              | 0xb6 -> "movzx8"
+              | opcode ->
+                  Alcotest.failf "unsupported two-byte opcode 0x%02x" opcode)
           | opcode -> (
               register reg;
               match opcode with
@@ -211,6 +238,11 @@ let decoded_mnemonics code =
               | 0x21 | 0x23 -> "and"
               | 0x09 | 0x0b -> "or"
               | 0x31 | 0x33 -> "xor"
+              | 0x39 | 0x3b -> "cmp"
+              | 0x85 ->
+                  Alcotest.(check int)
+                    "TEST reads the same register twice" rm reg;
+                  "test"
               | _ -> Alcotest.failf "unsupported emitted opcode 0x%02x" opcode)
         in
         decode (modrm_offset + 1) (mnemonic :: reversed)
@@ -390,6 +422,216 @@ let pressure_graph count =
   single
     (definitions @ reduce count 0 (List.init (count - 1) (fun id -> id + 1)))
 
+let high_register_predicate_graph () =
+  (* RAX through R9 remain live. The first comparison can reuse only R11,
+     the second only R10, and the third consumes R11 twice. NOT then reuses
+     R10. Each Boolean must discard all stale upper bits in that register. *)
+  single
+    [
+      imm 0 Int64.min_int;
+      imm 1 11L;
+      imm 2 13L;
+      imm 3 17L;
+      imm 4 19L;
+      imm 5 23L;
+      imm 6 Int64.max_int;
+      binary 7 Opcode.Ic_less 0 6;
+      binary 8 Opcode.Ic_greater 7 5;
+      binary 9 Opcode.Ic_equ_equ 7 7;
+      unary 10 Opcode.Ic_not 8;
+      binary 11 Opcode.Ic_add 9 10;
+      binary 12 Opcode.Ic_add 11 0;
+      binary 13 Opcode.Ic_add 12 1;
+      binary 14 Opcode.Ic_add 13 2;
+      binary 15 Opcode.Ic_add 14 3;
+      binary 16 Opcode.Ic_add 15 4;
+      return_value 17 16;
+      ret 18;
+    ]
+
+let predicate_shared_cases () =
+  [
+    ( "comparison reuses its left input while the right remains live",
+      single
+        [
+          imm 0 Int64.min_int;
+          imm 1 7L;
+          binary 2 Opcode.Ic_less 0 1;
+          binary 3 Opcode.Ic_add 1 2;
+          return_value 4 3;
+          ret 5;
+        ],
+      8L );
+    ( "comparison reuses its right input without reversing CMP",
+      single
+        [
+          imm 0 Int64.min_int;
+          imm 1 7L;
+          binary 2 Opcode.Ic_less 0 1;
+          binary 3 Opcode.Ic_add 0 2;
+          return_value 4 3;
+          ret 5;
+        ],
+      Int64.add Int64.min_int 1L );
+    ( "comparison needs a fresh destination while both inputs remain live",
+      single
+        [
+          imm 0 0x1234567800000100L;
+          imm 1 0x1234567800000101L;
+          binary 2 Opcode.Ic_less 0 1;
+          binary 3 Opcode.Ic_sub 1 0;
+          binary 4 Opcode.Ic_add 2 3;
+          return_value 5 4;
+          ret 6;
+        ],
+      2L );
+    ( "fresh comparison destination clears an expired register's upper bits",
+      single
+        [
+          imm 0 Int64.min_int;
+          imm 1 20L;
+          imm 2 21L;
+          unary 3 Opcode.Ic_unary_minus 0;
+          binary 4 Opcode.Ic_less 1 2;
+          binary 5 Opcode.Ic_add 1 2;
+          binary 6 Opcode.Ic_add 4 5;
+          return_value 7 6;
+          ret 8;
+        ],
+      42L );
+    ( "duplicate comparison inputs die together",
+      single
+        [
+          imm 0 Int64.min_int;
+          binary 1 Opcode.Ic_less_equ 0 0;
+          return_value 2 1;
+          ret 3;
+        ],
+      1L );
+    ( "duplicate comparison inputs retain their later use",
+      single
+        [
+          imm 0 Int64.min_int;
+          binary 1 Opcode.Ic_equ_equ 0 0;
+          binary 2 Opcode.Ic_sub 1 0;
+          return_value 3 2;
+          ret 4;
+        ],
+      Int64.add Int64.min_int 1L );
+    ( "logical NOT tests all input bits and preserves a shared input",
+      single
+        [
+          imm 0 0x1234000000000000L;
+          unary 1 Opcode.Ic_not 0;
+          binary 2 Opcode.Ic_sub 0 1;
+          return_value 3 2;
+          ret 4;
+        ],
+      0x1234000000000000L );
+    ( "logical NOT preserves a shared zero input",
+      single
+        [
+          imm 0 0L;
+          unary 1 Opcode.Ic_not 0;
+          binary 2 Opcode.Ic_sub 0 1;
+          return_value 3 2;
+          ret 4;
+        ],
+      -1L );
+    ( "predicates reuse R11 and R10 at full pressure",
+      high_register_predicate_graph (),
+      Int64.add Int64.min_int 62L );
+  ]
+
+let predicate_pressure_graph ~logical_not count =
+  let definitions =
+    List.init count (fun id -> imm id (Int64.of_int (id + 1)))
+  in
+  let predicate =
+    if logical_not then unary count Opcode.Ic_not 0
+    else binary count Opcode.Ic_less 0 1
+  in
+  let rec reduce next accumulator = function
+    | [] -> [ return_value next accumulator; ret (next + 1) ]
+    | operand :: rest ->
+        binary next Opcode.Ic_add accumulator operand
+        :: reduce (next + 1) next rest
+  in
+  single
+    (definitions
+    @ (predicate :: reduce (count + 1) count (List.init count Fun.id)))
+
+let predicate_class_cases () =
+  [
+    ( "comparison of U64 words returns independent I64",
+      single
+        [
+          imm ~type_:u64 0 Int64.min_int;
+          imm ~type_:u64 1 (-1L);
+          binary 2 Opcode.Ic_less 0 1;
+          return_value 3 2;
+          ret 4;
+        ],
+      Native.I64 );
+    ( "COM forwards U64 into comparison despite its I64 declaration",
+      single
+        [
+          imm ~type_:u64 0 Int64.min_int;
+          unary 1 Opcode.Ic_com 0;
+          imm 2 (-1L);
+          binary 3 Opcode.Ic_less 1 2;
+          return_value 4 3;
+          ret 5;
+        ],
+      Native.I64 );
+    ( "comparison output resets downstream arithmetic to I64",
+      single
+        [
+          imm ~type_:u64 0 Int64.min_int;
+          imm 1 0L;
+          binary 2 Opcode.Ic_greater 0 1;
+          imm 3 (-2L);
+          binary 4 Opcode.Ic_add 2 3;
+          imm 5 0L;
+          binary 6 Opcode.Ic_less 4 5;
+          return_value 7 6;
+          ret 8;
+        ],
+      Native.I64 );
+    ( "logical NOT retains U64",
+      single
+        [
+          imm ~type_:u64 0 Int64.min_int;
+          unary ~type_:u64 1 Opcode.Ic_not 0;
+          return_value ~type_:u64 2 1;
+          ret 3;
+        ],
+      Native.U64 );
+    ( "logical NOT uses COM's forwarded U64 rather than its declared I64",
+      single
+        [
+          imm ~type_:u64 0 (-1L);
+          unary 1 Opcode.Ic_com 0;
+          unary ~type_:u64 2 Opcode.Ic_not 1;
+          imm 3 (-1L);
+          binary ~type_:u64 4 Opcode.Ic_add 2 3;
+          return_value ~type_:u64 5 4;
+          ret 6;
+        ],
+      Native.U64 );
+    ( "logical NOT of comparison output is I64",
+      single
+        [
+          imm ~type_:u64 0 Int64.min_int;
+          imm 1 0L;
+          binary 2 Opcode.Ic_less 0 1;
+          unary 3 Opcode.Ic_not 2;
+          return_value 4 3;
+          ret 5;
+        ],
+      Native.I64 );
+  ]
+
 let encoder_extended_register_bytes () =
   (* Literal bytes are independent of the encoder and generated tables. The
      forms come from pinned OpCodes.DD; Asm.HC:580-638 supplies REX.R/B and
@@ -468,6 +710,460 @@ let encoder_extended_register_bytes () =
         "batch byte exhaustion has a diagnostic" true (message <> "")
   | Ok _ ->
       Alcotest.fail "batch encoding accepted one byte below its exact bound"
+
+let encoder_predicate_bytes () =
+  (* Opcode bytes and ModRM fields are literal expectations from pinned
+     OpCodes.DD:376,461,893,981-994, independent of the generated tables. *)
+  let cases =
+    let open Encoder in
+    let full_width =
+      [
+        ("CMP RAX,RCX", Cmp (Rax, Rcx), "4839c8");
+        ("CMP RCX,RAX", Cmp (Rcx, Rax), "4839c1");
+        ("CMP R8,RAX", Cmp (R8, Rax), "4939c0");
+        ("CMP RAX,R8", Cmp (Rax, R8), "4c39c0");
+        ("CMP R10,R11", Cmp (R10, R11), "4d39da");
+        ("CMP R11,R10", Cmp (R11, R10), "4d39d3");
+        ("CMP R11,R11", Cmp (R11, R11), "4d39db");
+        ("TEST RAX", Test Rax, "4885c0");
+        ("TEST RCX", Test Rcx, "4885c9");
+        ("TEST RDX", Test Rdx, "4885d2");
+        ("TEST R8", Test R8, "4d85c0");
+        ("TEST R9", Test R9, "4d85c9");
+        ("TEST R10", Test R10, "4d85d2");
+        ("TEST R11", Test R11, "4d85db");
+        ("MOVZX RAX,AL", Movzx8 (Rax, Rax), "480fb6c0");
+        ("MOVZX RCX,CL", Movzx8 (Rcx, Rcx), "480fb6c9");
+        ("MOVZX RDX,DL", Movzx8 (Rdx, Rdx), "480fb6d2");
+        ("MOVZX R8,R8B", Movzx8 (R8, R8), "4d0fb6c0");
+        ("MOVZX R9,R9B", Movzx8 (R9, R9), "4d0fb6c9");
+        ("MOVZX R10,R10B", Movzx8 (R10, R10), "4d0fb6d2");
+        ("MOVZX R11,R11B", Movzx8 (R11, R11), "4d0fb6db");
+        ("MOVZX R8,AL", Movzx8 (R8, Rax), "4c0fb6c0");
+        ("MOVZX RAX,R8B", Movzx8 (Rax, R8), "490fb6c0");
+        ("MOVZX R10,R11B", Movzx8 (R10, R11), "4d0fb6d3");
+        ("MOVZX R11,R10B", Movzx8 (R11, R10), "4d0fb6da");
+      ]
+    in
+    let conditions =
+      [
+        (E, "E", "94");
+        (NE, "NE", "95");
+        (L, "L", "9c");
+        (GE, "GE", "9d");
+        (G, "G", "9f");
+        (LE, "LE", "9e");
+        (B, "B", "92");
+        (AE, "AE", "93");
+        (A, "A", "97");
+        (BE, "BE", "96");
+      ]
+    in
+    let destinations =
+      [
+        (Rax, "AL", "", "c0");
+        (Rcx, "CL", "", "c1");
+        (Rdx, "DL", "", "c2");
+        (R8, "R8B", "41", "c0");
+        (R9, "R9B", "41", "c1");
+        (R10, "R10B", "41", "c2");
+        (R11, "R11B", "41", "c3");
+      ]
+    in
+    full_width
+    @ List.concat_map
+        (fun (condition, name, opcode) ->
+          List.map
+            (fun (destination, register, prefix, modrm) ->
+              ( "SET" ^ name ^ " " ^ register,
+                Setcc (condition, destination),
+                prefix ^ "0f" ^ opcode ^ modrm ))
+            destinations)
+        conditions
+  in
+  List.iter
+    (fun (label, instruction, expected) ->
+      Alcotest.(check string) label expected (hex (Encoder.encode instruction));
+      Alcotest.(check int)
+        (label ^ " exact byte count")
+        (String.length expected / 2)
+        (Encoder.size instruction))
+    cases;
+  let instructions =
+    List.map (fun (_, instruction, _) -> instruction) cases @ [ Encoder.Ret ]
+  in
+  let expected =
+    String.concat "" (List.map (fun (_, _, bytes) -> bytes) cases) ^ "c3"
+  in
+  let bytes = String.length expected / 2 in
+  let encoded =
+    Encoder.encode_all ~max_code_bytes:bytes instructions |> require_ok Fun.id
+  in
+  Alcotest.(check string)
+    "mixed-width predicate instructions fit their exact bound" expected
+    (hex encoded);
+  Alcotest.(check int)
+    "decoder retains all predicate instruction boundaries"
+    (List.length instructions)
+    (List.length (decoded_mnemonics encoded));
+  match Encoder.encode_all ~max_code_bytes:(bytes - 1) instructions with
+  | Error message ->
+      Alcotest.(check bool)
+        "predicate batch exhaustion has a diagnostic" true (message <> "")
+  | Ok _ -> Alcotest.fail "predicate batch accepted an insufficient byte quota"
+
+let predicate_bytes () =
+  let comparisons =
+    [
+      ("==", "94");
+      ("!=", "95");
+      ("<", "9c");
+      (">=", "9d");
+      (">", "9f");
+      ("<=", "9e");
+    ]
+  in
+  let signed =
+    List.map
+      (fun (operator, condition) ->
+        ( "1" ^ operator ^ "2;",
+          "48b8010000000000000048b902000000000000004839c80f" ^ condition
+          ^ "c0480fb6c0c3",
+          5,
+          6,
+          2,
+          Native.I64 ))
+      comparisons
+  in
+  let unsigned =
+    List.map
+      (fun (operator, condition) ->
+        ( "0x8000000000000000" ^ operator ^ "0;",
+          "48b8000000000000008048b900000000000000004839c80f" ^ condition
+          ^ "c0480fb6c0c3",
+          5,
+          6,
+          2,
+          Native.I64 ))
+      [ ("<", "92"); (">=", "93"); (">", "97"); ("<=", "96") ]
+  in
+  let cases =
+    signed @ unsigned
+    @ [
+        ( "!0;",
+          "48b800000000000000004885c00f94c0480fb6c0c3",
+          4,
+          5,
+          1,
+          Native.I64 );
+        ( "!0x8000000000000000;",
+          "48b800000000000000804885c00f94c0480fb6c0c3",
+          4,
+          5,
+          1,
+          Native.U64 );
+      ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (source, expected, ir, machine, peak, expected_type) ->
+          let checked = source_graph ~mode source in
+          let compiled = image checked in
+          inspect_image checked compiled;
+          Alcotest.(check string)
+            (source ^ " exact machine code")
+            expected
+            (hex (Native.code compiled));
+          Alcotest.(check int)
+            (source ^ " IR count") ir
+            (Native.ir_instructions compiled);
+          Alcotest.(check int)
+            (source ^ " machine count")
+            machine
+            (Native.machine_instructions compiled);
+          Alcotest.(check int)
+            (source ^ " register peak")
+            peak
+            (Native.register_peak compiled);
+          Alcotest.(check string)
+            (source ^ " declared result")
+            (type_name expected_type)
+            (type_name (Native.value_type compiled)))
+        cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let predicate_source_types () =
+  let cases =
+    [
+      ("(~0x8000000000000000)<-1;", Native.I64, [ "setb" ]);
+      ("-1>(~0x8000000000000000);", Native.I64, [ "seta" ]);
+      ("((0x8000000000000000>0)-2)<0;", Native.I64, [ "seta"; "setl" ]);
+      ("(0x8000000000000000>0)+41;", Native.I64, [ "seta" ]);
+      ("!(~0x8000000000000000);", Native.U64, [ "sete" ]);
+      ("!!0x8000000000000000;", Native.U64, [ "sete"; "sete" ]);
+      ("(!0x8000000000000000)+(-1);", Native.U64, [ "sete" ]);
+      ("!(0x8000000000000000<0);", Native.I64, [ "setb"; "sete" ]);
+      ("!(0-1);", Native.I64, [ "sete" ]);
+      ("#define HIGH 0x8000000000000000\n!(~HIGH);", Native.U64, [ "sete" ]);
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (source, expected_type, conditions) ->
+          let checked = source_graph ~mode source in
+          let compiled = image checked in
+          inspect_image checked compiled;
+          Alcotest.(check string)
+            (source ^ " result class") (type_name expected_type)
+            (type_name (Native.value_type compiled));
+          Alcotest.(check (list string))
+            (source ^ " selected conditions")
+            conditions
+            (decoded_mnemonics (Native.code compiled)
+            |> List.filter (String.starts_with ~prefix:"set")))
+        cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  List.iter
+    (fun (label, checked, expected_type) ->
+      let compiled = image checked in
+      inspect_image checked compiled;
+      Alcotest.(check string)
+        label (type_name expected_type)
+        (type_name (Native.value_type compiled)))
+    (predicate_class_cases ())
+
+let predicate_shared_allocation () =
+  List.iter
+    (fun (_, checked, _) -> inspect_image checked (image checked))
+    (predicate_shared_cases ());
+  let checked = high_register_predicate_graph () in
+  let compiled = image checked in
+  let expected =
+    String.concat ""
+      [
+        "48b80000000000000080";
+        "48b90b00000000000000";
+        "48ba0d00000000000000";
+        "49b81100000000000000";
+        "49b91300000000000000";
+        "49ba1700000000000000";
+        "49bbffffffffffffff7f";
+        "4c39d8410f9cc34d0fb6db";
+        "4d39d3410f9fc24d0fb6d2";
+        "4d39db410f94c34d0fb6db";
+        "4d85d2410f94c24d0fb6d2";
+        "4d01da";
+        "4c01d0";
+        "4801c8";
+        "4801d0";
+        "4c01c0";
+        "4c01c8";
+        "c3";
+      ]
+  in
+  Alcotest.(check string)
+    "R10/R11 predicates read original operands before SETcc and MOVZX" expected
+    (hex (Native.code compiled));
+  Alcotest.(check int)
+    "predicate DAG uses all seven volatile registers" 7
+    (Native.register_peak compiled);
+  Alcotest.(check int)
+    "predicate DAG IR count" 19
+    (Native.ir_instructions compiled);
+  Alcotest.(check int)
+    "predicate DAG machine count" 26
+    (Native.machine_instructions compiled);
+  Alcotest.(check int)
+    "predicate DAG code bytes" 133
+    (String.length (Native.code compiled))
+
+let predicate_limits () =
+  List.iter
+    (fun (label, checked, ir, bytes) ->
+      let exact =
+        compile ~max_ir_instructions:ir ~max_code_bytes:bytes checked
+        |> require_ok native_errors
+      in
+      Alcotest.(check int)
+        (label ^ " exact byte limit")
+        bytes
+        (String.length (Native.code exact));
+      Alcotest.(check int)
+        (label ^ " exact IR limit")
+        ir
+        (Native.ir_instructions exact);
+      ignore
+        (compile ~max_ir_instructions:(ir - 1) ~max_code_bytes:bytes checked
+        |> reject ~code:"HCBACK0001" (label ^ " one fewer IR instruction"));
+      ignore
+        (compile ~max_ir_instructions:ir ~max_code_bytes:(bytes - 1) checked
+        |> reject ~code:"HCBACK0005" (label ^ " one fewer encoded byte"));
+      Alcotest.(check string)
+        (label ^ " failure leaves compilation reusable")
+        (Native.code exact)
+        (Native.code (image checked)))
+    [
+      ("comparison", source_graph "1<2;", 5, 31);
+      ("logical NOT", source_graph "!0x8000000000000000;", 4, 21);
+      ("extended-register DAG", high_register_predicate_graph (), 19, 133);
+    ];
+  List.iter
+    (fun logical_not ->
+      let label = if logical_not then "logical NOT" else "comparison" in
+      let checked = predicate_pressure_graph ~logical_not 6 in
+      let compiled = image checked in
+      inspect_image checked compiled;
+      Alcotest.(check int)
+        (label ^ " fresh result uses the seventh register")
+        7
+        (Native.register_peak compiled);
+      let errors =
+        compile (predicate_pressure_graph ~logical_not 7)
+        |> reject ~code:"HCBACK0004"
+             (label ^ " fresh result needs an eighth register")
+      in
+      Alcotest.(check bool)
+        (label ^ " pressure failure is at the predicate")
+        true
+        (List.exists
+           (fun (error : Native.error) -> error.span = Some (fixture_span 7))
+           errors))
+    [ false; true ]
+
+let predicate_malformed () =
+  let comparisons =
+    [
+      Opcode.Ic_equ_equ;
+      Opcode.Ic_not_equ;
+      Opcode.Ic_less;
+      Opcode.Ic_greater_equ;
+      Opcode.Ic_greater;
+      Opcode.Ic_less_equ;
+    ]
+  in
+  List.iter
+    (fun opcode ->
+      let checked =
+        single
+          [
+            imm ~type_:u64 0 Int64.min_int;
+            imm 1 0L;
+            binary ~type_:u64 2 opcode 0 1;
+            return_value ~type_:u64 3 2;
+            ret 4;
+          ]
+      in
+      let errors =
+        compile checked
+        |> reject ~code:"HCBACK0003"
+             (Opcode.to_source_name opcode ^ " declares U64")
+      in
+      Alcotest.(check bool)
+        "wrong comparison type identifies the producer" true
+        (List.exists
+           (fun (error : Native.error) -> error.span = Some (fixture_span 2))
+           errors))
+    comparisons;
+  let malformed =
+    [
+      ( "NOT on U64 incorrectly declares I64",
+        single
+          [
+            imm ~type_:u64 0 0L;
+            unary 1 Opcode.Ic_not 0;
+            return_value 2 1;
+            ret 3;
+          ] );
+      ( "NOT on I64 incorrectly declares U64",
+        single
+          [
+            imm 0 0L;
+            unary ~type_:u64 1 Opcode.Ic_not 0;
+            return_value ~type_:u64 2 1;
+            ret 3;
+          ] );
+      ( "NOT loses COM's forwarded U64",
+        single
+          [
+            imm ~type_:u64 0 (-1L);
+            unary 1 Opcode.Ic_com 0;
+            unary 2 Opcode.Ic_not 1;
+            return_value 3 2;
+            ret 4;
+          ] );
+      ( "comparison input class leaks into later arithmetic",
+        single
+          [
+            imm ~type_:u64 0 Int64.min_int;
+            imm 1 0L;
+            binary 2 Opcode.Ic_greater 0 1;
+            imm 3 41L;
+            binary ~type_:u64 4 Opcode.Ic_add 2 3;
+            return_value ~type_:u64 5 4;
+            ret 6;
+          ] );
+      ( "NOT of a comparison incorrectly retains its unsigned input class",
+        single
+          [
+            imm ~type_:u64 0 Int64.min_int;
+            imm 1 0L;
+            binary 2 Opcode.Ic_less 0 1;
+            unary ~type_:u64 3 Opcode.Ic_not 2;
+            return_value ~type_:u64 4 3;
+            ret 5;
+          ] );
+      ( "unused comparison has an extra payload",
+        single
+          [
+            imm 0 1L;
+            imm 1 2L;
+            description ~operands:[ 0; 1 ] ~result:2 ~target_type:i64
+              ~payload:(Sequence.Integer 7L) 2 Opcode.Ic_less;
+            return_value 3 0;
+            ret 4;
+          ] );
+      ( "unused NOT has an extra payload",
+        single
+          [
+            imm 0 1L;
+            description ~operands:[ 0 ] ~result:1 ~target_type:i64
+              ~payload:(Sequence.Integer 7L) 1 Opcode.Ic_not;
+            return_value 2 0;
+            ret 3;
+          ] );
+    ]
+  in
+  List.iter
+    (fun (label, checked) ->
+      ignore
+        (compile ~max_code_bytes:1 checked |> reject ~code:"HCBACK0003" label))
+    malformed
+
+let predicate_rejections () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source ->
+          let checked = source_graph ~mode source in
+          let errors = compile checked |> reject ~code:"HCBACK0002" source in
+          Alcotest.(check bool)
+            (source ^ " retains its source diagnostic")
+            true
+            (List.exists
+               (fun (error : Native.error) -> Option.is_some error.span)
+               errors))
+        [
+          "1&&0;";
+          "1||0;";
+          "1^^0;";
+          "1<2<3;";
+          "(~0x8000000000000000)>0>-1;";
+          "42(I64);";
+          "0x8000000000000000(U64);";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let high_register_shared_bytes () =
   let checked = high_register_shared_graph () in
@@ -762,7 +1458,7 @@ let unsupported_source () =
         (List.exists
            (fun (error : Native.error) -> Option.is_some error.span)
            errors))
-    [ "1/0;"; "7%3;"; "1<<2;"; "1==2;"; "!0;"; "1&&0;"; "1.0;" ];
+    [ "1/0;"; "7%3;"; "1<<2;"; "1&&0;"; "1.0;" ];
   List.iter
     (fun type_ ->
       ignore
@@ -986,4 +1682,18 @@ let tests =
       `Quick malformed_graphs;
     Alcotest.test_case "declared and computational type relationships reject"
       `Quick invalid_type_relationships;
+    Alcotest.test_case "predicate encoder condition and byte-register goldens"
+      `Quick encoder_predicate_bytes;
+    Alcotest.test_case "six source comparisons and NOT emit exact bytes" `Quick
+      predicate_bytes;
+    Alcotest.test_case "predicate source classes and COM forwarding" `Quick
+      predicate_source_types;
+    Alcotest.test_case "predicate aliases, duplicates and extended registers"
+      `Quick predicate_shared_allocation;
+    Alcotest.test_case "predicate exact byte, IR and fresh-register limits"
+      `Quick predicate_limits;
+    Alcotest.test_case "predicate type and dead-producer preflight failures"
+      `Quick predicate_malformed;
+    Alcotest.test_case "binary logical, chains and casts remain unsupported"
+      `Quick predicate_rejections;
   ]

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Extended `eval-native` with all six integer comparisons and logical NOT.
+  Ordered conditions preserve operand computation classes, including unsigned
+  complement results; NOT retains I64/U64 result identity. CMP/TEST, SETcc and
+  MOVZX produce complete zero/one words without destroying shared inputs.
+  Added the public predicate fixture, byte/liveness/limit controls and separate
+  native differential coverage. Binary logical operations and comparison chains
+  remain outside the native subset.
+
 - Added `eval-native` and the public native-expression API for internal I64/U64
   literals, negation, complement, addition, subtraction, multiplication and
   bitwise operations. The OCaml encoder emits the original verified expression
