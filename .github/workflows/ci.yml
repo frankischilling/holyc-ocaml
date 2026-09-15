@@ -31,14 +31,10 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Set up OCaml
-        uses: ocaml/setup-ocaml@e89b2ded52a6e13f50162220cf5fe47290162032 # v3
+      - name: Prepare OCaml dependencies
+        uses: ./.github/actions/setup-ocaml
         with:
           ocaml-compiler: ${{ matrix.ocaml-compiler }}
-          dune-cache: true
-
-      - name: Install dependencies
-        run: opam install . --deps-only --with-test --with-dev-setup
 
       - name: Check formatting
         run: opam exec -- dune build @fmt

@@ -26,17 +26,14 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Set up OCaml
-        uses: ocaml/setup-ocaml@e89b2ded52a6e13f50162220cf5fe47290162032 # v3
+      - name: Prepare OCaml dependencies
+        uses: ./.github/actions/setup-ocaml
         with:
           ocaml-compiler: 5.3.x
-          dune-cache: true
-
-      - name: Install dependencies
-        run: opam install . --deps-only --with-test --with-dev-setup
+          dependency-profile: corpus
 
       - name: Build the corpus command
-        run: opam exec -- dune build @all
+        run: opam exec -- dune build bin/holyc.exe
 
       - name: Verify the pinned reference
         shell: pwsh
@@ -85,17 +82,14 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      - name: Set up OCaml
-        uses: ocaml/setup-ocaml@e89b2ded52a6e13f50162220cf5fe47290162032 # v3
+      - name: Prepare OCaml dependencies
+        uses: ./.github/actions/setup-ocaml
         with:
           ocaml-compiler: 5.3.x
-          dune-cache: true
-
-      - name: Install dependencies
-        run: opam install . --deps-only --with-test --with-dev-setup
+          dependency-profile: corpus
 
       - name: Build the corpus command
-        run: opam exec -- dune build @all
+        run: opam exec -- dune build bin/holyc.exe
 
       - name: Verify the pinned reference
         shell: pwsh
