@@ -58,3 +58,6 @@ jobs:
 
       - name: Build package artifacts
         run: opam exec -- dune build @install
+
+      - name: Trim Dune cache
+        run: opam exec -- dune cache trim --size=1GB

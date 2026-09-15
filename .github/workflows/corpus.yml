@@ -46,14 +46,14 @@ jobs:
         id: json
         continue-on-error: true
         run: >-
-          opam exec -- dune exec holyc -- corpus lex --format=json
+          opam exec -- ./_build/default/bin/holyc.exe corpus lex --format=json
           --reference-root=third_party/TempleOS > corpus-results/lexer.json
 
       - name: Write the human report
         id: human
         continue-on-error: true
         run: >-
-          opam exec -- dune exec holyc -- corpus lex
+          opam exec -- ./_build/default/bin/holyc.exe corpus lex
           --reference-root=third_party/TempleOS > corpus-results/lexer.txt
 
       - name: Upload corpus results
@@ -70,6 +70,9 @@ jobs:
         run: >-
           test "${{ steps.json.outcome }}" = "success" &&
           test "${{ steps.human.outcome }}" = "success"
+
+      - name: Trim Dune cache
+        run: opam exec -- dune cache trim --size=1GB
 
   parser:
     name: Parser corpus
@@ -102,7 +105,7 @@ jobs:
         id: json
         continue-on-error: true
         run: >-
-          opam exec -- dune exec holyc -- corpus parse --format=json --mode=aot
+          opam exec -- ./_build/default/bin/holyc.exe corpus parse --format=json --mode=aot
           --reference-commit=c26482bb6ad3f80106d28504ec5db3c6a360732c
           --reference-root=third_party/TempleOS > corpus-results/parser-aot.json
 
@@ -110,7 +113,7 @@ jobs:
         id: human
         continue-on-error: true
         run: >-
-          opam exec -- dune exec holyc -- corpus parse --mode=aot
+          opam exec -- ./_build/default/bin/holyc.exe corpus parse --mode=aot
           --reference-commit=c26482bb6ad3f80106d28504ec5db3c6a360732c
           --reference-root=third_party/TempleOS > corpus-results/parser-aot.txt
 
@@ -134,3 +137,6 @@ jobs:
           test "${{ steps.json.outcome }}" = "success" &&
           test "${{ steps.human.outcome }}" = "success" &&
           test "${{ steps.baseline.outcome }}" = "success"
+
+      - name: Trim Dune cache
+        run: opam exec -- dune cache trim --size=1GB

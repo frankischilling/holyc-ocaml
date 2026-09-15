@@ -230,8 +230,10 @@ There is no fallback to an older week's dependency switch.
 
 Dune build results have a separate cache with compiler and dependency identity
 and the source revision. They use `enabled-except-user-rules`, so custom checks
-still run. The provenance probe explicitly tests both cache modes. Corpus jobs
-install the CLI dependencies and build `bin/holyc.exe`; the two CI compiler jobs
+still run. Each successful job trims cached build artifacts to 1 GB before saving;
+cache metadata is additional. The provenance probe explicitly tests both cache
+modes. Corpus jobs install the CLI dependencies, build `bin/holyc.exe`, and run
+that executable directly for each report. The two CI compiler jobs
 retain formatting, generated-source, reference, provenance, full build, test,
 and package-artifact checks. Both corpus report formats, uploads, and the parser
 baseline comparison remain required.
