@@ -8,8 +8,11 @@ bounded hosted native gate; it does not complete the HolyC ABI, optimizer,
 assembler, object/BIN writer, loader or bootstrap.
 Issue #644 extends that subset with six I64/U64 comparisons and logical NOT.
 Comparisons return I64 zero/one using the original operand computation classes;
-NOT retains the operand's forwarded I64/U64 class. Binary logical operations
-and comparison chains remain rejected by the native compiler.
+NOT retains the operand's forwarded I64/U64 class. Issue #646 adds eager binary
+logical values and ordinary comparison chains with internal full-word views.
+The shared chain lowerer now preserves COM's forwarded unsigned class at every
+link. Conditional and multiple-pending-reduction chains (#593), broader casts
+and non-word producers remain unsupported by the native compiler.
 
 [Narrow integer execution](integer-narrow.md) in #633 adds I8/I16/U16/I32/U32
 storage, fixed arrays, references, canonical updates and numeric signatures.

@@ -38,6 +38,10 @@ The #644 predicate extension consumes `OpCodes.DD:376,461,893,981-994`,
 `BackB.HC:10-27,102-200`, `OptLib.HC:103-122,171`, and
 `OptPass012.HC:153-179,725-822` for comparison/NOT encodings and computation
 classes. It retains the existing reference pin and generated tables.
+Issue #646 reuses those forms for eager logical values, following
+`BackB.HC:30-100` and `OptPass012.HC:693-722`. The chain correction follows
+`OptLib.HC:103-122,171` and `OptPass012.HC:141-161,809-822`; internal word views
+follow `OptPass012.HC:87-110`. No new reference pin or native capture is implied.
 
 The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, include and definition frames, the six standard predefined values and their date and time formats, constant `#if` and `#assert` evaluation, help directives and source-linked help symbols, JIT/AOT and symbol conditional selection, path resolution, preprocessor documentation, diagnostics, character bitmaps, statement-position output literals and their runtime prototypes, structural switch and sub-switch statements, brace-delimited assembly blocks and labels, function-local operand-free direct assembly, function-wide language and assembly-label identity, function signature type resolution, closed aggregate byte layout, aggregate member metadata, global array dimensions, parenthesized and parenthesis-free calls, omitted argument slots, bracket index expressions, direct and pointer member expressions, the complete register and opcode database, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, the complete intermediate-code definition and metadata tables, and the TempleOS BIN header and patch records. Parser, optimizer, kernel, loader, assembler, and backend reads establish how the original compiler consumes those fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links. The manifest verifies 73 individually audited Git blobs and identifies the full pinned tree used by the 528-file lexer and parser corpus reports.
 

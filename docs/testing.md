@@ -11,6 +11,13 @@ Issue #644 adds a separate deterministic predicate generator, all six relations
 and NOT across signed/unsigned boundaries, shared registers, byte-register REX
 goldens, complete zero extension and exact/one-below budgets. The public CLI
 also executes `examples/native-integer-predicates.hc` in both modes.
+Issue #646 adds logical truth tables with high-only and disjoint nonzero bits,
+independent chain expectations, full-width word views and scratch-register
+pressure. Its public `examples/native-integer-logical.hc` fixture runs in both
+modes. `comparison chains` also checks COM's cumulative unsigned class, exact
+view counts, budgets and unchanged producer identity; function-call regressions
+exercise the same lowerer. The native tests retain explicit unsupported-source
+controls for #593 and for rejected operations in either logical operand.
 
 The `source narrow integers` groups cover #633's eight gates, all five width/
 signedness families, fourteen update opcodes, signed string copies, ABI slots,

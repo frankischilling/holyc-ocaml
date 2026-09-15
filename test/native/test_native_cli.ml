@@ -23,9 +23,9 @@ let with_file suffix contents action =
 
 let compiler =
   require
-    (Array.length Sys.argv = 4)
+    (Array.length Sys.argv = 5)
     "usage: test_native_cli.exe <holyc.exe> <native-integer-expression.hc> \
-     <native-integer-predicates.hc>";
+     <native-integer-predicates.hc> <native-integer-logical.hc>";
   Sys.argv.(1)
 
 let invoke arguments =
@@ -384,6 +384,56 @@ let predicate_values () =
         "0x0000000000000000" );
     ]
 
+let logical_values () =
+  List.iter
+    (fun mode ->
+      let report = native_json ~mode 0 Sys.argv.(4) in
+      check_success report;
+      check_word report "I64" "42" "0x000000000000002a";
+      let image = member "image" report in
+      require
+        (integer "ir_instructions" image = 61
+        && integer "byte_count" image = 562
+        && integer "machine_instructions" image = 120
+        && integer "register_peak" image = 4)
+        "logical fixture must execute its operands, normalization and chain \
+         links";
+      let stdout, stderr =
+        checked_invoke 0 [ "eval-native"; "--mode=" ^ mode; Sys.argv.(4) ]
+      in
+      require
+        (String.trim stdout = "42" && stderr = "")
+        "logical fixture returns 42 through the public native command")
+    [ "jit"; "aot" ];
+  List.iter
+    (fun (text, expected) ->
+      with_file ".hc" text (fun source ->
+          List.iter
+            (fun mode ->
+              let report = native_json ~mode 0 source in
+              check_success report;
+              check_word report "I64" (string_of_int expected)
+                (Printf.sprintf "0x%016x" expected))
+            [ "jit"; "aot" ]))
+    [
+      ("2&&4;", 1);
+      ("2^^4;", 0);
+      ("0||256;", 1);
+      ("0^^0x100000000;", 1);
+      ("0x8000000000000000&&0xFFFFFFFFFFFFFFFF;", 1);
+      ("0x8000000000000000^^0xFFFFFFFFFFFFFFFF;", 0);
+      ("!((0x8000000000000000&&1)-1);", 1);
+      ("((0x8000000000000000&&1)-2)<0;", 1);
+      ("1<2<3;", 1);
+      ("3<2<1;", 0);
+      ("(3<2)<1;", 1);
+      ("(~0x8000000000000000)>0>-1;", 0);
+      ("(~0x8000000000000000)>0<-1;", 1);
+      ("~0x8000000000000000 < -1 < 0;", 0);
+      ("0<1<(~0x8000000000000000)>0>-1;", 0);
+      ("((~0x8000000000000000)>0)>-1;", 1);
+    ]
+
 let check_diagnostic ~source ~code report =
   require
     (member "command_error" report = `Null)
@@ -431,11 +481,11 @@ let unsupported_sources () =
       ("7%2;", "HCBACK0002");
       ("1<<2;", "HCBACK0002");
       ("8>>1;", "HCBACK0002");
-      ("1&&2;", "HCBACK0002");
-      ("1||2;", "HCBACK0002");
-      ("1^^2;", "HCBACK0002");
-      ("1<2<3;", "HCBACK0002");
-      ("(~0x8000000000000000)>0>-1;", "HCBACK0002");
+      ("0&&(1/0);", "HCBACK0002");
+      ("1||(1/0);", "HCBACK0002");
+      ("1^^(1<<2);", "HCBACK0002");
+      ("1==2<3==1;", "HCEVAL0002");
+      ("1!=2>=3!=1;", "HCEVAL0002");
       ("!1.0;", "HCBACK0002");
       ("(6*);", "HCPARSE0018");
       ("6*7", "HCPARSE0047");
@@ -491,7 +541,7 @@ let budgets () =
           check_limits maximum 100000 16777216)
         [ "jit"; "aot" ])
 
-let predicate_budgets () =
+let exact_image_budgets () =
   List.iter
     (fun (text, hex, ir, bytes, machine, peak) ->
       with_file ".hc" text (fun source ->
@@ -516,7 +566,8 @@ let predicate_budgets () =
                 && integer "ir_instructions" image = ir
                 && integer "machine_instructions" image = machine
                 && integer "register_peak" image = peak)
-                "predicate image must retain its flag producer, SETcc and MOVZX";
+                "Boolean image must retain its flag producers and full-word \
+                 results";
               List.iter
                 (fun (ir, bytes, code) ->
                   let report =
@@ -534,6 +585,24 @@ let predicate_budgets () =
         6,
         2 );
       ("!0;", "48b800000000000000004885c00f94c0480fb6c0c3", 4, 21, 5, 1);
+      ( "2&&4;",
+        "48b8020000000000000048b904000000000000004885c00f95c0480fb6c04885c90f95c1480fb6c94821c8c3",
+        5,
+        44,
+        10,
+        2 );
+      ( "2||4;",
+        "48b8020000000000000048b904000000000000004885c00f95c0480fb6c04885c90f95c1480fb6c94809c8c3",
+        5,
+        44,
+        10,
+        2 );
+      ( "0^^4;",
+        "48b8000000000000000048b904000000000000004885c00f95c0480fb6c04885c90f95c1480fb6c94831c8c3",
+        5,
+        44,
+        10,
+        2 );
     ]
 
 let check_command_error report code fragment =
@@ -674,6 +743,9 @@ let existing_eval_contract () =
       ("0xFFFFFFFFFFFFFFFF;", "U64", "18446744073709551615", 3);
       ("6/2;", "I64", "3", 5);
       ("1<<2;", "I64", "4", 5);
+      ("2&&4;", "I64", "1", 5);
+      ("2^^4;", "I64", "0", 5);
+      ("(~0x8000000000000000)>0>-1;", "I64", "0", 11);
     ];
   List.iter
     (fun (text, code) ->
@@ -692,9 +764,10 @@ let () =
   multiplication_and_modes ();
   full_width_values ();
   predicate_values ();
+  logical_values ();
   unsupported_sources ();
   budgets ();
-  predicate_budgets ();
+  exact_image_budgets ();
   invalid_configuration ();
   invalid_options ();
   existing_eval_contract ()

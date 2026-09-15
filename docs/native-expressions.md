@@ -9,6 +9,7 @@ can use the encoder but cannot execute its output through this bridge.
 opam exec -- dune exec --root . -- bin/holyc.exe eval-native --format=json examples/native-integer-expression.hc
 opam exec -- dune exec --root . -- bin/holyc.exe eval-native --mode=aot --format=json examples/native-integer-expression.hc
 opam exec -- dune exec --root . -- bin/holyc.exe eval-native --format=json examples/native-integer-predicates.hc
+opam exec -- dune exec --root . -- bin/holyc.exe eval-native --format=json examples/native-integer-logical.hc
 ```
 
 The fixture contains `(6*7);`. It lowers to five IR instructions and emits
@@ -24,13 +25,20 @@ It returns I64 42 in both modes from 38 IR instructions and 272 emitted bytes.
 Its 51 machine instructions use three registers and include the actual flag
 producers, condition-byte writes and full-width zero extension.
 
+The logical fixture also returns I64 42 in both modes. It combines eager
+`&&`, `||` and `^^` values, ordinary comparison chains and complements whose
+unsigned computation class must survive later chain links.
+It lowers to 61 IR instructions and emits 562 bytes in 120 machine
+instructions, with a peak of four registers and no frame.
+
 ## Supported domain
 
 After preprocessing, the input must be exactly one ordinary expression
 statement. Parentheses and unary plus retain the existing lowering behavior.
 The native compiler admits internal I64/U64 literals, unary minus, bitwise
 complement, addition, subtraction, multiplication, bitwise AND, OR and XOR,
-the six comparisons (`==`, `!=`, `<`, `>=`, `>`, `<=`), and logical NOT (`!`).
+the six comparisons (`==`, `!=`, `<`, `>=`, `>`, `<=`), logical NOT (`!`),
+and eager logical AND, OR and XOR (`&&`, `||`, `^^`).
 Arithmetic retains the low 64 bits. Declared result type and intermediate
 computation class remain distinct: complement returns I64 but may retain an
 unsigned computation class consumed by its parent operation.
@@ -42,18 +50,43 @@ the complement forwards U64. An ordinary parenthesized comparison produces
 its own I64 class for an enclosing operation. Logical NOT tests all 64 bits
 and preserves the operand's forwarded class: `!~0xFFFFFFFFFFFFFFFF` is U64 one.
 
+Binary logical operations return I64 zero or one after testing every bit of
+each input independently. Thus `2&&4` is one and `2^^4` is zero. Their operands
+are evaluated eagerly in the existing IR order. This value path does not
+implement conditional short-circuit control flow, and every producer is still
+preflighted even in `0&&(1/0)` or `1||(1/0)`.
+
+Ordinary supported comparison chains retain their shared middle operand and
+cumulative computation class. `(~0x8000000000000000)>0>-1` returns zero because
+COM forwards U64 into the first comparison and the following `0>-1` comparison
+must remain unsigned. The shared lowerer derives this class from semantic
+operand evidence, including COM and grouping, rather than its I64 result type.
+An internal word view selects U64 for a shared signed word without rerunning
+its producer. An already unsigned middle operand needs no extra view.
+`((~0x8000000000000000)>0)>-1` instead returns one: the parenthesized comparison
+is an independent I64 value. The unresolved multiple-pending-reduction shapes
+in #593, including `1==2<3==1`, remain rejected by source lowering.
+
 The verified IR must contain one entry block with no graph edges, zero flags,
 and exactly one final `IC_RETURN_VAL`, `IC_RET` pair. Every instruction is
 preflighted, including unused producers. Narrow/public primitive producers,
-conversions, floating point, pointers, memory, declarations, calls, branches,
-division, remainder, shifts, binary logical operations and comparison chains
+general conversions, floating point, pointers, memory, declarations, calls,
+branches, division, remainder, shifts and conditional comparison chains
 remain outside this native gate.
 They receive diagnostics from their first unsupported source or IR stage.
 Raw division and shift interpretation remain available through `eval`;
 their native optimizer policies remain separate work in #585 and #574.
-Comparison chains retain their cumulative class and shared-middle-value
-requirements. Supporting individual comparisons does not admit `IC_AND_AND`
-or the conversions used by chain lowering.
+The only admitted cast form is a full-width internal I64/U64 word view with
+`IC_HOLYC_TYPECAST`, integer payload zero and zero flags. It preserves all bits
+and selects the target computation class. The internal source spellings
+`I64i` and `U64i` in `CInit.HC:12` reach this form: for example,
+`0x8000000000000000(I64i)<0` returns one while preserving the original bits.
+A cast whose immediate source operand is parenthesized carries payload one
+and remains unsupported; so do public/narrow types, pointers and floating
+conversions. The parentheses around a postfix cast's target name alone do not
+set that payload. Accepting a
+checked word-view instruction does not give arbitrary source or byte data
+execution authority.
 
 The allocator uses only RAX, RCX, RDX and R8 through R11, which are volatile
 in both supported host conventions. It reuses registers after their final
@@ -68,6 +101,13 @@ flag-changing instruction. MOVZX then normalizes all 64 result bits, including
 when the destination previously held a nonzero high byte or a high-bit value.
 The allocator can reuse either dying comparison input or select another free
 register while shared inputs remain live.
+
+Binary logical values use two working registers. Each TEST is followed by
+SETNE and MOVZX before the next flag producer; AND, OR or XOR combines the
+normalized words. When the result reuses the right input, that input is tested
+first. Shared inputs remain intact, and the temporary working register counts
+toward the seven-register peak and pressure limit even though it has no IR
+value owner. Word views copy a still-live source and reuse a dying one.
 
 ## API and limits
 
@@ -92,6 +132,9 @@ exact limits; either corresponding one-below limit fails. These counts are
 compiler resource bounds, not measured CPU cycles or a native timeout.
 The `1<2;` fixture requires five IR instructions and 31 code bytes; `!0;`
 requires four and 21. Both have exact-limit and one-below API/CLI controls.
+Each simple two-literal logical value requires five IR instructions, 44 code
+bytes and ten machine instructions. Its exact-limit and one-below tests also
+check the literal emitted bytes, independently of the encoder's size reports.
 
 | Diagnostic | Meaning |
 | --- | --- |
@@ -154,6 +197,12 @@ comparison result classes. `OptLib.HC:103-122,171` supplies the forwarded
 operand classes. The hosted selector implements comparison results with
 CMP/SETcc/MOVZX while retaining the same zero/one and signedness rules.
 
+Issue #646 follows `BackB.HC:30-100` and `OptPass012.HC:693-722` for eager
+logical values and I64 results. `OptPass012.HC:87-110,141-150,809-822` and
+`OptLib.HC:103-122,171` establish internal word views and cumulative comparison
+classes. The hosted selector uses TEST/SETNE/MOVZX and existing bitwise forms;
+it does not reproduce TempleOS's branch-based instruction selection.
+
 `test/test_native_expression.ml` runs under ordinary `dune runtest` without
 entering native code. It checks exact bytes, source/type rules, sharing,
 register pressure, immutable exports, malformed/dead instructions and
@@ -175,6 +224,12 @@ unsigned boundary cases, complement forwarding, normalized high bits, all
 condition codes, extended byte registers and shared-input lifetimes. The
 maintained predicate fixture and small exact-byte CLI cases use the public
 command in both preprocessing modes.
+Logical coverage adds independent truth-table and chain expectations, source
+compositions, every I64/U64 word-view pair, shared/duplicate input lifetimes,
+temporary-register exhaustion and both preprocessing modes. Chain regressions
+also run through the ordinary interpreter and function-call paths. Comparing
+native results only against the same faulty lowerer would miss the original
+COM regression, so its zero result is checked as a literal expectation.
 Success-path repetition does not establish injected OS-failure coverage.
 These tests execute the hosted encoder, not the TempleOS reference compiler.
 
