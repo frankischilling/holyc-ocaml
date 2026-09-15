@@ -2,6 +2,7 @@ let () =
   Alcotest.run "holyc"
     [
       ("source", Test_source.tests);
+      ("native expression encoding", Test_native_expression.tests);
       ("lexer", Test_lexer.tests);
       ("preprocessor", Test_preprocessor.tests);
       ("parser", Test_parser.tests);

@@ -1,5 +1,11 @@
 # holyc-ocaml
 
+`holyc eval-native --format=json examples/native-integer-expression.hc`
+compiles `6*7` with the project's OCaml x86-64 encoder and executes the emitted
+multiply on Windows or Linux x86-64, returning the full I64 value 42.
+[Native expressions](docs/native-expressions.md) describes the supported
+register-only subset, explicit execution boundary, diagnostics and limits.
+
 `holyc run --format=json examples/integer-narrow.hc` executes I8/I16/U16/I32/U32
 storage and signatures, captures `42`, and returns I64 42 in both modes.
 [Narrow integers](docs/integer-narrow.md) covers signed storage, full register
