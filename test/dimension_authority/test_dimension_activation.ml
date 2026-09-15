@@ -203,6 +203,122 @@ let pending_dimension_manifest () =
       ("I64 A[2];", false, false);
     ]
 
+let runtime_metadata_cannot_promote () =
+  let module Record = Semantic_compiler_record in
+  let session = Session.create () in
+  let table = Session.semantic_symbols session in
+  let namespace = C.create_namespace ~table () |> checked in
+  let runtime = VM.create_task_state ~table () |> checked in
+  let source =
+    Session.add_source session ~path:"runtime-manifest.hc"
+      ~contents:"I64 A[1+1];"
+  in
+  let events_rev = ref [] and command_count = ref 0 in
+  let prepared = ref None and reached = ref false in
+  let declaration event =
+    events_rev := A.Declaration event :: !events_rev;
+    match event with
+    | Parser.Array_dimension_preparing preparation ->
+        let result, _ =
+          Record.prepare_dimension ~table ~namespace ~max_work:100 ~preparation
+            ~queries:[]
+        in
+        prepared := Some (checked result);
+        Ok ()
+    | Parser.Array_dimension_completed receipt ->
+        reached := true;
+        let original = Option.get !prepared in
+        let closed = Record.complete_dimension ~receipt original |> checked in
+        let forged =
+          Record.propose_runtime_dimension ~namespace
+            ~preparation:receipt.dimension_preparation
+            ~count:(Record.dimension_count closed)
+            ~work:(Record.dimension_work closed)
+          |> checked
+          |> Record.complete_runtime_dimension ~table ~receipt ~queries:[]
+          |> checked |> Record.declared_dimension_preparation
+        in
+        Alcotest.(check bool)
+          "forged metadata retains the exact original source" true
+          (Record.dimension_preparation_source forged
+          == Record.dimension_preparation_source original);
+        Alcotest.(check int64)
+          "forged count equals closed count"
+          (Record.prepared_dimension_count original)
+          (Record.prepared_dimension_count forged);
+        Alcotest.(check int)
+          "forged work equals closed work"
+          (Record.dimension_preparation_work original)
+          (Record.dimension_preparation_work forged);
+        Alcotest.(check bool)
+          "forged metadata still requires runtime execution" true
+          (Record.dimension_preparation_runtime_dependencies forged <> []);
+        let activation =
+          A.create ~namespace
+            ~context:
+              receipt.dimension_preparation.dimension_owner.dimensions_command
+                .command_context
+            ~observed_events:!command_count (List.rev !events_rev)
+          |> checked
+        in
+        let before = VM.task_progress runtime in
+        reject "runtime metadata cannot enter a closed activation manifest"
+          (VM.promote_task_source_activation runtime ~namespace ~activation
+             ~dimensions:[ forged ]);
+        Alcotest.(check bool)
+          "rejected promotion preserves all task progress" true
+          (VM.task_progress runtime = before);
+        Alcotest.(check bool)
+          "rejected promotion leaves the original journal available" true
+          (A.available activation);
+        VM.promote_task_source_activation runtime ~namespace ~activation
+          ~dimensions:[ original ]
+        |> checked;
+        A.run activation ~invalid:"invalid" (function
+          | A.Declaration (Parser.Array_dimension_preparing preparation) ->
+              VM.charge_source_dimension runtime preparation
+          | A.Declaration (Parser.Array_dimension_completed _) ->
+              VM.complete_task_dimension runtime ~namespace closed
+          | _ -> Ok ())
+        |> checked;
+        Alcotest.(check int)
+          "valid replay charges only the original closed work"
+          (Record.dimension_preparation_work original)
+          (VM.task_initializer_steps runtime);
+        Alcotest.(check int)
+          "valid closed replay executes no instructions" 0
+          (VM.task_executed_steps runtime);
+        Alcotest.(check bool)
+          "valid evidence can still complete after rejected promotion" true
+          (VM.task_dimension_is_completed runtime receipt);
+        Error []
+    | _ -> Ok ()
+  in
+  let commands : Parser.command_sink =
+    {
+      checkpoint =
+        Some
+          (fun event ->
+            incr command_count;
+            events_rev := A.Command event :: !events_rev;
+            Ok ());
+      call = None;
+      implicit_output = None;
+      reference = None;
+      declaration = Some declaration;
+      query = None;
+      dimension_count = None;
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let config = Preprocessor.Config.create ~compilation_mode:Jit () |> checked in
+  ignore
+    (Parser.parse ~commands ~sources:(Session.sources session)
+       ~definitions:(Session.definitions session)
+       ~symbols:(Session.symbols session) ~config source);
+  Alcotest.(check bool) "original completion reached" true !reached
+
 let () =
   Alcotest.run "dimension activation authority"
     [
@@ -214,5 +330,8 @@ let () =
           Alcotest.test_case
             "only the live trailing runtime dimension can defer" `Quick
             pending_dimension_manifest;
+          Alcotest.test_case
+            "runtime metadata rejects without consuming closed promotion" `Quick
+            runtime_metadata_cannot_promote;
         ] );
     ]

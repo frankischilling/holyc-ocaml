@@ -600,19 +600,6 @@ let runtime_offset_failures () =
       ignore
         (O.run ~mode {|#exe {I64 Where(){return $$;};class A {$$=Where();};}|}
         |> O.fault "HCIRVM0002");
-      List.iter
-        (fun expression ->
-          let failed =
-            O.run ~mode
-              ("#exe {extern U0 Print(U8 *fmt,...);I64 N=7;class A {U8 h;$$="
-             ^ expression ^ ";};}")
-          in
-          let diagnostic = O.fault ~output:"A" "HCRUN0004" failed in
-          Alcotest.(check bool)
-            "shared compiler-position guard was reached" true
-            (String.ends_with ~suffix:"function/frame compiler-state writes"
-               diagnostic.message))
-        [ {|N+ #exe {Print("A");I64 Noise(){I64 x[N];I64 y;return 0;};} $$|} ];
       ignore
         (O.run ~mode {|#exe {class A {$$=1||1/0;};}|} |> O.fault "HCRUN0004");
       let eager =

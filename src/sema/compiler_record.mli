@@ -133,15 +133,18 @@ val create_compiler_positions :
 (** Original shared compiler-cell writes for one source manager. Outer AOT and
     nested JIT ledgers share this registry while retaining separate namespaces.
     Entries require live original aggregate or named JIT header/local phases;
-    numeric values cannot be supplied by callers. Runtime-sized and aggregate
-    frames, unnamed callback and ordinary AOT record writes remain unavailable.
-*)
+    numeric values cannot be supplied by callers. Runtime-sized primitive frames
+    retain their original dimension dependencies. Aggregate frames, unnamed
+    callback and ordinary AOT record writes remain unavailable. *)
 
 val compiler_positions_own_sources :
   compiler_positions -> Common.Source_manager.t -> bool
 
 val compiler_position_value : compiler_position -> int64
 val compiler_position_dependencies : compiler_position -> aggregate_offset list
+
+val compiler_position_runtime_dependencies :
+  compiler_position -> runtime_dimension_proposal list
 
 val record_local_allocation :
   table:Symbol_table.t ->
@@ -153,8 +156,9 @@ val record_local_allocation :
   (unit, string) result
 (** Consume an original live local allocation after checking source manager,
     table, namespace, function and predecessor. Checked dimensions retain their
-    original owner and order. Unsupported layouts are recorded as unavailable;
-    neither a byte size nor executable authority can be supplied by a caller. *)
+    original owner, order and runtime dependencies. Unsupported layouts are
+    recorded as unavailable; neither a byte size nor executable authority can be
+    supplied by a caller. *)
 
 val record_function_position :
   compiler_positions ->
@@ -405,6 +409,8 @@ val global_extent_runtime_dependencies :
   global_extent -> runtime_dimension_proposal list
 
 val aggregate_offset_is_runtime : aggregate_offset -> bool
+(** Includes closed offsets derived from runtime dimensions or runtime offsets;
+    these cannot be charged as independent closed-source preparation. *)
 
 val begin_runtime_aggregate_offset :
   table:Symbol_table.t ->
@@ -416,6 +422,12 @@ val begin_runtime_aggregate_offset :
 
 val runtime_aggregate_offset_is_current : runtime_aggregate_offset -> bool
 
+val runtime_aggregate_offset_dimension_dependencies :
+  runtime_aggregate_offset -> runtime_dimension_proposal list
+
+val runtime_aggregate_offset_dependencies :
+  runtime_aggregate_offset -> aggregate_offset list
+
 val aggregate_offset_positions :
   table:Symbol_table.t ->
   namespace:Declaration_collection.namespace ->
@@ -424,6 +436,27 @@ val aggregate_offset_positions :
   ((Frontend.Ast.expression * compiler_position) list, string) result
 (** Resolve original token reads against immutable shared compiler-state writes.
     These facts retain layout dependencies but grant no execution authority. *)
+
+val aggregate_offset_dimension_dependencies :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  queries:query_read list ->
+  aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  (runtime_dimension_proposal list, string) result
+(** Runtime dimension requirements of the preceding layout and original position
+    and query inputs. The owning task must validate these before evaluation. *)
+
+val aggregate_offset_dependencies :
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  queries:query_read list ->
+  aggregate_progress ->
+  Frontend.Parser.aggregate_phase ->
+  (aggregate_offset list, string) result
+(** Original offset executions required by the preceding layout and the
+    expression's query and position inputs, including inherited requirements
+    when the expression itself does not read the preceding layout. *)
 
 val finish_runtime_aggregate_offset :
   runtime_aggregate_offset ->

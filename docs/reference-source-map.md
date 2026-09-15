@@ -1011,11 +1011,18 @@ allocation history: `PrsStmt.HC:1158-1164` dispatches the local list before its
 type is consumed, and `PrsVar.HC:526-528,590-618,701-724` supplies member counting,
 downward size alignment, initializer and delimiter boundaries. Static locals
 allocate separate storage (`PrsVar.HC:533-589`). `LexLib.HC:103-149` preserves
-member collision rules. Primitive locals, pointers and checked closed extents
-feed captures while preserving the argument cursor and original layout
-dependencies. The frame-position fixture returns 42 in both modes at 27 runtime
-steps and three preparation units. Runtime-sized or aggregate-valued frame
-positions, unnamed callbacks and ordinary AOT header writes remain guarded.
+member collision rules. Primitive locals, pointers and checked extents feed
+captures while preserving the argument cursor and original layout dependencies.
+Runtime bounds follow `PrsVar.HC:247-283`: their once-only declaration-time result
+and original execution evidence survive native allocation history, captured
+positions, closed/runtime offsets and completed sizes. Dependency validation
+precedes offset effects, and repeated size queries preserve bounded proof lists.
+The frame-position fixture returns 42 in both modes at 27 runtime steps and three
+preparation units. The runtime-frame fixture returns 42 in both modes at 73 runtime
+steps and six preparation units, including a call that writes and reads the sized
+array. Aggregate-valued frame positions, unnamed callbacks and ordinary AOT
+header writes remain guarded. Runtime-dependent member admission and pointer-array
+storage also remain outside this execution path.
 Runtime F64 and ordinary pre-activation
 or AOT runtime offset evaluation also remain open.
 

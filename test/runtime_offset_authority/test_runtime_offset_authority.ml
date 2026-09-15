@@ -21,7 +21,8 @@ let diagnostics = function
 let reject label result =
   Alcotest.(check bool) label true (Result.is_error result)
 
-let with_offset ?max_initializer_steps callback =
+let with_offset ?max_initializer_steps ?(contents = "class Span {$$=$$+8;};")
+    callback =
   let session = Session.create () in
   let table = Session.semantic_symbols session in
   let namespace = C.create_namespace ~table () |> checked in
@@ -69,8 +70,7 @@ let with_offset ?max_initializer_steps callback =
     }
   in
   let source =
-    Session.add_source session ~path:"offset-authority.hc"
-      ~contents:"class Span {$$=$$+8;};"
+    Session.add_source session ~path:"offset-authority.hc" ~contents
   in
   let config = Preprocessor.Config.create ~compilation_mode:Jit () |> checked in
   let parsed =
@@ -207,6 +207,130 @@ let metadata_is_not_execution () =
           (VM.task_executed_steps owner)
       in
       (reached, fun () -> ()))
+
+let inherited_offset_preflight scheduled () =
+  List.iter
+    (fun first_executed ->
+      let contents =
+        if scheduled then "class Span {$$=$$+8;$$=(\"A\"[0]=66);};"
+        else "class Span {$$=$$+8;$$=8;};"
+      in
+      with_offset ~contents (fun table namespace owner _ ->
+          let offsets = ref 0 in
+          let reached progress receipt =
+            incr offsets;
+            if !offsets = 1 then
+              let _, authority, attempt, context, destination =
+                fragment table namespace owner progress receipt
+              in
+              let execution =
+                Lowering.prepare ~context ~authority ~runtime:owner destination
+                |> diagnostics
+              in
+              if first_executed then
+                VM.execute_task_offset owner attempt execution |> diagnostics
+              else (
+                ignore
+                  (Record.finish_runtime_aggregate_offset
+                     (Fragment.preparation authority)
+                     ~value:8L ~work:(Program.steps execution)
+                  |> checked);
+                VM.fail_task_offset owner attempt |> checked;
+                Alcotest.(check bool)
+                  "fabricated predecessor has no successful execution" true
+                  (VM.task_offset owner receipt = None))
+            else if !offsets <> 2 then
+              Alcotest.fail "unexpected extra aggregate offset"
+            else if scheduled then (
+              let _, authority, attempt, context, destination =
+                fragment table namespace owner progress receipt
+              in
+              let execution =
+                Lowering.prepare ~context ~authority ~runtime:owner destination
+                |> diagnostics
+              in
+              let (Program.Scheduled program) = Program.code execution in
+              let has_store =
+                Program.entry program |> Ir_x87_stack.graph
+                |> Ir_block_graph.blocks
+                |> List.exists (fun block ->
+                    Ir_block_graph.instructions block
+                    |> Ir_instruction_sequence.instructions
+                    |> List.exists (fun instruction ->
+                        (Ir_instruction_sequence.description instruction).opcode
+                        = Ir_opcode.Ic_assign))
+              in
+              Alcotest.(check bool)
+                "later offset contains an actual memory store" true has_store;
+              let before = VM.task_progress owner in
+              let result = VM.execute_task_offset owner attempt execution in
+              if first_executed then (
+                diagnostics result;
+                let offset = Option.get (VM.task_offset owner receipt) in
+                Alcotest.(check int64)
+                  "valid predecessor permits the store result" 66L
+                  (Record.aggregate_offset_value offset);
+                Alcotest.(check bool)
+                  "valid later offset executes instructions" true
+                  (VM.task_executed_steps owner > before.executed_steps);
+                Alcotest.(check int)
+                  "valid later offset allocates its literal" 2
+                  ((VM.task_progress owner).literal_bytes - before.literal_bytes))
+              else (
+                (match result with
+                | Ok () ->
+                    Alcotest.fail
+                      "a fabricated predecessor authorized a later store"
+                | Error errors ->
+                    Alcotest.(check bool)
+                      "inherited dependency fails during zero-step preflight"
+                      true
+                      (List.exists
+                         (fun error ->
+                           error.VM.code = "HCIRVM0026"
+                           && error.stage = VM.Preflight
+                           && error.executed_steps = 0)
+                         errors));
+                Alcotest.(check bool)
+                  "failed preflight preserves work, storage and output" true
+                  (VM.task_progress owner = before);
+                Alcotest.(check bool)
+                  "rejected later offset publishes no result" true
+                  (VM.task_offset owner receipt = None);
+                reject "failed later execution cannot replay"
+                  (VM.execute_task_offset owner attempt execution)))
+            else
+              let before = VM.task_progress owner in
+              let result, work =
+                VM.prepare_task_aggregate_offset owner ~table ~namespace
+                  ~queries:[] progress receipt
+              in
+              if first_executed then (
+                let offset = checked result in
+                Alcotest.(check int64)
+                  "valid predecessor permits the closed offset" 8L
+                  (Record.aggregate_offset_value offset);
+                Alcotest.(check bool)
+                  "valid closed offset performs preparation" true (work > 0))
+              else (
+                reject "closed offset also requires its inherited execution"
+                  result;
+                Alcotest.(check int)
+                  "rejected closed offset performs no preparation" 0 work;
+                Alcotest.(check bool)
+                  "rejected closed offset preserves all task progress" true
+                  (VM.task_progress owner = before);
+                Alcotest.(check bool)
+                  "rejected closed offset leaves its source phase unconsumed"
+                  true
+                  (Record.aggregate_offset_is_current ~table ~namespace progress
+                     receipt))
+          in
+          ( reached,
+            fun () ->
+              Alcotest.(check int)
+                "both original offset callbacks were reached" 2 !offsets )))
+    [ false; true ]
 
 let position_evidence () =
   let module Resolution = Holyc_lib__Sema.Function_call_resolution in
@@ -456,6 +580,11 @@ let () =
             `Quick execution_lifetime;
           Alcotest.test_case "matching metadata is not execution" `Quick
             metadata_is_not_execution;
+          Alcotest.test_case "closed offsets validate inherited execution"
+            `Quick
+            (inherited_offset_preflight false);
+          Alcotest.test_case "offset stores validate inherited execution" `Quick
+            (inherited_offset_preflight true);
           Alcotest.test_case "positions retain exact source and fragment" `Quick
             position_evidence;
           Alcotest.test_case "failure consumes original bounded attempt" `Quick

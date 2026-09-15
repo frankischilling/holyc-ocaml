@@ -129,6 +129,7 @@ let () =
       ("AOT source execution", Test_aot_source_execution.tests);
       ("task declarations", Test_task_declarations.tests);
       ("retained aggregates", Test_retained_aggregates.tests);
+      ("runtime frame positions", Test_runtime_frame_positions.tests);
       ("source promotion", Test_source_promotion.tests);
       ("live initializer leaves", Test_live_initializer_leaves.tests);
       ("partial global storage", Test_partial_global_storage.tests);

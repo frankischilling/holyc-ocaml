@@ -2,12 +2,23 @@
 
 ## Unreleased
 
+- Aggregate `$$` expressions now use original local positions after runtime-sized
+  primitive arrays. Bounds execute once during declaration; their task evidence
+  survives captured positions, derived offsets, completed sizes and function
+  frames. Repeated size queries deduplicate dimension dependencies, and source
+  activation rejects runtime metadata presented as closed preparation. Offset
+  preflight validates inherited dimension and offset evidence before effects.
+  The runtime-frame fixture returns 42 in both outer modes at 73 runtime steps
+  and six preparation units. Aggregate-valued frames, runtime-dependent member
+  admission, pointer-array storage, unnamed callbacks and ordinary AOT records
+  remain unsupported.
+
 - Aggregate `$$` expressions now capture named JIT local declaration positions
   from original native allocation history. Primitive locals, pointers, closed
   array extents, static storage and nested body replacement preserve their
   separate size and argument-cursor effects. The frame-position fixture returns
-  42 in both modes at 27 runtime steps and three preparation units. Runtime-sized
-  and aggregate-valued frames, unnamed callbacks and ordinary AOT records remain
+  42 in both modes at 27 runtime steps and three preparation units. Aggregate-valued
+  frames, unnamed callbacks and ordinary AOT records remain
   unsupported.
 
 - Aggregate `$$` expressions now capture named JIT function sizes at original

@@ -135,6 +135,10 @@ let position_value position =
 let position_dependencies position =
   Compiler_record.compiler_position_dependencies position.position_value_
 
+let position_runtime_dependencies position =
+  Compiler_record.compiler_position_runtime_dependencies
+    position.position_value_
+
 let reference_for fragment identifier =
   match
     List.find_opt (fun (source, _) -> source == identifier) fragment.references_

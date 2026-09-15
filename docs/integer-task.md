@@ -7,10 +7,11 @@ prepare once at the original phase and share the initializer allowance. Integer
 runtime offsets execute their original typed fragment against task storage.
 Mixed `$$` expressions retain original parser-token position evidence, including
 aggregate writes from nested declarations and named JIT header/local writes.
-Primitive locals and checked closed array extents retain their original downward
-allocation history. Runtime-sized and aggregate-valued frames, unnamed callbacks
-and ordinary AOT function-record writes remain guarded. Later lookahead cannot
-change an already captured position.
+Primitive locals and checked array extents retain their original downward
+allocation history, including bounds evaluated once against the owning task.
+Original dimension and offset dependencies survive captured positions and derived
+sizes. Aggregate-valued frames, unnamed callbacks and ordinary AOT function-record
+writes remain guarded. Later lookahead cannot change an already captured position.
 Their derived sizes retain the successful execution dependency. See
 [retained aggregate sizes](retained-aggregates.md) for source evidence, receipt
 ownership, CLI limits and the remaining dependent-layout and storage work.

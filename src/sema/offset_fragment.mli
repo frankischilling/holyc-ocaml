@@ -37,3 +37,6 @@ val position_value : position -> int64
 val position_dependencies : position -> Compiler_record.aggregate_offset list
 (** Original aggregate-position evidence, distinct from ordinary instruction
     pointers. It is immutable metadata, not task execution authority. *)
+
+val position_runtime_dependencies :
+  position -> Compiler_record.runtime_dimension_proposal list

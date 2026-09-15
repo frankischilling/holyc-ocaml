@@ -32,6 +32,15 @@ work before consuming them. These dependencies survive constant folding and
 function-frame construction, including unused static storage. Standalone
 execution cannot borrow a task's prepared extent.
 
+Named JIT local allocation history also retains those dependencies when a later
+aggregate `$$` expression reads the current compiler position. Closed and runtime
+offsets, completed aggregate sizes and derived local/global extents preserve the
+original dimension execution. The runtime validates inherited dependencies before
+offset effects; source activation cannot import runtime-derived metadata as closed
+preparation. Repeated `sizeof` chains deduplicate original dimension proofs at
+each preparation boundary. The [runtime frame example](../examples/stateful-exe-runtime-frame-positions.hc)
+returns 42 in both outer modes with 73 runtime steps and six preparation steps.
+
 Ordinary AOT runtime bounds still report `HCRUN0006`: output relocation and
 callable address authority remain unresolved. Closed AOT bounds retain their
 existing path. Runtime F64 bounds, aggregate-member bounds, general callbacks

@@ -829,6 +829,9 @@ let promote_task_source_activation ?(offsets = []) ?pending_runtime_dimension
             (fun original checked ->
               Sema.Compiler_record.dimension_preparation_source checked
               == original
+              && Sema.Compiler_record.dimension_preparation_runtime_dependencies
+                   checked
+                 = []
               && Sema.Compiler_record.dimension_preparation_offset_dependencies
                    checked
                  = []
@@ -1733,17 +1736,19 @@ let prepare_task_closed_dimension task ~table ~namespace ~preparation ~queries =
 
 let prepare_aggregate_offset_in_task task ~table ~namespace ~queries progress
     phase =
+  let module Record = Sema.Compiler_record in
   let dependencies =
-    Sema.Compiler_record.aggregate_offset_positions ~table ~namespace progress
-      phase
-    |> Result.map (fun positions ->
-        List.concat_map Sema.Compiler_record.query_runtime_offsets queries
-        @ List.concat_map
-            (fun (_, position) ->
-              Sema.Compiler_record.compiler_position_dependencies position)
-            positions)
-    |> fun result ->
-    Result.bind result (validate_offset_dependencies (Some task))
+    let ( let* ) = Result.bind in
+    let* dimensions =
+      Record.aggregate_offset_dimension_dependencies ~table ~namespace ~queries
+        progress phase
+    in
+    let* () = validate_dimension_dependencies (Some task) dimensions in
+    let* offsets =
+      Record.aggregate_offset_dependencies ~table ~namespace ~queries progress
+        phase
+    in
+    validate_offset_dependencies (Some task) offsets
   in
   match dependencies with
   | Error message -> (Error message, 0)
@@ -6498,7 +6503,20 @@ let execute_task_offset task attempt execution =
   let outcome =
     let* () =
       validate_dimension_dependencies (Some task)
-        (Dimension_requirements.top_level (Destination.typed destination))
+        (Sema.Compiler_record.runtime_aggregate_offset_dimension_dependencies
+           (Sema.Offset_fragment.preparation (Program.authority execution))
+        @ Dimension_requirements.top_level (Destination.typed destination))
+      |> Result.map_error (fun message ->
+          [
+            make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026"
+              message;
+          ])
+    in
+    let* () =
+      validate_offset_dependencies (Some task)
+        (Sema.Compiler_record.runtime_aggregate_offset_dependencies
+           (Sema.Offset_fragment.preparation (Program.authority execution))
+        @ Offset_requirements.top_level (Destination.typed destination))
       |> Result.map_error (fun message ->
           [
             make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026"

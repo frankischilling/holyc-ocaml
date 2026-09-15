@@ -14,6 +14,26 @@ let runtime_dimension_source value = value.proposal_source
 let runtime_dimension_count value = value.proposal_count
 let runtime_dimension_work value = value.proposal_work
 
+module Dimension_identities = Hashtbl.Make (struct
+  type t = runtime_dimension_proposal
+
+  let equal = ( == )
+  let hash value = Hashtbl.hash value.proposal_source.dimension_opening.span
+end)
+
+let merge_dimension_dependencies inherited selected =
+  match selected with
+  | [] -> inherited
+  | _ ->
+      let seen = Dimension_identities.create 16 in
+      List.filter
+        (fun dimension ->
+          if Dimension_identities.mem seen dimension then false
+          else (
+            Dimension_identities.add seen dimension ();
+            true))
+        (inherited @ selected)
+
 type aggregate_offset = {
   offset_table : Symbol_table.t;
   offset_namespace : Declaration_collection.namespace;
@@ -22,6 +42,7 @@ type aggregate_offset = {
   offset_value : int64;
   offset_work : int;
   offset_runtime : bool;
+  offset_dimensions : runtime_dimension_proposal list;
   offset_dependencies : aggregate_offset list;
 }
 
@@ -33,7 +54,9 @@ let aggregate_offset_value offset = offset.offset_value
 let aggregate_offset_work offset = offset.offset_work
 
 let aggregate_offset_is_runtime offset =
-  offset.offset_runtime || offset.offset_dependencies <> []
+  offset.offset_runtime
+  || offset.offset_dimensions <> []
+  || offset.offset_dependencies <> []
 
 module Offset_identities = Hashtbl.Make (struct
   type t = aggregate_offset
@@ -62,6 +85,7 @@ let aggregate_offset_runtime_dependencies offset =
 type compiler_position = {
   position_source : Parser.compiler_position_source;
   position_value : int64;
+  position_dimensions : runtime_dimension_proposal list;
   position_dependencies : aggregate_offset list;
 }
 
@@ -82,8 +106,12 @@ end)
 type compiler_positions = {
   positions_sources : Common.Source_manager.t;
   positions : compiler_position option Position_sources.t;
-  allocations : (int64 * aggregate_offset list) option Local_allocations.t;
-  allocated_sizes : (int64 * aggregate_offset list) option Local_allocations.t;
+  allocations :
+    (int64 * runtime_dimension_proposal list * aggregate_offset list) option
+    Local_allocations.t;
+  allocated_sizes :
+    (int64 * runtime_dimension_proposal list * aggregate_offset list) option
+    Local_allocations.t;
 }
 
 let create_compiler_positions ~sources =
@@ -100,23 +128,27 @@ let compiler_positions_own_sources positions sources =
 let compiler_position_value position = position.position_value
 let compiler_position_dependencies position = position.position_dependencies
 
+let compiler_position_runtime_dependencies position =
+  position.position_dimensions
+
 let rec native_size positions = function
   | Function_record_phase.Size_value value ->
-      Option.map (fun value -> (value, [])) value
+      Option.map (fun value -> (value, [], [])) value
   | Function_record_phase.Size_add (size, bytes) ->
-      Option.bind (native_size positions size) (fun (size, dependencies) ->
+      Option.bind (native_size positions size)
+        (fun (size, dimensions, dependencies) ->
           if size > Int64.sub Int64.max_int bytes then None
-          else Some (Int64.add size bytes, dependencies))
+          else Some (Int64.add size bytes, dimensions, dependencies))
   | Function_record_phase.Size_local (size, receipt) -> (
       match Local_allocations.find_opt positions.allocated_sizes receipt with
       | Some value -> value
       | None ->
           let value =
             Option.bind (native_size positions size)
-              (fun (size, dependencies) ->
+              (fun (size, dimensions, dependencies) ->
                 Option.bind
                   (Local_allocations.find_opt positions.allocations receipt)
-                  (Option.map (fun (bytes, inherited) ->
+                  (Option.map (fun (bytes, local_dimensions, inherited) ->
                        let alignment =
                          if bytes >= 8L then -8L
                          else if bytes >= 4L then -4L
@@ -124,6 +156,8 @@ let rec native_size positions = function
                          else -1L
                        in
                        ( Int64.logand (Int64.sub size bytes) alignment,
+                         merge_dimension_dependencies dimensions
+                           local_dimensions,
                          merge_offset_dependencies dependencies inherited ))))
           in
           Local_allocations.add positions.allocated_sizes receipt value;
@@ -142,10 +176,12 @@ let record_function_position positions record receipt =
     |> Result.map (fun value ->
         Position_sources.add positions.positions receipt.position_source
           (Option.map
-             (fun (position_value, position_dependencies) ->
+             (fun (position_value, position_dimensions, position_dependencies)
+                ->
                {
                  position_source = receipt.position_source;
                  position_value;
+                 position_dimensions;
                  position_dependencies;
                })
              (native_size positions value)))
@@ -400,10 +436,7 @@ let record_local_allocation ~table ~namespace ~dimensions positions record
               |> Result.map Option.some
           in
           if receipt.allocation_storage = Ast.Static_local then
-            Ok (Some (0L, []))
-          else if
-            List.concat_map dimension_runtime_dependencies dimensions <> []
-          then Ok None
+            Ok (Some (0L, [], []))
           else
             let base =
               match
@@ -430,6 +463,8 @@ let record_local_allocation ~table ~namespace ~dimensions positions record
                    Option.map
                      (fun extent ->
                        ( Int64.mul base extent,
+                         List.concat_map dimension_runtime_dependencies
+                           dimensions,
                          List.concat_map dimension_offset_dependencies
                            dimensions ))
                      extent))
@@ -530,8 +565,15 @@ type runtime_aggregate_offset = {
   runtime_table : Symbol_table.t;
   runtime_expression : Ast.expression;
   mutable runtime_finished : bool;
+  runtime_dimension_dependencies : runtime_dimension_proposal list;
   runtime_offset_dependencies : aggregate_offset list;
 }
+
+let runtime_aggregate_offset_dimension_dependencies preparation =
+  preparation.runtime_dimension_dependencies
+
+let runtime_aggregate_offset_dependencies preparation =
+  preparation.runtime_offset_dependencies
 
 let begin_aggregate ?compiler_positions ~table ~namespace publication =
   match Declaration_collection.publication_source_aggregate publication with
@@ -668,6 +710,7 @@ let advance_aggregate ~dimensions progress (phase : Parser.aggregate_phase) =
                     {
                       record with
                       (* Preparation already retains the preceding layout. *)
+                      runtime_dimensions = offset.offset_dimensions;
                       runtime_offsets =
                         aggregate_offset_runtime_dependencies offset;
                     })
@@ -776,6 +819,7 @@ let advance_aggregate ~dimensions progress (phase : Parser.aggregate_phase) =
                {
                  position_source = source;
                  position_value = value;
+                 position_dimensions = record.runtime_dimensions;
                  position_dependencies = record.runtime_offsets;
                });
           Ok ())
@@ -875,7 +919,13 @@ let complete_aggregate ?progress ?(dimensions = fun _ -> None) ~table ~namespace
         primitive = None;
         byte_size;
         internal = false;
-        runtime_dimensions = [];
+        runtime_dimensions =
+          Option.fold ~none:[]
+            ~some:(fun progress ->
+              match progress.progress_record with
+              | Ok record -> record.runtime_dimensions
+              | Error _ -> [])
+            progress;
         runtime_offsets =
           Option.fold ~none:[]
             ~some:(fun progress ->
@@ -1381,6 +1431,35 @@ let resolve_position_reads progress phase =
   in
   collect [] phase.Parser.phase_position_reads
 
+let offset_dimension_dependencies record queries positions =
+  merge_dimension_dependencies record.runtime_dimensions
+    (List.concat_map query_runtime_dependencies queries
+    @ List.concat_map (fun (_, p) -> p.position_dimensions) positions)
+
+let offset_input_dependencies record queries positions =
+  merge_offset_dependencies record.runtime_offsets
+    (List.concat_map query_runtime_offsets queries
+    @ List.concat_map (fun (_, p) -> p.position_dependencies) positions)
+
+let aggregate_offset_dimension_dependencies ~table ~namespace ~queries progress
+    phase =
+  if not (aggregate_offset_is_current ~table ~namespace progress phase) then
+    Error
+      "aggregate dependencies require their original unconsumed offset phase"
+  else
+    let* record = progress.progress_record in
+    let* positions = resolve_position_reads progress phase in
+    Ok (offset_dimension_dependencies record queries positions)
+
+let aggregate_offset_dependencies ~table ~namespace ~queries progress phase =
+  if not (aggregate_offset_is_current ~table ~namespace progress phase) then
+    Error
+      "aggregate dependencies require their original unconsumed offset phase"
+  else
+    let* record = progress.progress_record in
+    let* positions = resolve_position_reads progress phase in
+    Ok (offset_input_dependencies record queries positions)
+
 let begin_runtime_aggregate_offset ~table ~namespace ~queries progress phase =
   if not (aggregate_offset_is_current ~table ~namespace progress phase) then
     Error "runtime offset requires its original unconsumed phase and aggregate"
@@ -1408,12 +1487,10 @@ let begin_runtime_aggregate_offset ~table ~namespace ~queries progress phase =
               runtime_table = table;
               runtime_expression = expression;
               runtime_finished = false;
+              runtime_dimension_dependencies =
+                offset_dimension_dependencies record queries positions;
               runtime_offset_dependencies =
-                merge_offset_dependencies record.runtime_offsets
-                  (List.concat_map query_runtime_offsets queries
-                  @ List.concat_map
-                      (fun (_, p) -> p.position_dependencies)
-                      positions);
+                offset_input_dependencies record queries positions;
             }
     | _ -> Error "runtime offset requires its original expression phase")
 
@@ -1448,6 +1525,7 @@ let finish_runtime_aggregate_offset preparation ~value ~work =
         offset_value = value;
         offset_work = work;
         offset_runtime = true;
+        offset_dimensions = preparation.runtime_dimension_dependencies;
         offset_dependencies = preparation.runtime_offset_dependencies;
       }
     in
@@ -1481,8 +1559,7 @@ let prepare_aggregate_offset ~table ~namespace ~max_work ~queries progress
                   == progress.progress_source.aggregate_header
                        .declaration_command
                   && query.receipt.query_root.query_environment
-                     == progress.progress_source.aggregate_environment
-                  && query_runtime_dependencies query = [])
+                     == progress.progress_source.aggregate_environment)
                 queries
             then Ok ()
             else
@@ -1532,12 +1609,10 @@ let prepare_aggregate_offset ~table ~namespace ~max_work ~queries progress
               offset_value = value;
               offset_work = !work;
               offset_runtime = false;
+              offset_dimensions =
+                offset_dimension_dependencies record queries positions;
               offset_dependencies =
-                merge_offset_dependencies record.runtime_offsets
-                  (List.concat_map query_runtime_offsets queries
-                  @ List.concat_map
-                      (fun (_, p) -> p.position_dependencies)
-                      positions);
+                offset_input_dependencies record queries positions;
             }
           in
           progress.progress_offsets <- offset :: progress.progress_offsets;
@@ -1645,7 +1720,8 @@ let prepare_dimension ~table ~namespace ~max_work
           count;
           work = !work;
           runtime_dependencies =
-            List.concat_map query_runtime_dependencies queries;
+            merge_dimension_dependencies []
+              (List.concat_map query_runtime_dependencies queries);
           offset_dependencies = List.concat_map query_runtime_offsets queries;
         }
   in
@@ -1702,7 +1778,8 @@ let complete_runtime_dimension ~table ~receipt ~queries proposal =
       count = proposal.proposal_count;
       work = proposal.proposal_work;
       runtime_dependencies =
-        proposal :: List.concat_map query_runtime_dependencies queries;
+        merge_dimension_dependencies [ proposal ]
+          (List.concat_map query_runtime_dependencies queries);
       offset_dependencies = List.concat_map query_runtime_offsets queries;
     }
 

@@ -14,7 +14,8 @@
    %{dep:../examples/stateful-exe-runtime-offset-positions.hc}
    %{dep:../examples/stateful-exe-shared-positions.hc}
    %{dep:../examples/stateful-exe-function-positions.hc}
-   %{dep:../examples/stateful-exe-frame-positions.hc})))
+   %{dep:../examples/stateful-exe-frame-positions.hc}
+   %{dep:../examples/stateful-exe-runtime-frame-positions.hc})))
 
 (test
  (name test_integer_program_cli)
@@ -73,6 +74,7 @@
  (modules
   test_main
   test_retained_aggregates
+  test_runtime_frame_positions
   test_provisional_function_types
   test_provisional_function_authority
   test_direct_call_phases

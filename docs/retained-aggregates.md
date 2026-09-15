@@ -128,11 +128,17 @@ Initializer and delimiter lookahead can overwrite the shared cell independently
 of this allocation history. A nested replacement can also reset the actual
 native function record while an outer body is suspended.
 
-Primitive locals, pointers and arrays with original checked closed extents
-contribute their native sizes. Allocation-derived offset dependencies remain
-attached. Runtime-sized arrays and aggregate-valued locals leave the position
-unavailable; their runtime dimension and selected-layout dependencies need a
-separate extension. Local member counts are retained without granting callable
+Primitive locals, pointers and arrays with original checked extents contribute
+their native sizes. A runtime bound executes once at declaration time, following
+`PrsArrayDims` (`Compiler/PrsVar.HC:247-283`). Its original execution evidence stays
+attached through allocation history, captured positions, closed and runtime
+offsets, completed aggregate sizes, and derived `sizeof` expressions and frames.
+Repeated size queries retain each original dimension dependency once per prepared
+extent. The owning task validates dimension and offset dependencies before offset
+evaluation; matching metadata without execution cannot supply them. Isolated
+execution and source activation cannot import those runtime results as closed
+preparation. Aggregate-valued locals still leave the position unavailable.
+Local member counts are retained without granting callable
 parameter metadata. A resumed header that treats body members as arguments
 remains rejected. Unnamed callback and ordinary AOT record positions remain
 outside this path.
@@ -142,6 +148,15 @@ outer modes at 27 runtime steps, three preparation units and zero dimension
 work. It captures the position before a fifth automatic local after four
 different primitive allocations, then calls that retained function. Exact
 limits and both one-below failures are covered by the CLI suite.
+
+`holyc run examples/stateful-exe-runtime-frame-positions.hc` returns I64 42 in
+both outer modes at 73 runtime steps, six preparation units and zero closed
+dimension work. The fixture prepares `I64 values[++N]` once, captures the
+24-byte downward position before the next local, and calls the retained function
+to write and sum its array elements. Exact limits and each one-below failure are
+covered. Derived sizes cannot escape into standalone function execution.
+Pointer-array storage and runtime-dependent aggregate-member layout admission
+remain unsupported, even where original frame metadata can describe their size.
 
 Unmodeled writes cannot reuse an earlier aggregate value.
 Empty semicolons do not begin a new iteration, and an undelimited final parameter
