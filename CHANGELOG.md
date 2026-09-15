@@ -157,6 +157,38 @@
   authority even when their counters are zero. Shared outer JIT orchestration
   and native partial publication remain unfinished in #635.
 
+- Added bounded register spilling to `eval-native`. Expressions with more than
+  seven live values retain their producer order and full-width values through
+  reusable private qword slots. `--stack-byte-limit` and the corresponding API
+  option bound the padded frame; reports expose its actual size. Frameless
+  images retain their previous bytes. Windows registers generated unwind data
+  for frameful images and removes it before releasing their mapping. Added
+  source/API/CLI, encoding, lifetime, resource and native-unwind regressions.
+
+- Extended `eval-native` with eager integer `&&`, `||` and `^^`, internal
+  full-word views and ordinary comparison chains. Both logical inputs are
+  normalized independently, shared values survive, and temporary registers
+  count toward the existing pressure limit. Corrected the shared lowerer so
+  COM's forwarded U64 class survives every comparison-chain link; for example,
+  `(~0x8000000000000000)>0>-1` now returns zero. Added source, byte, native,
+  CLI and exact-limit regressions. Conditional and #593 chain shapes remain
+  outside the supported domain.
+
+- Extended `eval-native` with all six integer comparisons and logical NOT.
+  Ordered conditions preserve operand computation classes, including unsigned
+  complement results; NOT retains I64/U64 result identity. CMP/TEST, SETcc and
+  MOVZX produce complete zero/one words without destroying shared inputs.
+  Added the public predicate fixture, byte/liveness/limit controls and separate
+  native differential coverage.
+
+- Added `eval-native` and the public native-expression API for internal I64/U64
+  literals, negation, complement, addition, subtraction, multiplication and
+  bitwise operations. The OCaml encoder emits the original verified expression
+  graph with seven volatile registers and no frame. An explicit Windows/Linux
+  x86-64 bridge executes protected code and preserves all 64 return bits.
+  Separate native tests cover source/API/CLI execution and deterministic VM
+  comparisons; ordinary tests cover encoding, unsupported inputs and limits.
+
 - Expanded provenance checks to built executable consumers after Git or release
   override changes, including normal build/install aliases and both cache modes.
   Quoted Dune aliases in local command examples so PowerShell passes the requested

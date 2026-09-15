@@ -137,6 +137,14 @@ VM accepts zero-flag internal `I64`/`U64` views with the existing zero/one
 parenthesis payload; public, narrow, floating and pointer casts remain outside
 that execution domain.
 
+The cumulative domain uses each original operand's semantic computation class,
+not its declared transport type. In particular, COM can return I64 while
+forwarding U64. `(~0x8000000000000000)>0>-1` therefore returns zero and requires
+an unsigned view of the shared zero. A middle COM already forwarding U64 needs
+no redundant view. The initial operands, each later right operand and the
+shared-middle decision all retain this distinction. These rules are shared by
+`eval`, ordinary function execution and the bounded native chain path in #646.
+
 Parentheses break the chain: `(3<2)<1` compares a Boolean with one. Tighter
 right operands stay intact, so `0==1<2` compares zero with the result of
 `1<2`. Equality participates too: `2==2==2` evaluates to one. Value contexts
