@@ -249,6 +249,24 @@ staged public executable. The probe restores process environment variables and
 verifies the temporary directory before removing it. The fixture refs are test identities,
 not compatibility results or commits in the implementation repository.
 
+CI uses `.github/actions/setup-ocaml` to prepare both compiler versions and the
+corpus jobs. It restores the compiler first, then an installed dependency switch
+keyed by the actual OCaml and opam versions, Linux distribution, architecture,
+dependency profile, package manifests, setup action, and UTC ISO week. Dependency
+installation runs after every restore. A cache miss resolves dependencies afresh;
+within a week, a hit can retain installed versions that satisfy the manifest.
+There is no fallback to an older week's dependency switch.
+
+Dune build results have a separate cache with compiler and dependency identity
+and the source revision. They use `enabled-except-user-rules`, so custom checks
+still run. Each successful job trims cached build artifacts to 1 GB before saving;
+cache metadata is additional. The provenance probe explicitly tests both cache
+modes. Corpus jobs install the CLI dependencies, build `bin/holyc.exe`, and run
+that executable directly for each report. The two CI compiler jobs
+retain formatting, generated-source, reference, provenance, full build, test,
+and package-artifact checks. Both corpus report formats, uploads, and the parser
+baseline comparison remain required.
+
 Unit tests cover source positions, spans, token construction, literal decoding, comments, diagnostic rendering, include and generated-value frames, predefined values, primitive, internal, and named declaration types, declaration modifiers and bindings, comma-separated groups, pointer layers, strict extraction of the complete opcode database, operator tables, primitive type metadata, compiler options, function flags, member-list flags, global record flags, the complete intermediate-code table, and the TempleOS BIN specification. The generated-table tests reject malformed statements, duplicate records, missing or reordered entries, changed aliases, unknown opcode arguments, excess instruction bytes or forms, unknown operator tokens or ICs, precedence drift, unavailable-type drift, option default drift, function-flag expression or transition drift, member-list flag or consumer drift, global-record flag or consumer drift, BIN record or loader-formula drift, API contract drift, and source checksum mismatches. The option, function-flag, member-list flag, global-record flag, and BIN scanners also prove that comments and literals do not create false consumers; the option tests separately confirm that `_BEQU` retains its previous-state result.
 
 The current test binary runs 1,994 cases, including registered property tests. `test/dune` also defines 238 golden rules. A passing count describes only the implemented slices listed below; it is not a whole-compiler compatibility percentage. The reference verifier checks 82 individually audited Git blobs, and both corpus phases account for all 528 relevant blobs from the pinned Git tree.
