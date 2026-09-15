@@ -19,10 +19,12 @@
  (alias native-tests)
  (deps
   ../../examples/native-integer-expression.hc
-  ../../examples/native-integer-predicates.hc)
+  ../../examples/native-integer-predicates.hc
+  ../../examples/native-integer-logical.hc)
  (action
   (run
    %{exe:test_native_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/native-integer-expression.hc}
-   %{dep:../../examples/native-integer-predicates.hc})))
+   %{dep:../../examples/native-integer-predicates.hc}
+   %{dep:../../examples/native-integer-logical.hc})))

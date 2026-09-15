@@ -5,6 +5,8 @@ compiles `6*7` with the project's OCaml x86-64 encoder and executes the emitted
 multiply on Windows or Linux x86-64, returning the full I64 value 42.
 The `examples/native-integer-predicates.hc` fixture also returns 42 through
 all six integer comparisons, logical NOT and arithmetic.
+`examples/native-integer-logical.hc` returns 42 through eager logical values
+and ordinary comparison chains, including forwarded unsigned complements.
 [Native expressions](docs/native-expressions.md) describes the supported
 register-only subset, explicit execution boundary, diagnostics and limits.
 
