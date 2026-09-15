@@ -4,10 +4,16 @@ type register = Rax | Rcx | Rdx | R8 | R9 | R10 | R11
 type unary = Neg | Not
 type binary = Add | Sub | Imul | And | Or | Xor
 type condition = E | NE | L | GE | G | LE | B | AE | A | BE
+type stack_slot = { offset : int }
+type stack_frame = { bytes : int }
 
 type instruction =
   | Mov_imm64 of register * int64
   | Mov of register * register
+  | Load_stack of register * stack_slot
+  | Store_stack of stack_slot * register
+  | Alloc_stack of stack_frame
+  | Free_stack of stack_frame
   | Unary of unary * register
   | Binary of binary * register * register
   | Cmp of register * register
@@ -18,6 +24,17 @@ type instruction =
 
 let registers = [ Rax; Rcx; Rdx; R8; R9; R10; R11 ]
 let max_code_bytes = min (16 * 1024 * 1024) Sys.max_string_length
+
+let stack_slot ~offset =
+  if offset < 0 || offset > 4080 || offset mod 8 <> 0 then
+    Error "stack slot offset must be an aligned value between 0 and 4080"
+  else Ok { offset }
+
+let stack_frame ~bytes =
+  if bytes < 8 || bytes > 4088 || bytes mod 16 <> 8 then
+    Error
+      "stack frame size must be between 8 and 4088 and congruent to 8 mod 16"
+  else Ok { bytes }
 
 let register_spelling = function
   | Rax -> "RAX"
@@ -58,6 +75,10 @@ let source_form spelling source_line =
 
 let mov_immediate = source_form "MOV" 276
 let mov_register = source_form "MOV" 265
+let mov_load = source_form "MOV" 261
+let mov_store = source_form "MOV" 265
+let add_immediate = source_form "ADD" 322
+let subtract_immediate = source_form "SUB" 437
 let negate = source_form "NEG" 680
 let complement = source_form "NOT" 675
 let add = source_form "ADD" 330
@@ -96,6 +117,10 @@ let condition_form = function
 let form = function
   | Mov_imm64 _ -> mov_immediate
   | Mov _ -> mov_register
+  | Load_stack _ -> mov_load
+  | Store_stack _ -> mov_store
+  | Alloc_stack _ -> subtract_immediate
+  | Free_stack _ -> add_immediate
   | Unary (Neg, _) -> negate
   | Unary (Not, _) -> complement
   | Binary (Add, _, _) -> add
@@ -114,6 +139,8 @@ let size instruction =
   let opcode_bytes = List.length (form instruction).opcode_bytes in
   match instruction with
   | Mov_imm64 _ -> opcode_bytes + 1 + 8
+  | Load_stack _ | Store_stack _ -> 8
+  | Alloc_stack _ | Free_stack _ -> 7
   | Mov _ | Unary _ | Binary _ | Cmp _ | Test _ | Movzx8 _ ->
       opcode_bytes + 1 + 1
   | Setcc (_, destination) ->
@@ -127,6 +154,11 @@ let write buffer position instruction =
   in
   let selected = form instruction in
   let opcodes () = List.iter byte selected.opcode_bytes in
+  let imm32 value =
+    for index = 0 to 3 do
+      byte ((value lsr (index * 8)) land 0xff)
+    done
+  in
   (* Asm.HC:580-605,615-638 places the high register bits in REX.R/B.
      Mod=11 selects registers, so no SIB or displacement is emitted. *)
   let modrm ~reg ~rm =
@@ -152,6 +184,27 @@ let write buffer position instruction =
       done
   | Mov (destination, source) ->
       modrm ~reg:(register_number source) ~rm:(register_number destination)
+  | Load_stack (destination, slot) ->
+      let destination = register_number destination in
+      (* Fixed disp32 SIB form: RSP cannot be the ModR/M base without a SIB.
+         REX.R carries the high destination bit; REX.B/X remain clear. *)
+      byte (0x48 lor ((destination land 8) lsr 1));
+      opcodes ();
+      byte (0x84 lor ((destination land 7) lsl 3));
+      byte 0x24;
+      imm32 slot.offset
+  | Store_stack (slot, source) ->
+      let source = register_number source in
+      byte (0x48 lor ((source land 8) lsr 1));
+      opcodes ();
+      byte (0x84 lor ((source land 7) lsl 3));
+      byte 0x24;
+      imm32 slot.offset
+  | Alloc_stack frame | Free_stack frame ->
+      byte 0x48;
+      opcodes ();
+      byte (0xc0 lor (selected.slash_value lsl 3) lor 4);
+      imm32 frame.bytes
   | Unary (_, destination) ->
       modrm ~reg:selected.slash_value ~rm:(register_number destination)
   | Binary (Imul, destination, source) ->

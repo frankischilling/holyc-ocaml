@@ -23,9 +23,10 @@ let with_file suffix contents action =
 
 let compiler =
   require
-    (Array.length Sys.argv = 5)
+    (Array.length Sys.argv = 6)
     "usage: test_native_cli.exe <holyc.exe> <native-integer-expression.hc> \
-     <native-integer-predicates.hc> <native-integer-logical.hc>";
+     <native-integer-predicates.hc> <native-integer-logical.hc> \
+     <native-integer-spills.hc>";
   Sys.argv.(1)
 
 let invoke arguments =
@@ -143,7 +144,7 @@ let native_json ?(options = []) ~mode status source =
     (string "outcome" report = if status = 0 then "success" else "error")
     "native outcome must agree with the process exit status";
   check_keys "native limits"
-    [ "ir_instructions"; "code_bytes" ]
+    [ "ir_instructions"; "code_bytes"; "stack_bytes" ]
     (member "limits" report);
   if status <> 0 then
     require
@@ -151,14 +152,15 @@ let native_json ?(options = []) ~mode status source =
       "native failure must not publish an image or a result";
   report
 
-let check_limits report ir bytes =
+let check_limits ?(stack = 4088) report ir bytes =
   let limits = member "limits" report in
   require
     (integer "ir_instructions" limits = ir
-    && integer "code_bytes" limits = bytes)
-    "native report must retain the requested IR and code budgets"
+    && integer "code_bytes" limits = bytes
+    && integer "stack_bytes" limits = stack)
+    "native report must retain the requested IR, code and stack budgets"
 
-let check_success report =
+let check_success ?(frame_bytes = 0) report =
   require
     (member "diagnostics" report = `List []
     && member "command_error" report = `Null)
@@ -192,8 +194,9 @@ let check_success report =
     && integer "machine_instructions" image <= bytes
     && integer "register_peak" image >= 1
     && integer "register_peak" image <= 7
-    && integer "frame_bytes" image = 0)
-    "native image has bounded instruction/register counts and no stack frame"
+    && integer "frame_bytes" image = frame_bytes)
+    "native image has bounded instruction/register counts and the expected \
+     stack frame"
 
 let check_word report type_ decimal bits =
   let value = member "final_value" report in
@@ -456,6 +459,65 @@ let check_diagnostic ~source ~code report =
     "source failure must retain the input path and valid source location";
   diagnostic
 
+let spill_frames () =
+  List.iter
+    (fun mode ->
+      let fixture = native_json ~mode 0 Sys.argv.(5) in
+      check_success ~frame_bytes:8 fixture;
+      check_word fixture "I64" "42" "0x000000000000002a";
+      check_limits fixture 4096 65536;
+      let image = member "image" fixture in
+      require
+        (integer "ir_instructions" image = 17
+        && integer "byte_count" image = 132
+        && integer "machine_instructions" image = 20
+        && integer "register_peak" image = 7)
+        "spill fixture must account for its prologue, one store/reload pair, \
+         arithmetic and epilogue";
+      let exact =
+        native_json ~mode
+          ~options:[ "--code-byte-limit=132"; "--stack-byte-limit=8" ]
+          0 Sys.argv.(5)
+      in
+      check_success ~frame_bytes:8 exact;
+      check_word exact "I64" "42" "0x000000000000002a";
+      check_limits ~stack:8 exact 4096 132;
+      let too_small_code =
+        native_json ~mode
+          ~options:[ "--code-byte-limit=131"; "--stack-byte-limit=8" ]
+          1 Sys.argv.(5)
+      in
+      check_limits ~stack:8 too_small_code 4096 131;
+      ignore
+        (check_diagnostic ~source:Sys.argv.(5) ~code:"HCBACK0005" too_small_code);
+      List.iter
+        (fun stack ->
+          let report =
+            native_json ~mode
+              ~options:[ "--stack-byte-limit=" ^ string_of_int stack ]
+              1 Sys.argv.(5)
+          in
+          check_limits ~stack report 4096 65536;
+          let diagnostic =
+            check_diagnostic ~source:Sys.argv.(5) ~code:"HCBACK0004" report
+          in
+          require
+            (contains (string "message" diagnostic) "max_stack_bytes")
+            "spill-frame exhaustion must identify the stack byte budget")
+        [ 7; 0 ];
+      let register_only =
+        native_json ~mode ~options:[ "--stack-byte-limit=0" ] 0 Sys.argv.(2)
+      in
+      check_multiply register_only;
+      check_limits ~stack:0 register_only 4096 65536;
+      let stdout, stderr =
+        checked_invoke 0 [ "eval-native"; "--mode=" ^ mode; Sys.argv.(5) ]
+      in
+      require
+        (String.trim stdout = "42" && stderr = "")
+        "default native CLI executes the bounded spill fixture")
+    [ "jit"; "aot" ]
+
 let unsupported_sources () =
   List.iter
     (fun (text, code) ->
@@ -640,19 +702,37 @@ let invalid_configuration () =
           (4096, 16777217, "max_code_bytes");
           (4096, max_int, "max_code_bytes");
         ];
+      List.iter
+        (fun stack ->
+          let report =
+            native_json ~mode:"jit"
+              ~options:[ "--stack-byte-limit=" ^ string_of_int stack ]
+              1 source
+          in
+          check_limits ~stack report 4096 65536;
+          check_command_error report "HCBACK0001" "max_stack_bytes")
+        [ -1; 4089 ];
       let report =
         native_json ~mode:"jit" ~options:[ "--include-depth-limit=-1" ] 1 source
       in
       check_command_error report "HCNATIVE0003"
         "invalid preprocessor configuration";
-      let stdout, stderr =
-        checked_invoke 1 [ "eval-native"; "--ir-instruction-limit=0"; source ]
-      in
-      require
-        (stdout = ""
-        && String.starts_with ~prefix:"holyc: eval-native: HCBACK0001:" stderr
-        && not (contains stderr "HCPARSE"))
-        "human invalid limits are rejected before source parsing")
+      List.iter
+        (fun option ->
+          let stdout, stderr =
+            checked_invoke 1 [ "eval-native"; option; source ]
+          in
+          require
+            (stdout = ""
+            && String.starts_with ~prefix:"holyc: eval-native: HCBACK0001:"
+                 stderr
+            && not (contains stderr "HCPARSE"))
+            ("human invalid limit is rejected before source parsing: " ^ option))
+        [
+          "--ir-instruction-limit=0";
+          "--stack-byte-limit=-1";
+          "--stack-byte-limit=4089";
+        ])
 
 let invalid_options () =
   with_file ".hc" "6*7;" (fun source ->
@@ -668,6 +748,7 @@ let invalid_options () =
         [
           ("--ir-instruction-limit=invalid", "ir-instruction-limit");
           ("--code-byte-limit=invalid", "code-byte-limit");
+          ("--stack-byte-limit=invalid", "stack-byte-limit");
           ("--mode=invalid", "mode");
           ("--target=ir", "target");
           ("--step-limit=5", "step-limit");
@@ -765,6 +846,7 @@ let () =
   full_width_values ();
   predicate_values ();
   logical_values ();
+  spill_frames ();
   unsupported_sources ();
   budgets ();
   exact_image_budgets ();

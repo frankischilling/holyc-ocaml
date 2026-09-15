@@ -7,7 +7,7 @@ let decimal image bits =
   | Image.U64 -> Printf.sprintf "%Lu" bits
 
 let render ~human ~session ~mode ~max_ir_instructions ~max_code_bytes
-    ?command_error ?result () =
+    ~max_stack_bytes ?command_error ?result () =
   let value, diagnostics =
     match result with
     | Some (Ok (value : Holyc_lib.Native_expression.result)) -> (Some value, [])
@@ -59,7 +59,7 @@ let render ~human ~session ~mode ~max_ir_instructions ~max_code_bytes
                  ( "machine_instructions",
                    `Int (Image.machine_instructions value.image) );
                  ("register_peak", `Int (Image.register_peak value.image));
-                 ("frame_bytes", `Int 0);
+                 ("frame_bytes", `Int (Image.frame_bytes value.image));
                ] )
      in
      let diagnostics =
@@ -86,6 +86,7 @@ let render ~human ~session ~mode ~max_ir_instructions ~max_code_bytes
              [
                ("ir_instructions", `Int max_ir_instructions);
                ("code_bytes", `Int max_code_bytes);
+               ("stack_bytes", `Int max_stack_bytes);
              ] );
          ("image", image);
          ("final_value", final_value);

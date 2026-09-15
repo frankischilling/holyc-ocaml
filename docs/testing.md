@@ -18,6 +18,12 @@ modes. `comparison chains` also checks COM's cumulative unsigned class, exact
 view counts, budgets and unchanged producer identity; function-call regressions
 exercise the same lowerer. The native tests retain explicit unsupported-source
 controls for #593 and for rejected operations in either logical operand.
+Issue #648 adds independent stack-MOV, RSP-adjustment and unwind byte goldens;
+source and shared-IR spill cases; slot reuse; and exact/one-below frame limits.
+The explicit native target executes high-pressure cases and the public spill
+fixture in both modes. A separate Windows `RtlVirtualUnwind` probe checks the
+generated frame records against a synthetic caller context without executing
+arbitrary byte input. Frameless fixtures retain their exact original bytes.
 
 The `source narrow integers` groups cover #633's eight gates, all five width/
 signedness families, fourteen update opcodes, signed string copies, ABI slots,

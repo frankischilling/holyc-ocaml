@@ -7,8 +7,10 @@ The `examples/native-integer-predicates.hc` fixture also returns 42 through
 all six integer comparisons, logical NOT and arithmetic.
 `examples/native-integer-logical.hc` returns 42 through eager logical values
 and ordinary comparison chains, including forwarded unsigned complements.
+`examples/native-integer-spills.hc` returns 42 with eight live operands and an
+eight-byte private spill frame. `--stack-byte-limit` controls the frame quota.
 [Native expressions](docs/native-expressions.md) describes the supported
-register-only subset, explicit execution boundary, diagnostics and limits.
+integer subset, explicit execution boundary, diagnostics and limits.
 
 `holyc run --format=json examples/integer-narrow.hc` executes I8/I16/U16/I32/U32
 storage and signatures, captures `42`, and returns I64 42 in both modes.
@@ -409,7 +411,7 @@ dune exec holyc -- corpus parse --mode=aot --require-all --reference-root=third_
 
 `lex`, `preprocess`, `parse`, `dump-ast`, `dump-symbols`, `dump-layout`, and `corpus lex` exit with status 1 when they report an error. `dump-symbols` still writes the state accumulated before a parser failure, which makes partial corpus failures inspectable without turning them into successful parses. Its default output includes the 570 pinned compiler entries; `--source-only` keeps declarations published from the input stream. `dump-layout` behaves differently: it writes no layout to stdout until parsing, type resolution, closed layout, and duplicate validation all succeed. Its JSON success schema is `holyc-aggregate-layout-v1`; semantic failures use `holyc-command-error-v1` on stderr. `corpus parse` normally succeeds after a complete comparison because known incompatibilities are its output; `--require-all` returns status 1 unless every file parses with the project prelude. A failed constant `#assert` is a warning, so later input remains available and the command succeeds when no error follows. JIT preprocessing is the default for single files. The parser corpus defaults to AOT, and `--mode=jit` selects its other branch. All columns and offsets are byte positions.
 
-`holyc run --target=ir examples/integer-arrays.hc` executes the documented array program through semantic checking, verified IR and the bounded interpreter. The earlier integer function, control-flow, global, static and pointer examples use the same path. Native compilation and general HolyC execution remain unavailable.
+`holyc run --target=ir examples/integer-arrays.hc` executes the documented array program through semantic checking, verified IR and the bounded interpreter. The earlier integer function, control-flow, global, static and pointer examples use the same path. `eval-native` separately compiles and executes the supported integer-expression subset. General native programs and complete HolyC execution remain unfinished.
 
 ## TempleOS modules
 

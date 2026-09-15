@@ -10,6 +10,7 @@ opam exec -- dune exec --root . -- bin/holyc.exe eval-native --format=json examp
 opam exec -- dune exec --root . -- bin/holyc.exe eval-native --mode=aot --format=json examples/native-integer-expression.hc
 opam exec -- dune exec --root . -- bin/holyc.exe eval-native --format=json examples/native-integer-predicates.hc
 opam exec -- dune exec --root . -- bin/holyc.exe eval-native --format=json examples/native-integer-logical.hc
+opam exec -- dune exec --root . -- bin/holyc.exe eval-native --stack-byte-limit=8 --format=json examples/native-integer-spills.hc
 ```
 
 The fixture contains `(6*7);`. It lowers to five IR instructions and emits
@@ -30,6 +31,14 @@ The logical fixture also returns I64 42 in both modes. It combines eager
 unsigned computation class must survive later chain links.
 It lowers to 61 IR instructions and emits 562 bytes in 120 machine
 instructions, with a peak of four registers and no frame.
+
+The spill fixture evaluates `1+(2+(3+(4+(5+(6+(7+14))))));` to I64 42.
+Its eight operands are simultaneously live before the first addition. The
+compiler stores one value in an eight-byte private frame and reloads it before
+its final use. The source still passes through the original checked IR;
+spilling does not reorder or evaluate the expression during compilation.
+The fixture has 17 IR instructions and emits 132 bytes in 20 machine
+instructions, with a peak of seven registers and an eight-byte frame.
 
 ## Supported domain
 
@@ -90,10 +99,21 @@ execution authority.
 
 The allocator uses only RAX, RCX, RDX and R8 through R11, which are volatile
 in both supported host conventions. It reuses registers after their final
-operand use and preserves shared/duplicate values. It rejects an expression
-requiring spills. There are no stack frames, stack arguments, saved-register
-prologues, relocations or host calls in the generated image. This leaf bridge
-does not establish a general HolyC calling convention implementation.
+operand use and preserves shared/duplicate values. When all seven registers
+are occupied, it can store an unprotected live value in a private qword slot,
+then reload it when needed. Current operands and working registers remain
+protected during eviction. Slot storage is reused after a reload; the original
+producer is never rerun. Expressions that fit in registers keep their existing
+bytes and use no frame.
+
+A frame uses one fixed `SUB RSP,imm32` prologue and matching `ADD RSP,imm32`
+epilogue before `RET`. Stack loads and stores use full-word `[RSP+disp32]`
+addressing. A nonzero frame is eight modulo sixteen bytes, which aligns the
+body stack after the host's call. Alignment padding counts toward its quota.
+The maximum is 4,088 bytes, or 511 qword slots, below the first stack-probing
+threshold. Source-visible memory, arguments, saved nonvolatile registers,
+large/probed frames and calls remain outside this gate. These hosted frames
+do not establish the general HolyC calling convention.
 
 Predicates read the input registers with CMP or TEST before a destination can
 overwrite either operand. SETcc consumes those flags without an intervening
@@ -106,8 +126,9 @@ Binary logical values use two working registers. Each TEST is followed by
 SETNE and MOVZX before the next flag producer; AND, OR or XOR combines the
 normalized words. When the result reuses the right input, that input is tested
 first. Shared inputs remain intact, and the temporary working register counts
-toward the seven-register peak and pressure limit even though it has no IR
-value owner. Word views copy a still-live source and reuse a dying one.
+toward the seven-register peak even though it has no IR value owner. Obtaining
+that temporary can spill another live value. Word views copy a still-live
+source and reuse a dying one.
 
 ## API and limits
 
@@ -118,9 +139,11 @@ image, all 64 result bits and the selected platform. Low-level callers can
 compile an `Ir_x87_stack.t` with `X86_64_expression.compile`, then explicitly
 call `Native_execution.execute` with the checked image.
 
-`X86_64_expression.code` returns a fresh string copy. Changing an exported
-byte string cannot change the image used by a later execution. There is no
-public constructor accepting arbitrary executable bytes.
+`X86_64_expression.code` and `windows_unwind_info` return fresh string copies.
+Changing an exported byte string cannot change a later execution. The latter
+is empty for a frameless image and contains the generated Windows unwind
+record otherwise. `frame_bytes` reports the actual frame, including padding.
+There is no public constructor accepting arbitrary executable bytes.
 
 The CLI defaults are 4,096 IR instructions and 65,536 emitted bytes. The
 `--ir-instruction-limit` and `--code-byte-limit` options accept positive
@@ -130,6 +153,13 @@ count before constructing its maps, then checks planned code size before
 allocating bytes. The five-instruction, 25-byte fixture succeeds at both
 exact limits; either corresponding one-below limit fails. These counts are
 compiler resource bounds, not measured CPU cycles or a native timeout.
+The optional API `max_stack_bytes` and CLI `--stack-byte-limit` default to
+4,088. Values from zero through 4,088 are valid; zero disables spilling.
+The compiler rejects an image whose actual padded frame exceeds the requested
+limit before allocating executable memory. The eight-live fixture needs eight
+bytes: eight succeeds, seven and zero fail. A limit need not itself be aligned;
+only the generated frame must be. Store/reload and prologue/epilogue bytes all
+count toward the existing code quota.
 The `1<2;` fixture requires five IR instructions and 31 code bytes; `!0;`
 requires four and 21. Both have exact-limit and one-below API/CLI controls.
 Each simple two-literal logical value requires five IR instructions, 44 code
@@ -141,10 +171,10 @@ check the literal emitted bytes, independently of the encoder's size reports.
 | HCBACK0001 | Invalid compilation limit or exceeded IR instruction limit |
 | HCBACK0002 | Unsupported opcode, flags, type or graph shape |
 | HCBACK0003 | Malformed expression, type relationship or return tail |
-| HCBACK0004 | Register pressure requires an unimplemented spill |
+| HCBACK0004 | Register pressure requires more private frame bytes than allowed |
 | HCBACK0005 | Emitted code exceeds the byte limit |
 | HCNATIVE0001 | Unsupported execution platform |
-| HCNATIVE0002 | Native allocation, protection, cache or teardown failure |
+| HCNATIVE0002 | Native allocation, protection, cache, unwind registration or teardown failure |
 | HCNATIVE0003 | CLI source-loading or preprocessor-configuration failure |
 
 Existing lexer/parser/semantic/lowering diagnostics retain their codes and
@@ -157,11 +187,20 @@ in JSON mode. The existing `eval` and `run` contracts are unchanged.
 
 The small C bridge detects the host, allocates private read/write pages,
 copies the completed image, changes pages to read/execute, synchronizes the
-instruction cache, calls the leaf, and releases the mapping before allocating
+instruction cache, calls the generated expression, and releases the mapping before allocating
 the OCaml return box. Linux additionally refuses `READ_IMPLIES_EXEC`, which
 would invalidate the non-executable writable phase. OS failures are returned
 as errors; they do not silently invoke the interpreter. All compilation,
 instruction selection and byte encoding stay in OCaml.
+
+For a Windows frame, OCaml also emits the version-one unwind record describing
+the fixed stack adjustment. The bridge copies that record and its aligned
+`RUNTIME_FUNCTION` entry into the same mapping, registers the table with
+`RtlAddFunctionTable`, and removes it with `RtlDeleteFunctionTable` before
+freeing the mapping. Registration failure prevents entry. If removal fails,
+the bridge reports an error and retains the mapping, including the table, so
+Windows never holds a dangling reference. This exceptional path can leak the
+mapping; it does not report success. Linux does not register Windows metadata.
 
 Native execution occurs inside the current process and is not a sandbox.
 The finite supported instruction sequence has no loops or external calls.
@@ -173,7 +212,8 @@ The JSON schema is `holyc-native-expression-v1`. It records implementation
 and reference revisions, preprocessing mode, native target/platform,
 requested limits, diagnostics, command errors and success/failure. A
 successful image reports complete hexadecimal bytes, IR and machine
-instruction counts, register peak and zero frame bytes. `final_value`
+instruction counts, register peak and actual frame bytes. `limits.stack_bytes`
+records the requested frame quota. `final_value`
 contains the I64/U64 type, exact decimal string and 16-digit hexadecimal
 bit string. Values above JavaScript's exact-number range and unsigned
 maximum remain lossless. Failed reports expose no final value or image.
@@ -203,9 +243,24 @@ logical values and I64 results. `OptPass012.HC:87-110,141-150,809-822` and
 classes. The hosted selector uses TEST/SETNE/MOVZX and existing bitwise forms;
 it does not reproduce TempleOS's branch-based instruction selection.
 
+Issue #648 uses `OpCodes.DD:261,265` for qword stack MOV and `:322,437` for
+immediate ADD/SUB. `BackLib.HC:59-121,136-235,445-575` supplies stack adjustment,
+ModR/M/SIB addressing and memory MOV consumers; `Asm.HC:127-145` confirms the
+RSP SIB form. `OptPass6.HC:28-94,96-185` records stack temporaries and their
+register consumers. The reusable-slot allocator is a hosted implementation,
+not a reproduction of TempleOS's optimization passes.
+
+The Windows obligations come from Microsoft's
+[x64 unwind format](https://learn.microsoft.com/en-us/cpp/build/exception-handling-x64),
+[prologue and epilogue rules](https://learn.microsoft.com/en-us/cpp/build/prolog-and-epilog),
+[dynamic registration](https://learn.microsoft.com/en-us/windows/win32/api/winnt/nf-winnt-rtladdfunctiontable)
+and [removal API](https://learn.microsoft.com/en-us/windows/win32/api/winnt/nf-winnt-rtldeletefunctiontable).
+They describe the host boundary and do not replace the pinned HolyC evidence.
+
 `test/test_native_expression.ml` runs under ordinary `dune runtest` without
 entering native code. It checks exact bytes, source/type rules, sharing,
-register pressure, immutable exports, malformed/dead instructions and
+register pressure, stack-address and unwind bytes, slot lifetimes, immutable
+exports, malformed/dead instructions and
 resource boundaries. Run the actual machine execution and CLI regressions
 explicitly on a supported host:
 
@@ -230,11 +285,19 @@ temporary-register exhaustion and both preprocessing modes. Chain regressions
 also run through the ordinary interpreter and function-call paths. Comparing
 native results only against the same faulty lowerer would miss the original
 COM regression, so its zero result is checked as a literal expectation.
+Spill coverage adds high-pressure arithmetic, predicates and logical values,
+shared/duplicate operands, reusable slots and exact/one-below frame and code
+limits. The maintained spill fixture runs through the public CLI in both
+modes. `test/native/test_native_unwind.ml` checks generated records and uses a
+Windows-only C probe to run `RtlVirtualUnwind` over a synthetic caller context.
+That probe does not execute arbitrary bytes; it independently checks stack,
+return-address and nonvolatile-register recovery at generated instruction
+boundaries. Actual native execution separately exercises the registered image.
 Success-path repetition does not establish injected OS-failure coverage.
 These tests execute the hosted encoder, not the TempleOS reference compiler.
 
 The CI workflow explicitly runs native tests on Windows x86-64 and both
 Linux OCaml jobs. Unsupported hosts fail this requested target instead of
-skipping it. General spills, frames, calls/HolyC ABI, control flow, memory,
+skipping it. General call frames, stack probing, calls/HolyC ABI, control flow, memory,
 x87 behavior, relocations, integrated assembler operands, object/BIN output,
 actual-loader acceptance and bootstrap remain required later gates.

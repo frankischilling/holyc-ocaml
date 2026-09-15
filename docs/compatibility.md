@@ -2,7 +2,7 @@
 
 [Native integer expressions](native-expressions.md) in #642 connect checked
 source to the project's OCaml x86-64 encoder and explicit Windows/Linux x86-64
-execution. The register-only internal I64/U64 subset preserves all return bits
+execution. The bounded internal I64/U64 subset preserves all return bits
 and rejects unsupported operations before executable allocation. This is a
 bounded hosted native gate; it does not complete the HolyC ABI, optimizer,
 assembler, object/BIN writer, loader or bootstrap.
@@ -13,6 +13,11 @@ logical values and ordinary comparison chains with internal full-word views.
 The shared chain lowerer now preserves COM's forwarded unsigned class at every
 link. Conditional and multiple-pending-reduction chains (#593), broader casts
 and non-word producers remain unsupported by the native compiler.
+Issue #648 adds private spill frames for expressions exceeding seven live
+registers. Slots preserve shared values and are reused after reload; all code
+and padded-frame bytes are bounded. Windows registers the generated unwind
+record for the mapping's execution lifetime. This adds hosted expression
+spilling, not general memory, large/probed frames, calls or the complete ABI.
 
 [Narrow integer execution](integer-narrow.md) in #633 adds I8/I16/U16/I32/U32
 storage, fixed arrays, references, canonical updates and numeric signatures.
