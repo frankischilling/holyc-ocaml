@@ -14,11 +14,23 @@ val compile :
   (t, error list) result
 (** Preflight one entry block without edges, pointer-free internal I64/U64
     values, zero instruction flags, and an exact return-value/return suffix.
-    Supported producers are integer immediates, unary minus, complement, and
-    add/subtract/multiply/and/or/xor. All uses must follow unique definitions.
-    Register allocation uses only [X86_64_encoder.registers], with reuse after
-    the final use and rejection when a spill would be needed. Code is emitted
-    only after graph, type, register-pressure and byte-budget validation.
+    Supported producers are integer immediates, unary minus, complement,
+    add/subtract/multiply/and/or/xor, the six comparisons, logical NOT, and
+    eager logical AND/OR/XOR values. Comparisons return internal I64 zero or
+    one; ordered conditions consume both operand computation classes. Logical
+    NOT returns zero or one in its operand's forwarded computation class,
+    including U64. Binary logical operations independently normalize both
+    complete operands and return I64. Internal I64/U64 word views with
+    [IC_HOLYC_TYPECAST], integer payload zero and no flags preserve the bits and
+    select the target computation class. These views support the cumulative
+    unsigned class of ordinary lowered comparison chains and the internal
+    [I64i]/[U64i] source spellings. Casts whose immediate source operand is
+    parenthesized carry payload one and remain unsupported, as do broader
+    conversions. All uses must follow unique definitions. Register allocation
+    uses only [X86_64_encoder.registers], with reuse after the final use and
+    rejection when a spill would be needed, including the second working
+    register used by binary logical values. Code is emitted only after graph,
+    type, register-pressure and byte-budget validation.
 
     Error codes are HCBACK0001 (configuration or IR instruction limit),
     HCBACK0002 (unsupported domain), HCBACK0003 (malformed IR or type

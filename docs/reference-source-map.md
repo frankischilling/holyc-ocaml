@@ -8,6 +8,31 @@ the original multiplication paths. `Backend.X86_64_expression` retains
 `Sema.Integer_computation_class` rules while using its own bounded host-leaf
 allocator. Hosted differential execution is distinct from a TempleOS capture.
 
+Issue #644 extends that path with the six comparisons and logical NOT.
+`OpCodes.DD:376,461,893,981-994` provides CMP, TEST, MOVZX and SETcc forms.
+`BackB.HC:10-27,102-200` supplies the NOT normalization and comparison-order
+consumers. `OptLib.HC:103-122,171` and `OptPass012.HC:153-179,725-822`
+distinguish forwarded operand classes from each operation's result class.
+The native compiler compares both intact inputs before materializing its
+destination, requires I64 comparison results, and preserves U64 NOT results.
+The predicate fixture and ordinary/native/CLI suites cover these connections.
+
+Issue #646 connects eager logical values from `BackB.HC:30-100` and
+`OptPass012.HC:693-722` to two full-word TEST/SETNE/MOVZX sequences and the
+existing AND/OR/XOR encodings. Both result and computation classes are I64.
+The allocator preserves live inputs and includes the temporary register in its
+pressure checks. `OptPass012.HC:87-110` supplies the admitted internal word-view
+semantics; `CInit.HC:12` exposes the `I64i`/`U64i` source names for these
+internal types. Only casts whose immediate source operand is not parenthesized
+have the admitted zero payload. `OptPass012.HC:141-161,809-822` and
+`OptLib.HC:103-122,171` require
+cumulative chain classes to come from semantic computation types, including
+COM's forwarded U64 even when its declared result is I64. The shared lowerer
+uses those types for both initial operands, later right operands and the
+shared-middle view decision. Independent literal results and structural source
+tests cover this correction in the interpreter and native paths; #593's
+multiple-pending shapes remain rejected.
+
 [Narrow integers](integer-narrow.md) in #633 follow `BackLib.HC:281-309,509-534,
 550-572` for memory width/extension and register transport, and
 `OptPass789A.HC:710-717,779-782,1026-1030` for parameter entry and returns.

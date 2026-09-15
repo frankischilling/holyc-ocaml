@@ -68,6 +68,10 @@ type operation =
   | Load_immediate of value * int64
   | Apply_unary of Encoder.unary * value * value
   | Apply_binary of Encoder.binary * value * value * value
+  | Apply_comparison of Encoder.condition * value * value * value
+  | Apply_logical_not of value * value
+  | Apply_logical of Encoder.binary * value * value * value
+  | Apply_word_view of value * value
   | Return_value of value
   | Return
 
@@ -80,6 +84,10 @@ type kind =
   | Immediate_kind
   | Unary_kind of Encoder.unary
   | Binary_kind of Encoder.binary
+  | Comparison_kind of Encoder.condition * Encoder.condition
+  | Logical_not_kind
+  | Logical_kind of Encoder.binary
+  | Word_view_kind
   | Return_value_kind
   | Return_kind
 
@@ -87,12 +95,23 @@ let opcode_kind = function
   | Opcode.Ic_imm_i64 -> Some Immediate_kind
   | Opcode.Ic_unary_minus -> Some (Unary_kind Encoder.Neg)
   | Opcode.Ic_com -> Some (Unary_kind Encoder.Not)
+  | Opcode.Ic_not -> Some Logical_not_kind
+  | Opcode.Ic_and_and -> Some (Logical_kind Encoder.And)
+  | Opcode.Ic_or_or -> Some (Logical_kind Encoder.Or)
+  | Opcode.Ic_xor_xor -> Some (Logical_kind Encoder.Xor)
+  | Opcode.Ic_holyc_typecast -> Some Word_view_kind
   | Opcode.Ic_add -> Some (Binary_kind Encoder.Add)
   | Opcode.Ic_sub -> Some (Binary_kind Encoder.Sub)
   | Opcode.Ic_mul -> Some (Binary_kind Encoder.Imul)
   | Opcode.Ic_and -> Some (Binary_kind Encoder.And)
   | Opcode.Ic_or -> Some (Binary_kind Encoder.Or)
   | Opcode.Ic_xor -> Some (Binary_kind Encoder.Xor)
+  | Opcode.Ic_equ_equ -> Some (Comparison_kind (Encoder.E, Encoder.E))
+  | Opcode.Ic_not_equ -> Some (Comparison_kind (Encoder.NE, Encoder.NE))
+  | Opcode.Ic_less -> Some (Comparison_kind (Encoder.L, Encoder.B))
+  | Opcode.Ic_greater_equ -> Some (Comparison_kind (Encoder.GE, Encoder.AE))
+  | Opcode.Ic_greater -> Some (Comparison_kind (Encoder.G, Encoder.A))
+  | Opcode.Ic_less_equ -> Some (Comparison_kind (Encoder.LE, Encoder.BE))
   | Opcode.Ic_return_val -> Some Return_value_kind
   | Opcode.Ic_ret -> Some Return_kind
   | _ -> None
@@ -209,7 +228,13 @@ let preflight ~count instructions =
         | Return_value_kind | Return_kind ->
             malformed description
               "return instructions must be the exact terminal pair"
-        | Immediate_kind | Unary_kind _ | Binary_kind _ -> ()
+        | Immediate_kind
+        | Unary_kind _
+        | Binary_kind _
+        | Comparison_kind _
+        | Logical_not_kind
+        | Logical_kind _
+        | Word_view_kind -> ()
       else if position = count - 2 then (
         if kind <> Return_value_kind then
           malformed description "penultimate instruction must be IC_RETURN_VAL")
@@ -257,6 +282,43 @@ let preflight ~count instructions =
               define description position result target_type computation_type
             in
             Apply_unary (unary, input, result)
+        | Logical_not_kind, ([ operand_id ], Some result, Some target_type, None)
+          ->
+            let _ = checked_word description target_type in
+            let input = operand description position operand_id in
+            let computation_type = Computation.forward input.computation_type in
+            require_type description computation_type target_type;
+            let result =
+              define description position result target_type computation_type
+            in
+            Apply_logical_not (input, result)
+        | ( Logical_kind binary,
+            ([ left_id; right_id ], Some result, Some target_type, None) ) ->
+            if checked_word description target_type <> I64 then
+              malformed description
+                "binary logical values must declare internal I64";
+            let left = operand description position left_id in
+            let right = operand description position right_id in
+            let result =
+              define description position result target_type
+                (Computation.forward target_type)
+            in
+            Apply_logical (binary, left, right, result)
+        | ( Word_view_kind,
+            ( [ operand_id ],
+              Some result,
+              Some target_type,
+              Some (Sequence.Integer 0L) ) ) ->
+            let _ = checked_word description target_type in
+            let input = operand description position operand_id in
+            let result =
+              define description position result target_type
+                (Computation.declared target_type)
+            in
+            Apply_word_view (input, result)
+        | Word_view_kind, ([ _ ], Some _, Some _, Some (Sequence.Integer 1L)) ->
+            unsupported description
+              "native expressions do not support parenthesized casts"
         | ( Binary_kind binary,
             ([ left_id; right_id ], Some result, Some target_type, None) ) ->
             let _ = checked_word description target_type in
@@ -270,6 +332,27 @@ let preflight ~count instructions =
                 (Computation.forward target_type)
             in
             Apply_binary (binary, left, right, result)
+        | ( Comparison_kind (signed, unsigned),
+            ([ left_id; right_id ], Some result, Some target_type, None) ) ->
+            if checked_word description target_type <> I64 then
+              malformed description "comparison must declare internal I64";
+            let left = operand description position left_id in
+            let right = operand description position right_id in
+            (* COM may declare I64 while forwarding U64. Select the condition
+               from the operand computation classes before the comparison
+               produces its independent I64 Boolean result. *)
+            let condition =
+              match
+                checked_word description (promoted_type description left right)
+              with
+              | I64 -> signed
+              | U64 -> unsigned
+            in
+            let result =
+              define description position result target_type
+                (Computation.forward target_type)
+            in
+            Apply_comparison (condition, left, right, result)
         | Return_value_kind, ([ operand_id ], None, Some target_type, None) ->
             let word = checked_word description target_type in
             let input = operand description position operand_id in
@@ -318,26 +401,28 @@ let allocate ~max_code_bytes prepared =
     in
     find 0
   in
-  let first_fit span position =
+  let first_fit ?(excluded = -1) span position =
     let rec find index =
       if index = Array.length owners then
         reject ?span "HCBACK0004"
           "native expression needs more than seven live registers; spilling is \
            unsupported";
-      match owners.(index) with
-      | None -> index
-      | Some owner when owner.last_use = position -> index
-      | Some _ -> find (index + 1)
+      if index = excluded then find (index + 1)
+      else
+        match owners.(index) with
+        | None -> index
+        | Some owner when owner.last_use = position -> index
+        | Some _ -> find (index + 1)
     in
     find 0
   in
-  let note_peak () =
-    let occupied =
-      Array.fold_left
-        (fun count owner -> if Option.is_some owner then count + 1 else count)
-        0 owners
-    in
-    peak := max !peak occupied
+  let note_peak ?(temporaries = []) () =
+    let occupied = ref 0 in
+    Array.iteri
+      (fun index owner ->
+        if Option.is_some owner || List.mem index temporaries then incr occupied)
+      owners;
+    peak := max !peak !occupied
   in
   let release_dead position =
     Array.iteri
@@ -386,6 +471,57 @@ let allocate ~max_code_bytes prepared =
           else (
             emit (Encoder.Mov (target, registers.(left)));
             emit (Encoder.Binary (binary, target, registers.(right))));
+          assign position destination result
+      | Apply_comparison (condition, left, right, result) ->
+          let left = locate instruction.span left in
+          let right = locate instruction.span right in
+          let destination = first_fit instruction.span position in
+          let target = registers.(destination) in
+          (* Both values are still intact when CMP produces the flags. Only
+             then may SETcc overwrite a dying input, including the right one.
+             MOVZX clears every stale bit above the selected low byte. *)
+          emit (Encoder.Cmp (registers.(left), registers.(right)));
+          emit (Encoder.Setcc (condition, target));
+          emit (Encoder.Movzx8 (target, target));
+          assign position destination result
+      | Apply_logical_not (input, result) ->
+          let source = locate instruction.span input in
+          let destination = first_fit instruction.span position in
+          let target = registers.(destination) in
+          emit (Encoder.Test registers.(source));
+          emit (Encoder.Setcc (Encoder.E, target));
+          emit (Encoder.Movzx8 (target, target));
+          assign position destination result
+      | Apply_logical (binary, left, right, result) ->
+          let left = locate instruction.span left in
+          let right = locate instruction.span right in
+          let destination = first_fit instruction.span position in
+          let scratch =
+            first_fit ~excluded:destination instruction.span position
+          in
+          (* Normalize the input occupying the destination first. Otherwise a
+             dying right input could be overwritten before its TEST. Logical
+             operations are commutative, including when both inputs coincide. *)
+          let first, second =
+            if destination = right then (right, left) else (left, right)
+          in
+          let truth source target =
+            emit (Encoder.Test registers.(source));
+            emit (Encoder.Setcc (Encoder.NE, registers.(target)));
+            emit (Encoder.Movzx8 (registers.(target), registers.(target)))
+          in
+          note_peak ~temporaries:[ destination; scratch ] ();
+          truth first destination;
+          truth second scratch;
+          emit
+            (Encoder.Binary
+               (binary, registers.(destination), registers.(scratch)));
+          assign position destination result
+      | Apply_word_view (input, result) ->
+          let source = locate instruction.span input in
+          let destination = first_fit instruction.span position in
+          if destination <> source then
+            emit (Encoder.Mov (registers.(destination), registers.(source)));
           assign position destination result
       | Return_value input ->
           let source = locate instruction.span input in

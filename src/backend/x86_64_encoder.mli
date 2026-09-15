@@ -2,16 +2,43 @@ type register = Rax | Rcx | Rdx | R8 | R9 | R10 | R11
 type unary = Neg | Not
 type binary = Add | Sub | Imul | And | Or | Xor
 
+type condition =
+  | E
+  | NE
+  | L
+  | GE
+  | G
+  | LE
+  | B
+  | AE
+  | A
+  | BE
+      (** [E]/[NE] test equality/inequality. [L]/[GE]/[G]/[LE] use signed order;
+          [B]/[AE]/[A]/[BE] use unsigned order. Conditions read the current
+          processor flags; the encoder does not infer operand types. *)
+
 type instruction =
   | Mov_imm64 of register * int64
   | Mov of register * register
   | Unary of unary * register
   | Binary of binary * register * register
+  | Cmp of register * register
+      (** [Cmp (left, right)] sets flags for the full-width subtraction
+          [left - right] without changing either register. *)
+  | Test of register
+      (** [Test register] sets flags from the full-width value using
+          [TEST register,register], without changing the register. *)
+  | Setcc of condition * register
+      (** Write zero or one to the destination's low byte, preserving the higher
+          bits and flags. Only R8b through R11b need a REX prefix. *)
+  | Movzx8 of register * register
+      (** Destination then source: zero-extend the source's low byte into the
+          full 64-bit destination, preserving flags. The registers may alias. *)
   | Ret
-      (** Register operands are destination then source. Every data operation
-          uses the full 64-bit registers. [Imul] retains the low 64 product
-          bits. The only implicit stack access is the return address read by
-          [Ret]. *)
+      (** Apart from [Cmp]'s left/right operands, register pairs are destination
+          then source. Arithmetic and bitwise operations use the full 64-bit
+          registers; [Imul] retains the low 64 product bits. The only implicit
+          stack access is the return address read by [Ret]. *)
 
 val registers : register list
 (** Deterministic allocation order: RAX, RCX, RDX, R8, R9, R10, R11. *)
@@ -21,7 +48,8 @@ val max_code_bytes : int
     by [Sys.max_string_length] on the compiler host. *)
 
 val size : instruction -> int
-(** Exact encoded byte count, including the REX prefix and immediate. *)
+(** Exact encoded byte count, including any REX prefix and immediate. [Setcc]
+    uses three bytes for AL/CL/DL and four for R8b through R11b. *)
 
 val encode : instruction -> string
 (** Encode one instruction into a fresh string using the pinned opcode facts. *)
