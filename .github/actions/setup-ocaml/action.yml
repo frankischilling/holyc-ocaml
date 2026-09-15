@@ -1,0 +1,60 @@
+name: Prepare OCaml dependencies
+description: Cache installed dependencies and Dune build results on Linux.
+
+inputs:
+  ocaml-compiler:
+    description: OCaml compiler version accepted by setup-ocaml.
+    required: true
+  dependency-profile:
+    description: Use test for the full checks or corpus for the CLI alone.
+    default: test
+
+runs:
+  using: composite
+  steps:
+    - name: Set up the compiler
+      uses: ocaml/setup-ocaml@e89b2ded52a6e13f50162220cf5fe47290162032 # v3
+      with:
+        ocaml-compiler: ${{ inputs.ocaml-compiler }}
+        # Its Dune cache installs Dune before we can restore installed packages.
+        dune-cache: false
+
+    - name: Identify the dependency cache
+      id: cache
+      shell: bash
+      run: |
+        source /etc/os-release
+        printf 'toolchain=%s-%s-%s-opam%s-ocaml%s\n' \
+          "$ID" "$VERSION_ID" "$RUNNER_ARCH" \
+          "$(opam --version)" "$(opam var ocaml:version)" >> "$GITHUB_OUTPUT"
+        printf 'week=%s\n' "$(date -u +%G-W%V)" >> "$GITHUB_OUTPUT"
+        printf 'DUNE_CACHE=enabled-except-user-rules\nDUNE_CACHE_STORAGE_MODE=copy\n' >> "$GITHUB_ENV"
+        printf 'DUNE_CACHE_ROOT=%s/.cache/dune\n' "$HOME" >> "$GITHUB_ENV"
+
+    - name: Cache installed dependencies
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        # Restore after setup-ocaml so its compiler snapshot cannot overwrite
+        # the installed-package metadata in this switch.
+        path: _opam
+        key: opam-deps-v1-${{ steps.cache.outputs.toolchain }}-${{ inputs.dependency-profile }}-${{ steps.cache.outputs.week }}-${{ hashFiles('*.opam', '.github/actions/setup-ocaml/action.yml') }}
+
+    - name: Cache Dune build results
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/dune
+        key: dune-build-v1-${{ steps.cache.outputs.toolchain }}-${{ inputs.dependency-profile }}-${{ hashFiles('*.opam', '.github/actions/setup-ocaml/action.yml') }}-${{ github.sha }}
+        restore-keys: |
+          dune-build-v1-${{ steps.cache.outputs.toolchain }}-${{ inputs.dependency-profile }}-${{ hashFiles('*.opam', '.github/actions/setup-ocaml/action.yml') }}-
+
+    - name: Install dependencies
+      shell: bash
+      env:
+        DEPENDENCY_PROFILE: ${{ inputs.dependency-profile }}
+      # Always resolve the current manifest, including after a cache hit.
+      run: |
+        case "$DEPENDENCY_PROFILE" in
+          test) opam install . --deps-only --with-test --with-dev-setup ;;
+          corpus) opam install . --deps-only ;;
+          *) printf 'Unknown dependency profile: %s\n' "$DEPENDENCY_PROFILE" >&2; exit 1 ;;
+        esac
