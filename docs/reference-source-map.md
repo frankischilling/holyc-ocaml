@@ -5,7 +5,7 @@
 `Backend.X86_64_encoder`. `PrsExp.HC:1117-1127` defines the expression return
 pair and `OptPass789A.HC:779-782` the RAX result. `BackA.HC:224-280` describes
 the original multiplication paths. `Backend.X86_64_expression` retains
-`Sema.Integer_computation_class` rules while using its own bounded host-leaf
+`Sema.Integer_computation_class` rules while using its own bounded hosted
 allocator. Hosted differential execution is distinct from a TempleOS capture.
 
 Issue #644 extends that path with the six comparisons and logical NOT.
@@ -32,6 +32,19 @@ uses those types for both initial operands, later right operands and the
 shared-middle view decision. Independent literal results and structural source
 tests cover this correction in the interpreter and native paths; #593's
 multiple-pending shapes remain rejected.
+
+Issue #648 connects the same source graph to reusable qword spill slots.
+`OpCodes.DD:261,265` defines full-word memory MOV and `:322,437` the immediate
+RSP adjustment forms. `BackLib.HC:59-121` emits ADD/SUB RSP; `:136-235` constructs
+ModR/M and SIB addressing, and `:445-575` consumes full-word memory operands.
+`Asm.HC:127-145` handles RSP's required SIB byte. `OptPass6.HC:28-94,96-185`
+tracks stack temporaries and connects them to register operands/results.
+The hosted allocator preserves producer order and shared value identity while
+bounding its private frame; its spill choices do not claim TempleOS optimizer
+parity. Generated Windows unwind bytes and dynamic function-table lifetime
+follow the host documentation linked from the native guide. Ordinary byte and
+resource tests, actual source/IR execution and an independent Windows unwind
+probe cover this producer-to-consumer path.
 
 [Narrow integers](integer-narrow.md) in #633 follow `BackLib.HC:281-309,509-534,
 550-572` for memory width/extension and register transport, and

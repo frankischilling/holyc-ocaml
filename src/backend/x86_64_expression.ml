@@ -17,9 +17,12 @@ type t = {
   ir_count : int;
   machine_count : int;
   peak : int;
+  frame_size : int;
+  unwind_info : bytes;
 }
 
 let hard_ir_limit = 100_000
+let hard_max_stack_bytes = 4088
 
 let validate_limits ~max_ir_instructions ~max_code_bytes =
   let invalid message =
@@ -33,6 +36,20 @@ let validate_limits ~max_ir_instructions ~max_code_bytes =
     invalid
       (Printf.sprintf "max_code_bytes must be between 1 and %d"
          Encoder.max_code_bytes)
+  else Ok ()
+
+let validate_stack_limit ~max_stack_bytes =
+  if max_stack_bytes < 0 || max_stack_bytes > hard_max_stack_bytes then
+    Error
+      [
+        {
+          code = "HCBACK0001";
+          message =
+            Printf.sprintf "max_stack_bytes must be between 0 and %d"
+              hard_max_stack_bytes;
+          span = None;
+        };
+      ]
   else Ok ()
 
 exception Rejected of error
@@ -373,48 +390,78 @@ type allocation = {
   code_size : int;
   machine_count : int;
   peak : int;
+  frame_size : int;
+  unwind_info : bytes;
 }
 
-let allocate ~max_code_bytes prepared =
+let align_up value alignment = (value + alignment - 1) / alignment * alignment
+
+let frame_bytes_for_slots slots =
+  if slots = 0 then 0 else align_up ((slots * 8) + 8) 16 - 8
+
+let build_windows_unwind_info frame_size =
+  if frame_size = 0 then Bytes.create 0
+  else
+    let info = Bytes.make 8 '\000' in
+    let set index value = Bytes.set info index (Char.chr value) in
+    (* Conventional Windows x64 UNWIND_INFO version 1. The fixed prologue is
+       seven bytes, so its one stack-allocation unwind code ends at offset 7. *)
+    set 0 1;
+    set 1 7;
+    set 3 0;
+    set 4 7;
+    (if frame_size <= 128 then (
+       let opinfo = (frame_size / 8) - 1 in
+       set 2 1;
+       set 5 ((opinfo lsl 4) lor 2))
+     else
+       let scaled = frame_size / 8 in
+       set 2 2;
+       set 5 1;
+       set 6 (scaled land 0xff);
+       set 7 ((scaled lsr 8) land 0xff));
+    info
+
+let allocate ~max_stack_bytes prepared =
   let registers = Array.of_list Encoder.registers in
   let owners : value option array = Array.make (Array.length registers) None in
+  let slots : value option array = Array.make (hard_max_stack_bytes / 8) None in
+  let slot_high_water = ref 0 in
   let planned = ref [] in
-  let code_size = ref 0 in
-  let machine_count = ref 0 in
   let peak = ref 0 in
-  let emit span instruction =
-    let size = Encoder.size instruction in
-    if size > max_code_bytes - !code_size then
-      reject ?span "HCBACK0005" "native expression exceeds max_code_bytes";
-    code_size := !code_size + size;
-    incr machine_count;
-    planned := instruction :: !planned
+  let emit _span instruction = planned := instruction :: !planned in
+  let same_value left right =
+    Sequence.Value_id.equal left.value_id right.value_id
   in
-  let locate span value =
+  let find_register value =
     let rec find index =
-      if index = Array.length owners then
-        reject ?span "HCBACK0003" "prepared operand has no live register";
-      match owners.(index) with
-      | Some owner when Sequence.Value_id.equal owner.value_id value.value_id ->
-          index
-      | Some _ | None -> find (index + 1)
-    in
-    find 0
-  in
-  let first_fit ?(excluded = -1) span position =
-    let rec find index =
-      if index = Array.length owners then
-        reject ?span "HCBACK0004"
-          "native expression needs more than seven live registers; spilling is \
-           unsupported";
-      if index = excluded then find (index + 1)
+      if index = Array.length owners then None
       else
         match owners.(index) with
-        | None -> index
-        | Some owner when owner.last_use = position -> index
-        | Some _ -> find (index + 1)
+        | Some owner when same_value owner value -> Some index
+        | Some _ | None -> find (index + 1)
     in
     find 0
+  in
+  let find_slot value =
+    let rec find index =
+      if index = !slot_high_water then None
+      else
+        match slots.(index) with
+        | Some owner when same_value owner value -> Some index
+        | Some _ | None -> find (index + 1)
+    in
+    find 0
+  in
+  let encoder_slot span index =
+    match Encoder.stack_slot ~offset:(index * 8) with
+    | Ok slot -> slot
+    | Error message -> reject ?span "HCBACK0003" message
+  in
+  let encoder_frame span bytes =
+    match Encoder.stack_frame ~bytes with
+    | Ok frame -> frame
+    | Error message -> reject ?span "HCBACK0003" message
   in
   let note_peak ?(temporaries = []) () =
     let occupied = ref 0 in
@@ -424,30 +471,171 @@ let allocate ~max_code_bytes prepared =
       owners;
     peak := max !peak !occupied
   in
-  let release_dead position =
+  let release_where predicate =
     Array.iteri
       (fun index owner ->
         match owner with
-        | Some value when value.last_use <= position -> owners.(index) <- None
+        | Some value when predicate value -> owners.(index) <- None
         | Some _ | None -> ())
-      owners
+      owners;
+    for index = 0 to !slot_high_water - 1 do
+      match slots.(index) with
+      | Some value when predicate value -> slots.(index) <- None
+      | Some _ | None -> ()
+    done
+  in
+  let release_before position =
+    release_where (fun value -> value.last_use < position)
+  in
+  let release_through position =
+    release_where (fun value -> value.last_use <= position)
+  in
+  let allocate_slot span value =
+    let rec find index =
+      if index = !slot_high_water then None
+      else if Option.is_none slots.(index) then Some index
+      else find (index + 1)
+    in
+    let index =
+      match find 0 with
+      | Some index -> index
+      | None ->
+          let candidate_slots = !slot_high_water + 1 in
+          let required = frame_bytes_for_slots candidate_slots in
+          if required > max_stack_bytes then
+            reject ?span "HCBACK0004"
+              (Printf.sprintf
+                 "native expression spill frame requires %d bytes, exceeding \
+                  max_stack_bytes (%d)"
+                 required max_stack_bytes);
+          let index = !slot_high_water in
+          slot_high_water := candidate_slots;
+          index
+    in
+    slots.(index) <- Some value;
+    (index, encoder_slot span index)
+  in
+  let spill_register span index =
+    match owners.(index) with
+    | None -> reject ?span "HCBACK0003" "cannot spill an unowned register"
+    | Some value ->
+        let _, slot = allocate_slot span value in
+        emit span (Encoder.Store_stack (slot, registers.(index)));
+        owners.(index) <- None
+  in
+  let choose_victim span ~protected ~excluded =
+    let best = ref None in
+    Array.iteri
+      (fun index owner ->
+        if not (List.mem index protected || List.mem index excluded) then
+          match owner with
+          | None -> ()
+          | Some value -> (
+              match !best with
+              | None -> best := Some (index, value.last_use)
+              | Some (_, last_use) when value.last_use > last_use ->
+                  best := Some (index, value.last_use)
+              | Some _ -> ()))
+      owners;
+    match !best with
+    | Some (index, _) -> index
+    | None ->
+        reject ?span "HCBACK0004"
+          "native expression has no spillable register outside current operands"
+  in
+  let acquire_empty span ~protected ~excluded =
+    let rec find index =
+      if index = Array.length owners then None
+      else if List.mem index excluded then find (index + 1)
+      else if Option.is_none owners.(index) then Some index
+      else find (index + 1)
+    in
+    match find 0 with
+    | Some index -> index
+    | None ->
+        let index = choose_victim span ~protected ~excluded in
+        spill_register span index;
+        index
+  in
+  let acquire_destination span position ~protected ~excluded =
+    let rec find index =
+      if index = Array.length owners then None
+      else if List.mem index excluded then find (index + 1)
+      else
+        match owners.(index) with
+        | None -> Some index
+        | Some owner when owner.last_use = position -> Some index
+        | Some _ -> find (index + 1)
+    in
+    match find 0 with
+    | Some index -> index
+    | None ->
+        let index = choose_victim span ~protected ~excluded in
+        spill_register span index;
+        index
+  in
+  let add_unique index indices =
+    if List.mem index indices then indices else indices @ [ index ]
+  in
+  let ensure_inputs span values =
+    let protected =
+      List.fold_left
+        (fun protected value ->
+          match find_register value with
+          | Some index -> add_unique index protected
+          | None -> protected)
+        [] values
+    in
+    let rec load protected reversed = function
+      | [] -> (List.rev reversed, protected)
+      | value :: remaining -> (
+          match find_register value with
+          | Some index ->
+              load (add_unique index protected) (index :: reversed) remaining
+          | None -> (
+              match find_slot value with
+              | None ->
+                  reject ?span "HCBACK0003"
+                    "prepared operand has no live register or spill slot"
+              | Some slot_index ->
+                  let destination =
+                    acquire_empty span ~protected ~excluded:[]
+                  in
+                  let slot = encoder_slot span slot_index in
+                  emit span (Encoder.Load_stack (registers.(destination), slot));
+                  slots.(slot_index) <- None;
+                  owners.(destination) <- Some value;
+                  note_peak ();
+                  load
+                    (add_unique destination protected)
+                    (destination :: reversed) remaining))
+    in
+    load protected [] values
   in
   let assign position destination value =
     owners.(destination) <- Some value;
     note_peak ();
-    release_dead position
+    release_through position
   in
   List.iteri
     (fun position (instruction : prepared_instruction) ->
+      release_before position;
       let emit = emit instruction.span in
       match instruction.operation with
       | Load_immediate (result, bits) ->
-          let destination = first_fit instruction.span position in
+          let destination =
+            acquire_destination instruction.span position ~protected:[]
+              ~excluded:[]
+          in
           emit (Encoder.Mov_imm64 (registers.(destination), bits));
           assign position destination result
       | Apply_unary (unary, input, result) ->
-          let source = locate instruction.span input in
-          let destination = first_fit instruction.span position in
+          let inputs, protected = ensure_inputs instruction.span [ input ] in
+          let source = List.hd inputs in
+          let destination =
+            acquire_destination instruction.span position ~protected
+              ~excluded:[]
+          in
           if destination <> source then
             emit (Encoder.Mov (registers.(destination), registers.(source)));
           emit (Encoder.Unary (unary, registers.(destination)));
@@ -455,9 +643,18 @@ let allocate ~max_code_bytes prepared =
       | Apply_binary (binary, left, right, result) ->
           (* Capture both source locations before changing any owner. This
              also covers the same value appearing in both operand positions. *)
-          let left = locate instruction.span left in
-          let right = locate instruction.span right in
-          let destination = first_fit instruction.span position in
+          let inputs, protected =
+            ensure_inputs instruction.span [ left; right ]
+          in
+          let left, right =
+            match inputs with
+            | [ left; right ] -> (left, right)
+            | _ -> assert false
+          in
+          let destination =
+            acquire_destination instruction.span position ~protected
+              ~excluded:[]
+          in
           let target = registers.(destination) in
           if destination = left then
             emit (Encoder.Binary (binary, target, registers.(right)))
@@ -473,9 +670,18 @@ let allocate ~max_code_bytes prepared =
             emit (Encoder.Binary (binary, target, registers.(right))));
           assign position destination result
       | Apply_comparison (condition, left, right, result) ->
-          let left = locate instruction.span left in
-          let right = locate instruction.span right in
-          let destination = first_fit instruction.span position in
+          let inputs, protected =
+            ensure_inputs instruction.span [ left; right ]
+          in
+          let left, right =
+            match inputs with
+            | [ left; right ] -> (left, right)
+            | _ -> assert false
+          in
+          let destination =
+            acquire_destination instruction.span position ~protected
+              ~excluded:[]
+          in
           let target = registers.(destination) in
           (* Both values are still intact when CMP produces the flags. Only
              then may SETcc overwrite a dying input, including the right one.
@@ -485,19 +691,33 @@ let allocate ~max_code_bytes prepared =
           emit (Encoder.Movzx8 (target, target));
           assign position destination result
       | Apply_logical_not (input, result) ->
-          let source = locate instruction.span input in
-          let destination = first_fit instruction.span position in
+          let inputs, protected = ensure_inputs instruction.span [ input ] in
+          let source = List.hd inputs in
+          let destination =
+            acquire_destination instruction.span position ~protected
+              ~excluded:[]
+          in
           let target = registers.(destination) in
           emit (Encoder.Test registers.(source));
           emit (Encoder.Setcc (Encoder.E, target));
           emit (Encoder.Movzx8 (target, target));
           assign position destination result
       | Apply_logical (binary, left, right, result) ->
-          let left = locate instruction.span left in
-          let right = locate instruction.span right in
-          let destination = first_fit instruction.span position in
+          let inputs, protected =
+            ensure_inputs instruction.span [ left; right ]
+          in
+          let left, right =
+            match inputs with
+            | [ left; right ] -> (left, right)
+            | _ -> assert false
+          in
+          let destination =
+            acquire_destination instruction.span position ~protected
+              ~excluded:[]
+          in
           let scratch =
-            first_fit ~excluded:destination instruction.span position
+            acquire_destination instruction.span position ~protected
+              ~excluded:[ destination ]
           in
           (* Normalize the input occupying the destination first. Otherwise a
              dying right input could be overwritten before its TEST. Logical
@@ -518,13 +738,18 @@ let allocate ~max_code_bytes prepared =
                (binary, registers.(destination), registers.(scratch)));
           assign position destination result
       | Apply_word_view (input, result) ->
-          let source = locate instruction.span input in
-          let destination = first_fit instruction.span position in
+          let inputs, protected = ensure_inputs instruction.span [ input ] in
+          let source = List.hd inputs in
+          let destination =
+            acquire_destination instruction.span position ~protected
+              ~excluded:[]
+          in
           if destination <> source then
             emit (Encoder.Mov (registers.(destination), registers.(source)));
           assign position destination result
       | Return_value input ->
-          let source = locate instruction.span input in
+          let inputs, _ = ensure_inputs instruction.span [ input ] in
+          let source = List.hd inputs in
           if registers.(source) <> Encoder.Rax then (
             (* RAX is the first register in the public allocation order. All
                other values have expired by the exact terminal return pair. *)
@@ -534,46 +759,80 @@ let allocate ~max_code_bytes prepared =
             emit (Encoder.Mov (Encoder.Rax, registers.(source)));
             owners.(0) <- Some input;
             note_peak ());
-          release_dead position
+          release_through position
       | Return -> emit Encoder.Ret)
     prepared;
+  let body = List.rev !planned in
+  let frame_size = frame_bytes_for_slots !slot_high_water in
+  let instructions =
+    if frame_size = 0 then body
+    else
+      let frame = encoder_frame None frame_size in
+      match List.rev body with
+      | Encoder.Ret :: reversed_prefix ->
+          Encoder.Alloc_stack frame
+          :: (List.rev reversed_prefix
+             @ [ Encoder.Free_stack frame; Encoder.Ret ])
+      | _ ->
+          reject "HCBACK0003" "native expression allocation lost terminal RET"
+  in
   {
-    instructions = List.rev !planned;
-    code_size = !code_size;
-    machine_count = !machine_count;
+    instructions;
+    code_size =
+      List.fold_left
+        (fun total item -> total + Encoder.size item)
+        0 instructions;
+    machine_count = List.length instructions;
     peak = !peak;
+    frame_size;
+    unwind_info = build_windows_unwind_info frame_size;
   }
 
-let compile ~max_ir_instructions ~max_code_bytes verified =
+let compile ?(max_stack_bytes = hard_max_stack_bytes) ~max_ir_instructions
+    ~max_code_bytes verified =
   match validate_limits ~max_ir_instructions ~max_code_bytes with
   | Error errors -> Error errors
   | Ok () -> (
-      try
-        let block = single_block verified in
-        let instructions = Graph.instructions block |> Sequence.instructions in
-        (* Count with a bound before constructing any value or instruction
-           maps. Sparse IDs never determine an allocation size. *)
-        let ir_count = bounded_length ~max_ir_instructions instructions in
-        let prepared, word_type = preflight ~count:ir_count instructions in
-        let allocation = allocate ~max_code_bytes prepared in
-        match Encoder.encode_all ~max_code_bytes allocation.instructions with
-        | Error message -> reject "HCBACK0005" message
-        | Ok encoded ->
-            if String.length encoded <> allocation.code_size then
-              reject "HCBACK0003"
-                "encoded length does not match the allocation plan";
-            Ok
-              {
-                encoded = Bytes.of_string encoded;
-                word_type;
-                ir_count;
-                machine_count = allocation.machine_count;
-                peak = allocation.peak;
-              }
-      with Rejected error -> Error [ error ])
+      match validate_stack_limit ~max_stack_bytes with
+      | Error errors -> Error errors
+      | Ok () -> (
+          try
+            let block = single_block verified in
+            let instructions =
+              Graph.instructions block |> Sequence.instructions
+            in
+            (* Count with a bound before constructing any value or instruction
+               maps. Sparse IDs never determine an allocation size. *)
+            let ir_count = bounded_length ~max_ir_instructions instructions in
+            let prepared, word_type = preflight ~count:ir_count instructions in
+            (* Allocation runs only after the entire IR has passed preflight. *)
+            let allocation = allocate ~max_stack_bytes prepared in
+            if allocation.code_size > max_code_bytes then
+              reject "HCBACK0005" "native expression exceeds max_code_bytes";
+            match
+              Encoder.encode_all ~max_code_bytes allocation.instructions
+            with
+            | Error message -> reject "HCBACK0005" message
+            | Ok encoded ->
+                if String.length encoded <> allocation.code_size then
+                  reject "HCBACK0003"
+                    "encoded length does not match the allocation plan";
+                Ok
+                  {
+                    encoded = Bytes.of_string encoded;
+                    word_type;
+                    ir_count;
+                    machine_count = allocation.machine_count;
+                    peak = allocation.peak;
+                    frame_size = allocation.frame_size;
+                    unwind_info = Bytes.copy allocation.unwind_info;
+                  }
+          with Rejected error -> Error [ error ]))
 
 let code (compiled : t) = Bytes.to_string compiled.encoded
 let value_type (compiled : t) = compiled.word_type
 let ir_instructions (compiled : t) = compiled.ir_count
 let machine_instructions (compiled : t) = compiled.machine_count
 let register_peak (compiled : t) = compiled.peak
+let frame_bytes (compiled : t) = compiled.frame_size
+let windows_unwind_info (compiled : t) = Bytes.to_string compiled.unwind_info

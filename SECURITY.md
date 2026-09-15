@@ -20,12 +20,13 @@ Native compile-time execution will not be the default. Any future unsafe mode mu
 
 `holyc eval-native` and `Native_expression.evaluate` explicitly enter generated
 x86-64 code in the current process. They accept only a fully checked, finite
-register expression with one return tail. Calls, memory operands, branches,
-frames, floating point, arbitrary code bytes and nonzero flags are rejected
+integer expression with one return tail. Compiler-owned spill slots may use
+an explicitly bounded private frame. Calls, source-visible memory, branches,
+general call frames, floating point, arbitrary code bytes and nonzero flags are rejected
 before executable-memory allocation. The ordinary `eval`, `run`, preprocessing
 and `dune runtest` paths do not select native execution.
 
-Compilation checks IR and code-size limits before allocating the executable
+Compilation checks IR, code-size and private-frame limits before allocating the executable
 image. The bridge copies into private writable memory, changes it to read and
 execute, synchronizes instruction caches, executes once, and releases the
 mapping before boxing the full return word. Windows x86-64 and Linux x86-64
@@ -33,6 +34,14 @@ have separate OS implementations; other hosts return an unsupported-platform
 error. Linux refuses READ_IMPLIES_EXEC process personalities rather than
 weakening the writable/executable separation. OS allocation/protection errors
 are failures, with no interpreter fallback reported as native success.
+
+The spill frame is at most 4,088 bytes, includes alignment padding and is
+restored before returning to the host. Windows frame images carry OCaml-generated
+unwind records. The bridge registers their function table before entry and
+removes it before freeing the mapping. If removal fails, it reports an error
+and retains the complete registered mapping so no OS reference becomes dangling.
+This exceptional cleanup failure may leak memory; normal successful execution
+releases it. The metadata and code are read/execute during execution.
 
 This is an in-process native executor, not an isolation boundary. The checked
 subset contains no loops or calls and bounds the emitted instruction sequence;

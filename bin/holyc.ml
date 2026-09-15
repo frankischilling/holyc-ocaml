@@ -619,8 +619,8 @@ let eval_command =
        Term.(
          const (integer_expression_file false "ir" false) $ step_limit_argument))
 
-let native_expression_file max_ir_instructions max_code_bytes format
-    include_roots templeos_root max_include_depth max_source_bytes
+let native_expression_file max_ir_instructions max_code_bytes max_stack_bytes
+    format include_roots templeos_root max_include_depth max_source_bytes
     max_definition_depth max_generated_bytes max_conditional_depth
     max_expression_nodes compilation_mode predefined_date predefined_time
     command_line_source path =
@@ -632,13 +632,16 @@ let native_expression_file max_ir_instructions max_code_bytes format
   in
   let render =
     Native_report.render ~human:(format = Human) ~session ~mode
-      ~max_ir_instructions ~max_code_bytes
+      ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
   in
   let fail code message = render ~command_error:(code, message) () in
-  match
-    Holyc_lib.X86_64_expression.validate_limits ~max_ir_instructions
-      ~max_code_bytes
-  with
+  let limits =
+    Result.bind
+      (Holyc_lib.X86_64_expression.validate_limits ~max_ir_instructions
+         ~max_code_bytes) (fun () ->
+        Holyc_lib.X86_64_expression.validate_stack_limit ~max_stack_bytes)
+  in
+  match limits with
   | Error (error :: _) -> fail error.code error.message
   | Error [] -> fail "HCBACK0001" "invalid native compilation limits"
   | Ok () -> (
@@ -659,7 +662,7 @@ let native_expression_file max_ir_instructions max_code_bytes format
               render
                 ~result:
                   (Holyc_lib.Native_expression.evaluate ~max_ir_instructions
-                     ~max_code_bytes session ~config ~source)
+                     ~max_code_bytes ~max_stack_bytes session ~config ~source)
                 ()))
 
 let eval_native_command =
@@ -680,14 +683,23 @@ let eval_native_command =
             "Maximum emitted machine-code bytes. Must be between 1 and \
              16777216.")
   in
+  let stack_bytes =
+    Arg.(
+      value
+      & opt int Holyc_lib.X86_64_expression.hard_max_stack_bytes
+      & info [ "stack-byte-limit" ] ~docv:"BYTES"
+          ~doc:
+            "Maximum private spill-frame bytes, including alignment padding. \
+             Must be between 0 and 4088; zero disables spilling.")
+  in
   Cmd.v
     (Cmd.info "eval-native" ~exits:expression_exits
        ~doc:
          "Explicitly compile and execute one supported I64/U64 expression with \
           the project's x86-64 encoder. Requires Windows or Linux x86-64; this \
-          native leaf executor is not a sandbox.")
+          native executor is not a sandbox.")
     (source_parser_options
-       Term.(const native_expression_file $ instructions $ bytes))
+       Term.(const native_expression_file $ instructions $ bytes $ stack_bytes))
 
 let run_target_argument =
   Arg.(

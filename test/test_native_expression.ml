@@ -43,8 +43,9 @@ let source_image ?mode contents =
   Native_expression.compile session ~config ~source
   |> require_ok diagnostic_errors
 
-let compile ?(max_ir_instructions = 10000) ?(max_code_bytes = 1048576) graph =
-  Native.compile ~max_ir_instructions ~max_code_bytes graph
+let compile ?(max_ir_instructions = 10000) ?(max_code_bytes = 1048576)
+    ?(max_stack_bytes = 4088) graph =
+  Native.compile ~max_ir_instructions ~max_code_bytes ~max_stack_bytes graph
 
 let image graph = compile graph |> require_ok native_errors
 
@@ -219,46 +220,75 @@ let decoded_mnemonics code =
         register (opcode - 0xb8 + if rex land 1 = 0 then 0 else 8);
         ignore (byte (offset + 9));
         decode (offset + 10) ("mov-imm64" :: reversed))
+      else if opcode = 0x81 then (
+        Alcotest.(check int)
+          "stack adjustment uses RSP without an extension" 0x48 rex;
+        let modrm = byte (offset + 2) in
+        let mnemonic =
+          match modrm with
+          | 0xec -> "alloc-stack"
+          | 0xc4 -> "free-stack"
+          | _ -> Alcotest.failf "unexpected stack-adjust ModRM 0x%02x" modrm
+        in
+        ignore (byte (offset + 6));
+        decode (offset + 7) (mnemonic :: reversed))
       else
         let modrm_offset = offset + if opcode = 0x0f then 3 else 2 in
         let modrm = byte modrm_offset in
-        Alcotest.(check int) "ModRM uses registers, never memory" 3 (modrm lsr 6);
-        let rm = (modrm land 7) + if rex land 1 = 0 then 0 else 8 in
-        register rm;
         let reg = ((modrm lsr 3) land 7) + if rex land 4 = 0 then 0 else 8 in
-        let mnemonic =
-          match opcode with
-          | 0xf7 -> (
-              Alcotest.(check int)
-                "unary group has no REX.R extension" 0 (rex land 4);
-              match (modrm lsr 3) land 7 with
-              | 2 -> "not"
-              | 3 -> "neg"
-              | _ -> Alcotest.fail "unexpected unary opcode extension")
-          | 0x0f -> (
-              register reg;
-              match byte (offset + 2) with
-              | 0xaf -> "imul"
-              | 0xb6 -> "movzx8"
-              | opcode ->
-                  Alcotest.failf "unsupported two-byte opcode 0x%02x" opcode)
-          | opcode -> (
-              register reg;
-              match opcode with
-              | 0x89 | 0x8b -> "mov"
-              | 0x01 | 0x03 -> "add"
-              | 0x29 | 0x2b -> "sub"
-              | 0x21 | 0x23 -> "and"
-              | 0x09 | 0x0b -> "or"
-              | 0x31 | 0x33 -> "xor"
-              | 0x39 | 0x3b -> "cmp"
-              | 0x85 ->
-                  Alcotest.(check int)
-                    "TEST reads the same register twice" rm reg;
-                  "test"
-              | _ -> Alcotest.failf "unsupported emitted opcode 0x%02x" opcode)
-        in
-        decode (modrm_offset + 1) (mnemonic :: reversed)
+        if
+          (opcode = 0x8b || opcode = 0x89)
+          && modrm lsr 6 = 2
+          && modrm land 7 = 4
+        then (
+          Alcotest.(check int)
+            "stack spill uses the canonical RSP SIB" 0x24
+            (byte (modrm_offset + 1));
+          Alcotest.(check int)
+            "stack spill has no REX.B extension" 0 (rex land 1);
+          register reg;
+          ignore (byte (modrm_offset + 5));
+          decode (modrm_offset + 6)
+            ((if opcode = 0x8b then "load-stack" else "store-stack") :: reversed))
+        else (
+          Alcotest.(check int)
+            "ModRM uses registers, never memory" 3 (modrm lsr 6);
+          let rm = (modrm land 7) + if rex land 1 = 0 then 0 else 8 in
+          register rm;
+          let mnemonic =
+            match opcode with
+            | 0xf7 -> (
+                Alcotest.(check int)
+                  "unary group has no REX.R extension" 0 (rex land 4);
+                match (modrm lsr 3) land 7 with
+                | 2 -> "not"
+                | 3 -> "neg"
+                | _ -> Alcotest.fail "unexpected unary opcode extension")
+            | 0x0f -> (
+                register reg;
+                match byte (offset + 2) with
+                | 0xaf -> "imul"
+                | 0xb6 -> "movzx8"
+                | opcode ->
+                    Alcotest.failf "unsupported two-byte opcode 0x%02x" opcode)
+            | opcode -> (
+                register reg;
+                match opcode with
+                | 0x89 | 0x8b -> "mov"
+                | 0x01 | 0x03 -> "add"
+                | 0x29 | 0x2b -> "sub"
+                | 0x21 | 0x23 -> "and"
+                | 0x09 | 0x0b -> "or"
+                | 0x31 | 0x33 -> "xor"
+                | 0x39 | 0x3b -> "cmp"
+                | 0x85 ->
+                    Alcotest.(check int)
+                      "TEST reads the same register twice" rm reg;
+                    "test"
+                | _ -> Alcotest.failf "unsupported emitted opcode 0x%02x" opcode
+                )
+          in
+          decode (modrm_offset + 1) (mnemonic :: reversed))
   in
   Alcotest.(check bool) "machine image is nonempty" true (length > 0);
   Alcotest.(check int) "image ends in RET" 0xc3 (byte (length - 1));
@@ -434,6 +464,108 @@ let pressure_graph count =
   in
   single
     (definitions @ reduce count 0 (List.init (count - 1) (fun id -> id + 1)))
+
+let pressure_source count =
+  let rec expression value =
+    if value = count then string_of_int value
+    else Printf.sprintf "%d+(%s)" value (expression (value + 1))
+  in
+  expression 1 ^ ";"
+
+let add_tail next accumulator operands =
+  let rec loop next accumulator = function
+    | [] -> (next, accumulator, [])
+    | operand :: remaining ->
+        let instruction = binary next Opcode.Ic_add accumulator operand in
+        let final_next, final_value, suffix = loop (next + 1) next remaining in
+        (final_next, final_value, instruction :: suffix)
+  in
+  loop next accumulator operands
+
+let spill_values count =
+  List.init count (fun id ->
+      imm id
+        (if id = 0 then 10L else if id = 1 then 3L else Int64.of_int (id * 10)))
+
+let two_spilled_inputs_graph opcode =
+  let definitions = spill_values 9 in
+  let _, sum, prefix = add_tail 9 2 [ 3; 4; 5; 6; 7; 8 ] in
+  single
+    (definitions @ prefix
+    @ [
+        binary 15 opcode 0 1;
+        binary 16 Opcode.Ic_add sum 15;
+        return_value 17 16;
+        ret 18;
+      ])
+
+let one_spilled_input_graph producer =
+  let definitions = spill_values 8 in
+  let _, sum, prefix = add_tail 8 1 [ 2; 3; 4; 5; 6; 7 ] in
+  single
+    (definitions @ prefix
+    @ [
+        producer 14; binary 15 Opcode.Ic_add sum 14; return_value 16 15; ret 17;
+      ])
+
+let spill_semantic_cases () =
+  [
+    ( "noncommutative operation with both inputs dying",
+      two_spilled_inputs_graph Opcode.Ic_sub,
+      Native.I64,
+      357L );
+    ( "shared input remains available after a spilled subtraction",
+      (let definitions = spill_values 8 in
+       let _, sum, prefix = add_tail 8 2 [ 3; 4; 5; 6; 7 ] in
+       single
+         (definitions @ prefix
+         @ [
+             binary 13 Opcode.Ic_sub 0 1;
+             binary 14 Opcode.Ic_add 13 0;
+             binary 15 Opcode.Ic_add 14 sum;
+             return_value 16 15;
+             ret 17;
+           ])),
+      Native.I64,
+      287L );
+    ( "duplicate value survives spill selection",
+      one_spilled_input_graph (fun id -> binary id Opcode.Ic_mul 0 0),
+      Native.I64,
+      373L );
+    ( "unary input reloads with all bits intact",
+      one_spilled_input_graph (fun id -> unary id Opcode.Ic_unary_minus 0),
+      Native.I64,
+      263L );
+    ( "comparison inputs retain ordering across spills",
+      two_spilled_inputs_graph Opcode.Ic_less,
+      Native.I64,
+      350L );
+    ( "logical NOT reloads a complete spilled word",
+      one_spilled_input_graph (fun id -> unary id Opcode.Ic_not 0),
+      Native.I64,
+      273L );
+    ( "binary logical scratch coexists with spilled live values",
+      two_spilled_inputs_graph Opcode.Ic_and_and,
+      Native.I64,
+      351L );
+  ]
+
+let spill_slot_reuse_graph () =
+  let first_definitions =
+    List.init 8 (fun id -> imm id (Int64.of_int (id + 1)))
+  in
+  let _, _, first_tail = add_tail 8 0 [ 1; 2; 3; 4; 5; 6; 7 ] in
+  let second_definitions =
+    List.init 8 (fun index ->
+        let id = 15 + index in
+        imm id (Int64.of_int (10 + index)))
+  in
+  let next, final_value, second_tail =
+    add_tail 23 15 [ 16; 17; 18; 19; 20; 21; 22 ]
+  in
+  single
+    (first_definitions @ first_tail @ second_definitions @ second_tail
+    @ [ return_value next final_value; ret (next + 1) ])
 
 let high_register_predicate_graph () =
   (* RAX through R9 remain live. The first comparison can reuse only R11,
@@ -825,6 +957,71 @@ let encoder_predicate_bytes () =
         "predicate batch exhaustion has a diagnostic" true (message <> "")
   | Ok _ -> Alcotest.fail "predicate batch accepted an insufficient byte quota"
 
+let encoder_stack_bytes () =
+  let slot0 = Encoder.stack_slot ~offset:0 |> require_ok Fun.id in
+  let slot8 = Encoder.stack_slot ~offset:8 |> require_ok Fun.id in
+  let slot4080 = Encoder.stack_slot ~offset:4080 |> require_ok Fun.id in
+  let frame8 = Encoder.stack_frame ~bytes:8 |> require_ok Fun.id in
+  let frame4088 = Encoder.stack_frame ~bytes:4088 |> require_ok Fun.id in
+  let cases =
+    let open Encoder in
+    [
+      ("load RAX from slot zero", Load_stack (Rax, slot0), "488b842400000000");
+      ("store RAX to slot zero", Store_stack (slot0, Rax), "4889842400000000");
+      ("load RDX from slot eight", Load_stack (Rdx, slot8), "488b942408000000");
+      ("store RDX to slot eight", Store_stack (slot8, Rdx), "4889942408000000");
+      ("load R11 from last slot", Load_stack (R11, slot4080), "4c8b9c24f00f0000");
+      ("store R11 to last slot", Store_stack (slot4080, R11), "4c899c24f00f0000");
+      ("allocate eight-byte frame", Alloc_stack frame8, "4881ec08000000");
+      ("free eight-byte frame", Free_stack frame8, "4881c408000000");
+      ("allocate maximum frame", Alloc_stack frame4088, "4881ecf80f0000");
+      ("free maximum frame", Free_stack frame4088, "4881c4f80f0000");
+    ]
+  in
+  List.iter
+    (fun (label, instruction, expected) ->
+      Alcotest.(check string) label expected (hex (Encoder.encode instruction));
+      Alcotest.(check int)
+        (label ^ " exact byte count")
+        (String.length expected / 2)
+        (Encoder.size instruction))
+    cases;
+  let instructions =
+    List.map (fun (_, instruction, _) -> instruction) cases @ [ Encoder.Ret ]
+  in
+  let expected =
+    String.concat "" (List.map (fun (_, _, bytes) -> bytes) cases) ^ "c3"
+  in
+  let byte_count = String.length expected / 2 in
+  Alcotest.(check string)
+    "stack instructions batch at the exact byte quota" expected
+    (Encoder.encode_all ~max_code_bytes:byte_count instructions
+    |> require_ok Fun.id |> hex);
+  (match Encoder.encode_all ~max_code_bytes:(byte_count - 1) instructions with
+  | Error message ->
+      Alcotest.(check bool)
+        "stack batch exhaustion has a diagnostic" true (message <> "")
+  | Ok _ -> Alcotest.fail "stack batch accepted one byte below its exact quota");
+  List.iter
+    (fun offset ->
+      match Encoder.stack_slot ~offset with
+      | Error message ->
+          Alcotest.(check bool)
+            (Printf.sprintf "invalid slot %d has a diagnostic" offset)
+            true (message <> "")
+      | Ok _ ->
+          Alcotest.failf "invalid stack slot offset %d was accepted" offset)
+    [ -8; -1; 1; 4088; 4096 ];
+  List.iter
+    (fun bytes ->
+      match Encoder.stack_frame ~bytes with
+      | Error message ->
+          Alcotest.(check bool)
+            (Printf.sprintf "invalid frame %d has a diagnostic" bytes)
+            true (message <> "")
+      | Ok _ -> Alcotest.failf "invalid stack frame %d was accepted" bytes)
+    [ -8; 0; 7; 16; 4080; 4089; 4096 ]
+
 let predicate_bytes () =
   let comparisons =
     [
@@ -1033,7 +1230,7 @@ let predicate_limits () =
         7
         (Native.register_peak compiled);
       let errors =
-        compile (predicate_pressure_graph ~logical_not 7)
+        compile ~max_stack_bytes:0 (predicate_pressure_graph ~logical_not 7)
         |> reject ~code:"HCBACK0004"
              (label ^ " fresh result needs an eighth register")
       in
@@ -1351,6 +1548,12 @@ let multiply_bytes () =
   Alcotest.(check string)
     "declared result type" "I64"
     (type_name (Native.value_type compiled));
+  Alcotest.(check int)
+    "no-pressure source has no stack frame" 0
+    (Native.frame_bytes compiled);
+  Alcotest.(check string)
+    "no-pressure source has no Windows unwind record" ""
+    (Native.windows_unwind_info compiled);
   let repeated = image (source_graph "6*7;") in
   Alcotest.(check string)
     "fresh sessions produce identical bytes" (Native.code compiled)
@@ -1437,12 +1640,220 @@ let pressure () =
     "all seven volatile registers are available" 7
     (Native.register_peak compiled);
   ignore
-    (compile (pressure_graph 8)
+    (compile ~max_stack_bytes:0 (pressure_graph 8)
     |> reject ~code:"HCBACK0004" "eighth simultaneously live value");
   Alcotest.(check string)
     "failed allocation leaves subsequent output unchanged"
     (Native.code compiled)
     (Native.code (image checked))
+
+let spill_frames_and_unwind () =
+  let cases =
+    [
+      (7, 0, "");
+      (8, 8, "0107010007020000");
+      (9, 24, "0107010007220000");
+      (10, 24, "0107010007220000");
+      (24, 136, "0107020007011100");
+    ]
+  in
+  List.iter
+    (fun (live_values, expected_frame, expected_unwind) ->
+      let checked = pressure_graph live_values in
+      let compiled = image checked in
+      inspect_image checked compiled;
+      Alcotest.(check int)
+        (Printf.sprintf "%d live values frame size" live_values)
+        expected_frame
+        (Native.frame_bytes compiled);
+      Alcotest.(check string)
+        (Printf.sprintf "%d live values Windows unwind bytes" live_values)
+        expected_unwind
+        (hex (Native.windows_unwind_info compiled));
+      let mnemonics = decoded_mnemonics (Native.code compiled) in
+      if expected_frame = 0 then (
+        Alcotest.(check bool)
+          "frame-zero image has no stack allocation" false
+          (List.mem "alloc-stack" mnemonics);
+        Alcotest.(check bool)
+          "frame-zero image has no stack release" false
+          (List.mem "free-stack" mnemonics))
+      else (
+        Alcotest.(check string)
+          "spilled image allocates its frame before value code" "alloc-stack"
+          (List.hd mnemonics);
+        match List.rev mnemonics with
+        | "ret" :: "free-stack" :: _ -> ()
+        | _ ->
+            Alcotest.fail
+              "spilled image must release its frame immediately before RET"))
+    cases;
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (source, expected_frame) ->
+          let checked = source_graph ~mode source in
+          let compiled = source_image ~mode source in
+          inspect_image checked compiled;
+          Alcotest.(check int)
+            (source ^ " source pressure frame")
+            expected_frame
+            (Native.frame_bytes compiled))
+        [ (pressure_source 7, 0); (pressure_source 8, 8) ])
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let public_fixture = "1+(2+(3+(4+(5+(6+(7+14))))));" in
+  List.iter
+    (fun mode ->
+      let checked = source_graph ~mode public_fixture in
+      let compiled = source_image ~mode public_fixture in
+      inspect_image checked compiled;
+      Alcotest.(check int)
+        "public spill fixture IR count" 17
+        (Native.ir_instructions compiled);
+      Alcotest.(check int)
+        "public spill fixture frame" 8
+        (Native.frame_bytes compiled);
+      Alcotest.(check int)
+        "public spill fixture machine instructions" 20
+        (Native.machine_instructions compiled);
+      Alcotest.(check int)
+        "public spill fixture code bytes" 132
+        (String.length (Native.code compiled)))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let spill_limits_and_hard_bound () =
+  Alcotest.(check int)
+    "public hard stack bound" 4088 Native.hard_max_stack_bytes;
+  List.iter
+    (fun max_stack_bytes ->
+      Native.validate_stack_limit ~max_stack_bytes |> require_ok native_errors)
+    [ 0; 1; 7; 8; 4087; 4088 ];
+  List.iter
+    (fun max_stack_bytes ->
+      match Native.validate_stack_limit ~max_stack_bytes with
+      | Ok () ->
+          Alcotest.failf "invalid stack limit %d was accepted" max_stack_bytes
+      | Error errors ->
+          Alcotest.(check bool)
+            "invalid stack configuration uses HCBACK0001" true
+            (List.exists
+               (fun (error : Native.error) ->
+                 error.code = "HCBACK0001" && error.span = None)
+               errors))
+    [ -1; 4089; max_int ];
+  let checked = pressure_graph 8 in
+  let baseline =
+    compile ~max_stack_bytes:8 checked |> require_ok native_errors
+  in
+  let ir = Native.ir_instructions baseline in
+  let bytes = String.length (Native.code baseline) in
+  Alcotest.(check int)
+    "one spill needs the minimum eight-byte frame" 8
+    (Native.frame_bytes baseline);
+  let exact =
+    compile ~max_ir_instructions:ir ~max_code_bytes:bytes ~max_stack_bytes:8
+      checked
+    |> require_ok native_errors
+  in
+  Alcotest.(check string)
+    "all three exact quotas preserve the spill image" (Native.code baseline)
+    (Native.code exact);
+  ignore
+    (compile ~max_ir_instructions:(ir - 1) ~max_code_bytes:bytes
+       ~max_stack_bytes:8 checked
+    |> reject ~code:"HCBACK0001" "spill image one below exact IR quota");
+  ignore
+    (compile ~max_ir_instructions:ir ~max_code_bytes:(bytes - 1)
+       ~max_stack_bytes:8 checked
+    |> reject ~code:"HCBACK0005" "spill image one below exact code quota");
+  ignore
+    (compile ~max_ir_instructions:ir ~max_code_bytes:bytes ~max_stack_bytes:7
+       checked
+    |> reject ~code:"HCBACK0004" "spill image one below exact frame quota");
+  ignore
+    (compile ~max_stack_bytes:0 checked
+    |> reject ~code:"HCBACK0004" "zero stack quota retains no-spill policy");
+  let maximum =
+    compile ~max_stack_bytes:4088 (pressure_graph 518)
+    |> require_ok native_errors
+  in
+  Alcotest.(check int)
+    "511 spill slots use the maximum admitted frame" 4088
+    (Native.frame_bytes maximum);
+  Alcotest.(check string)
+    "maximum frame uses large-allocation unwind encoding" "010702000701ff01"
+    (hex (Native.windows_unwind_info maximum));
+  ignore
+    (compile ~max_stack_bytes:4088 (pressure_graph 519)
+    |> reject ~code:"HCBACK0004" "512 spill slots exceed the hard frame bound")
+
+let spill_lifetimes_and_preflight () =
+  List.iter
+    (fun (label, checked, _, _) ->
+      let compiled = image checked in
+      inspect_image checked compiled;
+      Alcotest.(check bool)
+        (label ^ " uses a bounded spill frame")
+        true
+        (Native.frame_bytes compiled > 0 && Native.frame_bytes compiled <= 4088);
+      let mnemonics = decoded_mnemonics (Native.code compiled) in
+      Alcotest.(check bool)
+        (label ^ " emits at least one spill store")
+        true
+        (List.mem "store-stack" mnemonics);
+      Alcotest.(check bool)
+        (label ^ " reloads the spilled value used by the operation")
+        true
+        (List.mem "load-stack" mnemonics))
+    (spill_semantic_cases ());
+  let reused = spill_slot_reuse_graph () in
+  let reused_image = image reused in
+  inspect_image reused reused_image;
+  Alcotest.(check int)
+    "disjoint pressure phases reuse the same spill slot" 8
+    (Native.frame_bytes reused_image);
+  let dead_unsupported =
+    let definitions = List.init 8 (fun id -> imm id (Int64.of_int (id + 1))) in
+    let _, final_value, tail = add_tail 9 0 [ 1; 2; 3; 4; 5; 6; 7 ] in
+    single
+      (definitions
+      @ [ binary 8 Opcode.Ic_div 0 1 ]
+      @ tail
+      @ [ return_value 16 final_value; ret 17 ])
+  in
+  let errors =
+    compile ~max_code_bytes:1 ~max_stack_bytes:0 dead_unsupported
+    |> reject ~code:"HCBACK0002"
+         "dead unsupported IR wins before spill planning and byte emission"
+  in
+  Alcotest.(check bool)
+    "dead unsupported node keeps its own source span" true
+    (List.exists
+       (fun (error : Native.error) -> error.span = Some (fixture_span 8))
+       errors)
+
+let immutable_spill_metadata () =
+  let compiled = image (pressure_graph 8) in
+  let code = Native.code compiled in
+  let unwind = Native.windows_unwind_info compiled in
+  let expected_code = Bytes.of_string code |> Bytes.to_string in
+  let expected_unwind = Bytes.of_string unwind |> Bytes.to_string in
+  Alcotest.(check int)
+    "immutable spill fixture frame" 8
+    (Native.frame_bytes compiled);
+  Bytes.fill (Bytes.unsafe_of_string code) 0 (String.length code) '\000';
+  Bytes.fill (Bytes.unsafe_of_string unwind) 0 (String.length unwind) '\000';
+  Alcotest.(check string)
+    "spill code getter returns a fresh copy" expected_code
+    (Native.code compiled);
+  Alcotest.(check string)
+    "unwind getter returns a fresh copy" expected_unwind
+    (Native.windows_unwind_info compiled);
+  let second = Native.windows_unwind_info compiled in
+  Bytes.set (Bytes.unsafe_of_string second) 0 '\255';
+  Alcotest.(check string)
+    "unwind metadata has no caller-mutable alias" expected_unwind
+    (Native.windows_unwind_info compiled)
 
 let immutable_code () =
   let compiled = image (source_graph "6*7;") in
@@ -2334,7 +2745,8 @@ let logical_and_view_pressure () =
               operator count duplicate
           in
           let errors =
-            compile (logical_pressure_graph ~duplicate opcode count survivors)
+            compile ~max_stack_bytes:0
+              (logical_pressure_graph ~duplicate opcode count survivors)
             |> reject ~code:"HCBACK0004" label
           in
           Alcotest.(check bool)
@@ -2357,7 +2769,7 @@ let logical_and_view_pressure () =
     "shared word view occupies the seventh register" 7
     (Native.register_peak compiled);
   let errors =
-    compile (word_view_pressure_graph 7)
+    compile ~max_stack_bytes:0 (word_view_pressure_graph 7)
     |> reject ~code:"HCBACK0004" "shared word view needs an eighth register"
   in
   Alcotest.(check bool)
@@ -2568,6 +2980,8 @@ let tests =
       `Quick invalid_type_relationships;
     Alcotest.test_case "predicate encoder condition and byte-register goldens"
       `Quick encoder_predicate_bytes;
+    Alcotest.test_case "stack encoder bytes and bounded constructors" `Quick
+      encoder_stack_bytes;
     Alcotest.test_case "six source comparisons and NOT emit exact bytes" `Quick
       predicate_bytes;
     Alcotest.test_case "predicate source classes and COM forwarding" `Quick
@@ -2593,6 +3007,14 @@ let tests =
       logical_and_view_limits;
     Alcotest.test_case "logical scratch and shared-view register boundaries"
       `Quick logical_and_view_pressure;
+    Alcotest.test_case "spill frames, source pressure and Windows unwind bytes"
+      `Quick spill_frames_and_unwind;
+    Alcotest.test_case "spill IR, code, frame and hard-slot limits" `Quick
+      spill_limits_and_hard_bound;
+    Alcotest.test_case "spill lifetimes, operation shapes and dead preflight"
+      `Quick spill_lifetimes_and_preflight;
+    Alcotest.test_case "spill code and unwind metadata are caller-immutable"
+      `Quick immutable_spill_metadata;
     Alcotest.test_case
       "logical and word-view types, payloads and dead preflight" `Quick
       (fun () ->

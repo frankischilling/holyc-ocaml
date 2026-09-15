@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added bounded register spilling to `eval-native`. Expressions with more than
+  seven live values retain their producer order and full-width values through
+  reusable private qword slots. `--stack-byte-limit` and the corresponding API
+  option bound the padded frame; reports expose its actual size. Frameless
+  images retain their previous bytes. Windows registers generated unwind data
+  for frameful images and removes it before releasing their mapping. Added
+  source/API/CLI, encoding, lifetime, resource and native-unwind regressions.
+
 - Extended `eval-native` with eager integer `&&`, `||` and `^^`, internal
   full-word views and ordinary comparison chains. Both logical inputs are
   normalized independently, shared values survive, and temporary registers

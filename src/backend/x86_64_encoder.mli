@@ -1,6 +1,8 @@
 type register = Rax | Rcx | Rdx | R8 | R9 | R10 | R11
 type unary = Neg | Not
 type binary = Add | Sub | Imul | And | Or | Xor
+type stack_slot
+type stack_frame
 
 type condition =
   | E
@@ -20,6 +22,10 @@ type condition =
 type instruction =
   | Mov_imm64 of register * int64
   | Mov of register * register
+  | Load_stack of register * stack_slot
+  | Store_stack of stack_slot * register
+  | Alloc_stack of stack_frame
+  | Free_stack of stack_frame
   | Unary of unary * register
   | Binary of binary * register * register
   | Cmp of register * register
@@ -37,11 +43,21 @@ type instruction =
   | Ret
       (** Apart from [Cmp]'s left/right operands, register pairs are destination
           then source. Arithmetic and bitwise operations use the full 64-bit
-          registers; [Imul] retains the low 64 product bits. The only implicit
+          registers; [Imul] retains the low 64 product bits. Spill instructions
+          address their validated fixed RSP frame explicitly; the only implicit
           stack access is the return address read by [Ret]. *)
 
 val registers : register list
 (** Deterministic allocation order: RAX, RCX, RDX, R8, R9, R10, R11. *)
+
+val stack_slot : offset:int -> (stack_slot, string) result
+(** Construct an eight-byte spill slot addressed from RSP. Offsets are aligned
+    multiples of eight from zero through 4080. *)
+
+val stack_frame : bytes:int -> (stack_frame, string) result
+(** Construct a fixed spill frame. Sizes are 8..4088 bytes and 8 modulo 16,
+    keeping the generated body aligned after the host call pushes its return
+    address. *)
 
 val max_code_bytes : int
 (** Hard limit of 16 MiB for one encoded instruction sequence, further bounded
@@ -49,7 +65,9 @@ val max_code_bytes : int
 
 val size : instruction -> int
 (** Exact encoded byte count, including any REX prefix and immediate. [Setcc]
-    uses three bytes for AL/CL/DL and four for R8b through R11b. *)
+    uses three bytes for AL/CL/DL and four for R8b through R11b. Stack
+    loads/stores always use an eight-byte fixed-disp32 SIB form; stack
+    allocation/free always use seven-byte imm32 forms. *)
 
 val encode : instruction -> string
 (** Encode one instruction into a fresh string using the pinned opcode facts. *)

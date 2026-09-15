@@ -48,13 +48,30 @@ static void native_os_error(const char *operation, unsigned long error)
 }
 #endif
 
-CAMLprim value holyc_native_execute_image(value code)
+#if HOLYC_NATIVE_PLATFORM == 1
+static void native_windows_mapping_error(void *mapping, const char *operation,
+                                         DWORD error)
 {
-  CAMLparam1(code);
+  if (!VirtualFree(mapping, 0, MEM_RELEASE)) {
+    DWORD release_error = GetLastError();
+    char message[240];
+    snprintf(message, sizeof(message),
+             "native %s failed (OS error %lu); release also failed (OS error %lu)",
+             operation, (unsigned long)error, (unsigned long)release_error);
+    caml_failwith(message);
+  }
+  native_os_error(operation, (unsigned long)error);
+}
+#endif
+
+CAMLprim value holyc_native_execute_image(value code, value unwind)
+{
+  CAMLparam2(code, unwind);
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
   const mlsize_t length = caml_string_length(code);
+  const mlsize_t unwind_length = caml_string_length(unwind);
   void *mapping;
   uint64_t (*entry)(void);
   uint64_t bits;
@@ -64,26 +81,51 @@ CAMLprim value holyc_native_execute_image(value code)
      caller-selected code quota. No arbitrary byte executor is exported in ML. */
   if (length == 0 || length > 16u * 1024u * 1024u)
     caml_invalid_argument("native image length is outside the host allocation bound");
+  if (unwind_length != 0 && unwind_length != 8)
+    caml_invalid_argument("native unwind image has an unsupported length");
   if (sizeof(entry) != sizeof(mapping))
     caml_failwith("native function pointers do not match this host's address size");
 
 #if HOLYC_NATIVE_PLATFORM == 1
   DWORD previous_protection;
-  mapping = VirtualAlloc(NULL, (SIZE_T)length, MEM_RESERVE | MEM_COMMIT,
+  PRUNTIME_FUNCTION function_table = NULL;
+  const SIZE_T unwind_offset = ((SIZE_T)length + 3u) & ~(SIZE_T)3u;
+  const SIZE_T table_offset = unwind_offset + (SIZE_T)unwind_length;
+  /* Code is already bounded at 16 MiB; the fixed metadata and alignment add
+     at most 23 bytes. Keep the table in the mapping so even a failed removal
+     cannot leave Windows pointing at a returned C stack frame. */
+  const SIZE_T mapping_length = unwind_length == 0 ? (SIZE_T)length
+    : table_offset + sizeof(RUNTIME_FUNCTION);
+  mapping = VirtualAlloc(NULL, mapping_length, MEM_RESERVE | MEM_COMMIT,
                          PAGE_READWRITE);
   if (mapping == NULL)
     native_os_error("allocation", (unsigned long)GetLastError());
   memcpy(mapping, String_val(code), (size_t)length);
-  if (!VirtualProtect(mapping, (SIZE_T)length, PAGE_EXECUTE_READ,
+  if (unwind_length != 0) {
+    memcpy((char *)mapping + unwind_offset, String_val(unwind),
+           (size_t)unwind_length);
+    function_table = (PRUNTIME_FUNCTION)((char *)mapping + table_offset);
+    function_table->BeginAddress = 0;
+    function_table->EndAddress = (DWORD)length;
+    function_table->UnwindData = (DWORD)unwind_offset;
+  }
+  if (!VirtualProtect(mapping, mapping_length, PAGE_EXECUTE_READ,
                       &previous_protection)) {
     DWORD error = GetLastError();
-    VirtualFree(mapping, 0, MEM_RELEASE);
-    native_os_error("RX protection", (unsigned long)error);
+    native_windows_mapping_error(mapping, "RX protection", error);
   }
   if (!FlushInstructionCache(GetCurrentProcess(), mapping, (SIZE_T)length)) {
     DWORD error = GetLastError();
-    VirtualFree(mapping, 0, MEM_RELEASE);
-    native_os_error("instruction-cache synchronization", (unsigned long)error);
+    native_windows_mapping_error(mapping, "instruction-cache synchronization",
+                                 error);
+  }
+  if (function_table != NULL &&
+      !RtlAddFunctionTable(function_table, 1, (DWORD64)(uintptr_t)mapping)) {
+    /* RtlAddFunctionTable returns a Boolean, not a documented LastError. */
+    if (!VirtualFree(mapping, 0, MEM_RELEASE))
+      native_os_error("release after unwind registration failure",
+                      (unsigned long)GetLastError());
+    caml_failwith("native unwind registration failed");
   }
 #else
   /* READ_IMPLIES_EXEC would turn the writable staging mapping executable. */
@@ -105,12 +147,15 @@ CAMLprim value holyc_native_execute_image(value code)
   __builtin___clear_cache((char *)mapping, (char *)mapping + length);
 #endif
 
-  /* The checked image is a finite leaf using only common volatile registers.
-     Keep the OCaml runtime lock: it cannot call OCaml, block or allocate. */
+  /* The checked image uses only common volatile registers and its bounded
+     private spill frame. Keep the OCaml runtime lock: it cannot call OCaml,
+     block, loop or allocate host objects. */
   memcpy(&entry, &mapping, sizeof(entry));
   bits = entry();
 
 #if HOLYC_NATIVE_PLATFORM == 1
+  if (function_table != NULL && !RtlDeleteFunctionTable(function_table))
+    caml_failwith("native unwind removal failed; registered mapping retained");
   if (!VirtualFree(mapping, 0, MEM_RELEASE))
     native_os_error("release", (unsigned long)GetLastError());
 #else

@@ -11,6 +11,19 @@
   (run %{exe:test_native_execution.exe})))
 
 (executable
+ (name test_native_unwind)
+ (modules test_native_unwind)
+ (libraries holyc_lib)
+ (foreign_stubs
+  (language c)
+  (names native_unwind_probe)))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_unwind.exe})))
+
+(executable
  (name test_native_cli)
  (modules test_native_cli)
  (libraries holyc_lib unix yojson))
@@ -20,11 +33,13 @@
  (deps
   ../../examples/native-integer-expression.hc
   ../../examples/native-integer-predicates.hc
-  ../../examples/native-integer-logical.hc)
+  ../../examples/native-integer-logical.hc
+  ../../examples/native-integer-spills.hc)
  (action
   (run
    %{exe:test_native_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/native-integer-expression.hc}
    %{dep:../../examples/native-integer-predicates.hc}
-   %{dep:../../examples/native-integer-logical.hc})))
+   %{dep:../../examples/native-integer-logical.hc}
+   %{dep:../../examples/native-integer-spills.hc})))

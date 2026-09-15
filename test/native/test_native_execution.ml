@@ -620,6 +620,172 @@ let generated_logical_differential () =
         cases)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let check_spilled_graph label expected_type expected_bits graph =
+  let expected = oracle label graph in
+  Alcotest.(check int64)
+    (label ^ " independent expected bits")
+    expected_bits expected.bits;
+  Alcotest.(check bool)
+    (label ^ " VM class matches independent expectation")
+    (expected_type = Native.U64)
+    (expected.type_ = VM.U64);
+  let image = Fixture.image graph in
+  Fixture.inspect_image graph image;
+  Alcotest.(check bool)
+    (label ^ " uses an actual spill frame")
+    true
+    (Native.frame_bytes image > 0);
+  check_result label expected image
+
+let spill_source_pressure () =
+  let cases =
+    [
+      (Fixture.pressure_source 7, Native.I64, 28L, 0);
+      (Fixture.pressure_source 8, Native.I64, 36L, 8);
+      ("1+(2+(3+(4+(5+(6+(7+14))))));", Native.I64, 42L, 8);
+      ( "0x8000000000000000+(1+(2+(3+(4+(5+(6+7))))));",
+        Native.U64,
+        Int64.add Int64.min_int 28L,
+        8 );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (source, expected_type, expected_bits, expected_frame) ->
+          let label =
+            (match mode with
+              | Preprocessor.Jit -> "JIT spill source: "
+              | Preprocessor.Aot -> "AOT spill source: ")
+            ^ source
+          in
+          let graph = Fixture.source_graph ~mode source in
+          let expected = oracle label graph in
+          Alcotest.(check int64)
+            (label ^ " independent expected bits")
+            expected_bits expected.bits;
+          Alcotest.(check bool)
+            (label ^ " independent expected class")
+            (expected_type = Native.U64)
+            (expected.type_ = VM.U64);
+          let session, config, source_file =
+            Fixture.source_inputs ~mode source
+          in
+          let evaluated =
+            Native_expression.evaluate session ~config ~source:source_file
+            |> Fixture.require_ok Fixture.diagnostic_errors
+          in
+          Fixture.inspect_image graph evaluated.image;
+          Alcotest.(check int)
+            (label ^ " exact frame") expected_frame
+            (Native.frame_bytes evaluated.image);
+          Alcotest.(check int64)
+            (label ^ " native result bits")
+            expected_bits evaluated.bits;
+          Alcotest.(check string)
+            (label ^ " native result class")
+            (Fixture.type_name expected_type)
+            (Fixture.type_name (Native.value_type evaluated.image)))
+        cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let spill_operation_semantics () =
+  List.iter
+    (fun (label, graph, expected_type, expected_bits) ->
+      check_spilled_graph label expected_type expected_bits graph)
+    (Fixture.spill_semantic_cases ());
+  check_spilled_graph "spill slot is reusable after a dead pressure phase"
+    Native.I64 108L
+    (Fixture.spill_slot_reuse_graph ())
+
+let generated_high_pressure_sources () =
+  let random = Random.State.make [| 0x648; 0x5350; 0x2026 |] in
+  let operators = [| "+"; "-"; "^" |] in
+  let literal index =
+    match index mod 7 with
+    | 0 -> "0x8000000000000000"
+    | 1 -> "0xFFFFFFFFFFFFFFFF"
+    | _ -> string_of_int (1 + Random.State.int random 97)
+  in
+  List.init 48 (fun index ->
+      let count = 8 + (index mod 5) in
+      let terms = Array.init count (fun term -> literal (index + term)) in
+      let rec nest term =
+        if term = count - 1 then terms.(term)
+        else
+          let operator =
+            operators.(Random.State.int random (Array.length operators))
+          in
+          "(" ^ terms.(term) ^ operator ^ nest (term + 1) ^ ")"
+      in
+      (index, nest 0 ^ ";"))
+
+let generated_high_pressure_differential () =
+  let cases = generated_high_pressure_sources () in
+  Alcotest.(check int)
+    "deterministic high-pressure source count" 48 (List.length cases);
+  Alcotest.(check bool)
+    "high-pressure generator reproduces every source" true
+    (cases = generated_high_pressure_sources ());
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (index, source) ->
+          let label =
+            Printf.sprintf "%s generated spill source %02d: %s"
+              (match mode with
+              | Preprocessor.Jit -> "JIT"
+              | Preprocessor.Aot -> "AOT")
+              index source
+          in
+          let graph = Fixture.source_graph ~mode source in
+          let image = Fixture.image graph in
+          Fixture.inspect_image graph image;
+          Alcotest.(check bool)
+            (label ^ " exceeds register-only pressure")
+            true
+            (Native.frame_bytes image > 0);
+          check_result label (oracle label graph) image)
+        cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let repeated_spill_execution () =
+  let cases =
+    ("right-nested source", Fixture.source_graph (Fixture.pressure_source 8))
+    :: ("slot reuse", Fixture.spill_slot_reuse_graph ())
+    :: List.map
+         (fun (label, graph, _, _) -> (label, graph))
+         (Fixture.spill_semantic_cases ())
+  in
+  let images =
+    List.map
+      (fun (label, graph) ->
+        let image = Fixture.image graph in
+        let expected = oracle label graph in
+        let code = Native.code image in
+        let unwind = Native.windows_unwind_info image in
+        Alcotest.(check bool)
+          (label ^ " repeated image spills")
+          true
+          (Native.frame_bytes image > 0);
+        (label, expected, image, code, unwind))
+      cases
+  in
+  for round = 1 to 128 do
+    List.iter
+      (fun (label, expected, image, code, unwind) ->
+        check_result
+          (Printf.sprintf "spill repeat %d: %s" round label)
+          expected image;
+        Alcotest.(check string)
+          "repeated spill execution preserves code metadata" code
+          (Native.code image);
+        Alcotest.(check string)
+          "repeated spill execution preserves unwind metadata" unwind
+          (Native.windows_unwind_info image))
+      images
+  done
+
 let repeated_execution () =
   let expressions =
     [
@@ -697,5 +863,16 @@ let () =
             logical_shared_values;
           Alcotest.test_case "240 logical sources in both preprocessing modes"
             `Quick generated_logical_differential;
+          Alcotest.test_case
+            "source pressure spills with exact full-width results" `Quick
+            spill_source_pressure;
+          Alcotest.test_case
+            "spilled unary, binary, predicate, logical and lifetime semantics"
+            `Quick spill_operation_semantics;
+          Alcotest.test_case
+            "48 deterministic high-pressure sources in both preprocessing modes"
+            `Quick generated_high_pressure_differential;
+          Alcotest.test_case "repeated spill execution restores the host stack"
+            `Quick repeated_spill_execution;
         ] );
     ]
