@@ -52,11 +52,14 @@ val bind :
   table:Symbol_table.t ->
   policies:Function_call_conversion_policy.t ->
   ?outer_headers:Function_type_resolution.resolved_function list ->
+  ?call_phases:
+    (Frontend.Ast.implicit_output_statement ->
+    (Function_call_phase.t option, string) result) ->
   Top_level_implicit_output_target_resolution.t ->
   (t, error) result
 (** Bind executable top-level output values against the selected header. An
-    outer target remains explicit until the caller supplies a checked header for
-    that exact symbol. *)
+    outer target uses its exact retained declaration metadata or a supplied
+    checked header for that exact symbol; otherwise it remains deferred. *)
 
 val owns_table : t -> Symbol_table.t -> bool
 val policies : t -> Function_call_conversion_policy.t
@@ -121,3 +124,4 @@ val error_kind : error -> error_kind
 val error_origin : error -> Symbol.origin option
 val error_message : error -> string
 val error_to_string : error -> string
+val bound_original_phase : bound_output -> Function_call_phase.t option

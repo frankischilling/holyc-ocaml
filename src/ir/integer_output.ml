@@ -1,10 +1,6 @@
-type t = {
-  output : Buffer.t;
-  capacity : int;
-  work_limit : int;
-  mutable work_count : int;
-}
-
+type work_budget = { limit : int; mutable count : int }
+type byte_budget = { capacity : int; mutable committed : int }
+type t = { output : Buffer.t; bytes : byte_budget; work_budget : work_budget }
 type 'pointer argument = Word of int64 | Pointer of 'pointer
 
 type 'error failure =
@@ -19,19 +15,30 @@ let create ~max_output_bytes ~max_output_work =
   let capacity = min max_output_bytes Sys.max_string_length in
   {
     output = Buffer.create (min 256 capacity);
-    capacity;
-    work_limit = max_output_work;
-    work_count = 0;
+    bytes = { capacity; committed = 0 };
+    work_budget = { limit = max_output_work; count = 0 };
   }
 
+let share_work state ~max_output_bytes =
+  let capacity = min max_output_bytes Sys.max_string_length in
+  {
+    output = Buffer.create (min 256 capacity);
+    bytes = { capacity; committed = 0 };
+    work_budget = state.work_budget;
+  }
+
+let fork state =
+  { state with output = Buffer.create (min 256 state.bytes.capacity) }
+
 let contents state = Buffer.contents state.output
-let work state = state.work_count
+let work state = state.work_budget.count
+let committed_bytes state = state.bytes.committed
 let ( let* ) = Result.bind
 
 let charge state =
-  if state.work_count >= state.work_limit then Error Work_limit
+  if state.work_budget.count >= state.work_budget.limit then Error Work_limit
   else (
-    state.work_count <- state.work_count + 1;
+    state.work_budget.count <- state.work_budget.count + 1;
     Ok ())
 
 let append state ~capacity buffer byte =
@@ -45,8 +52,8 @@ let next_offset offset =
   if offset = Int64.max_int then Error Offset_overflow
   else Ok (Int64.succ offset)
 
-let print state ~read_byte ~format arguments =
-  let capacity = state.capacity - Buffer.length state.output in
+let format_draft state ~read_byte ~format arguments =
+  let capacity = state.bytes.capacity - state.bytes.committed in
   let draft = Buffer.create (min 256 capacity) in
   let emit byte = append state ~capacity draft byte in
   let read pointer offset =
@@ -130,7 +137,15 @@ let print state ~read_byte ~format arguments =
         | _ -> Error (Invalid_format "Print format directive is not supported")
   in
   let* () = scan 0L 0 in
+  Ok draft
+
+let discard_print state ~read_byte ~format arguments =
+  format_draft state ~read_byte ~format arguments |> Result.map (fun _ -> ())
+
+let print state ~read_byte ~format arguments =
+  let* draft = format_draft state ~read_byte ~format arguments in
   Buffer.add_buffer state.output draft;
+  state.bytes.committed <- state.bytes.committed + Buffer.length draft;
   Ok ()
 
 let put_chars state bits =
@@ -141,7 +156,14 @@ let put_chars state bits =
       let byte = Int64.to_int (Int64.logand bits 255L) in
       let* () =
         if byte = 0 then Ok ()
-        else append state ~capacity:state.capacity state.output (Char.chr byte)
+        else
+          let capacity =
+            Buffer.length state.output
+            + (state.bytes.capacity - state.bytes.committed)
+          in
+          let* () = append state ~capacity state.output (Char.chr byte) in
+          state.bytes.committed <- state.bytes.committed + 1;
+          Ok ()
       in
       loop (Int64.shift_right_logical bits 8)
   in

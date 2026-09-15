@@ -10,6 +10,7 @@ type argument_kind = Provided | Omitted
 type unresolved_expression_kind =
   | Identifier_expression
   | Current_position_expression
+  | Aggregate_position_expression of Offset_fragment.position
   | Offset_expression
   | Postfix_cast_expression
   | Call_expression
@@ -121,6 +122,7 @@ type implicit_output_target = Print_output | Put_chars_output
 
 type implicit_output_fixed_source =
   | Marker_fixed_output
+  | Absent_fixed_output
   | Following_expression_output
 
 type implicit_output_argument
@@ -147,6 +149,12 @@ val make_callable :
 
 val make_argument_expression :
   kind:argument_expression_kind -> origin:Symbol.origin -> argument_expression
+
+val make_source_identifier_expression :
+  occurrence:Module_expression_binding.occurrence -> argument_expression
+
+val argument_expression_source_identifier :
+  argument_expression -> Module_expression_binding.occurrence option
 
 val make_prefix_argument_expression :
   operator:prefix_operator ->
@@ -326,6 +334,7 @@ val make_call :
   ?callee_form:callee_form ->
   ?callable:callable ->
   ?computed_callee:argument_expression ->
+  ?original_phase:Function_call_phase.t ->
   origin:Symbol.origin ->
   syntax:call_syntax ->
   argument list ->
@@ -358,6 +367,19 @@ val validate_initializer_expression :
 (** Compare literal/operator payloads, ordered children, queries and complete
     call subtrees with the original source leaf. All supplied calls must be
     consumed once in source order. *)
+
+val validate_source_expression :
+  source:Frontend.Ast.expression ->
+  expression:argument_expression ->
+  calls:call list ->
+  ?offset_fragment:Offset_fragment.t ->
+  ?callee_expressions:(call * argument_expression) list ->
+  ?call_expressions:(call * argument_expression) list ->
+  unit ->
+  (unit, string) result
+(** Shared literal/operator, ordered-child, query and complete-call validation
+    for an original expression. This structural check grants no runtime
+    authority. *)
 
 val make_initializer_leaf :
   index:int ->
@@ -406,6 +428,37 @@ val make_implicit_output :
   arguments:implicit_output_argument list ->
   origin:Symbol.origin ->
   (implicit_output_input, string) result
+
+val bind_implicit_output_source :
+  source:Frontend.Ast.implicit_output_statement ->
+  calls:call list ->
+  implicit_output_input ->
+  (implicit_output_input, string) result
+(** Checks every expression against the exact implicit source and retains the
+    original call objects for final function-batch validation. *)
+
+val implicit_output_statement :
+  implicit_output_input -> Frontend.Ast.implicit_output_statement option
+
+val make_source_implicit_output :
+  source:Frontend.Ast.implicit_output_statement ->
+  calls:call list ->
+  index:int ->
+  fixed_expression:argument_expression ->
+  arguments:implicit_output_argument list ->
+  (implicit_output_input, string) result
+(** Bind the original source expressions, including parenthesized PutChars
+    arguments, before publishing the implicit call input. *)
+
+val make_source_implicit_output_with_optional_fixed :
+  source:Frontend.Ast.implicit_output_statement ->
+  calls:call list ->
+  index:int ->
+  fixed_expression:argument_expression option ->
+  arguments:implicit_output_argument list ->
+  (implicit_output_input, string) result
+(** Bind the original source expressions, including parenthesized PutChars
+    arguments, before publishing the implicit call input. *)
 
 val make_ranged_case_pattern :
   start_expression:argument_expression ->
@@ -573,6 +626,18 @@ val call_callee_form : call -> callee_form
 val call_callable : call -> callable option
 val call_computed_callee : call -> argument_expression option
 val call_origin : call -> Symbol.origin
+val call_original_phase : call -> Function_call_phase.t option
+
+val emission_header :
+  call ->
+  Function_type_resolution.resolved_function ->
+  Function_type_resolution.resolved_function
+
+val argument_header :
+  call ->
+  Function_resolution.resolved_declaration ->
+  (Function_type_resolution.resolved_function, error) result
+
 val call_syntax : call -> call_syntax
 val call_arguments : call -> argument list
 val condition_index : condition_input -> int
@@ -598,8 +663,14 @@ val implicit_output_marker_origin : implicit_output_input -> Symbol.origin
 val implicit_output_fixed_source :
   implicit_output_input -> implicit_output_fixed_source
 
+val implicit_output_supplied_fixed_expression :
+  implicit_output_input -> argument_expression option
+
 val implicit_output_fixed_expression :
   implicit_output_input -> argument_expression
+(** Legacy supplied-value accessor. Raises [Invalid_argument] for an absent
+    value; use the corresponding supplied-value option accessor for general
+    calls. *)
 
 val implicit_output_arguments :
   implicit_output_input -> implicit_output_argument list
@@ -609,6 +680,8 @@ val implicit_output_argument_index : implicit_output_argument -> int
 
 val implicit_output_argument_leading_comma_origin :
   implicit_output_argument -> Symbol.origin
+(** Legacy comma accessor. Raises [Invalid_argument] for an adjacent argument;
+    use [implicit_output_argument_separator_origin] for general source calls. *)
 
 val implicit_output_argument_expression :
   implicit_output_argument -> argument_expression
@@ -744,6 +817,7 @@ val fixed_value : fixed_argument -> fixed_value
 val direct_source : direct_call -> call
 val direct_occurrence : direct_call -> Module_expression_binding.occurrence
 val direct_declaration : direct_call -> Function_resolution.resolved_declaration
+val direct_outer_binding : direct_call -> Outer_environment.binding option
 
 val direct_active_header :
   direct_call -> Function_type_resolution.resolved_function
@@ -782,3 +856,12 @@ val error_kind : error -> error_kind
 val error_origin : error -> Symbol.origin option
 val error_message : error -> string
 val error_to_string : error -> string
+
+val make_source_implicit_output_argument :
+  source:Frontend.Ast.implicit_output_argument ->
+  index:int ->
+  expression:argument_expression ->
+  (implicit_output_argument, string) result
+
+val implicit_output_argument_separator_origin :
+  implicit_output_argument -> Symbol.origin option

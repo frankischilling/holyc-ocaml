@@ -34,3 +34,9 @@ val publish_through : cursor -> global -> (cursor, string) result
 val resolve : cursor -> string -> resolution option
 (** Resolve a spelling against the visible module prefix, then the complete
     outer table chain. *)
+
+val resolve_selected :
+  cursor ->
+  string ->
+  Reference_selection.t ->
+  (resolution option, string) result

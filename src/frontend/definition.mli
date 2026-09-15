@@ -20,6 +20,12 @@ module Environment : sig
 
   val create : unit -> t
 
+  val task_view : t -> t
+  (** A persistent owner sharing the publication store. Lookup sees unowned
+      baseline definitions and this owner's definitions. Root inspection sees
+      every definition once; sibling tasks do not inherit each other's values.
+  *)
+
   val copy : t -> t
   (** Copy the current definitions and identity counter. Later definitions in
       either environment do not affect the other. *)

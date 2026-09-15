@@ -490,6 +490,60 @@ let invalid_inputs_are_stable_and_pure () =
     (Holyc_lib.analyze_function_headers foreign ~functions:prepared.functions
        inputs)
 
+let retained_header_inputs () =
+  let prepared =
+    prepare ~path:"retained-headers.HC"
+      "extern I64 Retained(I64 n=40+2);U64 Retained(I64 n=40+1){return n;}"
+  in
+  let table = Session.semantic_symbols prepared.session in
+  let parent = Semantic_declaration_collection.scope prepared.declarations in
+  let first, second =
+    match
+      Semantic_function_type_resolution.functions prepared.function_types
+    with
+    | [ first; second ] -> (first, second)
+    | _ -> Alcotest.fail "expected two headers"
+  in
+  let fact kind function_ =
+    Semantic_function_resolution.make_declaration ~kind ~function_ |> checked
+  in
+  let previous =
+    Semantic_function_resolution.resolve ~table ~parent ~compilation_mode:Jit
+      [ fact Extern first ]
+    |> checked |> Semantic_function_resolution.declarations |> List.hd
+  in
+  let current =
+    Semantic_function_resolution.resolve ~previous:[ previous ] ~table ~parent
+      ~compilation_mode:Jit
+      [ fact Definition second ]
+    |> checked
+  in
+  let previous_input =
+    make_input previous [ Some (Semantic_function_header_analysis.Bits 42L) ]
+  in
+  let input =
+    make_input
+      (List.hd (Semantic_function_resolution.declarations current))
+      [ Some (Semantic_function_header_analysis.Bits 41L) ]
+  in
+  let result =
+    Semantic_function_header_analysis.analyze
+      ~previous_inputs:[ previous_input ] ~table ~functions:current [ input ]
+    |> checked_header
+  in
+  Alcotest.(check (list string))
+    "retained return and saved default are compared"
+    [ "HCSEMA0037"; "HCSEMA0038" ]
+    (warning_codes result);
+  List.iter
+    (fun previous_inputs ->
+      Alcotest.(check bool)
+        "prior header inputs require exact order and identity" true
+        (Semantic_function_header_analysis.analyze ~previous_inputs ~table
+           ~functions:current [ input ]
+        |> Result.is_error))
+    [ []; [ input ]; [ previous_input; previous_input ] ]
+
 let tests =
   [
     Alcotest.test_case "independent return and argument warnings" `Quick
@@ -505,4 +559,6 @@ let tests =
       generated_and_included_warning_provenance;
     Alcotest.test_case "invalid inputs, determinism, and purity" `Quick
       invalid_inputs_are_stable_and_pure;
+    Alcotest.test_case "retained headers reuse evaluated defaults" `Quick
+      retained_header_inputs;
   ]

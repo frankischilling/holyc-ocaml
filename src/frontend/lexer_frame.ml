@@ -1,4 +1,4 @@
-type kind = Root | Included | Definition | Predefined
+type kind = Root | Included | Definition | Predefined | Generated_stream
 
 type t = {
   kind : kind;
@@ -83,6 +83,23 @@ let push_predefined ~caller ~source ~predefined ~invocation_span =
     predefined = Some predefined;
   }
 
+let push_stream ~caller ~source ~invocation_span =
+  {
+    kind = Generated_stream;
+    source;
+    lexer =
+      Lexer.create ~mode:Token.Holyc ~generated_from:invocation_span
+        ~caller:caller.lexer source;
+    caller = Some caller;
+    include_origin = None;
+    include_spelling = None;
+    source_depth = caller.source_depth;
+    definition_depth = caller.definition_depth + 1;
+    definition = None;
+    definition_invocation = Some invocation_span;
+    predefined = None;
+  }
+
 let kind frame = frame.kind
 let source frame = frame.source
 let source_id frame = Common.Source_file.id frame.source
@@ -145,6 +162,13 @@ let definition_trace frame =
                   (Predefined.spelling predefined);
             };
           ]
+      | None, None, Some invocation when current.kind = Generated_stream ->
+          [
+            {
+              Common.Diagnostic.span = invocation;
+              message = "#exe generated source was inserted here";
+            };
+          ]
       | _ -> []
     in
     let rest =
@@ -163,7 +187,7 @@ let find_active_path frame path =
       | Root | Included ->
           Include_resolver.equal_path path
             (Common.Source_file.path current.source)
-      | Definition | Predefined -> false
+      | Definition | Predefined | Generated_stream -> false
     in
     if matches then Some current
     else
@@ -181,5 +205,13 @@ let find_active_definition frame id =
         match current.caller with
         | None -> None
         | Some caller -> find caller)
+  in
+  find frame
+
+let find_active_definition_object frame definition =
+  let rec find current =
+    match current.definition with
+    | Some active when active == definition -> Some current
+    | _ -> Option.bind current.caller find
   in
   find frame

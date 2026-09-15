@@ -1,9 +1,24 @@
 val diagnostic : span:Common.Span.t -> string -> string -> Common.Diagnostic.t
 val source_span : Common.Source_file.t -> Common.Span.t
+val message_diagnostic : span:Common.Span.t -> string -> Common.Diagnostic.t
 
 type prepared
 
 val prepare_unit :
+  ?environment:Sema.Outer_environment.t ->
+  ?declaration_command:Task_declarations.command ->
+  ?source_command:Task_declarations.source_command ->
+  ?selections:
+    (Frontend.Ast.identifier -> (Sema.Reference_selection.t, string) result) ->
+  ?implicit_selections:
+    (Frontend.Ast.implicit_output_statement ->
+    (Sema.Reference_selection.t, string) result) ->
+  ?call_phases:
+    (Frontend.Ast.call_expression ->
+    (Sema.Function_call_phase.t option, string) result) ->
+  ?implicit_call_phases:
+    (Frontend.Ast.implicit_output_statement ->
+    (Sema.Function_call_phase.t option, string) result) ->
   ?include_global_initializers:bool ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->

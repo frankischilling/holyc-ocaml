@@ -11,8 +11,7 @@ type global_input = {
 
 type layout = {
   source_ : global_input;
-  dimensions_ : int64 list;
-  element_count_ : int64;
+  extent_ : Compiler_record.global_extent;
 }
 
 type t = {
@@ -28,8 +27,11 @@ let layouts result = result.layouts_
 let source layout = layout.source_.global
 let record layout = Global_dimension_binding.global_record (source layout)
 let dimension_inputs layout = layout.source_.dimensions
-let dimensions layout = layout.dimensions_
-let element_count layout = layout.element_count_
+let extent layout = layout.extent_
+let dimensions layout = Compiler_record.global_extent_dimensions layout.extent_
+
+let element_count layout =
+  Compiler_record.global_extent_element_count layout.extent_
 
 let find result selected =
   List.find_opt (fun layout -> record layout == selected) result.layouts_
@@ -43,26 +45,7 @@ let invalid_extent global index detail =
        (Global_dimension_binding.global_symbol global |> Symbol.name)
        detail)
 
-let rec validate_closed_expression global index = function
-  | Aggregate_layout.Integer_expression _
-  | Aggregate_layout.Unsigned_integer_expression _
-  | Aggregate_layout.Floating_expression _ -> Ok ()
-  | Aggregate_layout.Current_position_expression _ ->
-      invalid_extent global index
-        "requires unresolved current-position layout evidence"
-  | Aggregate_layout.Dependency_expression { detail; _ } ->
-      invalid_extent global index
-        ("requires unresolved closed layout evidence: " ^ detail)
-  | Aggregate_layout.Unsupported_expression { description; _ } ->
-      invalid_extent global index
-        ("has an unsupported closed layout expression: " ^ description)
-  | Aggregate_layout.Unary_expression { operand; _ } ->
-      validate_closed_expression global index operand
-  | Aggregate_layout.Binary_expression { left; right; _ } ->
-      let* () = validate_closed_expression global index left in
-      validate_closed_expression global index right
-
-let evaluate_dimension global index input =
+let evaluate_dimension ~table global index input =
   let dimension = input.dimension in
   if Global_dimension_binding.dimension_index dimension <> index then
     invalid "global array layout dimensions are outside source order"
@@ -89,35 +72,41 @@ let evaluate_dimension global index input =
                 "global array layout requires its original source expression"
         in
         let* () =
-          match Global_dimension_binding.dimension_occurrences dimension with
-          | [] -> Ok ()
-          | occurrence :: _ ->
+          match
+            ( Global_dimension_binding.dimension_prepared dimension,
+              Global_dimension_binding.dimension_occurrences dimension )
+          with
+          | Some _, _ | None, [] -> Ok ()
+          | None, occurrence :: _ ->
               invalid_extent global index
                 (Printf.sprintf
                    "requires an evaluated value for bound identifier %S"
                    (Global_dimension_binding.occurrence_name occurrence))
         in
-        let expression = Closed_layout_expression.of_ast expression in
-        let* () = validate_closed_expression global index expression in
-        let* value =
-          Aggregate_layout.evaluate_expression
-            ~context:Aggregate_layout.Array_dimension ~current_position:0L
-            expression
-          |> Result.map_error (fun error ->
-              Printf.sprintf "HCSEMA0027: global array dimension %d for %S: %s"
-                index
-                (Global_dimension_binding.global_symbol global |> Symbol.name)
-                (Aggregate_layout.error_to_string error))
+        let record = Global_dimension_binding.global_record global in
+        let source = Global_dimension_binding.dimension_source dimension in
+        let queries =
+          Global_dimension_binding.dimension_queries dimension
+          |> Option.map (List.map Query_selection.checked_read)
         in
-        if Int64.compare value 0L <= 0 then
-          invalid_extent global index
-            (Printf.sprintf
-               "has nonpositive extent %Ld; persistent arrays require a \
-                positive fixed extent"
-               value)
-        else Ok value
+        (match Global_dimension_binding.dimension_prepared dimension with
+          | Some prepared -> (
+              match queries with
+              | Some queries ->
+                  Compiler_record.reuse_global_dimension ~table ~record
+                    ~dimension:source ~queries prepared
+              | None -> Error "checked global extent lacks its query manifest")
+          | None ->
+              Compiler_record.evaluate_global_dimension ~table ~record
+                ~dimension:source ~queries)
+        |> Result.map_error (fun detail ->
+            Printf.sprintf "HCSEMA0027: global array dimension %d for %S%s%s"
+              index
+              (Global_dimension_binding.global_symbol global |> Symbol.name)
+              (if String.starts_with ~prefix:": " detail then "" else " ")
+              detail)
 
-let evaluate_dimensions global inputs =
+let evaluate_dimensions ~table global inputs =
   let semantic =
     global |> Global_dimension_binding.global_record
     |> Global_resolution.global_record_global
@@ -125,21 +114,29 @@ let evaluate_dimensions global inputs =
   in
   let rec loop index count reversed semantic dimensions inputs =
     match (semantic, dimensions, inputs) with
-    | [], [], [] -> Ok (count, List.rev reversed)
+    | [], [], [] ->
+        Compiler_record.make_global_extent ~table
+          ~record:(Global_dimension_binding.global_record global)
+          (List.rev reversed)
+        |> Result.map_error (fun detail -> "HCSEMA0027: " ^ detail)
     | expected :: semantic_rest, dimension :: rest, input :: tail ->
         if
           dimension != input.dimension
           || Global_dimension_binding.dimension_source dimension != expected
         then invalid "global array layout has foreign dimension evidence"
         else
-          let* value = evaluate_dimension global index input in
-          if Int64.compare count (Int64.div Int64.max_int value) > 0 then
+          let* value = evaluate_dimension ~table global index input in
+          let extent_count =
+            Compiler_record.global_dimension_extent_count value
+          in
+          if Int64.compare count (Int64.div Int64.max_int extent_count) > 0 then
             invalid_extent global index "overflows the declared element count"
           else if index = max_int then
             invalid "global array layout dimension identity space is exhausted"
           else
-            loop (index + 1) (Int64.mul count value) (value :: reversed)
-              semantic_rest rest tail
+            loop (index + 1)
+              (Int64.mul count extent_count)
+              (value :: reversed) semantic_rest rest tail
     | _ -> invalid "global array layout dimensions do not match their owner"
   in
   loop 0 1L [] semantic
@@ -172,11 +169,9 @@ let layout ~table ~bindings inputs =
                |> Global_type_resolution.global_symbol != symbol
           then invalid "global array layout has inconsistent symbol identities"
           else
-            let* element_count_, dimensions_ =
-              evaluate_dimensions global input.dimensions
-            in
+            let* extent_ = evaluate_dimensions ~table global input.dimensions in
             loop
-              ({ source_ = input; dimensions_; element_count_ } :: reversed)
+              ({ source_ = input; extent_ } :: reversed)
               records globals inputs
       | _ ->
           invalid "global array layout inputs do not match their binding batch"

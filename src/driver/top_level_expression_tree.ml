@@ -8,6 +8,10 @@ let origin (location : Frontend.Ast.location) =
     }
 
 type state = {
+  offset_fragment : Sema.Offset_fragment.t option;
+  call_phases :
+    Frontend.Ast.call_expression ->
+    (Sema.Function_call_phase.t option, string) result;
   module_expressions : Sema.Module_expression_binding.t;
   item_index : int;
   occurrences : Sema.Top_level_outer_expression_binding.occurrence array;
@@ -25,16 +29,20 @@ type state = {
   next_case : int;
   next_local_declaration : int;
   next_return : int;
+  implicit_outputs_rev : (int * Frontend.Ast.implicit_output_statement) list;
   roots_rev : Sema.Top_level_expression_tree.root list;
   calls_rev : Sema.Top_level_expression_tree.call list;
   switch_cases_rev : Sema.Top_level_expression_tree.switch_case list;
 }
 
-let initial_state ~next_occurrence ~next_query ~next_root ~next_call
+let initial_state ?offset_fragment ?(call_phases = fun _ -> Ok None)
+    ~next_occurrence ~next_query ~next_root ~next_call
     ~next_expression_statement ~next_output ~next_condition ~next_selector
     ~next_case ~next_local_declaration ~next_return ~module_expressions
     ~item_index occurrences queries =
   {
+    offset_fragment;
+    call_phases;
     module_expressions;
     item_index;
     occurrences = Array.of_list occurrences;
@@ -52,6 +60,7 @@ let initial_state ~next_occurrence ~next_query ~next_root ~next_call
     next_case;
     next_local_declaration;
     next_return;
+    implicit_outputs_rev = [];
     roots_rev = [];
     calls_rev = [];
     switch_cases_rev = [];
@@ -165,7 +174,7 @@ let take_occurrence state (identifier : Frontend.Ast.identifier) =
                 next_occurrence;
               } )
 
-let take_query state (operand : Frontend.Ast.defined_operand) =
+let take_query state source (operand : Frontend.Ast.defined_operand) =
   if state.query_cursor >= Array.length state.queries then
     Error "top-level defined expression has no bound name query"
   else
@@ -187,6 +196,12 @@ let take_query state (operand : Frontend.Ast.defined_operand) =
       origin operand.defined_operand_location
       <> Sema.Top_level_outer_expression_binding.query_origin query
     then Error "top-level defined operand origin does not match its query"
+    else if
+      Option.fold ~none:false
+        ~some:(fun selected ->
+          Sema.Query_selection.expression selected != source)
+        (Sema.Top_level_outer_expression_binding.query_selection query)
+    then Error "top-level query selection belongs to another AST expression"
     else
       match increment "top-level query" state.next_query with
       | Error _ as error -> error
@@ -196,7 +211,7 @@ let take_query state (operand : Frontend.Ast.defined_operand) =
               { state with query_cursor = state.query_cursor + 1; next_query }
             )
 
-let take_sizeof_query state (sizeof : Frontend.Ast.sizeof_expression) =
+let take_sizeof_query state source (sizeof : Frontend.Ast.sizeof_expression) =
   if state.query_cursor >= Array.length state.queries then
     Error "top-level sizeof expression has no bound target query"
   else
@@ -218,6 +233,12 @@ let take_sizeof_query state (sizeof : Frontend.Ast.sizeof_expression) =
       origin sizeof.sizeof_target.location
       <> Sema.Top_level_outer_expression_binding.query_origin query
     then Error "top-level sizeof target origin does not match its query"
+    else if
+      Option.fold ~none:false
+        ~some:(fun selected ->
+          Sema.Query_selection.expression selected != source)
+        (Sema.Top_level_outer_expression_binding.query_selection query)
+    then Error "top-level query selection belongs to another AST expression"
     else
       match increment "top-level query" state.next_query with
       | Error _ as error -> error
@@ -227,7 +248,7 @@ let take_sizeof_query state (sizeof : Frontend.Ast.sizeof_expression) =
               { state with query_cursor = state.query_cursor + 1; next_query }
             )
 
-let take_offset_query state (offset : Frontend.Ast.offset_expression) =
+let take_offset_query state source (offset : Frontend.Ast.offset_expression) =
   if state.query_cursor >= Array.length state.queries then
     Error "top-level offset expression has no bound target query"
   else
@@ -249,6 +270,12 @@ let take_offset_query state (offset : Frontend.Ast.offset_expression) =
       origin offset.offset_target.location
       <> Sema.Top_level_outer_expression_binding.query_origin query
     then Error "top-level offset target origin does not match its query"
+    else if
+      Option.fold ~none:false
+        ~some:(fun selected ->
+          Sema.Query_selection.expression selected != source)
+        (Sema.Top_level_outer_expression_binding.query_selection query)
+    then Error "top-level query selection belongs to another AST expression"
     else
       match increment "top-level query" state.next_query with
       | Error _ as error -> error
@@ -528,19 +555,29 @@ let rec expression state (source : Frontend.Ast.expression) =
           | Error _ as error -> error
           | Ok kind -> finish state kind))
   | Frontend.Ast.Call_expression call -> call_expression state source call
-  | Frontend.Ast.Current_position_expression _ ->
-      finish state
-        (Sema.Function_call_resolution.Unresolved_expression
-           Sema.Function_call_resolution.Current_position_expression)
+  | Frontend.Ast.Current_position_expression _ -> (
+      match state.offset_fragment with
+      | Some fragment -> (
+          match Sema.Offset_fragment.position_for fragment source with
+          | Error _ as error -> error
+          | Ok position ->
+              finish state
+                (Sema.Function_call_resolution.Unresolved_expression
+                   (Sema.Function_call_resolution.Aggregate_position_expression
+                      position)))
+      | None ->
+          finish state
+            (Sema.Function_call_resolution.Unresolved_expression
+               Sema.Function_call_resolution.Current_position_expression))
   | Frontend.Ast.Sizeof_expression sizeof -> (
-      match take_sizeof_query state sizeof with
+      match take_sizeof_query state source sizeof with
       | Error _ as error -> error
       | Ok (query, state) -> (
           match top_level_sizeof_kind query sizeof with
           | Error _ as error -> error
           | Ok kind -> finish state kind))
   | Frontend.Ast.Offset_expression offset -> (
-      match take_offset_query state offset with
+      match take_offset_query state source offset with
       | Error _ as error -> error
       | Ok (query, state) -> (
           match top_level_offset_kind state query offset with
@@ -569,7 +606,7 @@ let rec expression state (source : Frontend.Ast.expression) =
       | Frontend.Ast.Defined_non_name ->
           make state Sema.Function_call_resolution.Defined_non_name_false
       | Frontend.Ast.Defined_name -> (
-          match take_query state operand with
+          match take_query state source operand with
           | Error _ as error -> error
           | Ok (query, state) ->
               make state
@@ -625,12 +662,14 @@ and call_expression state source (call : Frontend.Ast.call_expression) =
                           .Dereferenced_identifier_callee
                             _ -> None
                       in
+                      let ( let* ) = Result.bind in
+                      let* original_phase = state.call_phases call in
                       match
                         Sema.Function_call_resolution.make_call
                           ~index:call_index ~callee_occurrence_index
                           ~callee_name:callee_identifier.spelling
                           ~callee_origin:(origin callee_identifier.location)
-                          ~callee_form ?computed_callee
+                          ~callee_form ?computed_callee ?original_phase
                           ~origin:(origin call.call_location)
                           ~syntax:(call_syntax call) arguments
                       with
@@ -686,7 +725,8 @@ and call_arguments state arguments =
   in
   loop 0 state [] arguments
 
-let add_root state role source =
+let add_root ?implicit_source state role source =
+  let first_call = state.next_call in
   match expression state source with
   | Error _ as error -> error
   | Ok (state, expression) -> (
@@ -697,6 +737,28 @@ let add_root state role source =
             Sema.Top_level_expression_tree.make_root ~index:state.next_root
               ~role ~expression
               ~origin:(origin (Frontend.Ast.expression_location source))
+            |> fun result ->
+            Result.bind result (fun root ->
+                match implicit_source with
+                | None -> Ok root
+                | Some source ->
+                    Sema.Top_level_expression_tree.bind_implicit_root_source
+                      ~source
+                      ~calls:
+                        (state.calls_rev
+                        |> List.filter (fun call ->
+                            call |> Sema.Top_level_expression_tree.call_source
+                            |> Sema.Function_call_resolution.call_index
+                            >= first_call)
+                        |> List.sort (fun left right ->
+                            Int.compare
+                              (left
+                             |> Sema.Top_level_expression_tree.call_source
+                             |> Sema.Function_call_resolution.call_index)
+                              (right
+                             |> Sema.Top_level_expression_tree.call_source
+                             |> Sema.Function_call_resolution.call_index)))
+                      root)
           with
           | Error error ->
               Error (Sema.Top_level_expression_tree.error_to_string error)
@@ -779,22 +841,35 @@ let record_output state (output : Frontend.Ast.implicit_output_statement) =
   let fixed, source =
     match output.fixed_argument with
     | Frontend.Ast.Marker_fixed_argument value ->
-        (value, Sema.Function_call_resolution.Marker_fixed_output)
+        (Some value, Sema.Function_call_resolution.Marker_fixed_output)
     | Frontend.Ast.Expression_fixed_argument value ->
-        (value, Sema.Function_call_resolution.Following_expression_output)
+        (Some value, Sema.Function_call_resolution.Following_expression_output)
+    | Frontend.Ast.Absent_fixed_argument ->
+        (None, Sema.Function_call_resolution.Absent_fixed_output)
   in
   match increment "top-level implicit output" output_index with
   | Error _ as error -> error
   | Ok next_output -> (
+      let state =
+        {
+          state with
+          next_output;
+          implicit_outputs_rev =
+            (output_index, output) :: state.implicit_outputs_rev;
+        }
+      in
       match
-        add_root { state with next_output }
-          (Sema.Top_level_expression_tree.Implicit_output_fixed
-             {
-               output_index;
-               target;
-               source;
-               marker_origin = origin output.marker.literal_location;
-             })
+        Option.fold ~none:(Ok state)
+          ~some:(fun fixed ->
+            add_root ~implicit_source:output state
+              (Sema.Top_level_expression_tree.Implicit_output_fixed
+                 {
+                   output_index;
+                   target;
+                   source;
+                   marker_origin = origin output.marker.literal_location;
+                 })
+              fixed)
           fixed
       with
       | Error _ as error -> error
@@ -806,7 +881,7 @@ let record_output state (output : Frontend.Ast.implicit_output_statement) =
                (fun state
                     ( argument_index,
                       (argument : Frontend.Ast.implicit_output_argument) ) ->
-                 add_root state
+                 add_root ~implicit_source:output state
                    (Sema.Top_level_expression_tree.Implicit_output_argument
                       { output_index; argument_index })
                    argument.value)
@@ -1107,7 +1182,8 @@ let statement_input counters expected (item_index, ast) =
       Sema.Top_level_outer_expression_binding.statement_queries expected
     in
     let state =
-      initial_state ~next_occurrence:counters.next_occurrence
+      initial_state ~call_phases:counters.call_phases
+        ~next_occurrence:counters.next_occurrence
         ~next_query:counters.next_query ~next_root:counters.next_root
         ~next_call:counters.next_call
         ~next_expression_statement:counters.next_expression_statement
@@ -1159,14 +1235,15 @@ let statement_input counters expected (item_index, ast) =
                  |> Sema.Function_call_resolution.call_index))
           in
           match
-            Sema.Top_level_expression_tree.make_statement ~source:expected
-              ~roots ~calls ~switch_cases
+            Sema.Top_level_expression_tree.make_source_statement
+              ~outputs:(List.rev state.implicit_outputs_rev)
+              ~source:expected ~roots ~calls ~switch_cases
           with
           | Error error ->
               Error (Sema.Top_level_expression_tree.error_to_string error)
           | Ok prepared -> Ok (state, prepared))
 
-let build_statements ~table source module_ =
+let build_statements ?call_phases ~table source module_ =
   let rec loop counters rev expected ast =
     match (expected, ast) with
     | [], [] -> Ok (List.rev rev)
@@ -1182,8 +1259,8 @@ let build_statements ~table source module_ =
       source |> Sema.Top_level_outer_expression_binding.source
       |> Sema.Top_level_expression_binding.module_expressions
     in
-    initial_state ~next_occurrence:0 ~next_query:0 ~next_root:0 ~next_call:0
-      ~next_expression_statement:0 ~next_output:0 ~next_condition:0
+    initial_state ?call_phases ~next_occurrence:0 ~next_query:0 ~next_root:0
+      ~next_call:0 ~next_expression_statement:0 ~next_output:0 ~next_condition:0
       ~next_selector:0 ~next_case:0 ~next_local_declaration:0 ~next_return:0
       ~module_expressions ~item_index:0 [] []
   in
@@ -1194,7 +1271,8 @@ let build_statements ~table source module_ =
         (Sema.Top_level_outer_expression_binding.statements source)
         ast
 
-let build ~table ~declarations ~compilation_mode ~expressions module_ =
+let build ?call_phases ~table ~declarations ~compilation_mode ~expressions
+    module_ =
   let parent = Sema.Declaration_collection.scope declarations in
   let environment =
     Sema.Top_level_outer_expression_binding.environment expressions
@@ -1218,7 +1296,7 @@ let build ~table ~declarations ~compilation_mode ~expressions module_ =
       | Error error ->
           Error (Top_level_statement_validation.error_to_string error)
       | Ok () -> (
-          match build_statements ~table expressions module_ with
+          match build_statements ?call_phases ~table expressions module_ with
           | Error _ as error -> error
           | Ok statements ->
               Sema.Top_level_expression_tree.create ~table ~source:expressions
@@ -1231,3 +1309,88 @@ let build ~table ~declarations ~compilation_mode ~expressions module_ =
       if String.starts_with ~prefix:"HCSEMA" message then message
       else "HCSEMA0055: " ^ message)
     result
+
+let build_fragment ~offset_fragment ~table ~expressions ~matches_source
+    ~source_expression ~make_root =
+  let ( let* ) = Result.bind in
+  let module Tree = Sema.Top_level_expression_tree in
+  let module Binding = Sema.Top_level_outer_expression_binding in
+  let convert result = Result.map_error Tree.error_to_string result in
+  let* source =
+    match Binding.statements expressions with
+    | [ source ] when matches_source (source |> Binding.statement_source) ->
+        Ok source
+    | _ -> Error "initializer fragment has foreign expression bindings"
+  in
+  let module_expressions =
+    expressions |> Binding.source
+    |> Sema.Top_level_expression_binding.module_expressions
+  in
+  let state =
+    initial_state ?offset_fragment ~next_occurrence:0 ~next_query:0 ~next_root:0
+      ~next_call:0 ~next_expression_statement:0 ~next_output:0 ~next_condition:0
+      ~next_selector:0 ~next_case:0 ~next_local_declaration:0 ~next_return:0
+      ~module_expressions ~item_index:0
+      (Binding.statement_occurrences source)
+      (Binding.statement_queries source)
+  in
+  let* state, expression = expression state source_expression in
+  if
+    state.occurrence_cursor <> Array.length state.occurrences
+    || state.query_cursor <> Array.length state.queries
+  then Error "initializer fragment traversal did not consume its exact bindings"
+  else
+    let calls =
+      List.sort
+        (fun left right ->
+          Int.compare
+            (left |> Tree.call_source
+           |> Sema.Function_call_resolution.call_index)
+            (right |> Tree.call_source
+           |> Sema.Function_call_resolution.call_index))
+        state.calls_rev
+    in
+    let* root = make_root ~expression ~calls |> convert in
+    let* statement =
+      Tree.make_statement ~source ~roots:[ root ] ~calls ~switch_cases:[]
+      |> convert
+    in
+    Tree.create ~table ~source:expressions [ statement ] |> convert
+
+let build_initializer_fragment ~table ~expressions fragment =
+  build_fragment ~offset_fragment:None ~table ~expressions
+    ~matches_source:(fun source ->
+      Option.fold ~none:false ~some:(( == ) fragment)
+        (Sema.Top_level_expression_binding.statement_fragment source))
+    ~source_expression:
+      (fragment |> Sema.Initializer_fragment.leaf
+     |> Sema.Initializer_source.leaf_expression_ast)
+    ~make_root:
+      (Sema.Top_level_expression_tree.make_fragment_root ~index:0 ~fragment)
+
+let build_default_fragment ~table ~expressions fragment =
+  build_fragment ~offset_fragment:None ~table ~expressions
+    ~matches_source:(fun source ->
+      Option.fold ~none:false ~some:(( == ) fragment)
+        (Sema.Top_level_expression_binding.statement_default source))
+    ~source_expression:(Sema.Default_fragment.expression fragment)
+    ~make_root:
+      (Sema.Top_level_expression_tree.make_default_root ~index:0 ~fragment)
+
+let build_dimension_fragment ~table ~expressions fragment =
+  build_fragment ~offset_fragment:None ~table ~expressions
+    ~matches_source:(fun source ->
+      Option.fold ~none:false ~some:(( == ) fragment)
+        (Sema.Top_level_expression_binding.statement_dimension source))
+    ~source_expression:(Sema.Dimension_fragment.expression fragment)
+    ~make_root:
+      (Sema.Top_level_expression_tree.make_dimension_root ~index:0 ~fragment)
+
+let build_offset_fragment ~table ~expressions fragment =
+  build_fragment ~offset_fragment:(Some fragment) ~table ~expressions
+    ~matches_source:(fun source ->
+      Option.fold ~none:false ~some:(( == ) fragment)
+        (Sema.Top_level_expression_binding.statement_offset source))
+    ~source_expression:(Sema.Offset_fragment.expression fragment)
+    ~make_root:
+      (Sema.Top_level_expression_tree.make_offset_root ~index:0 ~fragment)

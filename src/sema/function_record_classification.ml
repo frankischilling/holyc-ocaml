@@ -58,6 +58,7 @@ type classified_declaration = {
   source : Function_resolution.resolved_declaration;
   state : declaration_state;
   record : record;
+  retained_predecessor : classified_declaration option;
 }
 
 type classified_identity = {
@@ -95,6 +96,9 @@ let classified_declaration_state (declaration : classified_declaration) =
 
 let classified_declaration_record (declaration : classified_declaration) =
   declaration.record
+
+let classified_declaration_retained_predecessor declaration =
+  declaration.retained_predecessor
 
 let classified_identity_source (identity : classified_identity) =
   identity.source
@@ -184,17 +188,22 @@ let private_requested state =
 
 let signature_shape declaration =
   let site = Function_resolution.resolved_declaration_site declaration in
-  let function_ = Function_resolution.declaration_site_function site in
-  let signature = Function_type_resolution.function_signature function_ in
-  let argument_count =
-    Function_type_resolution.signature_parameters signature
-    |> List.length |> Int64.of_int
-  in
-  let variadic =
-    Function_type_resolution.function_variadic_bindings function_
-    |> Option.is_some
-  in
-  (argument_count, variadic)
+  match Function_resolution.declaration_site_native_snapshot site with
+  | Some snapshot ->
+      ( Int64.of_int (Option.get (Function_record_phase.argument_count snapshot)),
+        Function_record_phase.ellipsis_flag snapshot )
+  | None ->
+      let function_ = Function_resolution.declaration_site_function site in
+      let signature = Function_type_resolution.function_signature function_ in
+      let argument_count =
+        Function_type_resolution.signature_parameters signature
+        |> List.length |> Int64.of_int
+      in
+      let variadic =
+        Function_type_resolution.function_variadic_bindings function_
+        |> Option.is_some
+      in
+      (argument_count, variadic)
 
 let new_record state =
   {
@@ -211,68 +220,86 @@ let new_record state =
   }
 
 let apply_header declaration (state : declaration_state) (record : record) =
+  let provisional =
+    Function_resolution.declaration_site_phase
+      (Function_resolution.resolved_declaration_site declaration)
+    = Function_resolution.Provisional
+  in
   let argument_count, variadic = signature_shape declaration in
   let stored_flag_mask =
-    record.stored_flag_mask
-    |> add_stored variadic Stored_flag.Variadic
+    record.stored_flag_mask |> add_stored variadic Stored_flag.Variadic
+  in
+  let variadic =
+    Stored_flag.is_set ~mask:stored_flag_mask Stored_flag.Variadic
+  in
+  let stored_flag_mask =
+    stored_flag_mask
     |> add_stored
-         (Function_flag.derives_ret1 ~argument_count ~variadic)
+         ((not provisional)
+         && Function_flag.derives_ret1 ~argument_count ~variadic)
          Stored_flag.Ret1
   in
   let hash_flag_mask =
-    record.hash_flag_mask
-    |> set_hash (public_requested state) Hash_flag.Public
-    |> add_hash (private_requested state) Hash_flag.Private
+    if
+      Option.is_some
+        (Function_resolution.resolved_declaration_phase_source declaration)
+    then record.hash_flag_mask
+    else
+      record.hash_flag_mask
+      |> set_hash (public_requested state) Hash_flag.Public
+      |> add_hash (private_requested state) Hash_flag.Private
   in
   { record with stored_flag_mask; hash_flag_mask }
 
 let apply_binding compilation_mode declaration (state : declaration_state)
     (record : record) =
   let site = Function_resolution.resolved_declaration_site declaration in
-  match Function_resolution.declaration_site_kind site with
-  | Function_resolution.Extern -> record
-  | Function_resolution.Bound_extern ->
-      {
-        record with
-        shared_flag_mask =
-          Shared_flag.clear ~mask:record.shared_flag_mask Shared_flag.Extern;
-        stored_flag_mask =
-          Stored_flag.set ~mask:record.stored_flag_mask
-            Stored_flag.Underscore_extern;
-        hash_flag_mask =
-          add_hash
-            (compilation_mode = Function_resolution.Aot)
-            Hash_flag.Resolve record.hash_flag_mask;
-      }
-  | Function_resolution.Import ->
-      {
-        record with
-        hash_flag_mask =
-          Hash_flag.set ~mask:record.hash_flag_mask Hash_flag.Import;
-        import_name = state.import_name;
-      }
-  | Function_resolution.Intern ->
-      {
-        record with
-        shared_flag_mask =
-          Shared_flag.clear ~mask:record.shared_flag_mask Shared_flag.Extern;
-        stored_flag_mask =
-          Stored_flag.set ~mask:record.stored_flag_mask Stored_flag.Internal;
-      }
-  | Function_resolution.Definition ->
-      {
-        record with
-        shared_flag_mask =
-          Shared_flag.clear ~mask:record.shared_flag_mask Shared_flag.Extern;
-        hash_flag_mask =
-          record.hash_flag_mask
-          |> add_hash
-               (compilation_mode = Function_resolution.Aot)
-               Hash_flag.Export
-          |> add_hash
-               (compilation_mode = Function_resolution.Aot)
-               Hash_flag.Resolve;
-      }
+  if Function_resolution.declaration_site_is_pending site then record
+  else
+    match Function_resolution.declaration_site_kind site with
+    | Function_resolution.Extern -> record
+    | Function_resolution.Bound_extern ->
+        {
+          record with
+          shared_flag_mask =
+            Shared_flag.clear ~mask:record.shared_flag_mask Shared_flag.Extern;
+          stored_flag_mask =
+            Stored_flag.set ~mask:record.stored_flag_mask
+              Stored_flag.Underscore_extern;
+          hash_flag_mask =
+            add_hash
+              (compilation_mode = Function_resolution.Aot)
+              Hash_flag.Resolve record.hash_flag_mask;
+        }
+    | Function_resolution.Import ->
+        {
+          record with
+          hash_flag_mask =
+            Hash_flag.set ~mask:record.hash_flag_mask Hash_flag.Import;
+          import_name = state.import_name;
+        }
+    | Function_resolution.Intern ->
+        {
+          record with
+          shared_flag_mask =
+            Shared_flag.clear ~mask:record.shared_flag_mask Shared_flag.Extern;
+          stored_flag_mask =
+            Stored_flag.set ~mask:record.stored_flag_mask Stored_flag.Internal;
+        }
+    | Function_resolution.Definition ->
+        {
+          record with
+          shared_flag_mask =
+            Shared_flag.clear ~mask:record.shared_flag_mask Shared_flag.Extern;
+          hash_flag_mask =
+            record.hash_flag_mask
+            |> add_hash
+                 (compilation_mode = Function_resolution.Aot)
+                 Hash_flag.Export
+            |> add_hash
+                 (compilation_mode = Function_resolution.Aot)
+                 Hash_flag.Resolve;
+        }
 
 let call_access_for compilation_mode record =
   if is_internal record then Internal_operation
@@ -344,6 +371,47 @@ let known_staging_mask =
        (fun mask flag -> Int64.logor mask (Function_flag.Staging.to_mask flag))
        0L
 
+let publication_staging_mask
+    (publication : Frontend.Parser.function_publication) =
+  let flag = function
+    | Frontend.Ast.Public -> Function_flag.Modifier.Public
+    | Frontend.Ast.Static -> Function_flag.Modifier.Static
+    | Frontend.Ast.Interrupt -> Function_flag.Modifier.Interrupt
+    | Frontend.Ast.Has_error_code -> Function_flag.Modifier.Has_error_code
+    | Frontend.Ast.Argument_pop -> Function_flag.Modifier.Argument_pop
+    | Frontend.Ast.No_argument_pop -> Function_flag.Modifier.No_argument_pop
+  in
+  let declaration = publication.function_header in
+  let mask =
+    List.fold_left
+      (fun mask (modifier : Frontend.Ast.declaration_modifier) ->
+        Function_flag.apply_modifier ~mask (flag modifier.kind))
+      0L declaration.modifiers
+  in
+  match declaration.binding with
+  | Some { target = Frontend.Ast.Symbol_binding_target target; _ }
+    when String.length target.spelling > 0 && target.spelling.[0] = '_' ->
+      Function_flag.apply_modifier ~mask Function_flag.Modifier.Underscore_name
+  | _ -> mask
+
+let source_staging_mask (header : Frontend.Parser.completed_function_header) =
+  publication_staging_mask header.function_publication
+
+let publication_import_name kind
+    (publication : Frontend.Parser.function_publication) =
+  if kind <> Function_resolution.Import then None
+  else
+    match publication.function_header.binding with
+    | Some { target = Frontend.Ast.Symbol_binding_target target; _ } ->
+        Some target.spelling
+    | Some { target = Frontend.Ast.No_binding_target; _ } ->
+        Some publication.function_name.spelling
+    | _ -> None
+
+let source_import_name kind (header : Frontend.Parser.completed_function_header)
+    =
+  publication_import_name kind header.function_publication
+
 let validate_state declaration (state : declaration_state) =
   let unknown_staging =
     Int64.logand state.staging_mask (Int64.lognot known_staging_mask)
@@ -359,8 +427,39 @@ let validate_state declaration (state : declaration_state) =
     Compiler_option.is_enabled ~mask:state.compiler_option_mask
       Compiler_option.Externs_to_imports
   in
-  if not (Int64.equal unknown_staging 0L) then
+  let source_state_matches =
+    match Function_resolution.declaration_site_header_source site with
+    | None -> (
+        match Function_resolution.declaration_site_native_snapshot site with
+        | None -> true
+        | Some snapshot ->
+            let source = Function_record_phase.source snapshot in
+            state.compiler_option_mask
+            = Function_resolution.declaration_site_compiler_option_mask site
+            && state.staging_mask = publication_staging_mask source
+            && state.import_name = publication_import_name kind source)
+    | Some source ->
+        let header = Compiler_record.declared_function_source source in
+        state.compiler_option_mask
+        = Function_resolution.declaration_site_compiler_option_mask site
+        && state.staging_mask = source_staging_mask header
+        && state.import_name = source_import_name kind header
+  in
+  if
+    Option.fold ~none:false
+      ~some:(fun snapshot ->
+        Option.is_none (Function_record_phase.argument_count snapshot))
+      (Function_resolution.declaration_site_native_snapshot site)
+  then
+    Error
+      "function record classification requires its checked native argument \
+       count"
+  else if not (Int64.equal unknown_staging 0L) then
     Error "function record classification received unknown parser staging bits"
+  else if not source_state_matches then
+    Error
+      "function record classification differs from its original pending header \
+       state"
   else if resolution_externs_to_imports <> state_externs_to_imports then
     Error
       "function record classification has a different extern-to-imports state \
@@ -384,7 +483,8 @@ module Int_map = Map.Make (Int)
 
 let symbol_number symbol = Symbol.Id.to_int (Symbol.id symbol)
 
-let classify resolution states =
+let classify ?(previous = []) resolution states =
+  let ( let* ) = Result.bind in
   let sources = Function_resolution.declarations resolution in
   if List.length sources <> List.length states then
     Error
@@ -403,19 +503,47 @@ let classify resolution states =
                 Function_resolution.resolved_declaration_identity_symbol source
               in
               let key = symbol_number symbol in
-              let record =
+              let* retained_predecessor =
+                match
+                  Function_resolution.resolved_declaration_retained_predecessor
+                    source
+                with
+                | None -> Ok None
+                | Some predecessor -> (
+                    match
+                      List.find_opt
+                        (fun (prior : classified_declaration) ->
+                          prior.source == predecessor)
+                        previous
+                    with
+                    | Some prior -> Ok (Some prior)
+                    | None ->
+                        Error
+                          "function classification requires its exact retained \
+                           predecessor record")
+              in
+              let* record =
                 match Int_map.find_opt key records with
-                | Some record -> record
-                | None -> new_record state
+                | Some record -> Ok record
+                | None -> (
+                    match retained_predecessor with
+                    | None -> Ok (new_record state)
+                    | Some prior -> Ok prior.record)
               in
               let record =
-                record |> apply_header source state
+                (if
+                   Option.is_some
+                     (Function_resolution.resolved_declaration_completion_source
+                        source)
+                 then record
+                 else apply_header source state record)
                 |> apply_binding compilation_mode source state
                 |> classify_consumers compilation_mode
               in
               replay
                 (Int_map.add key record records)
-                ({ source; state; record } :: declarations_rev)
+                ({ source; state; record; retained_predecessor }
+                :: declarations_rev)
                 source_rest state_rest)
       | [], _ :: _ | _ :: _, [] -> assert false
     in

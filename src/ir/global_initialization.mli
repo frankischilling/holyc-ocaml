@@ -57,6 +57,7 @@ val create :
 *)
 
 val matches : t -> globals:Integer_globals.t -> entry:X87_stack.t -> bool
+val globals : t -> Integer_globals.t
 val regions : t -> region list
 val static_regions : t -> static_region list
 
@@ -67,6 +68,18 @@ val static_slot : static_region -> Integer_globals.static_slot
 val describe_static : static_region -> static_region_description
 val static_phase : static_region -> phase
 val storage_regions : t -> storage_region list
+
+val storage_root :
+  storage_region ->
+  Sema.Function_call_expression_result.top_level_root_result option
+
+val create_fragment :
+  destination:Initializer_fragment_destination.t ->
+  entry:X87_stack.t ->
+  region_description ->
+  (t, Common.Diagnostic.t list) result
+(** Apply the same canonical address, store, operand and call-scope checks to
+    one original fragment region. This context does not authorize execution. *)
 
 val find_storage :
   t -> Instruction_sequence.Instruction_id.t -> storage_region option

@@ -243,6 +243,7 @@ let module_value leaf =
   match Semantic_top_level_identifier_resolution.leaf_resolution leaf with
   | Semantic_top_level_identifier_resolution.Module_value value -> value
   | Semantic_top_level_identifier_resolution.Outer_value _
+  | Semantic_top_level_identifier_resolution.Outer_function_value _
   | Semantic_top_level_identifier_resolution.Outer_type_required _ ->
       Alcotest.fail "expected a source-typed module value"
 
@@ -369,7 +370,8 @@ let outer_records_require_typed_metadata () =
             "outer binding identity survives" (leaf_name leaf)
             (binding |> Semantic_outer_environment.binding_entry
            |> Semantic_outer_environment.entry_symbol |> Semantic_symbol.name)
-      | Semantic_top_level_identifier_resolution.Outer_value _ ->
+      | Semantic_top_level_identifier_resolution.Outer_value _
+      | Semantic_top_level_identifier_resolution.Outer_function_value _ ->
           Alcotest.fail "metadata-free outer records must stay untyped"
       | Semantic_top_level_identifier_resolution.Module_value _ ->
           Alcotest.fail "outer records must not receive guessed module types")
@@ -448,6 +450,7 @@ let typed_outer_globals_become_values () =
               shape
               (Semantic_outer_environment.global_array_rank metadata)
         | Semantic_top_level_identifier_resolution.Module_value _
+        | Semantic_top_level_identifier_resolution.Outer_function_value _
         | Semantic_top_level_identifier_resolution.Outer_type_required _ ->
             Alcotest.fail "expected checked outer global metadata"
       in

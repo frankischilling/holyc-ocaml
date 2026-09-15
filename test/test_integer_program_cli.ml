@@ -1089,16 +1089,16 @@ let () =
         (fun source ->
           let status, report = run source in
           require (status = Unix.WEXITED 1)
-            "unsupported provider fails preflight";
-          check_capture report "" 0 0;
+            "unresolved extern fails when reached";
+          check_capture report "41" 1 3;
           let diagnostic =
             report |> member "diagnostics" |> to_list |> List.hd
           in
           require
-            (diagnostic |> member "code" |> to_string = "HCIRVM0014"
+            (diagnostic |> member "code" |> to_string = "HCIRVM0030"
             && diagnostic |> member "notes" |> to_list
-               |> List.mem (`String "stage=preflight"))
-            "preflight failure captures no earlier output");
+               |> List.mem (`String "stage=execution"))
+            "reached extern failure retains earlier output");
       let legacy =
         success [ "run"; "--format=json"; "--mode=" ^ mode; Sys.argv.(15) ]
         |> Yojson.Safe.from_string
@@ -1158,7 +1158,7 @@ let () =
             "" );
           ( "I64 G=0;extern U0 PutChars(U64 ch);PutChars('A');U0 PutChars(U64 \
              word){G=42;}PutChars('B');G;",
-            "41" );
+            if mode = "jit" then "41" else "" );
         ];
       List.iter
         (fun (option, code) ->
@@ -1758,4 +1758,226 @@ let () =
         && contains first "holyc-initializer-preparation-v1 steps=9")
         "deterministic narrow shapes publications and signature types")
     [ "jit"; "aot" ];
+  List.iter
+    (fun mode ->
+      let run source limit =
+        let status, output, errors =
+          invoke_raw
+            [
+              "run";
+              "--format=json";
+              "--mode=" ^ mode;
+              "--dimension-work-limit=" ^ string_of_int limit;
+              "--initializer-step-limit=3";
+              source;
+            ]
+        in
+        require (errors = "") "dimension reports stay on one stream";
+        (status, Yojson.Safe.from_string output)
+      in
+      with_file ".hc" "U8 A[1+1];I64 N=42;N;" (fun source ->
+          let status, report = run source 3 in
+          require
+            (status = Unix.WEXITED 0
+            && report |> member "dimension_work_limit" |> to_int = 3
+            && report |> member "dimension_preparation_work" |> to_int = 3
+            && report |> member "compiled_initializer_steps" |> to_int = 3)
+            "independent exact dimension and initializer allowances";
+          let status, report = run source 2 in
+          require
+            (status = Unix.WEXITED 1
+            && report |> member "dimension_preparation_work" |> to_int = 2
+            && report |> member "diagnostics" |> to_list |> List.hd
+               |> member "code" |> to_string = "HCIRVM0007")
+            "dimension limit preserves reached work";
+          List.iter
+            (fun version ->
+              let status, _, _ =
+                invoke_raw
+                  [
+                    "run";
+                    "--format=json";
+                    "--report-version=" ^ version;
+                    "--mode=" ^ mode;
+                    "--dimension-work-limit=2";
+                    source;
+                  ]
+              in
+              require (status = Unix.WEXITED 1)
+                "both report versions enforce dimension limit")
+            [ "1"; "2" ];
+          ignore
+            (success
+               [
+                 "dump-ir";
+                 "--program";
+                 "--mode=" ^ mode;
+                 "--dimension-work-limit=3";
+                 source;
+               ]);
+          let status, _, _ =
+            invoke_raw
+              [
+                "dump-ir";
+                "--program";
+                "--mode=" ^ mode;
+                "--dimension-work-limit=2";
+                source;
+              ]
+          in
+          require (status = Unix.WEXITED 1)
+            "program dump forwards dimension allowance";
+          let legacy =
+            success
+              [
+                "run";
+                "--format=json";
+                "--mode=" ^ mode;
+                "--dimension-work-limit=3";
+                source;
+              ]
+            |> Yojson.Safe.from_string
+          in
+          require
+            (legacy |> member "dimension_work_limit" = `Null
+            && legacy |> member "dimension_preparation_work" = `Null)
+            "v1 retains its existing field contract");
+      with_file ".hc" "I64 A[1+1]=40,2;A[0]+A[1];" (fun source ->
+          let status, output, errors =
+            invoke_raw
+              [
+                "run";
+                "--format=json";
+                "--report-version=2";
+                "--mode=" ^ mode;
+                "--dimension-work-limit=3";
+                source;
+              ]
+          in
+          require
+            (status = Unix.WEXITED 0 && errors = "")
+            "CLI checked unbraced bound succeeds";
+          let report = Yojson.Safe.from_string output in
+          require
+            (report |> member "final_value" |> member "value" |> to_string
+             = "42"
+            && report |> member "dimension_preparation_work" |> to_int = 3)
+            "CLI unbraced initializer reuses checked expression count";
+          let status, report = run source 2 in
+          require
+            (status = Unix.WEXITED 1
+            && report |> member "dimension_preparation_work" |> to_int = 2
+            && report |> member "diagnostics" |> to_list |> List.hd
+               |> member "code" |> to_string = "HCIRVM0007")
+            "unbraced initializer preserves one-below numeric limit";
+          ignore
+            (success
+               [
+                 "dump-ir";
+                 "--program";
+                 "--mode=" ^ mode;
+                 "--dimension-work-limit=3";
+                 source;
+               ]));
+      List.iter
+        (fun (contents, limit, work, code) ->
+          with_file ".hc" contents (fun source ->
+              let status, report = run source limit in
+              require
+                (status = Unix.WEXITED 1
+                && report
+                   |> member "dimension_preparation_work"
+                   |> to_int = work
+                && report |> member "diagnostics" |> to_list |> List.hd
+                   |> member "code" |> to_string = code)
+                "parse and evaluation failures retain exact numeric work"))
+        [ ("U8 A[2;", 1, 1, "HCPARSE0023"); ("U8 A[1/0;", 3, 3, "HCSEMA0004") ];
+      List.iter
+        (fun contents ->
+          with_file ".hc" contents (fun source ->
+              let status, report = run source 1 in
+              require
+                (status = Unix.WEXITED 1
+                && report |> member "dimension_preparation_work" |> to_int = 1)
+                "later semantic and runtime failures retain dimension work"))
+        [ "U8 A[2];Missing;"; "U8 A[2];1/0;" ];
+      with_file ".hc" "#exe {42;}" (fun source ->
+          let status, report = run source 0 in
+          require
+            (status = Unix.WEXITED 1
+            && report |> member "dimension_preparation_work" |> to_int = 0
+            && report |> member "command_error" |> member "code" |> to_string
+               = "HCIRVM0001")
+            "invalid dimension allowance rejects before parsing"))
+    [ "jit"; "aot" ];
+  with_file ".hc"
+    {|#exe {I64 N=20+20;Print("A");StreamPrint("%d;",N+2);}extern U0 Print(U8 *fmt,...);Print("B");I64 G=1+1;G+40;|}
+    (fun source ->
+      let run version limits =
+        invoke_raw
+          ([
+             "run"; "--format=json"; "--mode=aot"; "--report-version=" ^ version;
+           ]
+          @ limits @ [ source ])
+      in
+      List.iter
+        (fun version ->
+          let status, output, errors =
+            run version
+              [
+                "--step-limit=39";
+                "--initializer-step-limit=10";
+                "--global-byte-limit=16";
+                "--literal-byte-limit=8";
+                "--output-byte-limit=2";
+                "--output-work-limit=13";
+              ]
+          in
+          require (errors = "") "successful AOT JSON has no stderr";
+          let report = Yojson.Safe.from_string output in
+          require
+            (status = Unix.WEXITED 0
+            && report |> member "final_value" |> member "value" |> to_string
+               = "42"
+            && report |> member "executed_steps" |> to_int = 39
+            && report |> member "compiled_initializer_steps" |> to_int = 10)
+            "AOT source reports cumulative stream and isolated work";
+          require
+            (if version = "1" then
+               report |> member "output_hex" = `Null
+               && report |> member "output_work" = `Null
+             else
+               report |> member "output_hex" |> to_string = "4142"
+               && report |> member "output_work" |> to_int = 13)
+            "AOT success preserves each report version's field contract";
+          List.iter
+            (fun (limit, code, output) ->
+              let status, stdout, stderr = run version [ limit ] in
+              if version = "1" then
+                require
+                  (status = Unix.WEXITED 1 && stdout = ""
+                 && contains stderr code)
+                  "legacy AOT failures remain diagnostics on stderr"
+              else (
+                require (stderr = "") "v2 AOT failures remain JSON on stdout";
+                let report = Yojson.Safe.from_string stdout in
+                require
+                  (status = Unix.WEXITED 1
+                  && report |> member "diagnostics" |> to_list |> List.hd
+                     |> member "code" |> to_string = code
+                  && report |> member "output_hex" |> to_string = output
+                  && report |> member "executed_steps" |> to_int > 0
+                  && report |> member "compiled_initializer_steps" |> to_int > 0
+                  )
+                  "AOT source failures retain reached cumulative work"))
+            [
+              ("--step-limit=38", "HCIRVM0007", "4142");
+              ("--initializer-step-limit=9", "HCIRVM0007", "41");
+              ("--global-byte-limit=15", "HCIRVM0016", "41");
+              ("--literal-byte-limit=7", "HCIRVM0021", "41");
+              ("--output-byte-limit=1", "HCIRVM0022", "41");
+              ("--output-work-limit=12", "HCIRVM0023", "41");
+            ])
+        [ "1"; "2" ];
+      ignore (success [ "dump-ir"; "--program"; "--mode=aot"; source ]));
   print_endline "Integer program CLI checks passed."

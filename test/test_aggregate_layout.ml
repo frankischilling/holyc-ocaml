@@ -254,12 +254,15 @@ let closed_expression_operators () =
   Alcotest.(check int64)
     "target addition wraps" Int64.min_int
     (evaluate (binary Add (integer Int64.max_int) (integer 1L)));
-  let skipped_division =
+  let eager_division =
     binary Logical_and (integer 0L) (binary Divide (integer 1L) (integer 0L))
   in
-  Alcotest.(check int64)
-    "logical and short-circuits" 0L
-    (evaluate skipped_division);
+  Alcotest.(check bool)
+    "Boolean values evaluate both operands" true
+    (Result.is_error
+       (Semantic_aggregate_layout.evaluate_expression
+          ~context:Semantic_aggregate_layout.Aggregate_offset
+          ~current_position:0L eager_division));
   let power = binary Power (integer 2L) (integer 3L) in
   let raw_offset =
     Semantic_aggregate_layout.evaluate_expression

@@ -3,6 +3,26 @@ open Holyc_lib
 let checked = Test_function_call_conversion_policy.checked
 let prepare = Test_function_call_conversion_policy.prepare
 
+(* Build legacy AST input without a parser-visible header so semantic arity
+   diagnostics remain covered after source parsing rejects missing arguments. *)
+let prepare_legacy_missing ~path ~body =
+  let module P = Test_function_call_conversion_policy in
+  let session = Session.create () in
+  let parse suffix contents =
+    let source = Session.add_source session ~path:(path ^ suffix) ~contents in
+    Holyc_lib.parse_with_config session
+      ~config:(P.config Preprocessor.Jit)
+      ~source
+    |> P.expect_ast
+  in
+  let body = parse "-body.HC" body in
+  let header = parse "-header.HC" "extern U0 Print(U8 *fmt,I64 value);" in
+  let ast =
+    Ast.make_module ~source:body.source ~span:body.span
+      ~items:(header.items @ body.items)
+  in
+  P.finish_prepare Preprocessor.Jit session ast
+
 type prepared = Test_function_call_conversion_policy.prepared
 
 let checked_policy = Test_function_call_conversion_policy.checked_policy
@@ -287,8 +307,8 @@ let defaults_keep_omissions_and_mode_materialization () =
 
 let missing_required_parameter () =
   let prepared =
-    prepare ~path:"implicit-output-missing-fixed.HC"
-      "extern U0 Print(U8 *fmt,I64 value);\nI64 Caller(){\"value\";return 0;}"
+    prepare_legacy_missing ~path:"implicit-output-missing-fixed"
+      ~body:"I64 Caller(){\"value\";return 0;}"
   in
   let inputs =
     semantic_inputs prepared (environment prepared Preprocessor.Jit [])

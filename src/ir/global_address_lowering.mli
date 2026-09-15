@@ -1,5 +1,9 @@
 type prepared_address
 
+val prepare_fragment_initializer :
+  Initializer_fragment_destination.t ->
+  (prepared_address, Instruction_sequence.error list) result
+
 val strides : prepared_address -> int64 list
 (** Retain the complete declared stride sequence for ordinary reached addresses.
 *)

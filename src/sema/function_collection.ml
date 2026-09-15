@@ -23,6 +23,7 @@ type function_declaration = {
   symbol : Symbol.t;
   item_index : int;
   bindings : binding list;
+  completed_header : Frontend.Parser.completed_function_header option;
 }
 
 type entry = {
@@ -36,6 +37,8 @@ type collected_function = {
   scope : Symbol_table.scope;
   item_index : int;
   entries : entry list;
+  completed_header : Frontend.Parser.completed_function_header option;
+  mutable header_reused : bool;
 }
 
 type t = { functions : collected_function list }
@@ -45,6 +48,10 @@ let function_symbol (function_ : collected_function) = function_.symbol
 let function_scope (function_ : collected_function) = function_.scope
 let function_item_index (function_ : collected_function) = function_.item_index
 let function_entries (function_ : collected_function) = function_.entries
+
+let function_completed_header (function_ : collected_function) =
+  function_.completed_header
+
 let entry_symbol (entry : entry) = entry.symbol
 let entry_kind (entry : entry) = entry.kind
 
@@ -145,12 +152,12 @@ let make_local ~name ~origin ~storage ~declaration_index ~declarator_index =
                   Local_position { declaration_index; declarator_index };
               })
 
-let make_function ~symbol ~item_index bindings =
+let make_function ?completed_header ~symbol ~item_index bindings =
   if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Function) then
     Error "semantic function scope owner must be a function symbol"
   else if item_index < 0 then
     Error "semantic function item index cannot be negative"
-  else Ok { symbol; item_index; bindings }
+  else Ok { symbol; item_index; bindings; completed_header }
 
 type binding_order =
   | Parameters of { previous_index : int; expect_argv : bool; closed : bool }
@@ -328,17 +335,161 @@ let collect_function table parent (function_ : function_declaration) =
               scope;
               item_index = function_.item_index;
               entries;
+              completed_header = function_.completed_header;
+              header_reused = false;
             })
 
-let collect ~table ~parent function_facts =
+let same_symbol left right = left == right
+let same_scope left right = left == right
+
+let same_completed_header left right =
+  match (left, right) with
+  | Some left, Some right -> left == right
+  | None, None -> true
+  | Some _, None | None, Some _ -> false
+
+let same_position left right =
+  match (left, right) with
+  | Parameter_position left, Parameter_position right -> left = right
+  | ( Local_position
+        { declaration_index = left_declaration; declarator_index = left_index },
+      Local_position
+        {
+          declaration_index = right_declaration;
+          declarator_index = right_index;
+        } ) -> left_declaration = right_declaration && left_index = right_index
+  | Parameter_position _, Local_position _
+  | Local_position _, Parameter_position _ -> false
+
+let entry_matches_binding (entry : entry) (binding : binding) =
+  entry.kind = binding.kind
+  && same_position entry.position binding.position
+  && String.equal (Symbol.name entry.symbol) binding.name
+  && Symbol.origin entry.symbol = binding.origin
+
+let parameter_bindings (bindings : binding list) =
+  let rec split (parameters_rev : binding list) (remaining : binding list) =
+    match remaining with
+    | (binding : binding) :: rest -> (
+        match binding.position with
+        | Parameter_position _ -> split (binding :: parameters_rev) rest
+        | Local_position _ -> (List.rev parameters_rev, remaining))
+    | [] -> (List.rev parameters_rev, [])
+  in
+  split [] bindings
+
+let validate_retained_header ~table ~parent (retained : collected_function)
+    (function_ : function_declaration) =
+  let parameters, _ = parameter_bindings function_.bindings in
+  if retained.header_reused then
+    Error "semantic retained function collection was already completed"
+  else if Option.is_none retained.completed_header then
+    Error "semantic retained function collection is not a completed header"
+  else if
+    not
+      (same_completed_header function_.completed_header
+         retained.completed_header)
+  then
+    Error "semantic retained function collection has different source evidence"
+  else if not (same_symbol retained.symbol function_.symbol) then
+    Error "semantic retained function collection has the wrong function symbol"
+  else if retained.item_index <> function_.item_index then
+    Error "semantic retained function collection has the wrong item order"
+  else if not (Symbol_table.owns_symbol table retained.symbol) then
+    Error "semantic retained function collection belongs to a different table"
+  else if not (Symbol_table.owns_scope table retained.scope) then
+    Error "semantic retained function scope belongs to a different table"
+  else if Symbol_table.scope_kind retained.scope <> Symbol_table.Function then
+    Error "semantic retained function collection does not use a function scope"
+  else if
+    match Symbol_table.parent retained.scope with
+    | Some scope -> not (same_scope scope parent)
+    | None -> true
+  then Error "semantic retained function scope has the wrong parent"
+  else if
+    List.exists
+      (fun entry -> Option.is_none (entry_parameter_index entry))
+      retained.entries
+  then Error "semantic retained function header already contains locals"
+  else if
+    not
+      (List.length retained.entries = List.length parameters
+      && List.for_all2 entry_matches_binding retained.entries parameters)
+  then
+    Error "semantic retained function parameters do not match the declaration"
+  else Ok ()
+
+let find_retained retained_headers (function_ : function_declaration) =
+  List.filter
+    (fun retained -> same_symbol retained.symbol function_.symbol)
+    retained_headers
+  |> function
+  | [] -> Ok None
+  | [ retained ] -> Ok (Some retained)
+  | _ -> Error "semantic retained function collection repeats a function symbol"
+
+let validate_retained ~table ~parent retained_headers function_facts =
+  let rec validate_functions used_rev (remaining : function_declaration list) =
+    match remaining with
+    | [] ->
+        if
+          List.length (List.filter_map Fun.id used_rev)
+          = List.length retained_headers
+        then Ok (List.rev used_rev)
+        else Error "semantic retained function collection was not consumed"
+    | (function_ : function_declaration) :: rest -> (
+        match find_retained retained_headers function_ with
+        | Error _ as error -> error
+        | Ok None -> validate_functions (None :: used_rev) rest
+        | Ok (Some retained) -> (
+            match
+              validate_retained_header ~table ~parent retained function_
+            with
+            | Error _ as error -> error
+            | Ok () -> validate_functions (Some retained :: used_rev) rest))
+  in
+  validate_functions [] function_facts
+
+let collect_reused_function table (function_ : function_declaration) retained =
+  let _, locals = parameter_bindings function_.bindings in
+  match add_bindings table retained.scope locals with
+  | Error _ as error -> error
+  | Ok local_entries ->
+      retained.header_reused <- true;
+      Ok
+        {
+          symbol = retained.symbol;
+          scope = retained.scope;
+          item_index = function_.item_index;
+          entries = retained.entries @ local_entries;
+          completed_header = retained.completed_header;
+          header_reused = true;
+        }
+
+let collect ?(retained_headers = []) ~table ~parent function_facts =
   match validate table parent function_facts with
   | Error _ as error -> error
-  | Ok () ->
-      let rec collect_all functions_rev = function
-        | [] -> Ok { functions = List.rev functions_rev }
-        | function_ :: rest -> (
-            match collect_function table parent function_ with
-            | Error _ as error -> error
-            | Ok collected -> collect_all (collected :: functions_rev) rest)
-      in
-      collect_all [] function_facts
+  | Ok () -> (
+      match
+        validate_retained ~table ~parent retained_headers function_facts
+      with
+      | Error _ as error -> error
+      | Ok retained ->
+          let rec collect_all functions_rev = function
+            | [], [] -> Ok { functions = List.rev functions_rev }
+            | function_ :: rest, retained :: retained_rest -> (
+                let collected =
+                  match retained with
+                  | None -> collect_function table parent function_
+                  | Some retained ->
+                      collect_reused_function table function_ retained
+                in
+                match collected with
+                | Error _ as error -> error
+                | Ok collected ->
+                    collect_all
+                      (collected :: functions_rev)
+                      (rest, retained_rest))
+            | [], _ :: _ | _ :: _, [] -> assert false
+          in
+          collect_all [] (function_facts, retained))

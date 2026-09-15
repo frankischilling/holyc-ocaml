@@ -481,7 +481,8 @@ let callback_return_and_indirection () =
     Semantic_member_type_resolution.function_pointer_closing_origin
       invoke_pointer;
     Semantic_function_type_resolution.signature_opening_origin signature;
-    Semantic_function_type_resolution.signature_closing_origin signature;
+    Option.get
+      (Semantic_function_type_resolution.signature_closing_origin signature);
   ]
   |> List.iter (function
     | Semantic_symbol.Source_location _ -> ()

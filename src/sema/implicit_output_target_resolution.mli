@@ -17,6 +17,18 @@ type error_kind =
 
 type error
 
+val resolve_selected :
+  selections:
+    (Frontend.Ast.implicit_output_statement ->
+    (Reference_selection.t, string) result) ->
+  table:Symbol_table.t ->
+  environment:Outer_environment.t ->
+  module_expressions:Module_expression_binding.t ->
+  function_types:Function_type_resolution.t ->
+  functions:Function_resolution.t ->
+  expressions:Function_call_expression_result.t ->
+  (t, error) result
+
 val resolve :
   table:Symbol_table.t ->
   environment:Outer_environment.t ->

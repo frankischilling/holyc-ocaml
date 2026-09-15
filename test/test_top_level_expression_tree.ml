@@ -861,8 +861,129 @@ let sizeof_query_must_belong_to_its_statement () =
         "top-level sizeof target uses a different statement query"
         (Semantic_top_level_expression_tree.error_message error)
 
+let implicit_output_source_ownership () =
+  let module Tree = Semantic_top_level_expression_tree in
+  let module Call = Semantic_function_call_resolution in
+  let prepared =
+    prepare ~path:"implicit-source-owner.HC"
+      {|extern U0 Print(U8 *fmt,...);extern I64 Next(I64 n);"%d",Next(42);|}
+  in
+  let tree = build prepared Preprocessor.Jit [] in
+  let statement = List.hd (Tree.statements tree) in
+  let roots = Tree.statement_roots statement in
+  let calls = Tree.statement_calls statement in
+  let remake roots calls =
+    Tree.make_statement
+      ~source:(Tree.statement_source statement)
+      ~roots ~calls ~switch_cases:[]
+  in
+  ignore (remake roots calls |> checked_tree);
+  let fixed, argument =
+    match roots with
+    | [ fixed; argument ] -> (fixed, argument)
+    | _ -> Alcotest.fail "expected fixed and trailing implicit roots"
+  in
+  let source = Option.get (Tree.root_implicit_statement fixed) in
+  let generic =
+    Tree.make_root ~index:(Tree.root_index argument)
+      ~role:(Tree.root_role argument)
+      ~expression:(Tree.root_expression argument)
+      ~origin:(Tree.root_origin argument)
+    |> checked_tree
+  in
+  Alcotest.(check bool)
+    "generic equal-source argument has no statement authority" true
+    (Result.is_error (remake [ fixed; generic ] calls));
+  Alcotest.(check bool)
+    "omitted original argument cannot certify output" true
+    (Result.is_error (remake [ fixed ] calls));
+  let changed_expression =
+    Call.make_argument_expression ~kind:(Call.Integer_literal 7L)
+      ~origin:(Tree.root_origin argument)
+  in
+  let changed =
+    Tree.make_root ~index:(Tree.root_index argument)
+      ~role:(Tree.root_role argument) ~expression:changed_expression
+      ~origin:(Tree.root_origin argument)
+    |> checked_tree
+  in
+  Alcotest.(check bool)
+    "changed expression cannot acquire original statement" true
+    (Result.is_error (Tree.bind_implicit_root_source ~source ~calls changed));
+  let original_call = List.hd calls in
+  let copied_call =
+    Tree.make_call
+      ~source:(Tree.call_source original_call)
+      ~callee:(Tree.call_callee original_call)
+      ~callee_expression:(Tree.call_callee_expression original_call)
+      ~result_expression:(Tree.call_result_expression original_call)
+    |> checked_tree
+  in
+  Alcotest.(check bool)
+    "equal reconstructed call cannot replace original batch" true
+    (Result.is_error (remake roots [ copied_call ]));
+  let duplicate root index role root_calls =
+    Tree.make_root ~index ~role
+      ~expression:(Tree.root_expression root)
+      ~origin:(Tree.root_origin root)
+    |> checked_tree
+    |> fun root ->
+    Tree.bind_implicit_root_source ~source ~calls:root_calls root
+    |> checked_tree
+  in
+  let fixed_role =
+    match Tree.root_role fixed with
+    | Tree.Implicit_output_fixed role ->
+        Tree.Implicit_output_fixed { role with output_index = 1 }
+    | _ -> Alcotest.fail "expected fixed output root"
+  in
+  let duplicate_fixed = duplicate fixed 2 fixed_role [] in
+  let duplicate_argument =
+    duplicate argument 3
+      (Tree.Implicit_output_argument { output_index = 1; argument_index = 0 })
+      calls
+  in
+  Alcotest.(check bool)
+    "one original implicit statement cannot appear in two groups" true
+    (Result.is_error
+       (remake (roots @ [ duplicate_fixed; duplicate_argument ]) calls))
+
+let absent_implicit_output_source_ownership () =
+  let module Tree = Semantic_top_level_expression_tree in
+  let prepared =
+    prepare ~path:"absent-source-owner.HC" {|extern U0 Print();""();""();;|}
+  in
+  let tree = build prepared Preprocessor.Jit [] in
+  let first = List.nth (Tree.statements tree) 0 in
+  let second = List.nth (Tree.statements tree) 1 in
+  let empty = List.nth (Tree.statements tree) 2 in
+  let outputs = Option.get (Tree.statement_implicit_outputs first) in
+  let remake source outputs =
+    Tree.make_source_statement
+      ~source:(Tree.statement_source source)
+      ~outputs ~roots:[] ~calls:[] ~switch_cases:[]
+  in
+  ignore (remake first outputs |> checked_tree);
+  Alcotest.(check bool)
+    "rootless call cannot change containing statement" true
+    (Result.is_error (remake second outputs));
+  Alcotest.(check bool)
+    "rootless call cannot enter empty statement" true
+    (Result.is_error (remake empty outputs));
+  Alcotest.(check bool)
+    "rootless call cannot disappear" true
+    (Result.is_error (remake first []));
+  Alcotest.(check bool)
+    "legacy root maker cannot erase source call" true
+    (Result.is_error
+       (Tree.make_statement
+          ~source:(Tree.statement_source first)
+          ~roots:[] ~calls:[] ~switch_cases:[]))
+
 let tests =
   [
+    Alcotest.test_case "absent output owns its containing source" `Quick
+      absent_implicit_output_source_ownership;
     Alcotest.test_case "complete shapes, roles, calls, and identities" `Quick
       complete_shapes_roles_calls_and_identities;
     Alcotest.test_case "generated outer binding provenance" `Quick
@@ -881,4 +1002,6 @@ let tests =
       defined_query_must_belong_to_its_statement;
     Alcotest.test_case "sizeof query ownership" `Quick
       sizeof_query_must_belong_to_its_statement;
+    Alcotest.test_case "implicit source arguments and call ownership" `Quick
+      implicit_output_source_ownership;
   ]

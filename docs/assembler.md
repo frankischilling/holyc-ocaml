@@ -82,7 +82,7 @@ The pinned database has 325 canonical opcodes, 49 aliases, and 924 instruction f
 
 `AsmHashLoad` publishes register records as `HTT_REG` and canonical opcodes and aliases as `HTT_OPCODE`. `Driver.Session` seeds all 480 spellings alongside the existing keyword and internal-type records. They can therefore satisfy `#ifdef` and `defined` through the default TempleOS hash mask. Imports remain excluded, and a local symbol can still suppress hash lookup as described in [the preprocessor notes](preprocessor.md).
 
-The session appends these records after the earlier seed groups so existing stable IDs remain unchanged. A new session contains 570 checked compiler symbols in deterministic order.
+The session appends these records after the earlier seed groups so existing stable IDs remain unchanged. The six public primitive unions follow these groups as class records. A new session contains 576 checked compiler symbols in deterministic order.
 
 ## Regeneration
 

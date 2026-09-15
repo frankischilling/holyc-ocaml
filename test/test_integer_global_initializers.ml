@@ -572,27 +572,114 @@ let external_call_scope rhs leaks_call_result () =
         [ (rhs, leaks_call_result) ])
     G.modes
 
+let source_query_boundaries () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (text, before) ->
+          let session, config, source =
+            Test_integer_program.inputs ~mode text
+          in
+          Alcotest.(check bool)
+            "source query requires original compiler metadata" true
+            (compile_integer_program session ~config ~source |> Result.is_error);
+          Alcotest.(check bool)
+            "member-token directive has native reachability" before
+            (Definition.Environment.find (Session.definitions session) "BEFORE"
+            |> Option.is_some);
+          Alcotest.(check bool)
+            "error precedes the next directive" false
+            (Definition.Environment.find (Session.definitions session) "AFTER"
+            |> Option.is_some))
+        [
+          ("sizeof Missing\n#define AFTER 1\n;", false);
+          ("sizeof U8.\n#define AFTER 1\nmember;", false);
+          ("sizeof I64.\n#define BEFORE 1\nmember\n#define AFTER 1\n;", true);
+          ("I64 F(){I64i Local;sizeof Local.\n#define AFTER 1\nmember;}", false);
+          ( "I64 F(){I64 Local;sizeof Local.\n\
+             #define BEFORE 1\n\
+             member\n\
+             #define AFTER 1\n\
+             ;}",
+            true );
+        ])
+    G.modes
+
+let source_function_pointer_queries () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun text ->
+          let session, config, source =
+            Test_integer_program.inputs ~mode text
+          in
+          ignore
+            (compile_integer_program session ~config ~source
+            |> Test_integer_program.checked))
+        [
+          "I64 F(){I64 (*P)();return sizeof P+34;}F();";
+          "I64 F(I64 (*P)()){return sizeof P+34;}";
+          "I64 F(){I64 (*P)();return sizeof P*+34;}F();";
+        ];
+      match G.run ~mode "I64 F(){I64 (*P)();return sizeof P+34;}F();" with
+      | Error (diagnostic :: _) ->
+          Alcotest.(check string)
+            "function-pointer storage retains its VM preflight boundary"
+            "HCIRVM0011" diagnostic.Diagnostic.code
+      | _ -> Alcotest.fail "expected unsupported function-pointer frame")
+    G.modes
+
 let tests =
   [
-    Alcotest.test_case "initialized source accumulator" `Quick source_gate;
-    Alcotest.test_case "initializer source order and calls" `Quick source_order;
-    Alcotest.test_case "checked declaration roots and calls" `Quick
-      checked_roots;
-    Alcotest.test_case "foreign declaration roots" `Quick foreign_roots;
-    Alcotest.test_case "checked storage roots and initializer stores" `Quick
-      storage_roots;
-    Alcotest.test_case "region identity, repeated execution and callee faults"
-      `Quick region_execution;
-    Alcotest.test_case "constant initial images" `Quick constant_images;
-    Alcotest.test_case "preparation budgets and optimizer domain" `Quick
-      preparation_limits_and_domain;
-    Alcotest.test_case "scheduled initialization bounds and self-reads" `Quick
-      scheduling_boundaries;
-    Alcotest.test_case "malformed initializer regions" `Quick malformed_regions;
-    Alcotest.test_case "initializer literal cannot push to an external call"
-      `Quick
-      (external_call_scope "U+1" false);
-    Alcotest.test_case "initializer call result cannot push to an external call"
-      `Quick
-      (external_call_scope "Id(U+1)" true);
+    Alcotest.test_case "source function-pointer sizeof preserves compilation"
+      `Quick source_function_pointer_queries;
   ]
+  @ List.map
+      (fun (name, source) ->
+        Alcotest.test_case name `Quick (fun () ->
+            List.iter
+              (fun mode -> ignore (G.run ~mode source |> F.expect 42L))
+              G.modes))
+      [
+        ("source query retains internal pointer size", "sizeof I64i*+34;");
+        ("source query reads its published global", "I64 N=sizeof N;N+34;");
+        ( "source dimension consumes original query",
+          "I64 A[sizeof U8*];A[0]=42;A[0];" );
+        ("source query retains keyword presence", "defined return+41;");
+        ( "source query preserves absence before later declaration",
+          "I64 N=defined Future;I64 Future;N+42;" );
+        ("source query reads public primitive class", "sizeof I64+34;");
+        ( "source query reads scalar local",
+          "I64 F(){I64 N=sizeof N;return N+34;}F();" );
+        ("source query reads parameter", "I64 F(U8 N){return sizeof N+41;}F(0);");
+        ( "source query reads global inside function",
+          "I64 N;I64 F(){return sizeof N+34;}F();" );
+      ]
+  @ [
+      Alcotest.test_case
+        "source query errors preserve native directive reachability" `Quick
+        source_query_boundaries;
+      Alcotest.test_case "initialized source accumulator" `Quick source_gate;
+      Alcotest.test_case "initializer source order and calls" `Quick
+        source_order;
+      Alcotest.test_case "checked declaration roots and calls" `Quick
+        checked_roots;
+      Alcotest.test_case "foreign declaration roots" `Quick foreign_roots;
+      Alcotest.test_case "checked storage roots and initializer stores" `Quick
+        storage_roots;
+      Alcotest.test_case "region identity, repeated execution and callee faults"
+        `Quick region_execution;
+      Alcotest.test_case "constant initial images" `Quick constant_images;
+      Alcotest.test_case "preparation budgets and optimizer domain" `Quick
+        preparation_limits_and_domain;
+      Alcotest.test_case "scheduled initialization bounds and self-reads" `Quick
+        scheduling_boundaries;
+      Alcotest.test_case "malformed initializer regions" `Quick
+        malformed_regions;
+      Alcotest.test_case "initializer literal cannot push to an external call"
+        `Quick
+        (external_call_scope "U+1" false);
+      Alcotest.test_case
+        "initializer call result cannot push to an external call" `Quick
+        (external_call_scope "Id(U+1)" true);
+    ]

@@ -44,6 +44,7 @@ type payload =
   | Float_bits of int64
   | Bytes of string
   | Symbol of Sema.Symbol.t
+  | Retained_global of Retained_global.t
   | Block of Block_id.t
   | Block_targets of Block_id.t list
 
@@ -244,6 +245,11 @@ let add_payload buffer = function
       Printf.bprintf buffer " symbol:@s%d:%s:"
         (Sema.Symbol.Id.to_int (Sema.Symbol.id symbol))
         (Sema.Symbol.kind_name (Sema.Symbol.kind symbol));
+      add_escaped_bytes buffer (Sema.Symbol.name symbol)
+  | Retained_global reference ->
+      let symbol = Retained_global.symbol reference in
+      Printf.bprintf buffer " retained-global-v1:@s%d:"
+        (Sema.Symbol.Id.to_int (Sema.Symbol.id symbol));
       add_escaped_bytes buffer (Sema.Symbol.name symbol)
   | Block block -> Printf.bprintf buffer " block:^b%d" (Block_id.to_int block)
   | Block_targets blocks ->

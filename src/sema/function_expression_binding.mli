@@ -1,6 +1,10 @@
 type event
 type function_input
-type query_role = Sizeof_root | Offset_root | Defined_operand
+
+type query_role = Query_selection.role =
+  | Sizeof_root
+  | Offset_root
+  | Defined_operand
 
 type resolution =
   | Function_binding of Function_binding_index.binding
@@ -48,7 +52,20 @@ type error
 val make_identifier :
   name:string -> origin:Symbol.origin -> (event, string) result
 
+val make_selected_identifier :
+  selection:Reference_selection.t ->
+  name:string ->
+  origin:Symbol.origin ->
+  (event, string) result
+
 val make_name_query :
+  role:query_role ->
+  name:string ->
+  origin:Symbol.origin ->
+  (event, string) result
+
+val make_selected_name_query :
+  selection:Query_selection.t ->
   role:query_role ->
   name:string ->
   origin:Symbol.origin ->
@@ -107,11 +124,13 @@ val occurrence_index : occurrence -> int
 val occurrence_name : occurrence -> string
 val occurrence_origin : occurrence -> Symbol.origin
 val occurrence_resolution : occurrence -> resolution
+val occurrence_selection : occurrence -> Reference_selection.t option
 val query_index : query -> int
 val query_role : query -> query_role
 val query_name : query -> string
 val query_origin : query -> Symbol.origin
 val query_resolution : query -> resolution
+val query_selection : query -> Query_selection.t option
 val query_role_name : query_role -> string
 val suppression_index : suppression -> int
 val suppression_name : suppression -> string

@@ -20,16 +20,38 @@ type prepared = {
   mode : Preprocessor.compilation_mode;
   session : Session.t;
   ast : Ast.module_;
+  declarations : Semantic_declaration_collection.t;
   globals : Semantic_global_resolution.t;
   expressions : Semantic_module_expression_binding.t;
 }
 
-let prepare ?(mode = Preprocessor.Jit) ~path contents =
+let prepare ?(mode = Preprocessor.Jit) ?query ~path contents =
   let session = Session.create () in
   let source = Session.add_source session ~path ~contents in
   let ast =
-    Holyc_lib.parse_with_config session ~config:(config mode) ~source
-    |> expect_ast
+    match query with
+    | None ->
+        Holyc_lib.parse_with_config session ~config:(config mode) ~source
+        |> expect_ast
+    | Some query ->
+        let commands : Parser.command_sink =
+          {
+            checkpoint = None;
+            call = None;
+            implicit_output = None;
+            reference = None;
+            query = Some query;
+            declaration = None;
+            dimension_count = None;
+            command = (fun _ -> Ok ());
+            resume = (fun () -> Ok ());
+          }
+        in
+        Parser.parse ~commands ~sources:(Session.sources session)
+          ~symbols:(Session.symbols session)
+          ~definitions:(Session.definitions session)
+          ~config:(config mode) source
+        |> Test_parser.expect_ast
   in
   let declarations = checked (Holyc_lib.collect_declarations session ast) in
   let aggregates =
@@ -77,7 +99,7 @@ let prepare ?(mode = Preprocessor.Jit) ~path contents =
       (Holyc_lib.resolve_module_expressions session ~declarations ~aggregates
          ~functions ~globals ~expressions:function_expressions)
   in
-  { mode; session; ast; globals; expressions }
+  { mode; session; ast; declarations; globals; expressions }
 
 let semantic_kind = function
   | Semantic_outer_environment.Aggregate -> Semantic_symbol.Aggregate_type
@@ -506,8 +528,331 @@ let determinism_purity_and_validation () =
         "driver validation uses the stable family" true
         (String.starts_with ~prefix:"HCSEMA0025: " message)
 
+let selected_initializer_environment () =
+  let module E = Semantic_outer_environment in
+  let module S = Semantic_reference_selection in
+  let module G = Semantic_global_initializer_binding in
+  let module T = Semantic_top_level_expression_binding in
+  let prepared = prepare ~path:"selected-initializer.hc" "I64 Value=Target;" in
+  let original =
+    jit_environment prepared [ ("Target", E.Global_variable) ] []
+  in
+  let table = Session.semantic_symbols prepared.session in
+  let other =
+    E.create ~table ~compilation_mode:E.Jit (E.tables original)
+    |> checked_environment
+  in
+  let initializers = resolve prepared original in
+  let global = G.globals initializers |> List.hd in
+  let occurrence = G.global_occurrences global |> List.hd in
+  let binding =
+    match G.occurrence_resolution occurrence with
+    | G.Outer_binding binding -> binding
+    | _ -> Alcotest.fail "expected initializer outer binding"
+  in
+  let second_pass environment =
+    let selection =
+      S.outer ~table ~name:"Target" ~environment ~binding |> checked
+    in
+    let event =
+      T.make_selected_identifier ~selection ~name:"Target"
+        ~origin:(G.occurrence_origin occurrence)
+      |> checked
+    in
+    let input =
+      T.make_global_initializer ~statement_index:0 ~initializers ~global
+        [ event ]
+      |> checked
+    in
+    T.resolve ~table
+      ~parent:
+        (Semantic_module_expression_binding.parent_scope prepared.expressions)
+      ~module_expressions:prepared.expressions [ input ]
+  in
+  Alcotest.(check bool)
+    "original environment supports the same initializer binding" true
+    (second_pass original |> Result.is_ok);
+  Alcotest.(check bool)
+    "same binding in another environment cannot replace initializer selection"
+    true
+    (second_pass other |> Result.is_error)
+
+let initializer_query_source_manifest () =
+  let module G = Semantic_global_initializer_binding in
+  let module T = Semantic_top_level_expression_binding in
+  let prepared =
+    prepare ~path:"initializer-query-manifest.hc"
+      "I64 Value=defined Missing+defined Value;"
+  in
+  let outer = jit_environment prepared [] [] in
+  let initializers = resolve prepared outer in
+  let global = G.globals initializers |> List.hd in
+  let leaf = G.global_leaves global |> List.hd in
+  let nodes =
+    Semantic_query_selection.source_queries
+      (Semantic_initializer_source.leaf_expression_ast leaf)
+  in
+  let events =
+    List.map
+      (function
+        | Ast.Defined_expression expression ->
+            let operand = expression.defined_operand in
+            T.make_name_query
+              ~role:Semantic_function_expression_binding.Defined_operand
+              ~name:operand.defined_operand_spelling
+              ~origin:
+                (Semantic_initializer_source.origin_of_location
+                   operand.defined_operand_location)
+            |> checked
+        | _ -> Alcotest.fail "expected defined query")
+      nodes
+  in
+  let accepts events =
+    let input =
+      T.make_global_initializer ~statement_index:0 ~initializers ~global events
+      |> checked
+    in
+    T.resolve
+      ~table:(Session.semantic_symbols prepared.session)
+      ~parent:
+        (Semantic_module_expression_binding.parent_scope prepared.expressions)
+      ~module_expressions:prepared.expressions [ input ]
+    |> Result.is_ok
+  in
+  Alcotest.(check (list bool))
+    "initializer queries keep original order and completeness"
+    [ true; false; false; false ]
+    [
+      accepts events;
+      accepts (List.rev events);
+      accepts [ List.hd events ];
+      accepts (events @ events);
+    ]
+
+let selected_initializer_query_manifest () =
+  let module G = Semantic_global_initializer_binding in
+  let module T = Semantic_top_level_expression_binding in
+  let module Q = Semantic_query_selection in
+  let module I = Semantic_initializer_source in
+  let receipts = ref [] in
+  let query = function
+    | Parser.Query_completed receipt ->
+        receipts := receipt :: !receipts;
+        Ok ()
+    | _ -> Ok ()
+  in
+  let prepared =
+    prepare ~query ~path:"selected-initializer-queries.hc"
+      "I64 Value=defined 42+defined Missing+defined Value;"
+  in
+  let table = Session.semantic_symbols prepared.session in
+  let outer = jit_environment prepared [] [] in
+  let legacy = resolve prepared outer in
+  let legacy_global = G.globals legacy |> List.hd in
+  let leaf = G.global_leaves legacy_global |> List.hd in
+  let receipts = List.rev !receipts in
+  let select table =
+    List.map (fun receipt -> Q.make ~table ~receipt () |> checked) receipts
+  in
+  let selections = select table in
+  let pairs = List.map (fun selection -> (leaf, selection)) selections in
+  let bind ?queries record =
+    let input = G.make_global ?queries ~record [] |> checked in
+    G.resolve ~table ~environment:outer ~expressions:prepared.expressions
+      ~globals:prepared.globals [ input ]
+  in
+  let record = G.global_record legacy_global in
+  let selected =
+    bind ~queries:pairs record |> Result.map_error G.error_to_string |> checked
+  in
+  let global = G.globals selected |> List.hd in
+  Alcotest.(check int)
+    "non-name defined has a source descriptor" 3
+    (List.length (G.global_queries global));
+  List.iter2
+    (fun selection descriptor ->
+      Alcotest.(check bool)
+        "descriptor retains the exact query object" true
+        (G.query_selection descriptor = Some selection
+        && Option.get (G.query_selection descriptor) == selection
+        && G.query_expression descriptor == Q.expression selection
+        && G.query_leaf descriptor == leaf))
+    selections (G.global_queries global);
+  let top =
+    Holyc_lib.resolve_top_level_expressions prepared.session
+      ~declarations:prepared.declarations
+      ~module_expressions:prepared.expressions ~initializers:selected
+      prepared.ast
+    |> checked
+  in
+  Alcotest.(check int)
+    "non-name descriptor is not a named event" 2
+    (List.length (T.all_queries top));
+  List.iter2
+    (fun selection query ->
+      Alcotest.(check bool)
+        "driver reuses captured query without a new resolver" true
+        (Option.get (T.query_selection query) == selection))
+    (List.tl selections) (T.all_queries top);
+  let foreign_source =
+    I.create (I.source_ast (Option.get (G.global_source global)))
+  in
+  let foreign_leaf = I.leaves foreign_source |> List.hd in
+  let reject label pairs =
+    Alcotest.(check bool)
+      label true
+      (bind ~queries:pairs record |> Result.is_error)
+  in
+  reject "non-name read cannot be omitted" (List.tl pairs);
+  reject "read order cannot change" (List.rev pairs);
+  reject "reads cannot repeat" (pairs @ pairs);
+  reject "equal source tree cannot supply a replacement leaf"
+    (List.map (fun selection -> (foreign_leaf, selection)) selections);
+  reject "another table cannot supply query reads"
+    (List.map
+       (fun selection -> (leaf, selection))
+       (select (Session.semantic_symbols (Session.create ()))));
+  Alcotest.(check bool)
+    "missing exact leaf lookup fails" true
+    (G.query_for ~global ~leaf:foreign_leaf
+       ~expression:(Q.expression (List.hd selections))
+    |> Result.is_error);
+  let events ?(with_leaf = true) ?(unselected = false) ?(leaf = leaf) selections
+      =
+    List.filter_map
+      (fun selection ->
+        match Q.name_query_facts (Q.expression selection) with
+        | None -> None
+        | Some (role, name, origin) ->
+            let selection = if unselected then None else Some selection in
+            let event =
+              if with_leaf then
+                T.make_initializer_name_query ?selection ~leaf ~role ~name
+                  ~origin ()
+              else
+                match selection with
+                | None -> T.make_name_query ~role ~name ~origin
+                | Some selection ->
+                    T.make_selected_name_query ~selection ~role ~name ~origin
+            in
+            Some (checked event))
+      selections
+  in
+  let accepts initializers events =
+    let global = G.globals initializers |> List.hd in
+    let input =
+      T.make_global_initializer ~statement_index:0 ~initializers ~global events
+      |> checked
+    in
+    T.resolve ~table
+      ~parent:
+        (Semantic_module_expression_binding.parent_scope prepared.expressions)
+      ~module_expressions:prepared.expressions [ input ]
+    |> Result.is_ok
+  in
+  Alcotest.(check (list bool))
+    "second walk requires the original selection and leaf"
+    [ true; false; false; false; false; false; false; false ]
+    [
+      accepts selected (events selections);
+      accepts selected (events (select table));
+      accepts selected (events ~unselected:true selections);
+      accepts legacy (events selections);
+      accepts selected (events ~with_leaf:false selections);
+      accepts selected (events ~leaf:foreign_leaf selections);
+      accepts selected (List.rev (events selections));
+      accepts selected (events selections @ events selections);
+    ];
+  let copied =
+    Semantic_global_resolution.resolve ~table
+      ~parent:
+        (Semantic_module_expression_binding.parent_scope prepared.expressions)
+      ~compilation_mode:Semantic_global_resolution.Jit
+      [ Semantic_global_resolution.global_record_declaration record ]
+    |> checked |> Semantic_global_resolution.records |> List.hd
+  in
+  Alcotest.(check bool)
+    "reconstructed record cannot replace the manifest owner" true
+    (bind ~queries:pairs copied |> Result.is_error)
+
+let initializer_braced_query_leaves () =
+  let module G = Semantic_global_initializer_binding in
+  let module T = Semantic_top_level_expression_binding in
+  let module Q = Semantic_query_selection in
+  let module I = Semantic_initializer_source in
+  let receipts = ref [] in
+  let query = function
+    | Parser.Query_completed receipt ->
+        receipts := receipt :: !receipts;
+        Ok ()
+    | _ -> Ok ()
+  in
+  let prepared =
+    prepare ~query ~path:"initializer-braced-queries.hc"
+      "I64 Values[2]={defined Missing,defined Values};"
+  in
+  let outer = jit_environment prepared [] [] in
+  let table = Session.semantic_symbols prepared.session in
+  let legacy = resolve prepared outer in
+  let global = G.globals legacy |> List.hd in
+  let leaves = G.global_leaves global in
+  let selections =
+    List.rev !receipts
+    |> List.map (fun receipt -> Q.make ~table ~receipt () |> checked)
+  in
+  let bind pairs =
+    let input =
+      G.make_global ~queries:pairs ~record:(G.global_record global) []
+      |> checked
+    in
+    G.resolve ~table ~environment:outer ~expressions:prepared.expressions
+      ~globals:prepared.globals [ input ]
+  in
+  let selected =
+    bind (List.combine leaves selections)
+    |> Result.map_error G.error_to_string
+    |> checked
+  in
+  List.iter
+    (fun initializers ->
+      let top =
+        Holyc_lib.resolve_top_level_expressions prepared.session
+          ~declarations:prepared.declarations
+          ~module_expressions:prepared.expressions ~initializers prepared.ast
+        |> checked
+      in
+      Alcotest.(check int)
+        "both braced query leaves reach the second pass" 2
+        (List.length (T.all_queries top)))
+    [ legacy; selected ];
+  Alcotest.(check (list (list int)))
+    "queries retain distinct initializer paths" [ [ 0 ]; [ 1 ] ]
+    (G.globals selected |> List.hd |> G.global_queries
+    |> List.map (fun query -> G.query_leaf query |> I.leaf_path));
+  Alcotest.(check bool)
+    "swapped source leaves cannot replace original associations" true
+    (bind (List.combine (List.rev leaves) selections) |> Result.is_error);
+  let selection = List.hd selections in
+  let role, name, origin =
+    Q.name_query_facts (Q.expression selection) |> Option.get
+  in
+  Alcotest.(check bool)
+    "another braced leaf cannot create the original name query" true
+    (T.make_initializer_name_query ~selection ~leaf:(List.nth leaves 1) ~role
+       ~name ~origin ()
+    |> Result.is_error)
+
 let tests =
   [
+    Alcotest.test_case "initializer query reads retain braced leaf ownership"
+      `Quick initializer_braced_query_leaves;
+    Alcotest.test_case
+      "selected initializer queries retain original reads and leaves" `Quick
+      selected_initializer_query_manifest;
+    Alcotest.test_case "initializer queries retain the complete source manifest"
+      `Quick initializer_query_source_manifest;
+    Alcotest.test_case "initializer second pass retains exact environment"
+      `Quick selected_initializer_environment;
     Alcotest.test_case "self and comma source order" `Quick
       self_and_comma_source_order;
     Alcotest.test_case "prior module records and nested paths" `Quick

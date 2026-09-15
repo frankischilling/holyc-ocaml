@@ -24,8 +24,10 @@ type t = {
 
 type cursor = {
   owner : owner;
+  table : Symbol_table.t;
   environment : Outer_environment.t;
   visible : Module_expression_binding.publication String_map.t;
+  history : Module_expression_binding.publication list;
   remaining : point list;
 }
 
@@ -96,7 +98,7 @@ let expressions (state : t) = state.expressions
 let owns_table (state : t) table = state.table == table
 let point_publication (point : point) = point.publication
 
-let find_point state symbol =
+let find_point (state : t) symbol =
   if not (Symbol_table.owns_symbol state.table symbol) then None
   else
     match Int_map.find_opt (symbol_number symbol) state.by_source_symbol with
@@ -111,8 +113,10 @@ let find_point state symbol =
 let initial_cursor (state : t) =
   {
     owner = state.owner;
+    table = state.table;
     environment = state.environment;
     visible = String_map.empty;
+    history = [];
     remaining = state.points;
   }
 
@@ -123,10 +127,12 @@ let add_point visible point =
     |> Symbol.name)
     publication visible
 
-let rec publish_while predicate visible = function
+let rec publish_while predicate visible history = function
   | point :: rest when predicate point.publication ->
-      publish_while predicate (add_point visible point) rest
-  | remaining -> (visible, remaining)
+      publish_while predicate (add_point visible point)
+        (point.publication :: history)
+        rest
+  | remaining -> (visible, history, remaining)
 
 let advance comparison (cursor : cursor) (point : point) =
   if cursor.owner != point.owner then
@@ -145,16 +151,16 @@ let advance comparison (cursor : cursor) (point : point) =
     if boundary < next_boundary then
       Error "module publication cursor has already passed the selected point"
     else
-      let visible, remaining =
+      let visible, history, remaining =
         publish_while
           (fun publication ->
             comparison
               (Module_expression_binding.publication_declaration_index
                  publication)
               boundary)
-          cursor.visible cursor.remaining
+          cursor.visible cursor.history cursor.remaining
       in
-      Ok { cursor with visible; remaining }
+      Ok { cursor with visible; history; remaining }
 
 let publish_before cursor point = advance ( < ) cursor point
 let publish_through cursor point = advance ( <= ) cursor point
@@ -165,3 +171,32 @@ let resolve cursor name =
   | None ->
       Outer_environment.find cursor.environment name
       |> Option.map (fun binding -> Outer_binding binding)
+
+let resolve_selected cursor name selection =
+  Result.bind (Reference_selection.validate ~table:cursor.table ~name selection)
+    (fun () ->
+      match Reference_selection.kind selection with
+      | Reference_selection.Absent | Reference_selection.Unavailable -> Ok None
+      | Reference_selection.Local ->
+          Error "selected local has no global-declarator binding"
+      | Reference_selection.Source (_, Reference_selection.Function_declared) ->
+          Error "selected function header was still provisional"
+      | Reference_selection.Source (symbol, _) -> (
+          match
+            List.find_opt
+              (fun publication ->
+                Module_expression_binding.publication_source_symbol publication
+                == symbol)
+              cursor.history
+          with
+          | Some publication -> Ok (Some (Module_binding publication))
+          | None ->
+              Error
+                "selected source declaration is outside the visible module \
+                 prefix")
+      | Reference_selection.Outer (environment, binding) ->
+          if
+            environment == cursor.environment
+            && Outer_environment.owns_binding environment binding
+          then Ok (Some (Outer_binding binding))
+          else Error "selected outer binding belongs to another environment")

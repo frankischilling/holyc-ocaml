@@ -595,7 +595,9 @@ let rec signature_fact visible ~opening parameters variadic ~closing =
                  (fun (marker : Frontend.Ast.variadic_marker) ->
                    origin marker.location)
                  variadic)
-            ~variadic_register_requests ~closing_origin:(origin closing) ()))
+            ~variadic_register_requests
+            ?closing_origin:(Option.map origin closing)
+            ()))
 
 and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
   match
@@ -662,6 +664,7 @@ let register_requests = Register_request.of_list
 
 let array_dimension index (dimension : Frontend.Ast.array_dimension) =
   Sema.Local_type_resolution.make_array_dimension ~index
+    ~source_dimension:dimension
     ?source_expression:dimension.dimension_expression
     ~origin:(origin dimension.location)
     ~opening_origin:(origin dimension.opening_bracket)

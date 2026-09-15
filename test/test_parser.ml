@@ -488,14 +488,14 @@ let expect_return_statement = function
 let expect_marker_fixed_argument (statement : Ast.implicit_output_statement) =
   match statement.fixed_argument with
   | Ast.Marker_fixed_argument expression -> expression
-  | Ast.Expression_fixed_argument _ ->
+  | Ast.Absent_fixed_argument | Ast.Expression_fixed_argument _ ->
       Alcotest.fail "expected the marker to supply the fixed argument"
 
 let expect_following_fixed_argument (statement : Ast.implicit_output_statement)
     =
   match statement.fixed_argument with
   | Ast.Expression_fixed_argument expression -> expression
-  | Ast.Marker_fixed_argument _ ->
+  | Ast.Absent_fixed_argument | Ast.Marker_fixed_argument _ ->
       Alcotest.fail "expected an expression after the empty marker"
 
 let expect_identifier_expression = function
@@ -1824,8 +1824,8 @@ let empty_semicolon_function_parameter_entries () =
     [
       ("leading comma", "extern U0 Leading(,I64 value);");
       ("repeated comma", "extern U0 Repeated(I64 first,,I64 second);");
-      ( "semicolon after an empty comma slot",
-        "extern U0 AfterComma(I64 first,;I64 second);" );
+      ( "comma after empty semicolons still needs a parameter",
+        "extern U0 AfterEmpty(I64 first,;,I64 second);" );
     ]
 
 let modifier_declaration_group () =
@@ -2328,7 +2328,7 @@ let aggregate_forward_provenance () =
 
 let aggregate_forward_failures () =
   List.iter
-    (fun (description, source, rejected_name, code, message_fragment) ->
+    (fun (description, source, published_name, code, message_fragment) ->
       let session, _, output = parse_string source in
       Alcotest.(check bool)
         (description ^ " has no AST")
@@ -2345,10 +2345,14 @@ let aggregate_forward_failures () =
             Symbol_visibility.Environment.find_preprocessor
               (Session.symbols session) name
           with
-          | Symbol_visibility.Absent -> ()
-          | Symbol_visibility.Present _ | Symbol_visibility.Shadowed_by_local ->
-              Alcotest.failf "rejected aggregate %s became visible" name)
-        rejected_name)
+          | Symbol_visibility.Present entry ->
+              Alcotest.(check string)
+                "forward name is published before following-token validation"
+                "class"
+                (Symbol_visibility.kind_name (Symbol_visibility.kind entry))
+          | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+              Alcotest.failf "original forward publication %s was lost" name)
+        published_name)
     [
       ( "class name is missing",
         "extern class ;",
@@ -4758,6 +4762,11 @@ let pinned_kernel_inheritance_chains () =
     ]
 
 let aggregate_inheritance_failures_recover () =
+  let _, _, output = parse_string "class Derived:I64 {I64 value;};" in
+  (match (expect_ast output).items with
+  | [ Ast.Aggregate_definition definition ] ->
+      ignore (expect_aggregate_base "I64" definition)
+  | _ -> Alcotest.fail "public union must remain a valid native class base");
   List.iter
     (fun (description, source, expected_code) ->
       let session, _, output = parse_string source in
@@ -4788,8 +4797,8 @@ let aggregate_inheritance_failures_recover () =
       ( "unknown base",
         "class Bad:Missing { I64 value; }; I64 after;",
         "HCPARSE0121" );
-      ( "primitive base",
-        "class Bad:I64 { I64 value; }; I64 after;",
+      ( "primitive internal base",
+        "class Bad:U8 { I64 value; }; I64 after;",
         "HCPARSE0121" );
       ( "internal base",
         "class Bad:I64i { I64 value; }; I64 after;",
@@ -9201,7 +9210,7 @@ let function_pointer_member_provenance () =
       ("name", declarator.member_name.location);
       ("declarator close", pointer.declarator_closing_parenthesis);
       ("signature open", pointer.signature_opening_parenthesis);
-      ("signature close", pointer.signature_closing_parenthesis);
+      ("signature close", Option.get pointer.signature_closing_parenthesis);
     ];
   let open Yojson.Safe.Util in
   let json_pointer =
@@ -9620,7 +9629,7 @@ let function_pointer_global_provenance () =
       ("name", declarator.name.location);
       ("declarator close", pointer.declarator_closing_parenthesis);
       ("signature open", pointer.signature_opening_parenthesis);
-      ("signature close", pointer.signature_closing_parenthesis);
+      ("signature close", Option.get pointer.signature_closing_parenthesis);
     ];
   let open Yojson.Safe.Util in
   let json_pointer =
@@ -9908,15 +9917,15 @@ let direct_function_pointer_parameters () =
        - pointer.signature_opening_parenthesis.span.start);
       Alcotest.(check int)
         "signature closing width" 1
-        (pointer.signature_closing_parenthesis.span.stop
-       - pointer.signature_closing_parenthesis.span.start);
+        ((Option.get pointer.signature_closing_parenthesis).span.stop
+       - (Option.get pointer.signature_closing_parenthesis).span.start);
       Alcotest.(check int)
         "function-pointer span starts at declarator"
         pointer.declarator_opening_parenthesis.span.start
         pointer.function_pointer_location.span.start;
       Alcotest.(check int)
         "function-pointer span ends at signature"
-        pointer.signature_closing_parenthesis.span.stop
+        (Option.get pointer.signature_closing_parenthesis).span.stop
         pointer.function_pointer_location.span.stop)
     pointers;
   let open Yojson.Safe.Util in
@@ -9966,7 +9975,7 @@ let definition_backed_function_pointer_parameter () =
       ("function-pointer name", name.location);
       ("declarator closing", pointer.declarator_closing_parenthesis);
       ("signature opening", pointer.signature_opening_parenthesis);
-      ("signature closing", pointer.signature_closing_parenthesis);
+      ("signature closing", Option.get pointer.signature_closing_parenthesis);
     ];
   let open Yojson.Safe.Util in
   let json_pointer =
@@ -10231,7 +10240,8 @@ let optional_prototype_semicolons () =
             following.name.spelling;
           Alcotest.(check int)
             "omitted prototype ends at its closing parenthesis"
-            first.closing_parenthesis.span.stop first.location.span.stop
+            (Option.get first.closing_parenthesis).span.stop
+            first.location.span.stop
       | items ->
           Alcotest.failf "optional prototype delimiters produced %d items"
             (List.length items))
@@ -10391,7 +10401,7 @@ let definition_backed_function_prototype () =
     (Option.is_some comma.location.generated_from);
   Alcotest.(check bool)
     "closing parenthesis retains its definition" true
-    (Option.is_some prototype.closing_parenthesis.defined_at);
+    (Option.is_some (Option.get prototype.closing_parenthesis).defined_at);
   let open Yojson.Safe.Util in
   let item =
     Ast_dump.to_yojson (Session.sources session) (expect_ast output)
@@ -11447,16 +11457,11 @@ let function_prototype_failures () =
         "NoClose",
         "HCPARSE0009",
         "parameter type" );
-      ( "trailing parameter comma",
-        "extern U0 Trailing(I64 value,);",
+      ( "repeated trailing parameter comma",
+        "extern U0 Trailing(I64 value,,);",
         "Trailing",
         "HCPARSE0009",
-        "after ','" );
-      ( "nonterminal variadic marker",
-        "extern U0 Nonterminal(...,I64 value);",
-        "Nonterminal",
-        "HCPARSE0015",
-        "after variadic marker" );
+        "parameter type" );
       ( "array parameter",
         "extern U0 Arrayed(I64 values[2]);",
         "Arrayed",
@@ -11635,7 +11640,8 @@ let function_definition_shapes () =
             (Option.is_none absent.body);
           Alcotest.(check int)
             "an absent definition stops at its closing parenthesis"
-            absent.closing_parenthesis.span.stop absent.location.span.stop
+            (Option.get absent.closing_parenthesis).span.stop
+            absent.location.span.stop
       | definitions ->
           Alcotest.failf "expected five function definitions, got %d"
             (List.length definitions))
@@ -11684,7 +11690,7 @@ let function_definition_provenance () =
       Ast.type_specifier_location definition.return_type;
       definition.name.location;
       definition.opening_parenthesis;
-      definition.closing_parenthesis;
+      Option.get definition.closing_parenthesis;
     ]
   in
   List.iter
@@ -11763,7 +11769,7 @@ let function_definition_failures () =
       | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
           Alcotest.failf "expected recovered function symbol %s" name)
     [ "Broken"; "Recovered" ];
-  let rejected_session, _, rejected = parse_string "U0 Bad(I64 value,){}" in
+  let rejected_session, _, rejected = parse_string "U0 Bad(I64 value,,){}" in
   Alcotest.(check string)
     "a malformed definition parameter uses the shared diagnostic" "HCPARSE0009"
     (first_diagnostic rejected).code;
@@ -12822,7 +12828,7 @@ let function_pointer_local_visibility_and_provenance () =
       ("star", (List.hd pointer.indirection_layers).location);
       ("declarator close", pointer.declarator_closing_parenthesis);
       ("signature open", pointer.signature_opening_parenthesis);
-      ("signature close", pointer.signature_closing_parenthesis);
+      ("signature close", Option.get pointer.signature_closing_parenthesis);
     ];
   List.iter2
     (fun expected statement ->
@@ -13980,11 +13986,16 @@ let adjacent_string_expression_contexts_and_modes () =
           check_combined_string ~description:"call argument"
             ~value:"call argument" ~segments:[ "call"; " argument" ]
             call_literal;
-          check_combined_string ~description:"implicit output marker"
-            ~value:"ready" ~segments:[ ""; "ready" ] output_statement.marker;
-          ignore
-            (expect_marker_fixed_argument output_statement
-            |> expect_string_literal)
+          (* PrsFunCall consumes an empty marker with Lex before it calls
+             PrsExpression for the format string. Only expression literals join. *)
+          Alcotest.(check bool)
+            "empty implicit marker remains separate" true
+            (output_statement.marker.literal_value = Ast.Bytes_value "");
+          Alcotest.(check bool)
+            "following literal supplies the format" true
+            ((expect_following_fixed_argument output_statement
+             |> expect_string_literal)
+               .literal_value = Ast.Bytes_value "ready")
       | items ->
           Alcotest.failf "expected a prototype and three contexts, got %d items"
             (List.length items))
@@ -20350,8 +20361,263 @@ let default_library_entry_point () =
       let variable = expect_one_global ast in
       Alcotest.(check string) "parsed name" "byte" variable.name.spelling
 
+let variadic_header_caller_termination () =
+  List.iter
+    (fun compilation_mode ->
+      List.iter
+        (fun source ->
+          let _, _, output = parse_string ~compilation_mode source in
+          ignore (expect_ast output))
+        [
+          "I64 F(...{return argc;}";
+          "I64 F(... return argc;";
+          "I64 F(...;I64 following;";
+          "I64 F(...";
+          "extern I64 F(...;I64 following;";
+          "extern I64 F(... I64 following;";
+          "I64 (*callback)(...;I64 following;";
+          "extern I64 F(I64 (*callback)(...,I64 value);";
+          "class C {I64 (*callback)(...;};";
+          "I64 F(){I64 (*callback)(...;return 0;}";
+          "I64 F(...\n#define BODY {return argc;}\nBODY";
+          "extern I64 F(...\n#define NEXT I64 following;\nNEXT";
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let variadic_header_locations_and_dumps () =
+  List.iter
+    (fun (source, has_close) ->
+      let session, _, output = parse_string source in
+      let ast = expect_ast output in
+      let definition = expect_one_definition ast in
+      Alcotest.(check bool)
+        "closing token presence" has_close
+        (Option.is_some definition.closing_parenthesis);
+      let variadic = Option.get definition.variadic in
+      let header_stop =
+        match definition.closing_parenthesis with
+        | Some location ->
+            Alcotest.(check int)
+              "written close has its own byte" 1
+              (Span.length location.span);
+            Alcotest.(check int)
+              "close follows ellipsis" variadic.location.span.stop
+              location.span.start;
+            location.span.stop
+        | None -> variadic.location.span.stop
+      in
+      let body = expect_function_body definition |> expect_block_statement in
+      Alcotest.(check int)
+        "body keeps the next source token" header_stop
+        body.block_opening_brace.span.start;
+      let open Yojson.Safe.Util in
+      let json = Ast_dump.to_yojson (Session.sources session) ast in
+      let closing =
+        json |> member "module" |> member "items" |> to_list |> List.hd
+        |> member "closing_parenthesis"
+      in
+      Alcotest.(check bool)
+        "JSON distinguishes absence" (not has_close) (closing = `Null);
+      Alcotest.(check bool)
+        "human dump distinguishes absence" (not has_close)
+        (contains
+           (Ast_dump.human (Session.sources session) ast)
+           "closing_parenthesis span=absent"))
+    [ ("I64 F(...{return argc;}", false); ("I64 F(...){return argc;}", true) ];
+  let session, _, output =
+    parse_string "extern I64 F(I64 (*callback)(...,I64 value=42,...;"
+  in
+  let prototype =
+    match (expect_ast output).items with
+    | [ Ast.Function_prototype prototype ] -> prototype
+    | _ -> Alcotest.fail "expected one recursive callback prototype"
+  in
+  let callback = Option.get (List.hd prototype.parameters).function_pointer in
+  Alcotest.(check bool)
+    "outer prototype close absent" true
+    (Option.is_none prototype.closing_parenthesis);
+  Alcotest.(check bool)
+    "callback signature close absent" true
+    (Option.is_none callback.signature_closing_parenthesis);
+  Alcotest.(check int)
+    "callback declarator close stays concrete" 1
+    (Span.length callback.declarator_closing_parenthesis.span);
+  Alcotest.(check int)
+    "callback stops at its ellipsis"
+    (Option.get callback.signature_variadic).location.span.stop
+    callback.function_pointer_location.span.stop;
+  Alcotest.(check string)
+    "following comma belongs to outer parameter" ","
+    (Option.get (List.hd prototype.parameters).delimiter).spelling;
+  Alcotest.(check bool)
+    "following parameter default retained" true
+    (Option.is_some (List.nth prototype.parameters 1).default);
+  Alcotest.(check int)
+    "prototype owns following semicolon"
+    (Option.get prototype.semicolon).span.stop prototype.location.span.stop;
+  let open Yojson.Safe.Util in
+  let callback_json =
+    Ast_dump.to_yojson (Session.sources session) (expect_ast output)
+    |> member "module" |> member "items" |> to_list |> List.hd
+    |> member "parameters" |> to_list |> List.hd |> member "function_pointer"
+  in
+  Alcotest.(check bool)
+    "recursive callback JSON records missing close" true
+    (callback_json |> member "signature_closing_parenthesis" = `Null)
+
+let variadic_header_context_and_recovery () =
+  let session, _, output =
+    parse_string
+      "I64 argc;I64 argv;I64 F(...\n\
+       #ifdef argc\n\
+       {\n\
+       #else\n\
+       invalid\n\
+       #endif\n\
+       #ifdef argc\n\
+       invalid\n\
+       #endif\n\
+       #ifdef argv\n\
+       invalid\n\
+       #endif\n\
+       return argc;}\n\
+       #ifdef argc\n\
+       I64 hidden_during_lookahead;\n\
+       #endif\n\
+       I64 boundary;\n\
+       #ifdef argc\n\
+       I64 restored;\n\
+       #endif"
+  in
+  let ast = expect_ast output in
+  Alcotest.(check int)
+    "function context ends after body lookahead" 5 (List.length ast.items);
+  Alcotest.(check bool)
+    "immediate conditional still sees local argc" true
+    (Symbol_visibility.Environment.find_preprocessor (Session.symbols session)
+       "hidden_during_lookahead"
+    = Symbol_visibility.Absent);
+  List.iter
+    (fun name ->
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) name
+      with
+      | Symbol_visibility.Present _ -> ()
+      | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "global %s remains hidden after function" name)
+    [ "argc"; "argv"; "restored" ];
+  let session, _, output =
+    parse_string "extern U0 Nonterminal(...,I64 value); U0 Recovered();"
+  in
+  Alcotest.(check bool)
+    "malformed caller has no AST" true
+    (Option.is_none output.ast);
+  Alcotest.(check bool)
+    "caller owns the malformed trailing syntax" true
+    (List.for_all
+       (fun (diagnostic : Diagnostic.t) -> diagnostic.code <> "HCPARSE0015")
+       output.diagnostics);
+  List.iter
+    (fun name ->
+      match
+        Symbol_visibility.Environment.find_preprocessor
+          (Session.symbols session) name
+      with
+      | Symbol_visibility.Present entry ->
+          Alcotest.(check bool)
+            (name ^ " remains a function")
+            true
+            (Symbol_visibility.kind entry = Symbol_visibility.Function)
+      | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local ->
+          Alcotest.failf "completed or recovered function %s is missing" name)
+    [ "Nonterminal"; "Recovered" ]
+
+let variadic_header_completed_children () =
+  List.iter
+    (fun close ->
+      let session = Session.create () in
+      let source =
+        Session.add_source session ~path:"children.HC"
+          ~contents:("I64 F(I64 n=40,..." ^ close ^ "{return n+argc;}")
+      in
+      let events = ref [] in
+      let commands : Parser.command_sink =
+        {
+          checkpoint = None;
+          reference = None;
+          call = None;
+          implicit_output = None;
+          query = None;
+          dimension_count = None;
+          declaration =
+            Some
+              (fun event ->
+                (match event with
+                | Parser.Function_header_completed header ->
+                    Alcotest.(check bool)
+                      "completed header active during callback" true
+                      (Parser.function_header_is_current header)
+                | _ -> ());
+                events := event :: !events;
+                Ok ());
+          command = (fun _ -> Ok ());
+          resume = (fun () -> Ok ());
+        }
+      in
+      let output =
+        Parser.parse ~commands ~sources:(Session.sources session)
+          ~definitions:(Session.definitions session)
+          ~symbols:(Session.symbols session)
+          ~config:(config (Sys.getcwd ()))
+          source
+      in
+      let definition = expect_ast output |> expect_one_definition in
+      let header =
+        List.find_map
+          (function
+            | Parser.Function_header_completed header -> Some header
+            | _ -> None)
+          !events
+        |> Option.get
+      in
+      Alcotest.(check bool)
+        "completed header inactive after callback" false
+        (Parser.function_header_is_current header);
+      Alcotest.(check bool)
+        "completed header retains original parameter children" true
+        (header.parameters == definition.parameters
+        && header.empty_parameter_entries == definition.empty_parameter_entries
+        && header.variadic == definition.variadic);
+      Alcotest.(check bool)
+        "completed header retains original closing child" true
+        (match (header.closing_parenthesis, definition.closing_parenthesis) with
+        | None, None -> true
+        | Some a, Some b -> a == b
+        | _ -> false);
+      Alcotest.(check bool)
+        "header close matches source presence" (close = ")")
+        (Option.is_some header.closing_parenthesis);
+      Alcotest.(check bool)
+        "body completion retains original linked children" true
+        (List.exists
+           (function
+             | Parser.Function_body_completed (same_header, same_definition) ->
+                 same_header == header && same_definition == definition
+             | _ -> false)
+           !events))
+    [ ""; ")" ]
+
 let tests =
   [
+    Alcotest.test_case "variadic header caller termination" `Quick
+      variadic_header_caller_termination;
+    Alcotest.test_case "variadic header locations and dumps" `Quick
+      variadic_header_locations_and_dumps;
+    Alcotest.test_case "variadic header context and recovery" `Quick
+      variadic_header_context_and_recovery;
+    Alcotest.test_case "variadic header completed children" `Quick
+      variadic_header_completed_children;
     Alcotest.test_case "all public primitive spellings" `Quick
       supported_primitives;
     Alcotest.test_case "pinned pointer depth" `Quick pointer_depth_source_limit;

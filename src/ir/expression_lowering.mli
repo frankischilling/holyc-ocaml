@@ -118,6 +118,14 @@ val lower_global_initializer :
     responsibility. *)
 
 val sequence : t -> Instruction_sequence.t
+
+val lower_fragment_initializer :
+  ?lower_call:call_lowerer ->
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  Initializer_fragment_destination.t ->
+  (lowering_result, Instruction_sequence.error list) result
+
 val result_value : t -> Instruction_sequence.Value_id.t
 val result_type : t -> Sema.Type.t
 val next_instruction_id : t -> Instruction_sequence.Instruction_id.t

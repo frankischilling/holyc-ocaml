@@ -74,7 +74,11 @@ positions. For example, `Take(n=1,n=2)` leaves n equal to 1, while
 `Sub(20,22)` still binds a=20 and b=22. Parsing, argument typing and default
 selection retain source order. The direct-call IR composer also emits variadic
 trees in reverse order, followed by the hidden argc value and reversed fixed
-arguments; variadic execution remains unsupported by this integer VM.
+arguments. Source-defined variadic functions now execute integer tails, with a
+writable `argc` and an owned `argv` array sized to each invocation's actual
+tail. The arbitrary declared extent of 127 remains source metadata. Empty tails,
+longer tails, recursion and retained task calls use actual bounds and frame
+quotas. See [implicit output and variadic calls](task-implicit-output.md).
 
 `--step-limit` defaults to 100000 and covers all caller and callee instructions.
 The Add fixture succeeds at 29 and fails at 28. `--frame-byte-limit` defaults
@@ -90,7 +94,7 @@ now use the shared persistent executor. Later connections cover arrays,
 [narrow integer storage and signatures](integer-narrow.md),
 [byte updates](integer-byte-updates.md), joined definitions and bounded runtime
 output. Floating storage, callbacks, arbitrary
-pointers, user-defined variadic execution and general external/import execution
+pointers, floating-point or pointer-valued variadic tails and general external/import execution
 remain unsupported. Every definition and unreachable block
 is checked before any instruction runs. A reached uninitialized local read is
 an explicit hosted diagnostic. Fault notes retain stage, total steps, block,

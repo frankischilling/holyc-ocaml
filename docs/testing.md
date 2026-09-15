@@ -1,5 +1,35 @@
 # Testing holyc-ocaml
 
+The twelve `partial global storage` groups cover real nested StreamPrint reads
+and writes during open declarations, scalar/array/copied-row completion, mixed
+fresh and retained allocations, exact byte quotas, unknown-cell faults and
+retained-boundary promotion. Foreign namespaces, runtime rebinding, missing
+predecessors, replay, delayed publication and expired or incompletely observed
+parser contexts reject without allocation or runtime work. Completed-command
+initialization and later live-initializer/source-orchestration tests exercise
+the same retained allocation path.
+
+The twelve `live initializer leaves` groups cover original native lookahead
+boundaries, nested and flattened braces, unbraced rows, adjacent generated strings,
+copied rows and exact source nodes. Promotion during an initializer preserves
+semantic leaf identity through typed roots and actual IR publication offsets;
+the resulting programs execute to 42. Missing, replayed, delayed and cross-owner
+events reject, including equal source literals. Malformed separators retain
+reached leaves without completing the declaration. Callback rejection and
+exceptions stop later directives and revoke receipt lifetime. Existing source
+resource checks remain applicable to public shared JIT execution.
+
+The thirteen `source promotion` groups cover live JIT ledger adoption, exact
+source/frontend ownership, original predecessor and pending-resume checks,
+retained symbols, frozen unadmitted reads, checked dimensions and selected sizeof
+metadata. Exact and one-below preparation limits cover transfer and subsequent
+dimension work. Used runtimes with zero counters, sealed/AOT/analysis ledgers,
+finished parsers and out-of-date live observers cannot gain source authority.
+Real parser/StreamPrint integration covers nested buffers, generated function
+bodies and initializer operands. The public stateful-exe groups exercise the
+shared outer JIT and isolated AOT directive paths; their earlier missing-runtime
+failures are historical, not the current support boundary.
+
 The `native expression encoding` group validates the encoder without executing
 machine code. The separate `opam exec -- dune build --root . '@native-tests'` target
 executes maintained source/IR fixtures, 500 deterministic source expressions,
@@ -265,7 +295,19 @@ baseline comparison remain required.
 
 Unit tests cover source positions, spans, token construction, literal decoding, comments, diagnostic rendering, include and generated-value frames, predefined values, primitive, internal, and named declaration types, declaration modifiers and bindings, comma-separated groups, pointer layers, strict extraction of the complete opcode database, operator tables, primitive type metadata, compiler options, function flags, member-list flags, global record flags, the complete intermediate-code table, and the TempleOS BIN specification. The generated-table tests reject malformed statements, duplicate records, missing or reordered entries, changed aliases, unknown opcode arguments, excess instruction bytes or forms, unknown operator tokens or ICs, precedence drift, unavailable-type drift, option default drift, function-flag expression or transition drift, member-list flag or consumer drift, global-record flag or consumer drift, BIN record or loader-formula drift, API contract drift, and source checksum mismatches. The option, function-flag, member-list flag, global-record flag, and BIN scanners also prove that comments and literals do not create false consumers; the option tests separately confirm that `_BEQU` retains its previous-state result.
 
-The current test binary runs 1,994 cases, including registered property tests. `test/dune` also defines 238 golden rules. A passing count describes only the implemented slices listed below; it is not a whole-compiler compatibility percentage. The reference verifier checks 82 individually audited Git blobs, and both corpus phases account for all 528 relevant blobs from the pinned Git tree.
+The current test binary runs 2,843 cases, including registered property tests.
+Separate CLI and ownership suites and 239 rules in `test/dune` cover additional
+boundaries. A passing count describes only the implemented slices listed below;
+it is not a whole-compiler compatibility percentage. The reference verifier checks
+82 individually audited Git blobs, and both corpus phases account for all 528
+relevant blobs from the pinned Git tree.
+
+The runtime-frame tests cover once-only array bounds, native downward alignment,
+lookahead writes, derived layout dependencies and rejection of unexecuted size
+metadata. The maintained CLI fixture returns 42 in both modes at 73 execution
+steps and six preparation units; each one-below limit fails explicitly. Source
+activation rejects runtime evidence presented as closed preparation, and offset
+preflight rejects fabricated predecessors before later expression effects.
 
 Sixty-six literal-lowering cases cover the pinned integer signedness split, the shared character path, exact F64 bits, decoded string bytes, stable instruction and value IDs, internal result types, source-span retention, checked-sequence failure propagation, and deterministic `holyc-ir-literal-v1` output. Parser-backed cases pass all four literal nodes through interleaved grouping, unary plus, unary minus, logical not, bitwise complement, dereference, and address-of. Emitting-prefix cases check instruction order, mixed opcodes, operand and result links, type transitions, operator spans, `&*` cancellation, and `HCIRL0001` identity-count failures. `HCIRL0002` covers address-of beyond the checked pointer-depth limit. Thirty-eight typed-result cases lower direct, grouped, unary-plus, unary-minus, logical-not, bitwise-complement, dereference-wrapped, and address-wrapped integer, character, F64, and string leaves from function bodies and executable top-level statements in both modes. They check exact leaf and intermediate types, the internal `I64` complement result, literal and operator spans, caller-owned identities, inner-to-outer prefix order, deterministic replay, generated locations, and `Not_literal` for supported wrappers around nonliteral roots. Direct and mixed `&*` cases prove that the address instruction remains while the dereference consumes no identity or span. The `~*"a"` case fixes the typed sequence at `U8*`, `U8`, then internal `I64`. Supported parser wrappers around nonliterals also return `Not_literal`. Three 100,000-level synthetic cases lock iterative, constant-host-stack parser unwrapping, including a mixed chain with 1,000 unary instructions. The tests do not read memory, lower update prefixes, allocate string storage, optimize constants, or lower a complete expression tree. Run only this group with:
 
@@ -776,8 +818,8 @@ Run the focused library suite with
 `opam exec -- dune exec test/test_main.exe -- test "source integer expression"`.
 Run all CLI golden rules with `opam exec -- dune runtest`. Check changed OCaml
 files directly with `opam exec -- ocamlformat --check FILE...` as well as the
-normal build and generated-source checks; the Windows Dune formatting alias can
-omit checks that run in Linux CI. Review new golden output before accepting it.
+normal build and generated-source checks. Quote Dune aliases in PowerShell so
+the shell passes them as arguments. Review new golden output before accepting it.
 
 ## Integer division and remainder
 

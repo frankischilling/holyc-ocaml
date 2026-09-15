@@ -1,4 +1,7 @@
 val resolve :
+  ?call_phases:
+    (Frontend.Ast.call_expression ->
+    (Sema.Function_call_phase.t option, string) result) ->
   table:Sema.Symbol_table.t ->
   declarations:Sema.Declaration_collection.t ->
   ?members:Sema.Aggregate_member_index.t ->

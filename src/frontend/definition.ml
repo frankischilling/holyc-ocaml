@@ -5,6 +5,7 @@ type segment = {
 }
 
 type t = {
+  owner : unit ref option;
   id : int;
   name : string;
   replacement : string;
@@ -47,28 +48,51 @@ module Environment = struct
 
   type definition = t
 
-  type t = {
+  type store = {
     mutable next_id : int;
-    mutable current : definition Names.t;
+    mutable by_name : definition list Names.t;
     mutable history_rev : definition list;
   }
 
-  let create () = { next_id = 0; current = Names.empty; history_rev = [] }
+  type t = { store : store; owner : unit ref option }
+
+  let create () =
+    {
+      store = { next_id = 0; by_name = Names.empty; history_rev = [] };
+      owner = None;
+    }
+
+  let visible environment (definition : definition) =
+    match (environment.owner, definition.owner) with
+    | None, _ | _, None -> true
+    | Some left, Some right -> left == right
+
+  let task_view environment =
+    { store = environment.store; owner = Some (ref ()) }
 
   let copy environment =
     {
-      next_id = environment.next_id;
-      current = environment.current;
-      history_rev = environment.history_rev;
+      store =
+        {
+          next_id = environment.store.next_id;
+          by_name =
+            Names.map
+              (List.filter (visible environment))
+              environment.store.by_name;
+          history_rev =
+            List.filter (visible environment) environment.store.history_rev;
+        };
+      owner = environment.owner;
     }
 
   let define environment ~name ~replacement ~name_span ~definition_span
       ~replacement_span ~segments =
-    if environment.next_id = max_int then
+    if environment.store.next_id = max_int then
       invalid_arg "definition identity space is exhausted";
     let definition =
       {
-        id = environment.next_id;
+        owner = environment.owner;
+        id = environment.store.next_id;
         name;
         replacement;
         name_span;
@@ -77,13 +101,22 @@ module Environment = struct
         segments;
       }
     in
-    environment.next_id <- environment.next_id + 1;
-    environment.current <- Names.add name definition environment.current;
-    environment.history_rev <- definition :: environment.history_rev;
+    environment.store.next_id <- environment.store.next_id + 1;
+    let prior =
+      Option.value (Names.find_opt name environment.store.by_name) ~default:[]
+    in
+    environment.store.by_name <-
+      Names.add name (definition :: prior) environment.store.by_name;
+    environment.store.history_rev <- definition :: environment.store.history_rev;
     definition
 
-  let find environment name = Names.find_opt name environment.current
-  let all environment = List.rev environment.history_rev
+  let find environment name =
+    Option.bind
+      (Names.find_opt name environment.store.by_name)
+      (List.find_opt (visible environment))
+
+  let all environment =
+    List.rev environment.store.history_rev |> List.filter (visible environment)
 
   let dump sources environment =
     let buffer = Buffer.create 256 in

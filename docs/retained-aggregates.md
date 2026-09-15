@@ -1,0 +1,227 @@
+# Retained aggregate sizes
+
+Classes and unions with primitive members publish size metadata as their
+original members are parsed. `sizeof` uses the entry selected by the original
+parser read, including in a later `#exe` block or a retained function body.
+Replacing the type does not change a size already consumed by an expression.
+This supports metadata queries, not aggregate object execution.
+
+`examples/stateful-exe-aggregates.hc` defines a sixteen-byte class and uses its
+size as a member array bound. A retained function returns that array's size.
+A second stream replaces the first class with a one-byte definition; the saved
+size and the new size combine to return 42 in both outer modes. The CLI tests
+require exactly 31 runtime steps and three preparation units, and check each
+one-below failure. Stream dimensions use the task initializer allowance.
+
+`examples/stateful-exe-aggregate-phases.hc` reads a class at name lookahead,
+after its first member and during closing-brace lookahead. Those reads see
+0, 8 and 16 bytes and combine to return 42. Both modes pass at 35 runtime steps
+and three preparation units; the CLI checks each one-below failure too.
+
+## Source and ownership
+
+At reference `c26482bb6ad3f80106d28504ec5db3c6a360732c`,
+`Compiler/PrsStmt.HC:1-59` publishes a class before name lookahead and completes
+its size after `PrsVarLst`. `Compiler/PrsVar.HC:660-682` adds class member sizes
+or takes the union maximum. The hosted path uses the shared checked aggregate
+layout engine for packed members, closed array extents and anonymous unions.
+Forward declarations expose zero-sized metadata.
+
+The body, member and anonymous-union phases follow
+`Compiler/PrsVar.HC:408-494,660-721`. Member placement follows type/array
+lookahead but precedes metadata parsing and delimiter advancement. A directive
+before a member's semicolon can therefore see the previous size, while one
+after it sees the placed member. Anonymous unions use the enclosing size as
+their base and share the containing class's size. Placement uses the same
+checked addition, multiplication and union-maximum rules as completed layout.
+The driver advances each original phase once without rebuilding a prefix.
+
+Publication and completion require live receipts from the original parser.
+The completion retains the exact AST item and the namespace's original
+publication. Equal names, origins, reconstructed publications, foreign
+namespaces and expired receipts cannot create a compiler record. The task
+ledger caches the resulting metadata and seals only the original command item.
+It does not grant type entries object storage or callable authority.
+Partial progress also requires the exact predecessor chain and final phase.
+Missing, repeated, expired and foreign phases cannot advance it. Each phase
+creates an immutable size snapshot. New reads require the current snapshot and
+the original live query callback; previously consumed values stay frozen after
+later member placement or completion. Query lookup hashes immutable locations,
+not callback-lifetime fields.
+`Compiler/PrsExp.HC:303-348` reads the selected class size before advancing
+past its name; that consumed value survives later lookahead.
+Malformed forward declarations retain their reached name publication but do
+not receive a completion receipt or become sealable commands. This follows the
+`KW_EXTERN` call to `PrsClass` before `sm_semicolon` in
+`Compiler/PrsStmt.HC:1029-1040`.
+
+Member dimensions reuse the original checked dimension receipts, including
+their command, member name, AST identity and predecessor chain. The later
+semantic layout validates and reuses the same counts. It does not reevaluate
+the original expressions or resolve their queries against a newer type.
+
+## Offset expressions
+
+`$$=expression;` evaluates its original expression after expression lookahead
+and before semicolon validation. Class offsets replace the current size. Union
+offsets replace the current union base without changing the containing size.
+`$$` reads that current position; saved `sizeof` queries keep their original
+values. These phases follow `Compiler/PrsVar.HC:408-449`.
+
+Closed numeric expressions consume one preparation unit per evaluated leaf or
+operator. Boolean value expressions evaluate both operands. Offset preparation uses the
+initializer allowance, not the dimension-work counter. Floating results retain
+their raw `F64` bits, as in `LexExpression` at `Compiler/PrsExp.HC:1168-1178`.
+Integer task variables, updates and supported calls use a separate typed
+offset fragment, without a synthetic array bound or initializer. It retains
+the exact expression, selected references, queries, aggregate phase and task
+snapshot. Preparation uses the existing optimizer-domain checks; the scheduled
+IR executes once against the owning task. Expression lookahead can change a
+cell before execution, while a selected function keeps its original version.
+
+Mixed runtime expressions retain parser-owned evidence for each `$$` token.
+`Compiler/PrsExp.HC:707-721` emits the class-position I64 immediate before
+reading beyond that token. Typed lowering uses that original node and preceding
+class size or union base, not an instruction pointer or a substituted literal
+AST. Calls can receive the captured value, and later lookahead does not change
+it. Earlier runtime layout dependencies remain attached to the capture.
+
+The native compiler position cell is shared with nested declarations
+(`PrsStreamBlk` in `Compiler/PrsStmt.HC:805-841` does not save that cell).
+Each aggregate write now carries an opaque parser identity. The shared semantic
+registry records its checked class size or union base, including runtime layout
+dependencies. Each `$$` token keeps the preceding write, so two reads in one
+expression can observe different nested declarations. Outer AOT and nested JIT
+ledgers share these writes while keeping their namespaces separate.
+
+`PrsVarLst` resets the cell after opening lookahead and after ordinary member
+semicolon lookahead. Empty semicolons and consecutive offset directives remain
+inside the current iteration. Anonymous-union return resets it to the enclosing
+layout; final negative padding does not write the cell. Global declarations do
+not change it. Unavailable frame layouts and unnamed callback writes produce
+`HCRUN0004` for a later offset read, preserving already reached output. Ordinary `$$` in a called
+function still means an instruction pointer and remains outside VM execution.
+
+Named JIT function parameter-list entry and each delimiter that begins a new
+iteration capture the original native function size after lookahead. Fresh and
+reused headers start at zero (`PrsFunNew`, `ClassMemberLstDel`). Fixed parameters
+add eight bytes and variadic slots add sixteen. Header completion resets the
+function size to zero after closing lookahead, without rewriting the compiler
+cell. A suspended reused header therefore reads the current native size, not
+eight times its original or current argument count.
+
+Each write identifies its original function and preceding parameter completion
+or local allocation.
+Semantic capture validates the live receipt, shared source manager and exact
+native record. It reads the value internally and records the write once,
+including unavailable values. Capturing the cell does not mutate the function
+record or grant call authority.
+
+Named JIT local declarations write the current native size before consuming
+their type. Their original allocation receipts retain the local declaration,
+storage kind and preceding allocation. `PrsVarLst` (`Compiler/PrsVar.HC:526-528,
+590-618,701-724`) counts each member, then subtracts an automatic object's byte
+size and rounds downward to eight, four, two or one bytes according to that
+size. A static local leaves the automatic size unchanged. Comma-separated
+declarators remain in one iteration; the next declaration writes the new size.
+Initializer and delimiter lookahead can overwrite the shared cell independently
+of this allocation history. A nested replacement can also reset the actual
+native function record while an outer body is suspended.
+
+Primitive locals, pointers and arrays with original checked extents contribute
+their native sizes. A runtime bound executes once at declaration time, following
+`PrsArrayDims` (`Compiler/PrsVar.HC:247-283`). Its original execution evidence stays
+attached through allocation history, captured positions, closed and runtime
+offsets, completed aggregate sizes, and derived `sizeof` expressions and frames.
+Repeated size queries retain each original dimension dependency once per prepared
+extent. The owning task validates dimension and offset dependencies before offset
+evaluation; matching metadata without execution cannot supply them. Isolated
+execution and source activation cannot import those runtime results as closed
+preparation. Aggregate-valued locals still leave the position unavailable.
+Local member counts are retained without granting callable
+parameter metadata. A resumed header that treats body members as arguments
+remains rejected. Unnamed callback and ordinary AOT record positions remain
+outside this path.
+
+`holyc run examples/stateful-exe-frame-positions.hc` returns I64 42 in both
+outer modes at 27 runtime steps, three preparation units and zero dimension
+work. It captures the position before a fifth automatic local after four
+different primitive allocations, then calls that retained function. Exact
+limits and both one-below failures are covered by the CLI suite.
+
+`holyc run examples/stateful-exe-runtime-frame-positions.hc` returns I64 42 in
+both outer modes at 73 runtime steps, six preparation units and zero closed
+dimension work. The fixture prepares `I64 values[++N]` once, captures the
+24-byte downward position before the next local, and calls the retained function
+to write and sum its array elements. Exact limits and each one-below failure are
+covered. Derived sizes cannot escape into standalone function execution.
+Pointer-array storage and runtime-dependent aggregate-member layout admission
+remain unsupported, even where original frame metadata can describe their size.
+
+Unmodeled writes cannot reuse an earlier aggregate value.
+Empty semicolons do not begin a new iteration, and an undelimited final parameter
+does not reset the cell before closing-parenthesis lookahead.
+
+`holyc run examples/stateful-exe-function-positions.hc` returns 42 in both modes
+at 46 runtime steps, three preparation units and zero dimension work. The
+runtime offset combines captures before and after a nested function header,
+then calls that retained function. Ordinary AOT function headers still need
+their native record model; `#exe` uses the supported JIT record in either mode.
+
+`holyc run examples/stateful-exe-shared-positions.hc` returns 42 in JIT and AOT
+modes with 34 runtime steps, three preparation units and zero dimension work.
+The fixture captures values before and after a nested runtime offset. Derived
+layouts retain the nested task dependency and cannot execute in an unrelated VM.
+
+Negative offsets retain the greatest negative magnitude. After closing-brace
+lookahead, the body-completion phase adds that padding, before attached
+declarators and the final declaration delimiter. A query during closing-brace
+lookahead sees the unpadded size. The shared layout checker rejects unrepresentable
+magnitudes and final-size overflow.
+
+Preparation receipts belong to the original aggregate, namespace, expression
+and predecessor phase. Failed attempts consume the boundary too. Completed
+layout reuses the checked bits. JIT source activation charges saved work at the
+original offset event without evaluating the expression again.
+Ordinary AOT offsets share the detached directive task's preparation allowance
+at their original source events, without importing outer source names into that
+task. Completed-source compilation checks those same receipts and does not
+charge them again.
+
+`examples/stateful-exe-aggregate-offsets.hc` moves a class position from one byte
+to eight, observes that partial size, then appends an eight-byte member. Its
+saved and completed sizes combine to return 42.
+Both outer modes use 27 runtime steps and six preparation units. The CLI checks
+those combined limits and each one-below failure.
+
+`examples/stateful-exe-runtime-aggregate-offsets.hc` executes a selected function
+after a nested lookahead update, retains the resulting size in another function,
+and returns 42. Both outer modes use 49 runtime steps, three preparation units
+and zero dimension work. `#exe` still uses JIT task storage in outer AOT mode.
+
+`examples/stateful-exe-runtime-offset-positions.hc` captures a function argument,
+then runs nested lookahead that changes both a task variable and another
+aggregate's position. The later function call receives the captured one. Both modes
+return 42 with 46 runtime steps, four preparation units and zero dimension work;
+the CLI checks the exact limits and each one-below failure.
+
+Successful runtime offsets remain dependencies of partial and completed sizes,
+derived offsets, array bounds, member arrays, global extents and function frames.
+The VM requires the exact successful task execution, not matching size/work
+metadata. Standalone functions and foreign tasks cannot use those dependencies.
+Failed preparation and execution consume their original attempt; later layout
+completion never reevaluates the expression. The authority tests also reject
+substituted typed roots, preparation counts, snapshots and replay.
+
+## Remaining work
+
+Runtime offsets before ordinary JIT source activation, ordinary AOT runtime
+offset relocation, shared position writes before a later `$$` read and runtime F64
+values still require separate support. Inheritance, aggregate-valued members,
+callbacks, member metadata, attached storage and general runtime-dependent member bounds remain outside
+retained layout execution. Native extern-record reuse still needs its own
+phase-aware admission. The supported partial sizes do not establish those
+dependent layouts, member lookup or aggregate object storage.
+
+The source gates and receipt tests are hosted observations. No new native
+TempleOS capture was made; native/BIN/loader execution and bootstrap remain open.

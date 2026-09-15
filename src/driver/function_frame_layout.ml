@@ -162,7 +162,7 @@ let dimension_expression (dimension : Frontend.Ast.array_dimension) =
   | Some ast ->
       Sema.Function_frame_layout.Closed_expression (closed_expression ast)
 
-let validate_dimension expected_index semantic
+let validate_dimension prepared expected_index semantic
     (ast : Frontend.Ast.array_dimension) =
   let ast_origin = origin ast.location in
   if Sema.Local_type_resolution.array_dimension_index semantic <> expected_index
@@ -197,23 +197,33 @@ let validate_dimension expected_index semantic
     <> origin ast.closing_bracket
   then Error "function frame local dimension has the wrong closing bracket"
   else
-    Ok
-      {
-        Sema.Function_frame_layout.dimension = semantic;
-        expression_origin =
-          Option.map
-            (fun expression ->
-              origin (Frontend.Ast.expression_location expression))
-            ast.dimension_expression;
-        expression = dimension_expression ast;
-      }
+    let expression =
+      match prepared with
+      | None -> Ok (dimension_expression ast)
+      | Some resolve ->
+          Result.map
+            (fun value -> Sema.Function_frame_layout.Prepared_dimension value)
+            (resolve ast)
+    in
+    Result.map
+      (fun expression ->
+        {
+          Sema.Function_frame_layout.dimension = semantic;
+          expression_origin =
+            Option.map
+              (fun expression ->
+                origin (Frontend.Ast.expression_location expression))
+              ast.dimension_expression;
+          expression;
+        })
+      expression
 
-let dimension_inputs semantic ast =
+let dimension_inputs prepared semantic ast =
   let rec pair index inputs_rev semantic ast =
     match (semantic, ast) with
     | [], [] -> Ok (List.rev inputs_rev)
     | semantic :: semantic_rest, ast :: ast_rest -> (
-        match validate_dimension index semantic ast with
+        match validate_dimension prepared index semantic ast with
         | Error _ as error -> error
         | Ok input ->
             pair (index + 1) (input :: inputs_rev) semantic_rest ast_rest)
@@ -222,7 +232,7 @@ let dimension_inputs semantic ast =
   in
   pair 0 [] semantic ast
 
-let validate_local semantic ast =
+let validate_local prepared semantic ast =
   let symbol = Sema.Local_type_resolution.local_symbol semantic in
   if
     Sema.Local_type_resolution.local_declaration_index semantic
@@ -240,7 +250,7 @@ let validate_local semantic ast =
     Error "function frame local has the wrong source origin"
   else
     match
-      dimension_inputs
+      dimension_inputs prepared
         (Sema.Local_type_resolution.local_array_dimensions semantic)
         ast.dimensions
     with
@@ -248,7 +258,7 @@ let validate_local semantic ast =
     | Ok dimensions ->
         Ok { Sema.Function_frame_layout.local = semantic; dimensions }
 
-let local_inputs local_function body =
+let local_inputs prepared local_function body =
   let semantic = Sema.Local_type_resolution.function_locals local_function in
   let ast =
     match body with
@@ -259,7 +269,7 @@ let local_inputs local_function body =
     match (semantic, ast) with
     | [], [] -> Ok (List.rev inputs_rev)
     | semantic :: semantic_rest, ast :: ast_rest -> (
-        match validate_local semantic ast with
+        match validate_local prepared semantic ast with
         | Error _ as error -> error
         | Ok input -> pair (input :: inputs_rev) semantic_rest ast_rest)
     | [], _ :: _ | _ :: _, [] ->
@@ -267,7 +277,8 @@ let local_inputs local_function body =
   in
   pair [] semantic ast
 
-let validate_function ~table ~scope declaration indexed typed local ast =
+let validate_function prepared ~table ~scope declaration indexed typed local ast
+    =
   let declaration_symbol =
     Sema.Declaration_collection.entry_symbol declaration
   in
@@ -321,7 +332,7 @@ let validate_function ~table ~scope declaration indexed typed local ast =
     match ast.kind with
     | Sema.Declaration_collection.Function_prototype -> Ok None
     | Sema.Declaration_collection.Function_definition -> (
-        match local_inputs local ast.body with
+        match local_inputs prepared local ast.body with
         | Error _ as error -> error
         | Ok locals ->
             Ok
@@ -338,7 +349,8 @@ let validate_function ~table ~scope declaration indexed typed local ast =
     | Sema.Declaration_collection.Global_variable ->
         Error "function frame input contains a nonfunction declaration"
 
-let function_inputs ~table ~scope declarations indexed typed locals ast =
+let function_inputs prepared ~table ~scope declarations indexed typed locals ast
+    =
   let rec pair inputs_rev declarations indexed typed locals ast =
     match (declarations, indexed, typed, locals, ast) with
     | [], [], [], [], [] -> Ok (List.rev inputs_rev)
@@ -348,7 +360,8 @@ let function_inputs ~table ~scope declarations indexed typed locals ast =
         local :: local_rest,
         ast :: ast_rest ) -> (
         match
-          validate_function ~table ~scope declaration indexed typed local ast
+          validate_function prepared ~table ~scope declaration indexed typed
+            local ast
         with
         | Error _ as error -> error
         | Ok None ->
@@ -367,7 +380,7 @@ let function_inputs ~table ~scope declarations indexed typed locals ast =
   pair [] declarations indexed typed locals ast
 
 let layout ~table ~declarations ~bindings ~function_types ~local_types
-    ~aggregate_layouts module_ =
+    ~aggregate_layouts ?prepared module_ =
   let scope = Sema.Declaration_collection.scope declarations in
   let result =
     if not (Sema.Symbol_table.owns_scope table scope) then
@@ -376,7 +389,7 @@ let layout ~table ~declarations ~bindings ~function_types ~local_types
       Error "function frames require a module declaration collection"
     else
       match
-        function_inputs ~table ~scope
+        function_inputs prepared ~table ~scope
           (function_entries declarations)
           (Sema.Function_binding_index.functions bindings)
           (Sema.Function_type_resolution.functions function_types)

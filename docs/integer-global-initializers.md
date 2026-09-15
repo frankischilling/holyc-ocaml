@@ -10,6 +10,38 @@ to fixed pointer parameters. Callees modify the original persistent objects;
 declaration phases, publication checks and transitive arithmetic guards remain.
 Pointer-valued initial images remain unsupported.
 
+## Live task initializers
+
+The synchronous `Integer_task.observe_initializer` adapter executes each original
+scalar or copied-row leaf while its parser callback is current. Call it after
+the task declaration ledger observes the same event. `stream_executor` uses this
+adapter; the public outer JIT `run` facade still has separate integration work in
+#635.
+
+The task allocates unknown storage at the original declaration, checks each
+opening/comma/closing delimiter before the parser requests the next token, and
+prepares or executes each leaf against that same object. For example,
+`I64 A[2]={40,A[0]+2};` allows the second leaf to read the first store. Retained
+calls use their original globals, literal storage and callees. Fixed byte rows
+use the existing owned-prefix and terminator checks.
+
+Fragment typing and lowering expose inspectable metadata without authorizing
+execution. The runtime requires the original current leaf attempt, its exact
+declared object, source selection snapshot, typed destination, checked graph and
+call context, and preparation receipt. Fragment storage cannot enter ordinary
+task execution. Repeated, delayed and foreign events leave accounting unchanged.
+
+Successful leaves retain their original source identities. Declaration completion
+requires every leaf and trailing delimiter and reuses those effects; it does not
+repeat stores, copies, preparation or allocation. A failed attempt cannot become
+a completed initializer. Earlier writes, output and resource charges survive a
+later failure. Initializer execution preserves the outer final-value capture.
+
+The shared preparation path retains its transitive optimizer guards. Omitted
+defaults still fail shared call lowering with `HCRUN0003`; the live execution
+suite includes an unresolved acceptance case for nested calls with defaults.
+Nested calls with explicit arguments execute through the checked call path.
+
 Reference: `c26482bb6ad3f80106d28504ec5db3c6a360732c`. Issue: #603.
 
 The initialized accumulator now runs directly from source:

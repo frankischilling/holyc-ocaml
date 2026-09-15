@@ -97,12 +97,20 @@ let leaf globals functions compilation_mode node occurrence =
     with
     | Sema.Top_level_outer_expression_binding.Module_binding publication ->
         module_resolution globals functions compilation_mode publication
-    | Sema.Top_level_outer_expression_binding.Outer_binding binding ->
+    | Sema.Top_level_outer_expression_binding.Outer_binding binding -> (
         let entry = Sema.Outer_environment.binding_entry binding in
         if Option.is_some (Sema.Outer_environment.entry_global_metadata entry)
         then Ok (Sema.Top_level_identifier_resolution.Outer_value binding)
         else
-          Ok (Sema.Top_level_identifier_resolution.Outer_type_required binding)
+          match Sema.Outer_environment.entry_function_metadata entry with
+          | Some metadata ->
+              Ok
+                (Sema.Top_level_identifier_resolution.Outer_function_value
+                   { binding; metadata })
+          | None ->
+              Ok
+                (Sema.Top_level_identifier_resolution.Outer_type_required
+                   binding))
   in
   match resolution with
   | Error _ as error -> error
@@ -157,6 +165,7 @@ let publication_values globals functions compilation_mode expressions =
                  Ok ((publication, value) :: reversed)
              | Ok
                  ( Sema.Top_level_identifier_resolution.Outer_value _
+                 | Sema.Top_level_identifier_resolution.Outer_function_value _
                  | Sema.Top_level_identifier_resolution.Outer_type_required _ )
                -> Error "module publication resolved as an outer binding"))
        (Ok [])

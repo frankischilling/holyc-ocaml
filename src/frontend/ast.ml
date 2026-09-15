@@ -374,7 +374,7 @@ and function_pointer_declarator = {
   signature_parameters : function_parameter list;
   signature_empty_parameter_entries : empty_parameter_entry list;
   signature_variadic : variadic_marker option;
-  signature_closing_parenthesis : location;
+  signature_closing_parenthesis : location option;
   function_pointer_location : location;
 }
 
@@ -490,7 +490,7 @@ type function_prototype = {
   parameters : function_parameter list;
   empty_parameter_entries : empty_parameter_entry list;
   variadic : variadic_marker option;
-  closing_parenthesis : location;
+  closing_parenthesis : location option;
   semicolon : location option;
   location : location;
 }
@@ -500,11 +500,18 @@ type implicit_output_target = Print_target | Put_chars_target
 type implicit_output_fixed_argument =
   | Marker_fixed_argument of expression
   | Expression_fixed_argument of expression
+  | Absent_fixed_argument
 
 type implicit_output_argument = {
-  leading_comma : location;
+  leading_comma : location option;
   value : expression;
   location : location;
+}
+
+type implicit_output_omission = {
+  parameter_index : int;
+  leading_comma : location option;
+  lookahead : location;
 }
 
 type implicit_output_statement = {
@@ -512,6 +519,8 @@ type implicit_output_statement = {
   marker : expression_literal;
   fixed_argument : implicit_output_fixed_argument;
   arguments : implicit_output_argument list;
+  omissions : implicit_output_omission list;
+  call_parentheses : (location * location) option;
   semicolon : location option;
   location : location;
 }
@@ -860,7 +869,7 @@ type function_definition = {
   parameters : function_parameter list;
   empty_parameter_entries : empty_parameter_entry list;
   variadic : variadic_marker option;
-  closing_parenthesis : location;
+  closing_parenthesis : location option;
   body : statement option;
   location : location;
 }
@@ -1349,12 +1358,62 @@ let make_function_prototype ~modifiers ~binding ~return_type
     location;
   }
 
-let make_implicit_output_argument ~leading_comma ~value ~location =
+let make_implicit_output_argument_with_separator ~leading_comma ~value ~location
+    =
   { leading_comma; value; location }
+
+let make_implicit_output_argument ~leading_comma ~value ~location =
+  make_implicit_output_argument_with_separator
+    ~leading_comma:(Some leading_comma) ~value ~location
+
+let make_implicit_output_omission ~parameter_index ~leading_comma ~lookahead =
+  if parameter_index < 0 then
+    invalid_arg "implicit output omission index cannot be negative";
+  { parameter_index; leading_comma; lookahead }
+
+let valid_implicit_output_arguments ~fixed_argument ~arguments ~omissions =
+  let omitted_initial =
+    List.exists (fun o -> o.parameter_index = 0) omissions
+  in
+  match fixed_argument with
+  | Marker_fixed_argument _ | Expression_fixed_argument _ -> not omitted_initial
+  | Absent_fixed_argument ->
+      omitted_initial || (arguments = [] && omissions = [])
+
+let make_implicit_output_statement_with_syntax ~target ~marker ~fixed_argument
+    ~arguments ~omissions ~call_parentheses ~semicolon ~location =
+  let rec check previous = function
+    | [] -> ()
+    | omission :: rest ->
+        if omission.parameter_index <= previous then
+          invalid_arg "implicit output omissions must be in parameter order";
+        check omission.parameter_index rest
+  in
+  check (-1) omissions;
+  if not (valid_implicit_output_arguments ~fixed_argument ~arguments ~omissions)
+  then
+    invalid_arg
+      "implicit initial omission disagrees with its supplied source role";
+  {
+    target;
+    marker;
+    fixed_argument;
+    arguments;
+    omissions;
+    call_parentheses;
+    semicolon;
+    location;
+  }
+
+let make_implicit_output_statement_with_omissions ~target ~marker
+    ~fixed_argument ~arguments ~omissions ~semicolon ~location =
+  make_implicit_output_statement_with_syntax ~target ~marker ~fixed_argument
+    ~arguments ~omissions ~call_parentheses:None ~semicolon ~location
 
 let make_implicit_output_statement ~target ~marker ~fixed_argument ~arguments
     ~semicolon ~location =
-  { target; marker; fixed_argument; arguments; semicolon; location }
+  make_implicit_output_statement_with_omissions ~target ~marker ~fixed_argument
+    ~arguments ~omissions:[] ~semicolon ~location
 
 let make_empty_statement ~semicolon ~location =
   { empty_statement_semicolon = semicolon; empty_statement_location = location }
@@ -1682,3 +1741,57 @@ let statement_location = function
   | While_statement statement -> statement.while_location
 
 let make_module ~source ~span ~items = { source; span; items }
+
+let rec statement_implicit_outputs = function
+  | Implicit_output_statement output -> [ output ]
+  | Block_statement block ->
+      List.concat_map statement_implicit_outputs block.block_statements
+  | Do_while_statement loop -> statement_implicit_outputs loop.do_body
+  | For_statement loop ->
+      statement_implicit_outputs loop.for_initializer
+      @ Option.fold ~none:[] ~some:statement_implicit_outputs loop.for_update
+      @ statement_implicit_outputs loop.for_body
+  | If_statement branch ->
+      statement_implicit_outputs branch.if_then_branch
+      @ Option.fold ~none:[]
+          ~some:(fun clause -> statement_implicit_outputs clause.else_branch)
+          branch.if_else_clause
+  | Lock_statement lock -> statement_implicit_outputs lock.lock_body
+  | Sequence_statement sequence ->
+      List.concat_map
+        (fun element -> statement_implicit_outputs element.sequence_statement)
+        sequence.sequence_elements
+  | Switch_statement switch -> switch_implicit_outputs switch.switch_elements
+  | Try_catch_statement block ->
+      statement_implicit_outputs block.try_body
+      @ statement_implicit_outputs block.catch_body
+  | While_statement loop -> statement_implicit_outputs loop.while_body
+  | Assembly_block_statement _
+  | Inline_assembly_statement _
+  | Break_statement _
+  | Empty_statement _
+  | Goto_statement _
+  | Label_statement _
+  | No_warn_statement _
+  | Expression_statement _
+  | Local_declaration_statement _
+  | Return_statement _ -> []
+
+and switch_implicit_outputs elements =
+  List.concat_map
+    (function
+      | Switch_statement_element statement ->
+          statement_implicit_outputs statement
+      | Switch_subswitch_element subswitch ->
+          switch_implicit_outputs subswitch.subswitch_elements
+      | Switch_case_element _ | Switch_default_element _ -> [])
+    elements
+
+let valid_implicit_output_separators statement =
+  let expects_comma =
+    statement.target = Print_target || Option.is_some statement.call_parentheses
+  in
+  List.for_all
+    (fun (argument : implicit_output_argument) ->
+      Option.is_some argument.leading_comma = expects_comma)
+    statement.arguments

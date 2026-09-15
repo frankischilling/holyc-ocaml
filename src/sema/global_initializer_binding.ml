@@ -7,19 +7,28 @@ type event = {
   origin : Symbol.origin;
   occurrence_index : int;
   initializer_path : int list;
+  selection : Reference_selection.t option;
 }
 
 type global_input = {
   record : Global_resolution.global_record;
   events : event list;
+  selected_queries : (Initializer_source.leaf * Query_selection.t) list option;
 }
 
 type occurrence = { source : event; resolution : resolution }
+
+type query = {
+  leaf : Initializer_source.leaf;
+  expression : Frontend.Ast.expression;
+  selected_query : Query_selection.t option;
+}
 
 type resolved_global = {
   source : global_input;
   publication : Module_expression_binding.publication;
   occurrences : occurrence list;
+  queries : query list;
 }
 
 module Int_map = Map.Make (Int)
@@ -94,9 +103,16 @@ let make_identifier ~name ~origin ~occurrence_index ~initializer_path =
     Error "global initializer occurrence index cannot be negative"
   else if List.exists (fun index -> index < 0) initializer_path then
     Error "global initializer path cannot contain a negative index"
-  else Ok { name; origin; occurrence_index; initializer_path }
+  else Ok { name; origin; occurrence_index; initializer_path; selection = None }
 
-let make_global ~record events = Ok { record; events }
+let make_selected_identifier ~selection ~name ~origin ~occurrence_index
+    ~initializer_path =
+  make_identifier ~name ~origin ~occurrence_index ~initializer_path
+  |> Result.map (fun event -> { event with selection = Some selection })
+
+let make_global ?queries ~record events =
+  Ok { record; events; selected_queries = queries }
+
 let globals result = result.globals
 let environment result = result.environment
 let expressions result = result.expressions
@@ -129,6 +145,19 @@ let global_leaves global =
   | Some source -> Initializer_source.leaves source
 
 let global_occurrences (global : resolved_global) = global.occurrences
+let global_queries (global : resolved_global) = global.queries
+let query_leaf query = query.leaf
+let query_expression query = query.expression
+let query_selection query = query.selected_query
+
+let query_for ~global ~leaf ~expression =
+  match
+    List.find_opt
+      (fun query -> query.leaf == leaf && query.expression == expression)
+      global.queries
+  with
+  | Some query -> Ok query
+  | None -> Error "initializer query is absent from its exact source leaf"
 
 let occurrence_index (occurrence : occurrence) =
   occurrence.source.occurrence_index
@@ -140,7 +169,7 @@ let occurrence_initializer_path (occurrence : occurrence) =
   occurrence.source.initializer_path
 
 let occurrence_resolution (occurrence : occurrence) = occurrence.resolution
-let same_symbol left right = Symbol.Id.equal (Symbol.id left) (Symbol.id right)
+let occurrence_selection (occurrence : occurrence) = occurrence.source.selection
 
 let validate_events input =
   let source =
@@ -189,18 +218,47 @@ let validate_events input =
           manifest")
   else loop 0 input.events
 
-let same_record left right =
-  let left_global = Global_resolution.global_record_global left in
-  let right_global = Global_resolution.global_record_global right in
-  same_symbol
-    (Global_resolution.global_record_symbol left)
-    (Global_resolution.global_record_symbol right)
-  && Global_type_resolution.global_item_index left_global
-     = Global_type_resolution.global_item_index right_global
-  && Global_type_resolution.global_declarator_index left_global
-     = Global_type_resolution.global_declarator_index right_global
-  && Global_resolution.global_record_kind left
-     = Global_resolution.global_record_kind right
+let resolve_queries table input =
+  let source =
+    Option.bind
+      (global_initializer_of_input input)
+      Global_type_resolution.initializer_source
+  in
+  let expected =
+    Option.fold ~none:[]
+      ~some:(fun source ->
+        Initializer_source.leaves source
+        |> List.concat_map (fun leaf ->
+            Query_selection.source_queries
+              (Initializer_source.leaf_expression_ast leaf)
+            |> List.map (fun expression -> (leaf, expression))))
+      source
+  in
+  match input.selected_queries with
+  | None ->
+      Ok
+        (List.map
+           (fun (leaf, expression) ->
+             { leaf; expression; selected_query = None })
+           expected)
+  | Some selected ->
+      let rec check reversed expected selected =
+        match (expected, selected) with
+        | [], [] -> Ok (List.rev reversed)
+        | (leaf, expression) :: rest, (selected_leaf, selection) :: tail
+          when leaf == selected_leaf
+               && Query_selection.expression selection == expression
+               && Query_selection.owns_table selection table ->
+            check
+              ({ leaf; expression; selected_query = Some selection } :: reversed)
+              rest tail
+        | _ ->
+            Error
+              (invalid_input
+                 "initializer query manifest lacks its exact ordered leaves, \
+                  source reads or table")
+      in
+      check [] expected selected
 
 let validate_inputs table paired inputs =
   let rec pair = function
@@ -208,7 +266,7 @@ let validate_inputs table paired inputs =
     | expected :: expected_rest, input :: input_rest -> (
         let record = Global_binding_environment.global_record expected in
         let symbol = global_symbol_of_input input in
-        if not (same_record record input.record) then
+        if record != input.record then
           Error
             (invalid_input
                "global initializer inputs do not match the global records")
@@ -233,9 +291,16 @@ let validate_inputs table paired inputs =
   pair (paired, inputs)
 
 let resolve_event environment cursor global_symbol event =
-  match Global_binding_environment.resolve cursor event.name with
-  | Some resolution -> Ok { source = event; resolution }
-  | None ->
+  let selected =
+    match event.selection with
+    | None -> Ok (Global_binding_environment.resolve cursor event.name)
+    | Some selection ->
+        Global_binding_environment.resolve_selected cursor event.name selection
+  in
+  match selected with
+  | Error message -> Error (invalid_input message)
+  | Ok (Some resolution) -> Ok { source = event; resolution }
+  | Ok None ->
       Error
         (unresolved_identifier global_symbol event
            (Outer_environment.compilation_mode environment))
@@ -250,7 +315,7 @@ let resolve_events environment cursor global_symbol events =
   in
   loop [] events
 
-let resolve_inputs binding_environment inputs =
+let resolve_inputs table binding_environment inputs =
   let environment =
     Global_binding_environment.environment binding_environment
   in
@@ -264,9 +329,13 @@ let resolve_inputs binding_environment inputs =
         with
         | Error message -> Error (invalid_input message)
         | Ok cursor -> (
-            match resolve_events environment cursor symbol input.events with
+            match
+              Result.bind (resolve_queries table input) (fun queries ->
+                  resolve_events environment cursor symbol input.events
+                  |> Result.map (fun occurrences -> (occurrences, queries)))
+            with
             | Error _ as error -> error
-            | Ok occurrences ->
+            | Ok (occurrences, queries) ->
                 let global =
                   {
                     source = input;
@@ -274,6 +343,7 @@ let resolve_inputs binding_environment inputs =
                       Global_binding_environment.global_publication
                         paired_global;
                     occurrences;
+                    queries;
                   }
                 in
                 loop cursor (global :: globals_rev)
@@ -300,7 +370,7 @@ let resolve ~table ~environment ~expressions ~globals inputs =
       match validate_inputs table paired inputs with
       | Error _ as error -> error
       | Ok () -> (
-          match resolve_inputs binding_environment inputs with
+          match resolve_inputs table binding_environment inputs with
           | Error _ as error -> error
           | Ok (resolved_globals, by_symbol) ->
               Ok

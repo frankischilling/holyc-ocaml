@@ -318,8 +318,20 @@ let validate_owner table declaration =
          "function header scope belongs to a different symbol table")
   else Ok ()
 
-let validate_inputs table functions inputs =
+let validate_inputs table functions previous_inputs inputs =
   let expected = Function_resolution.declarations functions in
+  let previous =
+    List.fold_left
+      (fun previous declaration ->
+        match
+          Function_resolution.resolved_declaration_retained_predecessor
+            declaration
+        with
+        | Some prior when not (List.exists (( == ) prior) previous) ->
+            previous @ [ prior ]
+        | _ -> previous)
+      [] expected
+  in
   let rec pair by_symbol expected inputs =
     match (expected, inputs) with
     | [], [] -> Ok by_symbol
@@ -349,7 +361,8 @@ let validate_inputs table functions inputs =
              "function header input count does not match function identity \
               resolution")
   in
-  pair Int_map.empty expected inputs
+  Result.bind (pair Int_map.empty previous previous_inputs) (fun by_symbol ->
+      pair by_symbol expected inputs)
 
 let input_for_site by_symbol site =
   let symbol =
@@ -466,7 +479,7 @@ let analyze_validated functions by_symbol inputs =
   in
   loop [] [] inputs
 
-let analyze ~table ~functions inputs =
-  match validate_inputs table functions inputs with
+let analyze ?(previous_inputs = []) ~table ~functions inputs =
+  match validate_inputs table functions previous_inputs inputs with
   | Error _ as error -> error
   | Ok by_symbol -> analyze_validated functions by_symbol inputs

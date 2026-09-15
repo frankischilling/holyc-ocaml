@@ -356,6 +356,7 @@ let symbol_payload (description : Sequence.description) =
       | Sequence.Float_bits _
       | Sequence.Bytes _
       | Sequence.Block _
+      | Sequence.Retained_global _
       | Sequence.Block_targets _ )
   | None -> Alcotest.fail "expected a symbolic instruction payload"
 

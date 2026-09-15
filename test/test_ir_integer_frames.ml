@@ -19,7 +19,7 @@ let analyze ?(mode = Preprocessor.Jit) text =
   let function_ = A.function_named results "Add" in
   (A.frame_for frames function_, function_)
 
-let body frame return_type blocks =
+let body ?(stored_flags = 0L) frame return_type blocks =
   let members kind =
     Frame.function_locations frame
     |> List.filter (fun location -> Frame.location_kind location = kind)
@@ -46,7 +46,7 @@ let body frame return_type blocks =
       return_type;
       parameters = members Frame.Named_parameter;
       locals = members Frame.Automatic_local;
-      stored_flags = 0L;
+      stored_flags;
       compiler_options = 0L;
       span = None;
       body;
@@ -460,6 +460,14 @@ let lowering_boundaries () =
 
 let frame_boundaries () =
   let frame, _ = analyze source in
+  let raw_variadic =
+    body
+      ~stored_flags:
+        (Semantic_function_record_classification.Stored_flag.to_mask Variadic)
+      frame H.public_i64
+      [ block 0 [ H.description 0 Op.Ic_ret ] ]
+  in
+  ignore (execute frame [ 20L; 22L ] raw_variadic |> expect_error "HCIRVM0011");
   let function_ = add_body frame in
   let foreign, _ = analyze source in
   ignore (execute foreign [ 20L; 22L ] function_ |> expect_error "HCIRVM0011");

@@ -236,10 +236,11 @@ let unsupported () =
       "I64 F(){I64 *a[1];return 1;}(F());";
       "I64 F(){static I0 a;return 1;}(F());";
       "I64 F(I64 *a){return 1;}(F(0));";
-      "I64 F(I64 a=1){return a;}(F());";
-      "I64 F(I64 a,...){return a;}(F(1));";
       "extern I64 F();(F());";
-    ]
+    ];
+  let default = "I64 F(I64 a=1){return a;}(F());" in
+  ignore (run ~mode:Preprocessor.Jit default |> expect 1L);
+  ignore (run ~mode:Preprocessor.Aot default |> expect 1L)
 
 let compile text =
   let session, config, source = inputs text in

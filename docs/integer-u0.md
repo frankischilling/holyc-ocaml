@@ -103,6 +103,7 @@ recorded separately in #619 and its PR.
 
 [Captured output](integer-output.md) in #621 connects checked runtime prototypes,
 output bindings and the first formatting grammar through this U0 completion
-state. Full formatting and user-defined variadic execution remain unfinished. Broader memory,
+state. Source-defined variadic U0 bodies now execute integer tails, as described
+in [implicit output](task-implicit-output.md). Full formatting remains unfinished. Broader memory,
 stateful compilation/#exe, optimizer parity, native backends, TempleOS BIN and
 actual-loader acceptance, whole-tree compatibility and bootstrap remain required.

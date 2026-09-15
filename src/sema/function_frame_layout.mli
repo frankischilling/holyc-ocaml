@@ -17,6 +17,7 @@ type t
 type dimension_expression =
   | Empty_dimension
   | Closed_expression of Aggregate_layout.expression
+  | Prepared_dimension of Compiler_record.declared_dimension
   | Non_integral_expression of { detail : string; origin : Symbol.origin }
 
 type dimension_input = {
@@ -129,3 +130,9 @@ val error_kind : error -> error_kind
 val error_origin : error -> Symbol.origin option
 val error_message : error -> string
 val error_to_string : error -> string
+
+val dimension_runtime_dependencies :
+  dimension -> Compiler_record.runtime_dimension_proposal list
+
+val dimension_offset_dependencies :
+  dimension -> Compiler_record.aggregate_offset list

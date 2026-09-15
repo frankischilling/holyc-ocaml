@@ -1,4 +1,8 @@
 val resolve :
+  ?initializers:
+    (Frontend.Ast.identifier ->
+    Frontend.Ast.global_initializer ->
+    (Sema.Initializer_source.t, string) result) ->
   table:Sema.Symbol_table.t ->
   declarations:Sema.Declaration_collection.t ->
   aggregates:Sema.Aggregate_resolution.t ->

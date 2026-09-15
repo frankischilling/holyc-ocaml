@@ -290,10 +290,54 @@ let legacy_graph_boundary () =
   Alcotest.(check string)
     "graph-only API must retain the storage boundary" "HCRUN0001" error.code
 
+let retained_extent_after_initialization () =
+  let module Extent = Semantic_compiler_record in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun legacy ->
+          let session, config, source = F.inputs ~mode "U8 A[3]={40,2,0};" in
+          let compiled =
+            (if legacy then
+               let ast =
+                 parse_with_config session ~config ~source
+                 |> Test_global_dimension_binding.expect_ast
+               in
+               compile_integer_ast session ~config ast
+             else compile_integer_program session ~config ~source)
+            |> F.checked
+            |> fun output -> output.value
+          in
+          let globals = integer_program_globals compiled in
+          let slot = List.hd (Globals.slots globals) in
+          let extent = Globals.slot_extent slot |> Option.get in
+          let record =
+            Globals.slot_record slot
+            |> Semantic_global_record_classification.classified_record_source
+          in
+          ignore
+            (Extent.validate_global_extent
+               ~table:(Session.semantic_symbols session)
+               ~record extent
+            |> Test_global_dimension_binding.checked);
+          Alcotest.(check (list int64))
+            "initializer transforms preserve declared extent" [ 3L ]
+            (Extent.global_extent_dimensions extent);
+          Alcotest.(check int)
+            "declared bytes remain three" 3
+            (Globals.byte_size globals);
+          Alcotest.(check bool)
+            "prepared array retains checked initializer roots" false
+            (Globals.requires_initializer_execution globals))
+        [ false; true ])
+    modes
+
 let tests =
   List.map
     (fun (name, test) -> Alcotest.test_case name `Quick test)
     [
+      ( "retained extent survives initializer transforms",
+        retained_extent_after_initialization );
       ("shared source accumulator", source_gate);
       ("global expression and caller contexts", source_contexts);
       ("public signedness and assignment results", signedness);

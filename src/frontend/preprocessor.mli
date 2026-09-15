@@ -48,6 +48,11 @@ end
 
 type t
 
+type stream_output = {
+  generated : string;
+  diagnostics : Common.Diagnostic.t list;
+}
+
 type diagnostic_context = private {
   include_stack : Common.Diagnostic.related list;
   definition_trace : Common.Diagnostic.related list;
@@ -65,6 +70,8 @@ type output = {
     scoped to this stream. *)
 
 val create :
+  ?execute_stream:
+    (t -> Common.Span.t -> (stream_output, Common.Diagnostic.t list) result) ->
   sources:Common.Source_manager.t ->
   definitions:Definition.Environment.t ->
   symbols:Symbol_visibility.Environment.t ->
@@ -72,7 +79,23 @@ val create :
   Common.Source_file.t ->
   t
 
+val with_environment :
+  t ->
+  definitions:Definition.Environment.t ->
+  symbols:Symbol_visibility.Environment.t ->
+  compilation_mode:compilation_mode ->
+  (unit -> 'a) ->
+  'a
+(** Temporarily select the task lookup environment and compiler mode while
+    consuming the same source stream. Restore the selection on every exit;
+    mutations to the selected environments themselves persist. *)
+
 val next : t -> Lexer.item
+
+val take_pending_diagnostics : t -> Common.Diagnostic.t list
+(** Drain already produced diagnostics without reading any further source. An
+    execution-enabled parser uses this when stopping at the first error. *)
+
 val diagnostic_context : t -> diagnostic_context
 val definitions : t -> Definition.t list
 val definition_dump : t -> string

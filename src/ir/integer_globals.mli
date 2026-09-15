@@ -1,7 +1,182 @@
 type t
+
+val source_default_context : Sema.Default_fragment.t -> (t, string) result
+
+val with_source_defaults :
+  t -> Prepared_parameter_default.t list -> (t, string) result
+
 type slot
 type static_slot
 type storage_slot
+type declared_slot
+type task_catalog
+type task_view
+
+val dimension_context :
+  task_view -> Sema.Dimension_fragment.t -> (t, string) result
+
+val is_dimension_fragment : t -> bool
+
+type task_publication = private
+  | Global_publication of Retained_global.t * slot
+  | Declared_publication of Retained_global.t * declared_slot
+  | Function_publication of Retained_function.t
+
+val create_task_catalog : table:Sema.Symbol_table.t -> task_catalog
+val task_catalog_owns_table : task_catalog -> Sema.Symbol_table.t -> bool
+val task_catalog_contains_function : task_catalog -> Retained_function.t -> bool
+
+val call_command_is_admitted :
+  task_catalog -> Frontend.Parser.command_start -> bool
+
+val task_catalog_owns_namespace :
+  task_catalog -> Sema.Declaration_collection.namespace -> bool
+
+val check_task_namespace :
+  task_catalog -> Sema.Declaration_collection.namespace -> (unit, string) result
+
+val bind_task_namespace :
+  task_catalog -> Sema.Declaration_collection.namespace -> (unit, string) result
+
+val function_record_head :
+  task_catalog ->
+  Sema.Function_record_phase.snapshot ->
+  Retained_function.t option
+
+val check_function_phase_source :
+  task_catalog ->
+  namespace:Sema.Declaration_collection.namespace ->
+  event:Frontend.Parser.declaration_event ->
+  Sema.Function_record_phase.snapshot ->
+  (unit, string) result
+
+val publish_function_phase :
+  task_catalog ->
+  namespace:Sema.Declaration_collection.namespace ->
+  event:Frontend.Parser.declaration_event ->
+  snapshot:Sema.Function_record_phase.snapshot ->
+  records:Sema.Function_record_classification.t ->
+  (Retained_function.t, string) result
+
+val publish_function_header :
+  task_catalog ->
+  namespace:Sema.Declaration_collection.namespace ->
+  source:Sema.Compiler_record.declared_function ->
+  records:Sema.Function_record_classification.t ->
+  (Retained_function.t, string) result
+
+val task_source_order : task_catalog -> Sema.Task_command_order.t
+
+val check_function_header_source :
+  task_catalog ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Sema.Compiler_record.declared_function ->
+  (unit, string) result
+
+val check_dimension_source :
+  ?require_admitted:bool ->
+  task_catalog ->
+  Frontend.Parser.array_dimension_preparation ->
+  (unit, string) result
+
+val with_source_command :
+  task_view ->
+  ast:Frontend.Ast.module_ ->
+  Sema.Task_command_order.command ->
+  (task_view, string) result
+
+val has_source_command : t -> bool
+val source_command_receipts : t -> Frontend.Parser.completed_command list
+
+val check_source_completion :
+  ?require_accepted:bool ->
+  task_catalog ->
+  Frontend.Parser.completed_sequence ->
+  (unit, string) result
+
+val owns_task_storage : task_catalog -> t -> bool
+val snapshot_task : task_catalog -> (task_view, string) result
+val task_environment : task_view -> Sema.Outer_environment.t
+
+val fragment_context :
+  task_view -> Sema.Initializer_fragment.t -> (t, string) result
+
+val is_initializer_fragment : t -> bool
+val default_context : task_view -> Sema.Default_fragment.t -> (t, string) result
+val is_default_fragment : t -> bool
+
+val publish_parameter_defaults :
+  task_catalog ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Prepared_parameter_default.t list ->
+  (unit, string) result
+
+val prepared_parameter_default :
+  t ->
+  header:Sema.Function_type_resolution.resolved_function ->
+  parameter:Sema.Function_type_resolution.parameter ->
+  Prepared_parameter_default.t option
+
+val task_catalog_owns_view : task_catalog -> task_view -> bool
+
+val task_global_binding :
+  task_view -> Retained_global.t -> Sema.Outer_environment.binding option
+
+val task_function_binding :
+  task_view -> Retained_function.t -> Sema.Outer_environment.binding option
+
+val with_task_view : task_view -> t -> t
+
+val with_function_publications :
+  records:Sema.Function_record_classification.t -> t -> (t, string) result
+
+val function_publications : t -> Retained_function.t list
+
+val retained_function_binding :
+  t -> Sema.Outer_environment.binding -> Retained_function.t option
+
+val retained_function_symbol : t -> Sema.Symbol.t -> Retained_function.t option
+
+val retained_function_declaration :
+  t ->
+  Sema.Function_resolution.resolved_declaration ->
+  Retained_function.t option
+(** Source inspection for initializer guards; runtime authority still requires
+    the exact selected binding and sealed call site. *)
+
+val retained_binding :
+  t ->
+  Sema.Outer_environment.binding ->
+  (Retained_global.t * storage_slot) option
+
+val declared_storage : declared_slot -> storage_slot
+val declared_record : declared_slot -> Sema.Compiler_record.declared_global
+val declared_initializer_failed : declared_slot -> bool
+val begin_declared_initializer : declared_slot -> (unit, string) result
+val complete_declared_initializer : declared_slot -> (unit, string) result
+val fail_declared_initializer : declared_slot -> unit
+
+val record_declared_initializer :
+  declared_slot -> Integer_initializer_layout.entry -> (unit, string) result
+
+val allocated_storage_slots : t -> storage_slot list
+val find_allocated_storage : t -> Sema.Symbol.t -> storage_slot option
+
+val prepare_declared :
+  task_catalog ->
+  Sema.Compiler_record.declared_global ->
+  (t * declared_slot, string) result
+
+val publish_declared : task_catalog -> declared_slot -> task_publication
+val join_declared : task_view -> t -> (t, string) result
+val retained_slot : t -> Retained_global.t -> storage_slot option
+val is_task_command : t -> bool
+val check_task_command : task_catalog -> t -> (unit, string) result
+
+val publish_task : task_catalog -> t -> task_publication list
+(** Internal task admission API; absent from the public storage signature. *)
+
+val same_storage : storage_slot -> storage_slot -> bool
 
 val with_statics :
   span:Common.Span.t ->
@@ -70,6 +245,10 @@ val create_with_layout :
   (t, Common.Diagnostic.t list) result
 
 val slot_shape : slot -> Integer_storage_shape.t
+val slot_extent : slot -> Sema.Compiler_record.global_extent option
+
+val validate_slot_extent :
+  table:Sema.Symbol_table.t -> slot -> (unit, string) result
 
 val slots : t -> slot list
 (** Ordinary global declarations only; [statics] retains separate owners. *)
@@ -83,6 +262,7 @@ val find : t -> Sema.Symbol.t -> slot option
 (** Lookup requires the exact symbol object, not just its table-local ID. *)
 
 val slot_index : slot -> int
+val slot_reuses_declared_storage : slot -> bool
 val slot_symbol : slot -> Sema.Symbol.t
 val slot_type : slot -> Sema.Type.t
 val slot_record : slot -> Sema.Global_record_classification.classified_record
@@ -95,6 +275,9 @@ val slot_initializer :
 val slot_initializer_materialized : slot -> bool
 
 val slot_root_materialized :
+  slot -> Sema.Function_call_expression_result.top_level_root_result -> bool
+
+val slot_root_executed :
   slot -> Sema.Function_call_expression_result.top_level_root_result -> bool
 
 val static_root_materialized :
@@ -139,3 +322,20 @@ val with_array_initial_values :
 
 val storage_array_image :
   storage_slot -> (int * Integer_array_initializers.payload) list
+
+val dimension_dependencies :
+  t -> Sema.Compiler_record.runtime_dimension_proposal list
+
+val check_suspended_completion :
+  task_catalog ->
+  suspension:Frontend.Parser.suspension ->
+  Frontend.Parser.completed_sequence ->
+  (unit, string) result
+
+val offset_context : task_view -> Sema.Offset_fragment.t -> (t, string) result
+val is_offset_fragment : t -> bool
+
+val check_offset_source :
+  task_catalog -> Frontend.Parser.aggregate_phase -> (unit, string) result
+
+val offset_dependencies : t -> Sema.Compiler_record.aggregate_offset list
