@@ -87,6 +87,7 @@
   test_function_alias
   test_task_function_alias
   test_integer_expression
+  test_native_expression
   test_integer_program
   test_integer_functions
   test_integer_nested_calls

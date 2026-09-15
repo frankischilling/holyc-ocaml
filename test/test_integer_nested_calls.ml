@@ -76,6 +76,25 @@ let signedness () =
       ignore (F.run ~mode (definitions ^ "(U(-1)>0>-1);") |> F.expect 0L))
     modes
 
+let forwarded_chain_classes () =
+  let definitions = identity ^ "U64 U(I64 n){return n;}" in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (text, expected) ->
+          ignore (F.run ~mode (definitions ^ text) |> F.expect expected))
+        [
+          ("((~U(0x8000000000000000))>0>-1);", 0L);
+          ("(0<1<(~U(0x8000000000000000))>0>-1);", 0L);
+          ( "I64 F(){U64 value=0x8000000000000000;return (~value)>0>-1;}(F());",
+            0L );
+          ( "I64 F(){I64 n=0;I64 \
+             value=(~U(0x8000000000000000))>Id(n=n+1)>0>-1;return \
+             n*10+value;}(F());",
+            10L );
+        ])
+    modes
+
 let recursion_and_limits () =
   let text =
     "I64 Fact(I64 n){if(n<=1)return 1;return n*Fact(n-1);}(Fact(5));"
@@ -295,6 +314,8 @@ let tests =
     Alcotest.test_case "conditions, loops and shared operands" `Quick
       control_flow;
     Alcotest.test_case "public word classes" `Quick signedness;
+    Alcotest.test_case "forwarded chains through calls and shared operands"
+      `Quick forwarded_chain_classes;
     Alcotest.test_case "returned recursion and shared limits" `Quick
       recursion_and_limits;
     Alcotest.test_case "nested fault provenance and preflight" `Quick faults;

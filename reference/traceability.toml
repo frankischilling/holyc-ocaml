@@ -11036,7 +11036,7 @@ ir_epic = 396
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 commands = ["holyc eval examples/integer-comparison-chain.hc", "holyc run --target=ir examples/integer-comparison-chain.hc"]
 result = "eval returns 42 in ten attempted instructions in JIT and AOT mode; run evaluates and discards the expression"
-comparison_class = "cumulative unsigned promotion; internal word views preserve shared bits without reexecuting producers"
+comparison_class = "cumulative unsigned promotion from semantic computation classes, including COM's forwarded U64 despite its I64 result; initial, later-right and shared-middle decisions retain this distinction; internal word views preserve shared bits without reexecuting producers (#646)"
 excluded = ["conditional comparison chains", "floating comparison chains", "multiple pending comparison reductions (#593)", "calls and variable storage", "native optimizer strength reductions"]
 native_oracle_status = "source audit and hosted integration; no new native execution capture"
 
@@ -11677,3 +11677,102 @@ pointer_sizeof = "Original direct pointer local/parameter children select the fi
 source_gate = "The maintained named-type-selection fixture returns I64 42 with empty ordinary output through public source/CLI execution in both outer modes; independent tests inspect retained type identity rather than inferring it from the constant result."
 excluded = ["aggregate-valued frames and general aggregate memory", "named callback-signature selection", "general null/integer pointer conversions", "pointer-return execution", "pointer-array storage", "guest reflection over class allocations", "native/BIN/loader acceptance", "bootstrap"]
 native_oracle_status = "pinned-source audit and hosted source/ownership tests; no new TempleOS native capture"
+
+[[feature]]
+id = "HC-NATIVE-INTEGER-EXPRESSION"
+description = "Checked source expressions compile through the own OCaml x86-64 encoder and execute explicitly on Windows/Linux x86-64 with full-width results."
+sources = [
+  "Compiler/OpCodes.DD:265,276,330,353,399,445,501,675,680,694,961 register encodings",
+  "Compiler/PrsExp.HC:1117-1127 expression return harness",
+  "Compiler/OptPass789A.HC:418-420,779-782 RET and full RAX return",
+  "Compiler/BackA.HC:224-280 multiplication selection",
+  "Compiler/OptLib.HC:9-14,101-122,196-202 computation classes",
+  "Compiler/OptPass012.HC:151-191 unary class preservation"
+]
+implementation = ["src/backend/x86_64_encoder.ml", "src/backend/x86_64_encoder.mli", "src/backend/x86_64_expression.ml", "src/backend/x86_64_expression.mli", "src/runtime/native_execution.ml", "src/runtime/native_execution.mli", "src/native_execution_stubs.c", "src/driver/native_expression.ml", "src/driver/native_expression.mli", "src/holyc_lib.ml", "src/holyc_lib.mli", "bin/holyc.ml", "bin/native_report.ml"]
+tests = ["test/test_native_expression.ml", "test/native/test_native_execution.ml", "test/native/test_native_cli.ml", "test/native/dune", "test/dune", "examples/native-integer-expression.hc", "tools/test-version-metadata.ps1", ".github/workflows/ci.yml"]
+documentation = ["docs/native-expressions.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "ARCHITECTURE.md", "REFERENCE_SOURCES.md", "ROADMAP.md", "SECURITY.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 642
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "(6*7); in JIT and AOT preprocessing modes: five IR instructions, 25 code bytes, MOV/MOV/IMUL/RET, I64 42 in RAX and process exit zero"
+domain = "one verified entry block, internal I64/U64 only, zero flags, immediate/negation/complement/add/sub/mul/and/or/xor, six comparisons, logical NOT, eager binary logical values and internal zero-payload word views, with exact final return pair; declared type and computation class retained separately"
+registers = "RAX, RCX, RDX, R8, R9, R10, R11; deterministic last-use reuse, shared operands preserved; bounded private spill frames added by HC-NATIVE-INTEGER-SPILLS; frameless images retain their bytes"
+limits = "IR/code/frame limits validated before parsing; maximum 100000 IR instructions, 16777216 emitted bytes and 4088 private frame bytes; zero stack bytes disables spills; preflight before register allocation and code planning before byte allocation"
+execution = "opaque image and fresh exported copies; explicit native entry; RW copy then RX protection and cache synchronization; full uint64_t return, mapping released before OCaml allocation; Windows/Linux x86-64 only; Linux READ_IMPLIES_EXEC refused"
+reporting = "holyc-native-expression-v1 with implementation/reference revisions, host, mode, limits, complete machine bytes/counts, register peak, diagnostics and exact decimal/hex strings; existing eval/run unchanged"
+verification_boundary = "ordinary nonexecuting encoder tests; explicit native-tests API/CLI and 500 fixed-seed source comparisons against integer VM plus boundary/shared/repeated execution; injected OS failure paths remain untested"
+excluded = ["narrow/public integer producers", "division/remainder/shift semantics", "conditional and multiple-pending-reduction comparison chains (#593)", "general conversions and x87", "large/probed frames, calls and general HolyC ABI", "branches and source-visible memory", "relocations and object/BIN emission", "arbitrary native bytes", "CPU timeout and native fault recovery", "actual TempleOS loader acceptance", "bootstrap"]
+native_oracle_status = "hosted own-encoder execution and pinned-source audit; no new TempleOS compiler capture or optimizer parity claim"
+
+[[feature]]
+id = "HC-NATIVE-INTEGER-PREDICATES"
+description = "Six checked integer comparisons and logical NOT reach the own encoder and explicit hosted native execution."
+sources = [
+  "Compiler/OpCodes.DD:376,461,893,981-994 CMP/TEST/MOVZX/SETcc forms",
+  "Compiler/BackB.HC:10-27 logical NOT normalization,102-200 comparison order and result",
+  "Compiler/OptLib.HC:103-122,171 forwarded computation classes",
+  "Compiler/OptPass012.HC:153-179 complement/NOT,725-822 comparison result classes"
+]
+implementation = ["src/backend/x86_64_encoder.ml", "src/backend/x86_64_encoder.mli", "src/backend/x86_64_expression.ml", "src/backend/x86_64_expression.mli"]
+tests = ["test/test_native_expression.ml", "test/native/test_native_execution.ml", "test/native/test_native_cli.ml", "test/native/dune", "examples/native-integer-predicates.hc"]
+documentation = ["docs/native-expressions.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "REFERENCE_SOURCES.md", "ROADMAP.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 644
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "native-integer-predicates.hc combines all six relations, NOT and arithmetic; I64 42, 38 IR instructions, 272 code bytes, 51 machine instructions and three registers in JIT/AOT preprocessing modes"
+semantics = "ordered comparison uses both forwarded operand classes; any U64 selects unsigned order; comparison result is internal I64 zero/one; NOT preserves its forwarded I64/U64 operand class and tests all bits"
+allocation = "CMP/TEST precedes destination mutation; SETcc consumes live flags; MOVZX clears all high bits; either dying input may be reused while shared values stay intact"
+limits = "existing IR and byte budgets; exact 5 IR/31 bytes for 1<2 and 4 IR/21 bytes for !0, with one-below rejection before executable allocation"
+verification_boundary = "ordinary byte/source/type/liveness/rejection tests and explicit native differential/API/CLI tests; generated opcode facts, runtime bridge and report schema unchanged"
+excluded = ["conditional and multiple-pending-reduction comparison chains (#593)", "general casts and non-word producers", "division/remainder/shifts", "control-flow branches, general call frames, calls and source-visible memory", "optimizer parity and native TempleOS capture"]
+
+[[feature]]
+id = "HC-NATIVE-INTEGER-LOGICAL-VALUES"
+description = "Eager logical values and supported ordinary comparison chains execute through the own native encoder; shared lowering retains forwarded comparison classes."
+sources = [
+  "Compiler/BackB.HC:30-100 eager logical value consumers",
+  "Compiler/CInit.HC:12 source-visible I64i/U64i internal type names",
+  "Compiler/OptPass012.HC:693-722 I64 logical computation class",
+  "Compiler/OptPass012.HC:87-110 internal word views,141-161 PUSH_CMP and COM,809-822 cumulative comparison classes",
+  "Compiler/OptLib.HC:103-122,171 forwarded operand classes",
+  "Compiler/OpCodes.DD:353,399,501,461,893,984 AND/OR/XOR/TEST/MOVZX/SETNE forms"
+]
+implementation = ["src/ir/expression_lowering.ml", "src/backend/x86_64_expression.ml", "src/backend/x86_64_expression.mli"]
+tests = ["test/test_ir_comparison_chains.ml", "test/test_integer_nested_calls.ml", "test/test_native_expression.ml", "test/native/test_native_execution.ml", "test/native/test_native_cli.ml", "test/native/dune", "examples/native-integer-logical.hc"]
+documentation = ["docs/native-expressions.md", "docs/intermediate-representation.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "ARCHITECTURE.md", "REFERENCE_SOURCES.md", "ROADMAP.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 646
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "native-integer-logical.hc combines all three logical operators and ordinary chains; I64 42, 61 IR instructions, 562 bytes, 120 machine instructions and four registers in both preprocessing modes; (~0x8000000000000000)>0>-1 returns I64 zero through shared source lowering"
+semantics = "each logical input is tested across all 64 bits; &&/||/^^ return internal I64 zero/one; 2&&4 is one and 2^^4 is zero; comparison domains consume original semantic computation types, including forwarded COM and grouping"
+word_views = "only internal I64/U64 input and target, one earlier value, integer payload zero, zero flags; preserve all bits and select the declared target computation class; copy shared inputs or reuse dying inputs; source-visible I64i/U64i casts are admitted when their immediate source operand is not parenthesized; no special source-chain authority is inferred from a low-level view"
+allocation = "two distinct working registers; normalize right first if result aliases right; preserve remaining input and later shared uses; scratch register included in pressure and peak; other live owners may spill under HC-NATIVE-INTEGER-SPILLS"
+limits = "simple two-literal logical values require 5 IR instructions, 44 bytes, 10 machine instructions and two registers; exact/one-below IR and byte tests plus temporary-register exhaustion"
+verification_boundary = "literal expected chain results complement VM/native differential comparisons; ordinary tests do not enter machine code; explicit native API/CLI tests run separately; report schema, encoder database and host bridge unchanged"
+excluded = ["conditional and multiple-pending-reduction chains (#593)", "public/narrow/pointer/floating word views", "parenthesized casts and general conversions", "division/remainder/shifts", "branches, source-visible memory, large/probed frames and calls", "optimizer parity", "TempleOS native capture, loader and bootstrap"]
+
+[[feature]]
+id = "HC-NATIVE-INTEGER-SPILLS"
+description = "High-pressure source expressions execute through the own native encoder using bounded reusable private qword spill slots and Windows unwind registration."
+sources = [
+  "Compiler/OpCodes.DD:261,265 qword memory MOV forms",
+  "Compiler/OpCodes.DD:322,437 immediate ADD/SUB RSP forms",
+  "Compiler/BackLib.HC:59-121 stack adjustment,136-235 ModR/M and SIB,445-575 memory MOV consumers",
+  "Compiler/Asm.HC:127-145 RSP SIB addressing",
+  "Compiler/OptPass6.HC:28-94,96-185 stack temporaries and register consumers"
+]
+implementation = ["src/backend/x86_64_encoder.ml", "src/backend/x86_64_encoder.mli", "src/backend/x86_64_expression.ml", "src/backend/x86_64_expression.mli", "src/driver/native_expression.ml", "src/driver/native_expression.mli", "src/runtime/native_execution.ml", "src/runtime/native_execution.mli", "src/native_execution_stubs.c", "bin/holyc.ml", "bin/native_report.ml"]
+tests = ["test/test_native_expression.ml", "test/native/test_native_execution.ml", "test/native/test_native_cli.ml", "test/native/test_native_unwind.ml", "test/native/native_unwind_probe.c", "test/native/dune", "examples/native-integer-spills.hc"]
+documentation = ["docs/native-expressions.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "ARCHITECTURE.md", "REFERENCE_SOURCES.md", "ROADMAP.md", "SECURITY.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 648
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "native-integer-spills.hc returns I64 42 in both modes with eight simultaneously live operands and an eight-byte frame; seven-live expressions remain frameless"
+allocation = "original producer order, deterministic eviction of an unprotected live value, reusable aligned qword slots, protected current inputs and logical scratch, full-width store/reload and exact return-stack restoration; existing no-spill bytes unchanged"
+limits = "max_stack_bytes and --stack-byte-limit accept 0..4088, default4088; zero disables spills; nonzero actual frames are 8 modulo16 and include padding; 511 qword slots maximum; instruction/byte planning counts every store, reload, prologue and epilogue before executable allocation"
+windows = "OCaml-generated version-one UNWIND_INFO matches fixed seven-byte SUB RSP prologue; UWOP_ALLOC_SMALL or UWOP_ALLOC_LARGE selected by frame size; aligned RUNTIME_FUNCTION and metadata share the immutable executable mapping; register before entry, remove before release; failed removal reports error and retains the registered mapping"
+verification_boundary = "independent instruction/unwind bytes, slot reuse and shared-value tests, exact/one-below frame/code/IR limits, high-pressure actual source/IR differential execution, public CLI both modes and a Windows RtlVirtualUnwind synthetic-context probe; success repetition does not establish injected OS-failure coverage"
+host_evidence = "Microsoft x64 exception handling, prologue/epilogue and RtlAddFunctionTable/RtlDeleteFunctionTable documentation linked from docs/native-expressions.md"
+excluded = ["general call frames and stack probing", "nonvolatile register allocation", "calls and full HolyC ABI", "source-visible memory and control flow", "general conversions and x87", "object/BIN emission, loader and bootstrap", "general native fault or exception recovery"]
+native_oracle_status = "hosted native execution, pinned-source audit and Windows host-unwinder checks; no TempleOS native capture or allocator/optimizer parity claim"

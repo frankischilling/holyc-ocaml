@@ -30,6 +30,7 @@ jobs:
         with:
           fetch-depth: 0
           submodules: recursive
+          persist-credentials: false
 
       - name: Prepare OCaml dependencies
         uses: ./.github/actions/setup-ocaml
@@ -56,8 +57,46 @@ jobs:
       - name: Run tests
         run: opam exec -- dune runtest --no-buffer
 
+      - name: Execute native expressions and CLI tests
+        run: opam exec -- dune build @native-tests
+
       - name: Build package artifacts
         run: opam exec -- dune build @install
 
       - name: Trim Dune cache
         run: opam exec -- dune cache trim --size=1GB
+
+  native-windows:
+    name: Native Windows x86-64
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Set up the compiler
+        uses: ocaml/setup-ocaml@e89b2ded52a6e13f50162220cf5fe47290162032 # v3
+        with:
+          ocaml-compiler: 5.3.x
+
+      - name: Install dependencies
+        run: opam install . --deps-only --with-test --with-dev-setup
+
+      - name: Verify the pinned reference
+        run: ./tools/verify-reference.ps1
+
+      - name: Build and package
+        run: opam exec -- dune build '@all' '@install'
+
+      - name: Run tests
+        run: opam exec -- dune runtest --no-buffer
+
+      - name: Execute native expressions and CLI tests
+        run: opam exec -- dune build '@native-tests'

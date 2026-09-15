@@ -15,8 +15,8 @@ fresh and retained allocations, exact byte quotas, unknown-cell faults and
 retained-boundary promotion. Foreign namespaces, runtime rebinding, missing
 predecessors, replay, delayed publication and expired or incompletely observed
 parser contexts reject without allocation or runtime work. Completed-command
-initialization is covered; live execution between individual parser leaves and
-the public shared JIT facade remain pending.
+initialization and later live-initializer/source-orchestration tests exercise
+the same retained allocation path.
 
 The twelve `live initializer leaves` groups cover original native lookahead
 boundaries, nested and flattened braces, unbraced rows, adjacent generated strings,
@@ -26,7 +26,7 @@ the resulting programs execute to 42. Missing, replayed, delayed and cross-owner
 events reject, including equal source literals. Malformed separators retain
 reached leaves without completing the declaration. Callback rejection and
 exceptions stop later directives and revoke receipt lifetime. Existing source
-resource checks remain applicable; public shared JIT execution is still pending.
+resource checks remain applicable to public shared JIT execution.
 
 The thirteen `source promotion` groups cover live JIT ledger adoption, exact
 source/frontend ownership, original predecessor and pending-resume checks,
@@ -35,8 +35,34 @@ metadata. Exact and one-below preparation limits cover transfer and subsequent
 dimension work. Used runtimes with zero counters, sealed/AOT/analysis ledgers,
 finished parsers and out-of-date live observers cannot gain source authority.
 Real parser/StreamPrint integration covers nested buffers, generated function
-bodies and initializer operands. These internal task tests support the unfinished
-shared outer JIT connection; the fourteen public stateful-exe groups remain red.
+bodies and initializer operands. The public stateful-exe groups exercise the
+shared outer JIT and isolated AOT directive paths; their earlier missing-runtime
+failures are historical, not the current support boundary.
+
+The `native expression encoding` group validates the encoder without executing
+machine code. The separate `opam exec -- dune build --root . '@native-tests'` target
+executes maintained source/IR fixtures, 500 deterministic source expressions,
+repeat calls and the public `eval-native` CLI on Windows/Linux x86-64.
+It is intentionally outside ordinary `dune runtest`; explicitly requesting it
+on an unsupported host fails. See [native expressions](native-expressions.md)
+for the support boundary, resource tests and distinction from a TempleOS oracle.
+Issue #644 adds a separate deterministic predicate generator, all six relations
+and NOT across signed/unsigned boundaries, shared registers, byte-register REX
+goldens, complete zero extension and exact/one-below budgets. The public CLI
+also executes `examples/native-integer-predicates.hc` in both modes.
+Issue #646 adds logical truth tables with high-only and disjoint nonzero bits,
+independent chain expectations, full-width word views and scratch-register
+pressure. Its public `examples/native-integer-logical.hc` fixture runs in both
+modes. `comparison chains` also checks COM's cumulative unsigned class, exact
+view counts, budgets and unchanged producer identity; function-call regressions
+exercise the same lowerer. The native tests retain explicit unsupported-source
+controls for #593 and for rejected operations in either logical operand.
+Issue #648 adds independent stack-MOV, RSP-adjustment and unwind byte goldens;
+source and shared-IR spill cases; slot reuse; and exact/one-below frame limits.
+The explicit native target executes high-pressure cases and the public spill
+fixture in both modes. A separate Windows `RtlVirtualUnwind` probe checks the
+generated frame records against a synthetic caller context without executing
+arbitrary byte input. Frameless fixtures retain their exact original bytes.
 
 The `source narrow integers` groups cover #633's eight gates, all five width/
 signedness families, fourteen update opcodes, signed string copies, ABI slots,

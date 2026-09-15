@@ -625,11 +625,16 @@ let is_comparison_result result =
       accepted_f64_comparison_opcode (Semantic_source.binary_operator binary)
   | _ -> false
 
-let unsigned_integer_type type_ =
-  match Type.base type_ with
-  | Type.Primitive (_, primitive) ->
-      (Sema.Primitive_type.info primitive).raw_is_unsigned
-  | Type.Aggregate _ -> false
+let unsigned_integer_computation result =
+  (* COM keeps an I64 result while its forwarded node class can remain U64.
+     Comparison transfers follow that class, not the stored result type. *)
+  match Semantic_result.result_computation_type result with
+  | Some type_ -> (
+      match Type.base type_ with
+      | Type.Primitive (_, primitive) ->
+          (Sema.Primitive_type.info primitive).raw_is_unsigned
+      | Type.Aggregate _ -> false)
+  | None -> false
 
 let accepted_f64_logical_opcode = function
   | Opcode.Ic_and_and | Opcode.Ic_or_or | Opcode.Ic_xor_xor -> true
@@ -3022,8 +3027,8 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
                     if accepted_f64_comparison_opcode opcode then
                       comparison_domains :=
                         Int_map.add (result_key result)
-                          (unsigned_integer_type left_node.lowered_type
-                          || unsigned_integer_type right_node.lowered_type)
+                          (unsigned_integer_computation left
+                          || unsigned_integer_computation right)
                           !comparison_domains;
                     descriptions_rev := description :: !descriptions_rev;
                     lowered :=
@@ -3059,7 +3064,7 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
                      intact and reinterpret only its shared word. *)
                   if
                     previous_unsigned
-                    && not (unsigned_integer_type middle_node.lowered_type)
+                    && not (unsigned_integer_computation middle)
                   then
                     match take_identity allocator (Some span) with
                     | Error item -> Error item
@@ -3137,8 +3142,7 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
                             comparison_domains :=
                               Int_map.add (result_key result)
                                 (previous_unsigned
-                                || unsigned_integer_type right_node.lowered_type
-                                )
+                                || unsigned_integer_computation right)
                                 !comparison_domains;
                             lowered :=
                               Int_map.add (result_key result)

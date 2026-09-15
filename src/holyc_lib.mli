@@ -26,6 +26,10 @@ module Ir_control_flow = Ir.Control_flow
 module Ir_block_graph = Ir.Block_graph
 module Ir_effects = Ir.Effects
 module Ir_x87_stack = Ir.X87_stack
+module X86_64_encoder = Backend.X86_64_encoder
+module X86_64_expression = Backend.X86_64_expression
+module Native_execution = Runtime.Native_execution
+module Native_expression = Driver.Native_expression
 
 module Ir_integer_globals : sig
   type t = Ir.Integer_globals.t
