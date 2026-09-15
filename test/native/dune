@@ -1,0 +1,25 @@
+(copy_files ../test_native_expression.ml)
+
+(executable
+ (name test_native_execution)
+ (modules test_native_execution test_native_expression)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_execution.exe})))
+
+(executable
+ (name test_native_cli)
+ (modules test_native_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/native-integer-expression.hc)
+ (action
+  (run
+   %{exe:test_native_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-integer-expression.hc})))

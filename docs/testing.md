@@ -1,5 +1,13 @@
 # Testing holyc-ocaml
 
+The `native expression encoding` group validates the encoder without executing
+machine code. The separate `opam exec -- dune build --root . '@native-tests'` target
+executes maintained source/IR fixtures, 500 deterministic source expressions,
+repeat calls and the public `eval-native` CLI on Windows/Linux x86-64.
+It is intentionally outside ordinary `dune runtest`; explicitly requesting it
+on an unsupported host fails. See [native expressions](native-expressions.md)
+for the support boundary, resource tests and distinction from a TempleOS oracle.
+
 The `source narrow integers` groups cover #633's eight gates, all five width/
 signedness families, fourteen update opcodes, signed string copies, ABI slots,
 native read/range/bit proofs and forged checked IR. Bare expression and folding

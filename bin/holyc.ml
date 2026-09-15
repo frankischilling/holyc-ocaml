@@ -619,6 +619,76 @@ let eval_command =
        Term.(
          const (integer_expression_file false "ir" false) $ step_limit_argument))
 
+let native_expression_file max_ir_instructions max_code_bytes format
+    include_roots templeos_root max_include_depth max_source_bytes
+    max_definition_depth max_generated_bytes max_conditional_depth
+    max_expression_nodes compilation_mode predefined_date predefined_time
+    command_line_source path =
+  let session = Holyc_lib.Session.create () in
+  let mode =
+    match compilation_mode with
+    | Holyc_lib.Preprocessor.Jit -> "jit"
+    | Aot -> "aot"
+  in
+  let render =
+    Native_report.render ~human:(format = Human) ~session ~mode
+      ~max_ir_instructions ~max_code_bytes
+  in
+  let fail code message = render ~command_error:(code, message) () in
+  match
+    Holyc_lib.X86_64_expression.validate_limits ~max_ir_instructions
+      ~max_code_bytes
+  with
+  | Error (error :: _) -> fail error.code error.message
+  | Error [] -> fail "HCBACK0001" "invalid native compilation limits"
+  | Ok () -> (
+      match
+        make_preprocessor_config include_roots templeos_root max_include_depth
+          max_source_bytes max_definition_depth max_generated_bytes
+          max_conditional_depth max_expression_nodes compilation_mode
+          predefined_date predefined_time command_line_source
+      with
+      | Error message ->
+          fail "HCNATIVE0003" ("invalid preprocessor configuration: " ^ message)
+      | Ok config -> (
+          match Holyc_lib.Session.load_source session ~path with
+          | Error message ->
+              fail "HCNATIVE0003"
+                (Printf.sprintf "could not read %s: %s" path message)
+          | Ok source ->
+              render
+                ~result:
+                  (Holyc_lib.Native_expression.evaluate ~max_ir_instructions
+                     ~max_code_bytes session ~config ~source)
+                ()))
+
+let eval_native_command =
+  let instructions =
+    Arg.(
+      value & opt int 4096
+      & info [ "ir-instruction-limit" ] ~docv:"COUNT"
+          ~doc:
+            "Maximum verified IR instructions before native emission, \
+             including the return tail. Must be between 1 and 100000; this is \
+             not a measured CPU instruction count.")
+  in
+  let bytes =
+    Arg.(
+      value & opt int 65536
+      & info [ "code-byte-limit" ] ~docv:"BYTES"
+          ~doc:
+            "Maximum emitted machine-code bytes. Must be between 1 and \
+             16777216.")
+  in
+  Cmd.v
+    (Cmd.info "eval-native" ~exits:expression_exits
+       ~doc:
+         "Explicitly compile and execute one supported I64/U64 expression with \
+          the project's x86-64 encoder. Requires Windows or Linux x86-64; this \
+          native leaf executor is not a sandbox.")
+    (source_parser_options
+       Term.(const native_expression_file $ instructions $ bytes))
+
 let run_target_argument =
   Arg.(
     value & opt string "ir"
@@ -985,6 +1055,7 @@ let root_command =
       dump_symbols_command;
       dump_layout_command;
       eval_command;
+      eval_native_command;
       run_command;
       dump_ir_command;
       corpus_command;

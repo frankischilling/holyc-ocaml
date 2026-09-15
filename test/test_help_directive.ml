@@ -15,7 +15,11 @@ let rec remove_tree path =
 
 let with_temp_directory run =
   let path = Filename.temp_dir "holyc-help-directive-" "" in
-  Fun.protect ~finally:(fun () -> remove_tree path) (fun () -> run path)
+  (* Resolver configuration canonicalizes roots. Windows temporary directory
+     names can use aliases, so expected paths must start at the same root. *)
+  Fun.protect
+    ~finally:(fun () -> remove_tree path)
+    (fun () -> run (Unix.realpath path))
 
 let make_directory path =
   if not (Sys.file_exists path) then Unix.mkdir path 0o700

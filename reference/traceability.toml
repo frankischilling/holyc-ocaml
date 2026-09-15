@@ -11506,3 +11506,30 @@ reporting = "v1/v2 and dump schemas unchanged; original storage/call/return type
 verification_status = "2049 tests passed in 40.856 seconds plus CLI; 53 focused narrow groups pass. Independent native/source and integration reviews, formatting/generated/build/install, 82 checksums, 11 provenance scenarios and exact lexer/parser corpora passed. COM, bare-execution and folding regressions were reproduced before fixes. Committed-source and protected integration evidence tracked in issue 633."
 excluded = ["Bool, zero-sized and floating storage", "aggregates", "automatic array brace/string initialization", "pointer returns and general pointer conversions", "narrow word-cast/index producers", "full formatting/runtime linking", "stateful compilation and #exe", "optimizer parity", "native/BIN/loader acceptance", "bootstrap"]
 native_oracle_status = "pinned-source audit and hosted execution; no new native TempleOS capture"
+
+[[feature]]
+id = "HC-NATIVE-INTEGER-EXPRESSION"
+description = "Checked source expressions compile through the own OCaml x86-64 encoder and execute explicitly on Windows/Linux x86-64 with full-width results."
+sources = [
+  "Compiler/OpCodes.DD:265,276,330,353,399,445,501,675,680,694,961 register encodings",
+  "Compiler/PrsExp.HC:1117-1127 expression return harness",
+  "Compiler/OptPass789A.HC:418-420,779-782 RET and full RAX return",
+  "Compiler/BackA.HC:224-280 multiplication selection",
+  "Compiler/OptLib.HC:9-14,101-122,196-202 computation classes",
+  "Compiler/OptPass012.HC:151-191 unary class preservation"
+]
+implementation = ["src/backend/x86_64_encoder.ml", "src/backend/x86_64_encoder.mli", "src/backend/x86_64_expression.ml", "src/backend/x86_64_expression.mli", "src/runtime/native_execution.ml", "src/runtime/native_execution.mli", "src/native_execution_stubs.c", "src/driver/native_expression.ml", "src/driver/native_expression.mli", "src/holyc_lib.ml", "src/holyc_lib.mli", "bin/holyc.ml", "bin/native_report.ml"]
+tests = ["test/test_native_expression.ml", "test/native/test_native_execution.ml", "test/native/test_native_cli.ml", "test/native/dune", "test/dune", "examples/native-integer-expression.hc", "tools/test-version-metadata.ps1", ".github/workflows/ci.yml"]
+documentation = ["docs/native-expressions.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "ARCHITECTURE.md", "REFERENCE_SOURCES.md", "ROADMAP.md", "SECURITY.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 642
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "(6*7); in JIT and AOT preprocessing modes: five IR instructions, 25 code bytes, MOV/MOV/IMUL/RET, I64 42 in RAX and process exit zero"
+domain = "one verified entry block, internal I64/U64 only, zero flags, immediate/negation/complement/add/sub/mul/and/or/xor and exact final return pair; declared type and computation class retained separately"
+registers = "RAX, RCX, RDX, R8, R9, R10, R11; deterministic last-use reuse, shared operands preserved, pressure beyond the leaf allocator rejected, no spills or frame"
+limits = "positive IR/code limits validated before parsing; maximum 100000 IR instructions and 16777216 emitted bytes; preflight before register allocation and code planning before byte allocation"
+execution = "opaque image and fresh exported copies; explicit native entry; RW copy then RX protection and cache synchronization; full uint64_t return, mapping released before OCaml allocation; Windows/Linux x86-64 only; Linux READ_IMPLIES_EXEC refused"
+reporting = "holyc-native-expression-v1 with implementation/reference revisions, host, mode, limits, complete machine bytes/counts, register peak, diagnostics and exact decimal/hex strings; existing eval/run unchanged"
+verification_boundary = "ordinary nonexecuting encoder tests; explicit native-tests API/CLI and 500 fixed-seed source comparisons against integer VM plus boundary/shared/repeated execution; injected OS failure paths remain untested"
+excluded = ["narrow/public integer producers", "division/remainder/shift/comparison semantics", "conversions and x87", "spills, frames, calls and general HolyC ABI", "branches and memory", "relocations and object/BIN emission", "arbitrary native bytes", "CPU timeout and native fault recovery", "actual TempleOS loader acceptance", "bootstrap"]
+native_oracle_status = "hosted own-encoder execution and pinned-source audit; no new TempleOS compiler capture or optimizer parity claim"

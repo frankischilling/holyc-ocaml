@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added `eval-native` and the public native-expression API for internal I64/U64
+  literals, negation, complement, addition, subtraction, multiplication and
+  bitwise operations. The OCaml encoder emits the original verified expression
+  graph with seven volatile registers and no frame. An explicit Windows/Linux
+  x86-64 bridge executes protected code and preserves all 64 return bits.
+  Separate native tests cover source/API/CLI execution and deterministic VM
+  comparisons; ordinary tests cover encoding, unsupported inputs and limits.
+
 - Expanded provenance checks to built executable consumers after Git or release
   override changes, including normal build/install aliases and both cache modes.
   Quoted Dune aliases in local command examples so PowerShell passes the requested

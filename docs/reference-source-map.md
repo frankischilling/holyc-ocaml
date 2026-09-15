@@ -1,5 +1,13 @@
 # Reference source map
 
+[Native expressions](native-expressions.md) in #642 consume the generated
+`OpCodes.DD` MOV/arithmetic/bitwise/NEG/NOT/IMUL/RET forms directly in
+`Backend.X86_64_encoder`. `PrsExp.HC:1117-1127` defines the expression return
+pair and `OptPass789A.HC:779-782` the RAX result. `BackA.HC:224-280` describes
+the original multiplication paths. `Backend.X86_64_expression` retains
+`Sema.Integer_computation_class` rules while using its own bounded host-leaf
+allocator. Hosted differential execution is distinct from a TempleOS capture.
+
 [Narrow integers](integer-narrow.md) in #633 follow `BackLib.HC:281-309,509-534,
 550-572` for memory width/extension and register transport, and
 `OptPass789A.HC:710-717,779-782,1026-1030` for parameter entry and returns.
