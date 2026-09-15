@@ -35,8 +35,9 @@ activate from its retained original publication boundary after the callback ends
 Supported integer defaults also execute at their original parameter boundary and
 retain their values for later omitted arguments. [Integer defaults](integer-defaults.md)
 describes the source and runtime checks. Activated outer JIT source uses the
-same runtime. Remaining default value types and partial function publication
-remain open in #635.
+same runtime. This completes the integer default path required by #635. Default
+value classes outside the supported integer domain and broader partial function
+publication remain full-compiler follow-up requirements.
 
 Global initializer callbacks retain the original `=` location, scalar expression,
 syntax path, ordinal and predecessor. Start occurs before reading the first value;
@@ -159,9 +160,10 @@ consumption, so source without `#exe` can now report an earlier `HCRUN0003`
 instead of a later semantic error. The native statement-start label probe keeps
 its earlier lookahead.
 
-Live task globals and partial array leaves use their original publication and
-execution boundaries in both modes. Partial function headers, remaining provider/default/later-call reads,
-cross-command extern joins and broader metadata remain required for #635.
+Live task globals, partial array leaves, supported integer partial function
+headers, provider/default and later-call reads, and cross-command extern joins
+use their original publication and execution boundaries in both modes. Broader
+type/value variants and metadata remain full-compiler follow-up requirements.
 
 Each task retains a frontend view available through `Integer_task.frontend`.
 Independent tasks sharing a session see baseline registrations and their own
@@ -470,13 +472,16 @@ mutation, declaration snapshots, checked providers, rejected argument lists,
 initializer guards and admission versus reached-fault publication. Its preparation
 controls include a configured limit above 100,000.
 
-## Remaining #635 work
+## Full-compiler follow-up beyond the #635 integer acceptance surface
 
-Cross-command extern joins, partial type/header publication, remaining query
-metadata, general default/provider and later
-call-phase receipts, effectful dimensions, and ordinary AOT default
-preparation remain part of issue #635. The existing integer
-function domain remains unchanged, including its pointer-return boundary.
+The supported integer execution path now covers cross-command extern joins,
+the partial function headers required by that path, checked provider/default and
+later-call reads, and ordinary AOT integer default preparation. Full compiler
+coverage still requires aggregate and non-integer partial type/header
+publication, remaining query metadata, general provider/default and later
+call-phase receipts outside the integer domain, effectful dimensions, and AOT
+default preparation for unsupported value classes. The existing integer function
+domain remains unchanged, including its pointer-return boundary.
 
 The streaming parser now exposes private declaration events for provisional
 globals and functions, completed global declarators, function headers and bodies.

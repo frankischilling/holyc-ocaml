@@ -43,6 +43,46 @@ let with_source contents run =
       run path)
 
 let require condition message = if not condition then failwith message
+let pinned_reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+
+let acceptance_gates =
+  [
+    ("literal", {|#exe {StreamPrint("42;");}|});
+    ("joined fragments", {|#exe {StreamPrint("4");StreamPrint("2;");}|});
+    ( "task function",
+      {|#exe {I64 Add(I64 a,I64 b){return a+b;}StreamPrint("%d;",Add(20,22));}|}
+    );
+    ( "persistent task cell",
+      {|#exe {I64 N=40;} #exe {N+=2;StreamPrint("%d;",N);}|} );
+    ( "generated function",
+      {|#exe {StreamPrint("I64 Generated(){return 42;}");} Generated();|} );
+    ( "generated array",
+      {|#exe {StreamPrint("I64 Values[2]={40,2};");} Values[0]+Values[1];|} );
+    ("task loop", {|#exe {I64 N=0;while(N<42)++N;StreamPrint("%d;",N);}|});
+    ("expression fragment", {|#exe {StreamPrint("40+");} 2;|});
+  ]
+
+let executable_identities executable =
+  let status, output, errors = capture executable [ "version" ] in
+  require
+    (status = Unix.WEXITED 0 && errors = "")
+    ("version identity failed: " ^ output ^ errors);
+  let lines = String.split_on_char '\n' output |> List.map String.trim in
+  let find prefix =
+    match
+      List.find_map
+        (fun line ->
+          if String.starts_with ~prefix line then
+            Some
+              (String.sub line (String.length prefix)
+                 (String.length line - String.length prefix))
+          else None)
+        lines
+    with
+    | Some value when value <> "" -> value
+    | _ -> failwith ("version identity missing " ^ prefix)
+  in
+  (find "implementation ", find "templeos-reference ")
 
 let omission_source =
   {|#exe {I64 N=38;I64 Out=0;U0 Print(U8 *s,I64 saved=++N,I64 required,I64 tail=1){Out=saved+required+tail;}N=0;"top",,2,;I64 Top=Out;U0 Saved(){"body",,2,;}Out=0;Saved;StreamPrint("%d;",Top+Out+N-42);}|}
@@ -132,6 +172,12 @@ let parameter_delimiters_source =
 
 let () =
   let executable = Sys.argv.(1) in
+  let implementation_commit, executable_reference_commit =
+    executable_identities executable
+  in
+  require
+    (executable_reference_commit = pinned_reference_commit)
+    "CLI executable must identify the pinned TempleOS reference";
   List.iter
     (fun (mode, fixture, limits) ->
       List.iter
@@ -409,6 +455,56 @@ let () =
         [ (62, 0); (61, 1) ])
     [ "jit"; "aot" ];
   List.iter
+    (fun (name, source) ->
+      List.iter
+        (fun mode ->
+          with_source source (fun path ->
+              let status, output, errors =
+                capture executable
+                  [
+                    "run";
+                    "--format=json";
+                    "--report-version=2";
+                    "--mode=" ^ mode;
+                    path;
+                  ]
+              in
+              require
+                (status = Unix.WEXITED 0 && errors = "")
+                ("acceptance gate " ^ name ^ " (" ^ mode ^ "): " ^ output
+               ^ errors);
+              let open Yojson.Basic.Util in
+              let report = Yojson.Basic.from_string output in
+              let final_value = report |> member "final_value" in
+              require
+                (report |> member "schema" |> to_string
+                 = "holyc-integer-program-v2"
+                && report |> member "outcome" |> to_string = "success"
+                && report |> member "mode" |> to_string = mode)
+                ("acceptance report contract " ^ name ^ " (" ^ mode ^ ")");
+              require
+                (report
+                 |> member "implementation_commit"
+                 |> to_string = implementation_commit
+                && report |> member "reference_commit" |> to_string
+                   = pinned_reference_commit)
+                ("acceptance report identities " ^ name ^ " (" ^ mode ^ ")");
+              require
+                (final_value |> member "type" |> to_string = "i64"
+                && final_value |> member "value" |> to_string = "42"
+                && final_value |> member "bits" |> to_string
+                   = "0x000000000000002a")
+                ("acceptance full I64 result " ^ name ^ " (" ^ mode ^ ")");
+              require
+                (report |> member "output_hex" |> to_string = ""
+                && report |> member "output_byte_length" |> to_int = 0)
+                ("acceptance output capture " ^ name ^ " (" ^ mode ^ ")");
+              require
+                (report |> member "diagnostics" |> to_list = [])
+                ("acceptance diagnostics " ^ name ^ " (" ^ mode ^ ")")))
+        [ "jit"; "aot" ])
+    acceptance_gates;
+  List.iter
     (fun (mode, text) ->
       with_source text (fun path ->
           let status, output, errors =
@@ -431,8 +527,6 @@ let () =
             (report |> member "output_hex" |> to_string = "")
             "stream output leaked into ordinary output"))
     [
-      ("jit", {|#exe {StreamPrint("42;");}|});
-      ("aot", {|#exe {StreamPrint("42;");}|});
       ( "jit",
         {|#exe {I64 Out=0;U0 Print(U8 *s,I64 a=40,I64 b,I64 c=1){Out=a+b+c;}"x",,1,;StreamPrint("%d;",Out);}|}
       );
@@ -452,6 +546,48 @@ let () =
         {|I64 N=20;I64 Next(){return ++N;};I64 Saved(I64 n=Next()){return n;};N=0;#exe {StreamPrint("%d;",Saved()+Saved());}|}
       );
     ];
+  List.iter
+    (fun mode ->
+      with_source {|#exe {StreamExePrint("42;");}|} (fun path ->
+          let status, output, errors =
+            capture executable
+              [
+                "run";
+                "--format=json";
+                "--report-version=2";
+                "--mode=" ^ mode;
+                path;
+              ]
+          in
+          require
+            (status = Unix.WEXITED 1 && errors = "")
+            ("StreamExePrint rejection " ^ mode ^ ": " ^ output ^ errors);
+          let open Yojson.Basic.Util in
+          let report = Yojson.Basic.from_string output in
+          require
+            (report |> member "schema" |> to_string = "holyc-integer-program-v2"
+            && report |> member "outcome" |> to_string = "error"
+            && report |> member "mode" |> to_string = mode)
+            ("StreamExePrint report contract " ^ mode);
+          require
+            (report
+             |> member "implementation_commit"
+             |> to_string = implementation_commit
+            && report |> member "reference_commit" |> to_string
+               = pinned_reference_commit)
+            ("StreamExePrint report identities " ^ mode);
+          require
+            (report |> member "final_value" = `Null)
+            ("StreamExePrint must not expose a successful result in " ^ mode);
+          require
+            (report |> member "output_hex" |> to_string = ""
+            && report |> member "output_byte_length" |> to_int = 0)
+            ("StreamExePrint must not emit ordinary output in " ^ mode);
+          require
+            (report |> member "diagnostics" |> to_list |> List.hd
+           |> member "code" |> to_string = "HCPARSE0001")
+            ("StreamExePrint unavailable diagnostic in " ^ mode)))
+    [ "jit"; "aot" ];
   List.iter
     (fun (source, mode, steps, prep) ->
       with_source source (fun path ->
