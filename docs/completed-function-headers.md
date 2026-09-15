@@ -32,9 +32,11 @@ and table ownership. The resulting header-local collection uses item index
 zero; that index does not stand for a published module item.
 
 Primitive, pointer and recursive function-pointer types use the existing
-signature converters. Named aggregate types currently lack retained source
-visibility in this API and return an explicit error before allocating a
-function scope or parameter symbols. A caller that needs repeated access must
+signature converters. Direct named aggregate pointers consume their
+[original retained selection](retained-named-types.md) from the function or
+parameter publication. Missing selection proofs and named types inside recursive
+callback signatures remain errors before allocating a function scope or
+parameter symbols. A caller that needs repeated access must
 retain its typed result: each successful resolution creates a new parameter
 scope. The task ledger retains one collected and typed header. Body completion
 extends its original parameter scope with locals, keeps the same typed header
@@ -153,12 +155,12 @@ Empty entries remain source evidence and do not become signature slots.
 
 [Header tests](../test/test_completed_function_header.ml) cover original child
 identity, recursive type parity, ownership, callback lifetime, journal replay,
-ledger retention, unsupported aggregate visibility and directive lookahead.
+ledger retention, missing aggregate selection and directive lookahead.
 These are hosted tests and pinned source evidence; no native execution capture
 is claimed. [Runtime tests](../test/test_pending_function_header.ml) also cover
 argument faults, skipped calls, retained defaults, variadics, shadows, recovery,
 provider timing, expired admission and resource limits. Provisional parameter
-runtime records, named aggregate visibility, native extern slots, linking and the
+runtime records, broader named aggregate uses, native extern slots, linking and the
 complete compiler remain unfinished.
 
 The [provisional source transcript](provisional-function-members.md) now retains

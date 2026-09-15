@@ -27,6 +27,15 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
+Issue #650 retains the named class selected by `PrsVar.HC:472-489` before
+following lexer effects. Pointer/name parsing and member installation use
+`:285-308,332-360,521-529`; function return publication uses
+`PrsStmt.HC:223-264,111-115`. The class allocation/forward-completion distinction
+is at `PrsStmt.HC:6-36`. The [retained type guide](docs/retained-named-types.md)
+separates those source semantics from hosted ownership proofs and the checked
+aggregate-pointer frame boundary. The pin is unchanged, and no new TempleOS
+native execution capture is implied.
+
 The audit currently covers `Compiler/Compiler.PRJ`, lexer definitions and implementation, include and definition frames, the six standard predefined values and their date and time formats, constant `#if` and `#assert` evaluation, help directives and source-linked help symbols, JIT/AOT and symbol conditional selection, path resolution, preprocessor documentation, diagnostics, character bitmaps, statement-position output literals and their runtime prototypes, structural switch and sub-switch statements, brace-delimited assembly blocks and labels, function-local operand-free direct assembly, function-wide language and assembly-label identity, function signature type resolution, closed aggregate byte layout, aggregate member metadata, global array dimensions, parenthesized and parenthesis-free calls, omitted argument slots, bracket index expressions, direct and pointer member expressions, the complete register and opcode database, primitive raw type constants, public integer union headers, the internal type table, compiler-option state, stored and parser-staging function flags, the complete intermediate-code definition and metadata tables, and the TempleOS BIN header and patch records. Parser, optimizer, kernel, loader, assembler, and backend reads establish how the original compiler consumes those fields. [docs/reference-source-map.md](docs/reference-source-map.md) records the findings and implementation links. The manifest verifies 73 individually audited Git blobs and identifies the full pinned tree used by the 528-file lexer and parser corpus reports.
 
 ## Lexer corpus audit

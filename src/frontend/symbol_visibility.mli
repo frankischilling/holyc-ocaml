@@ -46,6 +46,11 @@ val id : entry -> int
 val name : entry -> string
 val kind : entry -> kind
 val origin : entry -> origin
+
+val public_primitive : entry -> Common.Primitive_type.t option
+(** The primitive payload of an explicitly seeded public union. A normal Class
+    publication, including one with the same name or origin, carries none. *)
+
 val function_call_shape : entry -> function_call_shape option
 
 val function_alias_original : entry -> entry option
@@ -83,6 +88,19 @@ module Environment : sig
     entry
 
   val find_preprocessor : t -> string -> lookup
+
+  val add_public_primitive :
+    t -> primitive:Common.Primitive_type.t -> origin:origin -> entry
+  (** Seed the pinned public-union representation of a primitive. Its generated
+      primitive metadata supplies the spelling; ordinary source declarations
+      continue to use [add] and cannot inherit this payload by name. *)
+
+  val find_class : t -> string -> entry option
+  (** Return the newest visible Class entry with this spelling, ignoring
+      same-name entries of other kinds and local shadows. This mirrors the
+      class-filtered native hash lookup used when publishing an aggregate; task
+      views still see only baseline entries and publications owned by that
+      writer. *)
 
   val validate_function_alias :
     t -> original_entry:entry -> (unit, string) result

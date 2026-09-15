@@ -359,10 +359,13 @@ let validate_collected_aggregate ~table ~scope event collected
     (definition : Frontend.Ast.aggregate_definition) =
   let collected_symbol = Sema.Member_collection.aggregate_symbol collected in
   let collected_scope = Sema.Member_collection.aggregate_scope collected in
-  if not (same_symbol collected_symbol event.declaration_symbol) then
+  if not (Sema.Symbol_table.owns_symbol table collected_symbol) then
+    Error "semantic member collection belongs to a different symbol table"
+  else if collected_symbol != event.declaration_symbol then
     Error "semantic member collection has the wrong aggregate declaration"
-  else if not (same_symbol collected_symbol event.identity_symbol) then
-    Error "semantic member collection has the wrong canonical identity"
+    (* The collection belongs to the definition site. Its canonical class can
+     instead be the original forward declaration, whose identity is checked
+     separately against the resolved header. *)
   else if
     Sema.Member_collection.aggregate_item_index collected
     <> event.ast.item_index

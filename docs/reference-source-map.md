@@ -1,5 +1,16 @@
 # Reference source map
 
+[Retained named types](retained-named-types.md) in #650 follow
+`Compiler/PrsVar.HC:472-489`: the original token's `hash_entry` becomes `tmpc1`
+before the following lexer read. `PrsType` at `:285-308,332-360` carries that
+class through pointer and name lookahead, and `:521-529` installs the resulting
+member class. `Compiler/PrsStmt.HC:223-264,111-115` preserves the selected return
+class through function publication and parameter parsing. `PrsClass` at `:6-36`
+allocates new extern identities but reuses the selected unresolved class for a
+definition; a later resolved same-name class is a fresh identity. Hosted private
+source receipts and exact semantic ownership make those selections available
+to both retained header paths without granting execution or layout authority.
+
 [Outer JIT activation](integer-task.md) preserves the statement lookahead order
 in `Kernel/KTask.HC:337-344` and `Compiler/PrsStmt.HC:1209-1211`. Its original
 initializer/default receipts follow the declaration-time paths below. The first

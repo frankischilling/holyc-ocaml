@@ -78,6 +78,7 @@ module Semantic_break_resolution = Sema.Break_resolution
 module Semantic_aggregate_resolution = Sema.Aggregate_resolution
 module Semantic_type = Sema.Type
 module Semantic_type_reference = Sema.Type_reference
+module Semantic_source_type_reference = Sema.Source_type_reference
 module Semantic_aggregate_header_resolution = Sema.Aggregate_header_resolution
 module Semantic_member_type_resolution = Sema.Member_type_resolution
 module Semantic_aggregate_layout = Sema.Aggregate_layout
@@ -269,8 +270,9 @@ let resolve_function_types session ~declarations ~aggregates ~functions module_
     ~table:(Session.semantic_symbols session)
     ~declarations ~aggregates ~functions module_
 
-let resolve_completed_function_header session ~namespace declaration =
-  Driver.Function_type_resolution.resolve_completed_header
+let resolve_completed_function_header ?selected_aggregate session ~namespace
+    declaration =
+  Driver.Function_type_resolution.resolve_completed_header ?selected_aggregate
     ~table:(Session.semantic_symbols session)
     ~namespace declaration
 

@@ -1,5 +1,13 @@
 # holyc-ocaml compatibility status
 
+[Retained named types](retained-named-types.md) in #650 connect original
+aggregate selections to provisional and completed function headers. A later
+`#exe` class declaration cannot retarget an earlier direct pointer parameter.
+The private parser owner supplies the exact selected Class entry and pointer
+children; missing or substituted evidence rejects. Checked frame storage admits
+opaque aggregate pointers while general aggregate storage, member access,
+pointer-return execution and named callback signatures remain separate work.
+
 [Narrow integer execution](integer-narrow.md) in #633 adds I8/I16/U16/I32/U32
 storage, fixed arrays, references, canonical updates and numeric signatures.
 Signed normalization, full register transport, producer-specific computation

@@ -1173,11 +1173,11 @@ let read_local_sizeof ~dimensions ~table ~namespace ~function_publication
               == source.local_command
            && function_.function_environment == source.local_environment ->
         let declared_size type_specifier pointer_layers function_pointer =
-          let* type_reference =
-            Source_type_reference.builtin type_specifier pointer_layers
-          in
           match function_pointer with
           | Some (pointer : Ast.function_pointer_declarator) ->
+              let* _ =
+                Source_type_reference.builtin type_specifier pointer_layers
+              in
               let* depth =
                 Source_type_reference.pointer_depth pointer.indirection_layers
               in
@@ -1189,19 +1189,32 @@ let read_local_sizeof ~dimensions ~table ~namespace ~function_publication
                  original declarator is retained by this local publication. *)
                 Ok (Int64.of_int Primitive_type.pointer_byte_size, false)
           | None ->
-              let type_ = Type_reference.resolved_type type_reference in
-              let* byte_size = scalar_size type_ in
-              let internal =
-                Type.pointer_depth type_ = 0
-                &&
-                match Type.base type_ with
-                | Type.Primitive (Type.Internal_storage, _) -> true
-                | Type.Primitive (Type.Public_spelling, primitive) ->
-                    (Primitive_type.info primitive).declaration_form
-                    = Primitive_type.Internal_type
-                | Type.Aggregate _ -> false
+              let* pointer_depth =
+                Source_type_reference.pointer_depth pointer_layers
               in
-              Ok (byte_size, internal)
+              if pointer_depth > 0 then
+                (* PrsType (PrsVar.HC:298-308) advances an ordinary pointer
+                   declaration to its pointer companion while consuming the
+                   original '*' children. sizeof therefore needs no pointee
+                   layout or value load for this retained type query. *)
+                Ok (Int64.of_int Primitive_type.pointer_byte_size, false)
+              else
+                let* type_reference =
+                  Source_type_reference.builtin type_specifier pointer_layers
+                in
+                let type_ = Type_reference.resolved_type type_reference in
+                let* byte_size = scalar_size type_ in
+                let internal =
+                  Type.pointer_depth type_ = 0
+                  &&
+                  match Type.base type_ with
+                  | Type.Primitive (Type.Internal_storage, _) -> true
+                  | Type.Primitive (Type.Public_spelling, primitive) ->
+                      (Primitive_type.info primitive).declaration_form
+                      = Primitive_type.Internal_type
+                  | Type.Aggregate _ -> false
+                in
+                Ok (byte_size, internal)
         in
         let* byte_size, internal =
           match source.local_source with

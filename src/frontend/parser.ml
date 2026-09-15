@@ -347,9 +347,17 @@ let initializer_delimiter_is_current delimiter =
 
 type function_activity = { mutable function_active : bool }
 
+type named_aggregate_selection = {
+  type_specifier : Ast.type_specifier;
+  identifier : Ast.identifier;
+  environment : Symbol_visibility.Environment.t;
+  entry : Symbol_visibility.entry;
+}
+
 type function_publication = {
   function_activity : function_activity;
   function_header : declaration_header;
+  function_return_selection : named_aggregate_selection option;
   function_environment : Symbol_visibility.Environment.t;
   function_entry : Symbol_visibility.entry;
   function_previous : Symbol_visibility.lookup;
@@ -374,6 +382,7 @@ type function_parameter_publication = {
   parameter_predecessor : completed_function_parameter option;
   parameter_register_qualifiers : Ast.register_qualifier list;
   parameter_type_specifier : Ast.type_specifier;
+  parameter_type_selection : named_aggregate_selection option;
   parameter_pointer_layers : Ast.pointer_layer list;
   parameter_name : Ast.identifier option;
   parameter_function_pointer : Ast.function_pointer_declarator option;
@@ -556,6 +565,7 @@ and aggregate_publication = {
   aggregate_header : declaration_header;
   aggregate_environment : Symbol_visibility.Environment.t;
   aggregate_entry : Symbol_visibility.entry;
+  aggregate_previous : Symbol_visibility.entry option;
   aggregate_name : Ast.identifier;
   aggregate_kind : Ast.aggregate_kind;
   aggregate_activity : aggregate_activity;
@@ -1745,53 +1755,82 @@ let primitive_type_of_token token =
       Common.Primitive_type.of_spelling (token_text token)
   | _ -> None
 
-let internal_type_of_token cursor token =
-  match token.Token.kind with
-  | Token_kind.Identifier -> (
-      match
-        Symbol_visibility.Environment.find_preprocessor cursor.symbols
-          (token_text token)
-      with
-      | Symbol_visibility.Present entry
-        when Symbol_visibility.kind entry = Symbol_visibility.Internal_type ->
-          Common.Primitive_type.of_storage_spelling (token_text token)
-      | Symbol_visibility.Present _
-      | Symbol_visibility.Absent
-      | Symbol_visibility.Shadowed_by_local -> None)
+let internal_type_from_lookup token = function
+  | Symbol_visibility.Present entry
+    when Symbol_visibility.kind entry = Symbol_visibility.Internal_type ->
+      Common.Primitive_type.of_storage_spelling (token_text token)
+  | Symbol_visibility.Present _
+  | Symbol_visibility.Absent
+  | Symbol_visibility.Shadowed_by_local -> None
+
+let internal_type_of_item cursor item =
+  match item.token.Token.kind with
+  | Token_kind.Identifier ->
+      let lookup =
+        match item.selection with
+        | Some (_, lookup) -> lookup
+        | None ->
+            Symbol_visibility.Environment.find_preprocessor cursor.symbols
+              (token_text item.token)
+      in
+      internal_type_from_lookup item.token lookup
   | _ -> None
 
-let token_is_named_type cursor token =
-  match token.Token.kind with
-  | Token_kind.Identifier | Token_kind.Keyword _ -> (
-      match
-        Symbol_visibility.Environment.find_preprocessor cursor.symbols
-          (token_text token)
-      with
-      | Symbol_visibility.Present entry ->
-          Symbol_visibility.kind entry = Symbol_visibility.Class
-      | Symbol_visibility.Absent | Symbol_visibility.Shadowed_by_local -> false)
-  | _ -> false
+let selected_class cursor item =
+  let lookup =
+    match item.selection with
+    | Some (environment, lookup) -> Some (environment, lookup)
+    | None ->
+        Some
+          ( cursor.symbols,
+            Symbol_visibility.Environment.find_preprocessor cursor.symbols
+              (token_text item.token) )
+  in
+  match (item.token.Token.kind, lookup) with
+  | ( (Token_kind.Identifier | Token_kind.Keyword _),
+      Some (environment, Symbol_visibility.Present entry) )
+    when Symbol_visibility.kind entry = Symbol_visibility.Class ->
+      Some (environment, entry)
+  | _ -> None
 
-let type_specifier_of_item cursor item =
-  match primitive_type_of_token item.token with
-  | Some primitive ->
+let selected_named_type cursor item =
+  match selected_class cursor item with
+  | Some (_, entry) as selection
+    when Option.is_none (Symbol_visibility.public_primitive entry) -> selection
+  | _ -> None
+
+let item_is_named_type cursor item = Option.is_some (selected_class cursor item)
+
+let type_specifier_with_selection_of_item cursor item =
+  match selected_named_type cursor item with
+  | Some (environment, entry) ->
+      let identifier =
+        Ast.make_identifier ~spelling:item.token.raw
+          ~location:(token_location item.token)
+      in
+      let type_specifier = Ast.Named_type_specifier identifier in
       Some
-        (Ast.Primitive_type_specifier
-           (Ast.make_primitive_type ~primitive ~spelling:item.token.raw
-              ~location:(token_location item.token)))
+        (type_specifier, Some { type_specifier; identifier; environment; entry })
   | None -> (
-      match internal_type_of_token cursor item.token with
+      match primitive_type_of_token item.token with
       | Some primitive ->
           Some
-            (Ast.Internal_type_specifier
-               (Ast.make_internal_type ~primitive ~spelling:item.token.raw
-                  ~location:(token_location item.token)))
-      | None when token_is_named_type cursor item.token ->
-          Some
-            (Ast.Named_type_specifier
-               (Ast.make_identifier ~spelling:item.token.raw
-                  ~location:(token_location item.token)))
-      | None -> None)
+            ( Ast.Primitive_type_specifier
+                (Ast.make_primitive_type ~primitive ~spelling:item.token.raw
+                   ~location:(token_location item.token)),
+              None )
+      | None -> (
+          match internal_type_of_item cursor item with
+          | Some primitive ->
+              Some
+                ( Ast.Internal_type_specifier
+                    (Ast.make_internal_type ~primitive ~spelling:item.token.raw
+                       ~location:(token_location item.token)),
+                  None )
+          | None -> None))
+
+let type_specifier_of_item cursor item =
+  Option.map fst (type_specifier_with_selection_of_item cursor item)
 
 let symbol_source_origin (location : Ast.location) =
   Symbol_visibility.Source_location
@@ -1851,7 +1890,11 @@ let declaration_header cursor ~modifiers ~binding ~type_specifier =
     type_specifier;
   }
 
-let declare_aggregate cursor at ~modifiers ~binding ~aggregate_kind name =
+let declare_aggregate cursor at ~modifiers ~binding ~aggregate_kind
+    (name : Ast.identifier) =
+  let aggregate_previous =
+    Symbol_visibility.Environment.find_class cursor.symbols name.spelling
+  in
   let source =
     {
       aggregate_header =
@@ -1859,6 +1902,7 @@ let declare_aggregate cursor at ~modifiers ~binding ~aggregate_kind name =
           ~type_specifier:(Ast.Named_type_specifier name);
       aggregate_environment = cursor.symbols;
       aggregate_entry = publish_class cursor name;
+      aggregate_previous;
       aggregate_name = name;
       aggregate_kind;
       aggregate_activity =
@@ -1918,7 +1962,8 @@ let complete_aggregate cursor at source item =
     (fun () -> publish_declaration cursor at (Aggregate_completed completed));
   item
 
-let declare_function cursor header (prefix : parsed_declarator_prefix) opening =
+let declare_function cursor header ~return_selection
+    (prefix : parsed_declarator_prefix) opening =
   if not cursor.stop_on_error then None
   else
     let function_previous =
@@ -1939,6 +1984,7 @@ let declare_function cursor header (prefix : parsed_declarator_prefix) opening =
       {
         function_activity = { function_active = true };
         function_header = header;
+        function_return_selection = return_selection;
         function_environment = cursor.symbols;
         function_entry;
         function_previous;
@@ -3695,7 +3741,7 @@ let parse_aggregate_base cursor =
     let base_item = peek cursor in
     if
       (not (token_is_name_position_identifier base_item.token))
-      || not (token_is_named_type cursor base_item.token)
+      || not (item_is_named_type cursor base_item)
     then (
       let message =
         if token_is_name_position_identifier base_item.token then
@@ -4943,7 +4989,8 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
                 parsed_tail)
 
 let finish_function_parameter ?default_context cursor ~register_qualifiers
-    ~type_specifier ~pointer_layers ~name ~function_pointer ~tokens =
+    ~type_specifier ~type_selection ~pointer_layers ~name ~function_pointer
+    ~tokens =
   (* PrsType leaves the following token current. Native MemberAdd precedes
      default input, including any directive reached by Lex beyond '='. *)
   let following_head = peek cursor in
@@ -4957,6 +5004,7 @@ let finish_function_parameter ?default_context cursor ~register_qualifiers
             parameter_predecessor = List.nth_opt !completions 0;
             parameter_register_qualifiers = register_qualifiers;
             parameter_type_specifier = type_specifier;
+            parameter_type_selection = type_selection;
             parameter_pointer_layers = pointer_layers;
             parameter_name = name;
             parameter_function_pointer = function_pointer;
@@ -5091,8 +5139,8 @@ let finish_function_parameter ?default_context cursor ~register_qualifiers
 let rec parse_function_parameter ?default_context cursor ~prefix_qualifiers
     ~prefix_tokens ~function_pointer_depth =
   let type_item = peek cursor in
-  match type_specifier_of_item cursor type_item with
-  | Some type_specifier -> (
+  match type_specifier_with_selection_of_item cursor type_item with
+  | Some (type_specifier, type_selection) -> (
       let type_item = take cursor in
       let suffix =
         parse_register_qualifiers cursor ~position:Ast.After_type [] []
@@ -5116,8 +5164,9 @@ let rec parse_function_parameter ?default_context cursor ~prefix_qualifiers
             | None -> None
             | Some parsed ->
                 finish_function_parameter ?default_context cursor
-                  ~register_qualifiers ~type_specifier ~pointer_layers
-                  ~name:parsed.name ~function_pointer:(Some parsed.node)
+                  ~register_qualifiers ~type_specifier ~type_selection
+                  ~pointer_layers ~name:parsed.name
+                  ~function_pointer:(Some parsed.node)
                   ~tokens:(leading_tokens @ parsed.tokens)
           else if token_is_name_position_identifier next_item.token then
             let name_item = take cursor in
@@ -5126,13 +5175,14 @@ let rec parse_function_parameter ?default_context cursor ~prefix_qualifiers
                 ~location:(token_location name_item.token)
             in
             finish_function_parameter ?default_context cursor
-              ~register_qualifiers ~type_specifier ~pointer_layers
-              ~name:(Some name) ~function_pointer:None
+              ~register_qualifiers ~type_specifier ~type_selection
+              ~pointer_layers ~name:(Some name) ~function_pointer:None
               ~tokens:(leading_tokens @ [ name_item.token ])
           else
             finish_function_parameter ?default_context cursor
-              ~register_qualifiers ~type_specifier ~pointer_layers ~name:None
-              ~function_pointer:None ~tokens:leading_tokens)
+              ~register_qualifiers ~type_specifier ~type_selection
+              ~pointer_layers ~name:None ~function_pointer:None
+              ~tokens:leading_tokens)
   | _ ->
       declaration_failure cursor type_item ~code:"HCPARSE0009"
         ~message:
@@ -5493,12 +5543,13 @@ and parse_function_parameters ?default_owner ?(reset_position = true) cursor
             ~function_pointer_depth)
 
 let parse_function_prototype cursor ~modifier_tokens ~modifiers ~binding_tokens
-    ~binding ~type_item ~return_type (prefix : parsed_declarator_prefix) =
+    ~binding ~type_item ~return_type ~return_selection
+    (prefix : parsed_declarator_prefix) =
   let provisional =
     declare_function cursor
       (declaration_header cursor ~modifiers ~binding:(Some binding)
          ~type_specifier:return_type)
-      prefix (peek cursor)
+      ~return_selection prefix (peek cursor)
   in
   let opening = take cursor in
   let opening_parenthesis =
@@ -5683,8 +5734,8 @@ let parse_global cursor ~parse_function_definition =
                 | Bad_binding -> assert false
               in
               let type_item = peek cursor in
-              match type_specifier_of_item cursor type_item with
-              | Some type_specifier -> (
+              match type_specifier_with_selection_of_item cursor type_item with
+              | Some (type_specifier, type_selection) -> (
                   let type_item = take cursor in
                   match aggregate_kind_after_backing cursor ~offset:0 with
                   | Some aggregate_kind -> (
@@ -5726,11 +5777,13 @@ let parse_global cursor ~parse_function_definition =
                           | Token_kind.Punctuation '(', Some binding ->
                               parse_function_prototype cursor ~modifier_tokens
                                 ~modifiers ~binding_tokens ~binding ~type_item
-                                ~return_type:type_specifier first_prefix
+                                ~return_type:type_specifier
+                                ~return_selection:type_selection first_prefix
                           | Token_kind.Punctuation '(', None ->
                               parse_function_definition cursor ~modifier_tokens
                                 ~modifiers ~type_item
-                                ~return_type:type_specifier first_prefix
+                                ~return_type:type_specifier
+                                ~return_selection:type_selection first_prefix
                           | _ -> (
                               match
                                 parse_variable_declarator_suffix
@@ -6509,18 +6562,18 @@ let token_starts_statement_expression cursor token =
       true
   | _ -> false
 
-let token_starts_global_declaration cursor token =
-  Option.is_some (primitive_type_of_token token)
-  || Option.is_some (internal_type_of_token cursor token)
-  || token_is_named_type cursor token
-  || Option.is_some (aggregate_kind_of_token token)
-  || Option.is_some (declaration_modifier_kind token)
-  || Option.is_some (declaration_binding_kind token)
-  || token.kind = Token_kind.Keyword Keyword.Underscore_intern
+let token_starts_global_declaration cursor item =
+  Option.is_some (primitive_type_of_token item.token)
+  || Option.is_some (internal_type_of_item cursor item)
+  || item_is_named_type cursor item
+  || Option.is_some (aggregate_kind_of_token item.token)
+  || Option.is_some (declaration_modifier_kind item.token)
+  || Option.is_some (declaration_binding_kind item.token)
+  || item.token.kind = Token_kind.Keyword Keyword.Underscore_intern
   ||
-  match token.kind with
+  match item.token.kind with
   | Token_kind.Identifier ->
-      not (statement_symbol_is_expression cursor (token_text token))
+      not (statement_symbol_is_expression cursor (token_text item.token))
   | _ -> false
 
 let parse_empty_statement cursor : parsed_statement =
@@ -7859,9 +7912,8 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
   let item = peek cursor in
   match item.token.kind with
   | (Token_kind.Identifier | Token_kind.Keyword _)
-    when Option.is_some cursor.local_context
-         && token_is_named_type cursor item.token ->
-      parse_local_declaration cursor ~boundary
+    when Option.is_some cursor.local_context && item_is_named_type cursor item
+    -> parse_local_declaration cursor ~boundary
   | Token_kind.Keyword _
     when token_is_contextual_identifier_operand cursor item.token ->
       parse_expression_statement cursor ~boundary
@@ -7929,8 +7981,8 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
   | Token_kind.Identifier
     when Option.is_some cursor.local_context
          && (Option.is_some (primitive_type_of_token item.token)
-            || Option.is_some (internal_type_of_token cursor item.token)
-            || token_is_named_type cursor item.token) ->
+            || Option.is_some (internal_type_of_item cursor item)
+            || item_is_named_type cursor item) ->
       parse_local_declaration cursor ~boundary
   | _ when token_starts_statement_expression cursor item.token ->
       parse_expression_statement cursor ~boundary
@@ -7951,7 +8003,7 @@ let rec parse_statement_atom cursor ~boundary ~block_depth ~conditional_depth
                 "label or declaration syntax for unresolved identifier %S \
                  after a statement comma is not implemented"
                 (token_text item.token) )
-        | _ when token_starts_global_declaration cursor item.token ->
+        | _ when token_starts_global_declaration cursor item ->
             ( "HCPARSE0048",
               "a declaration after a statement comma is not implemented" )
         | _ ->
@@ -9008,12 +9060,12 @@ and parse_statement_sequence cursor ~boundary ~block_depth ~conditional_depth
               })
 
 let parse_function_definition cursor ~modifier_tokens ~modifiers ~type_item
-    ~return_type (prefix : parsed_declarator_prefix) =
+    ~return_type ~return_selection (prefix : parsed_declarator_prefix) =
   let provisional =
     declare_function cursor
       (declaration_header cursor ~modifiers ~binding:None
          ~type_specifier:return_type)
-      prefix (peek cursor)
+      ~return_selection prefix (peek cursor)
   in
   let opening = take cursor in
   let opening_parenthesis =
@@ -9092,7 +9144,7 @@ let read_command cursor =
   | Token_kind.Identifier
     when token_starts_function_label cursor item.token
          || token_starts_inline_assembly cursor item.token -> statement ()
-  | _ when token_starts_global_declaration cursor item.token ->
+  | _ when token_starts_global_declaration cursor item ->
       parse_global cursor ~parse_function_definition
   | _ -> statement ()
 

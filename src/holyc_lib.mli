@@ -180,6 +180,7 @@ module Semantic_break_resolution = Sema.Break_resolution
 module Semantic_aggregate_resolution = Sema.Aggregate_resolution
 module Semantic_type = Sema.Type
 module Semantic_type_reference = Sema.Type_reference
+module Semantic_source_type_reference = Sema.Source_type_reference
 module Semantic_aggregate_header_resolution = Sema.Aggregate_header_resolution
 module Semantic_member_type_resolution = Sema.Member_type_resolution
 module Semantic_aggregate_layout = Sema.Aggregate_layout
@@ -411,12 +412,15 @@ val resolve_function_types :
     checking, storage, and linkage remain separate passes. *)
 
 val resolve_completed_function_header :
+  ?selected_aggregate:
+    Semantic_function_type_resolution.selected_aggregate_resolver ->
   Session.t ->
   namespace:Semantic_declaration_collection.namespace ->
   Semantic_compiler_record.declared_function ->
   (Semantic_function_type_resolution.resolved_function, string) result
-(** Type the original completed header without a body or command AST. Executable
-    publication and task admission remain separate operations. *)
+(** Type the original completed header without a body or command AST. Direct
+    named aggregate pointers require their original selected-type proofs.
+    Executable publication and task admission remain separate operations. *)
 
 val resolve_local_types :
   Session.t ->

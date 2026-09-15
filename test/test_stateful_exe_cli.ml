@@ -131,7 +131,43 @@ let parameter_delimiters_source =
   "I64 F(;;I64 n=40,;;I64 m=2,;;){return n+m;};F();"
 
 let () =
+  require
+    (Array.length Sys.argv = 13)
+    "stateful CLI tests require the executable and eleven source fixtures";
   let executable = Sys.argv.(1) in
+  List.iter
+    (fun mode ->
+      let status, output, errors =
+        capture executable
+          [
+            "run";
+            "--format=json";
+            "--report-version=2";
+            "--mode=" ^ mode;
+            Sys.argv.(12);
+          ]
+      in
+      require
+        (status = Unix.WEXITED 0 && errors = "")
+        ("retained named type fixture: " ^ output ^ errors);
+      let open Yojson.Basic.Util in
+      let report = Yojson.Basic.from_string output in
+      require
+        (report |> member "outcome" |> to_string = "success")
+        "retained named type successful outcome";
+      require
+        (report |> member "final_value" |> member "type" |> to_string = "i64")
+        "retained named type result class";
+      require
+        (report |> member "final_value" |> member "value" |> to_string = "42")
+        "retained named type result";
+      require
+        (report |> member "diagnostics" |> to_list = [])
+        "retained named type diagnostics";
+      require
+        (report |> member "output_hex" |> to_string = "")
+        "retained named type ordinary output")
+    [ "jit"; "aot" ];
   List.iter
     (fun (mode, fixture, limits) ->
       List.iter

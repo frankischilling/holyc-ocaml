@@ -15,13 +15,28 @@ val make_declaration :
 (** Build one checked aggregate declaration fact without changing the symbol
     table. *)
 
+val make_retained_declaration :
+  symbol:Symbol.t ->
+  identity_symbol:Symbol.t ->
+  declaration_kind:declaration_kind ->
+  aggregate_kind:aggregate_kind ->
+  item_index:int ->
+  (declaration, string) result
+(** Build a declaration with a retained canonical identity. [identity_symbol] is
+    permitted only for a definition and denotes retained source-order evidence
+    for an already established canonical aggregate identity; forwards always
+    start fresh. [resolve] validates the hint's table, scope, spelling and
+    completion consistency. *)
+
 val resolve :
   table:Symbol_table.t ->
   parent:Symbol_table.scope ->
   declaration list ->
   (t, string) result
 (** Reconcile declarations in source order. A definition completes only the
-    newest same-name identity when that identity is still a forward. *)
+    newest same-name identity when that identity is still a forward. A completed
+    identity keeps the first forward's symbol; the definition remains a distinct
+    declaration site and supplies the effective aggregate kind. *)
 
 val identities : t -> identity list
 val declarations : t -> resolved_declaration list

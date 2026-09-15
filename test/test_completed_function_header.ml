@@ -2,21 +2,49 @@ open Holyc_lib
 module C = Semantic_declaration_collection
 module R = Semantic_compiler_record
 module H = Semantic_function_type_resolution
+module S = Semantic_source_type_reference
+module D = Holyc_lib__Driver.Function_type_resolution
 
 let checked = Test_declaration_collection.checked
 
-let parse ?(observe = fun _ _ _ -> ())
-    ?(type_header =
-      fun session namespace declared ->
-        resolve_completed_function_header session ~namespace declared |> checked)
-    text =
+let parse ?(observe = fun _ _ _ -> ()) ?type_header text =
   let session = Session.create () in
   let table = Session.semantic_symbols session in
   let namespace = C.create_namespace ~table () |> checked in
   let source =
     Session.add_source session ~path:"completed-header.hc" ~contents:text
   in
-  let publications = ref [] and headers = ref [] in
+  let publications = ref [] and aggregate_publications = ref [] in
+  let selected_aggregates = ref [] and headers = ref [] in
+  let semantic_aggregate entry =
+    !aggregate_publications
+    |> List.find (fun (source, _) -> source.Parser.aggregate_entry == entry)
+    |> snd
+  in
+  let retain_selected source type_specifier selection =
+    match selection with
+    | None -> ()
+    | Some selection ->
+        let publication = semantic_aggregate selection.Parser.entry in
+        let proof =
+          S.select_aggregate ~table ~namespace ~source publication |> checked
+        in
+        selected_aggregates := (type_specifier, proof) :: !selected_aggregates
+  in
+  let selected_aggregate type_specifier =
+    List.find_map
+      (fun (source, proof) ->
+        if source == type_specifier then Some proof else None)
+      !selected_aggregates
+  in
+  let type_header session namespace declared =
+    match type_header with
+    | Some resolve -> resolve session namespace selected_aggregate declared
+    | None ->
+        resolve_completed_function_header ~selected_aggregate session ~namespace
+          declared
+        |> checked
+  in
   let commands : Parser.command_sink =
     {
       checkpoint = None;
@@ -29,10 +57,21 @@ let parse ?(observe = fun _ _ _ -> ())
         Some
           (fun event ->
             (match event with
+            | Parser.Aggregate_declared source ->
+                aggregate_publications :=
+                  (source, C.publish_aggregate namespace source |> checked)
+                  :: !aggregate_publications
             | Parser.Function_declared source ->
+                retain_selected (S.Function_return source)
+                  source.function_header.type_specifier
+                  source.function_return_selection;
                 publications :=
                   (source, C.publish_function namespace source |> checked)
                   :: !publications
+            | Parser.Function_parameter_declared source ->
+                retain_selected (S.Function_parameter source)
+                  source.parameter_type_specifier
+                  source.parameter_type_selection
             | Parser.Function_header_completed header ->
                 let publication =
                   List.assq header.function_publication !publications
@@ -230,15 +269,15 @@ let unsupported_types () =
       try
         ignore
           (parse
-             ~type_header:(fun session namespace declared ->
+             ~type_header:(fun session namespace selected_aggregate declared ->
                let table = Session.semantic_symbols session in
                let scopes = Semantic_symbol_table.all_scopes table in
                let symbols = Semantic_symbol_table.all_symbols table in
                Alcotest.(check bool)
-                 "missing aggregate visibility is explicit" true
+                 "unsupported aggregate shape is explicit" true
                  (Result.is_error
-                    (resolve_completed_function_header session ~namespace
-                       declared));
+                    (D.resolve_completed_header ~selected_aggregate ~table
+                       ~namespace declared));
                Alcotest.(check int)
                  "no scope allocated on unsupported type" (List.length scopes)
                  (List.length (Semantic_symbol_table.all_scopes table));
@@ -251,9 +290,43 @@ let unsupported_types () =
         Alcotest.fail "missing completed header"
       with Exit -> ())
     [
+      "class Node {}; extern Node F();";
+      "class Node {}; extern I64 F(Node node);";
+      "class Node {}; extern I64 F(U0 (*callback)(Node *node));";
+    ]
+
+let aggregate_pointer_types () =
+  List.iter
+    (fun text ->
+      let _, _, headers = parse text in
+      match headers with
+      | [ (_, _, _, typed) ] ->
+          let return_type =
+            H.function_return_type typed
+            |> Semantic_type_reference.resolved_type
+          in
+          let parameters =
+            H.function_signature typed |> H.signature_parameters
+          in
+          let aggregate_pointer type_ =
+            Semantic_type.pointer_depth type_ = 1
+            &&
+            match Semantic_type.base type_ with
+            | Semantic_type.Aggregate _ -> true
+            | Semantic_type.Primitive _ -> false
+          in
+          Alcotest.(check bool)
+            "named aggregate pointer retained in completed header" true
+            (aggregate_pointer return_type
+            || List.exists
+                 (fun parameter ->
+                   H.parameter_type_reference parameter
+                   |> Semantic_type_reference.resolved_type |> aggregate_pointer)
+                 parameters)
+      | _ -> Alcotest.fail "expected one completed aggregate-pointer header")
+    [
       "class Node {}; extern Node *F();";
       "class Node {}; extern I64 F(Node *node);";
-      "class Node {}; extern I64 F(U0 (*callback)(Node *node));";
     ]
 
 let lookahead () =
@@ -461,8 +534,11 @@ let tests =
       callback_exception;
     Alcotest.test_case "recursive types defaults and register parity" `Quick
       signature_parity;
-    Alcotest.test_case "unsupported aggregate visibility allocates nothing"
-      `Quick unsupported_types;
+    Alcotest.test_case
+      "aggregate values and nested callback names remain unsupported" `Quick
+      unsupported_types;
+    Alcotest.test_case "selected aggregate pointer headers" `Quick
+      aggregate_pointer_types;
     Alcotest.test_case "native header and body lookahead phases" `Quick
       lookahead;
     Alcotest.test_case "declaration ledger retains one header witness" `Quick
