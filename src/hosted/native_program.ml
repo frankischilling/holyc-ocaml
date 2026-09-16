@@ -1,3 +1,4 @@
+open Driver
 module Ast = Frontend.Ast
 module Image = Backend.X86_64_program
 module Native = Runtime.Native_program_execution
@@ -16,6 +17,8 @@ type report = {
   native_outcome_ : Image.outcome option;
   platform_ : Native.platform;
   executed_steps_ : int option;
+  preparation_steps_ : int;
+  default_bytes_ : int;
 }
 
 let ( let* ) = Result.bind
@@ -102,10 +105,6 @@ let function_source_error (definition : Ast.function_definition) =
           reject "native functions do not admit explicit parameter registers"
         else if Option.is_none parameter.name then
           reject "native function definitions require named fixed parameters"
-        else if Option.is_some parameter.default then
-          reject
-            "native parameter defaults require original declaration-time \
-             preparation, which this compile-only source gate does not admit"
         else None)
       definition.parameters
 
@@ -421,26 +420,134 @@ let program_storage_errors compiled span =
     add "native programs require zero dimension preparation work";
   List.rev !errors
 
-let compile ?(max_ir_instructions = 4096) ?(max_code_bytes = 65536)
-    ?(max_stack_bytes = Image.hard_max_stack_bytes) ?(max_blocks = 4096)
-    ?status_abi session ~config ~source =
+let compile_with_preparation ?(max_ir_instructions = 4096)
+    ?(max_code_bytes = 65536) ?(max_stack_bytes = Image.hard_max_stack_bytes)
+    ?(max_blocks = 4096) ?(max_initializer_steps = 100_000)
+    ?(max_default_bytes = 65_536) ?status_abi ~preparation_steps ~default_bytes
+    session ~config ~source =
   let span = Integer_source.source_span source in
+  let* () =
+    if max_initializer_steps > 0 && max_default_bytes > 0 then Ok ()
+    else
+      Error
+        [
+          diagnostic ~span "HCIRVM0001"
+            "max_initializer_steps and max_default_bytes must be greater than \
+             zero";
+        ]
+  in
   let* () =
     validate_limits ~span ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
       ~max_blocks
   in
+  let* ledger =
+    Task_declarations.create_source ~max_offset_work:max_initializer_steps
+      session ~source
+    |> Result.map_error (fun message ->
+        [ diagnostic ~span "HCRUN0004" message ])
+  in
+  let* preparation =
+    Native_default_preparation.create
+      ~compilation_mode:(Frontend.Preprocessor.Config.compilation_mode config)
+      ~max_initializer_steps ~max_default_bytes session
+    |> Result.map_error (fun message ->
+        [ diagnostic ~span "HCIRVM0001" message ])
+  in
+  let entry_statement_seen = ref false in
+  let commands : Frontend.Parser.command_sink =
+    {
+      checkpoint =
+        Some
+          (fun event ->
+            let* () = Task_declarations.observe_command ledger event in
+            (match event with
+            | Frontend.Parser.Command_completed receipt ->
+                if
+                  List.exists
+                    (function
+                      | Ast.Top_level_statement (Ast.Empty_statement _) -> false
+                      | Ast.Top_level_statement _ -> true
+                      | _ -> false)
+                    receipt.command_ast.items
+                then entry_statement_seen := true
+            | _ -> ());
+            Ok ());
+      query = Some (Task_declarations.observe_query ledger);
+      call = None;
+      implicit_output = Some (Task_declarations.observe_implicit_output ledger);
+      reference = Some (Task_declarations.observe_reference ledger);
+      declaration =
+        Some
+          (fun event ->
+            let* () =
+              match event with
+              | Frontend.Parser.Parameter_default_completed receipt
+                when !entry_statement_seen ->
+                  Error
+                    [
+                      diagnostic ~span:receipt.default_ast.location.span
+                        "HCRUN0006"
+                        "native defaults must precede executable top-level \
+                         statements; interleaved declaration execution is \
+                         unsupported";
+                    ]
+              | Frontend.Parser.Array_dimension_preparing receipt ->
+                  Error
+                    [
+                      diagnostic ~span:receipt.dimension_opening.span
+                        "HCRUN0001" "native source does not admit array storage";
+                    ]
+              | Frontend.Parser.Aggregate_declared _
+              | Frontend.Parser.Global_declared _ ->
+                  Error
+                    [
+                      diagnostic ~span "HCRUN0001"
+                        "native source does not admit aggregate or global \
+                         declarations";
+                    ]
+              | _ -> Ok ()
+            in
+            let* () = Task_declarations.observe ledger event in
+            match event with
+            | Frontend.Parser.Parameter_default_completed receipt ->
+                Native_default_preparation.prepare preparation ~session ~ledger
+                  receipt
+            | Frontend.Parser.Function_header_completed header ->
+                Task_declarations.complete_source_defaults ledger header
+            | _ -> Ok ());
+      dimension_count = Some (Task_declarations.grammar_dimension_count ledger);
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
   let parsed =
-    Frontend.Parser.parse ~sources:(Session.sources session)
+    Frontend.Parser.parse ~commands ~sources:(Session.sources session)
       ~definitions:(Session.definitions session)
       ~symbols:(Session.symbols session) ~config source
   in
+  preparation_steps := Native_default_preparation.work preparation;
+  default_bytes := Native_default_preparation.bytes preparation;
   match parsed.ast with
   | None -> Error parsed.diagnostics
   | Some ast -> (
       match ast_errors ast with
       | _ :: _ as errors -> Error (parsed.diagnostics @ errors)
       | [] -> (
-          match Integer_unit.compile_ast session ~config ast with
+          let* source_command =
+            Task_declarations.seal_source ledger ast
+            |> Result.map_error (fun errors -> parsed.diagnostics @ errors)
+          in
+          let* prepared_defaults =
+            Task_declarations.native_source_defaults
+              ~table:(Session.semantic_symbols session)
+              ~ast source_command
+            |> Result.map_error (fun errors -> parsed.diagnostics @ errors)
+          in
+          match
+            Integer_unit.compile_source_output ~source_command
+              ~max_initializer_steps session ~config
+              { parsed with diagnostics = [] }
+          with
           | Error errors -> Error (parsed.diagnostics @ errors)
           | Ok checked -> (
               let diagnostics = parsed.diagnostics @ checked.diagnostics in
@@ -453,8 +560,31 @@ let compile ?(max_ir_instructions = 4096) ?(max_code_bytes = 65536)
                           ~max_ir_instructions ~max_code_bytes
                           (Integer_unit.entry checked.value)
                     | functions ->
-                        Image.compile_callable ?status_abi ~max_stack_bytes
-                          ~max_blocks ~max_ir_instructions ~max_code_bytes
+                        let* parameter_defaults =
+                          Native_parameter_defaults.create
+                            ~globals:(Integer_unit.globals checked.value)
+                            ~runtime_calls:
+                              (Integer_unit.runtime_calls checked.value)
+                            ~initialization:
+                              (Integer_unit.initialization checked.value)
+                            ~entry:(Integer_unit.entry checked.value)
+                            ~functions ~prepared:prepared_defaults
+                            ~completions:
+                              (Native_default_preparation.completions
+                                 preparation)
+                          |> Result.map_error (fun message ->
+                              [
+                                Backend.X86_64_program.
+                                  {
+                                    code = "HCBACK0002";
+                                    message;
+                                    span = Some span;
+                                  };
+                              ])
+                        in
+                        Image.compile_callable ~parameter_defaults ?status_abi
+                          ~max_stack_bytes ~max_blocks ~max_ir_instructions
+                          ~max_code_bytes
                           ~runtime_calls:
                             (Integer_unit.runtime_calls checked.value)
                           ~initialization:
@@ -464,6 +594,13 @@ let compile ?(max_ir_instructions = 4096) ?(max_code_bytes = 65536)
                   |> Result.map (fun image -> { value = image; diagnostics })
                   |> Result.map_error (fun errors ->
                       diagnostics @ image_errors ~fallback:span errors))))
+
+let compile ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
+    ?max_initializer_steps ?max_default_bytes ?status_abi session ~config
+    ~source =
+  compile_with_preparation ?max_ir_instructions ?max_code_bytes ?max_stack_bytes
+    ?max_blocks ?max_initializer_steps ?max_default_bytes ?status_abi
+    ~preparation_steps:(ref 0) ~default_bytes:(ref 0) session ~config ~source
 
 let fault_diagnostic ~fallback (fault : Image.fault) =
   let code, message =
@@ -518,13 +655,15 @@ let host_diagnostic ~span platform message =
     message
 
 let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
+    ?(max_initializer_steps = 100_000) ?(max_default_bytes = 65_536)
     ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
     ?(max_active_stack_bytes = Native.hard_max_active_stack_bytes) ?status_abi
     session ~config ~source ~max_steps =
   let span = Integer_source.source_span source in
   let platform = Native.platform () in
   if
-    max_steps <= 0 || max_frame_bytes <= 0 || max_call_depth <= 0
+    max_steps <= 0 || max_initializer_steps <= 0 || max_default_bytes <= 0
+    || max_frame_bytes <= 0 || max_call_depth <= 0
     || max_active_stack_bytes <= 0
     || max_active_stack_bytes > Native.hard_max_active_stack_bytes
   then
@@ -534,20 +673,25 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
           [
             diagnostic ~span "HCIRVM0001"
               (Printf.sprintf
-                 "max_steps, max_frame_bytes and max_call_depth must be \
-                  greater than zero; max_active_stack_bytes must be between 1 \
-                  and %d"
+                 "max_steps, max_initializer_steps, max_default_bytes, \
+                  max_frame_bytes and max_call_depth must be greater than \
+                  zero; max_active_stack_bytes must be between 1 and %d"
                  Native.hard_max_active_stack_bytes);
           ];
       image_ = None;
       native_outcome_ = None;
       platform_ = platform;
       executed_steps_ = None;
+      preparation_steps_ = 0;
+      default_bytes_ = 0;
     }
   else
+    let preparation_steps = ref 0 in
+    let default_bytes = ref 0 in
     match
-      compile ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
-        ?status_abi session ~config ~source
+      compile_with_preparation ?max_ir_instructions ?max_code_bytes
+        ?max_stack_bytes ?max_blocks ~max_initializer_steps ~max_default_bytes
+        ?status_abi ~preparation_steps ~default_bytes session ~config ~source
     with
     | Error diagnostics ->
         {
@@ -556,6 +700,8 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
           native_outcome_ = None;
           platform_ = platform;
           executed_steps_ = None;
+          preparation_steps_ = !preparation_steps;
+          default_bytes_ = !default_bytes;
         }
     | Ok checked -> (
         match
@@ -572,6 +718,8 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
               native_outcome_ = None;
               platform_ = platform;
               executed_steps_ = None;
+              preparation_steps_ = !preparation_steps;
+              default_bytes_ = !default_bytes;
             }
         | Ok (Image.Completed execution as native_outcome) ->
             {
@@ -585,6 +733,8 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
               native_outcome_ = Some native_outcome;
               platform_ = platform;
               executed_steps_ = Some execution.executed_steps;
+              preparation_steps_ = !preparation_steps;
+              default_bytes_ = !default_bytes;
             }
         | Ok (Image.Fault fault as native_outcome) ->
             {
@@ -596,6 +746,8 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
               native_outcome_ = Some native_outcome;
               platform_ = platform;
               executed_steps_ = Some fault.executed_steps;
+              preparation_steps_ = !preparation_steps;
+              default_bytes_ = !default_bytes;
             })
 
 let outcome report = report.outcome_
@@ -603,3 +755,5 @@ let image report = report.image_
 let native_outcome report = report.native_outcome_
 let platform report = report.platform_
 let executed_steps report = report.executed_steps_
+let preparation_steps report = report.preparation_steps_
+let default_bytes report = report.default_bytes_

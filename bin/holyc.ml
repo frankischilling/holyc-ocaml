@@ -730,8 +730,8 @@ let native_program_file ~max_dimension_work ~max_initializer_steps
     ~max_global_bytes ~max_literal_bytes ~max_frame_bytes ~max_call_depth
     ~max_output_bytes ~max_output_work ~report_version ~max_ir_instructions
     ~max_code_bytes ~max_stack_bytes ~max_blocks ~max_active_stack_bytes
-    max_steps format include_roots templeos_root max_include_depth
-    max_source_bytes max_definition_depth max_generated_bytes
+    ~max_default_bytes max_steps format include_roots templeos_root
+    max_include_depth max_source_bytes max_definition_depth max_generated_bytes
     max_conditional_depth max_expression_nodes compilation_mode predefined_date
     predefined_time command_line_source path =
   let session = Holyc_lib.Session.create () in
@@ -762,6 +762,7 @@ let native_program_file ~max_dimension_work ~max_initializer_steps
       stack_bytes = max_stack_bytes;
       blocks = max_blocks;
       active_stack_bytes = max_active_stack_bytes;
+      default_bytes = max_default_bytes;
     }
   in
   let render =
@@ -788,12 +789,13 @@ let native_program_file ~max_dimension_work ~max_initializer_steps
     max_steps <= 0 || max_dimension_work <= 0 || max_frame_bytes <= 0
     || max_call_depth <= 0 || max_global_bytes <= 0
     || max_initializer_steps <= 0 || max_literal_bytes <= 0
-    || max_output_bytes <= 0 || max_output_work <= 0
+    || max_default_bytes <= 0 || max_output_bytes <= 0 || max_output_work <= 0
   then
     fail "HCIRVM0001"
       "max_steps, max_dimension_work, max_frame_bytes, max_call_depth, \
        max_global_bytes, max_literal_bytes, max_initializer_steps, \
-       max_output_bytes and max_output_work must be greater than zero"
+       max_default_bytes, max_output_bytes and max_output_work must be greater \
+       than zero"
   else
     let native_limit_result =
       Result.bind
@@ -827,6 +829,7 @@ let native_program_file ~max_dimension_work ~max_initializer_steps
                   ~report:
                     (Holyc_lib.Native_program.evaluate ~max_ir_instructions
                        ~max_code_bytes ~max_stack_bytes ~max_blocks
+                       ~max_initializer_steps ~max_default_bytes
                        ~max_frame_bytes ~max_call_depth ~max_active_stack_bytes
                        session ~config ~source ~max_steps)
                   ()))
@@ -936,6 +939,15 @@ let run_command =
              including private frames, saved frame pointers and return \
              addresses. Must be between 1 and 65536.")
   in
+  let native_default_bytes =
+    Arg.(
+      value & opt int 65_536
+      & info [ "default-byte-limit" ] ~docv:"BYTES"
+          ~doc:
+            "host-jit only: maximum saved scalar parameter-default payload \
+             bytes. Each successfully prepared default uses eight bytes; must \
+             be positive.")
+  in
   Cmd.v
     (Cmd.info "run" ~exits:expression_exits
        ~doc:
@@ -961,6 +973,7 @@ let run_command =
              native_stack
              native_blocks
              native_active_stack
+             native_defaults
            ->
              if target = "host-jit" then
                native_program_file ~max_dimension_work:dimension_work
@@ -970,7 +983,8 @@ let run_command =
                  ~max_output_work:output_work ~report_version
                  ~max_ir_instructions:native_ir ~max_code_bytes:native_code
                  ~max_stack_bytes:native_stack ~max_blocks:native_blocks
-                 ~max_active_stack_bytes:native_active_stack steps
+                 ~max_active_stack_bytes:native_active_stack
+                 ~max_default_bytes:native_defaults steps
              else
                integer_expression_file ~max_dimension_work:dimension_work
                  ~max_initializer_steps:initial_steps ~max_global_bytes:globals
@@ -982,7 +996,8 @@ let run_command =
          $ global_limit $ literal_limit $ initializer_step_limit_argument
          $ dimension_work_limit_argument $ output_limit $ output_work
          $ report_version $ native_instructions $ native_code_bytes
-         $ native_stack_bytes $ native_blocks $ native_active_stack_bytes))
+         $ native_stack_bytes $ native_blocks $ native_active_stack_bytes
+         $ native_default_bytes))
 
 let program_ir_argument =
   Arg.(

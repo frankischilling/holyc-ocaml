@@ -1,3 +1,4 @@
+open Driver
 module Image = Backend.X86_64_expression
 module Native = Runtime.Native_execution
 

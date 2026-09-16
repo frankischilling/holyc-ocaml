@@ -81,6 +81,11 @@ val argument_producer : argument -> Instruction_sequence.Instruction_id.t
 val argument_value : argument -> Instruction_sequence.Value_id.t
 val argument_source_type : argument -> Sema.Type.t
 val argument_target_type : argument -> Sema.Type.t
+
+val argument_prepared_default : argument -> Prepared_parameter_default.t option
+(** The exact prepared declaration-time value for an omitted fixed argument.
+    Explicit argument producers and hidden variadic counts return [None]. *)
+
 val variadic_count : call -> int64 option
 val declaration : call -> Sema.Function_resolution.resolved_declaration
 val header : call -> Sema.Function_type_resolution.resolved_function

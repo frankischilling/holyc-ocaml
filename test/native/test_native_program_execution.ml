@@ -229,29 +229,38 @@ let source_image ~mode contents =
             error.code ^ ": " ^ error.message)
         |> String.concat "; ")
 
-let source_report ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes ~mode
-    ~max_steps contents =
+let source_report ?max_initializer_steps ?max_default_bytes ?max_frame_bytes
+    ?max_call_depth ?max_active_stack_bytes ~mode ~max_steps contents =
   let session, config, source = source_inputs ~mode contents in
-  Native_program.evaluate ?max_frame_bytes ?max_call_depth
-    ?max_active_stack_bytes session ~config ~source ~max_steps
+  Native_program.evaluate ?max_initializer_steps ?max_default_bytes
+    ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes session ~config
+    ~source ~max_steps
 
-let source_success ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes
-    ~mode ~max_steps contents =
+let source_success_report ?max_initializer_steps ?max_default_bytes
+    ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes ~mode ~max_steps
+    contents =
   let report =
-    source_report ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes ~mode
-      ~max_steps contents
+    source_report ?max_initializer_steps ?max_default_bytes ?max_frame_bytes
+      ?max_call_depth ?max_active_stack_bytes ~mode ~max_steps contents
   in
   match Native_program.outcome report with
   | Ok checked ->
       Alcotest.(check bool)
         "successful source has no warning" true (checked.diagnostics = []);
-      checked.value
+      (report, checked.value)
   | Error diagnostics ->
       Alcotest.fail
         (diagnostics
         |> List.map (fun (error : Diagnostic.t) ->
             error.code ^ ": " ^ error.message)
         |> String.concat "; ")
+
+let source_success ?max_initializer_steps ?max_default_bytes ?max_frame_bytes
+    ?max_call_depth ?max_active_stack_bytes ~mode ~max_steps contents =
+  source_success_report ?max_initializer_steps ?max_default_bytes
+    ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes ~mode ~max_steps
+    contents
+  |> snd
 
 let integer_source_success ~mode ~max_steps contents =
   let session, config, source = source_inputs ~mode contents in
@@ -264,8 +273,14 @@ let integer_source_success ~mode ~max_steps contents =
             error.code ^ ": " ^ error.message)
         |> String.concat "; ")
 
-let compare_source_vm ~mode ~max_steps label contents =
+let compare_source_vm ?expected ~mode ~max_steps label contents =
   let native = source_success ~mode ~max_steps contents in
+  Option.iter
+    (fun (type_, bits) ->
+      check_program_word
+        (label ^ " independent result")
+        type_ bits native.execution.final_value)
+    expected;
   let vm = integer_source_success ~mode ~max_steps contents in
   match (VM.final_value vm, native.execution.final_value) with
   | None, None -> ()
@@ -298,6 +313,28 @@ let source_fault ?max_frame_bytes ?max_call_depth ?max_active_stack_bytes ~mode
     | Error diagnostics -> diagnostics
   in
   (report, fault, diagnostics)
+
+let source_pre_entry_failure ?max_initializer_steps ?max_default_bytes ~mode
+    contents =
+  let report =
+    source_report ?max_initializer_steps ?max_default_bytes ~mode
+      ~max_steps:1000 contents
+  in
+  let diagnostics =
+    match Native_program.outcome report with
+    | Ok _ -> Alcotest.fail "source unexpectedly reached native entry"
+    | Error diagnostics -> diagnostics
+  in
+  Alcotest.(check bool)
+    "pre-entry failure has no native outcome" true
+    (Option.is_none (Native_program.native_outcome report));
+  Alcotest.(check (option int))
+    "pre-entry failure has no native executed steps" None
+    (Native_program.executed_steps report);
+  Alcotest.(check bool)
+    "pre-entry failure has no native image" true
+    (Option.is_none (Native_program.image report));
+  (report, diagnostics)
 
 let integer_source_fault ?max_frame_bytes ?max_call_depth ~mode ~max_steps
     contents =
@@ -480,6 +517,365 @@ let source_functions_and_locals_both_modes () =
             result.execution.final_value;
           compare_source_vm ~mode ~max_steps:1000 label source)
         cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let source_parameter_defaults_both_modes () =
+  let declaration = "I64 F(I64 n=20+22){return n;}" in
+  List.iter
+    (fun mode ->
+      let baseline_report, baseline =
+        source_success_report ~mode ~max_steps:1000 (declaration ^ "\n42;")
+      in
+      let preparation = Native_program.preparation_steps baseline_report in
+      Alcotest.(check bool)
+        "one closed default performs declaration preparation" true
+        (preparation > 1);
+      Alcotest.(check int)
+        "one prepared scalar default occupies exactly one word" 8
+        (Native_program.default_bytes baseline_report);
+      check_program_word "unused default leaves native entry value" "I64" 42L
+        baseline.execution.final_value;
+      let omitted_report, omitted =
+        source_success_report ~mode ~max_steps:1000 (declaration ^ "\nF();")
+      in
+      Alcotest.(check int)
+        "omitted call reuses declaration preparation" preparation
+        (Native_program.preparation_steps omitted_report);
+      check_program_word "omitted parameter uses saved value" "I64" 42L
+        omitted.execution.final_value;
+      let explicit_report, explicit =
+        source_success_report ~mode ~max_steps:1000
+          "I64 F(I64 n){return n;}\nF(42);"
+      in
+      Alcotest.(check int)
+        "explicit equivalent has no declaration preparation" 0
+        (Native_program.preparation_steps explicit_report);
+      Alcotest.(check int)
+        "saved default immediate costs the same native IR work as explicit 42"
+        explicit.execution.executed_steps omitted.execution.executed_steps;
+      let repeated_report, repeated =
+        source_success_report ~mode ~max_steps:1000 (declaration ^ "\nF()+F();")
+      in
+      Alcotest.(check int)
+        "repeated omitted calls do not prepare the default again" preparation
+        (Native_program.preparation_steps repeated_report);
+      Alcotest.(check int)
+        "repeated omitted calls reuse one saved payload" 8
+        (Native_program.default_bytes repeated_report);
+      check_program_word "repeated omitted calls reuse saved bits" "I64" 84L
+        repeated.execution.final_value;
+      let supplied_report, supplied =
+        source_success_report ~mode ~max_steps:1000 (declaration ^ "\nF(7);")
+      in
+      Alcotest.(check int)
+        "supplied argument does not suppress declaration preparation"
+        preparation
+        (Native_program.preparation_steps supplied_report);
+      check_program_word "supplied argument still wins at the call" "I64" 7L
+        supplied.execution.final_value;
+      let _, mixed =
+        source_success_report ~mode ~max_steps:1000
+          "I64 Pick(I64 a=40,I64 b,I64 c){return a+b;}\n\
+           I64 Probe(){I64 n=0;return Pick(,n,n=2);}\n\
+           Probe();"
+      in
+      check_program_word
+        "omitted default coexists with right-to-left supplied local effects"
+        "I64" 42L mixed.execution.final_value;
+      let recursive_report, recursive =
+        source_success_report ~mode ~max_steps:1000
+          "I64 Recur(I64 n,I64 add=1){if(n)return Recur(n-1)+add;return 39;}\n\
+           Recur(3);"
+      in
+      Alcotest.(check bool)
+        "recursive omitted calls use one saved declaration default" true
+        (Native_program.preparation_steps recursive_report > 0);
+      check_program_word "saved default survives recursive calls" "I64" 42L
+        recursive.execution.final_value;
+      let wide_report, wide =
+        source_success_report ~mode ~max_steps:1000
+          "U64 Wide(U64 n=0xffffffffffffffff){return n;}\nWide();"
+      in
+      Alcotest.(check bool)
+        "full-width U64 default is prepared" true
+        (Native_program.preparation_steps wide_report > 0);
+      check_program_word "full-width U64 default keeps every bit" "U64" (-1L)
+        wide.execution.final_value;
+      let pair_report, pair =
+        source_success_report ~mode ~max_steps:1000
+          "I64 Pair(I64 a=20,I64 b=22){return a+b;}\nPair();"
+      in
+      Alcotest.(check int)
+        "two prepared defaults occupy exactly two words" 16
+        (Native_program.default_bytes pair_report);
+      check_program_word "two saved defaults bind by parameter position" "I64"
+        42L pair.execution.final_value;
+      List.iter
+        (fun expression ->
+          let report, result =
+            source_success_report ~mode ~max_steps:1000
+              ("I64 Value(I64 n=" ^ expression ^ "){return n;} Value();")
+          in
+          check_program_word expression "I64" 42L result.execution.final_value;
+          Alcotest.(check bool)
+            "original closed expression performs preparation" true
+            (Native_program.preparation_steps report > 0);
+          Alcotest.(check int)
+            "prepared expression retains one saved word" 8
+            (Native_program.default_bytes report))
+        [ "84/2"; "sizeof(I64)+34"; "defined(I64)+41" ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let source_parameter_defaults_vm_both_modes () =
+  let cases =
+    [
+      ( "unused default-bearing definition",
+        "I64 Unused(I64 n=20+22){return n;}\n42;",
+        "I64",
+        42L );
+      ( "supplied argument overrides the saved default",
+        "I64 Value(I64 n=20+22){return n;}\nValue(7);",
+        "I64",
+        7L );
+      ( "explicit zero remains distinct from omission",
+        "I64 Value(I64 n=42){return n;}\nValue(0)*100+Value();",
+        "I64",
+        42L );
+      ( "repeated calls reuse an arithmetic default",
+        "I64 Value(I64 n=84/2){return n;}\nValue()+Value();",
+        "I64",
+        84L );
+      ( "saved words retain their formal positions",
+        "I64 Pair(I64 a=20,I64 b=22){return a*100+b;}\nPair();",
+        "I64",
+        2022L );
+      ( "non-trailing omission preserves supplied-argument effects",
+        "I64 Pick(I64 a=40,I64 b,I64 c){return a+b;}\n\
+         I64 Probe(){I64 n=0;return Pick(,n,n=2);}\n\
+         Probe();",
+        "I64",
+        42L );
+      ( "recursive calls retain the declaration default",
+        "I64 Recur(I64 n,I64 add=1){if(n)return Recur(n-1)+add;return 39;}\n\
+         Recur(3);",
+        "I64",
+        42L );
+      ( "unsigned default transports the complete word",
+        "U64 Wide(U64 n=0xffffffffffffffff){return n;}\nWide();",
+        "U64",
+        -1L );
+      ( "source-selected queries prepare independent defaults",
+        "I64 Pair(I64 a=sizeof(I64),I64 b=defined(I64)){return a*10+b;}\n\
+         Pair();",
+        "I64",
+        81L );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, contents, type_, bits) ->
+          compare_source_vm ~expected:(type_, bits) ~mode ~max_steps:1000 label
+            contents)
+        cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let source_parameter_default_limits_and_failures () =
+  let first_diagnostic = function
+    | first :: _ -> first
+    | [] -> Alcotest.fail "expected preparation diagnostic"
+  in
+  let first_code diagnostics = (first_diagnostic diagnostics).Diagnostic.code in
+  let declaration = "I64 F(I64 n=20+22){return n;}" in
+  List.iter
+    (fun mode ->
+      let baseline_report, _ =
+        source_success_report ~mode ~max_steps:1000 (declaration ^ "\n42;")
+      in
+      let preparation = Native_program.preparation_steps baseline_report in
+      Alcotest.(check bool)
+        "default preparation fixture has a one-below boundary" true
+        (preparation > 1);
+      let exact_report, exact =
+        source_success_report ~max_initializer_steps:preparation ~mode
+          ~max_steps:1000 (declaration ^ "\nF();")
+      in
+      Alcotest.(check int)
+        "exact preparation allowance is fully charged" preparation
+        (Native_program.preparation_steps exact_report);
+      check_program_word "exact preparation allowance executes native entry"
+        "I64" 42L exact.execution.final_value;
+      let exact_bytes_report, exact_bytes =
+        source_success_report ~max_default_bytes:8 ~mode ~max_steps:1000
+          (declaration ^ "\nF();")
+      in
+      Alcotest.(check int)
+        "exact saved-default byte allowance succeeds" 8
+        (Native_program.default_bytes exact_bytes_report);
+      check_program_word
+        "exact saved-default byte allowance executes native entry" "I64" 42L
+        exact_bytes.execution.final_value;
+      let byte_report, byte_diagnostics =
+        source_pre_entry_failure ~max_default_bytes:7 ~mode
+          (declaration ^ "\nF();")
+      in
+      Alcotest.(check string)
+        "one-below saved-default byte allowance" "HCIRVM0011"
+        (first_code byte_diagnostics);
+      Alcotest.(check int)
+        "byte quota rejects before preparing the first value" 0
+        (Native_program.preparation_steps byte_report);
+      Alcotest.(check int)
+        "byte quota publishes no partial first value" 0
+        (Native_program.default_bytes byte_report);
+      let second_byte_report, second_byte_diagnostics =
+        source_pre_entry_failure ~max_default_bytes:8 ~mode
+          "I64 Pair(I64 a=20,I64 b=22){return a+b;}\nPair();"
+      in
+      Alcotest.(check string)
+        "second saved default observes exhausted byte allowance" "HCIRVM0011"
+        (first_code second_byte_diagnostics);
+      Alcotest.(check int)
+        "first saved payload remains published after second-byte failure" 8
+        (Native_program.default_bytes second_byte_report);
+      Alcotest.(check bool)
+        "second-byte failure retains first default preparation" true
+        (Native_program.preparation_steps second_byte_report > 0);
+      let one_below_report, one_below =
+        source_pre_entry_failure ~max_initializer_steps:(preparation - 1) ~mode
+          (declaration ^ "\nF();")
+      in
+      Alcotest.(check string)
+        "one-below preparation allowance" "HCIRVM0007" (first_code one_below);
+      Alcotest.(check int)
+        "one-below retains reached preparation work" (preparation - 1)
+        (Native_program.preparation_steps one_below_report);
+      let exhausted_report, exhausted =
+        source_pre_entry_failure ~max_initializer_steps:preparation ~mode
+          "I64 F(I64 a=20+22,I64 b=40+2){return a+b;}\n42;"
+      in
+      Alcotest.(check string)
+        "next default sees zero remaining preparation allowance" "HCIRVM0007"
+        (first_code exhausted);
+      Alcotest.(check int)
+        "zero remaining allowance does not charge the next attempt" preparation
+        (Native_program.preparation_steps exhausted_report);
+      List.iter
+        (fun (label, source) ->
+          let report, diagnostics = source_pre_entry_failure ~mode source in
+          Alcotest.(check string)
+            (label ^ " declaration fault")
+            "HCIRVM0009" (first_code diagnostics);
+          let slash = String.index source '/' in
+          let primary = (first_diagnostic diagnostics).Diagnostic.primary in
+          Alcotest.(check bool)
+            (label ^ " fault keeps the original default-expression span")
+            true
+            (primary.start <= slash && slash < primary.stop);
+          Alcotest.(check bool)
+            (label ^ " retains reached faulting preparation")
+            true
+            (Native_program.preparation_steps report > 0))
+        [
+          ("supplied argument", "I64 F(I64 n=1/0){return n;}\nF(42);");
+          ("unused function", "I64 F(I64 n=1/0){return n;}\n42;");
+        ];
+      let _, first_fault =
+        source_pre_entry_failure ~mode
+          "I64 F(I64 a=1/0,I64 b=1<<3){return a+b;}\n42;"
+      in
+      Alcotest.(check string)
+        "first declaration default faults before later shift guard" "HCIRVM0009"
+        (first_code first_fault);
+      let _, first_shift =
+        source_pre_entry_failure ~mode
+          "I64 F(I64 a=1<<3,I64 b=1/0){return a+b;}\n42;"
+      in
+      Alcotest.(check string)
+        "first declaration shift guard precedes later arithmetic fault"
+        "HCRUN0006" (first_code first_shift);
+      let _, call_default =
+        source_pre_entry_failure ~mode
+          "I64 Inc(I64 n){return n+1;}\nI64 F(I64 n=Inc(41)){return n;}\nF();"
+      in
+      Alcotest.(check string)
+        "default call remains outside bounded native preparation" "HCRUN0006"
+        (first_code call_default);
+      List.iter
+        (fun source -> ignore (source_pre_entry_failure ~mode source))
+        [
+          "I64 F(I64 n=\"A\"){return n;}\nF();";
+          "I64 F(I64 n=lastclass){return n;}\nF();";
+        ];
+      let invalid_report, invalid =
+        source_pre_entry_failure ~max_initializer_steps:0 ~mode "@invalid"
+      in
+      Alcotest.(check string)
+        "invalid preparation configuration precedes parsing" "HCIRVM0001"
+        (first_code invalid);
+      Alcotest.(check int)
+        "invalid preparation configuration performs no work" 0
+        (Native_program.preparation_steps invalid_report);
+      let invalid_bytes_report, invalid_bytes =
+        source_pre_entry_failure ~max_default_bytes:0 ~mode "@invalid"
+      in
+      Alcotest.(check string)
+        "invalid default-byte configuration precedes parsing" "HCIRVM0001"
+        (first_code invalid_bytes);
+      Alcotest.(check int)
+        "invalid default-byte configuration performs no work" 0
+        (Native_program.preparation_steps invalid_bytes_report);
+      Alcotest.(check int)
+        "invalid default-byte configuration publishes no payload" 0
+        (Native_program.default_bytes invalid_bytes_report);
+      let parse_report, _ =
+        source_pre_entry_failure ~mode (declaration ^ "\n@invalid")
+      in
+      Alcotest.(check int)
+        "later parse failure retains earlier declaration preparation"
+        preparation
+        (Native_program.preparation_steps parse_report);
+      List.iter
+        (fun (label, run) ->
+          let session, config, source =
+            source_inputs ~mode (declaration ^ " F();")
+          in
+          let report = run session config source in
+          Alcotest.(check bool)
+            (label ^ " rejects before native entry")
+            true
+            (Result.is_error (Native_program.outcome report));
+          Alcotest.(check int)
+            (label ^ " retains earlier preparation")
+            preparation
+            (Native_program.preparation_steps report);
+          Alcotest.(check int)
+            (label ^ " retains saved payload")
+            8
+            (Native_program.default_bytes report);
+          Alcotest.(check bool)
+            (label ^ " has no native outcome")
+            true
+            (Option.is_none (Native_program.native_outcome report)))
+        [
+          ( "backend code quota",
+            fun session config source ->
+              Native_program.evaluate ~max_code_bytes:1 session ~config ~source
+                ~max_steps:1000 );
+          ( "host stack quota",
+            fun session config source ->
+              Native_program.evaluate ~max_active_stack_bytes:1 session ~config
+                ~source ~max_steps:1000 );
+        ];
+      let after_entry_report, after_entry =
+        source_pre_entry_failure ~mode "1/0; I64 F(I64 n=2){return n;} F();"
+      in
+      Alcotest.(check string)
+        "defaults after executable entry source stay outside the native gate"
+        "HCRUN0006" (first_code after_entry);
+      Alcotest.(check int)
+        "entry-order guard runs before later default preparation" 0
+        (Native_program.preparation_steps after_entry_report))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let function_resource_limits_and_fault_recovery () =
@@ -1285,6 +1681,17 @@ let () =
               Alcotest.test_case
                 "source functions locals calls recursion and argument order"
                 `Quick source_functions_and_locals_both_modes;
+              Alcotest.test_case
+                "source defaults prepare once and feed native calls in both \
+                 modes"
+                `Quick source_parameter_defaults_both_modes;
+              Alcotest.test_case
+                "source defaults match the public interpreter in both modes"
+                `Quick source_parameter_defaults_vm_both_modes;
+              Alcotest.test_case
+                "source default work, bytes and failures are bounded before \
+                 entry"
+                `Quick source_parameter_default_limits_and_failures;
               Alcotest.test_case
                 "function depth frame faults unwind and recover" `Quick
                 function_resource_limits_and_fault_recovery;

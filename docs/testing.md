@@ -1,5 +1,18 @@
 # Testing holyc-ocaml
 
+Native default tests cover declaration-time preparation in both modes, saved
+reuse, mixed omitted/explicit arguments, high-bit words, unused definitions and
+right-to-left supplied argument effects. Nine source fixtures compare full-word
+results and types with the public interpreter in fresh JIT and AOT sessions,
+with independent expected values to catch mistakes shared by both lowerers.
+Exact and one-below work/payload quotas,
+ordered preparation failures, later parse errors and invalid configurations
+exercise the distinction between preparation and native execution. Low-level
+tests reject missing, foreign, reconstructed and incomplete preparation bundles
+even for unused or fully supplied functions. The maintained fixture is
+`examples/native-integer-defaults.hc`; [native defaults](native-defaults.md)
+defines the admitted source domain and report fields.
+
 Native function tests extend the program suite with both-mode `Add(20,22)=42`
 under its exact 29-step budget, high-bit words, automatic local mutation,
 right-to-left argument effects with formal-order binding, live caller values,
@@ -10,8 +23,8 @@ function-qualified fault sites, full-chain arithmetic/budget failure and a later
 successful native invocation. Compile-only tests retain the original ownership
 checks, whole-bundle unsupported-body rejection, exact byte/layout checks and
 immutable exports. Prepared-default regressions distinguish an omitted argument's
-saved producer from an explicit argument, and reject default-bearing unused
-headers even when storage and prepared-step counters are zero. Scalar compound
+saved producer from an explicit argument, and require original preparation for
+default-bearing unused headers even when storage counters are zero. Scalar compound
 operators have separate expected-value cases, including high-bit unsigned
 remainder and shifts. Native CLI tests use the maintained
 `examples/native-integer-functions.hc` fixture in both modes. Windows probes

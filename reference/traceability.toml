@@ -11689,7 +11689,7 @@ sources = [
   "Compiler/OptLib.HC:9-14,101-122,196-202 computation classes",
   "Compiler/OptPass012.HC:151-191 unary class preservation"
 ]
-implementation = ["src/backend/x86_64_encoder.ml", "src/backend/x86_64_encoder.mli", "src/backend/x86_64_expression.ml", "src/backend/x86_64_expression.mli", "src/runtime/native_execution.ml", "src/runtime/native_execution.mli", "src/native_execution_stubs.c", "src/driver/native_expression.ml", "src/driver/native_expression.mli", "src/holyc_lib.ml", "src/holyc_lib.mli", "bin/holyc.ml", "bin/native_report.ml"]
+implementation = ["src/backend/x86_64_encoder.ml", "src/backend/x86_64_encoder.mli", "src/backend/x86_64_expression.ml", "src/backend/x86_64_expression.mli", "src/runtime/native_execution.ml", "src/runtime/native_execution.mli", "src/native_execution_stubs.c", "src/hosted/native_expression.ml", "src/hosted/native_expression.mli", "src/holyc_lib.ml", "src/holyc_lib.mli", "bin/holyc.ml", "bin/native_report.ml"]
 tests = ["test/test_native_expression.ml", "test/native/test_native_execution.ml", "test/native/test_native_cli.ml", "test/native/dune", "test/dune", "examples/native-integer-expression.hc", "tools/test-version-metadata.ps1", ".github/workflows/ci.yml"]
 documentation = ["docs/native-expressions.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "ARCHITECTURE.md", "REFERENCE_SOURCES.md", "ROADMAP.md", "SECURITY.md", "CHANGELOG.md"]
 status = "implemented"
@@ -11765,7 +11765,7 @@ sources = [
   "Compiler/Asm.HC:127-145 RSP SIB addressing",
   "Compiler/OptPass6.HC:28-94,96-185 stack temporaries and register consumers"
 ]
-implementation = ["src/backend/x86_64_encoder.ml", "src/backend/x86_64_encoder.mli", "src/backend/x86_64_expression.ml", "src/backend/x86_64_expression.mli", "src/driver/native_expression.ml", "src/driver/native_expression.mli", "src/runtime/native_execution.ml", "src/runtime/native_execution.mli", "src/native_execution_stubs.c", "bin/holyc.ml", "bin/native_report.ml"]
+implementation = ["src/backend/x86_64_encoder.ml", "src/backend/x86_64_encoder.mli", "src/backend/x86_64_expression.ml", "src/backend/x86_64_expression.mli", "src/hosted/native_expression.ml", "src/hosted/native_expression.mli", "src/runtime/native_execution.ml", "src/runtime/native_execution.mli", "src/native_execution_stubs.c", "bin/holyc.ml", "bin/native_report.ml"]
 tests = ["test/test_native_expression.ml", "test/native/test_native_execution.ml", "test/native/test_native_cli.ml", "test/native/test_native_unwind.ml", "test/native/native_unwind_probe.c", "test/native/dune", "examples/native-integer-spills.hc"]
 documentation = ["docs/native-expressions.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "ARCHITECTURE.md", "REFERENCE_SOURCES.md", "ROADMAP.md", "SECURITY.md", "CHANGELOG.md"]
 status = "implemented"
@@ -11824,8 +11824,8 @@ implementation = [
   "src/runtime/native_execution.ml",
   "src/runtime/native_execution.mli",
   "src/native_execution_stubs.c",
-  "src/driver/native_expression.ml",
-  "src/driver/native_expression.mli",
+  "src/hosted/native_expression.ml",
+  "src/hosted/native_expression.mli",
   "src/holyc_lib.ml",
   "src/holyc_lib.mli",
   "bin/holyc.ml",
@@ -11889,7 +11889,7 @@ implementation = [
   "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_word_codegen.mli",
   "src/backend/x86_64_expression.ml", "src/backend/x86_64_expression.mli",
   "src/backend/x86_64_program.ml", "src/backend/x86_64_program.mli",
-  "src/driver/native_program.ml", "src/driver/native_program.mli",
+  "src/hosted/native_program.ml", "src/hosted/native_program.mli",
   "src/runtime/native_program_execution.ml", "src/runtime/native_program_execution.mli",
   "src/native_execution_stubs.c", "src/holyc_lib.ml", "src/holyc_lib.mli",
   "bin/holyc.ml", "bin/run_report.ml"
@@ -11939,7 +11939,7 @@ implementation = [
   "src/backend/x86_64_encoder.ml", "src/backend/x86_64_encoder.mli",
   "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_word_codegen.mli",
   "src/backend/x86_64_program.ml", "src/backend/x86_64_program.mli",
-  "src/driver/native_program.ml", "src/driver/native_program.mli",
+  "src/hosted/native_program.ml", "src/hosted/native_program.mli",
   "src/runtime/native_program_execution.ml", "src/runtime/native_program_execution.mli",
   "src/native_execution_stubs.c", "bin/holyc.ml", "bin/run_report.ml"
 ]
@@ -11962,6 +11962,7 @@ source_gate = "ordinary callback-free parsing and Integer_unit.compile_ast admit
 authority = "compile_callable requires the exact Runtime_call_context entry/body/initialization bundle and each Function_body's original checked frame; the original initialization context must be empty without storage, publications or preparation, and a foreign empty context still rejects; whole-bundle preflight includes unused bodies and keeps owner-qualified dense fault sites despite repeated sparse local block/instruction IDs"
 default_admission = "zero storage bytes and prepared storage steps do not establish absence of saved defaults; callable argument preflight rejects the exact Runtime.is_prepared_default producer and original selected/definition headers reject defaults even with explicit arguments or unused functions"
 default_preparation_followup = 660
+extended_by = ["HC-NATIVE-INTEGER-DEFAULTS (#660): original source-owned scalar preparation extends the historical default rejection boundary without changing ordinary entry execution"]
 private_call_convention = "PUSH RBP, MOV RBP,RSP and an optional at-most4080-byte aligned16 allocation; body RSP remains fixed; exact parameters start at RBP+16 and autos use checked negative displacements; every owner ends through stack restore, POP RBP and plain RET"
 argument_lifetime = "provided arguments follow the original right-to-left evaluation order; each open call has distinct staging; formal-order copies populate one fixed outgoing area immediately before a real rel32 CALL; caller-live values spill and the returned RAX word is captured by the original CALL_END result; cleanup IR is validated and metered but needs no machine argument pop under this private convention"
 storage = "automatic locals and parameters live in each native activation; fresh hidden init flags guard local reads/updates before any host-stack data read; assignment sets the flag; flags/spills/staging are physical storage only and do not inflate the checked semantic frame quota"
@@ -11974,3 +11975,46 @@ reporting = "integer-program-v2 native reports add active_stack_bytes limit, fun
 extended_features = ["HC-NATIVE-INTEGER-PROGRAMS (#657)", "HC-IR-INTEGER-FUNCTION-FRAMES", "HC-IR-TOP-LEVEL-DIRECT-CALLS"]
 excluded = ["all parameter defaults until original declaration-time preparation is connected", "global/static, narrow/pointer/array and floating storage", "prototypes/extern/import/indirect/variadic calls", "all explicit source declaration modifiers and register qualifiers, calling-convention flags beyond automatically derived Ret1, and full HolyC ABI", "bare returns and terminal function paths without a word value", "large/probed native frames", "runtime output and native declaration/#exe integration", "optimizer parity, assembler/object/BIN output, actual TempleOS loader acceptance and bootstrap", "arbitrary machine-fault recovery"]
 native_oracle_status = "source-grounded frame/call lowering plus own hosted machine execution; fixedRSP ABI, metering, initialization checks and resource-fault transport are documented host policies, not new TempleOS oracle captures"
+
+[[feature]]
+id = "HC-NATIVE-INTEGER-DEFAULTS"
+description = "Original declaration-time scalar defaults are prepared once and reused by bounded native source functions under exact source/preparation/call ownership and separate work/payload limits."
+sources = [
+  "Compiler/PrsVar.HC:629-657 default compilation, immediate execution, conversion, saved dft_val and availability flag",
+  "Compiler/PrsExp.HC:455-468 omitted argument reads the saved default word and emits the typed immediate",
+  "Existing Default_fragment, Prepared_parameter_default and Runtime_call_context retain original receipt/header/parameter and canonical producer evidence"
+]
+implementation = [
+  "src/driver/native_default_preparation.ml", "src/driver/native_default_preparation.mli",
+  "src/driver/task_declarations.ml", "src/driver/task_declarations.mli",
+  "src/driver/integer_unit.ml", "src/hosted/native_program.ml", "src/hosted/native_program.mli",
+  "src/ir/integer_globals.ml", "src/ir/integer_globals.mli",
+  "src/ir/default_fragment_destination.ml", "src/ir/default_fragment_destination.mli",
+  "src/driver/native_parameter_defaults.ml", "src/driver/native_parameter_defaults.mli",
+  "src/ir/runtime_call_context.ml", "src/ir/runtime_call_context.mli",
+  "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_word_codegen.mli",
+  "src/backend/x86_64_program.ml", "src/backend/x86_64_program.mli",
+  "src/holyc_lib.ml", "src/holyc_lib.mli", "bin/holyc.ml", "bin/run_report.ml"
+]
+tests = [
+  "test/test_native_program.ml", "test/native/test_native_program_execution.ml",
+  "test/native/test_native_program_cli.ml", "test/native/dune",
+  "examples/native-integer-defaults.hc",
+  "test/native_default_authority/test_native_default_authority.ml",
+  "test/native_default_authority/dune"
+]
+documentation = [
+  "docs/native-defaults.md", "docs/native-programs.md", "docs/testing.md",
+  "docs/compatibility.md", "docs/reference-source-map.md", "README.md",
+  "ARCHITECTURE.md", "REFERENCE_SOURCES.md", "ROADMAP.md", "SECURITY.md", "CHANGELOG.md"
+]
+status = "implemented"
+issue = 660
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "fixed scalar I64/U64 defaults on native-admitted definitions; original closed expressions and supported original queries prepare at each callback in the actual JIT/AOT mode, even when unused or called with explicit arguments; default-bearing definitions must precede executable top-level statements"
+preparation = "reuse the checked constant-preparation engine, its optimizer-domain rejection and reached-fault accounting; no ordinary command/stream executor, source-task activation or entry interpreter fallback; saved values are reused by repeated and recursive native calls"
+authority = "separate native source attempts retain exact receipt/publication/current callback and charged completion; source seals retain their native prepared subset; native bundle certificate binds original completed preparations to exact globals/initialization/runtime calls/entry/bodies and every selected and definition-owned header, including unused or fully supplied functions; omitted producers require exact prepared object, header/parameter, canonical opcode/flags/bits/type"
+resources = "positive max_initializer_steps defaults100000; positive max_default_bytes defaults65536 and reserves8 payload bytes per successfully prepared scalar default, checking before the next attempt; saved-value quota does not measure the OCaml heap; runtime steps/frame/depth/native-stack bounds remain independent"
+reporting = "Native_program.preparation_steps/default_bytes and native v2 compiled_initializer_steps/prepared_default_bytes retain reached preparation and completed payload bytes after later faults; native.limits.default_bytes retains requested quota; preparation failure has no native outcome/executed_steps"
+excluded = ["effectful defaults and value/function references", "defaults after executable top-level statements and general interleaved JIT declaration execution", "string ownership, lastclass and non-word/pointer defaults", "prototypes and broader ABI/storage", "shift/other unresolved optimizer preparation parity", "native machine execution of arbitrary default expressions or #exe", "assembler/BIN/loader acceptance, whole-tree compilation and bootstrap"]
+native_oracle_status = "pinned source defines preparation timing and saved substitution; checked preparation and own hosted native entry tests validate the bounded integration; no new TempleOS oracle capture or general optimizer/ABI claim"

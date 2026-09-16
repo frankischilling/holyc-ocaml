@@ -2,8 +2,20 @@ type t
 
 val source_default_context : Sema.Default_fragment.t -> (t, string) result
 
+val native_source_default_context :
+  Sema.Default_fragment.t -> (t, string) result
+(** Empty fragment storage for a closed default in its original JIT or AOT mode.
+    This neither imports task storage nor establishes successful preparation. *)
+
 val with_source_defaults :
   t -> Prepared_parameter_default.t list -> (t, string) result
+
+val with_native_source_defaults :
+  t -> Prepared_parameter_default.t list -> (t, string) result
+(** Attach same-mode saved values only to an isolated empty storage context.
+    Native executable admission separately requires their complete source and
+    preparation certificate. Ordinary AOT and retained-task contracts are
+    unchanged. *)
 
 type slot
 type static_slot

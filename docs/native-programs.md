@@ -46,20 +46,24 @@ The word operations are the same checked internal I64/U64 operations as
 eager logical values, comparisons, masked shifts, guarded division/remainder
 and payload-zero internal word views.
 
-The source driver parses without command or stream-execution callbacks. An
-iterative source gate rejects globals, statics, prototypes/externs, parameter
-defaults, explicit register/declaration modifiers, non-word signatures or locals,
+The source driver parses without a command or stream executor. Original
+declaration callbacks prepare bounded scalar defaults in both modes; an
+iterative source gate rejects globals, statics, prototypes/externs,
+explicit register/declaration modifiers, non-word signatures or locals,
 arrays, source pointer operations, indirect calls, implicit output and unsupported
-statements before semantic preparation. Entry statements cannot declare storage.
+statements. Arrays, globals and aggregates reject before their preparation.
+Entry statements cannot declare storage.
 It reports the first source-domain violation while retaining parser diagnostics.
 A directive needing
 `#exe` execution receives the parser's explicit missing-capability diagnostic;
 it cannot route the ordinary program into the interpreter. Compilation also
-checks that the resulting unit has no global/static initialization or preparation
-work before invoking the backend. Defaults are rejected even when a call supplies
-every argument or the function is unused: silently skipping a declaration-time
-default would change source behavior. Saved defaults need their original
-preparation authority before this gate can admit them.
+checks that the resulting unit has no global/static initialization or storage
+preparation work before invoking the backend. Every admitted default prepares
+once, even when all arguments are supplied or its function is unused. Calls reuse
+the saved value. Default-bearing definitions must precede executable top-level
+statements; effectful/interleaved defaults and broader default types remain
+unsupported. [Native defaults](native-defaults.md) defines the exact expression,
+source-order, ownership and resource boundary.
 
 The backend preflights the complete bundle, including unreachable instructions
 and unused function bodies. The exact `Runtime_call_context` must match the entry
@@ -71,8 +75,9 @@ has no saved parameter defaults. Callable preflight checks the original argument
 producer's preparation metadata and the selected and definition-owned headers,
 including default-bearing functions whose arguments are supplied explicitly or
 whose bodies are unused.
-Native declaration-time default preparation is tracked in
-[issue #660](https://github.com/frankischilling/holyc-ocaml/issues/660).
+The optional native parameter-default certificate additionally binds each saved
+value to its original completed preparation and this exact compiled bundle.
+Without that certificate, low-level callable compilation still rejects defaults.
 Besides the word and control operations, callable images consume checked frame
 addresses, scalar loads/stores/updates, return operations, and the original
 `IC_CALL_START`/argument/`IC_CALL`/cleanup/`IC_CALL_END` sequence. Temporary values
@@ -162,7 +167,9 @@ successful image/execution/platform or diagnostics; `native_outcome` and
 `executed_steps` retain the typed native fault and actual progress after checked
 arithmetic, budget, storage or call-resource faults. Host bridge and cleanup failures expose no trusted
 native status or progress. The API's `image` getter can inspect a compiled image
-after failure.
+after failure. `preparation_steps` and `default_bytes` independently retain reached
+declaration-preparation work and completed scalar payload bytes, including after
+later source, compilation, host or native failures.
 
 Low-level callers compile an `Ir_x87_stack.t` with `X86_64_program.compile`, or
 the exact entry/function/call bundle with `X86_64_program.compile_callable`, and
@@ -178,6 +185,8 @@ allocating executable memory.
 | Bound | Default | Allowed configuration |
 | --- | --- | --- |
 | `--step-limit` / `max_steps` | 100,000 in the CLI | Positive host integer |
+| `--initializer-step-limit` / `max_initializer_steps` | 100,000 | Positive declaration-preparation work quota |
+| `--default-byte-limit` / `max_default_bytes` | 65,536 | Positive saved scalar payload quota; eight bytes per prepared default |
 | `--ir-instruction-limit` / `max_ir_instructions` | 4,096 | 1 through 100,000 |
 | `--code-byte-limit` / `max_code_bytes` | 65,536 | 1 through 16 MiB |
 | `--stack-byte-limit` / `max_stack_bytes` | 4,088 | 0 through 4,088 per generated owner; callable allocations are rounded to 16 bytes and capped at 4,080 |
@@ -189,9 +198,10 @@ allocating executable memory.
 The compiler counts all IR and blocks before allocating its maps, preflights the
 whole bundle, and checks the complete planned image before allocating encoded
 bytes. Prologue, meter, guard, fault-block and epilogue bytes all count toward
-the code quota. Existing `run` global, literal, output and preparation options
-retain their configuration validation; this gate consumes none of those
-resources. The semantic live-frame limit counts the checked local frame plus
+the code quota. Existing `run` global, literal and output options retain their
+configuration validation; this gate consumes none of those resources. Default
+preparation has independent work and saved-payload bounds. The semantic
+live-frame limit counts the checked local frame plus
 eight bytes per fixed argument, excluding compiler-private storage. The physical
 limit counts every allocated private byte, return address and saved frame pointer.
 Setting it below `entry_stack_bytes` rejects before native entry.
@@ -209,6 +219,12 @@ successful image; host bridge and cleanup failures expose no trusted step count.
 The private context is never serialized. The existing IR v2 renderer is
 unchanged; report v1 remains an IR-only compatibility format and explicitly
 rejects the host-JIT target before source entry.
+
+`compiled_initializer_steps` reports actual reached default-preparation work;
+`prepared_default_bytes` reports successfully prepared scalar payload bytes.
+They remain available after later failures and do not contribute to native
+`executed_steps`. A preparation failure has no native outcome or native step
+count. The requested saved-payload bound is `native.limits.default_bytes`.
 
 Reached zero divisors use `HCIRVM0009`, signed `INT64_MIN/-1` division and
 remainder overflow use `HCIRVM0010`, and exhausted budgets use `HCIRVM0007`.
@@ -262,11 +278,14 @@ decrement, tests and branches; existing word-operation references are recorded
 in [native expressions](native-expressions.md). `PrsStmt.HC:114-170` establishes
 fixed parameter offsets and function boundaries, while `PrsExp.HC:438-586`
 establishes argument append order, direct call selection and cleanup/end metadata.
+`PrsVar.HC:629-657` prepares defaults while parsing each parameter;
+`PrsExp.HC:455-468` consumes their saved values at omitted arguments.
 The private context, per-IR
 budget and host completion wrapper are hosted execution policy, not additional
 TempleOS language rules.
 
-This gate does not complete general native source execution. Saved defaults,
+This gate does not complete general native source execution. Effectful defaults,
+interleaved source execution, owned string/`lastclass` defaults,
 global/static storage, narrow and pointer memory, arrays, indirect calls, variadics,
 explicit register and function flags, the complete HolyC ABI, floating operations,
 runtime output and native `#exe` remain required. Optimizer parity, the integrated

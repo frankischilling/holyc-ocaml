@@ -83,3 +83,6 @@ let create ~task_view =
   create_with_globals (Integer_globals.default_context task_view)
 
 let create_source = create_with_globals Integer_globals.source_default_context
+
+let create_native_source =
+  create_with_globals Integer_globals.native_source_default_context

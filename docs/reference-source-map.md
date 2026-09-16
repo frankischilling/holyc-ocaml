@@ -1,11 +1,22 @@
 # Reference source map
 
+Issue #660 connects original scalar default preparation to the native source
+driver. `Compiler/PrsVar.HC:629-657` compiles and calls a default expression while
+reading the parameter, stores `dft_val`, and only then marks it available.
+`Compiler/PrsExp.HC:455-468` reads the saved value when an argument is omitted.
+The hosted gate preserves that timing for its bounded, definitions-before-entry
+source domain, prepares unused defaults, and retains exact header/parameter/
+fragment evidence through argument emission. The existing checked constant
+preparation engine and explicit quotas are hosted policy; this does not claim
+native default-expression machine execution or optimizer parity. See
+[native defaults](native-defaults.md).
+
 Issue #659 connects the original checked function/body/frame and direct-call
 records to native scalar functions. `PrsStmt.HC:114-170` supplies positive fixed
 parameter offsets and body boundaries. `PrsExp.HC:438-586` supplies argument tree
 append order, saved-value call substitution, call selection and cleanup/end
-metadata. The new native gate consumes exact fixed supplied arguments; it rejects
-defaults until their original preparation authority is connected. Dedicated
+metadata. The native gate consumes exact fixed supplied arguments; #660 extends
+it with original scalar-default preparation authority. Dedicated
 RBP-relative loads/stores and rel32 CALL/RET use the existing `OpCodes.DD` facts.
 Caller staging, live-value preservation, fixed RSP, initialization flags and
 simultaneous semantic/depth/physical-stack limits are explicit hosted execution
