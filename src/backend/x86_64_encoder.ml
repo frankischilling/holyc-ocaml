@@ -30,6 +30,10 @@ type instruction =
   | Jump_not_equal of int64
   | Store_status_kind of int
   | Store_status_site of int
+  | Load_context of register * int
+  | Store_context of int * register
+  | Store_context_imm of int * int
+  | Dec of register
   | Cmp of register * register
   | Test of register
   | Setcc of condition * register
@@ -113,6 +117,7 @@ let jump = source_form "JMP" 584
 let jump_equal = source_form "JE" 608
 let jump_not_equal = source_form "JNE" 612
 let store_immediate = source_form "MOV" 284
+let decrement = source_form "DEC" 670
 let compare = source_form "CMP" 376
 let test = source_form "TEST" 461
 let movzx_byte = source_form "MOVZX" 893
@@ -171,6 +176,10 @@ let form = function
   | Jump_equal _ -> jump_equal
   | Jump_not_equal _ -> jump_not_equal
   | Store_status_kind _ | Store_status_site _ -> store_immediate
+  | Load_context _ -> mov_load
+  | Store_context _ -> mov_store
+  | Store_context_imm _ -> store_immediate
+  | Dec _ -> decrement
   | Cmp _ -> compare
   | Test _ -> test
   | Setcc (condition, _) -> condition_form condition
@@ -180,6 +189,14 @@ let form = function
 let signed_rel32 value =
   Int64.compare value (-0x80000000L) >= 0
   && Int64.compare value 0x7fffffffL <= 0
+
+let signed_int32 value =
+  let value = Int64.of_int value in
+  Int64.compare value (-0x80000000L) >= 0
+  && Int64.compare value 0x7fffffffL <= 0
+
+let valid_context_offset offset =
+  offset >= 0 && offset <= 40 && offset mod 8 = 0
 
 let validate = function
   | Cmp_imm8 (_, immediate) when immediate < -128 || immediate > 127 ->
@@ -191,6 +208,13 @@ let validate = function
       invalid_arg "status kind must be 1 or 2"
   | Store_status_site site when site < 1 || site > 100_000 ->
       invalid_arg "status site must be between 1 and 100000"
+  | (Load_context (_, offset) | Store_context (offset, _))
+    when not (valid_context_offset offset) ->
+      invalid_arg "private context offset must be aligned from 0 through 40"
+  | Store_context_imm (offset, _) when not (valid_context_offset offset) ->
+      invalid_arg "private context offset must be aligned from 0 through 40"
+  | Store_context_imm (_, immediate) when not (signed_int32 immediate) ->
+      invalid_arg "private context immediate must fit signed 32 bits"
   | _ -> ()
 
 let size instruction =
@@ -206,6 +230,9 @@ let size instruction =
   | Jump _ -> 5
   | Jump_equal _ | Jump_not_equal _ -> 6
   | Store_status_kind _ | Store_status_site _ -> 8
+  | Load_context _ | Store_context _ -> 4
+  | Store_context_imm _ -> 8
+  | Dec _ -> 3
   | Mov _ | Unary _ | Binary _ | Shift_cl _ | Cmp _ | Test _ | Movzx8 _ ->
       opcode_bytes + 1 + 1
   | Setcc (_, destination) ->
@@ -334,6 +361,34 @@ let write buffer position instruction =
       byte 0x43;
       byte displacement;
       imm32 immediate
+  | Load_context (destination, displacement) ->
+      let destination = register_number destination in
+      (* MOV r64,[R11+disp8]. R11 requires REX.B; REX.R carries the high
+         destination bit. The bounded six-word context always fits disp8. *)
+      byte (0x49 lor ((destination land 8) lsr 1));
+      opcodes ();
+      byte (0x43 lor ((destination land 7) lsl 3));
+      byte displacement
+  | Store_context (displacement, source) ->
+      let source = register_number source in
+      (* MOV [R11+disp8],r64. R11 requires REX.B; REX.R carries the high source
+         bit. *)
+      byte (0x49 lor ((source land 8) lsr 1));
+      opcodes ();
+      byte (0x43 lor ((source land 7) lsl 3));
+      byte displacement
+  | Store_context_imm (displacement, immediate) ->
+      (* MOV qword ptr [R11+disp8],imm32. *)
+      byte 0x49;
+      opcodes ();
+      byte 0x43;
+      byte displacement;
+      imm32 immediate
+  | Dec register ->
+      let register = register_number register in
+      byte (0x48 lor ((register land 8) lsr 3));
+      opcodes ();
+      byte (0xc0 lor (selected.slash_value lsl 3) lor (register land 7))
   | Cmp (left, right) ->
       (* CMP RM64,R64 sets flags for left-right without changing either input. *)
       modrm ~reg:(register_number right) ~rm:(register_number left)

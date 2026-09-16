@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Added closed native integer programs through `run --target=host-jit`.
+  Structured branches and loops execute through the shared word encoder and
+  allocator, with a generated budget check before every reached IR instruction.
+  A private context retains exact step counts, source fault sites and the last
+  reached expression value; all exits share a bounded frame and host teardown.
+  Source compilation uses no entry interpreter or `#exe` callback fallback.
+  Native v2 reports preserve full-width values, actual progress and requested
+  limits while the existing IR and native-expression reports remain compatible.
+
 - Added guarded native integer division and remainder. Signed operands execute
   `IDIV` after zero and `INT64_MIN/-1` guards; unsigned operands clear RDX and
   execute `DIV`. Fault-capable images reserve R11 for a private ABI-tagged status

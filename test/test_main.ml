@@ -3,6 +3,7 @@ let () =
     [
       ("source", Test_source.tests);
       ("native expression encoding", Test_native_expression.tests);
+      ("native program encoding", Test_native_program.tests);
       ("lexer", Test_lexer.tests);
       ("preprocessor", Test_preprocessor.tests);
       ("parser", Test_parser.tests);

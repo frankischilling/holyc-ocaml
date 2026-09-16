@@ -143,8 +143,12 @@ let () =
       require
         (codes = [ "HCPP0024"; "HCIRVM0009" ])
         "warnings and errors must share one diagnostic array");
-  let status, stdout, stderr = invoke [ "run"; "--target=host-jit"; fixture ] in
-  require (status = Unix.WEXITED 1 && stdout = "") "unsupported native target";
+  let status, stdout, stderr =
+    invoke [ "run"; "--target=invalid-target"; fixture ]
+  in
+  require
+    (status = Unix.WEXITED 1 && stdout = "")
+    "unsupported execution target";
   require
     (String.starts_with ~prefix:"holyc: run: HCRUN0005" stderr)
     "target diagnostic";

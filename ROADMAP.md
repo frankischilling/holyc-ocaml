@@ -6,7 +6,7 @@ M0 covers the build, source model, diagnostics, pinned reference, first lexer sl
 
 M6 now has a bounded source-to-native expression gate in issue #642. The own
 encoder and explicit Windows/Linux x86-64 execution path cover bounded
-I64/U64 expressions; general call frames, calls, memory, branches, floating point,
+I64/U64 expressions; general call frames, calls, memory, floating point,
 relocations and object/BIN output remain open backend work.
 Issue #644 extends that gate with six integer comparisons and logical NOT.
 Issue #646 adds eager binary logical values and ordinary comparison chains,
@@ -18,7 +18,12 @@ frames and the complete HolyC register-allocation and call ABI remain required.
 Issue #652 adds left and arithmetic/logical right shifts, including masked
 counts and fixed-RCX transport with preserved live values. Issue #654 adds
 guarded signed and unsigned division/remainder plus a private checked arithmetic
-fault channel across the Windows/System V host boundary. The full source branch,
-call, memory and floating-point backends remain open.
+fault channel across the Windows/System V host boundary.
+Issue #657 extends the shared backend to closed source programs with structured
+branches and loops, a generated per-IR step budget, exact fault sites and one
+bounded spill frame. The public `run --target=host-jit` path uses a compile-only
+source pipeline and retains native progress without an interpreter fallback.
+Source storage, function frames/calls, the complete HolyC ABI and floating-point
+backends remain open, alongside assembler, BIN/loader and bootstrap gates.
 
 This file does not mark planned work as implemented. Current support is listed in the README and generated compatibility reports.

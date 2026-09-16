@@ -27,6 +27,16 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
+Issue #657 consumes the existing closed source/control graph through the shared
+native word backend. `Compiler/PrsStmt.HC:459-565` supplies statement order and
+loop/break targets; `OptLib.HC:229-484` supplies conditional NOT/AND/OR behavior;
+`OptPass789A.HC:158-163,267-284` supplies test-and-branch and relative-jump
+consumers. The private context, generated instruction budget and host completion
+wrapper are explicit hosted policies. They preserve the checked interpreter's
+per-IR step and last-expression rules without executing that interpreter on the
+native entry path. The new source gate does not establish native function ABI,
+storage, assembler, BIN/loader or bootstrap completion.
+
 Issue #654 connects raw `IC_DIV`/`IC_MOD` to guarded hosted `DIV`/`IDIV`.
 `BackA.HC:355-370,425-440` supplies the fixed dividend/divisor/result register
 roles, `BackLib.HC:404-411` supplies the RDX-zeroing convention, and
