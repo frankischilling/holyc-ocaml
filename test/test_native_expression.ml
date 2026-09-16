@@ -271,6 +271,15 @@ let decoded_mnemonics code =
                 | 0xb6 -> "movzx8"
                 | opcode ->
                     Alcotest.failf "unsupported two-byte opcode 0x%02x" opcode)
+            | 0xd3 -> (
+                Alcotest.(check int)
+                  "shift group has no REX.R extension" 0 (rex land 4);
+                match (modrm lsr 3) land 7 with
+                | 4 -> "shl"
+                | 5 -> "shr"
+                | 7 -> "sar"
+                | slash ->
+                    Alcotest.failf "unsupported D3 slash extension /%d" slash)
             | opcode -> (
                 register reg;
                 match opcode with
@@ -482,6 +491,171 @@ let add_tail next accumulator operands =
   in
   loop next accumulator operands
 
+(* These expected values are stated independently of native execution. The
+   count cases freeze x86/VM low-six-bit masking, while the right-shift cases
+   distinguish arithmetic I64 from logical U64 computation classes. *)
+let shift_source_cases =
+  [
+    ("count 0", "1<<0;", Native.I64, 1L, [ "shl" ]);
+    ("count 1", "1<<1;", Native.I64, 2L, [ "shl" ]);
+    ("count 31", "1<<31;", Native.I64, 0x0000000080000000L, [ "shl" ]);
+    ("count 32", "1<<32;", Native.I64, 0x0000000100000000L, [ "shl" ]);
+    ("count 63", "1<<63;", Native.I64, Int64.min_int, [ "shl" ]);
+    ("count 64 masks to zero", "1<<64;", Native.I64, 1L, [ "shl" ]);
+    ("count 65 masks to one", "1<<65;", Native.I64, 2L, [ "shl" ]);
+    ("count 127 masks to 63", "1<<127;", Native.I64, Int64.min_int, [ "shl" ]);
+    ("count -1 masks to 63", "1<<(-1);", Native.I64, Int64.min_int, [ "shl" ]);
+    ( "minimum count masks to zero",
+      "1<<(-9223372036854775807-1);",
+      Native.I64,
+      1L,
+      [ "shl" ] );
+    ( "unsigned high bit shifts logically",
+      "0x8000000000000000>>63;",
+      Native.U64,
+      1L,
+      [ "shr" ] );
+    ( "signed high bit shifts arithmetically",
+      "0x8000000000000000(I64i)>>63;",
+      Native.I64,
+      -1L,
+      [ "sar" ] );
+    ( "unsigned count promotes signed left to logical shift",
+      "0x8000000000000000(I64i)>>1(U64i);",
+      Native.U64,
+      0x4000000000000000L,
+      [ "shr" ] );
+    ( "unsigned left keeps logical shift with signed count",
+      "0x8000000000000000>>1(I64i);",
+      Native.U64,
+      0x4000000000000000L,
+      [ "shr" ] );
+    ( "left shift wraps at 64 bits",
+      "0x8000000000000000<<1;",
+      Native.U64,
+      0L,
+      [ "shl" ] );
+    ( "maintained mixed shift fixture",
+      "40+(1<<65)+(0x8000000000000000>>63)+(0x8000000000000000(I64i)>>63);",
+      Native.U64,
+      42L,
+      [ "shl"; "shr"; "sar" ] );
+  ]
+
+let shift_shared_cases () =
+  [
+    ( "shift preserves a shared left operand",
+      single
+        [
+          imm 0 3L;
+          imm 1 1L;
+          binary 2 Opcode.Ic_shl 0 1;
+          binary 3 Opcode.Ic_add 0 2;
+          return_value 4 3;
+          ret 5;
+        ],
+      Native.I64,
+      9L );
+    ( "shift preserves a shared count operand",
+      single
+        [
+          imm 0 3L;
+          imm 1 1L;
+          binary 2 Opcode.Ic_shl 0 1;
+          binary 3 Opcode.Ic_add 1 2;
+          return_value 4 3;
+          ret 5;
+        ],
+      Native.I64,
+      7L );
+    ( "duplicate value supplies both left and count",
+      single [ imm 0 65L; binary 1 Opcode.Ic_shl 0 0; return_value 2 1; ret 3 ],
+      Native.I64,
+      130L );
+    ( "count is already in RCX",
+      single
+        [
+          imm 0 3L;
+          imm 1 1L;
+          binary 2 Opcode.Ic_shl 0 1;
+          return_value 3 2;
+          ret 4;
+        ],
+      Native.I64,
+      6L );
+    ( "left starts in RCX while count starts elsewhere",
+      single
+        [
+          imm 0 1L;
+          imm 1 3L;
+          binary 2 Opcode.Ic_shl 1 0;
+          return_value 3 2;
+          ret 4;
+        ],
+      Native.I64,
+      6L );
+    ( "unrelated live RCX owner survives count setup",
+      single
+        [
+          imm 0 3L;
+          imm 1 40L;
+          imm 2 1L;
+          binary 3 Opcode.Ic_shl 0 2;
+          binary 4 Opcode.Ic_add 1 3;
+          return_value 5 4;
+          ret 6;
+        ],
+      Native.I64,
+      46L );
+    ( "unsigned count controls mixed right-shift class",
+      single
+        [
+          imm 0 Int64.min_int;
+          imm ~type_:u64 1 1L;
+          binary ~type_:u64 2 Opcode.Ic_shr 0 1;
+          return_value ~type_:u64 3 2;
+          ret 4;
+        ],
+      Native.U64,
+      0x4000000000000000L );
+    ( "unsigned left controls mixed right-shift class",
+      single
+        [
+          imm ~type_:u64 0 Int64.min_int;
+          imm 1 1L;
+          binary ~type_:u64 2 Opcode.Ic_shr 0 1;
+          return_value ~type_:u64 3 2;
+          ret 4;
+        ],
+      Native.U64,
+      0x4000000000000000L );
+    ( "COM forwarded U64 class selects logical right shift",
+      single
+        [
+          imm ~type_:u64 0 0L;
+          unary 1 Opcode.Ic_com 0;
+          imm 2 1L;
+          binary ~type_:u64 3 Opcode.Ic_shr 1 2;
+          return_value ~type_:u64 4 3;
+          ret 5;
+        ],
+      Native.U64,
+      Int64.max_int );
+  ]
+
+let shift_pressure_graph ~count_in_rcx =
+  let definitions = List.init 7 (fun id -> imm id (Int64.of_int (id + 1))) in
+  let count = if count_in_rcx then 1 else 2 in
+  let survivors =
+    if count_in_rcx then [ 2; 3; 4; 5; 6 ] else [ 1; 3; 4; 5; 6 ]
+  in
+  let next, final_value, tail = add_tail 8 7 survivors in
+  single
+    (definitions
+    @ [ binary 7 Opcode.Ic_shl 0 count ]
+    @ tail
+    @ [ return_value next final_value; ret (next + 1) ])
+
 let spill_values count =
   List.init count (fun id ->
       imm id
@@ -546,6 +720,14 @@ let spill_semantic_cases () =
       273L );
     ( "binary logical scratch coexists with spilled live values",
       two_spilled_inputs_graph Opcode.Ic_and_and,
+      Native.I64,
+      351L );
+    ( "shift left reloads both spilled operands",
+      two_spilled_inputs_graph Opcode.Ic_shl,
+      Native.I64,
+      430L );
+    ( "arithmetic shift right reloads both spilled operands",
+      two_spilled_inputs_graph Opcode.Ic_shr,
       Native.I64,
       351L );
   ]
@@ -855,6 +1037,59 @@ let encoder_extended_register_bytes () =
         "batch byte exhaustion has a diagnostic" true (message <> "")
   | Ok _ ->
       Alcotest.fail "batch encoding accepted one byte below its exact bound"
+
+let encoder_shift_bytes () =
+  (* D3 /4, /5 and /7 are fixed qword CL-count forms. These literals are
+     independent of the encoder tables and cover REX.B for every value register. *)
+  let cases =
+    let open Encoder in
+    [
+      ("SHL RAX,CL", Shift_cl (Shl, Rax), "48d3e0");
+      ("SHL RCX,CL", Shift_cl (Shl, Rcx), "48d3e1");
+      ("SHL RDX,CL", Shift_cl (Shl, Rdx), "48d3e2");
+      ("SHL R8,CL", Shift_cl (Shl, R8), "49d3e0");
+      ("SHL R9,CL", Shift_cl (Shl, R9), "49d3e1");
+      ("SHL R10,CL", Shift_cl (Shl, R10), "49d3e2");
+      ("SHL R11,CL", Shift_cl (Shl, R11), "49d3e3");
+      ("SHR RAX,CL", Shift_cl (Shr, Rax), "48d3e8");
+      ("SHR RCX,CL", Shift_cl (Shr, Rcx), "48d3e9");
+      ("SHR RDX,CL", Shift_cl (Shr, Rdx), "48d3ea");
+      ("SHR R8,CL", Shift_cl (Shr, R8), "49d3e8");
+      ("SHR R9,CL", Shift_cl (Shr, R9), "49d3e9");
+      ("SHR R10,CL", Shift_cl (Shr, R10), "49d3ea");
+      ("SHR R11,CL", Shift_cl (Shr, R11), "49d3eb");
+      ("SAR RAX,CL", Shift_cl (Sar, Rax), "48d3f8");
+      ("SAR RCX,CL", Shift_cl (Sar, Rcx), "48d3f9");
+      ("SAR RDX,CL", Shift_cl (Sar, Rdx), "48d3fa");
+      ("SAR R8,CL", Shift_cl (Sar, R8), "49d3f8");
+      ("SAR R9,CL", Shift_cl (Sar, R9), "49d3f9");
+      ("SAR R10,CL", Shift_cl (Sar, R10), "49d3fa");
+      ("SAR R11,CL", Shift_cl (Sar, R11), "49d3fb");
+    ]
+  in
+  List.iter
+    (fun (label, instruction, expected) ->
+      Alcotest.(check string) label expected (hex (Encoder.encode instruction));
+      Alcotest.(check int)
+        (label ^ " exact byte count")
+        3 (Encoder.size instruction))
+    cases;
+  let instructions =
+    List.map (fun (_, instruction, _) -> instruction) cases @ [ Encoder.Ret ]
+  in
+  let expected =
+    String.concat "" (List.map (fun (_, _, bytes) -> bytes) cases) ^ "c3"
+  in
+  let bytes = String.length expected / 2 in
+  Alcotest.(check string)
+    "all CL shifts fit the exact aggregate byte quota" expected
+    (Encoder.encode_all ~max_code_bytes:bytes instructions
+    |> require_ok Fun.id |> hex);
+  match Encoder.encode_all ~max_code_bytes:(bytes - 1) instructions with
+  | Error message ->
+      Alcotest.(check bool)
+        "shift batch exhaustion has a diagnostic" true (message <> "")
+  | Ok _ -> Alcotest.fail "shift batch accepted one byte below its exact quota"
 
 let encoder_predicate_bytes () =
   (* Opcode bytes and ModRM fields are literal expectations from pinned
@@ -1593,6 +1828,175 @@ let supported_source () =
         (type_name (Native.value_type compiled)))
     (class_cases ())
 
+let shift_source_types_and_bytes () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (_, source, expected_type, _, expected_shifts) ->
+          let checked = source_graph ~mode source in
+          let compiled = source_image ~mode source in
+          inspect_image checked compiled;
+          Alcotest.(check string)
+            (source ^ " result class") (type_name expected_type)
+            (type_name (Native.value_type compiled));
+          Alcotest.(check (list string))
+            (source ^ " shift instruction selection")
+            expected_shifts
+            (decoded_mnemonics (Native.code compiled)
+            |> List.filter (fun mnemonic ->
+                List.mem mnemonic [ "shl"; "shr"; "sar" ]));
+          Alcotest.(check string)
+            (source ^ " driver and graph agree")
+            (Native.code (image checked))
+            (Native.code compiled))
+        shift_source_cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  List.iter
+    (fun mode ->
+      let checked = source_graph ~mode "1<<1;" in
+      let compiled = source_image ~mode "1<<1;" in
+      Alcotest.(check string)
+        "simple shift keeps count in RCX and shifts RAX in place"
+        "48b8010000000000000048b9010000000000000048d3e0c3"
+        (hex (Native.code compiled));
+      Alcotest.(check (list int))
+        "simple shift exact IR, machine, register and frame counts"
+        [ 5; 4; 2; 0 ]
+        [
+          Native.ir_instructions compiled;
+          Native.machine_instructions compiled;
+          Native.register_peak compiled;
+          Native.frame_bytes compiled;
+        ];
+      inspect_image checked compiled)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let shift_shared_allocation () =
+  List.iter
+    (fun (_, checked, expected_type, _) ->
+      let compiled = image checked in
+      inspect_image checked compiled;
+      Alcotest.(check string)
+        "shared shift keeps its declared promoted class"
+        (type_name expected_type)
+        (type_name (Native.value_type compiled));
+      Alcotest.(check int)
+        "shared shift needs no spill frame" 0
+        (Native.frame_bytes compiled))
+    (shift_shared_cases ());
+  let left_in_rcx =
+    single
+      [
+        imm 0 1L; imm 1 3L; binary 2 Opcode.Ic_shl 1 0; return_value 3 2; ret 4;
+      ]
+  in
+  let compiled = image left_in_rcx in
+  inspect_image left_in_rcx compiled;
+  Alcotest.(check string)
+    "dying left leaves RCX before CL receives its distinct count"
+    "48b8010000000000000048b903000000000000004889ca4889c148d3e24889d0c3"
+    (hex (Native.code compiled));
+  Alcotest.(check (list string))
+    "left-in-RCX shift uses RDX as the non-RCX destination"
+    [ "mov-imm64"; "mov-imm64"; "mov"; "mov"; "shl"; "mov"; "ret" ]
+    (decoded_mnemonics (Native.code compiled));
+  let unrelated_live_rcx =
+    single
+      [
+        imm 0 3L;
+        imm 1 40L;
+        imm 2 1L;
+        binary 3 Opcode.Ic_shl 0 2;
+        binary 4 Opcode.Ic_add 1 3;
+        return_value 5 4;
+        ret 6;
+      ]
+  in
+  let compiled = image unrelated_live_rcx in
+  inspect_image unrelated_live_rcx compiled;
+  Alcotest.(check int)
+    "free extended register preserves unrelated live RCX without spilling" 0
+    (Native.frame_bytes compiled);
+  Alcotest.(check bool)
+    "RCX preservation relocates the unrelated owner before the shift" true
+    (match decoded_mnemonics (Native.code compiled) with
+    | "mov-imm64" :: "mov-imm64" :: "mov-imm64" :: "mov" :: "mov" :: "shl" :: _
+      -> true
+    | _ -> false)
+
+let shift_limits_and_pressure () =
+  let simple = source_graph "1<<65;" in
+  let exact =
+    compile ~max_ir_instructions:5 ~max_code_bytes:24 ~max_stack_bytes:0 simple
+    |> require_ok native_errors
+  in
+  Alcotest.(check (list int))
+    "simple shift fits exact public resources" [ 5; 24; 0 ]
+    [
+      Native.ir_instructions exact;
+      String.length (Native.code exact);
+      Native.frame_bytes exact;
+    ];
+  ignore
+    (compile ~max_ir_instructions:4 ~max_code_bytes:24 ~max_stack_bytes:0 simple
+    |> reject ~code:"HCBACK0001" "shift one below exact IR quota");
+  ignore
+    (compile ~max_ir_instructions:5 ~max_code_bytes:23 ~max_stack_bytes:0 simple
+    |> reject ~code:"HCBACK0005" "shift one below exact code quota");
+  let no_spill = shift_pressure_graph ~count_in_rcx:true in
+  let compiled =
+    compile ~max_ir_instructions:15 ~max_code_bytes:89 ~max_stack_bytes:0
+      no_spill
+    |> require_ok native_errors
+  in
+  inspect_image no_spill compiled;
+  Alcotest.(check (list int))
+    "seven live values need no spill when the count already owns RCX"
+    [ 7; 0; 15; 14; 89 ]
+    [
+      Native.register_peak compiled;
+      Native.frame_bytes compiled;
+      Native.ir_instructions compiled;
+      Native.machine_instructions compiled;
+      String.length (Native.code compiled);
+    ];
+  let one_spill = shift_pressure_graph ~count_in_rcx:false in
+  let compiled =
+    compile ~max_ir_instructions:15 ~max_code_bytes:122 ~max_stack_bytes:8
+      one_spill
+    |> require_ok native_errors
+  in
+  inspect_image one_spill compiled;
+  Alcotest.(check (list int))
+    "seven live values spill exactly the unrelated RCX owner"
+    [ 7; 8; 15; 19; 122 ]
+    [
+      Native.register_peak compiled;
+      Native.frame_bytes compiled;
+      Native.ir_instructions compiled;
+      Native.machine_instructions compiled;
+      String.length (Native.code compiled);
+    ];
+  let mnemonics = decoded_mnemonics (Native.code compiled) in
+  Alcotest.(check bool)
+    "shift pressure stores the RCX owner" true
+    (List.mem "store-stack" mnemonics);
+  Alcotest.(check bool)
+    "shift pressure reloads the preserved owner" true
+    (List.mem "load-stack" mnemonics);
+  ignore
+    (compile ~max_ir_instructions:14 ~max_code_bytes:122 ~max_stack_bytes:8
+       one_spill
+    |> reject ~code:"HCBACK0001" "spilled shift one below exact IR quota");
+  ignore
+    (compile ~max_ir_instructions:15 ~max_code_bytes:121 ~max_stack_bytes:8
+       one_spill
+    |> reject ~code:"HCBACK0005" "spilled shift one below exact code quota");
+  ignore
+    (compile ~max_ir_instructions:15 ~max_code_bytes:122 ~max_stack_bytes:7
+       one_spill
+    |> reject ~code:"HCBACK0004" "spilled shift one below exact stack quota")
+
 let limits () =
   let checked = source_graph "6*7;" in
   let compiled = image checked in
@@ -1879,7 +2283,7 @@ let unsupported_source () =
         (List.exists
            (fun (error : Native.error) -> Option.is_some error.span)
            errors))
-    [ "1/0;"; "7%3;"; "1<<2;"; "0&&(1/0);"; "1.0;" ];
+    [ "1/0;"; "7%3;"; "2`3;"; "0&&(1/0);"; "1.0;" ];
   List.iter
     (fun type_ ->
       ignore
@@ -2070,6 +2474,93 @@ let invalid_type_relationships () =
     (fun (label, graph) ->
       ignore (compile graph |> reject ~code:"HCBACK0003" label))
     malformed
+
+let shift_malformed () =
+  let error_at label code position checked =
+    let errors = compile ~max_code_bytes:1 checked |> reject ~code label in
+    Alcotest.(check bool)
+      (label ^ " precedes byte planning at its own source")
+      true
+      (List.exists
+         (fun (error : Native.error) ->
+           error.span = Some (fixture_span position))
+         errors)
+  in
+  List.iter
+    (fun opcode ->
+      let checked =
+        single
+          [
+            imm 0 Int64.min_int;
+            imm 1 1L;
+            binary 2 opcode 0 1;
+            return_value 3 2;
+            ret 4;
+          ]
+      in
+      error_at
+        (Opcode.to_source_name opcode ^ " rejects nonzero flags")
+        "HCBACK0002" 2
+        (replace_instruction 2 (fun d -> { d with flags = 0x200L }) checked);
+      error_at
+        (Opcode.to_source_name opcode ^ " rejects an arithmetic payload")
+        "HCBACK0003" 2
+        (replace_instruction 2
+           (fun d -> { d with payload = Some (Sequence.Integer 1L) })
+           checked);
+      error_at
+        (Opcode.to_source_name opcode ^ " cannot promote I64 operands to U64")
+        "HCBACK0003" 2
+        (replace_instruction 2
+           (fun d -> { d with target_type = Some u64 })
+           checked);
+      error_at
+        (Opcode.to_source_name opcode ^ " mixed U64 count must promote result")
+        "HCBACK0003" 2
+        (single
+           [
+             imm 0 Int64.min_int;
+             imm ~type_:u64 1 1L;
+             binary 2 opcode 0 1;
+             return_value 3 2;
+             ret 4;
+           ]))
+    [ Opcode.Ic_shl; Opcode.Ic_shr ];
+  List.iter
+    (fun (label, type_) ->
+      List.iter
+        (fun opcode ->
+          error_at
+            (Opcode.to_source_name opcode ^ " rejects " ^ label)
+            "HCBACK0002" 2
+            (single
+               [
+                 imm 0 1L;
+                 imm 1 1L;
+                 binary ~type_ 2 opcode 0 1;
+                 return_value ~type_ 3 2;
+                 ret 4;
+               ]))
+        [ Opcode.Ic_shl; Opcode.Ic_shr ])
+    [
+      ("public I64", primitive ~form:Type.Public_spelling Primitive_type.I64);
+      ("internal I8", primitive Primitive_type.I8);
+      ("I64 pointer", primitive ~pointer_depth:1 Primitive_type.I64);
+    ];
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source ->
+          let checked = source_graph ~mode source in
+          let errors = compile checked |> reject ~code:"HCBACK0002" source in
+          Alcotest.(check bool)
+            (source ^ " rejects F64 at its original source span")
+            true
+            (List.exists
+               (fun (error : Native.error) -> Option.is_some error.span)
+               errors))
+        [ "1.0<<2.0;"; "1.0>>2.0;" ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 (* The two expected truth columns describe nonzero/nonzero and nonzero/zero.
    They are literal truth-table expectations, independent of the emitter. *)
@@ -2934,7 +3425,7 @@ let logical_source_boundaries () =
         [
           ("0&&(1/0);", "HCBACK0002");
           ("1||(1/0);", "HCBACK0002");
-          ("0^^(1<<2);", "HCBACK0002");
+          ("0^^(2`3);", "HCBACK0002");
           ("1.0&&1;", "HCBACK0002");
           ("1||1.0;", "HCBACK0002");
           ("1.0^^0;", "HCBACK0002");
@@ -2950,6 +3441,8 @@ let tests =
   [
     Alcotest.test_case "extended REX and ModRM orientations have exact bytes"
       `Quick encoder_extended_register_bytes;
+    Alcotest.test_case "CL shift encoder bytes cover all volatile registers"
+      `Quick encoder_shift_bytes;
     Alcotest.test_case
       "high-register sharing preserves subtraction and duplicates" `Quick
       high_register_shared_bytes;
@@ -2964,6 +3457,12 @@ let tests =
     Alcotest.test_case
       "supported source, shared values and distinct type classes" `Quick
       supported_source;
+    Alcotest.test_case "shift source classes, opcodes and canonical bytes"
+      `Quick shift_source_types_and_bytes;
+    Alcotest.test_case "shift RCX aliases and shared values preserve operands"
+      `Quick shift_shared_allocation;
+    Alcotest.test_case "shift exact budgets and RCX spill pressure" `Quick
+      shift_limits_and_pressure;
     Alcotest.test_case "exact IR and machine-code budgets" `Quick limits;
     Alcotest.test_case "seven-register pressure boundary" `Quick pressure;
     Alcotest.test_case "compiled bytes have no mutable getter aliases" `Quick
@@ -2978,6 +3477,8 @@ let tests =
       `Quick malformed_graphs;
     Alcotest.test_case "declared and computational type relationships reject"
       `Quick invalid_type_relationships;
+    Alcotest.test_case "shift flags, payloads, types and F64 domains reject"
+      `Quick shift_malformed;
     Alcotest.test_case "predicate encoder condition and byte-register goldens"
       `Quick encoder_predicate_bytes;
     Alcotest.test_case "stack encoder bytes and bounded constructors" `Quick

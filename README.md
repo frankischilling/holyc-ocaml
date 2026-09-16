@@ -43,6 +43,8 @@ all six integer comparisons, logical NOT and arithmetic.
 and ordinary comparison chains, including forwarded unsigned complements.
 `examples/native-integer-spills.hc` returns 42 with eight live operands and an
 eight-byte private spill frame. `--stack-byte-limit` controls the frame quota.
+`examples/native-integer-shifts.hc` returns U64 42 using left shift, unsigned
+and signed right shifts, and wrapped counts through the same native path.
 [Native expressions](docs/native-expressions.md) describes the supported
 integer subset, explicit execution boundary, diagnostics and limits.
 

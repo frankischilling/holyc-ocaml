@@ -1,5 +1,12 @@
 # holyc-ocaml compatibility status
 
+Issue #652 adds native integer shifts to the checked I64/U64 expression subset.
+Counts use six bits; both operands' computation classes select signed SAR or
+unsigned SHR. CL-based code generation preserves RCX owners and shared operands
+through the bounded allocator. This does not add division fault handling or
+claim TempleOS shift-optimizer parity. The maintained shift fixture executes
+through the native API and CLI in both modes.
+
 [Native integer expressions](native-expressions.md) in #642 connect checked
 source to the project's OCaml x86-64 encoder and explicit Windows/Linux x86-64
 execution. The bounded internal I64/U64 subset preserves all return bits

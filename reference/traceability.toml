@@ -11675,7 +11675,7 @@ limits = "IR/code/frame limits validated before parsing; maximum 100000 IR instr
 execution = "opaque image and fresh exported copies; explicit native entry; RW copy then RX protection and cache synchronization; full uint64_t return, mapping released before OCaml allocation; Windows/Linux x86-64 only; Linux READ_IMPLIES_EXEC refused"
 reporting = "holyc-native-expression-v1 with implementation/reference revisions, host, mode, limits, complete machine bytes/counts, register peak, diagnostics and exact decimal/hex strings; existing eval/run unchanged"
 verification_boundary = "ordinary nonexecuting encoder tests; explicit native-tests API/CLI and 500 fixed-seed source comparisons against integer VM plus boundary/shared/repeated execution; injected OS failure paths remain untested"
-excluded = ["narrow/public integer producers", "division/remainder/shift semantics", "conditional and multiple-pending-reduction comparison chains (#593)", "general conversions and x87", "large/probed frames, calls and general HolyC ABI", "branches and source-visible memory", "relocations and object/BIN emission", "arbitrary native bytes", "CPU timeout and native fault recovery", "actual TempleOS loader acceptance", "bootstrap"]
+excluded = ["narrow/public integer producers", "division/remainder semantics", "conditional and multiple-pending-reduction comparison chains (#593)", "general conversions and x87", "large/probed frames, calls and general HolyC ABI", "branches and source-visible memory", "relocations and object/BIN emission", "arbitrary native bytes", "CPU timeout and native fault recovery", "actual TempleOS loader acceptance", "bootstrap"]
 native_oracle_status = "hosted own-encoder execution and pinned-source audit; no new TempleOS compiler capture or optimizer parity claim"
 
 [[feature]]
@@ -11698,7 +11698,7 @@ semantics = "ordered comparison uses both forwarded operand classes; any U64 sel
 allocation = "CMP/TEST precedes destination mutation; SETcc consumes live flags; MOVZX clears all high bits; either dying input may be reused while shared values stay intact"
 limits = "existing IR and byte budgets; exact 5 IR/31 bytes for 1<2 and 4 IR/21 bytes for !0, with one-below rejection before executable allocation"
 verification_boundary = "ordinary byte/source/type/liveness/rejection tests and explicit native differential/API/CLI tests; generated opcode facts, runtime bridge and report schema unchanged"
-excluded = ["conditional and multiple-pending-reduction comparison chains (#593)", "general casts and non-word producers", "division/remainder/shifts", "control-flow branches, general call frames, calls and source-visible memory", "optimizer parity and native TempleOS capture"]
+excluded = ["conditional and multiple-pending-reduction comparison chains (#593)", "general casts and non-word producers", "division/remainder", "control-flow branches, general call frames, calls and source-visible memory", "optimizer parity and native TempleOS capture"]
 
 [[feature]]
 id = "HC-NATIVE-INTEGER-LOGICAL-VALUES"
@@ -11723,7 +11723,7 @@ word_views = "only internal I64/U64 input and target, one earlier value, integer
 allocation = "two distinct working registers; normalize right first if result aliases right; preserve remaining input and later shared uses; scratch register included in pressure and peak; other live owners may spill under HC-NATIVE-INTEGER-SPILLS"
 limits = "simple two-literal logical values require 5 IR instructions, 44 bytes, 10 machine instructions and two registers; exact/one-below IR and byte tests plus temporary-register exhaustion"
 verification_boundary = "literal expected chain results complement VM/native differential comparisons; ordinary tests do not enter machine code; explicit native API/CLI tests run separately; report schema, encoder database and host bridge unchanged"
-excluded = ["conditional and multiple-pending-reduction chains (#593)", "public/narrow/pointer/floating word views", "parenthesized casts and general conversions", "division/remainder/shifts", "branches, source-visible memory, large/probed frames and calls", "optimizer parity", "TempleOS native capture, loader and bootstrap"]
+excluded = ["conditional and multiple-pending-reduction chains (#593)", "public/narrow/pointer/floating word views", "parenthesized casts and general conversions", "division/remainder", "branches, source-visible memory, large/probed frames and calls", "optimizer parity", "TempleOS native capture, loader and bootstrap"]
 
 [[feature]]
 id = "HC-NATIVE-INTEGER-SPILLS"
@@ -11749,3 +11749,26 @@ verification_boundary = "independent instruction/unwind bytes, slot reuse and sh
 host_evidence = "Microsoft x64 exception handling, prologue/epilogue and RtlAddFunctionTable/RtlDeleteFunctionTable documentation linked from docs/native-expressions.md"
 excluded = ["general call frames and stack probing", "nonvolatile register allocation", "calls and full HolyC ABI", "source-visible memory and control flow", "general conversions and x87", "object/BIN emission, loader and bootstrap", "general native fault or exception recovery"]
 native_oracle_status = "hosted native execution, pinned-source audit and Windows host-unwinder checks; no TempleOS native capture or allocator/optimizer parity claim"
+
+[[feature]]
+id = "HC-NATIVE-INTEGER-SHIFTS"
+description = "Existing checked source and IR integer shifts execute through qword CL encodings with fixed-RCX transport and bounded spill preservation."
+sources = [
+  "Compiler/OpCodes.DD:1107,1125,1143 qword SHL/SHR/SAR CL forms",
+  "Compiler/BackA.HC:573-600 variable count in RCX and computation-class selection",
+  "Compiler/OptPass789A.HC:506-516 integer shift consumers",
+  "Compiler/OptLib.HC:103-122 promoted computation classes"
+]
+implementation = ["src/backend/x86_64_encoder.ml", "src/backend/x86_64_encoder.mli", "src/backend/x86_64_expression.ml", "src/backend/x86_64_expression.mli"]
+tests = ["test/test_native_expression.ml", "test/native/test_native_execution.ml", "test/native/test_native_cli.ml", "test/native/dune", "examples/native-integer-shifts.hc"]
+documentation = ["docs/native-expressions.md", "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md", "README.md", "REFERENCE_SOURCES.md", "CHANGELOG.md"]
+status = "implemented"
+issue = 652
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+baseline = "At e7ad814d9c6ac79c0a449de0930ceac1b88470f9 the maintained fixture evaluates to U64 42 in 16 interpreter steps in both modes; native compilation rejects IC_SHL with HCBACK0002."
+computation = "IC_SHL wraps to 64 bits; IC_SHR uses SAR only when both forwarded computation classes promote to I64, otherwise SHR. The count's low six bits select the shift, including negative and oversized counts."
+allocation = "RCX holds CL while the destination uses another volatile register. Existing RCX owners move or spill before replacement; dying left-in-RCX is captured before loading the count. Shared and duplicate inputs retain their original homes/lifetimes, and dying distinct spilled counts release their slots after loading. All moves, reloads and evictions count in existing register/frame/code limits."
+source_gate = "native-integer-shifts.hc returns U64 42 through public native JSON and human reports in both modes, including zero stack quota; it exercises count wrapping, left shift and signed/unsigned high-bit right shifts."
+verification = "Independent qword CL instruction bytes, count-mask boundaries, mixed computation classes, wraparound, current RCX ownership and shared/spilled operands; exact and one-below resource limits; actual native source/IR differential execution; existing non-shift fixture bytes and public limits remain unchanged."
+excluded = ["division/remainder and native arithmetic-fault reporting", "constant-form shift optimizer parity (#574)", "F64, public/narrow producers and general conversions", "general control flow, memory and calls", "object/BIN/loader and bootstrap"]
+native_oracle_status = "pinned-source audit and hosted own-encoder execution, not a TempleOS native capture or optimizer-parity claim"

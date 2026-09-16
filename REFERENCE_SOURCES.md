@@ -27,6 +27,12 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
+Issue #652 uses `OpCodes.DD:1107,1125,1143`, `BackA.HC:573-600` and
+`OptPass789A.HC:506-516` for qword CL shifts and signed/unsigned selection.
+The existing checked computation-class and count rules feed fixed-RCX native
+emission with preserved live values. The pin is unchanged; byte tests and
+hosted differential execution do not imply a new TempleOS native capture.
+
 The native-expression gate in #642 uses the audited opcode forms for MOV,
 wrapping arithmetic, bitwise operations, NEG, NOT, IMUL and RET. Its return
 tail follows `PrsExp.HC:1117-1127` and `OptPass789A.HC:779-782`; multiplication

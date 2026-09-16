@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added native integer left and right shifts. Counts use their low six bits,
+  and the promoted computation class selects arithmetic SAR or logical SHR.
+  Fixed-RCX allocation preserves shared operands and live values through the
+  existing bounded spill frame. Added encoder, count-boundary, register-lifetime,
+  native differential and public CLI tests in both preprocessing modes.
+
 - Aggregate `$$` expressions now use original local positions after runtime-sized
   primitive arrays. Bounds execute once during declaration; their task evidence
   survives captured positions, derived offsets, completed sizes and function

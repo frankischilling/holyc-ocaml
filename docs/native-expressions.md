@@ -11,6 +11,7 @@ opam exec -- dune exec --root . -- bin/holyc.exe eval-native --mode=aot --format
 opam exec -- dune exec --root . -- bin/holyc.exe eval-native --format=json examples/native-integer-predicates.hc
 opam exec -- dune exec --root . -- bin/holyc.exe eval-native --format=json examples/native-integer-logical.hc
 opam exec -- dune exec --root . -- bin/holyc.exe eval-native --stack-byte-limit=8 --format=json examples/native-integer-spills.hc
+opam exec -- dune exec --root . -- bin/holyc.exe eval-native --format=json examples/native-integer-shifts.hc
 ```
 
 The fixture contains `(6*7);`. It lowers to five IR instructions and emits
@@ -40,17 +41,34 @@ spilling does not reorder or evaluate the expression during compilation.
 The fixture has 17 IR instructions and emits 132 bytes in 20 machine
 instructions, with a peak of seven registers and an eight-byte frame.
 
+The shift fixture returns U64 42. It combines `1<<65`, whose count wraps to one,
+an unsigned high-bit right shift and a signed high-bit right shift selected by
+an internal I64 word view. The operations are emitted and executed as shifts;
+compilation does not substitute an interpreter result.
+It has 16 IR instructions and emits 107 bytes in 20 machine instructions, with
+a peak of four registers and no stack frame. The byte count includes all six
+register transports needed by the three CL-based shifts.
+
 ## Supported domain
 
 After preprocessing, the input must be exactly one ordinary expression
 statement. Parentheses and unary plus retain the existing lowering behavior.
 The native compiler admits internal I64/U64 literals, unary minus, bitwise
 complement, addition, subtraction, multiplication, bitwise AND, OR and XOR,
-the six comparisons (`==`, `!=`, `<`, `>=`, `>`, `<=`), logical NOT (`!`),
+left and right shifts (`<<`, `>>`), the six comparisons (`==`, `!=`, `<`, `>=`,
+`>`, `<=`), logical NOT (`!`),
 and eager logical AND, OR and XOR (`&&`, `||`, `^^`).
 Arithmetic retains the low 64 bits. Declared result type and intermediate
 computation class remain distinct: complement returns I64 but may retain an
 unsigned computation class consumed by its parent operation.
+
+Shifts mask the count to its low six bits, including negative and oversized
+counts. Left shift retains the low 64 result bits. Right shift uses arithmetic
+SAR for an I64 computation and logical SHR for U64. Both operands contribute
+to that computation class: an unsigned count can make a signed left operand's
+right shift unsigned. For example, `-2>>1` is I64 minus one, while
+`-2>>1(U64i)` is U64 `0x7fffffffffffffff`. A zero masked count preserves all
+input bits but still retains the checked result/computation class.
 
 Each comparison returns I64 zero or one. Ordered comparisons use unsigned
 order when either operand has a forwarded U64 computation class; equality
@@ -80,11 +98,12 @@ The verified IR must contain one entry block with no graph edges, zero flags,
 and exactly one final `IC_RETURN_VAL`, `IC_RET` pair. Every instruction is
 preflighted, including unused producers. Narrow/public primitive producers,
 general conversions, floating point, pointers, memory, declarations, calls,
-branches, division, remainder, shifts and conditional comparison chains
+branches, division, remainder and conditional comparison chains
 remain outside this native gate.
 They receive diagnostics from their first unsupported source or IR stage.
-Raw division and shift interpretation remain available through `eval`;
-their native optimizer policies remain separate work in #585 and #574.
+Division and remainder interpretation remain available through `eval`.
+Their native fault protocol and optimizer policy remain separate work in #585;
+native shift execution does not establish the TempleOS optimizer policy in #574.
 The only admitted cast form is a full-width internal I64/U64 word view with
 `IC_HOLYC_TYPECAST`, integer payload zero and zero flags. It preserves all bits
 and selects the target computation class. The internal source spellings
@@ -129,6 +148,15 @@ first. Shared inputs remain intact, and the temporary working register counts
 toward the seven-register peak even though it has no IR value owner. Obtaining
 that temporary can spill another live value. Word views copy a still-live
 source and reuse a dying one.
+
+CL-based shifts reserve RCX for the count and place the result in another
+volatile register. A left operand already in RCX is preserved before loading
+a different count. An unrelated live RCX owner is moved or spilled and remains
+available to later consumers; shared count and left operands keep their own
+lifetimes. The fixed-register constraint can require a spill even with only
+seven live IR values. Every move, store and reload counts toward the same frame,
+register-peak and code-size limits as other operations. Existing expressions
+without shifts retain their previous code bytes.
 
 ## API and limits
 
@@ -256,6 +284,14 @@ The Windows obligations come from Microsoft's
 [dynamic registration](https://learn.microsoft.com/en-us/windows/win32/api/winnt/nf-winnt-rtladdfunctiontable)
 and [removal API](https://learn.microsoft.com/en-us/windows/win32/api/winnt/nf-winnt-rtldeletefunctiontable).
 They describe the host boundary and do not replace the pinned HolyC evidence.
+
+Issue #652 consumes `OpCodes.DD:1107,1125,1143` for SHL, SHR and SAR qword
+CL encodings. `BackA.HC:573-600` reserves RCX for a variable count and selects
+unsigned behavior from the computation class; `OptPass789A.HC:506-516` supplies
+the left/right shift consumers. This implementation consistently uses the CL
+form, including literal counts, and preserves the existing low-six-bit runtime
+semantics. It does not claim the immediate-form or constant-folding optimizer
+behavior tracked separately in #574.
 
 `test/test_native_expression.ml` runs under ordinary `dune runtest` without
 entering native code. It checks exact bytes, source/type rules, sharing,

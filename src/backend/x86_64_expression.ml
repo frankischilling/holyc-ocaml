@@ -85,6 +85,7 @@ type operation =
   | Load_immediate of value * int64
   | Apply_unary of Encoder.unary * value * value
   | Apply_binary of Encoder.binary * value * value * value
+  | Apply_shift of Encoder.shift * value * value * value
   | Apply_comparison of Encoder.condition * value * value * value
   | Apply_logical_not of value * value
   | Apply_logical of Encoder.binary * value * value * value
@@ -101,6 +102,7 @@ type kind =
   | Immediate_kind
   | Unary_kind of Encoder.unary
   | Binary_kind of Encoder.binary
+  | Shift_kind of [ `Left | `Right ]
   | Comparison_kind of Encoder.condition * Encoder.condition
   | Logical_not_kind
   | Logical_kind of Encoder.binary
@@ -123,6 +125,8 @@ let opcode_kind = function
   | Opcode.Ic_and -> Some (Binary_kind Encoder.And)
   | Opcode.Ic_or -> Some (Binary_kind Encoder.Or)
   | Opcode.Ic_xor -> Some (Binary_kind Encoder.Xor)
+  | Opcode.Ic_shl -> Some (Shift_kind `Left)
+  | Opcode.Ic_shr -> Some (Shift_kind `Right)
   | Opcode.Ic_equ_equ -> Some (Comparison_kind (Encoder.E, Encoder.E))
   | Opcode.Ic_not_equ -> Some (Comparison_kind (Encoder.NE, Encoder.NE))
   | Opcode.Ic_less -> Some (Comparison_kind (Encoder.L, Encoder.B))
@@ -248,6 +252,7 @@ let preflight ~count instructions =
         | Immediate_kind
         | Unary_kind _
         | Binary_kind _
+        | Shift_kind _
         | Comparison_kind _
         | Logical_not_kind
         | Logical_kind _
@@ -349,6 +354,25 @@ let preflight ~count instructions =
                 (Computation.forward target_type)
             in
             Apply_binary (binary, left, right, result)
+        | ( Shift_kind direction,
+            ([ left_id; right_id ], Some result, Some target_type, None) ) ->
+            let word = checked_word description target_type in
+            let left = operand description position left_id in
+            let right = operand description position right_id in
+            require_type description
+              (promoted_type description left right)
+              target_type;
+            let shift =
+              match (direction, word) with
+              | `Left, (I64 | U64) -> Encoder.Shl
+              | `Right, I64 -> Encoder.Sar
+              | `Right, U64 -> Encoder.Shr
+            in
+            let result =
+              define description position result target_type
+                (Computation.forward target_type)
+            in
+            Apply_shift (shift, left, right, result)
         | ( Comparison_kind (signed, unsigned),
             ([ left_id; right_id ], Some result, Some target_type, None) ) ->
             if checked_word description target_type <> I64 then
@@ -424,6 +448,15 @@ let build_windows_unwind_info frame_size =
 
 let allocate ~max_stack_bytes prepared =
   let registers = Array.of_list Encoder.registers in
+  let rcx =
+    let rec find index =
+      if index = Array.length registers then
+        reject "HCBACK0003" "native register set does not contain RCX"
+      else if registers.(index) = Encoder.Rcx then index
+      else find (index + 1)
+    in
+    find 0
+  in
   let owners : value option array = Array.make (Array.length registers) None in
   let slots : value option array = Array.make (hard_max_stack_bytes / 8) None in
   let slot_high_water = ref 0 in
@@ -523,6 +556,27 @@ let allocate ~max_stack_bytes prepared =
         emit span (Encoder.Store_stack (slot, registers.(index)));
         owners.(index) <- None
   in
+  let find_empty ~excluded =
+    let rec find index =
+      if index = Array.length owners then None
+      else if List.mem index excluded || Option.is_some owners.(index) then
+        find (index + 1)
+      else Some index
+    in
+    find 0
+  in
+  let relocate_register span index ~excluded =
+    match owners.(index) with
+    | None -> ()
+    | Some owner -> (
+        match find_empty ~excluded:(index :: excluded) with
+        | Some destination ->
+            emit span (Encoder.Mov (registers.(destination), registers.(index)));
+            owners.(destination) <- Some owner;
+            owners.(index) <- None;
+            note_peak ()
+        | None -> spill_register span index)
+  in
   let choose_victim span ~protected ~excluded =
     let best = ref None in
     Array.iteri
@@ -612,6 +666,39 @@ let allocate ~max_stack_bytes prepared =
     in
     load protected [] values
   in
+  let copy_value_to span value destination =
+    match find_register value with
+    | Some source ->
+        if source <> destination then
+          emit span (Encoder.Mov (registers.(destination), registers.(source)))
+    | None -> (
+        match find_slot value with
+        | Some slot_index ->
+            emit span
+              (Encoder.Load_stack
+                 (registers.(destination), encoder_slot span slot_index))
+        | None ->
+            reject ?span "HCBACK0003"
+              "prepared shift operand has no live register or spill slot")
+  in
+  let copy_count_to_rcx span ~position ~shared_with_left count =
+    match find_register count with
+    | Some source when source = rcx -> ()
+    | Some source -> emit span (Encoder.Mov (Encoder.Rcx, registers.(source)))
+    | None -> (
+        match find_slot count with
+        | Some slot_index ->
+            emit span
+              (Encoder.Load_stack (Encoder.Rcx, encoder_slot span slot_index));
+            (* Once a dying distinct count is in CL its spill slot can serve a
+               later eviction needed to obtain the non-RCX result register. A
+               duplicate left/count still needs its slot as the left source. *)
+            if count.last_use = position && not shared_with_left then
+              slots.(slot_index) <- None
+        | None ->
+            reject ?span "HCBACK0003"
+              "prepared shift count has no live register or spill slot")
+  in
   let assign position destination value =
     owners.(destination) <- Some value;
     note_peak ();
@@ -668,6 +755,61 @@ let allocate ~max_stack_bytes prepared =
           else (
             emit (Encoder.Mov (target, registers.(left)));
             emit (Encoder.Binary (binary, target, registers.(right))));
+          assign position destination result
+      | Apply_shift (shift, left, count, result) ->
+          let count_register = find_register count in
+          (* RCX is an architectural input to D3 shifts. Preserve an unrelated
+             live owner, and preserve a shared left value before replacing CL.
+             A left value whose final use is this shift is captured below before
+             RCX is overwritten. Count ownership already in RCX stays in place. *)
+          (match owners.(rcx) with
+          | None -> ()
+          | Some owner when same_value owner count -> ()
+          | Some owner when same_value owner left && owner.last_use = position
+            -> ()
+          | Some _ ->
+              relocate_register instruction.span rcx
+                ~excluded:(Option.to_list count_register));
+          let left_register = find_register left in
+          let count_register = find_register count in
+          let destination_before_count =
+            match left_register with
+            | Some source when source = rcx && not (same_value left count) ->
+                let excluded =
+                  rcx
+                  :: Option.fold ~none:[]
+                       ~some:(fun index -> [ index ])
+                       count_register
+                in
+                let destination =
+                  acquire_destination instruction.span position
+                    ~protected:[ rcx ] ~excluded
+                in
+                (* The dying left value must leave RCX before the count arrives.
+                   A shared left was relocated above and cannot take this path. *)
+                copy_value_to instruction.span left destination;
+                owners.(rcx) <- None;
+                Some destination
+            | Some _ | None -> None
+          in
+          copy_count_to_rcx instruction.span ~position
+            ~shared_with_left:(same_value left count) count;
+          let destination =
+            match destination_before_count with
+            | Some destination -> destination
+            | None ->
+                let protected =
+                  match find_register left with
+                  | Some index -> [ index ]
+                  | None -> []
+                in
+                acquire_destination instruction.span position ~protected
+                  ~excluded:[ rcx ]
+          in
+          if Option.is_none destination_before_count then
+            copy_value_to instruction.span left destination;
+          note_peak ~temporaries:[ rcx; destination ] ();
+          emit (Encoder.Shift_cl (shift, registers.(destination)));
           assign position destination result
       | Apply_comparison (condition, left, right, result) ->
           let inputs, protected =

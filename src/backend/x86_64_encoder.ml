@@ -3,6 +3,7 @@ module Facts = Generated.Opcode_keywords
 type register = Rax | Rcx | Rdx | R8 | R9 | R10 | R11
 type unary = Neg | Not
 type binary = Add | Sub | Imul | And | Or | Xor
+type shift = Shl | Shr | Sar
 type condition = E | NE | L | GE | G | LE | B | AE | A | BE
 type stack_slot = { offset : int }
 type stack_frame = { bytes : int }
@@ -16,6 +17,7 @@ type instruction =
   | Free_stack of stack_frame
   | Unary of unary * register
   | Binary of binary * register * register
+  | Shift_cl of shift * register
   | Cmp of register * register
   | Test of register
   | Setcc of condition * register
@@ -87,6 +89,9 @@ let multiply = source_form "IMUL2" 694
 let bitwise_and = source_form "AND" 353
 let bitwise_or = source_form "OR" 399
 let bitwise_xor = source_form "XOR" 501
+let shift_left_cl = source_form "SHL" 1107
+let shift_right_cl = source_form "SHR" 1125
+let shift_arithmetic_right_cl = source_form "SAR" 1143
 let compare = source_form "CMP" 376
 let test = source_form "TEST" 461
 let movzx_byte = source_form "MOVZX" 893
@@ -114,6 +119,11 @@ let condition_form = function
   | A -> set_above
   | BE -> set_below_equal
 
+let shift_form = function
+  | Shl -> shift_left_cl
+  | Shr -> shift_right_cl
+  | Sar -> shift_arithmetic_right_cl
+
 let form = function
   | Mov_imm64 _ -> mov_immediate
   | Mov _ -> mov_register
@@ -129,6 +139,7 @@ let form = function
   | Binary (And, _, _) -> bitwise_and
   | Binary (Or, _, _) -> bitwise_or
   | Binary (Xor, _, _) -> bitwise_xor
+  | Shift_cl (shift, _) -> shift_form shift
   | Cmp _ -> compare
   | Test _ -> test
   | Setcc (condition, _) -> condition_form condition
@@ -141,7 +152,7 @@ let size instruction =
   | Mov_imm64 _ -> opcode_bytes + 1 + 8
   | Load_stack _ | Store_stack _ -> 8
   | Alloc_stack _ | Free_stack _ -> 7
-  | Mov _ | Unary _ | Binary _ | Cmp _ | Test _ | Movzx8 _ ->
+  | Mov _ | Unary _ | Binary _ | Shift_cl _ | Cmp _ | Test _ | Movzx8 _ ->
       opcode_bytes + 1 + 1
   | Setcc (_, destination) ->
       opcode_bytes + 1 + if register_number destination < 8 then 0 else 1
@@ -212,6 +223,10 @@ let write buffer position instruction =
       modrm ~reg:(register_number destination) ~rm:(register_number source)
   | Binary (_, destination, source) ->
       modrm ~reg:(register_number source) ~rm:(register_number destination)
+  | Shift_cl (_, destination) ->
+      (* OpCodes.DD:1107/1125/1143 are the 64-bit RM64,CL forms. The slash
+         value selects SHL/SHR/SAR; RCX is implicit and REX.B extends RM64. *)
+      modrm ~reg:selected.slash_value ~rm:(register_number destination)
   | Cmp (left, right) ->
       (* CMP RM64,R64 sets flags for left-right without changing either input. *)
       modrm ~reg:(register_number right) ~rm:(register_number left)
