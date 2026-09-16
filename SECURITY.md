@@ -16,16 +16,18 @@ Callers supply execution and resource limits before source parsing can execute c
 
 Failure does not roll back effects already reached by earlier admitted work. Public reports retain captured ordinary output and cumulative progress on parse, compilation and runtime errors, without reporting a successful final result. A failed `StreamPrint` block injects no partial generated source. Ordinary `Print` publishes a complete formatted call only on success; `PutChars` can retain bytes emitted before a later fault. Failed source replay revokes call authority for commands that were not admitted. See [runtime output](docs/integer-output.md) for byte and work accounting.
 
-The six standard predefined values also have dedicated expansion of their audited definitions. Their generated text shares frontend nesting and byte limits. Native executable-memory execution is not provided by this hosted interpreter; future native and unsafe modes require their own explicit capability and platform contracts.
+The six standard predefined values also have dedicated expansion of their audited definitions. Their generated text shares frontend nesting and byte limits. Native executable-memory execution is not provided by this hosted interpreter; the separate `eval-native` capability has its own explicit checked platform contract below.
 
 ## Explicit native expression execution
 
 `holyc eval-native` and `Native_expression.evaluate` explicitly enter generated
 x86-64 code in the current process. They accept only a fully checked, finite
 integer expression with one return tail. Compiler-owned spill slots may use
-an explicitly bounded private frame. Calls, source-visible memory, branches,
-general call frames, floating point, arbitrary code bytes and nonzero flags are rejected
-before executable-memory allocation. The ordinary `eval`, `run`, preprocessing
+an explicitly bounded private frame. Division and remainder add only compiler-owned
+guard branches and a private two-word status channel; source control flow remains
+outside this gate. Calls, source-visible memory, general call frames, floating
+point, arbitrary code bytes and nonzero flags are rejected before
+executable-memory allocation. The ordinary `eval`, `run`, preprocessing
 and `dune runtest` paths do not select native execution.
 
 Compilation checks IR, code-size and private-frame limits before allocating the executable
@@ -38,7 +40,10 @@ weakening the writable/executable separation. OS allocation/protection errors
 are failures, with no interpreter fallback reported as native success.
 
 The spill frame is at most 4,088 bytes, includes alignment padding and is
-restored before returning to the host. Windows frame images carry OCaml-generated
+restored before returning to the host. Fault-capable images reserve R11 for a
+private status pointer and validate the declared Windows/System V ABI before any
+executable mapping or entry. Zero-divisor and signed `MIN/-1` guards write only
+the checked kind/site pair and use the same stack-restoring epilogue as success. Windows frame images carry OCaml-generated
 unwind records. The bridge registers their function table before entry and
 removes it before freeing the mapping. If removal fails, it reports an error
 and retains the complete registered mapping so no OS reference becomes dangling.

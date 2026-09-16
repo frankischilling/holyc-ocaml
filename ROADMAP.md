@@ -16,8 +16,9 @@ Issue #648 adds reusable private spill slots, a separate frame quota and
 Windows unwind registration for high-pressure expressions. Larger/probed
 frames and the complete HolyC register-allocation and call ABI remain required.
 Issue #652 adds left and arithmetic/logical right shifts, including masked
-counts and fixed-RCX transport with preserved live values. Division/remainder
-still require a checked native arithmetic-fault path before host DIV/IDIV can
-execute; the full branch, call, memory and floating-point backends remain open.
+counts and fixed-RCX transport with preserved live values. Issue #654 adds
+guarded signed and unsigned division/remainder plus a private checked arithmetic
+fault channel across the Windows/System V host boundary. The full source branch,
+call, memory and floating-point backends remain open.
 
 This file does not mark planned work as implemented. Current support is listed in the README and generated compatibility reports.

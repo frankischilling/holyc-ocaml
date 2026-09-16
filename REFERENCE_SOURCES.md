@@ -27,6 +27,16 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
+Issue #654 connects raw `IC_DIV`/`IC_MOD` to guarded hosted `DIV`/`IDIV`.
+`BackA.HC:355-370,425-440` supplies the fixed dividend/divisor/result register
+roles, `BackLib.HC:404-411` supplies the RDX-zeroing convention, and
+`OpCodes.DD:284,365,496,584,608,612,708,713,780` supplies the status stores,
+comparisons/guards, rel32 branches, `DIV`/`IDIV` and `CQO` forms consumed by the
+hosted selector. The checked integer computation class still chooses signed or
+unsigned arithmetic. Host status-pointer capture follows the documented
+Microsoft x64 or System V x86-64 calling convention and is not TempleOS
+language evidence. The pin and generated opcode tables are unchanged.
+
 Issue #652 uses `OpCodes.DD:1107,1125,1143`, `BackA.HC:573-600` and
 `OptPass789A.HC:506-516` for qword CL shifts and signed/unsigned selection.
 The existing checked computation-class and count rules feed fixed-RCX native
