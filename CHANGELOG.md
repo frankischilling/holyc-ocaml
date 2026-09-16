@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added native integer left and right shifts. Counts use their low six bits,
+  and the promoted computation class selects arithmetic SAR or logical SHR.
+  Fixed-RCX allocation preserves shared operands and live values through the
+  existing bounded spill frame. Added encoder, count-boundary, register-lifetime,
+  native differential and public CLI tests in both preprocessing modes.
+
 - Preserved the original named aggregate selected for direct function return
   and parameter types before later lexer lookahead runs `#exe`. Provisional and
   completed headers consume the same owner-bound proof and original pointer

@@ -34,7 +34,8 @@
   ../../examples/native-integer-expression.hc
   ../../examples/native-integer-predicates.hc
   ../../examples/native-integer-logical.hc
-  ../../examples/native-integer-spills.hc)
+  ../../examples/native-integer-spills.hc
+  ../../examples/native-integer-shifts.hc)
  (action
   (run
    %{exe:test_native_cli.exe}
@@ -42,4 +43,5 @@
    %{dep:../../examples/native-integer-expression.hc}
    %{dep:../../examples/native-integer-predicates.hc}
    %{dep:../../examples/native-integer-logical.hc}
-   %{dep:../../examples/native-integer-spills.hc})))
+   %{dep:../../examples/native-integer-spills.hc}
+   %{dep:../../examples/native-integer-shifts.hc})))

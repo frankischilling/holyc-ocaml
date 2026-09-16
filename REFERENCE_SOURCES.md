@@ -27,6 +27,12 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
+Issue #652 uses `OpCodes.DD:1107,1125,1143`, `BackA.HC:573-600` and
+`OptPass789A.HC:506-516` for qword CL shifts and signed/unsigned selection.
+The existing checked computation-class and count rules feed fixed-RCX native
+emission with preserved live values. The pin is unchanged; byte tests and
+hosted differential execution do not imply a new TempleOS native capture.
+
 Issue #650 retains the named class selected by `PrsVar.HC:472-489` before
 following lexer effects. Pointer/name parsing and member installation use
 `:285-308,332-360,521-529`; function return publication uses

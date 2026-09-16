@@ -1,5 +1,13 @@
 # Testing holyc-ocaml
 
+Native shift tests cover the three qword CL encodings across all seven value
+registers, six-bit count boundaries, signed/unsigned and mixed computation
+classes, left-shift wraparound and full result bits. Allocation cases preserve
+an RCX-resident left operand, a count already in RCX, unrelated live RCX owners,
+shared/duplicate operands and spilled inputs. Actual native differential
+execution and the public shift fixture run in both modes; unsupported division,
+dead operations, wrong types/flags and exact resource limits retain controls.
+
 The `retained named aggregate` groups cover #650's original Class selection,
 same-name replacement, public-type-spelling shadows, retained source children,
 foreign semantic owners and callback expiry. Direct pointer-return prototypes

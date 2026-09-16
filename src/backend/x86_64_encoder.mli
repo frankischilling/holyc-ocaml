@@ -1,6 +1,7 @@
 type register = Rax | Rcx | Rdx | R8 | R9 | R10 | R11
 type unary = Neg | Not
 type binary = Add | Sub | Imul | And | Or | Xor
+type shift = Shl | Shr | Sar
 type stack_slot
 type stack_frame
 
@@ -28,6 +29,11 @@ type instruction =
   | Free_stack of stack_frame
   | Unary of unary * register
   | Binary of binary * register * register
+  | Shift_cl of shift * register
+      (** Shift the full-width destination by CL. [Shl] is left shift, [Shr]
+          logical right shift, and [Sar] arithmetic right shift. The count is
+          read from RCX implicitly; the destination may be any public register.
+      *)
   | Cmp of register * register
       (** [Cmp (left, right)] sets flags for the full-width subtraction
           [left - right] without changing either register. *)
@@ -64,7 +70,8 @@ val max_code_bytes : int
     by [Sys.max_string_length] on the compiler host. *)
 
 val size : instruction -> int
-(** Exact encoded byte count, including any REX prefix and immediate. [Setcc]
+(** Exact encoded byte count, including any REX prefix and immediate. [Shift_cl]
+    is always three bytes (REX.W with REX.B when needed, D3, ModR/M). [Setcc]
     uses three bytes for AL/CL/DL and four for R8b through R11b. Stack
     loads/stores always use an eight-byte fixed-disp32 SIB form; stack
     allocation/free always use seven-byte imm32 forms. *)

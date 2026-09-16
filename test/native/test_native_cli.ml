@@ -23,10 +23,10 @@ let with_file suffix contents action =
 
 let compiler =
   require
-    (Array.length Sys.argv = 6)
+    (Array.length Sys.argv = 7)
     "usage: test_native_cli.exe <holyc.exe> <native-integer-expression.hc> \
      <native-integer-predicates.hc> <native-integer-logical.hc> \
-     <native-integer-spills.hc>";
+     <native-integer-spills.hc> <native-integer-shifts.hc>";
   Sys.argv.(1)
 
 let invoke arguments =
@@ -518,6 +518,52 @@ let spill_frames () =
         "default native CLI executes the bounded spill fixture")
     [ "jit"; "aot" ]
 
+let shift_values () =
+  List.iter
+    (fun mode ->
+      let fixture = native_json ~mode 0 Sys.argv.(6) in
+      check_success fixture;
+      check_word fixture "U64" "42" "0x000000000000002a";
+      check_limits fixture 4096 65536;
+      let image = member "image" fixture in
+      (* Seven imm64 loads, three shifts, six register transports, three adds
+         and RET: 70 + 9 + 18 + 9 + 1 bytes. The word view emits no code. *)
+      require
+        (integer "ir_instructions" image = 16
+        && integer "byte_count" image = 107
+        && integer "machine_instructions" image = 20
+        && integer "register_peak" image = 4)
+        "shift fixture counts include every fixed-RCX transport";
+      let zero_stack =
+        native_json ~mode ~options:[ "--stack-byte-limit=0" ] 0 Sys.argv.(6)
+      in
+      check_success zero_stack;
+      check_word zero_stack "U64" "42" "0x000000000000002a";
+      check_limits ~stack:0 zero_stack 4096 65536;
+      let stdout, stderr =
+        checked_invoke 0 [ "eval-native"; "--mode=" ^ mode; Sys.argv.(6) ]
+      in
+      require
+        (String.trim stdout = "42" && stderr = "")
+        "shift fixture returns 42 through the public native command";
+      let stdout, stderr =
+        checked_invoke 0
+          [ "eval"; "--format=json"; "--mode=" ^ mode; Sys.argv.(6) ]
+      in
+      require (stderr = "") "shift fixture baseline VM diagnostics";
+      let report = Yojson.Safe.from_string stdout in
+      check_keys "shift fixture baseline VM"
+        [ "schema"; "reference_commit"; "word_type"; "word"; "executed_steps" ]
+        report;
+      require
+        (string "schema" report = "holyc-integer-expression-v1"
+        && string "reference_commit" report = reference_commit
+        && string "word_type" report = "U64"
+        && string "word" report = "42"
+        && integer "executed_steps" report = 16)
+        "shift fixture must match the 16-step U64 baseline VM result")
+    [ "jit"; "aot" ]
+
 let unsupported_sources () =
   List.iter
     (fun (text, code) ->
@@ -541,11 +587,11 @@ let unsupported_sources () =
       ("6/2;", "HCBACK0002");
       ("1/0;", "HCBACK0002");
       ("7%2;", "HCBACK0002");
-      ("1<<2;", "HCBACK0002");
-      ("8>>1;", "HCBACK0002");
+      ("0x8000000000000000/2;", "HCBACK0002");
+      ("0x8000000000000000%3;", "HCBACK0002");
       ("0&&(1/0);", "HCBACK0002");
       ("1||(1/0);", "HCBACK0002");
-      ("1^^(1<<2);", "HCBACK0002");
+      ("1^^(0x8000000000000000/2);", "HCBACK0002");
       ("1==2<3==1;", "HCEVAL0002");
       ("1!=2>=3!=1;", "HCEVAL0002");
       ("!1.0;", "HCBACK0002");
@@ -847,6 +893,7 @@ let () =
   predicate_values ();
   logical_values ();
   spill_frames ();
+  shift_values ();
   unsupported_sources ();
   budgets ();
   exact_image_budgets ();

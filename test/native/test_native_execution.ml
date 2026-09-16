@@ -392,6 +392,103 @@ let compare_source_literal mode expected_type expected_bits contents =
     true
     (evaluated.platform = Runtime.platform ())
 
+let shift_source_edges () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (_, source, expected_type, expected_bits, _) ->
+          compare_source_literal mode expected_type expected_bits source)
+        Fixture.shift_source_cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let shift_boundary_matrix () =
+  let counts = [ 0L; 1L; 31L; 32L; 63L; 64L; 65L; 127L; -1L; Int64.min_int ] in
+  let words = [ Int64.min_int; 0x0123456789abcdefL ] in
+  let classes = [ ("I64", Fixture.i64, false); ("U64", Fixture.u64, true) ] in
+  let operations = [ (Ir_opcode.Ic_shl, "<<"); (Ir_opcode.Ic_shr, ">>") ] in
+  let expected_bits opcode ~unsigned left count =
+    let count = Int64.to_int (Int64.logand count 63L) in
+    if opcode = Ir_opcode.Ic_shl then Int64.shift_left left count
+    else if unsigned then Int64.shift_right_logical left count
+    else Int64.shift_right left count
+  in
+  let count = ref 0 in
+  List.iter
+    (fun left ->
+      List.iter
+        (fun (left_name, left_type, left_unsigned) ->
+          List.iter
+            (fun (right_name, right_type, right_unsigned) ->
+              let result_unsigned = left_unsigned || right_unsigned in
+              let result_type =
+                if result_unsigned then Fixture.u64 else Fixture.i64
+              in
+              let native_type =
+                if result_unsigned then Native.U64 else Native.I64
+              in
+              List.iter
+                (fun shift_count ->
+                  List.iter
+                    (fun (opcode, operator) ->
+                      let expected =
+                        expected_bits opcode ~unsigned:result_unsigned left
+                          shift_count
+                      in
+                      let graph =
+                        let open Fixture in
+                        single
+                          [
+                            imm ~type_:left_type 0 left;
+                            imm ~type_:right_type 1 shift_count;
+                            binary ~type_:result_type 2 opcode 0 1;
+                            return_value ~type_:result_type 3 2;
+                            ret 4;
+                          ]
+                      in
+                      compare_literal
+                        (Printf.sprintf "%s:%016Lx %s %s:%016Lx" left_name left
+                           operator right_name shift_count)
+                        native_type expected graph;
+                      incr count)
+                    operations)
+                counts)
+            classes)
+        classes)
+    words;
+  Alcotest.(check int)
+    "all shift count, bit-pattern and signedness combinations" 160 !count
+
+let shift_shared_and_rcx_pressure () =
+  List.iter
+    (fun (label, graph, expected_type, expected_bits) ->
+      compare_literal label expected_type expected_bits graph)
+    (Fixture.shift_shared_cases ());
+  List.iter
+    (fun (label, graph, expected_bits, expected_frame) ->
+      let expected = oracle label graph in
+      Alcotest.(check int64)
+        (label ^ " independent expected bits")
+        expected_bits expected.bits;
+      Alcotest.(check bool)
+        (label ^ " independent expected I64 class")
+        true (expected.type_ = VM.I64);
+      let image = Fixture.image graph in
+      Fixture.inspect_image graph image;
+      Alcotest.(check int)
+        (label ^ " exact spill frame")
+        expected_frame (Native.frame_bytes image);
+      check_result label expected image)
+    [
+      ( "seven values with count already in RCX",
+        Fixture.shift_pressure_graph ~count_in_rcx:true,
+        29L,
+        0 );
+      ( "seven values with unrelated live RCX owner",
+        Fixture.shift_pressure_graph ~count_in_rcx:false,
+        32L,
+        8 );
+    ]
+
 let logical_source_edges () =
   let cases =
     [
@@ -701,20 +798,24 @@ let spill_operation_semantics () =
 let generated_high_pressure_sources () =
   let random = Random.State.make [| 0x648; 0x5350; 0x2026 |] in
   let operators = [| "+"; "-"; "^" |] in
-  let literal index =
+  let literal ~signed index =
     match index mod 7 with
-    | 0 -> "0x8000000000000000"
-    | 1 -> "0xFFFFFFFFFFFFFFFF"
+    | 0 -> if signed then "0x8000000000000000(I64i)" else "0x8000000000000000"
+    | 1 -> if signed then "0xFFFFFFFFFFFFFFFF(I64i)" else "0xFFFFFFFFFFFFFFFF"
     | _ -> string_of_int (1 + Random.State.int random 97)
   in
   List.init 48 (fun index ->
       let count = 8 + (index mod 5) in
-      let terms = Array.init count (fun term -> literal (index + term)) in
+      let signed = index mod 4 >= 2 in
+      let terms =
+        Array.init count (fun term -> literal ~signed (index + term))
+      in
       let rec nest term =
         if term = count - 1 then terms.(term)
         else
           let operator =
-            operators.(Random.State.int random (Array.length operators))
+            if term = 0 then if index mod 2 = 0 then "<<" else ">>"
+            else operators.(Random.State.int random (Array.length operators))
           in
           "(" ^ terms.(term) ^ operator ^ nest (term + 1) ^ ")"
       in
@@ -727,6 +828,13 @@ let generated_high_pressure_differential () =
   Alcotest.(check bool)
     "high-pressure generator reproduces every source" true
     (cases = generated_high_pressure_sources ());
+  Alcotest.(check int)
+    "every generated high-pressure source contains one outer shift" 48
+    (List.length
+       (List.filter
+          (fun (_, source) ->
+            String.contains source '<' || String.contains source '>')
+          cases));
   List.iter
     (fun mode ->
       List.iter
@@ -745,6 +853,16 @@ let generated_high_pressure_differential () =
             (label ^ " exceeds register-only pressure")
             true
             (Native.frame_bytes image > 0);
+          Alcotest.(check (list string))
+            (label ^ " outer shift follows the generated computation class")
+            [
+              (if index mod 2 = 0 then "shl"
+               else if index mod 4 = 1 then "shr"
+               else "sar");
+            ]
+            (Fixture.decoded_mnemonics (Native.code image)
+            |> List.filter (fun mnemonic ->
+                List.mem mnemonic [ "shl"; "shr"; "sar" ]));
           check_result label (oracle label graph) image)
         cases)
     [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -796,6 +914,9 @@ let repeated_execution () =
       "(0x8000000000000000>0)+41;";
       "(256&&0x0000000100000000)+41;";
       "0x8000000000000000(I64i);";
+      "1<<(-1);";
+      "0x8000000000000000(I64i)>>63;";
+      "40+(1<<65)+(0x8000000000000000>>63)+(0x8000000000000000(I64i)>>63);";
       "(~0x8000000000000000)<-1<0;";
       "(~0x8000000000000000)>0>-1;";
     ]
@@ -851,6 +972,12 @@ let () =
           Alcotest.test_case
             "420 independently generated predicate VM comparisons" `Quick
             generated_predicate_differential;
+          Alcotest.test_case "shift source results and classes in JIT and AOT"
+            `Quick shift_source_edges;
+          Alcotest.test_case "shift count and computation-class boundary matrix"
+            `Quick shift_boundary_matrix;
+          Alcotest.test_case "shift sharing and architectural RCX pressure"
+            `Quick shift_shared_and_rcx_pressure;
           Alcotest.test_case "logical and word-view public source execution"
             `Quick logical_source_edges;
           Alcotest.test_case "independent native comparison-chain expectations"
@@ -870,8 +997,8 @@ let () =
             "spilled unary, binary, predicate, logical and lifetime semantics"
             `Quick spill_operation_semantics;
           Alcotest.test_case
-            "48 deterministic high-pressure sources in both preprocessing modes"
-            `Quick generated_high_pressure_differential;
+            "48 deterministic high-pressure shift sources in both modes" `Quick
+            generated_high_pressure_differential;
           Alcotest.test_case "repeated spill execution restores the host stack"
             `Quick repeated_spill_execution;
         ] );

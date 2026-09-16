@@ -1,5 +1,12 @@
 # holyc-ocaml compatibility status
 
+Issue #652 adds native integer shifts to the checked I64/U64 expression subset.
+Counts use six bits; both operands' computation classes select signed SAR or
+unsigned SHR. CL-based code generation preserves RCX owners and shared operands
+through the bounded allocator. This does not add division fault handling or
+claim TempleOS shift-optimizer parity. The maintained shift fixture executes
+through the native API and CLI in both modes.
+
 [Retained named types](retained-named-types.md) in #650 connect original
 aggregate selections to provisional and completed function headers. A later
 `#exe` class declaration cannot retarget an earlier direct pointer parameter.

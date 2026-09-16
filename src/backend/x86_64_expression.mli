@@ -24,25 +24,28 @@ val compile :
 (** Preflight one entry block without edges, pointer-free internal I64/U64
     values, zero instruction flags, and an exact return-value/return suffix.
     Supported producers are integer immediates, unary minus, complement,
-    add/subtract/multiply/and/or/xor, the six comparisons, logical NOT, and
-    eager logical AND/OR/XOR values. Comparisons return internal I64 zero or
-    one; ordered conditions consume both operand computation classes. Logical
-    NOT returns zero or one in its operand's forwarded computation class,
-    including U64. Binary logical operations independently normalize both
-    complete operands and return I64. Internal I64/U64 word views with
-    [IC_HOLYC_TYPECAST], integer payload zero and no flags preserve the bits and
-    select the target computation class. These views support the cumulative
-    unsigned class of ordinary lowered comparison chains and the internal
-    [I64i]/[U64i] source spellings. Casts whose immediate source operand is
-    parenthesized carry payload one and remain unsupported, as do broader
-    conversions. All uses must follow unique definitions. Register allocation
-    uses only [X86_64_encoder.registers], reuses registers and eight-byte stack
-    slots after final use, and spills only after the complete IR has passed
-    preflight. A nonzero spill frame is 8 modulo 16, at most 4088 bytes, and is
-    allocated by a fixed seven-byte prologue and released immediately before
-    RET. [max_stack_bytes] defaults to 4088; zero retains a register-only gate.
-    Code size includes all spill traffic and frame instructions and is checked
-    before encoded bytes are allocated.
+    add/subtract/multiply/and/or/xor, left/right shifts, the six comparisons,
+    logical NOT, and eager logical AND/OR/XOR values. Comparisons return
+    internal I64 zero or one; ordered conditions consume both operand
+    computation classes. Logical NOT returns zero or one in its operand's
+    forwarded computation class, including U64. Shifts use the promoted
+    computation class of both operands; right shift is arithmetic for I64 and
+    logical for U64, while x86-64 masks the CL count to six bits. Binary logical
+    operations independently normalize both complete operands and return I64.
+    Internal I64/U64 word views with [IC_HOLYC_TYPECAST], integer payload zero
+    and no flags preserve the bits and select the target computation class.
+    These views support the cumulative unsigned class of ordinary lowered
+    comparison chains and the internal [I64i]/[U64i] source spellings. Casts
+    whose immediate source operand is parenthesized carry payload one and remain
+    unsupported, as do broader conversions. All uses must follow unique
+    definitions. Register allocation uses only [X86_64_encoder.registers],
+    reserves RCX only while emitting a variable-count shift, reuses registers
+    and eight-byte stack slots after final use, and spills only after the
+    complete IR has passed preflight. A nonzero spill frame is 8 modulo 16, at
+    most 4088 bytes, and is allocated by a fixed seven-byte prologue and
+    released immediately before RET. [max_stack_bytes] defaults to 4088; zero
+    retains a register-only gate. Code size includes all spill traffic and frame
+    instructions and is checked before encoded bytes are allocated.
 
     Error codes are HCBACK0001 (configuration or IR instruction limit),
     HCBACK0002 (unsupported domain), HCBACK0003 (malformed IR or type
