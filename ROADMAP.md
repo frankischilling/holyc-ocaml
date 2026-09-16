@@ -38,7 +38,13 @@ Default-bearing definitions must precede executable top-level statements.
 Effectful defaults, interleaved declaration execution, owned strings, `lastclass`
 and broader default types remain separate work, alongside storage and full-ABI
 requirements. See [native defaults](docs/native-defaults.md).
-The complete HolyC ABI, narrow and pointer memory operations, F64/x87 and
+Issue #663 extends the same pipeline with I8/U8/I16/U16/I32/U32 storage and
+signatures, narrow constant defaults, and U0 procedure completion. Declared-width
+loads/stores remain distinct from full register results; U0 completion cannot
+be consumed as a word or leave a stale top-level result. Original frame ranges,
+call/default authority and all resource limits remain checked. See
+[native scalar functions](docs/native-scalars.md).
+The complete HolyC ABI, persistent and pointer memory operations, F64/x87 and
 conversions, runtime output, and general declaration/`#exe` native integration
 remain open. Optimizer parity, assembler and object/BIN output, actual TempleOS
 loader acceptance, whole-tree compilation and bootstrap retain their own gates.

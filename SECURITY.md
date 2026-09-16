@@ -60,9 +60,9 @@ checkout credentials. See [native expressions](docs/native-expressions.md).
 ## Explicit native program execution
 
 `holyc run --target=host-jit` and `Native_program.evaluate` additionally execute
-structured control flow and fixed direct I64/U64 functions with scalar automatic
+structured control flow, fixed direct scalar integer functions and U0 procedures with automatic
 storage. Their source gate rejects globals/statics, prototypes/externs,
-pointer or indirect calls, non-word signatures, explicit register/function flags,
+pointer or indirect calls, non-integer parameters/locals, explicit register/function flags,
 implicit output and unsupported statements; parsing supplies no command or
 stream executor. Bounded scalar defaults prepare through their original source
 callbacks before entry compilation. Only checked constant preparation is admitted;
@@ -75,6 +75,12 @@ word/storage/call preflight, including exact body/frame and call ownership,
 before executable allocation. Defaults additionally require their exact source
 header, parameter, completed preparation and argument producer; an arbitrary
 literal or a zero-byte global layout cannot establish that authority.
+Narrow parameters retain eight-byte ABI slots while automatic object accesses
+use their checked declared widths. Complete frame ranges and separate private
+storage prevent a narrow write from reaching adjacent objects. A U0 completion
+has no numeric result and can only reach its checked discard; a reached top-level
+void discard clears both fields of the result latch. Word-return completeness
+is verified independently before entry.
 
 Generated code checks and consumes a positive budget before each reached IR
 instruction. R10 owns the remaining count and R11 a fresh private context;

@@ -39,9 +39,13 @@ let create ~compilation_mode ~max_initializer_steps
         completed_rev = [];
       }
 
+let scalar_integer primitive =
+  let info = Common.Primitive_type.info primitive in
+  info.category = Common.Primitive_type.Integer && info.byte_size > 0
+
 let scalar_word_type = function
-  | Ast.Primitive_type_specifier { primitive = I64 | U64; _ }
-  | Ast.Internal_type_specifier { primitive = I64 | U64; _ } -> true
+  | Ast.Primitive_type_specifier primitive -> scalar_integer primitive.primitive
+  | Ast.Internal_type_specifier primitive -> scalar_integer primitive.primitive
   | _ -> false
 
 let prepare value ~session ~ledger receipt =
@@ -74,7 +78,7 @@ let prepare value ~session ~ledger receipt =
       || receipt.default_register_qualifiers <> []
     then
       fail "HCRUN0001"
-        "native defaults require unqualified scalar I64/U64 parameters"
+        "native defaults require unqualified nonzero scalar integer parameters"
     else Ok ()
   in
   let* expression =

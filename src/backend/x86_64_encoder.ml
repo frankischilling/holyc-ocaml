@@ -6,6 +6,8 @@ type binary = Add | Sub | Imul | And | Or | Xor
 type shift = Shl | Shr | Sar
 type status_abi = Windows_x64 | System_v_x64
 type condition = E | NE | L | GE | G | LE | B | AE | A | BE
+type narrow_frame_width = Frame8 | Frame16 | Frame32
+type frame_extension = Sign_extend | Zero_extend
 type stack_slot = { offset : int }
 type stack_frame = { bytes : int }
 type frame_slot = { frame_offset : int }
@@ -22,6 +24,9 @@ type instruction =
   | Mov_rbp_rsp
   | Load_frame of register * frame_slot
   | Store_frame of frame_slot * register
+  | Load_frame_narrow of
+      register * frame_slot * narrow_frame_width * frame_extension
+  | Store_frame_narrow of frame_slot * narrow_frame_width * register
   | Alloc_call_frame of call_frame
   | Free_call_frame of call_frame
   | Call of int64
@@ -73,6 +78,14 @@ let frame_slot ~offset =
   then Error "frame slot offset must be an aligned signed 32-bit displacement"
   else Ok { frame_offset = offset }
 
+let scalar_frame_slot ~offset =
+  let value = Int64.of_int offset in
+  if
+    Int64.compare value (-0x80000000L) < 0
+    || Int64.compare value 0x7fffffffL > 0
+  then Error "scalar frame slot offset must be a signed 32-bit displacement"
+  else Ok { frame_offset = offset }
+
 let call_frame ~bytes =
   if bytes < 16 || bytes > 4080 || bytes mod 16 <> 0 then
     Error "call frame size must be a 16-byte multiple between 16 and 4080 bytes"
@@ -119,6 +132,15 @@ let mov_immediate = source_form "MOV" 276
 let mov_register = source_form "MOV" 265
 let mov_load = source_form "MOV" 261
 let mov_store = source_form "MOV" 265
+let mov_load32 = source_form "MOV" 260
+let mov_store8 = source_form "MOV" 262
+let mov_store16 = source_form "MOV" 263
+let mov_store32 = source_form "MOV" 264
+let movsx_load8 = source_form "MOVSX" 885
+let movsx_load16 = source_form "MOVSX" 887
+let movsxd_load32 = source_form "MOVSXD" 889
+let movzx_load8 = source_form "MOVZX" 893
+let movzx_load16 = source_form "MOVZX" 895
 let push_register = source_form "PUSH" 227
 let pop_register = source_form "POP" 243
 let call_relative = source_form "CALL" 571
@@ -177,6 +199,20 @@ let shift_form = function
   | Shr -> shift_right_cl
   | Sar -> shift_arithmetic_right_cl
 
+let narrow_load_form width extension =
+  match (width, extension) with
+  | Frame8, Sign_extend -> movsx_load8
+  | Frame8, Zero_extend -> movzx_load8
+  | Frame16, Sign_extend -> movsx_load16
+  | Frame16, Zero_extend -> movzx_load16
+  | Frame32, Sign_extend -> movsxd_load32
+  | Frame32, Zero_extend -> mov_load32
+
+let narrow_store_form = function
+  | Frame8 -> mov_store8
+  | Frame16 -> mov_store16
+  | Frame32 -> mov_store32
+
 let form = function
   | Mov_imm64 _ -> mov_immediate
   | Mov _ -> mov_register
@@ -188,6 +224,9 @@ let form = function
   | Mov_rbp_rsp -> mov_register
   | Load_frame _ -> mov_load
   | Store_frame _ -> mov_store
+  | Load_frame_narrow (_, _, width, extension) ->
+      narrow_load_form width extension
+  | Store_frame_narrow (_, width, _) -> narrow_store_form width
   | Alloc_call_frame _ -> subtract_immediate
   | Free_call_frame _ -> add_immediate
   | Call _ -> call_relative
@@ -234,6 +273,9 @@ let valid_context_offset offset =
   offset >= 0 && offset <= 64 && offset mod 8 = 0
 
 let validate = function
+  | (Load_frame (_, slot) | Store_frame (slot, _))
+    when slot.frame_offset mod 8 <> 0 ->
+      invalid_arg "qword frame access requires an aligned frame slot"
   | Cmp_imm8 (_, immediate) when immediate < -128 || immediate > 127 ->
       invalid_arg "Cmp_imm8 immediate must fit signed eight bits"
   | Jump displacement
@@ -265,6 +307,10 @@ let size instruction =
   | Push_rbp | Pop_rbp -> 1
   | Mov_rbp_rsp -> 3
   | Load_frame _ | Store_frame _ -> 7
+  | Load_frame_narrow (_, _, (Frame8 | Frame16), _) -> 8
+  | Load_frame_narrow (_, _, Frame32, _) -> 7
+  | Store_frame_narrow (_, Frame16, _) -> 8
+  | Store_frame_narrow (_, (Frame8 | Frame32), _) -> 7
   | Alloc_call_frame _ | Free_call_frame _ -> 7
   | Call _ -> 5
   | Capture_status _ | Div_rcx | Idiv_rcx -> 3
@@ -367,6 +413,30 @@ let write buffer position instruction =
   | Store_frame (slot, source) ->
       let source = register_number source in
       byte (0x48 lor ((source land 8) lsr 1));
+      opcodes ();
+      byte (0x85 lor ((source land 7) lsl 3));
+      imm32 slot.frame_offset
+  | Load_frame_narrow (destination, slot, width, extension) ->
+      let destination = register_number destination in
+      (* Every narrow load writes the complete 64-bit destination. MOVSX/MOVZX
+         use REX.W; unsigned 32-bit MOV intentionally writes r32 and therefore
+         clears the upper half architecturally. *)
+      byte
+        ((match (width, extension) with
+           | Frame32, Zero_extend -> 0x40
+           | Frame8, (Sign_extend | Zero_extend)
+           | Frame16, (Sign_extend | Zero_extend)
+           | Frame32, Sign_extend -> 0x48)
+        lor ((destination land 8) lsr 1));
+      opcodes ();
+      byte (0x85 lor ((destination land 7) lsl 3));
+      imm32 slot.frame_offset
+  | Store_frame_narrow (slot, width, source) ->
+      let source = register_number source in
+      (* A REX prefix is emitted even for legacy low registers. That selects the
+         low-byte register family for byte stores and avoids AH/CH/DH/BH. *)
+      if width = Frame16 then byte 0x66;
+      byte (0x40 lor ((source land 8) lsr 1));
       opcodes ();
       byte (0x85 lor ((source land 7) lsl 3));
       imm32 slot.frame_offset

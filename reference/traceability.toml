@@ -12018,3 +12018,51 @@ resources = "positive max_initializer_steps defaults100000; positive max_default
 reporting = "Native_program.preparation_steps/default_bytes and native v2 compiled_initializer_steps/prepared_default_bytes retain reached preparation and completed payload bytes after later faults; native.limits.default_bytes retains requested quota; preparation failure has no native outcome/executed_steps"
 excluded = ["effectful defaults and value/function references", "defaults after executable top-level statements and general interleaved JIT declaration execution", "string ownership, lastclass and non-word/pointer defaults", "prototypes and broader ABI/storage", "shift/other unresolved optimizer preparation parity", "native machine execution of arbitrary default expressions or #exe", "assembler/BIN/loader acceptance, whole-tree compilation and bootstrap"]
 native_oracle_status = "pinned source defines preparation timing and saved substitution; checked preparation and own hosted native entry tests validate the bounded integration; no new TempleOS oracle capture or general optimizer/ABI claim"
+
+[[feature]]
+id = "HC-NATIVE-SCALAR-FUNCTIONS"
+description = "Native scalar integer signatures and exact-width automatic storage preserve full register results; U0 calls carry checked nonnumeric completion and clear a reached top-level final-value latch."
+sources = [
+  "Compiler/BackLib.HC:281-309,509-534,550-572 narrow storage movement and register values",
+  "Compiler/OptPass789A.HC:710-717,779-782,1026-1030 update and return register consumers",
+  "Compiler/PrsVar.HC:619-657 eight-byte fixed parameter slots and full saved default values",
+  "Compiler/PrsExp.HC:438-586 argument/default consumers and selected return classes",
+  "Compiler/PrsStmt.HC:150-169,1110-1119 function tails and return parsing",
+  "Compiler/OpCodes.DD MOV/MOVSX/MOVZX/MOVSXD forms and Compiler/Asm.HC REX/ModRM placement",
+  "Existing Integer_scalar_storage and Integer_computation_class descriptors retain declared width, spelling and forwarded computation class"
+]
+implementation = [
+  "src/backend/x86_64_program.mli",
+  "src/backend/x86_64_encoder.ml", "src/backend/x86_64_encoder.mli",
+  "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_word_codegen.mli",
+  "src/hosted/native_program.ml", "src/hosted/native_program.mli",
+  "src/driver/native_default_preparation.ml", "src/driver/native_default_preparation.mli",
+  "src/driver/native_parameter_defaults.ml", "src/driver/native_parameter_defaults.mli"
+]
+tests = [
+  "test/native_scalar_fixture.ml",
+  "test/test_native_expression.ml", "test/test_native_scalar_functions.ml",
+  "test/native/test_native_scalar_function_execution.ml",
+  "test/native/test_native_scalar_function_cli.ml", "test/native/dune",
+  "test/native_default_authority/test_native_default_authority.ml",
+  "examples/native-scalar-functions.hc", "examples/native-u0-functions.hc"
+]
+documentation = [
+  "docs/native-scalars.md", "docs/native-programs.md", "docs/native-defaults.md",
+  "docs/reference-source-map.md", "docs/compatibility.md", "docs/testing.md",
+  "README.md", "ROADMAP.md", "SECURITY.md", "CHANGELOG.md"
+]
+status = "implemented"
+issue = 663
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "both modes admit I8/U8/I16/U16/I32/U32/I64/U64 fixed parameters, automatic objects and returns plus U0/U0i procedures; I0/Bool/F64/pointer/aggregate storage and explicit register requests remain rejected"
+storage = "exact checked object ranges and declared slot widths select signed/unsigned 1/2/4/8-byte loads and width-correct stores; parameters retain eight-byte ABI slots; compiler-private flags/spills/staging stay disjoint; scalar address construction cannot bypass legacy qword alignment"
+register_results = "assignment, compound and return transport preserve full computed bits separately from narrowed storage; prefix/postfix use normalized new/old values; declared type and original producer computation classes remain distinct"
+defaults = "existing original constant preparation and opaque completion proof now admit narrow integer parameters; saved full-width bits and exact types remain unchanged until callee storage access; each prepared default still retains eight payload bytes, including unused or fully supplied definitions"
+void_completion = "U0 call-end has a private nonnumeric identity, no numeric result staging and only a checked discard consumer; top-level void discard clears value-site and bits, while function-internal disposal cannot change entry result; word-return completeness remains separately preflighted"
+resources = "existing cumulative IR and preparation-work limits, saved default bytes, per-owner frame/code limits and simultaneous semantic-frame/call-depth/physical-stack bounds remain independent; checked faults restore generated call-chain reservations"
+meter_domain = "public source execution supplies independent value semantics; execution of the corresponding isolated checked source unit supplies the exact native runtime-step oracle; stateful JIT declaration-task IC_END work is separately reported, never removed by an observed-difference adjustment"
+verification_boundary = "independent literal encoder bytes and compile-only source/authority/bounds tests plus public native API/CLI and fresh interpreter comparisons in both modes; width/adjacency/assignment/update/return/default/U0/resource regressions run through the existing Windows/Linux native CI lane"
+extends = ["HC-NATIVE-INTEGER-FUNCTIONS", "HC-NATIVE-INTEGER-DEFAULTS"]
+excluded = ["persistent/pointer/array/aggregate memory", "general effectful or interleaved defaults, strings and lastclass", "word fallthrough without a checked return value", "variadic/indirect/external/prototype calls and full HolyC ABI", "Bool/I0/F64 and general conversions", "runtime output and native declaration/#exe execution", "optimizer/register-allocation parity, assembler/object/BIN writing, actual loader acceptance, whole-tree compilation and bootstrap"]
+native_oracle_status = "source-derived storage/return/call semantics and own hosted machine execution; checked initialization, strict return completeness, fixed-frame convention and resource meters remain explicit hosted policies rather than new TempleOS oracle captures"

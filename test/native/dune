@@ -80,3 +80,30 @@
    %{dep:../../examples/integer-control-flow.hc}
    %{dep:../../examples/native-integer-functions.hc}
    %{dep:../../examples/native-integer-defaults.hc})))
+
+(executable
+ (name test_native_scalar_function_execution)
+ (modules test_native_scalar_function_execution)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_scalar_function_execution.exe})))
+
+(executable
+ (name test_native_scalar_function_cli)
+ (modules test_native_scalar_function_cli)
+ (libraries holyc_lib native_scalar_support unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps
+  ../../examples/native-scalar-functions.hc
+  ../../examples/native-u0-functions.hc)
+ (action
+  (run
+   %{exe:test_native_scalar_function_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-scalar-functions.hc}
+   %{dep:../../examples/native-u0-functions.hc})))

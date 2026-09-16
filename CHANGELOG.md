@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added native scalar I8/U8/I16/U16/I32/U32 parameters, automatic locals, returns
+  and constant defaults through the existing checked call/preparation pipeline.
+  Exact-width memory accesses preserve adjacent objects while returned register
+  bits and producer computation classes retain their separate meaning. Added U0
+  fallthrough and bare-return procedures with nonnumeric completion and correct
+  top-level result clearing. Encoder, public source, native API and CLI tests
+  cover widths, updates, defaults, recursion and resource boundaries.
+
 - Added bounded declaration-time I64/U64 defaults to native source functions.
   Original header callbacks prepare every admitted default once, including
   unused and explicitly supplied parameters. Native calls reuse saved values

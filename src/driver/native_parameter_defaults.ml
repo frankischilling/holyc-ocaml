@@ -48,13 +48,7 @@ let admits proof ~prepared ~header ~parameter =
       && Prepared.matches prepared ~header ~parameter)
     proof.requirements
 
-let scalar_word type_ =
-  Type.pointer_depth type_ = 0
-  &&
-  match Type.base type_ with
-  | Type.Primitive (_, (Sema.Primitive_type.I64 | Sema.Primitive_type.U64)) ->
-      true
-  | _ -> false
+let scalar_word type_ = Option.is_some (Ir.Integer_scalar_storage.of_type type_)
 
 let parameter_type parameter =
   parameter |> Headers.parameter_type_reference
@@ -87,7 +81,8 @@ let add_requirements globals prepared requirements header =
             | Headers.Object -> false
             | Headers.Function_pointer _ -> true
           then
-            Error "native parameter defaults require scalar I64 or U64 objects"
+            Error
+              "native parameter defaults require nonzero scalar integer objects"
           else
             let* value =
               match

@@ -1,7 +1,7 @@
 # Native integer programs
 
 `holyc run --target=host-jit` compiles integer statements, structured control
-flow and fixed direct I64/U64 source functions with the project's OCaml x86-64
+flow and fixed direct scalar integer functions and U0 procedures with the project's OCaml x86-64
 backend, then executes the checked image on Windows or Linux x86-64. It uses the
 integer program lowerer's original source roots, function bodies, frame layouts
 and checked call context. It does not execute the entry through the interpreter
@@ -33,23 +33,27 @@ requires 29 reached IR instructions: 29 succeeds and 28 exhausts the budget.
 
 Accepted statements are integer expressions, empty statements, blocks,
 comma statement sequences, `if`/`else`, `while`, `do`/`while`, `for` and `break`.
-Source-defined functions add named fixed I64/U64 parameters, I64/U64 automatic
-scalar declarations, local assignment and updates, and value-return statements.
+Source-defined functions add named fixed I8/U8/I16/U16/I32/U32/I64/U64 parameters,
+automatic scalar integer declarations, local assignment and updates, and
+value-return statements. U0 procedures also admit bare returns and fallthrough.
 Direct calls bind to checked definitions in the same compilation unit, including
 self-recursion. Function locals persist across the function's control transfers
 and are separate in every recursive invocation.
-Every terminal function path must supply a word return. Bare returns and
-fallthrough without a value remain outside this native gate. Prototypes are
+Every reachable terminal path in a word-returning function must supply a word.
+Bare returns and fallthrough without a value reject for those functions.
+[Native scalar functions](native-scalars.md) details narrow storage, full-width
+register results and the separate checked U0 completion path. Prototypes are
 also excluded, so forward or mutual calls requiring a prototype are not admitted.
-The word operations are the same checked internal I64/U64 operations as
-[native expressions](native-expressions.md): wrapping arithmetic, bitwise and
+The full-width machine word operations use the retained scalar computation
+classes described in [native scalar functions](native-scalars.md). They extend
+the operation families from [native expressions](native-expressions.md): wrapping arithmetic, bitwise and
 eager logical values, comparisons, masked shifts, guarded division/remainder
 and payload-zero internal word views.
 
 The source driver parses without a command or stream executor. Original
 declaration callbacks prepare bounded scalar defaults in both modes; an
 iterative source gate rejects globals, statics, prototypes/externs,
-explicit register/declaration modifiers, non-word signatures or locals,
+explicit register/declaration modifiers, non-integer parameters or locals,
 arrays, source pointer operations, indirect calls, implicit output and unsupported
 statements. Arrays, globals and aggregates reject before their preparation.
 Entry statements cannot declare storage.
@@ -98,7 +102,8 @@ an expression statement and can do so. Consequently the earlier
 because its final `for(0;0;1/0)` initializer is reached. The dedicated native
 fixture above ends with a reached 42-valued expression instead. Function-internal
 expression disposal and return capture never overwrite the entry's final-value
-latch.
+latch. A reached top-level U0 call discard clears that latch and reports no final
+numeric value; it does not substitute zero or retain the preceding word.
 
 ## Metering and frame lifetime
 
@@ -125,7 +130,8 @@ single frame, sized to the largest block, with a maximum of 4,088 bytes.
 
 Callable owners save RBP and keep RSP fixed throughout their bodies. Parameters
 occupy the original positive slots starting at `RBP+16`; automatic locals use
-their checked negative frame displacements. Private initialization flags, spills,
+their checked negative frame displacements and exact declared widths. Narrow
+loads sign- or zero-extend and stores touch only the object's bytes. Private initialization flags, spills,
 pending arguments and a shared outgoing argument area occupy disjoint storage.
 The allocation is a multiple of 16 bytes and at most 4,080 bytes; the return
 address and saved RBP are counted separately by the active-stack limit. An owner
@@ -135,7 +141,8 @@ Argument expressions execute in the lowerer's right-to-left order. Each open
 call has separate staging, so an inner call cannot overwrite an already evaluated
 outer argument. Immediately before a real rel32 `CALL`, values are copied to the
 outgoing area in fixed parameter order and live caller registers are spilled.
-The callee returns the word through RAX. Cleanup IR remains checked and metered,
+Word-returning callees preserve the full register result through RAX; U0 calls
+have a separate nonnumeric completion and no result staging. Cleanup IR remains checked and metered,
 but the private fixed-RSP convention needs no machine argument-pop instruction.
 Every function uses plain `RET`; this is not the full TempleOS call ABI.
 
@@ -286,7 +293,7 @@ TempleOS language rules.
 
 This gate does not complete general native source execution. Effectful defaults,
 interleaved source execution, owned string/`lastclass` defaults,
-global/static storage, narrow and pointer memory, arrays, indirect calls, variadics,
+global/static storage, pointer memory, arrays, indirect calls, variadics,
 explicit register and function flags, the complete HolyC ABI, floating operations,
 runtime output and native `#exe` remain required. Optimizer parity, the integrated
 assembler, object/BIN writing, loader acceptance and bootstrap retain their own

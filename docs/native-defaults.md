@@ -5,7 +5,9 @@ Issue #660 adds declaration-time I64/U64 parameter defaults to the bounded
 admitted default once. Native calls load the saved word when an argument is
 omitted; they do not reevaluate its expression. Unused functions and calls with
 all arguments supplied still require successful preparation of every declared
-default.
+default. Issue #663 extends the same preparation and authority path to narrow
+integer parameters; [native scalar functions](native-scalars.md) describes their
+storage and register-value behavior.
 
 ```text
 opam exec -- dune exec --root . -- bin/holyc.exe run --target=host-jit --format=json examples/native-integer-defaults.hc
@@ -17,13 +19,13 @@ hosted native image. AOT mode here does not write an object or TempleOS BIN.
 
 ## Supported domain
 
-Defaults belong to fixed, named scalar I64/U64 parameters on the source-defined
+Defaults belong to fixed, named I8/U8/I16/U16/I32/U32/I64/U64 parameters on the source-defined
 functions admitted by [native programs](native-programs.md). The existing
 checked constant-preparation engine handles the original expression. Closed
 integer arithmetic such as `84/2` prepares the word 42. Source-selected queries
 are usable only when their original evidence and the preparation engine support
 them. References to values or functions, storage effects, string ownership,
-`lastclass`, pointer/function-pointer parameters and non-word parameter types
+`lastclass`, pointer/function-pointer parameters and non-integer parameter types
 remain unsupported. Prototypes remain outside the native function gate.
 
 Default expressions use the preparation engine's supported arithmetic domain,
@@ -43,6 +45,10 @@ Supplied argument expressions retain the native function path's right-to-left
 evaluation and formal-position binding. Omitted arguments use their exact saved
 words, including high-bit U64 values. Repeated and recursive calls reuse those
 values without extra declaration-preparation work or saved-payload charges.
+For a narrow parameter, the saved word keeps all original bits; the callee's
+declared-width object access performs sign or zero extension. An `U8` default of
+554 therefore retains 554 in its preparation proof and reads as 42 in the callee.
+Narrow defaults still retain eight payload bytes each.
 
 ## Ownership and admission
 
@@ -107,7 +113,7 @@ The hosted constant-preparation engine is an explicit bounded implementation of
 that behavior, not evidence that general default expressions execute natively.
 
 Effectful defaults, interleaved source execution, owned strings, `lastclass`,
-broader scalar/pointer types and native `#exe` require further work. Optimizer
+non-integer/pointer types and native `#exe` require further work. Optimizer
 issues #574, #585 and #593 remain separate. Full HolyC ABI, assembler/BIN output,
 actual TempleOS loader acceptance, whole-tree compilation and bootstrap are not
 completed by this gate.
