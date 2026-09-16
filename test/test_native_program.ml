@@ -5,8 +5,10 @@ module Encoder = X86_64_encoder
 module Sequence = Ir_instruction_sequence
 module Graph = Ir_block_graph
 module X87 = Ir_x87_stack
+module VM = Ir_integer_interpreter
 module Opcode = Ir_opcode
 module Type = Semantic_type
+module Runtime = Ir_runtime_call_context
 
 let require_ok show = function
   | Ok value -> value
@@ -107,6 +109,31 @@ let source_program_compile ?(mode = Preprocessor.Jit) contents =
   in
   Native_program.compile session ~config ~source
 
+let integer_unit ?(mode = Preprocessor.Jit) contents =
+  let session = Session.create () in
+  let source =
+    Session.add_source session ~path:"native-program-callable.hc" ~contents
+  in
+  let config =
+    Preprocessor.Config.create ~compilation_mode:mode () |> require_ok Fun.id
+  in
+  compile_integer_program session ~config ~source
+  |> require_ok (fun diagnostics ->
+      diagnostics
+      |> List.map (fun (error : Diagnostic.t) ->
+          error.code ^ ": " ^ error.message)
+      |> String.concat "; ")
+  |> fun checked -> checked.value
+
+let compile_callable ?status_abi unit =
+  Program.compile_callable ?status_abi ~max_stack_bytes:4088 ~max_blocks:4096
+    ~max_ir_instructions:4096 ~max_code_bytes:65536
+    ~runtime_calls:(integer_program_runtime_calls unit)
+    ~initialization:(integer_program_initialization unit)
+    ~entry:(integer_program_entry unit)
+    ~functions:(integer_program_functions unit)
+    ()
+
 let reject ?code label = function
   | Ok _ -> Alcotest.failf "%s unexpectedly compiled" label
   | Error [] -> Alcotest.failf "%s returned no diagnostic" label
@@ -130,6 +157,10 @@ let kind_name = function
   | Program.Division_by_zero -> "division-by-zero"
   | Program.Signed_division_overflow -> "signed-overflow"
   | Program.Step_limit_exceeded -> "step-limit"
+  | Program.Call_depth_exceeded -> "call-depth"
+  | Program.Frame_limit_exceeded -> "frame-limit"
+  | Program.Native_stack_limit_exceeded -> "native-stack-limit"
+  | Program.Uninitialized_read -> "uninitialized-read"
 
 let operation_name = function
   | None -> "none"
@@ -294,6 +325,10 @@ let decoder_budget_and_empty () =
       Alcotest.(check int) "budget block position" 4 fault.position;
       Alcotest.(check int) "budget global position" 4 fault.global_position;
       Alcotest.(check int) "budget consumed steps" 4 fault.executed_steps;
+      Alcotest.(check (option int))
+        "closed budget fault has no function owner" None fault.function_id;
+      Alcotest.(check (option string))
+        "closed budget fault has no function name" None fault.function_name;
       Alcotest.(check bool)
         "budget source span" true
         (fault.span = Some (span 50))
@@ -350,6 +385,10 @@ let dense_fault_sites () =
       Alcotest.(check int) "zero-based global position" 4 fault.global_position;
       Alcotest.(check int)
         "faulting instruction consumed" 5 fault.executed_steps;
+      Alcotest.(check (option int))
+        "closed arithmetic fault has no function owner" None fault.function_id;
+      Alcotest.(check (option string))
+        "closed arithmetic fault has no function name" None fault.function_name;
       Alcotest.(check bool)
         "original operator span" true
         (fault.span = Some (span 104))
@@ -375,7 +414,11 @@ let branch_step_site_metadata () =
         "branch exact source span" true
         (fault.span = Some (span 121));
       Alcotest.(check int)
-        "branch fault preserves consumed work" 1 fault.executed_steps
+        "branch fault preserves consumed work" 1 fault.executed_steps;
+      Alcotest.(check (option int))
+        "closed branch fault has no function owner" None fault.function_id;
+      Alcotest.(check (option string))
+        "closed branch fault has no function name" None fault.function_name
   | Program.Completed _ ->
       Alcotest.fail "branch budget site decoded as completion"
 
@@ -585,25 +628,32 @@ let legacy_expression_bytes () =
 
 let source_gate_is_compile_only () =
   let accepted =
-    "if(0 && (1/0)) 1/0; else {6*7;} while(1){break;1/0;} do {42;} while(0); \
-     for(0;0;1/0) 1/0;"
+    [
+      "if(0 && (1/0)) 1/0; else {6*7;} while(1){break;1/0;} do {42;} while(0); \
+       for(0;0;1/0) 1/0;";
+      "I64 NeverCalled(){return 1/0;}\n\
+       I64 Add(I64 a,I64 b){I64 sum=a+b;return sum;}\n\
+       Add(20,22);";
+    ]
   in
   List.iter
     (fun mode ->
-      let checked =
-        source_program_compile ~mode accepted
-        |> require_ok (fun diagnostics ->
-            diagnostics
-            |> List.map (fun (error : Diagnostic.t) ->
-                error.code ^ ": " ^ error.message)
-            |> String.concat "; ")
-      in
-      Alcotest.(check bool)
-        "compile-only closed source keeps control blocks" true
-        (Program.block_count checked.value > 1);
-      Alcotest.(check bool)
-        "compile-only closed source has no warnings" true
-        (checked.diagnostics = []);
+      List.iter
+        (fun source ->
+          let checked =
+            source_program_compile ~mode source
+            |> require_ok (fun diagnostics ->
+                diagnostics
+                |> List.map (fun (error : Diagnostic.t) ->
+                    error.code ^ ": " ^ error.message)
+                |> String.concat "; ")
+          in
+          Alcotest.(check bool)
+            "compile-only source emits a nonempty bounded image" true
+            (Program.block_count checked.value > 0);
+          Alcotest.(check bool)
+            "compile-only source has no warnings" true (checked.diagnostics = []))
+        accepted;
       List.iter
         (fun source ->
           match source_program_compile ~mode source with
@@ -620,11 +670,277 @@ let source_gate_is_compile_only () =
                    diagnostics))
         [
           "I64 x=1/0; 42;";
-          "I64 F(){return 1/0;} F();";
+          "I64 Bad(){F64 x=1.0;return 0;} 42;";
+          "F64 Bad(){return 1.0;} 42;";
+          "I64 G=42; I64 F(){return G;} F();";
+          "I64 F(){static I64 n=0;return ++n;} F();";
+          "I64 F(I64 *p){return *p;} 42;";
+          "I64 F(I64 n,...){return n;} F(42);";
+          "extern I64 F(I64 n); 42;";
+          "I64 F(I64 n=42){return n;} F(1);";
+          "I64 Missing(I64 n){if(n)return 42;} Missing(1);";
+          "I64 Missing(){42;} 0;";
+          "I64 Apply(I64 (*fp)(I64),I64 n){return fp(n);}\n\
+           I64 Inc(I64 n){return n+1;} Apply(&Inc,41);";
           "\"output\";";
           "#exe {1/0;}\n42;";
-        ])
+        ];
+      match source_program_compile ~mode "I64 F(I64 n=42){return n;} F(1);" with
+      | Ok _ -> Alcotest.fail "native source gate admitted a saved default"
+      | Error [] ->
+          Alcotest.fail "saved-default rejection returned no diagnostic"
+      | Error (first :: _) ->
+          Alcotest.(check string)
+            "saved defaults reject at the native source gate" "HCRUN0001"
+            first.code)
     [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let callable_ownership_joins_are_exact () =
+  let closed = integer_unit "42;" in
+  let left = integer_unit "I64 Left(I64 n){return n+1;}\nLeft(41);" in
+  let right = integer_unit "I64 Right(I64 n){return n+2;}\nRight(40);" in
+  let left_function = List.hd (integer_program_functions left) in
+  let right_function = List.hd (integer_program_functions right) in
+  let reject_callable label runtime_calls initialization entry functions =
+    match
+      Program.compile_callable ~max_stack_bytes:4088 ~max_blocks:4096
+        ~max_ir_instructions:4096 ~max_code_bytes:65536 ~runtime_calls
+        ~initialization ~entry ~functions ()
+    with
+    | Ok _ -> Alcotest.failf "%s unexpectedly compiled" label
+    | Error [] -> Alcotest.failf "%s returned no backend error" label
+    | Error _ -> ()
+  in
+  let closed_direct =
+    Program.compile ~max_stack_bytes:4088 ~max_blocks:4096
+      ~max_ir_instructions:4096 ~max_code_bytes:65536
+      (integer_program_entry closed)
+    |> require_ok program_errors
+  in
+  let closed_via_callable =
+    compile_callable closed |> require_ok program_errors
+  in
+  Alcotest.(check string)
+    "empty function bundle preserves closed image bytes"
+    (Program.code closed_direct)
+    (Program.code closed_via_callable);
+  Alcotest.(check int)
+    "empty function bundle remains a closed image" 0
+    (Program.function_count closed_via_callable);
+  Alcotest.(check int)
+    "empty function bundle preserves entry stack charge"
+    (Program.entry_stack_bytes closed_direct)
+    (Program.entry_stack_bytes closed_via_callable);
+  Alcotest.(check bool)
+    "empty function bundle preserves unwind owner records" true
+    (Program.windows_unwind_functions closed_direct
+    = Program.windows_unwind_functions closed_via_callable);
+  reject_callable "closed entry joined to foreign sealed call metadata"
+    (integer_program_runtime_calls left)
+    (integer_program_initialization closed)
+    (integer_program_entry closed)
+    [];
+  reject_callable "closed entry joined to foreign empty initialization"
+    (integer_program_runtime_calls closed)
+    (integer_program_initialization left)
+    (integer_program_entry closed)
+    [];
+  ignore (compile_callable left |> require_ok program_errors);
+  let foreign_frame : VM.function_definition =
+    { frame = right_function.frame; body = left_function.body }
+  in
+  reject_callable "body joined to a foreign checked frame"
+    (integer_program_runtime_calls left)
+    (integer_program_initialization left)
+    (integer_program_entry left)
+    [ foreign_frame ];
+  reject_callable "entry joined to foreign sealed call metadata"
+    (integer_program_runtime_calls right)
+    (integer_program_initialization left)
+    (integer_program_entry left)
+    (integer_program_functions left);
+  reject_callable "direct call with its checked definition omitted"
+    (integer_program_runtime_calls left)
+    (integer_program_initialization left)
+    (integer_program_entry left)
+    [];
+  reject_callable "callable bundle joined to foreign empty initialization"
+    (integer_program_runtime_calls left)
+    (integer_program_initialization right)
+    (integer_program_entry left)
+    (integer_program_functions left)
+
+let callable_prepared_defaults_are_rejected_at_argument_producer () =
+  let compile_aot call =
+    integer_unit ~mode:Preprocessor.Aot
+      ("I64 F(I64 n=42){return n;}\n" ^ call ^ ";")
+  in
+  let compile_plain_aot call =
+    integer_unit ~mode:Preprocessor.Aot
+      ("I64 F(I64 n){return n;}\n" ^ call ^ ";")
+  in
+  let fixed_argument unit =
+    let runtime_calls = integer_program_runtime_calls unit in
+    let call_start =
+      integer_program_entry unit |> X87.graph |> Graph.blocks
+      |> List.concat_map (fun block ->
+          Graph.instructions block |> Sequence.instructions)
+      |> List.map Sequence.description
+      |> List.find (fun (description : Sequence.description) ->
+          description.opcode = Opcode.Ic_call_start)
+    in
+    let call =
+      Runtime.find_start runtime_calls ~owner:Runtime.Entry
+        call_start.instruction_id
+      |> Option.get
+    in
+    let argument =
+      Runtime.arguments call
+      |> List.find (fun argument ->
+          Runtime.argument_role argument = Runtime.Fixed 0)
+    in
+    (runtime_calls, argument)
+  in
+  let check_empty_initialization label unit =
+    let initialization = integer_program_initialization unit in
+    let globals = Ir_global_initialization.globals initialization in
+    Alcotest.(check int)
+      (label ^ " has no global bytes")
+      0
+      (Ir_integer_globals.byte_size globals);
+    Alcotest.(check bool)
+      (label ^ " has no global initializers")
+      false
+      (Ir_integer_globals.has_initializers globals);
+    Alcotest.(check int)
+      (label ^ " has no initialization regions")
+      0
+      (List.length (Ir_global_initialization.regions initialization));
+    Alcotest.(check int)
+      (label ^ " has no static initialization regions")
+      0
+      (List.length (Ir_global_initialization.static_regions initialization));
+    Alcotest.(check int)
+      (label ^ " has no initialization publications")
+      0
+      (List.length (Ir_global_initialization.publications initialization));
+    Alcotest.(check int)
+      (label ^ " has no prepared storage steps")
+      0
+      (Ir_global_initialization.prepared_steps initialization)
+  in
+  let explicit = compile_plain_aot "F(1)" in
+  check_empty_initialization "explicit no-default unit" explicit;
+  let explicit_calls, explicit_argument = fixed_argument explicit in
+  Alcotest.(check bool)
+    "explicit argument producer is not a prepared default" false
+    (Runtime.is_prepared_default explicit_calls ~owner:Runtime.Entry
+       (Runtime.argument_producer explicit_argument));
+  ignore (compile_callable explicit |> require_ok program_errors);
+  let defaulted = compile_aot "F()" in
+  check_empty_initialization "omitted default-bearing unit" defaulted;
+  let default_calls, default_argument = fixed_argument defaulted in
+  Alcotest.(check bool)
+    "omitted argument producer retains prepared-default metadata" true
+    (Runtime.is_prepared_default default_calls ~owner:Runtime.Entry
+       (Runtime.argument_producer default_argument));
+  (match compile_callable defaulted with
+  | Ok _ -> Alcotest.fail "prepared default argument unexpectedly compiled"
+  | Error [] -> Alcotest.fail "prepared default rejection returned no error"
+  | Error (first :: _) ->
+      Alcotest.(check string)
+        "prepared default rejects at callable producer guard" "HCBACK0002"
+        first.code;
+      Alcotest.(check string)
+        "prepared default guard reports its exact unsupported boundary"
+        "IC_IMM_I64: native callable programs do not admit prepared parameter \
+         defaults"
+        first.message);
+  let supplied_default = compile_aot "F(1)" in
+  check_empty_initialization "supplied default-bearing unit" supplied_default;
+  let supplied_calls, supplied_argument = fixed_argument supplied_default in
+  Alcotest.(check bool)
+    "supplied argument does not masquerade as a prepared default" false
+    (Runtime.is_prepared_default supplied_calls ~owner:Runtime.Entry
+       (Runtime.argument_producer supplied_argument));
+  (match compile_callable supplied_default with
+  | Ok _ -> Alcotest.fail "default-bearing source header unexpectedly compiled"
+  | Error [] -> Alcotest.fail "default-bearing header returned no error"
+  | Error (first :: _) ->
+      Alcotest.(check string)
+        "declared default rejects after supported explicit producer preflight"
+        "HCBACK0002" first.code;
+      Alcotest.(check string)
+        "declared default uses the source-header boundary"
+        "native source functions do not admit parameter defaults" first.message);
+  let unused_default =
+    integer_unit ~mode:Preprocessor.Aot "I64 F(I64 n=42){return n;}\n0;"
+  in
+  check_empty_initialization "unused default-bearing unit" unused_default;
+  match compile_callable unused_default with
+  | Ok _ ->
+      Alcotest.fail "unused default-bearing function unexpectedly compiled"
+  | Error [] ->
+      Alcotest.fail "unused default-bearing function returned no error"
+  | Error (first :: _) ->
+      Alcotest.(check string)
+        "unused declared default rejects without a call producer" "HCBACK0002"
+        first.code;
+      Alcotest.(check string)
+        "unused declared default uses the source-header boundary"
+        "native source functions do not admit parameter defaults" first.message
+
+let callable_mid_block_ret_is_rejected () =
+  let unit = integer_unit "I64 F(){return 42;}\nF();" in
+  let definition = List.hd (integer_program_functions unit) in
+  let graph = definition.body |> Ir_function_body.x87 |> X87.graph in
+  let terminal_ret =
+    Graph.blocks graph
+    |> List.exists (fun block ->
+        match Graph.instructions block |> Sequence.instructions |> List.rev with
+        | instruction :: _ ->
+            (Sequence.description instruction).opcode = Opcode.Ic_ret
+        | [] -> false)
+  in
+  Alcotest.(check bool)
+    "canonical callable retains a terminal shared IC_RET" true terminal_ret;
+  ignore (compile_callable unit |> require_ok program_errors);
+  let instructions =
+    Graph.blocks graph
+    |> List.find_map (fun block ->
+        match Graph.instructions block |> Sequence.instructions with
+        | first :: _ :: _ as instructions
+          when (Sequence.description first).opcode <> Opcode.Ic_ret ->
+            Some instructions
+        | _ -> None)
+    |> Option.get
+  in
+  let first = List.hd instructions |> Sequence.description in
+  let mid_block_ret : Sequence.description =
+    {
+      first with
+      opcode = Opcode.Ic_ret;
+      operands = [];
+      result = None;
+      target_type = None;
+      payload = None;
+      flags = 0L;
+    }
+  in
+  (* Graph/sequence constructors already reject instructions after terminators.
+     Corrupt the immutable low-level fixture in place so this exercises the
+     backend admission boundary itself rather than an earlier graph check. *)
+  Obj.set_field (Obj.repr instructions) 0 (Obj.repr mid_block_ret);
+  match compile_callable unit with
+  | Ok _ -> Alcotest.fail "mid-block IC_RET unexpectedly compiled"
+  | Error [] -> Alcotest.fail "mid-block IC_RET rejection returned no error"
+  | Error (first :: _) ->
+      Alcotest.(check string)
+        "mid-block IC_RET rejects in callable preflight" "HCBACK0003" first.code;
+      Alcotest.(check string)
+        "mid-block IC_RET reports the exact terminator contract"
+        "IC_RET: IC_RET must terminate its native source function block"
+        first.message
 
 let hex text =
   String.to_seq text
@@ -643,6 +959,24 @@ let private_context_encoder_bytes () =
       ( "store step-fault kind",
         Encoder.Store_context_imm (0, 3),
         "49c7430003000000" );
+      ( "load semantic-frame quota",
+        Encoder.Load_context (Encoder.Rax, 48),
+        "498b4330" );
+      ( "store semantic-frame quota",
+        Encoder.Store_context (48, Encoder.Rax),
+        "49894330" );
+      ( "load call-depth quota",
+        Encoder.Load_context (Encoder.Rax, 56),
+        "498b4338" );
+      ( "store call-depth quota",
+        Encoder.Store_context (56, Encoder.Rax),
+        "49894338" );
+      ( "load physical-stack quota",
+        Encoder.Load_context (Encoder.Rax, 64),
+        "498b4340" );
+      ( "store physical-stack quota",
+        Encoder.Store_context (64, Encoder.Rax),
+        "49894340" );
       ("decrement private meter", Encoder.Dec Encoder.R10, "49ffca");
     ]
   in
@@ -663,8 +997,107 @@ let private_context_encoder_bytes () =
       | Ok _ -> Alcotest.fail "invalid private context access encoded")
     [
       Encoder.Load_context (Encoder.Rax, 7);
-      Encoder.Store_context (48, Encoder.Rax);
+      Encoder.Store_context (72, Encoder.Rax);
     ]
+
+let callable_frame_encoder_bytes () =
+  let frame_slot offset = Encoder.frame_slot ~offset |> require_ok Fun.id in
+  let call_frame bytes = Encoder.call_frame ~bytes |> require_ok Fun.id in
+  let cases =
+    [
+      ("push frame pointer", Encoder.Push_rbp, "55");
+      ("establish frame pointer", Encoder.Mov_rbp_rsp, "4889e5");
+      ( "load negative RBP slot",
+        Encoder.Load_frame (Encoder.Rax, frame_slot (-8)),
+        "488b85f8ffffff" );
+      ( "store negative RBP slot",
+        Encoder.Store_frame (frame_slot (-16), Encoder.Rcx),
+        "48898df0ffffff" );
+      ( "allocate 32-byte call frame",
+        Encoder.Alloc_call_frame (call_frame 32),
+        "4881ec20000000" );
+      ("relative direct CALL", Encoder.Call 0x12345678L, "e878563412");
+      ( "free 32-byte call frame",
+        Encoder.Free_call_frame (call_frame 32),
+        "4881c420000000" );
+      ("pop frame pointer", Encoder.Pop_rbp, "5d");
+    ]
+  in
+  List.iter
+    (fun (label, instruction, expected) ->
+      Alcotest.(check string) label expected (hex (Encoder.encode instruction));
+      Alcotest.(check int)
+        (label ^ " exact size")
+        (String.length (Encoder.encode instruction))
+        (Encoder.size instruction))
+    cases
+
+let int32_le text offset =
+  let byte index = Int32.of_int (Char.code text.[offset + index]) in
+  Int32.logor (byte 0)
+    (Int32.logor
+       (Int32.shift_left (byte 1) 8)
+       (Int32.logor
+          (Int32.shift_left (byte 2) 16)
+          (Int32.shift_left (byte 3) 24)))
+
+let compiled_callable_frame_and_rel32_bytes () =
+  let unit =
+    integer_unit "I64 Identity(I64 value){return value;}\nIdentity(42);"
+  in
+  let image =
+    compile_callable ~status_abi:Program.System_v_x64 unit
+    |> require_ok program_errors
+  in
+  let code = Program.code image in
+  Alcotest.(check int) "one named callable" 1 (Program.function_count image);
+  Alcotest.(check int)
+    "identity bundle maximum frame" 32
+    (Program.frame_bytes image);
+  Alcotest.(check int)
+    "identity entry physical stack charge" 48
+    (Program.entry_stack_bytes image);
+  match Program.windows_unwind_functions image with
+  | [
+   (0, entry_end, entry_unwind); (function_begin, function_end, function_unwind);
+  ] -> (
+      Alcotest.(check int)
+        "entry ends where identity begins" entry_end function_begin;
+      Alcotest.(check int)
+        "identity range covers image tail" (String.length code) function_end;
+      Alcotest.(check string)
+        "entry PUSH/MOV/SUB frame bytes" "554889e54881ec20000000"
+        (String.sub code 0 11 |> hex);
+      Alcotest.(check string)
+        "entry callable unwind bytes" "010b02000b320150" (hex entry_unwind);
+      Alcotest.(check string)
+        "identity PUSH/MOV frame bytes" "554889e5"
+        (String.sub code function_begin 4 |> hex);
+      Alcotest.(check string)
+        "identity frameless unwind bytes" "0104010001500000"
+        (hex function_unwind);
+      Alcotest.(check string)
+        "identity POP/RET bytes" "5dc3"
+        (String.sub code (function_end - 2) 2 |> hex);
+      let calls = ref [] in
+      for offset = 0 to entry_end - 5 do
+        if Char.code code.[offset] = 0xe8 then
+          let displacement = int32_le code (offset + 1) |> Int32.to_int in
+          if offset + 5 + displacement = function_begin then
+            calls := offset :: !calls
+      done;
+      match List.rev !calls with
+      | [ call_offset ] ->
+          let displacement = int32_le code (call_offset + 1) |> Int32.to_int in
+          Alcotest.(check int)
+            "compiled CALL rel32 resolves to Identity owner" function_begin
+            (call_offset + 5 + displacement)
+      | offsets ->
+          Alcotest.failf "identity entry has %d candidate CALL opcodes"
+            (List.length offsets))
+  | functions ->
+      Alcotest.failf "identity bundle published %d unwind owners"
+        (List.length functions)
 
 let compiled_control_rel32_bytes () =
   let image = image ~status_abi:Program.System_v_x64 (control_rel32_graph ()) in
@@ -721,12 +1154,23 @@ let tests =
       immutable_exports;
     Alcotest.test_case "private six-word context encodings are literal goldens"
       `Quick private_context_encoder_bytes;
+    Alcotest.test_case "callable frame and CALL encodings are literal goldens"
+      `Quick callable_frame_encoder_bytes;
+    Alcotest.test_case "compiled callable frame and rel32 bytes are stable"
+      `Quick compiled_callable_frame_and_rel32_bytes;
     Alcotest.test_case
       "compiled control uses literal forward/back rel32 offsets" `Quick
       compiled_control_rel32_bytes;
     Alcotest.test_case
       "source gate compiles control without VM or #exe execution" `Quick
       source_gate_is_compile_only;
+    Alcotest.test_case "callable frame and call ownership joins are exact"
+      `Quick callable_ownership_joins_are_exact;
+    Alcotest.test_case
+      "callable prepared defaults reject at the exact argument producer" `Quick
+      callable_prepared_defaults_are_rejected_at_argument_producer;
+    Alcotest.test_case "callable IC_RET must be terminal within its block"
+      `Quick callable_mid_block_ret_is_rejected;
     Alcotest.test_case "legacy expression byte golden remains unchanged" `Quick
       legacy_expression_bytes;
   ]

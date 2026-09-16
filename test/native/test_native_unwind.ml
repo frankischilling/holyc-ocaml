@@ -12,6 +12,10 @@ module Type = Semantic_type
 external probe_windows_unwind : string -> string -> int -> unit
   = "holyc_test_native_unwind"
 
+external probe_windows_program_unwind :
+  string -> (int * int * string) array -> unit
+  = "holyc_test_native_program_unwind"
+
 let require condition message = if not condition then failwith message
 
 let diagnostic_errors errors =
@@ -52,6 +56,17 @@ let compile_source ~mode contents =
   in
   Native_expression.compile session ~config ~source
   |> require_ok diagnostic_errors
+
+let compile_program_source ~mode contents =
+  let session = Session.create () in
+  let source =
+    Session.add_source session ~path:"native-program-unwind.hc" ~contents
+  in
+  let config =
+    Preprocessor.Config.create ~compilation_mode:mode () |> require_ok Fun.id
+  in
+  Native_program.compile session ~config ~source |> require_ok diagnostic_errors
+  |> fun checked -> checked.value
 
 let instruction_id id =
   Sequence.Instruction_id.of_int id |> require_ok sequence_error
@@ -355,6 +370,49 @@ let check_program_unwind ~windows ~status_abi ~live expected_frame =
     && String.sub code capture_offset (String.length capture) = capture)
     (label ^ ": context capture must follow the optional stack allocation")
 
+let check_callable_program_unwind ~windows ~mode =
+  let image =
+    compile_program_source ~mode
+      "I64 Add(I64 left,I64 right){I64 sum=left+right;return sum;}\n\
+       I64 Wrap(I64 value){I64 keep=2;return keep+Add(value,20);}\n\
+       Wrap(20);"
+  in
+  let label = mode_name mode ^ " callable program" in
+  require (Program.function_count image = 2) (label ^ ": named function count");
+  let code = Program.code image in
+  let functions = Program.windows_unwind_functions image in
+  require
+    (List.length functions = Program.function_count image + 1)
+    (label ^ ": unwind table must cover entry and every named owner");
+  let previous_end = ref 0 in
+  List.iteri
+    (fun index (begin_offset, end_offset, unwind) ->
+      require
+        (begin_offset = !previous_end
+        && end_offset > begin_offset
+        && end_offset <= String.length code)
+        (label ^ ": function ranges must be ordered, disjoint and contiguous");
+      require (unwind <> "") (label ^ ": callable owner has no unwind metadata");
+      if index = 0 then
+        require
+          (unwind = Program.windows_unwind_info image)
+          (label ^ ": legacy unwind getter must expose the entry owner record");
+      previous_end := end_offset)
+    functions;
+  require
+    (!previous_end = String.length code)
+    (label ^ ": unwind owner ranges must cover the complete code image");
+  let first = Program.windows_unwind_functions image in
+  let second = Program.windows_unwind_functions image in
+  List.iter
+    (fun (_, _, unwind) ->
+      if unwind <> "" then Bytes.set (Bytes.unsafe_of_string unwind) 0 '\xff')
+    first;
+  require
+    (second = Program.windows_unwind_functions image)
+    (label ^ ": per-owner unwind getter must return immutable copies");
+  if windows then probe_windows_program_unwind code (Array.of_list functions)
+
 let () =
   let windows =
     match Runtime.platform () with
@@ -385,6 +443,9 @@ let () =
       check_program_unwind ~windows ~status_abi ~live:23 152;
       check_program_unwind ~windows ~status_abi ~live:516 4088)
     [ Program.Windows_x64; Program.System_v_x64 ];
+  List.iter
+    (fun mode -> check_callable_program_unwind ~windows ~mode)
+    [ Preprocessor.Jit; Preprocessor.Aot ];
   (* 518 simultaneous values need all 511 permitted spill slots. This also
      exercises the largest Version 1 large-allocation encoding without crossing
      the one-page probing boundary. *)

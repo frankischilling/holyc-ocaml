@@ -729,10 +729,11 @@ let eval_native_command =
 let native_program_file ~max_dimension_work ~max_initializer_steps
     ~max_global_bytes ~max_literal_bytes ~max_frame_bytes ~max_call_depth
     ~max_output_bytes ~max_output_work ~report_version ~max_ir_instructions
-    ~max_code_bytes ~max_stack_bytes ~max_blocks max_steps format include_roots
-    templeos_root max_include_depth max_source_bytes max_definition_depth
-    max_generated_bytes max_conditional_depth max_expression_nodes
-    compilation_mode predefined_date predefined_time command_line_source path =
+    ~max_code_bytes ~max_stack_bytes ~max_blocks ~max_active_stack_bytes
+    max_steps format include_roots templeos_root max_include_depth
+    max_source_bytes max_definition_depth max_generated_bytes
+    max_conditional_depth max_expression_nodes compilation_mode predefined_date
+    predefined_time command_line_source path =
   let session = Holyc_lib.Session.create () in
   let mode =
     match compilation_mode with
@@ -760,6 +761,7 @@ let native_program_file ~max_dimension_work ~max_initializer_steps
       code_bytes = max_code_bytes;
       stack_bytes = max_stack_bytes;
       blocks = max_blocks;
+      active_stack_bytes = max_active_stack_bytes;
     }
   in
   let render =
@@ -774,6 +776,14 @@ let native_program_file ~max_dimension_work ~max_initializer_steps
   else if max_output_bytes > Sys.max_string_length / 4 then
     fail "HCIRVM0001"
       "output_byte_limit exceeds the hexadecimal report allocation bound"
+  else if
+    max_active_stack_bytes <= 0
+    || max_active_stack_bytes
+       > Holyc_lib.Native_program_execution.hard_max_active_stack_bytes
+  then
+    fail "HCIRVM0001"
+      (Printf.sprintf "active_stack_byte_limit must be between 1 and %d"
+         Holyc_lib.Native_program_execution.hard_max_active_stack_bytes)
   else if
     max_steps <= 0 || max_dimension_work <= 0 || max_frame_bytes <= 0
     || max_call_depth <= 0 || max_global_bytes <= 0
@@ -816,8 +826,9 @@ let native_program_file ~max_dimension_work ~max_initializer_steps
                 render
                   ~report:
                     (Holyc_lib.Native_program.evaluate ~max_ir_instructions
-                       ~max_code_bytes ~max_stack_bytes ~max_blocks session
-                       ~config ~source ~max_steps)
+                       ~max_code_bytes ~max_stack_bytes ~max_blocks
+                       ~max_frame_bytes ~max_call_depth ~max_active_stack_bytes
+                       session ~config ~source ~max_steps)
                   ()))
 
 let run_target_argument =
@@ -901,8 +912,9 @@ let run_command =
       & opt int Holyc_lib.X86_64_program.hard_max_stack_bytes
       & info [ "stack-byte-limit" ] ~docv:"BYTES"
           ~doc:
-            "host-jit only: maximum private spill-frame bytes, including \
-             alignment padding. Zero disables spilling.")
+            "host-jit only: maximum private frame bytes per generated \
+             function, including spills, call staging and alignment padding. \
+             Zero permits only functions that need no private allocation.")
   in
   let native_blocks =
     Arg.(
@@ -912,11 +924,23 @@ let run_command =
             "host-jit only: maximum verified source-ordered basic blocks \
              before native emission.")
   in
+  let native_active_stack_bytes =
+    Arg.(
+      value
+      & opt int Holyc_lib.Native_program_execution.hard_max_active_stack_bytes
+      & info
+          [ "active-stack-byte-limit" ]
+          ~docv:"BYTES"
+          ~doc:
+            "host-jit only: maximum simultaneous physical native stack bytes, \
+             including private frames, saved frame pointers and return \
+             addresses. Must be between 1 and 65536.")
+  in
   Cmd.v
     (Cmd.info "run" ~exits:expression_exits
        ~doc:
          "Run checked integer source through the bounded IR interpreter or the \
-          closed x86-64 host-jit program gate.")
+          bounded x86-64 host-jit program and direct-function gate.")
     (source_parser_options
        Term.(
          const
@@ -936,6 +960,7 @@ let run_command =
              native_code
              native_stack
              native_blocks
+             native_active_stack
            ->
              if target = "host-jit" then
                native_program_file ~max_dimension_work:dimension_work
@@ -944,7 +969,8 @@ let run_command =
                  ~max_call_depth:depth ~max_output_bytes:output_bytes
                  ~max_output_work:output_work ~report_version
                  ~max_ir_instructions:native_ir ~max_code_bytes:native_code
-                 ~max_stack_bytes:native_stack ~max_blocks:native_blocks steps
+                 ~max_stack_bytes:native_stack ~max_blocks:native_blocks
+                 ~max_active_stack_bytes:native_active_stack steps
              else
                integer_expression_file ~max_dimension_work:dimension_work
                  ~max_initializer_steps:initial_steps ~max_global_bytes:globals
@@ -956,7 +982,7 @@ let run_command =
          $ global_limit $ literal_limit $ initializer_step_limit_argument
          $ dimension_work_limit_argument $ output_limit $ output_work
          $ report_version $ native_instructions $ native_code_bytes
-         $ native_stack_bytes $ native_blocks))
+         $ native_stack_bytes $ native_blocks $ native_active_stack_bytes))
 
 let program_ir_argument =
   Arg.(

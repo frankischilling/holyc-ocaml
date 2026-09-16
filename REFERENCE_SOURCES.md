@@ -27,6 +27,18 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
+Issue #659 reuses the existing checked source function, frame and call records
+for generated fixed I64/U64 calls and automatic scalar storage.
+`Compiler/PrsStmt.HC:114-170` supplies parameter offsets and function boundaries;
+`PrsExp.HC:438-586` supplies argument append order, direct call selection and
+cleanup/end metadata. The encoder consumes the existing `OpCodes.DD` PUSH/POP,
+MOV, CALL and RET forms. RBP-relative slots remain tied to the original checked
+frame. Fixed RSP, private outgoing/staging areas, per-IR metering, initialization
+flags and depth/frame/physical-stack fault transport are bounded hosted policies.
+They do not establish the full TempleOS ABI, uninitialized-read behavior or
+declaration-time default execution. The reference pin and generated tables are
+unchanged.
+
 Issue #657 consumes the existing closed source/control graph through the shared
 native word backend. `Compiler/PrsStmt.HC:459-565` supplies statement order and
 loop/break targets; `OptLib.HC:229-484` supplies conditional NOT/AND/OR behavior;
@@ -34,8 +46,8 @@ loop/break targets; `OptLib.HC:229-484` supplies conditional NOT/AND/OR behavior
 consumers. The private context, generated instruction budget and host completion
 wrapper are explicit hosted policies. They preserve the checked interpreter's
 per-IR step and last-expression rules without executing that interpreter on the
-native entry path. The new source gate does not establish native function ABI,
-storage, assembler, BIN/loader or bootstrap completion.
+native entry path. Issue #659 extends that source gate with direct scalar
+functions; complete ABI/storage, assembler, BIN/loader and bootstrap remain open.
 
 Issue #654 connects raw `IC_DIV`/`IC_MOD` to guarded hosted `DIV`/`IDIV`.
 `BackA.HC:355-370,425-440` supplies the fixed dividend/divisor/result register

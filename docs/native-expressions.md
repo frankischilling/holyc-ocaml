@@ -5,8 +5,9 @@ OCaml x86-64 encoder and explicitly executes the resulting machine code.
 Windows x86-64 and Linux x86-64 have separate host bridges. Other platforms
 can use the encoder but cannot execute its output through this bridge.
 
-The shared backend also serves [closed native programs](native-programs.md)
-through `run --target=host-jit`, which adds metered source branches and loops.
+The shared backend also serves [native programs](native-programs.md)
+through `run --target=host-jit`, which adds metered source branches, loops and
+fixed direct I64/U64 functions with scalar automatic storage.
 The expression API and its byte sequences retain the single-expression contract.
 
 ```text

@@ -57,7 +57,7 @@ jobs:
       - name: Run tests
         run: opam exec -- dune runtest --no-buffer
 
-      - name: Execute native expressions, programs, and CLI tests
+      - name: Execute native expressions, functions, programs, and CLI tests
         run: opam exec -- dune build @native-tests
 
       - name: Build package artifacts
@@ -98,5 +98,5 @@ jobs:
       - name: Run tests
         run: opam exec -- dune runtest --no-buffer
 
-      - name: Execute native expressions, programs, and CLI tests
+      - name: Execute native expressions, functions, programs, and CLI tests
         run: opam exec -- dune build '@native-tests'

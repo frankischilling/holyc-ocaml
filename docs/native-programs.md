@@ -1,10 +1,11 @@
 # Native integer programs
 
-`holyc run --target=host-jit` compiles closed integer statements and structured
-control flow with the project's OCaml x86-64 backend, then executes the checked
-image on Windows or Linux x86-64. It uses the same parsed and typed source roots
-and verified block graph as the integer program lowerer. It does not execute the
-entry through the interpreter or replace its result with a constant.
+`holyc run --target=host-jit` compiles integer statements, structured control
+flow and fixed direct I64/U64 source functions with the project's OCaml x86-64
+backend, then executes the checked image on Windows or Linux x86-64. It uses the
+integer program lowerer's original source roots, function bodies, frame layouts
+and checked call context. It does not execute the entry through the interpreter
+or replace its result with a constant.
 
 ```text
 opam exec -- dune exec --root . -- bin/holyc.exe run --target=host-jit --format=json examples/native-integer-program.hc
@@ -18,29 +19,64 @@ contain zero divisors. A 26-step budget succeeds; 25 stops before stream end.
 Both preprocessing modes execute the resulting host image immediately. Selecting
 AOT preprocessing does not produce an object, executable or TempleOS BIN file.
 
+The function fixture uses a caller local across a nested generated call:
+
+```text
+opam exec -- dune exec --root . -- bin/holyc.exe run --target=host-jit --format=json examples/native-integer-functions.hc
+opam exec -- dune exec --root . -- bin/holyc.exe run --target=host-jit --mode=aot --format=json examples/integer-function.hc
+```
+
+Both return I64 42. The original `integer-function.hc` source, `Add(20,22)`,
+requires 29 reached IR instructions: 29 succeeds and 28 exhausts the budget.
+
 ## Source and IR boundary
 
-Accepted statements are closed integer expressions, empty statements, blocks,
+Accepted statements are integer expressions, empty statements, blocks,
 comma statement sequences, `if`/`else`, `while`, `do`/`while`, `for` and `break`.
+Source-defined functions add named fixed I64/U64 parameters, I64/U64 automatic
+scalar declarations, local assignment and updates, and value-return statements.
+Direct calls bind to checked definitions in the same compilation unit, including
+self-recursion. Function locals persist across the function's control transfers
+and are separate in every recursive invocation.
+Every terminal function path must supply a word return. Bare returns and
+fallthrough without a value remain outside this native gate. Prototypes are
+also excluded, so forward or mutual calls requiring a prototype are not admitted.
 The word operations are the same checked internal I64/U64 operations as
 [native expressions](native-expressions.md): wrapping arithmetic, bitwise and
 eager logical values, comparisons, masked shifts, guarded division/remainder
 and payload-zero internal word views.
 
 The source driver parses without command or stream-execution callbacks. An
-iterative source gate rejects declarations, functions, calls, identifier
-storage, assignments, updates, indexing, pointer operations, implicit output
-and unsupported statements before semantic preparation. It reports the first
-closed-domain violation while retaining parser diagnostics. A directive needing
+iterative source gate rejects globals, statics, prototypes/externs, parameter
+defaults, explicit register/declaration modifiers, non-word signatures or locals,
+arrays, source pointer operations, indirect calls, implicit output and unsupported
+statements before semantic preparation. Entry statements cannot declare storage.
+It reports the first source-domain violation while retaining parser diagnostics.
+A directive needing
 `#exe` execution receives the parser's explicit missing-capability diagnostic;
 it cannot route the ordinary program into the interpreter. Compilation also
-checks that the resulting unit has no functions, storage, calls, initializers
-or preparation work before invoking the backend.
+checks that the resulting unit has no global/static initialization or preparation
+work before invoking the backend. Defaults are rejected even when a call supplies
+every argument or the function is unused: silently skipping a declaration-time
+default would change source behavior. Saved defaults need their original
+preparation authority before this gate can admit them.
 
-The backend preflights every block in source order, including unreachable
-instructions. It admits the word producers plus canonical flagged `IC_END_EXP`,
-`IC_JMP`, `IC_BR_ZERO`, `IC_BR_NOT_ZERO` and `IC_END`. Each word is defined and
-used within one block. Control targets must match the checked graph, and an
+The backend preflights the complete bundle, including unreachable instructions
+and unused function bodies. The exact `Runtime_call_context` must match the entry
+and definition bodies, including their original empty initialization context,
+and every body must retain its exact associated frame. A foreign context with
+the same empty contents cannot replace that original authority.
+Zero storage bytes and zero prepared storage steps do not prove that a bundle
+has no saved parameter defaults. Callable preflight checks the original argument
+producer's preparation metadata and the selected and definition-owned headers,
+including default-bearing functions whose arguments are supplied explicitly or
+whose bodies are unused.
+Native declaration-time default preparation is tracked in
+[issue #660](https://github.com/frankischilling/holyc-ocaml/issues/660).
+Besides the word and control operations, callable images consume checked frame
+addresses, scalar loads/stores/updates, return operations, and the original
+`IC_CALL_START`/argument/`IC_CALL`/cleanup/`IC_CALL_END` sequence. Temporary values
+are defined and used within one block. Control targets must match the checked graph, and an
 untaken conditional branch follows the physically next source block. Sparse
 block or instruction IDs never determine allocation sizes.
 
@@ -55,7 +91,9 @@ and control transfers do not replace it, but a `for` initializer or update is
 an expression statement and can do so. Consequently the earlier
 `examples/integer-control-flow.hc` fixture returns I64 **0**, in 23 instructions,
 because its final `for(0;0;1/0)` initializer is reached. The dedicated native
-fixture above ends with a reached 42-valued expression instead.
+fixture above ends with a reached 42-valued expression instead. Function-internal
+expression disposal and return capture never overwrite the entry's final-value
+latch.
 
 ## Metering and frame lifetime
 
@@ -77,15 +115,42 @@ stream end on the last allowed instruction succeeds.
 branch resolution and frame/unwind generation between expressions and programs.
 Programs have five value registers, RAX/RCX/RDX/R8/R9; the reported register peak
 also counts R10, R11 and any fixed or temporary registers. Each block has fresh
-value ownership and reusable spill slots. One frame, sized to the largest block
-requirement, remains allocated for the complete invocation. Frame sizes include
-alignment padding and are bounded by 4,088 bytes. Every exit joins the same
-step-counting, stack-restoring epilogue.
+value ownership and reusable spill slots. Closed programs keep their original
+single frame, sized to the largest block, with a maximum of 4,088 bytes.
 
-The hosted entry is a checked private convention. It is not the complete HolyC
-function ABI, and these spill slots do not authorize source-visible memory or
-function calls. The expression API keeps its separate return convention and
-previous byte sequences, including ABI-neutral images that need no status.
+Callable owners save RBP and keep RSP fixed throughout their bodies. Parameters
+occupy the original positive slots starting at `RBP+16`; automatic locals use
+their checked negative frame displacements. Private initialization flags, spills,
+pending arguments and a shared outgoing argument area occupy disjoint storage.
+The allocation is a multiple of 16 bytes and at most 4,080 bytes; the return
+address and saved RBP are counted separately by the active-stack limit. An owner
+that needs no allocation still saves and restores RBP.
+
+Argument expressions execute in the lowerer's right-to-left order. Each open
+call has separate staging, so an inner call cannot overwrite an already evaluated
+outer argument. Immediately before a real rel32 `CALL`, values are copied to the
+outgoing area in fixed parameter order and live caller registers are spilled.
+The callee returns the word through RAX. Cleanup IR remains checked and metered,
+but the private fixed-RSP convention needs no machine argument-pop instruction.
+Every function uses plain `RET`; this is not the full TempleOS call ABI.
+
+Each automatic local has a fresh hidden initialization flag. Stores mark it;
+loads and read-modify-write operations test it before reading storage. An
+uninitialized read produces the existing hosted integer diagnostic rather than
+reading an arbitrary host-stack word. This is the interpreter's checked execution
+policy, not a claim about TempleOS behavior for undefined local values.
+
+Before a generated call, separate checks reserve one call-depth unit, its checked
+parameter/local bytes, and its physical stack footprint. Entry consumes no named
+call or semantic frame units, but its physical footprint is checked before host
+entry. A fault returns through each actual generated epilogue; callers restore
+all three reservations and propagate it without charging cleanup/end instructions
+that were not reached. The final native bridge checks the restored counters.
+The physical allowance is independently capped at 65,536 bytes so recursion with
+zero semantic frame bytes cannot evade stack bounds.
+
+The expression API keeps its separate return convention and previous byte
+sequences, including ABI-neutral images that need no status.
 
 ## API and limits
 
@@ -95,13 +160,17 @@ diagnostics without executable-memory allocation. `Native_program.evaluate`
 adds a positive `max_steps` and returns an opaque report. `outcome` exposes a
 successful image/execution/platform or diagnostics; `native_outcome` and
 `executed_steps` retain the typed native fault and actual progress after checked
-arithmetic or budget faults. Host bridge and cleanup failures expose no trusted
+arithmetic, budget, storage or call-resource faults. Host bridge and cleanup failures expose no trusted
 native status or progress. The API's `image` getter can inspect a compiled image
 after failure.
 
-Low-level callers compile an `Ir_x87_stack.t` with `X86_64_program.compile` and
+Low-level callers compile an `Ir_x87_stack.t` with `X86_64_program.compile`, or
+the exact entry/function/call bundle with `X86_64_program.compile_callable`, and
 explicitly call `Native_program_execution.execute ~max_steps`. Code and unwind
-getters return fresh copies. Neither image interface exposes a constructor for
+getters return fresh copies. `windows_unwind_functions` exposes checked code
+ranges and per-owner unwind bytes; `function_count` counts named functions and
+`entry_stack_bytes` includes the entry's return address and saved RBP when present.
+Neither image interface exposes a constructor for
 arbitrary bytes. An optional compile-time `status_abi` selects Windows x64 or
 System V code generation for inspection; execution rejects a foreign ABI before
 allocating executable memory.
@@ -111,24 +180,31 @@ allocating executable memory.
 | `--step-limit` / `max_steps` | 100,000 in the CLI | Positive host integer |
 | `--ir-instruction-limit` / `max_ir_instructions` | 4,096 | 1 through 100,000 |
 | `--code-byte-limit` / `max_code_bytes` | 65,536 | 1 through 16 MiB |
-| `--stack-byte-limit` / `max_stack_bytes` | 4,088 | 0 through 4,088; zero disables spills |
+| `--stack-byte-limit` / `max_stack_bytes` | 4,088 | 0 through 4,088 per generated owner; callable allocations are rounded to 16 bytes and capped at 4,080 |
 | `--block-limit` / `max_blocks` | 4,096 | 1 through 100,000 |
+| `--frame-byte-limit` / `max_frame_bytes` | 1,048,576 | Positive simultaneous named-function parameter/local bytes |
+| `--call-depth-limit` / `max_call_depth` | 128 | Positive simultaneously active named calls |
+| `--active-stack-byte-limit` / `max_active_stack_bytes` | 65,536 | 1 through 65,536; physical bytes for entry and all active generated calls |
 
 The compiler counts all IR and blocks before allocating its maps, preflights the
-whole graph, and checks the complete planned image before allocating encoded
+whole bundle, and checks the complete planned image before allocating encoded
 bytes. Prologue, meter, guard, fault-block and epilogue bytes all count toward
-the code quota. Existing `run` storage, call-depth, output and preparation
-options retain their configuration validation; this closed gate consumes none
-of those resources. The native frame limit controls private compiler spills.
+the code quota. Existing `run` global, literal, output and preparation options
+retain their configuration validation; this gate consumes none of those
+resources. The semantic live-frame limit counts the checked local frame plus
+eight bytes per fixed argument, excluding compiler-private storage. The physical
+limit counts every allocated private byte, return address and saved frame pointer.
+Setting it below `entry_stack_bytes` rejects before native entry.
 
 ## Faults and reporting
 
 Programs use the existing integer-program v2 report with `target=host-jit` and
 `arithmetic=runtime-native`. Success retains exact executed steps, stream-end
 termination and the full-width typed value as decimal and hexadecimal strings.
-The `native` object records the platform, requested compilation limits and
-successful image metrics. Failed JSON reports retain diagnostics and, for checked
-arithmetic or budget faults, actual native steps. They expose no final value or
+The `native` object records the platform, requested compilation/live-stack limits
+and successful image metrics, including named-function count and entry stack
+bytes. Failed JSON reports retain diagnostics and, for checked arithmetic, budget,
+storage or call-resource faults, actual native steps. They expose no final value or
 successful image; host bridge and cleanup failures expose no trusted step count.
 The private context is never serialized. The existing IR v2 renderer is
 unchanged; report v1 remains an IR-only compatibility format and explicitly
@@ -136,14 +212,22 @@ rejects the host-JIT target before source entry.
 
 Reached zero divisors use `HCIRVM0009`, signed `INT64_MIN/-1` division and
 remainder overflow use `HCIRVM0010`, and exhausted budgets use `HCIRVM0007`.
+Uninitialized automatic reads use `HCIRVM0012`, exhausted simultaneous semantic
+frames use `HCIRVM0011`, call depth uses `HCIRVM0015`, and physical native stack
+exhaustion at a call uses `HCNATIVE0006`.
 Those codes describe the shared program semantics even though generated code
 detected the fault. Diagnostics retain the original source span, block ID,
-instruction ID and executed-step count. Unsupported hosts use `HCNATIVE0001`;
+instruction ID and executed-step count. Named-function sites additionally retain
+the original function ID and name, so repeated local block/instruction IDs cannot
+identify another owner. Unsupported hosts use `HCNATIVE0001`;
 foreign ABIs, invalid status or OS mapping/cleanup failures use `HCNATIVE0002`.
 The existing native-expression diagnostic codes and JSON v1 schema are unchanged.
 
-The private C context contains six full-width words: kind, fault site, budget,
-executed steps, last-expression site and value bits. Sites are dense identities
+Closed images retain the six-word private context: kind, fault site, budget,
+executed steps, last-expression site and value bits. Callable images add remaining
+semantic frame bytes, call depth and physical stack bytes at offsets 48, 56 and
+64. The C bridge verifies that all three return to their supplied initial values,
+with the root footprint deducted from the physical allowance. Sites are dense identities
 owned by the image. A last-expression site must identify a checked `IC_END_EXP`;
 OCaml derives the result's I64/U64 type from that metadata rather than trusting
 an arbitrary native type tag. Status decoding checks kind/site consistency,
@@ -155,7 +239,11 @@ guards catch zero and signed-overflow cases before hardware division. After
 return, the bridge removes unwind registration and releases the mapping before
 boxing any context values. Failed Windows unwind removal retains its registered
 mapping rather than leaving a dangling OS reference. The OCaml runtime lock
-remains held while the image runs.
+remains held while the image runs. Callable Windows images register one sorted
+function table covering entry and every generated function, with separate unwind
+records for their actual fixed-RSP prologues. The table and records share the
+mapping's lifetime. Each allocation stays below one page; larger/probed frames
+remain outside this gate.
 
 This is an in-process executor. The step budget bounds checked IR loops; it is
 not a wall-clock deadline, isolation boundary or recovery from arbitrary machine
@@ -171,13 +259,18 @@ break targets. `Compiler/OptLib.HC:229-484` supplies conditional NOT/AND/OR
 rewrites. `Compiler/OptPass789A.HC:158-163,267-284` supplies test-and-branch and
 relative-jump consumers. The checked opcode database supplies the qword moves,
 decrement, tests and branches; existing word-operation references are recorded
-in [native expressions](native-expressions.md). The private context, per-IR
+in [native expressions](native-expressions.md). `PrsStmt.HC:114-170` establishes
+fixed parameter offsets and function boundaries, while `PrsExp.HC:438-586`
+establishes argument append order, direct call selection and cleanup/end metadata.
+The private context, per-IR
 budget and host completion wrapper are hosted execution policy, not additional
 TempleOS language rules.
 
-This gate does not complete general native source execution. Native storage,
-function frames and calls, the complete HolyC ABI, floating operations, optimizer
-parity, the integrated assembler, object/BIN writing, loader acceptance and
-bootstrap remain required compiler work. Issues #574, #585 and #593 continue
+This gate does not complete general native source execution. Saved defaults,
+global/static storage, narrow and pointer memory, arrays, indirect calls, variadics,
+explicit register and function flags, the complete HolyC ABI, floating operations,
+runtime output and native `#exe` remain required. Optimizer parity, the integrated
+assembler, object/BIN writing, loader acceptance and bootstrap retain their own
+gates. Issues #574, #585 and #593 continue
 to track their distinct shift, division-optimization and comparison-reduction
 requirements.

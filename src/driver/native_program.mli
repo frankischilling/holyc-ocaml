@@ -18,29 +18,38 @@ val compile :
   config:Frontend.Preprocessor.Config.t ->
   source:Common.Source_file.t ->
   (Backend.X86_64_program.t checked, Common.Diagnostic.t list) Stdlib.result
-(** Parse ordinary source without command or [#exe] execution callbacks, reject
-    source forms outside the closed native-program gate, then compile the exact
-    checked top-level graph. This never executes the IR interpreter or allocates
+(** Parse ordinary source without command or [#exe] execution callbacks. Compile
+    the exact checked entry and its fixed direct I64/U64 source functions, with
+    scalar automatic storage, through the shared native word backend.
+    Unsupported declarations, parameter defaults and persistent storage reject
+    before execution. This never executes the IR interpreter or allocates
     executable memory. Parser warnings retain their original source identities.
-    Defaults are 4096 IR instructions, 65536 code bytes, 4088 private spill
-    bytes and 4096 blocks. *)
+    Defaults are 4096 total IR instructions, 65536 code bytes, 4088 private
+    frame bytes and 4096 total blocks. *)
 
 val evaluate :
   ?max_ir_instructions:int ->
   ?max_code_bytes:int ->
   ?max_stack_bytes:int ->
   ?max_blocks:int ->
+  ?max_frame_bytes:int ->
+  ?max_call_depth:int ->
+  ?max_active_stack_bytes:int ->
   ?status_abi:Backend.X86_64_program.status_abi ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->
   source:Common.Source_file.t ->
   max_steps:int ->
   report
-(** Compile and execute one closed program using the native host bridge. The
-    report retains the compiled image and actual native outcome after runtime
-    faults, so callers can inspect exact executed-step counts without inventing
-    an interpreter result. Configuration failures occur before parsing and host
-    failures occur without interpreter fallback. *)
+(** Compile and execute one program using the native host bridge. The report
+    retains the compiled image and actual native outcome after runtime faults,
+    so callers can inspect exact executed-step counts without inventing an
+    interpreter result. Configuration failures occur before parsing and host
+    failures occur without interpreter fallback. Simultaneous semantic frame
+    bytes default to 1,048,576 and active named calls to 128. The separate
+    physical native stack limit defaults to its hard maximum of 65,536 bytes and
+    includes compiler-private storage, return addresses and saved frame
+    pointers. *)
 
 val outcome : report -> (result checked, Common.Diagnostic.t list) Stdlib.result
 val image : report -> Backend.X86_64_program.t option

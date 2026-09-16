@@ -1,5 +1,22 @@
 # Testing holyc-ocaml
 
+Native function tests extend the program suite with both-mode `Add(20,22)=42`
+under its exact 29-step budget, high-bit words, automatic local mutation,
+right-to-left argument effects with formal-order binding, live caller values,
+nested calls and recursive local isolation. Exact and one-below limits cover
+semantic frames, named-call depth and physical stack bytes. Zero-semantic-frame
+recursion still reaches the physical bound. Tests check uninitialized local reads,
+function-qualified fault sites, full-chain arithmetic/budget failure and a later
+successful native invocation. Compile-only tests retain the original ownership
+checks, whole-bundle unsupported-body rejection, exact byte/layout checks and
+immutable exports. Prepared-default regressions distinguish an omitted argument's
+saved producer from an explicit argument, and reject default-bearing unused
+headers even when storage and prepared-step counters are zero. Scalar compound
+operators have separate expected-value cases, including high-bit unsigned
+remainder and shifts. Native CLI tests use the maintained
+`examples/native-integer-functions.hc` fixture in both modes. Windows probes
+check the registered ranges and unwind behavior for entry and every callee.
+
 Native program tests cover the shared word backend under its five-value-register
 budget, dense execution sites with sparse source IDs, literal context/branch
 bytes, exact IR/block/code/frame limits and immutable image exports. Ordinary
