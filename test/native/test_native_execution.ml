@@ -25,6 +25,24 @@ let execute label image =
   | Error message ->
       Alcotest.failf "%s: native execution failed: %s" label message
 
+let execute_detailed label image =
+  match Runtime.execute_detailed image with
+  | Ok outcome -> outcome
+  | Error message ->
+      Alcotest.failf "%s: detailed native execution failed: %s" label message
+
+let host_status_abi () =
+  match Runtime.platform () with
+  | Runtime.Windows_x86_64 -> Native.Windows_x64
+  | Runtime.Linux_x86_64 -> Native.System_v_x64
+  | Runtime.Unsupported ->
+      Alcotest.fail "native arithmetic status ABI requires a supported host"
+
+let foreign_status_abi () =
+  match host_status_abi () with
+  | Native.Windows_x64 -> Native.System_v_x64
+  | Native.System_v_x64 -> Native.Windows_x64
+
 let check_result label (expected : VM.word) image =
   let expected_type =
     match expected.type_ with
@@ -489,6 +507,435 @@ let shift_shared_and_rcx_pressure () =
         8 );
     ]
 
+type expected_arithmetic =
+  | Expected_value of int64
+  | Expected_fault of Native.arithmetic_fault_kind * Native.arithmetic_operation
+
+let independent_divmod operation ~unsigned left right =
+  if Int64.equal right 0L then
+    Expected_fault (Native.Division_by_zero, operation)
+  else if
+    (not unsigned) && Int64.equal left Int64.min_int && Int64.equal right (-1L)
+  then Expected_fault (Native.Signed_division_overflow, operation)
+  else
+    let bits =
+      match (operation, unsigned) with
+      | Native.Divide, false -> Int64.div left right
+      | Native.Remainder, false -> Int64.rem left right
+      | Native.Divide, true -> Int64.unsigned_div left right
+      | Native.Remainder, true -> Int64.unsigned_rem left right
+    in
+    Expected_value bits
+
+let check_vm_arithmetic label expected graph =
+  match (expected, VM.execute ~max_steps:100000 graph) with
+  | Expected_value bits, Ok result -> (
+      match VM.termination result with
+      | VM.Returned (Some word) ->
+          Alcotest.(check int64) (label ^ " VM bits") bits word.bits
+      | _ -> Alcotest.fail (label ^ " VM did not return a word"))
+  | Expected_fault (kind, _), Error errors ->
+      let code =
+        match kind with
+        | Native.Division_by_zero -> "HCIRVM0009"
+        | Native.Signed_division_overflow -> "HCIRVM0010"
+      in
+      Alcotest.(check bool)
+        (label ^ " VM fault class")
+        true
+        (List.exists (fun (error : VM.error) -> error.code = code) errors)
+  | Expected_value _, Error errors ->
+      Alcotest.failf "%s: VM unexpectedly faulted: %s" label
+        (String.concat "; "
+           (List.map
+              (fun (error : VM.error) -> error.code ^ ": " ^ error.message)
+              errors))
+  | Expected_fault _, Ok _ -> Alcotest.fail (label ^ " VM missed expected fault")
+
+let check_native_arithmetic label expected expected_type graph =
+  check_vm_arithmetic label expected graph;
+  let image = Fixture.image graph in
+  Fixture.inspect_image graph image;
+  Alcotest.(check string)
+    (label ^ " compiled result class")
+    (Fixture.type_name expected_type)
+    (Fixture.type_name (Native.value_type image));
+  Alcotest.(check bool)
+    (label ^ " declares host status ABI")
+    true
+    (Native.status_abi image = Some (host_status_abi ()));
+  match (expected, execute_detailed label image) with
+  | Expected_value bits, Runtime.Returned actual ->
+      Alcotest.(check int64) (label ^ " native bits") bits actual;
+      Alcotest.(check int64)
+        (label ^ " compatibility wrapper bits")
+        bits (execute label image)
+  | Expected_fault (kind, operation), Runtime.Fault fault ->
+      Alcotest.(check bool)
+        (label ^ " native fault kind")
+        true (fault.kind = kind);
+      Alcotest.(check bool)
+        (label ^ " native fault operation")
+        true
+        (fault.operation = operation);
+      Alcotest.(check int)
+        (label ^ " fault instruction id")
+        2 fault.instruction_id;
+      Alcotest.(check int) (label ^ " fault position") 2 fault.position;
+      Alcotest.(check bool)
+        (label ^ " fault span") true
+        (fault.span = Some (Fixture.fixture_span 2));
+      Alcotest.(check bool)
+        (label ^ " old wrapper reports the fault")
+        true
+        (Result.is_error (Runtime.execute image))
+  | Expected_value _, Runtime.Fault _ ->
+      Alcotest.fail (label ^ " native unexpectedly returned an arithmetic fault")
+  | Expected_fault _, Runtime.Returned _ ->
+      Alcotest.fail (label ^ " native missed expected arithmetic fault")
+
+let divmod_boundary_matrix () =
+  let left_words =
+    [ Int64.min_int; -1L; 0L; 1L; 2L; 0x0123456789abcdefL; Int64.max_int ]
+  in
+  let right_words = [ Int64.min_int; -1L; 0L; 1L; 2L; 3L; Int64.max_int ] in
+  let classes = [ ("I64", Fixture.i64, false); ("U64", Fixture.u64, true) ] in
+  let operations =
+    [
+      (Ir_opcode.Ic_div, Native.Divide, "/");
+      (Ir_opcode.Ic_mod, Native.Remainder, "%");
+    ]
+  in
+  let count = ref 0 in
+  List.iter
+    (fun left ->
+      List.iter
+        (fun right ->
+          List.iter
+            (fun (left_name, left_type, left_unsigned) ->
+              List.iter
+                (fun (right_name, right_type, right_unsigned) ->
+                  let unsigned = left_unsigned || right_unsigned in
+                  let result_type =
+                    if unsigned then Fixture.u64 else Fixture.i64
+                  in
+                  let native_type =
+                    if unsigned then Native.U64 else Native.I64
+                  in
+                  List.iter
+                    (fun (opcode, operation, spelling) ->
+                      let expected =
+                        independent_divmod operation ~unsigned left right
+                      in
+                      let graph =
+                        let open Fixture in
+                        single
+                          [
+                            imm ~type_:left_type 0 left;
+                            imm ~type_:right_type 1 right;
+                            binary ~type_:result_type 2 opcode 0 1;
+                            return_value ~type_:result_type 3 2;
+                            ret 4;
+                          ]
+                      in
+                      check_native_arithmetic
+                        (Printf.sprintf "%s:%016Lx %s %s:%016Lx" left_name left
+                           spelling right_name right)
+                        expected native_type graph;
+                      incr count)
+                    operations)
+                classes)
+            classes)
+        right_words)
+    left_words;
+  Alcotest.(check int) "all div/mod full-bit signedness combinations" 392 !count
+
+let divmod_source_edges () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (_, source, expected_type, expected_bits, _) ->
+          compare_source_literal mode expected_type expected_bits source)
+        Fixture.divmod_source_cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let divmod_fault_sources () =
+  let cases =
+    [
+      ("1/0;", Native.Division_by_zero, Native.Divide, "HCNATIVE0004");
+      ("1%0;", Native.Division_by_zero, Native.Remainder, "HCNATIVE0004");
+      ( "(-9223372036854775807-1)/(-1);",
+        Native.Signed_division_overflow,
+        Native.Divide,
+        "HCNATIVE0005" );
+      ( "(-9223372036854775807-1)%(-1);",
+        Native.Signed_division_overflow,
+        Native.Remainder,
+        "HCNATIVE0005" );
+      ("0&&(1/0);", Native.Division_by_zero, Native.Divide, "HCNATIVE0004");
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (source, kind, operation, code) ->
+          let graph = Fixture.source_graph ~mode source in
+          let image = Fixture.image graph in
+          (match execute_detailed source image with
+          | Runtime.Fault fault ->
+              Alcotest.(check bool)
+                (source ^ " fault kind") true (fault.kind = kind);
+              Alcotest.(check bool)
+                (source ^ " fault operation")
+                true
+                (fault.operation = operation)
+          | Runtime.Returned _ ->
+              Alcotest.fail (source ^ " unexpectedly returned"));
+          let session, config, source_file =
+            Fixture.source_inputs ~mode source
+          in
+          match
+            Native_expression.evaluate session ~config ~source:source_file
+          with
+          | Ok _ -> Alcotest.fail (source ^ " public evaluate missed fault")
+          | Error diagnostics ->
+              Alcotest.(check bool)
+                (source ^ " public diagnostic code")
+                true
+                (List.exists
+                   (fun (diagnostic : Diagnostic.t) ->
+                     diagnostic.code = code
+                     && diagnostic.primary.start >= 0
+                     && diagnostic.primary.stop > diagnostic.primary.start
+                     && diagnostic.primary.stop <= String.length source)
+                   diagnostics))
+        cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let divmod_later_fault_and_status_freshness () =
+  let later_fault =
+    let open Fixture in
+    single
+      [
+        imm 0 84L;
+        imm 1 2L;
+        binary 2 Ir_opcode.Ic_div 0 1;
+        imm 3 1L;
+        imm 4 0L;
+        binary 5 Ir_opcode.Ic_mod 3 4;
+        imm 6 1000L;
+        binary 7 Ir_opcode.Ic_add 2 6;
+        return_value 8 7;
+        ret 9;
+      ]
+  in
+  let image = Fixture.image later_fault in
+  (match execute_detailed "later arithmetic fault" image with
+  | Runtime.Fault fault ->
+      Alcotest.(check bool)
+        "later fault is the reached remainder" true
+        (fault.kind = Native.Division_by_zero
+        && fault.operation = Native.Remainder);
+      Alcotest.(check int)
+        "later fault reports its sparse instruction id" 5 fault.instruction_id;
+      Alcotest.(check int) "later fault reports its position" 5 fault.position;
+      Alcotest.(check bool)
+        "later fault reports its original span" true
+        (fault.span = Some (Fixture.fixture_span 5))
+  | Runtime.Returned _ -> Alcotest.fail "later fault did not stop execution");
+  let fault = Fixture.image (Fixture.source_graph "1/0;") in
+  let success = Fixture.image (Fixture.source_graph "84/2;") in
+  let fault_code = Native.code fault in
+  let success_code = Native.code success in
+  for round = 1 to 64 do
+    (match execute_detailed (Printf.sprintf "fault round %d" round) fault with
+    | Runtime.Fault fault ->
+        Alcotest.(check bool)
+          "fresh fault status is zero-divide" true
+          (fault.kind = Native.Division_by_zero)
+    | Runtime.Returned _ ->
+        Alcotest.fail "fault image returned during repetition");
+    match
+      execute_detailed (Printf.sprintf "success round %d" round) success
+    with
+    | Runtime.Returned bits ->
+        Alcotest.(check int64) "success clears prior fault status" 42L bits
+    | Runtime.Fault _ -> Alcotest.fail "stale fault contaminated success"
+  done;
+  Alcotest.(check string)
+    "repeated faults do not mutate their code image" fault_code
+    (Native.code fault);
+  Alcotest.(check string)
+    "repeated successes do not mutate their code image" success_code
+    (Native.code success)
+
+let divmod_spilled_fault_cleanup () =
+  let pressure_fault_graph ~type_ opcode left right =
+    let open Fixture in
+    single
+      [
+        imm ~type_ 0 left;
+        imm ~type_ 1 right;
+        imm 2 10L;
+        imm 3 11L;
+        imm 4 12L;
+        imm 5 13L;
+        imm 6 14L;
+        binary 7 Ir_opcode.Ic_add 4 5;
+        binary 8 Ir_opcode.Ic_add 2 3;
+        unary 9 Ir_opcode.Ic_unary_minus 6;
+        binary ~type_ 10 opcode 0 1;
+        return_value ~type_ 11 10;
+        ret 12;
+      ]
+  in
+  let cases =
+    [
+      ( "spilled signed divide by zero",
+        Fixture.i64,
+        Ir_opcode.Ic_div,
+        84L,
+        0L,
+        Native.Division_by_zero,
+        Native.Divide );
+      ( "spilled signed remainder by zero",
+        Fixture.i64,
+        Ir_opcode.Ic_mod,
+        85L,
+        0L,
+        Native.Division_by_zero,
+        Native.Remainder );
+      ( "spilled unsigned divide by zero",
+        Fixture.u64,
+        Ir_opcode.Ic_div,
+        -1L,
+        0L,
+        Native.Division_by_zero,
+        Native.Divide );
+      ( "spilled unsigned remainder by zero",
+        Fixture.u64,
+        Ir_opcode.Ic_mod,
+        Int64.min_int,
+        0L,
+        Native.Division_by_zero,
+        Native.Remainder );
+      ( "spilled signed divide overflow",
+        Fixture.i64,
+        Ir_opcode.Ic_div,
+        Int64.min_int,
+        -1L,
+        Native.Signed_division_overflow,
+        Native.Divide );
+      ( "spilled signed remainder overflow",
+        Fixture.i64,
+        Ir_opcode.Ic_mod,
+        Int64.min_int,
+        -1L,
+        Native.Signed_division_overflow,
+        Native.Remainder );
+    ]
+  in
+  let success_graph = Fixture.divmod_pressure_graph () in
+  let success = Fixture.image success_graph in
+  Fixture.inspect_image success_graph success;
+  Alcotest.(check bool)
+    "spilled success image has a frame" true
+    (Native.frame_bytes success > 0);
+  let success_code = Native.code success in
+  let success_unwind = Native.windows_unwind_info success in
+  List.iter
+    (fun (label, type_, opcode, left, right, expected_kind, expected_operation)
+       ->
+      let graph = pressure_fault_graph ~type_ opcode left right in
+      let image = Fixture.image graph in
+      Fixture.inspect_image graph image;
+      Alcotest.(check bool)
+        (label ^ " has a spill frame")
+        true
+        (Native.frame_bytes image > 0);
+      let code = Native.code image in
+      let unwind = Native.windows_unwind_info image in
+      for round = 1 to 8 do
+        (match
+           execute_detailed (Printf.sprintf "%s round %d" label round) image
+         with
+        | Runtime.Fault fault ->
+            Alcotest.(check bool)
+              (label ^ " fault kind") true
+              (fault.kind = expected_kind);
+            Alcotest.(check bool)
+              (label ^ " fault operation")
+              true
+              (fault.operation = expected_operation);
+            Alcotest.(check int)
+              (label ^ " fault instruction id")
+              10 fault.instruction_id;
+            Alcotest.(check int) (label ^ " fault position") 10 fault.position;
+            Alcotest.(check bool)
+              (label ^ " fault span") true
+              (fault.span = Some (Fixture.fixture_span 10))
+        | Runtime.Returned _ -> Alcotest.fail (label ^ " unexpectedly returned"));
+        match
+          execute_detailed
+            (Printf.sprintf "%s cleanup success round %d" label round)
+            success
+        with
+        | Runtime.Returned bits ->
+            Alcotest.(check int64)
+              (label ^ " restores stack and clears status")
+              42L bits
+        | Runtime.Fault _ ->
+            Alcotest.fail (label ^ " contaminated the following spilled success")
+      done;
+      Alcotest.(check string)
+        (label ^ " preserves code")
+        code (Native.code image);
+      Alcotest.(check string)
+        (label ^ " preserves unwind metadata")
+        unwind
+        (Native.windows_unwind_info image))
+    cases;
+  Alcotest.(check string)
+    "spilled success preserves code" success_code (Native.code success);
+  Alcotest.(check string)
+    "spilled success preserves unwind metadata" success_unwind
+    (Native.windows_unwind_info success)
+
+let divmod_abi_gate () =
+  let graph = Fixture.source_graph "84/2;" in
+  let foreign = Fixture.image ~status_abi:(foreign_status_abi ()) graph in
+  Alcotest.(check bool)
+    "foreign status ABI is retained by fault image" true
+    (Native.status_abi foreign = Some (foreign_status_abi ()));
+  Alcotest.(check bool)
+    "foreign ABI rejects before native execution" true
+    (Result.is_error (Runtime.execute_detailed foreign));
+  Alcotest.(check bool)
+    "compatibility wrapper also rejects the foreign ABI" true
+    (Result.is_error (Runtime.execute foreign));
+  let plain_graph = Fixture.source_graph "6*7;" in
+  let plain = Fixture.image ~status_abi:(foreign_status_abi ()) plain_graph in
+  Alcotest.(check bool)
+    "plain image ignores foreign status override" true
+    (Native.status_abi plain = None);
+  match execute_detailed "plain foreign override" plain with
+  | Runtime.Returned bits ->
+      Alcotest.(check int64) "plain foreign override still executes" 42L bits
+  | Runtime.Fault _ -> Alcotest.fail "plain image fabricated arithmetic status"
+
+let divmod_shared_values_and_pressure () =
+  List.iter
+    (fun (label, graph, expected_type, expected_bits) ->
+      compare_literal label expected_type expected_bits graph)
+    (Fixture.divmod_shared_cases ());
+  let pressured = Fixture.divmod_pressure_graph () in
+  let image = Fixture.image pressured in
+  Fixture.inspect_image pressured image;
+  Alcotest.(check int)
+    "division pressure executes with one spill frame" 8
+    (Native.frame_bytes image);
+  compare_literal "division pressure with reserved R11" Native.I64 42L pressured
+
 let logical_source_edges () =
   let cases =
     [
@@ -867,6 +1314,69 @@ let generated_high_pressure_differential () =
         cases)
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let generated_divmod_sources () =
+  let random = Random.State.make [| 0x654; 0x444d; 0x2026 |] in
+  let operators = [| "+"; "-"; "^" |] in
+  let literal ~unsigned index =
+    if index mod 7 = 0 then
+      if unsigned then "0x8000000000000000" else "0x8000000000000000(I64i)"
+    else string_of_int (1 + Random.State.int random 97)
+  in
+  List.init 48 (fun index ->
+      let count = 8 + (index mod 5) in
+      let unsigned = index mod 4 < 2 in
+      let terms =
+        Array.init count (fun term -> literal ~unsigned (index + term))
+      in
+      let rec nest term =
+        if term = count - 1 then terms.(term)
+        else
+          let operator = operators.(Random.State.int random 3) in
+          "(" ^ terms.(term) ^ operator ^ nest (term + 1) ^ ")"
+      in
+      let operation = if index mod 2 = 0 then "/" else "%" in
+      let divisor = 1 + (index mod 11) in
+      (index, "(" ^ nest 0 ^ ")" ^ operation ^ string_of_int divisor ^ ";"))
+
+let generated_divmod_differential () =
+  let cases = generated_divmod_sources () in
+  Alcotest.(check int)
+    "deterministic generated div/mod source count" 48 (List.length cases);
+  Alcotest.(check bool)
+    "generated div/mod sources reproduce from their seed" true
+    (cases = generated_divmod_sources ());
+  Alcotest.(check int)
+    "generated div/mod matrix has 24 explicit signed lanes" 24
+    (List.length
+       (List.filter (fun (_, source) -> String.contains source 'I') cases));
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (index, source) ->
+          let label =
+            Printf.sprintf "%s generated div/mod source %02d: %s"
+              (match mode with
+              | Preprocessor.Jit -> "JIT"
+              | Preprocessor.Aot -> "AOT")
+              index source
+          in
+          let graph = Fixture.source_graph ~mode source in
+          let image = Fixture.image graph in
+          Fixture.inspect_image graph image;
+          Alcotest.(check bool)
+            (label ^ " exercises spill pressure")
+            true
+            (Native.frame_bytes image > 0);
+          Alcotest.(check int)
+            (label ^ " executes exactly one DIV/IDIV")
+            1
+            (Fixture.decoded_mnemonics (Native.code image)
+            |> List.filter (fun mnemonic -> List.mem mnemonic [ "div"; "idiv" ])
+            |> List.length);
+          check_result label (oracle label graph) image)
+        cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let repeated_spill_execution () =
   let cases =
     ("right-nested source", Fixture.source_graph (Fixture.pressure_source 8))
@@ -917,6 +1427,9 @@ let repeated_execution () =
       "1<<(-1);";
       "0x8000000000000000(I64i)>>63;";
       "40+(1<<65)+(0x8000000000000000>>63)+(0x8000000000000000(I64i)>>63);";
+      "84/2;";
+      "0xFFFFFFFFFFFFFFFF%0x8000000000000000;";
+      "84/2+85%2+0xFFFFFFFFFFFFFFFF/0xFFFFFFFFFFFFFFFF+0xFFFFFFFFFFFFFFFF%2-3;";
       "(~0x8000000000000000)<-1<0;";
       "(~0x8000000000000000)>0>-1;";
     ]
@@ -978,6 +1491,24 @@ let () =
             `Quick shift_boundary_matrix;
           Alcotest.test_case "shift sharing and architectural RCX pressure"
             `Quick shift_shared_and_rcx_pressure;
+          Alcotest.test_case "division/remainder source results in JIT and AOT"
+            `Quick divmod_source_edges;
+          Alcotest.test_case
+            "392 independent signed/unsigned quotient and remainder cases"
+            `Quick divmod_boundary_matrix;
+          Alcotest.test_case
+            "division/remainder fault sources and eager logicals" `Quick
+            divmod_fault_sources;
+          Alcotest.test_case
+            "division fixed-register sharing and spill pressure" `Quick
+            divmod_shared_values_and_pressure;
+          Alcotest.test_case "later faults stop and C status is fresh per call"
+            `Quick divmod_later_fault_and_status_freshness;
+          Alcotest.test_case
+            "spilled division faults restore stack and status across calls"
+            `Quick divmod_spilled_fault_cleanup;
+          Alcotest.test_case "native private-status ABI rejects foreign images"
+            `Quick divmod_abi_gate;
           Alcotest.test_case "logical and word-view public source execution"
             `Quick logical_source_edges;
           Alcotest.test_case "independent native comparison-chain expectations"
@@ -994,11 +1525,15 @@ let () =
             "source pressure spills with exact full-width results" `Quick
             spill_source_pressure;
           Alcotest.test_case
-            "spilled unary, binary, predicate, logical and lifetime semantics"
+            "spilled unary, binary, shift, divmod, predicate and logical \
+             semantics"
             `Quick spill_operation_semantics;
           Alcotest.test_case
             "48 deterministic high-pressure shift sources in both modes" `Quick
             generated_high_pressure_differential;
+          Alcotest.test_case
+            "48 deterministic high-pressure div/mod sources in both modes"
+            `Quick generated_divmod_differential;
           Alcotest.test_case "repeated spill execution restores the host stack"
             `Quick repeated_spill_execution;
         ] );

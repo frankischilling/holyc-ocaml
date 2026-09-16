@@ -1,5 +1,6 @@
 open Holyc_lib
 module Image = X86_64_expression
+module Encoder = X86_64_encoder
 module Runtime = Native_execution
 module Sequence = Ir_instruction_sequence
 module Graph = Ir_block_graph
@@ -117,6 +118,54 @@ let pressure_image count =
   Image.compile ~max_ir_instructions:4096 ~max_code_bytes:65536 graph
   |> require_ok native_errors
 
+let div_pressure_image ~status_abi count =
+  require (count >= 2) "division pressure image needs at least two literals";
+  let imm id bits =
+    description ~result:id ~target_type:i64 ~payload:(Sequence.Integer bits) id
+      Opcode.Ic_imm_i64
+  in
+  let binary id opcode left right =
+    description ~operands:[ left; right ] ~result:id ~target_type:i64 id opcode
+  in
+  let return_value id operand =
+    description ~operands:[ operand ] ~target_type:i64 id Opcode.Ic_return_val
+  in
+  let definitions =
+    List.init count (fun id -> imm id (Int64.of_int (id + 1)))
+  in
+  let division_id = count in
+  let rec reduce next accumulator = function
+    | [] ->
+        [ return_value next accumulator; description (next + 1) Opcode.Ic_ret ]
+    | operand :: rest ->
+        binary next Opcode.Ic_add accumulator operand
+        :: reduce (next + 1) next rest
+  in
+  let instructions =
+    definitions
+    @ [ binary division_id Opcode.Ic_div 0 1 ]
+    @ reduce (division_id + 1) division_id
+        (List.init (count - 2) (fun id -> id + 2))
+  in
+  let graph =
+    Graph.create ~entry:(block_id 0)
+      [ { Graph.block_id = block_id 0; instructions } ]
+    |> require_ok (fun errors ->
+        errors
+        |> List.map (fun (error : Graph.error) ->
+            error.code ^ ": " ^ error.message)
+        |> String.concat "; ")
+    |> X87.verify
+    |> require_ok (fun errors ->
+        errors
+        |> List.map (fun (error : X87.error) ->
+            error.code ^ ": " ^ error.message)
+        |> String.concat "; ")
+  in
+  Image.compile ~status_abi ~max_ir_instructions:4096 ~max_code_bytes:65536
+    graph
+  |> require_ok native_errors
+
 let byte text index = Char.code text.[index]
 
 let uint32_le text offset =
@@ -218,6 +267,43 @@ let check_source_image ~windows ~mode ~literals ~expected_frame =
   check_compiled_image ~windows ~label ~expected_frame
     (compile_source ~mode (right_nested literals))
 
+let status_abi_name = function
+  | Image.Windows_x64 -> "windows"
+  | Image.System_v_x64 -> "system-v"
+
+let check_fault_image ~windows ~status_abi ~literals frame_shape =
+  let image = div_pressure_image ~status_abi literals in
+  let frame = Image.frame_bytes image in
+  let label =
+    Printf.sprintf "%s fault-capable %d live literals / %d-byte frame"
+      (status_abi_name status_abi)
+      literals frame
+  in
+  require
+    (Image.status_abi image = Some status_abi)
+    (label ^ ": fault-capable image lost its status ABI");
+  (match frame_shape with
+  | `Zero -> require (frame = 0) (label ^ ": expected a register-only image")
+  | `Small ->
+      require
+        (frame >= 8 && frame <= 128)
+        (label ^ ": expected a small bounded spill frame")
+  | `Large ->
+      require
+        (frame > 128 && frame <= Image.hard_max_stack_bytes)
+        (label ^ ": expected a large bounded spill frame"));
+  check_compiled_image ~windows ~label ~expected_frame:frame image;
+  let code = Image.code image in
+  let capture = Encoder.encode (Encoder.Capture_status status_abi) in
+  let capture_offset = if frame = 0 then 0 else 7 in
+  require
+    (String.length code >= capture_offset + String.length capture
+    && String.sub code capture_offset (String.length capture) = capture)
+    (label ^ ": status pointer capture must be the first body instruction");
+  require
+    (byte code (String.length code - 1) = 0xc3)
+    (label ^ ": fault-capable image must return through the common epilogue")
+
 let () =
   let windows =
     match Runtime.platform () with
@@ -235,9 +321,19 @@ let () =
       check_source_image ~windows ~mode ~literals:9 ~expected_frame:24;
       check_source_image ~windows ~mode ~literals:23 ~expected_frame:136)
     [ Preprocessor.Jit; Preprocessor.Aot ];
+  List.iter
+    (fun status_abi ->
+      check_fault_image ~windows ~status_abi ~literals:2 `Zero;
+      check_fault_image ~windows ~status_abi ~literals:8 `Small;
+      check_fault_image ~windows ~status_abi ~literals:24 `Large)
+    [ Image.Windows_x64; Image.System_v_x64 ];
   (* 518 simultaneous values need all 511 permitted spill slots. This also
      exercises the largest Version 1 large-allocation encoding without crossing
      the one-page probing boundary. *)
+  let maximum = pressure_image 518 in
+  require
+    (Image.status_abi maximum = None)
+    "legacy non-fault image must not publish a private status ABI";
   check_compiled_image ~windows
     ~label:"verified IR 518 live values / 4088-byte frame" ~expected_frame:4088
-    (pressure_image 518)
+    maximum

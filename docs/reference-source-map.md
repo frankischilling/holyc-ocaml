@@ -1,5 +1,16 @@
 # Reference source map
 
+Issue #654 connects existing source/IR integer division and remainder to guarded
+native execution. `Compiler/BackA.HC:355-370,425-440` supplies the fixed
+dividend/divisor and quotient/remainder register roles; `BackLib.HC:404-411`
+supplies RDX zeroing for unsigned division. `Compiler/OpCodes.DD:284,365,496,
+584,608,612,708,713,780` supplies the qword status stores, comparisons, guarded
+rel32 branches, `DIV`, `IDIV` and `CQO` forms used by the hosted encoder. The
+existing checked computation class selects signed or unsigned arithmetic. The
+private status-pointer calling convention is a host ABI requirement documented
+in the native guide rather than HolyC semantics. TempleOS optimizer differences
+remain tracked in #585.
+
 Issue #652 connects existing source/IR integer shifts to the native encoder.
 `Compiler/OpCodes.DD:1107,1125,1143` supplies SHL, SHR and SAR qword CL forms.
 `BackA.HC:573-600` moves variable counts into RCX and selects unsigned behavior
@@ -274,7 +285,7 @@ records the accepted domain and the remaining memory, call and native gaps.
 
 All findings in this document refer to TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
-Raw integer division and remainder follow `CInit.HC:66-67,293-294`, `OptLib.HC:96-179`, `OptPass789A.HC:524-534`, and `BackA.HC:355-370,425-440`. `src/ir/integer_interpreter.ml` implements those operations through the existing source-expression driver. `test/test_ir_integer_division.ml`, the source-expression suite, and CLI fixtures verify arithmetic, faults, and budgets. The native fixture in `test/oracle/integer-division.json` now captures the distinct strength reductions in `OptPass012.HC:403-455,838-854`, the surviving-operand class forwarding in `OptLib.HC:196-225`, disassembly through `Adam/ADbg.HC:254-272`, and division exceptions through `Kernel/KInts.HC:150-164`. The hosted optimizer work remains open in [issue #585](https://github.com/frankischilling/holyc-ocaml/issues/585). See the [division audit](integer-division.md).
+Raw integer division and remainder follow `CInit.HC:66-67,293-294`, `OptLib.HC:96-179`, `OptPass789A.HC:524-534`, and `BackA.HC:355-370,425-440`. `src/ir/integer_interpreter.ml` implements those operations through the existing source-expression driver. `test/test_ir_integer_division.ml`, the source-expression suite, and CLI fixtures verify arithmetic, faults, and budgets. The native fixture in `test/oracle/integer-division.json` captures the distinct strength reductions in `OptPass012.HC:403-455,838-854`, the surviving-operand class forwarding in `OptLib.HC:196-225`, disassembly through `Adam/ADbg.HC:254-272`, and division exceptions through `Kernel/KInts.HC:150-164`. Issue #654 separately executes raw checked `IC_DIV`/`IC_MOD` through guarded hosted `DIV`/`IDIV`; it does not emulate those optimizer rewrites or exception phases. The hosted optimizer work remains open in [issue #585](https://github.com/frankischilling/holyc-ocaml/issues/585). See the [division audit](integer-division.md).
 
 The canonical OCaml IR also has representation invariants. [Issue #580](https://github.com/frankischilling/holyc-ocaml/issues/580) requires every operand to have an earlier definition in the same sequence. `Ir.Instruction_sequence.create` checks operands before publishing the current result, and `Ir.Block_graph.create` applies that rule to unreachable blocks as well. Sequence and graph regressions cover self-referencing unary and binary instructions and retain valid repeated uses of prior results. This is structural validation of the project representation, separate from TempleOS execution evidence.
 

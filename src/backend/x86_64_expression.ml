@@ -9,7 +9,28 @@ module Value_map = Map.Make (Sequence.Value_id)
 module Instruction_set = Set.Make (Sequence.Instruction_id)
 
 type word_type = I64 | U64
+type status_abi = Encoder.status_abi = Windows_x64 | System_v_x64
+type arithmetic_operation = Divide | Remainder
+type arithmetic_fault_kind = Division_by_zero | Signed_division_overflow
+
+type arithmetic_fault = {
+  kind : arithmetic_fault_kind;
+  operation : arithmetic_operation;
+  instruction_id : int;
+  position : int;
+  span : Common.Span.t option;
+}
+
 type error = { code : string; message : string; span : Common.Span.t option }
+
+type fault_site = {
+  site : int;
+  operation : arithmetic_operation;
+  instruction_id : int;
+  position : int;
+  span : Common.Span.t option;
+  signed : bool;
+}
 
 type t = {
   encoded : bytes;
@@ -19,6 +40,8 @@ type t = {
   peak : int;
   frame_size : int;
   unwind_info : bytes;
+  status_abi : status_abi option;
+  fault_sites : fault_site list;
 }
 
 let hard_ir_limit = 100_000
@@ -86,6 +109,8 @@ type operation =
   | Apply_unary of Encoder.unary * value * value
   | Apply_binary of Encoder.binary * value * value * value
   | Apply_shift of Encoder.shift * value * value * value
+  | Apply_division of
+      arithmetic_operation * word_type * fault_site * value * value * value
   | Apply_comparison of Encoder.condition * value * value * value
   | Apply_logical_not of value * value
   | Apply_logical of Encoder.binary * value * value * value
@@ -103,6 +128,7 @@ type kind =
   | Unary_kind of Encoder.unary
   | Binary_kind of Encoder.binary
   | Shift_kind of [ `Left | `Right ]
+  | Division_kind of arithmetic_operation
   | Comparison_kind of Encoder.condition * Encoder.condition
   | Logical_not_kind
   | Logical_kind of Encoder.binary
@@ -127,6 +153,8 @@ let opcode_kind = function
   | Opcode.Ic_xor -> Some (Binary_kind Encoder.Xor)
   | Opcode.Ic_shl -> Some (Shift_kind `Left)
   | Opcode.Ic_shr -> Some (Shift_kind `Right)
+  | Opcode.Ic_div -> Some (Division_kind Divide)
+  | Opcode.Ic_mod -> Some (Division_kind Remainder)
   | Opcode.Ic_equ_equ -> Some (Comparison_kind (Encoder.E, Encoder.E))
   | Opcode.Ic_not_equ -> Some (Comparison_kind (Encoder.NE, Encoder.NE))
   | Opcode.Ic_less -> Some (Comparison_kind (Encoder.L, Encoder.B))
@@ -172,6 +200,7 @@ let preflight ~count instructions =
   let values = ref Value_map.empty in
   let instruction_ids = ref Instruction_set.empty in
   let prepared = ref [] in
+  let fault_sites = ref [] in
   let return_type = ref None in
   let operand description position value_id =
     match Value_map.find_opt value_id !values with
@@ -253,6 +282,7 @@ let preflight ~count instructions =
         | Unary_kind _
         | Binary_kind _
         | Shift_kind _
+        | Division_kind _
         | Comparison_kind _
         | Logical_not_kind
         | Logical_kind _
@@ -373,6 +403,32 @@ let preflight ~count instructions =
                 (Computation.forward target_type)
             in
             Apply_shift (shift, left, right, result)
+        | ( Division_kind arithmetic_operation,
+            ([ left_id; right_id ], Some result, Some target_type, None) ) ->
+            let word = checked_word description target_type in
+            let left = operand description position left_id in
+            let right = operand description position right_id in
+            require_type description
+              (promoted_type description left right)
+              target_type;
+            let result =
+              define description position result target_type
+                (Computation.forward target_type)
+            in
+            let site =
+              {
+                site = position + 1;
+                operation = arithmetic_operation;
+                instruction_id =
+                  Sequence.Instruction_id.to_int description.instruction_id;
+                position;
+                span = description.span;
+                signed = word = I64;
+              }
+            in
+            fault_sites := site :: !fault_sites;
+            Apply_division
+              (arithmetic_operation, word, site, left, right, result)
         | ( Comparison_kind (signed, unsigned),
             ([ left_id; right_id ], Some result, Some target_type, None) ) ->
             if checked_word description target_type <> I64 then
@@ -406,7 +462,7 @@ let preflight ~count instructions =
       prepared := { operation; span = description.span } :: !prepared)
     instructions;
   match !return_type with
-  | Some return_type -> (List.rev !prepared, return_type)
+  | Some return_type -> (List.rev !prepared, return_type, List.rev !fault_sites)
   | None -> reject "HCBACK0003" "native expression has no return value"
 
 type allocation = {
@@ -417,6 +473,70 @@ type allocation = {
   frame_size : int;
   unwind_info : bytes;
 }
+
+type branch_kind = Unconditional | Equal | Not_equal
+
+type planned_item =
+  | Planned_instruction of Encoder.instruction
+  | Planned_branch of branch_kind * int
+  | Planned_label of int
+
+type fault_block = { label : int; kind_value : int; site_value : int }
+type value_source = Register_source of int | Slot_source of int
+
+let branch_instruction kind displacement =
+  match kind with
+  | Unconditional -> Encoder.Jump displacement
+  | Equal -> Encoder.Jump_equal displacement
+  | Not_equal -> Encoder.Jump_not_equal displacement
+
+let planned_size = function
+  | Planned_instruction instruction -> Encoder.size instruction
+  | Planned_branch (kind, _) -> Encoder.size (branch_instruction kind 0L)
+  | Planned_label _ -> 0
+
+let resolve_plan plan =
+  let labels = Hashtbl.create (List.length plan) in
+  let offset = ref 0 in
+  List.iter
+    (function
+      | Planned_label label ->
+          if Hashtbl.mem labels label then
+            reject "HCBACK0003" "native expression plan defines a label twice";
+          Hashtbl.add labels label !offset
+      | item -> offset := !offset + planned_size item)
+    plan;
+  let code_size = !offset in
+  let offset = ref 0 in
+  let machine_count = ref 0 in
+  let reversed = ref [] in
+  List.iter
+    (function
+      | Planned_label _ -> ()
+      | Planned_instruction instruction ->
+          reversed := instruction :: !reversed;
+          incr machine_count;
+          offset := !offset + Encoder.size instruction
+      | Planned_branch (kind, label) ->
+          let size = Encoder.size (branch_instruction kind 0L) in
+          let target =
+            match Hashtbl.find_opt labels label with
+            | Some target -> target
+            | None ->
+                reject "HCBACK0003"
+                  "native expression branch targets an undefined label"
+          in
+          let displacement = Int64.of_int (target - (!offset + size)) in
+          if
+            Int64.compare displacement (-0x80000000L) < 0
+            || Int64.compare displacement 0x7fffffffL > 0
+          then
+            reject "HCBACK0005" "native expression branch exceeds rel32 range";
+          reversed := branch_instruction kind displacement :: !reversed;
+          incr machine_count;
+          offset := !offset + size)
+    plan;
+  (List.rev !reversed, code_size, !machine_count)
 
 let align_up value alignment = (value + alignment - 1) / alignment * alignment
 
@@ -446,23 +566,46 @@ let build_windows_unwind_info frame_size =
        set 7 ((scaled lsr 8) land 0xff));
     info
 
-let allocate ~max_stack_bytes prepared =
+let allocate ~max_stack_bytes ~status_abi prepared =
   let registers = Array.of_list Encoder.registers in
-  let rcx =
+  let register_index expected =
     let rec find index =
       if index = Array.length registers then
-        reject "HCBACK0003" "native register set does not contain RCX"
-      else if registers.(index) = Encoder.Rcx then index
+        reject "HCBACK0003" "native register set is missing a fixed register"
+      else if registers.(index) = expected then index
       else find (index + 1)
     in
     find 0
+  in
+  let rax = register_index Encoder.Rax in
+  let rcx = register_index Encoder.Rcx in
+  let rdx = register_index Encoder.Rdx in
+  let r11 = register_index Encoder.R11 in
+  let reserved =
+    match status_abi with
+    | None -> []
+    | Some _ -> [ r11 ]
   in
   let owners : value option array = Array.make (Array.length registers) None in
   let slots : value option array = Array.make (hard_max_stack_bytes / 8) None in
   let slot_high_water = ref 0 in
   let planned = ref [] in
+  let fault_blocks = ref [] in
+  let next_label = ref 0 in
+  let fresh_label () =
+    let label = !next_label in
+    incr next_label;
+    label
+  in
+  let epilogue_label = Option.map (fun _ -> fresh_label ()) status_abi in
   let peak = ref 0 in
-  let emit _span instruction = planned := instruction :: !planned in
+  let emit _span instruction =
+    planned := Planned_instruction instruction :: !planned
+  in
+  let emit_branch kind label =
+    planned := Planned_branch (kind, label) :: !planned
+  in
+  let mark label = planned := Planned_label label :: !planned in
   let same_value left right =
     Sequence.Value_id.equal left.value_id right.value_id
   in
@@ -500,7 +643,10 @@ let allocate ~max_stack_bytes prepared =
     let occupied = ref 0 in
     Array.iteri
       (fun index owner ->
-        if Option.is_some owner || List.mem index temporaries then incr occupied)
+        if
+          Option.is_some owner || List.mem index temporaries
+          || List.mem index reserved
+        then incr occupied)
       owners;
     peak := max !peak !occupied
   in
@@ -556,10 +702,11 @@ let allocate ~max_stack_bytes prepared =
         emit span (Encoder.Store_stack (slot, registers.(index)));
         owners.(index) <- None
   in
-  let find_empty ~excluded =
+  let excluded index extra = List.mem index reserved || List.mem index extra in
+  let find_empty ~excluded:extra =
     let rec find index =
       if index = Array.length owners then None
-      else if List.mem index excluded || Option.is_some owners.(index) then
+      else if excluded index extra || Option.is_some owners.(index) then
         find (index + 1)
       else Some index
     in
@@ -577,11 +724,11 @@ let allocate ~max_stack_bytes prepared =
             note_peak ()
         | None -> spill_register span index)
   in
-  let choose_victim span ~protected ~excluded =
+  let choose_victim span ~protected ~excluded:extra =
     let best = ref None in
     Array.iteri
       (fun index owner ->
-        if not (List.mem index protected || List.mem index excluded) then
+        if not (List.mem index protected || excluded index extra) then
           match owner with
           | None -> ()
           | Some value -> (
@@ -597,24 +744,24 @@ let allocate ~max_stack_bytes prepared =
         reject ?span "HCBACK0004"
           "native expression has no spillable register outside current operands"
   in
-  let acquire_empty span ~protected ~excluded =
+  let acquire_empty span ~protected ~excluded:extra =
     let rec find index =
       if index = Array.length owners then None
-      else if List.mem index excluded then find (index + 1)
+      else if excluded index extra then find (index + 1)
       else if Option.is_none owners.(index) then Some index
       else find (index + 1)
     in
     match find 0 with
     | Some index -> index
     | None ->
-        let index = choose_victim span ~protected ~excluded in
+        let index = choose_victim span ~protected ~excluded:extra in
         spill_register span index;
         index
   in
-  let acquire_destination span position ~protected ~excluded =
+  let acquire_destination span position ~protected ~excluded:extra =
     let rec find index =
       if index = Array.length owners then None
-      else if List.mem index excluded then find (index + 1)
+      else if excluded index extra then find (index + 1)
       else
         match owners.(index) with
         | None -> Some index
@@ -624,7 +771,7 @@ let allocate ~max_stack_bytes prepared =
     match find 0 with
     | Some index -> index
     | None ->
-        let index = choose_victim span ~protected ~excluded in
+        let index = choose_victim span ~protected ~excluded:extra in
         spill_register span index;
         index
   in
@@ -698,6 +845,114 @@ let allocate ~max_stack_bytes prepared =
         | None ->
             reject ?span "HCBACK0003"
               "prepared shift count has no live register or spill slot")
+  in
+  let locate_value span value =
+    match find_register value with
+    | Some index -> Register_source index
+    | None -> (
+        match find_slot value with
+        | Some index -> Slot_source index
+        | None ->
+            reject ?span "HCBACK0003"
+              "prepared arithmetic operand has no live register or spill slot")
+  in
+  let copy_source_to span source destination =
+    match source with
+    | Register_source source ->
+        if source <> destination then
+          emit span (Encoder.Mov (registers.(destination), registers.(source)))
+    | Slot_source slot ->
+        emit span
+          (Encoder.Load_stack (registers.(destination), encoder_slot span slot))
+  in
+  let move_owner span source destination =
+    match (owners.(source), owners.(destination)) with
+    | Some owner, None ->
+        emit span (Encoder.Mov (registers.(destination), registers.(source)));
+        owners.(destination) <- Some owner;
+        owners.(source) <- None;
+        note_peak ()
+    | Some _, Some _ ->
+        reject ?span "HCBACK0003" "fixed-register staging target is occupied"
+    | None, _ ->
+        reject ?span "HCBACK0003" "fixed-register staging source is unowned"
+  in
+  let is_fixed index = index = rax || index = rcx || index = rdx in
+  let prepare_division_operands span position left right =
+    let move_dying_to_target target value =
+      if Option.is_none owners.(target) && value.last_use = position then
+        match find_register value with
+        | Some source when source <> target && not (List.mem source reserved) ->
+            move_owner span source target;
+            true
+        | Some _ | None -> false
+      else false
+    in
+    let move_dying_safe_to_rdx value =
+      if Option.is_none owners.(rdx) && value.last_use = position then
+        match find_register value with
+        | Some source
+          when (not (is_fixed source)) && not (List.mem source reserved) ->
+            move_owner span source rdx;
+            true
+        | Some _ | None -> false
+      else false
+    in
+    let rec stage_available () =
+      let changed = ref false in
+      if move_dying_to_target rax left then changed := true;
+      if (not (same_value left right)) && move_dying_to_target rcx right then
+        changed := true;
+      if Option.is_none owners.(rdx) then
+        if move_dying_safe_to_rdx left then changed := true
+        else if (not (same_value left right)) && move_dying_safe_to_rdx right
+        then changed := true;
+      if !changed then stage_available ()
+    in
+    (* Consume empty fixed registers with dying inputs before and after each
+       evacuation. This can free their safe general-register homes and avoids a
+       spill whenever the values that really survive the DIV fit in R8-R10. *)
+    stage_available ();
+    let fixed = [ rax; rcx; rdx ] in
+    List.iter
+      (fun index ->
+        stage_available ();
+        match owners.(index) with
+        | Some owner
+          when (same_value owner left || same_value owner right)
+               && owner.last_use = position -> ()
+        | Some _ ->
+            relocate_register span index ~excluded:fixed;
+            stage_available ()
+        | None -> ())
+      fixed;
+    let left_source = locate_value span left in
+    let right_source = locate_value span right in
+    (if same_value left right then (
+       copy_source_to span left_source rax;
+       emit span (Encoder.Mov (Encoder.Rcx, Encoder.Rax)))
+     else
+       match (left_source, right_source) with
+       | Register_source left, Register_source right
+         when left = rcx && right = rax ->
+           (* The only two-target register cycle. RDX has had any unrelated/shared
+             owner evacuated above and is the division instruction's own scratch. *)
+           emit span (Encoder.Mov (Encoder.Rdx, Encoder.Rcx));
+           emit span (Encoder.Mov (Encoder.Rcx, Encoder.Rax));
+           emit span (Encoder.Mov (Encoder.Rax, Encoder.Rdx))
+       | _, Register_source right when right = rax ->
+           copy_source_to span right_source rcx;
+           copy_source_to span left_source rax
+       | Register_source left, _ when left = rcx ->
+           copy_source_to span left_source rax;
+           copy_source_to span right_source rcx
+       | _ ->
+           copy_source_to span left_source rax;
+           copy_source_to span right_source rcx);
+    owners.(rax) <- None;
+    owners.(rcx) <- None;
+    owners.(rdx) <- None;
+    note_peak ~temporaries:[ rax; rcx; rdx ] ()
   in
   let assign position destination value =
     owners.(destination) <- Some value;
@@ -811,6 +1066,42 @@ let allocate ~max_stack_bytes prepared =
           note_peak ~temporaries:[ rcx; destination ] ();
           emit (Encoder.Shift_cl (shift, registers.(destination)));
           assign position destination result
+      | Apply_division (arithmetic_operation, word, site, left, right, result)
+        ->
+          prepare_division_operands instruction.span position left right;
+          let zero_label = fresh_label () in
+          fault_blocks :=
+            { label = zero_label; kind_value = 1; site_value = site.site }
+            :: !fault_blocks;
+          emit (Encoder.Test Encoder.Rcx);
+          emit_branch Equal zero_label;
+          (match word with
+          | U64 ->
+              emit Encoder.Zero_edx;
+              emit Encoder.Div_rcx
+          | I64 ->
+              let overflow_label = fresh_label () in
+              let safe_label = fresh_label () in
+              fault_blocks :=
+                {
+                  label = overflow_label;
+                  kind_value = 2;
+                  site_value = site.site;
+                }
+                :: !fault_blocks;
+              emit (Encoder.Mov_imm64 (Encoder.Rdx, Int64.min_int));
+              emit (Encoder.Cmp (Encoder.Rax, Encoder.Rdx));
+              emit_branch Not_equal safe_label;
+              emit (Encoder.Cmp_imm8 (Encoder.Rcx, -1));
+              emit_branch Equal overflow_label;
+              mark safe_label;
+              emit Encoder.Cqo;
+              emit Encoder.Idiv_rcx);
+          assign position
+            (match arithmetic_operation with
+            | Divide -> rax
+            | Remainder -> rdx)
+            result
       | Apply_comparison (condition, left, right, result) ->
           let inputs, protected =
             ensure_inputs instruction.span [ left; right ]
@@ -902,36 +1193,84 @@ let allocate ~max_stack_bytes prepared =
             owners.(0) <- Some input;
             note_peak ());
           release_through position
-      | Return -> emit Encoder.Ret)
+      | Return -> (
+          match epilogue_label with
+          | Some label -> emit_branch Unconditional label
+          | None -> emit Encoder.Ret))
     prepared;
   let body = List.rev !planned in
   let frame_size = frame_bytes_for_slots !slot_high_water in
-  let instructions =
-    if frame_size = 0 then body
-    else
-      let frame = encoder_frame None frame_size in
-      match List.rev body with
-      | Encoder.Ret :: reversed_prefix ->
-          Encoder.Alloc_stack frame
-          :: (List.rev reversed_prefix
-             @ [ Encoder.Free_stack frame; Encoder.Ret ])
-      | _ ->
-          reject "HCBACK0003" "native expression allocation lost terminal RET"
+  let plan =
+    match (status_abi, epilogue_label) with
+    | None, None -> (
+        if frame_size = 0 then body
+        else
+          let frame = encoder_frame None frame_size in
+          match List.rev body with
+          | Planned_instruction Encoder.Ret :: reversed_prefix ->
+              Planned_instruction (Encoder.Alloc_stack frame)
+              :: (List.rev reversed_prefix
+                 @ [
+                     Planned_instruction (Encoder.Free_stack frame);
+                     Planned_instruction Encoder.Ret;
+                   ])
+          | _ ->
+              reject "HCBACK0003"
+                "native expression allocation lost terminal RET")
+    | Some abi, Some epilogue ->
+        let frame =
+          if frame_size = 0 then None else Some (encoder_frame None frame_size)
+        in
+        let prefix =
+          match frame with
+          | None -> [ Planned_instruction (Encoder.Capture_status abi) ]
+          | Some frame ->
+              [
+                Planned_instruction (Encoder.Alloc_stack frame);
+                Planned_instruction (Encoder.Capture_status abi);
+              ]
+        in
+        let fault_plan =
+          List.rev !fault_blocks
+          |> List.concat_map (fun block ->
+              [
+                Planned_label block.label;
+                Planned_instruction (Encoder.Store_status_site block.site_value);
+                Planned_instruction (Encoder.Store_status_kind block.kind_value);
+                Planned_branch (Unconditional, epilogue);
+              ])
+        in
+        let suffix =
+          Planned_label epilogue
+          ::
+          (match frame with
+          | None -> [ Planned_instruction Encoder.Ret ]
+          | Some frame ->
+              [
+                Planned_instruction (Encoder.Free_stack frame);
+                Planned_instruction Encoder.Ret;
+              ])
+        in
+        prefix @ body @ fault_plan @ suffix
+    | Some _, None | None, Some _ ->
+        reject "HCBACK0003"
+          "native expression fault epilogue state is inconsistent"
   in
+  let instructions, code_size, machine_count = resolve_plan plan in
   {
     instructions;
-    code_size =
-      List.fold_left
-        (fun total item -> total + Encoder.size item)
-        0 instructions;
-    machine_count = List.length instructions;
+    code_size;
+    machine_count;
     peak = !peak;
     frame_size;
     unwind_info = build_windows_unwind_info frame_size;
   }
 
-let compile ?(max_stack_bytes = hard_max_stack_bytes) ~max_ir_instructions
-    ~max_code_bytes verified =
+let default_status_abi () =
+  if Sys.os_type = "Win32" then Windows_x64 else System_v_x64
+
+let compile ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
+    ~max_ir_instructions ~max_code_bytes verified =
   match validate_limits ~max_ir_instructions ~max_code_bytes with
   | Error errors -> Error errors
   | Ok () -> (
@@ -946,9 +1285,20 @@ let compile ?(max_stack_bytes = hard_max_stack_bytes) ~max_ir_instructions
             (* Count with a bound before constructing any value or instruction
                maps. Sparse IDs never determine an allocation size. *)
             let ir_count = bounded_length ~max_ir_instructions instructions in
-            let prepared, word_type = preflight ~count:ir_count instructions in
+            let prepared, word_type, fault_sites =
+              preflight ~count:ir_count instructions
+            in
+            let image_status_abi =
+              match fault_sites with
+              | [] -> None
+              | _ ->
+                  Some
+                    (Option.value status_abi ~default:(default_status_abi ()))
+            in
             (* Allocation runs only after the entire IR has passed preflight. *)
-            let allocation = allocate ~max_stack_bytes prepared in
+            let allocation =
+              allocate ~max_stack_bytes ~status_abi:image_status_abi prepared
+            in
             if allocation.code_size > max_code_bytes then
               reject "HCBACK0005" "native expression exceeds max_code_bytes";
             match
@@ -968,6 +1318,8 @@ let compile ?(max_stack_bytes = hard_max_stack_bytes) ~max_ir_instructions
                     peak = allocation.peak;
                     frame_size = allocation.frame_size;
                     unwind_info = Bytes.copy allocation.unwind_info;
+                    status_abi = image_status_abi;
+                    fault_sites;
                   }
           with Rejected error -> Error [ error ]))
 
@@ -978,3 +1330,66 @@ let machine_instructions (compiled : t) = compiled.machine_count
 let register_peak (compiled : t) = compiled.peak
 let frame_bytes (compiled : t) = compiled.frame_size
 let windows_unwind_info (compiled : t) = Bytes.to_string compiled.unwind_info
+let status_abi (compiled : t) = compiled.status_abi
+
+let arithmetic_fault_error (fault : arithmetic_fault) =
+  let opcode =
+    match fault.operation with
+    | Divide -> "IC_DIV"
+    | Remainder -> "IC_MOD"
+  in
+  match fault.kind with
+  | Division_by_zero ->
+      {
+        code = "HCNATIVE0004";
+        message = opcode ^ " divisor is zero";
+        span = fault.span;
+      }
+  | Signed_division_overflow ->
+      {
+        code = "HCNATIVE0005";
+        message = opcode ^ " signed quotient overflows I64";
+        span = fault.span;
+      }
+
+let decode_runtime_status (compiled : t) ~kind ~site =
+  if Int64.equal kind 0L then
+    if Int64.equal site 0L then Ok None
+    else Error "native arithmetic status has a site without a fault kind"
+  else if Int64.equal site 0L then
+    Error "native arithmetic status has a fault kind without a site"
+  else
+    let fault_kind =
+      if Int64.equal kind 1L then Ok Division_by_zero
+      else if Int64.equal kind 2L then Ok Signed_division_overflow
+      else Error "native arithmetic status has an unknown fault kind"
+    in
+    match fault_kind with
+    | Error _ as error -> error
+    | Ok fault_kind -> (
+        if Int64.compare site 1L < 0 || Int64.compare site 100_000L > 0 then
+          Error "native arithmetic status site is outside the checked IR bound"
+        else
+          let site_value = Int64.to_int site in
+          match
+            List.find_opt
+              (fun (candidate : fault_site) -> candidate.site = site_value)
+              compiled.fault_sites
+          with
+          | None -> Error "native arithmetic status names an unknown fault site"
+          | Some candidate ->
+              if fault_kind = Signed_division_overflow && not candidate.signed
+              then
+                Error
+                  "native arithmetic status reports signed overflow at an \
+                   unsigned division site"
+              else
+                Ok
+                  (Some
+                     {
+                       kind = fault_kind;
+                       operation = candidate.operation;
+                       instruction_id = candidate.instruction_id;
+                       position = candidate.position;
+                       span = candidate.span;
+                     }))

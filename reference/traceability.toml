@@ -11702,7 +11702,8 @@ limits = "IR/code/frame limits validated before parsing; maximum 100000 IR instr
 execution = "opaque image and fresh exported copies; explicit native entry; RW copy then RX protection and cache synchronization; full uint64_t return, mapping released before OCaml allocation; Windows/Linux x86-64 only; Linux READ_IMPLIES_EXEC refused"
 reporting = "holyc-native-expression-v1 with implementation/reference revisions, host, mode, limits, complete machine bytes/counts, register peak, diagnostics and exact decimal/hex strings; existing eval/run unchanged"
 verification_boundary = "ordinary nonexecuting encoder tests; explicit native-tests API/CLI and 500 fixed-seed source comparisons against integer VM plus boundary/shared/repeated execution; injected OS failure paths remain untested"
-excluded = ["narrow/public integer producers", "division/remainder semantics", "conditional and multiple-pending-reduction comparison chains (#593)", "general conversions and x87", "large/probed frames, calls and general HolyC ABI", "branches and source-visible memory", "relocations and object/BIN emission", "arbitrary native bytes", "CPU timeout and native fault recovery", "actual TempleOS loader acceptance", "bootstrap"]
+excluded = ["narrow/public integer producers", "conditional and multiple-pending-reduction comparison chains (#593)", "general conversions and x87", "large/probed frames, calls and general HolyC ABI", "branches and source-visible memory", "relocations and object/BIN emission", "arbitrary native bytes", "CPU timeout and general native fault recovery", "actual TempleOS loader acceptance", "bootstrap"]
+extended_by = ["HC-NATIVE-INTEGER-DIVMOD (#654)"]
 native_oracle_status = "hosted own-encoder execution and pinned-source audit; no new TempleOS compiler capture or optimizer parity claim"
 
 [[feature]]
@@ -11725,7 +11726,8 @@ semantics = "ordered comparison uses both forwarded operand classes; any U64 sel
 allocation = "CMP/TEST precedes destination mutation; SETcc consumes live flags; MOVZX clears all high bits; either dying input may be reused while shared values stay intact"
 limits = "existing IR and byte budgets; exact 5 IR/31 bytes for 1<2 and 4 IR/21 bytes for !0, with one-below rejection before executable allocation"
 verification_boundary = "ordinary byte/source/type/liveness/rejection tests and explicit native differential/API/CLI tests; generated opcode facts, runtime bridge and report schema unchanged"
-excluded = ["conditional and multiple-pending-reduction comparison chains (#593)", "general casts and non-word producers", "division/remainder", "control-flow branches, general call frames, calls and source-visible memory", "optimizer parity and native TempleOS capture"]
+excluded = ["conditional and multiple-pending-reduction comparison chains (#593)", "general casts and non-word producers", "control-flow branches, general call frames, calls and source-visible memory", "optimizer parity and native TempleOS capture"]
+extended_by = ["HC-NATIVE-INTEGER-DIVMOD (#654)"]
 
 [[feature]]
 id = "HC-NATIVE-INTEGER-LOGICAL-VALUES"
@@ -11750,7 +11752,8 @@ word_views = "only internal I64/U64 input and target, one earlier value, integer
 allocation = "two distinct working registers; normalize right first if result aliases right; preserve remaining input and later shared uses; scratch register included in pressure and peak; other live owners may spill under HC-NATIVE-INTEGER-SPILLS"
 limits = "simple two-literal logical values require 5 IR instructions, 44 bytes, 10 machine instructions and two registers; exact/one-below IR and byte tests plus temporary-register exhaustion"
 verification_boundary = "literal expected chain results complement VM/native differential comparisons; ordinary tests do not enter machine code; explicit native API/CLI tests run separately; report schema, encoder database and host bridge unchanged"
-excluded = ["conditional and multiple-pending-reduction chains (#593)", "public/narrow/pointer/floating word views", "parenthesized casts and general conversions", "division/remainder", "branches, source-visible memory, large/probed frames and calls", "optimizer parity", "TempleOS native capture, loader and bootstrap"]
+excluded = ["conditional and multiple-pending-reduction chains (#593)", "public/narrow/pointer/floating word views", "parenthesized casts and general conversions", "branches, source-visible memory, large/probed frames and calls", "optimizer parity", "TempleOS native capture, loader and bootstrap"]
+extended_by = ["HC-NATIVE-INTEGER-DIVMOD (#654)"]
 
 [[feature]]
 id = "HC-NATIVE-INTEGER-SPILLS"
@@ -11797,5 +11800,76 @@ computation = "IC_SHL wraps to 64 bits; IC_SHR uses SAR only when both forwarded
 allocation = "RCX holds CL while the destination uses another volatile register. Existing RCX owners move or spill before replacement; dying left-in-RCX is captured before loading the count. Shared and duplicate inputs retain their original homes/lifetimes, and dying distinct spilled counts release their slots after loading. All moves, reloads and evictions count in existing register/frame/code limits."
 source_gate = "native-integer-shifts.hc returns U64 42 through public native JSON and human reports in both modes, including zero stack quota; it exercises count wrapping, left shift and signed/unsigned high-bit right shifts."
 verification = "Independent qword CL instruction bytes, count-mask boundaries, mixed computation classes, wraparound, current RCX ownership and shared/spilled operands; exact and one-below resource limits; actual native source/IR differential execution; existing non-shift fixture bytes and public limits remain unchanged."
-excluded = ["division/remainder and native arithmetic-fault reporting", "constant-form shift optimizer parity (#574)", "F64, public/narrow producers and general conversions", "general control flow, memory and calls", "object/BIN/loader and bootstrap"]
+excluded = ["constant-form shift optimizer parity (#574)", "F64, public/narrow producers and general conversions", "general control flow, memory and calls", "object/BIN/loader and bootstrap"]
+extended_by = ["HC-NATIVE-INTEGER-DIVMOD (#654)"]
 native_oracle_status = "pinned-source audit and hosted own-encoder execution, not a TempleOS native capture or optimizer-parity claim"
+
+[[feature]]
+id = "HC-NATIVE-INTEGER-DIVMOD"
+description = "Raw checked integer DIV/MOD producers execute through guarded x86-64 DIV/IDIV with typed arithmetic-fault status and fixed-register transport."
+sources = [
+  "Compiler/CInit.HC:66-67,293-294 IC_DIV/IC_MOD metadata and source operators",
+  "Compiler/OptLib.HC:96-179 OptFixupBinaryOp1 promoted class and unsigned selection",
+  "Compiler/OptPass789A.HC:524-534 integer DIV/MOD backend dispatch",
+  "Compiler/BackA.HC:355-370 ICDiv fixed RCX/RAX/RDX consumer",
+  "Compiler/BackA.HC:425-440 ICMod fixed RCX/RAX/RDX consumer",
+  "Compiler/BackLib.HC:404-411 ICZero full-register zeroing",
+  "Compiler/OpCodes.DD:265,284,365,376,461,584,608,612,708,713,780 MOV/status, CMP, TEST, branch, DIV/IDIV and CQO forms"
+]
+implementation = [
+  "src/backend/x86_64_encoder.ml",
+  "src/backend/x86_64_encoder.mli",
+  "src/backend/x86_64_expression.ml",
+  "src/backend/x86_64_expression.mli",
+  "src/runtime/native_execution.ml",
+  "src/runtime/native_execution.mli",
+  "src/native_execution_stubs.c",
+  "src/driver/native_expression.ml",
+  "src/driver/native_expression.mli",
+  "src/holyc_lib.ml",
+  "src/holyc_lib.mli",
+  "bin/holyc.ml",
+  "bin/native_report.ml"
+]
+tests = [
+  "test/test_native_expression.ml",
+  "test/native/test_native_execution.ml",
+  "test/native/test_native_cli.ml",
+  "test/native/test_native_unwind.ml",
+  "test/native/native_unwind_probe.c",
+  "test/native/dune",
+  "test/dune",
+  "examples/native-integer-divmod.hc"
+]
+documentation = [
+  "docs/native-expressions.md",
+  "docs/integer-division.md",
+  "docs/testing.md",
+  "docs/compatibility.md",
+  "docs/reference-source-map.md",
+  "README.md",
+  "ARCHITECTURE.md",
+  "REFERENCE_SOURCES.md",
+  "ROADMAP.md",
+  "SECURITY.md",
+  "CHANGELOG.md"
+]
+status = "implemented"
+issue = 654
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+scope = "raw zero-depth internal I64/U64 IC_DIV and IC_MOD in the existing one-block native-expression subset; source JIT/AOT preprocessing reaches the same checked IR"
+signedness = "select the promoted computation class from both operands before the result; any forwarded U64 selects unsigned DIV, otherwise signed IDIV; COM-forwarded U64 remains effective despite its declared I64 value type"
+faults = "TEST RCX guards /0 and %0 before hardware division; signed I64 minimum divided or reduced by minus one is guarded before IDIV for both operations because the hardware quotient overflows even when only RDX is consumed; faults retain Divide/Remainder, dense position, sparse instruction ID and source span"
+diagnostics = ["HCNATIVE0004 reached zero divisor", "HCNATIVE0005 reached signed MIN/-1 quotient overflow"]
+private_status_abi = "fault-capable images only reserve R11 and capture the host-selected or explicit Windows_x64/System_v_x64 first pointer argument after any fixed seven-byte SUB RSP prologue; status words are kind/site through R11; foreign execution ABI rejects before executable allocation; plain images report no status ABI even when an override is supplied"
+status_integrity = "only 0/0 is clean; kind and site must be paired, kind is 1 or 2, site is within the checked one-based 100000-instruction bound and names a retained fault site; signed-overflow status is invalid for an unsigned site"
+fixed_register_transport = "RAX dividend/quotient, RCX divisor and RDX high dividend/remainder are constrained only around division. Live unrelated/current/later owners relocate or spill before staging; dying operands preferentially move into free fixed registers; duplicate operands, RAX/RCX cycles and shared later uses preserve value identity. Common owner cleanup and RAX/RCX/RDX temporary peak accounting apply to every transport arm. R11 never becomes a value owner in fault-capable images"
+allocation_boundary = "free or dying registers are used before spills, so low-pressure DIV/MOD remains frameless; existing reusable qword spill slots and 8-mod-16 frames apply under pressure. Fault-capable register peak includes private R11 and fixed division temporaries"
+cleanup = "normal return and every fault block branch to one epilogue; a present frame is released exactly once immediately before the sole RET. Windows unwind metadata continues to describe only the leading seven-byte SUB RSP prologue. The host removes registered unwind state and releases the executable mapping before OCaml status allocation or fault decoding"
+limits = "existing max_ir_instructions 1..100000, max_code_bytes up to 16 MiB and max_stack_bytes 0..4088 remain authoritative; planning counts status capture, guards, rel32 branches, fault stores, spill traffic and shared epilogue before byte allocation; rel32 and private kind/site encoder operands are range checked"
+byte_parity = "images with no DIV/MOD fault sites reserve no R11, emit no status capture/guards/fault blocks and ignore an explicit status-ABI override, preserving the established plain-image machine bytes; guarded instruction sizes and branch displacements are resolved from one exact plan"
+verification_boundary = "ordinary encoder/source/type/shared-owner/pressure/metadata/quota tests plus explicit native API/CLI differential execution for signed, unsigned, mixed, zero-divisor and signed-overflow DIV/MOD; Windows unwind coverage retains the shared prologue/epilogue contract"
+optimizer_boundary = "raw runtime DIV/MOD semantics only; constant folding, literal-divisor strength reductions and their fault-phase differences remain issue #585; constant-form shift parity remains issue #574"
+excluded = ["F64 division", "compound DIV/MOD assignment native emission", "optimizer strength reductions and compile-time arithmetic-fault timing (#585)", "general call ABI and source-visible memory", "arbitrary hardware fault recovery", "object/BIN emission and TempleOS loader acceptance", "bootstrap"]
+native_oracle_status = "raw DIV/MOD semantics are anchored by the existing pinned-source audit and integer-division oracle; hosted guarded execution adds a private status ABI without claiming TempleOS exception-delivery parity"

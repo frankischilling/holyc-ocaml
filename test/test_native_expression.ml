@@ -38,16 +38,18 @@ let source_graph ?mode contents =
   lower_integer_expression session ~config ~source
   |> require_ok diagnostic_errors
 
-let source_image ?mode contents =
+let source_image ?mode ?status_abi contents =
   let session, config, source = source_inputs ?mode contents in
-  Native_expression.compile session ~config ~source
+  Native_expression.compile ?status_abi session ~config ~source
   |> require_ok diagnostic_errors
 
 let compile ?(max_ir_instructions = 10000) ?(max_code_bytes = 1048576)
-    ?(max_stack_bytes = 4088) graph =
-  Native.compile ~max_ir_instructions ~max_code_bytes ~max_stack_bytes graph
+    ?(max_stack_bytes = 4088) ?status_abi graph =
+  Native.compile ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
+    ?status_abi graph
 
-let image graph = compile graph |> require_ok native_errors
+let image ?status_abi graph =
+  compile ?status_abi graph |> require_ok native_errors
 
 let reject ?code label = function
   | Ok _ -> Alcotest.failf "%s unexpectedly produced an image" label
@@ -167,6 +169,14 @@ let hex bytes =
   |> Seq.map (fun byte -> Printf.sprintf "%02x" (Char.code byte))
   |> List.of_seq |> String.concat ""
 
+let find_index predicate values =
+  let rec loop index = function
+    | [] -> None
+    | value :: rest ->
+        if predicate value then Some index else loop (index + 1) rest
+  in
+  loop 0 values
+
 (* This checks instruction boundaries and operands, never evaluates code. *)
 let decoded_mnemonics code =
   let length = String.length code in
@@ -197,9 +207,42 @@ let decoded_mnemonics code =
       Alcotest.(check int)
         "RET is the last machine instruction" length (offset + 1);
       List.rev ("ret" :: reversed))
+    else if byte offset = 0x33 && byte (offset + 1) = 0xd2 then
+      decode (offset + 2) ("zero-edx" :: reversed)
+    else if byte offset = 0xe9 then (
+      ignore (byte (offset + 4));
+      decode (offset + 5) ("jmp" :: reversed))
+    else if byte offset = 0x0f && List.mem (byte (offset + 1)) [ 0x84; 0x85 ]
+    then (
+      let mnemonic = if byte (offset + 1) = 0x84 then "je" else "jne" in
+      ignore (byte (offset + 5));
+      decode (offset + 6) (mnemonic :: reversed))
+    else if
+      byte offset = 0x49
+      && byte (offset + 1) = 0x89
+      && List.mem (byte (offset + 2)) [ 0xcb; 0xfb ]
+    then
+      decode (offset + 3)
+        ((if byte (offset + 2) = 0xcb then "capture-status-win"
+          else "capture-status-sysv")
+        :: reversed)
+    else if
+      byte offset = 0x49
+      && byte (offset + 1) = 0xc7
+      && byte (offset + 2) = 0x43
+      && List.mem (byte (offset + 3)) [ 0x00; 0x08 ]
+    then (
+      ignore (byte (offset + 7));
+      decode (offset + 8)
+        ((if byte (offset + 3) = 0 then "store-status-kind"
+          else "store-status-site")
+        :: reversed))
+    else if byte offset = 0x48 && byte (offset + 1) = 0x99 then
+      decode (offset + 2) ("cqo" :: reversed)
     else if byte offset = 0x0f || byte offset = 0x41 then (
-      (* Only SETcc omits REX.W. Low registers need no prefix; the extended
-         low-byte registers need REX.B alone, never a high-byte register. *)
+      (* After the explicitly decoded status/branch forms above, this 0F/41
+         path is SETcc. Low registers need no prefix; extended byte registers
+         need REX.B alone, never a high-byte register. *)
       let extended = byte offset = 0x41 in
       let opcode_offset = offset + if extended then 1 else 0 in
       Alcotest.(check int)
@@ -232,6 +275,15 @@ let decoded_mnemonics code =
         in
         ignore (byte (offset + 6));
         decode (offset + 7) (mnemonic :: reversed))
+      else if opcode = 0x83 then (
+        let modrm = byte (offset + 2) in
+        Alcotest.(check int) "CMP imm8 uses a register" 3 (modrm lsr 6);
+        Alcotest.(check int)
+          "CMP imm8 retains the /7 extension" 7
+          ((modrm lsr 3) land 7);
+        register ((modrm land 7) + if rex land 1 = 0 then 0 else 8);
+        ignore (byte (offset + 3));
+        decode (offset + 4) ("cmp-imm8" :: reversed))
       else
         let modrm_offset = offset + if opcode = 0x0f then 3 else 2 in
         let modrm = byte modrm_offset in
@@ -263,7 +315,9 @@ let decoded_mnemonics code =
                 match (modrm lsr 3) land 7 with
                 | 2 -> "not"
                 | 3 -> "neg"
-                | _ -> Alcotest.fail "unexpected unary opcode extension")
+                | 6 -> "div"
+                | 7 -> "idiv"
+                | _ -> Alcotest.fail "unexpected F7 opcode extension")
             | 0x0f -> (
                 register reg;
                 match byte (offset + 2) with
@@ -656,6 +710,183 @@ let shift_pressure_graph ~count_in_rcx =
     @ tail
     @ [ return_value next final_value; ret (next + 1) ])
 
+(* These are literal source expectations, independent of the native backend and
+   the interpreter. Unsigned rows use OCaml's public unsigned arithmetic only in
+   the execution matrix below; keeping representative constants here makes the
+   source/API contract reviewable without consulting either implementation. *)
+let divmod_source_cases =
+  [
+    ("signed quotient", "84/2;", Native.I64, 42L, [ "idiv" ]);
+    ("signed remainder", "85%2;", Native.I64, 1L, [ "idiv" ]);
+    ( "negative quotient truncates toward zero",
+      "-7/3;",
+      Native.I64,
+      -2L,
+      [ "idiv" ] );
+    ("negative remainder follows dividend", "-7%3;", Native.I64, -1L, [ "idiv" ]);
+    ( "unsigned quotient keeps all high bits",
+      "0xFFFFFFFFFFFFFFFF/3;",
+      Native.U64,
+      6148914691236517205L,
+      [ "div" ] );
+    ( "unsigned remainder keeps all high bits",
+      "0xFFFFFFFFFFFFFFFF%0x8000000000000000;",
+      Native.U64,
+      Int64.max_int,
+      [ "div" ] );
+    ( "mixed class selects unsigned division",
+      "-1/0x8000000000000000;",
+      Native.U64,
+      1L,
+      [ "div" ] );
+    ( "signed high bit divides arithmetically",
+      "0x8000000000000000(I64i)/2;",
+      Native.I64,
+      -4611686018427387904L,
+      [ "idiv" ] );
+    ( "masked shift composes with division",
+      "(1<<65)+(84/2)-2;",
+      Native.I64,
+      42L,
+      [ "idiv" ] );
+    ( "maintained mixed divmod fixture",
+      "84/2+85%2+0xFFFFFFFFFFFFFFFF/0xFFFFFFFFFFFFFFFF+0xFFFFFFFFFFFFFFFF%2-3;",
+      Native.U64,
+      42L,
+      [ "idiv"; "idiv"; "div"; "div" ] );
+  ]
+
+let divmod_shared_cases () =
+  [
+    ( "division preserves a shared dividend",
+      single
+        [
+          imm 0 84L;
+          imm 1 2L;
+          binary 2 Opcode.Ic_div 0 1;
+          binary 3 Opcode.Ic_add 0 2;
+          return_value 4 3;
+          ret 5;
+        ],
+      Native.I64,
+      126L );
+    ( "division preserves a shared divisor",
+      single
+        [
+          imm 0 84L;
+          imm 1 2L;
+          binary 2 Opcode.Ic_div 0 1;
+          binary 3 Opcode.Ic_add 1 2;
+          return_value 4 3;
+          ret 5;
+        ],
+      Native.I64,
+      44L );
+    ( "duplicate operands produce quotient one",
+      single [ imm 0 42L; binary 1 Opcode.Ic_div 0 0; return_value 2 1; ret 3 ],
+      Native.I64,
+      1L );
+    ( "duplicate operands produce remainder zero",
+      single [ imm 0 42L; binary 1 Opcode.Ic_mod 0 0; return_value 2 1; ret 3 ],
+      Native.I64,
+      0L );
+    ( "RCX dividend and RAX divisor use the RDX cycle scratch",
+      single
+        [
+          imm 0 2L;
+          imm 1 84L;
+          binary 2 Opcode.Ic_div 1 0;
+          return_value 3 2;
+          ret 4;
+        ],
+      Native.I64,
+      42L );
+    ( "unrelated live RAX value survives fixed dividend transport",
+      single
+        [
+          imm 0 40L;
+          imm 1 84L;
+          imm 2 2L;
+          binary 3 Opcode.Ic_div 1 2;
+          binary 4 Opcode.Ic_add 0 3;
+          return_value 5 4;
+          ret 6;
+        ],
+      Native.I64,
+      82L );
+    ( "unrelated live RDX value survives signed extension",
+      single
+        [
+          imm 0 84L;
+          imm 1 2L;
+          imm 2 40L;
+          binary 3 Opcode.Ic_div 0 1;
+          binary 4 Opcode.Ic_add 2 3;
+          return_value 5 4;
+          ret 6;
+        ],
+      Native.I64,
+      82L );
+    ( "remainder result in RDX preserves an unrelated live RAX value",
+      single
+        [
+          imm 0 40L;
+          imm 1 85L;
+          imm 2 2L;
+          binary 3 Opcode.Ic_mod 1 2;
+          binary 4 Opcode.Ic_add 0 3;
+          return_value 5 4;
+          ret 6;
+        ],
+      Native.I64,
+      41L );
+    ( "mixed U64 divisor selects unsigned quotient",
+      single
+        [
+          imm 0 (-1L);
+          imm ~type_:u64 1 Int64.min_int;
+          binary ~type_:u64 2 Opcode.Ic_div 0 1;
+          return_value ~type_:u64 3 2;
+          ret 4;
+        ],
+      Native.U64,
+      1L );
+    ( "COM forwarded U64 class selects unsigned remainder",
+      single
+        [
+          imm ~type_:u64 0 0L;
+          unary 1 Opcode.Ic_com 0;
+          imm 2 3L;
+          binary ~type_:u64 3 Opcode.Ic_mod 1 2;
+          return_value ~type_:u64 4 3;
+          ret 5;
+        ],
+      Native.U64,
+      0L );
+  ]
+
+let divmod_pressure_graph () =
+  (* All seven values are live after the final immediate, so reserved R11 forces
+     one slot. The longest-lived dividend is selected for that slot. Three dead
+     reductions then release every unrelated owner before DIV needs RAX/RCX/RDX,
+     isolating the one-spill operand transport from extra fixed-register pressure. *)
+  single
+    [
+      imm 0 84L;
+      imm 1 2L;
+      imm 2 10L;
+      imm 3 11L;
+      imm 4 12L;
+      imm 5 13L;
+      imm 6 14L;
+      binary 7 Opcode.Ic_add 4 5;
+      binary 8 Opcode.Ic_add 2 3;
+      unary 9 Opcode.Ic_unary_minus 6;
+      binary 10 Opcode.Ic_div 0 1;
+      return_value 11 10;
+      ret 12;
+    ]
+
 let spill_values count =
   List.init count (fun id ->
       imm id
@@ -728,6 +959,14 @@ let spill_semantic_cases () =
       430L );
     ( "arithmetic shift right reloads both spilled operands",
       two_spilled_inputs_graph Opcode.Ic_shr,
+      Native.I64,
+      351L );
+    ( "signed division reloads both spilled operands",
+      two_spilled_inputs_graph Opcode.Ic_div,
+      Native.I64,
+      353L );
+    ( "signed remainder reloads both spilled operands",
+      two_spilled_inputs_graph Opcode.Ic_mod,
       Native.I64,
       351L );
   ]
@@ -1090,6 +1329,72 @@ let encoder_shift_bytes () =
       Alcotest.(check bool)
         "shift batch exhaustion has a diagnostic" true (message <> "")
   | Ok _ -> Alcotest.fail "shift batch accepted one byte below its exact quota"
+
+let encoder_divmod_status_bytes () =
+  (* Literal encodings pin the private status ABI and the only dangerous x86
+     arithmetic forms. No generated opcode table or native execution is used to
+     produce these expectations. *)
+  let cases =
+    let open Encoder in
+    [
+      ("capture Windows status pointer", Capture_status Windows_x64, "4989cb");
+      ("capture System V status pointer", Capture_status System_v_x64, "4989fb");
+      ("zero RDX", Zero_edx, "33d2");
+      ("sign extend RAX", Cqo, "4899");
+      ("unsigned DIV RCX", Div_rcx, "48f7f1");
+      ("signed IDIV RCX", Idiv_rcx, "48f7f9");
+      ("compare RAX with zero", Cmp_imm8 (Rax, 0), "4883f800");
+      ("compare RCX with minus one", Cmp_imm8 (Rcx, -1), "4883f9ff");
+      ("compare R11 with one", Cmp_imm8 (R11, 1), "4983fb01");
+      ("jump rel32 zero", Jump 0L, "e900000000");
+      ("JE rel32 minus one", Jump_equal (-1L), "0f84ffffffff");
+      ("JNE rel32 one", Jump_not_equal 1L, "0f8501000000");
+      ("store zero-divide kind", Store_status_kind 1, "49c7430001000000");
+      ("store overflow kind", Store_status_kind 2, "49c7430002000000");
+      ("store first site", Store_status_site 1, "49c7430801000000");
+      ("store last site", Store_status_site 100000, "49c74308a0860100");
+    ]
+  in
+  List.iter
+    (fun (label, instruction, expected) ->
+      Alcotest.(check string) label expected (hex (Encoder.encode instruction));
+      Alcotest.(check int)
+        (label ^ " exact byte count")
+        (String.length expected / 2)
+        (Encoder.size instruction))
+    cases;
+  let instructions =
+    List.map (fun (_, instruction, _) -> instruction) cases @ [ Encoder.Ret ]
+  in
+  let expected =
+    String.concat "" (List.map (fun (_, _, bytes) -> bytes) cases) ^ "c3"
+  in
+  let bytes = String.length expected / 2 in
+  Alcotest.(check string)
+    "division/status instructions fit their exact aggregate quota" expected
+    (Encoder.encode_all ~max_code_bytes:bytes instructions
+    |> require_ok Fun.id |> hex);
+  (match Encoder.encode_all ~max_code_bytes:(bytes - 1) instructions with
+  | Error message ->
+      Alcotest.(check bool)
+        "division/status batch exhaustion has a diagnostic" true (message <> "")
+  | Ok _ -> Alcotest.fail "division/status batch accepted one byte below quota");
+  let invalid label instruction =
+    match
+      try Some (Encoder.size instruction) with Invalid_argument _ -> None
+    with
+    | None -> ()
+    | Some _ -> Alcotest.fail (label ^ " unexpectedly encoded")
+  in
+  let open Encoder in
+  invalid "CMP imm8 below signed byte" (Cmp_imm8 (Rax, -129));
+  invalid "CMP imm8 above signed byte" (Cmp_imm8 (Rax, 128));
+  invalid "jump below rel32" (Jump (-0x80000001L));
+  invalid "jump above rel32" (Jump 0x80000000L);
+  invalid "status kind zero" (Store_status_kind 0);
+  invalid "status kind three" (Store_status_kind 3);
+  invalid "status site zero" (Store_status_site 0);
+  invalid "status site above hard IR bound" (Store_status_site 100001)
 
 let encoder_predicate_bytes () =
   (* Opcode bytes and ModRM fields are literal expectations from pinned
@@ -1997,6 +2302,455 @@ let shift_limits_and_pressure () =
        one_spill
     |> reject ~code:"HCBACK0004" "spilled shift one below exact stack quota")
 
+let divmod_source_types_and_guards () =
+  let default_abi =
+    if Sys.os_type = "Win32" then Native.Windows_x64 else Native.System_v_x64
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (_, source, expected_type, _, expected_divides) ->
+          let checked = source_graph ~mode source in
+          let compiled = source_image ~mode source in
+          inspect_image checked compiled;
+          Alcotest.(check string)
+            (source ^ " result class") (type_name expected_type)
+            (type_name (Native.value_type compiled));
+          Alcotest.(check bool)
+            (source ^ " declares the host private-status ABI")
+            true
+            (Native.status_abi compiled = Some default_abi);
+          let mnemonics = decoded_mnemonics (Native.code compiled) in
+          Alcotest.(check (list string))
+            (source ^ " selects signed or unsigned hardware division")
+            expected_divides
+            (List.filter
+               (fun mnemonic -> List.mem mnemonic [ "div"; "idiv" ])
+               mnemonics);
+          Alcotest.(check string)
+            (source ^ " driver and graph agree")
+            (Native.code (image checked))
+            (Native.code compiled);
+          let first_divide =
+            find_index
+              (fun mnemonic -> List.mem mnemonic [ "div"; "idiv" ])
+              mnemonics
+            |> Option.get
+          in
+          let first_guard =
+            find_index (String.equal "test") mnemonics |> Option.get
+          in
+          Alcotest.(check bool)
+            (source ^ " guards precede the dangerous instruction")
+            true
+            (first_guard < first_divide))
+        divmod_source_cases)
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  let signed = source_image ~status_abi:Native.Windows_x64 "84/2;" in
+  let signed_mnemonics = decoded_mnemonics (Native.code signed) in
+  Alcotest.(check string)
+    "signed DIV guards branch around both fault blocks into one epilogue"
+    (String.concat ""
+       [
+         "4989cb";
+         "48b85400000000000000";
+         "48b90200000000000000";
+         "4885c9";
+         "0f8427000000";
+         "48ba0000000000000080";
+         "4839d0";
+         "0f850a000000";
+         "4883f9ff";
+         "0f841f000000";
+         "4899";
+         "48f7f9";
+         "e92a000000";
+         "49c7430803000000";
+         "49c7430001000000";
+         "e915000000";
+         "49c7430803000000";
+         "49c7430002000000";
+         "e900000000";
+         "c3";
+       ])
+    (hex (Native.code signed));
+  Alcotest.(check bool)
+    "signed division sign-extends only after its guards" true
+    (match
+       ( find_index (String.equal "cqo") signed_mnemonics,
+         find_index (String.equal "idiv") signed_mnemonics )
+     with
+    | Some cqo, Some divide -> cqo < divide
+    | _ -> false);
+  let unsigned =
+    source_image ~status_abi:Native.Windows_x64 "0xFFFFFFFFFFFFFFFF/3;"
+  in
+  let unsigned_mnemonics = decoded_mnemonics (Native.code unsigned) in
+  Alcotest.(check string)
+    "unsigned DIV guards zero then zero-extends RDX before hardware division"
+    (String.concat ""
+       [
+         "4989cb";
+         "48b8ffffffffffffffff";
+         "48b90300000000000000";
+         "4885c9";
+         "0f840a000000";
+         "33d2";
+         "48f7f1";
+         "e915000000";
+         "49c7430803000000";
+         "49c7430001000000";
+         "e900000000";
+         "c3";
+       ])
+    (hex (Native.code unsigned));
+  Alcotest.(check bool)
+    "unsigned division zeroes the high dividend before DIV" true
+    (match
+       ( find_index (String.equal "zero-edx") unsigned_mnemonics,
+         find_index (String.equal "div") unsigned_mnemonics )
+     with
+    | Some zero, Some divide -> zero < divide
+    | _ -> false)
+
+let divmod_shared_allocation () =
+  List.iter
+    (fun (label, checked, expected_type, _) ->
+      let compiled = image checked in
+      inspect_image checked compiled;
+      Alcotest.(check string)
+        (label ^ " result class") (type_name expected_type)
+        (type_name (Native.value_type compiled));
+      Alcotest.(check int)
+        (label ^ " uses free-register transport")
+        0
+        (Native.frame_bytes compiled))
+    (divmod_shared_cases ());
+  let cycle =
+    single
+      [
+        imm 0 2L; imm 1 84L; binary 2 Opcode.Ic_div 1 0; return_value 3 2; ret 4;
+      ]
+  in
+  let cycle_image = image ~status_abi:Native.Windows_x64 cycle in
+  Alcotest.(check bool)
+    "RCX/RAX operand cycle is repaired through RDX before any guard" true
+    (match decoded_mnemonics (Native.code cycle_image) with
+    | "capture-status-win" :: "mov-imm64" :: "mov-imm64" :: "mov" :: "mov"
+      :: "mov" :: "test" :: _ -> true
+    | _ -> false);
+  Alcotest.(check int)
+    "RCX/RAX cycle needs no spill frame" 0
+    (Native.frame_bytes cycle_image);
+  Alcotest.(check int)
+    "RCX/RAX cycle counts all fixed temporaries and the status pointer" 4
+    (Native.register_peak cycle_image);
+  List.iter
+    (fun opcode ->
+      let duplicate =
+        single [ imm 0 42L; binary 1 opcode 0 0; return_value 2 1; ret 3 ]
+      in
+      List.iter
+        (fun abi ->
+          let compiled =
+            compile ~status_abi:abi ~max_stack_bytes:0 duplicate
+            |> require_ok native_errors
+          in
+          inspect_image duplicate compiled;
+          Alcotest.(check int)
+            "duplicate division counts RAX, RCX, RDX and private R11" 4
+            (Native.register_peak compiled))
+        [ Native.Windows_x64; Native.System_v_x64 ])
+    [ Opcode.Ic_div; Opcode.Ic_mod ];
+  let pressured = divmod_pressure_graph () in
+  let compiled = image pressured in
+  inspect_image pressured compiled;
+  Alcotest.(check int)
+    "reserved R11 turns the seventh live value into one spill slot" 8
+    (Native.frame_bytes compiled);
+  Alcotest.(check int)
+    "fault-capable pressure counts R11 plus six value registers" 7
+    (Native.register_peak compiled);
+  let mnemonics = decoded_mnemonics (Native.code compiled) in
+  Alcotest.(check bool)
+    "division pressure stores one live value" true
+    (List.mem "store-stack" mnemonics);
+  Alcotest.(check bool)
+    "division pressure later reloads the spilled value" true
+    (List.mem "load-stack" mnemonics)
+
+let divmod_status_metadata () =
+  let make ?(left_type = i64) ?(right_type = i64) ?(result_type = i64) opcode
+      left right =
+    single
+      [
+        imm ~type_:left_type 0 left;
+        imm ~type_:right_type 1 right;
+        binary ~type_:result_type 2 opcode 0 1;
+        return_value ~type_:result_type 3 2;
+        ret 4;
+      ]
+  in
+  let cases =
+    [
+      ( "divide by zero",
+        make Opcode.Ic_div 7L 0L,
+        1L,
+        Native.Division_by_zero,
+        Native.Divide,
+        "HCNATIVE0004" );
+      ( "remainder by zero",
+        make Opcode.Ic_mod 7L 0L,
+        1L,
+        Native.Division_by_zero,
+        Native.Remainder,
+        "HCNATIVE0004" );
+      ( "signed divide overflow",
+        make Opcode.Ic_div Int64.min_int (-1L),
+        2L,
+        Native.Signed_division_overflow,
+        Native.Divide,
+        "HCNATIVE0005" );
+      ( "signed remainder overflow",
+        make Opcode.Ic_mod Int64.min_int (-1L),
+        2L,
+        Native.Signed_division_overflow,
+        Native.Remainder,
+        "HCNATIVE0005" );
+    ]
+  in
+  List.iter
+    (fun (label, graph, kind_value, expected_kind, expected_operation, code) ->
+      List.iter
+        (fun abi ->
+          let compiled = image ~status_abi:abi graph in
+          Alcotest.(check bool)
+            (label ^ " retains explicit status ABI")
+            true
+            (Native.status_abi compiled = Some abi);
+          (match Native.decode_runtime_status compiled ~kind:0L ~site:0L with
+          | Ok None -> ()
+          | Ok (Some _) | Error _ ->
+              Alcotest.fail (label ^ " rejected clean 0/0 status"));
+          let fault =
+            Native.decode_runtime_status compiled ~kind:kind_value ~site:3L
+            |> require_ok Fun.id |> Option.get
+          in
+          Alcotest.(check bool)
+            (label ^ " fault kind") true
+            (fault.kind = expected_kind);
+          Alcotest.(check bool)
+            (label ^ " operation") true
+            (fault.operation = expected_operation);
+          Alcotest.(check int)
+            (label ^ " sparse instruction id")
+            2 fault.instruction_id;
+          Alcotest.(check int) (label ^ " zero-based position") 2 fault.position;
+          Alcotest.(check bool)
+            (label ^ " original source span")
+            true
+            (fault.span = Some (fixture_span 2));
+          let error = Native.arithmetic_fault_error fault in
+          Alcotest.(check string) (label ^ " diagnostic code") code error.code;
+          Alcotest.(check bool)
+            (label ^ " diagnostic preserves span")
+            true
+            (error.span = Some (fixture_span 2)))
+        [ Native.Windows_x64; Native.System_v_x64 ])
+    cases;
+  let sparse =
+    make Opcode.Ic_div 7L 0L |> descriptions
+    |> List.mapi (fun position (item : Sequence.description) ->
+        { item with instruction_id = instruction_id (100 + (17 * position)) })
+    |> single |> image
+  in
+  let sparse_fault =
+    Native.decode_runtime_status sparse ~kind:1L ~site:3L
+    |> require_ok Fun.id |> Option.get
+  in
+  Alcotest.(check int)
+    "runtime status site is the dense position plus one, not the sparse IR id"
+    134 sparse_fault.instruction_id;
+  Alcotest.(check int)
+    "sparse fault still reports zero-based dense position" 2
+    sparse_fault.position;
+  Alcotest.(check bool)
+    "sparse instruction id is not accepted as a status site" true
+    (Result.is_error (Native.decode_runtime_status sparse ~kind:1L ~site:134L));
+  let unsigned =
+    make ~left_type:u64 ~right_type:u64 ~result_type:u64 Opcode.Ic_div
+      Int64.min_int (-1L)
+    |> image ~status_abi:Native.System_v_x64
+  in
+  let malformed =
+    [
+      (0L, 3L);
+      (1L, 0L);
+      (3L, 3L);
+      (-1L, 3L);
+      (1L, -1L);
+      (1L, 4L);
+      (1L, 100001L);
+      (2L, 3L);
+    ]
+  in
+  List.iter
+    (fun (kind, site) ->
+      Alcotest.(check bool)
+        (Printf.sprintf "malformed runtime status kind=%Ld site=%Ld rejects"
+           kind site)
+        true
+        (Result.is_error (Native.decode_runtime_status unsigned ~kind ~site)))
+    malformed;
+  let guarded =
+    image ~status_abi:Native.Windows_x64 (divmod_pressure_graph ())
+  in
+  let expected_code = Native.code guarded in
+  let expected_unwind = Native.windows_unwind_info guarded in
+  let exported_code = Native.code guarded in
+  let exported_unwind = Native.windows_unwind_info guarded in
+  Bytes.fill
+    (Bytes.unsafe_of_string exported_code)
+    0
+    (String.length exported_code)
+    '\000';
+  Bytes.fill
+    (Bytes.unsafe_of_string exported_unwind)
+    0
+    (String.length exported_unwind)
+    '\255';
+  Alcotest.(check string)
+    "fault image code export is caller-immutable" expected_code
+    (Native.code guarded);
+  Alcotest.(check string)
+    "fault image unwind export is caller-immutable" expected_unwind
+    (Native.windows_unwind_info guarded);
+  let decoded =
+    Native.decode_runtime_status guarded ~kind:1L ~site:11L
+    |> require_ok Fun.id |> Option.get
+  in
+  Alcotest.(check int)
+    "immutable image still decodes original fault site" 10 decoded.position;
+  Alcotest.(check bool)
+    "immutable image retains status ABI" true
+    (Native.status_abi guarded = Some Native.Windows_x64);
+  let plain = returned 42L in
+  let baseline = image plain in
+  (match Native.decode_runtime_status baseline ~kind:0L ~site:0L with
+  | Ok None -> ()
+  | Ok (Some _) | Error _ -> Alcotest.fail "plain image rejected clean status");
+  Alcotest.(check bool)
+    "plain image rejects fabricated arithmetic status" true
+    (Result.is_error (Native.decode_runtime_status baseline ~kind:1L ~site:3L));
+  List.iter
+    (fun abi ->
+      let overridden = image ~status_abi:abi plain in
+      Alcotest.(check bool)
+        "plain image ignores an explicit status ABI" true
+        (Native.status_abi overridden = None);
+      Alcotest.(check string)
+        "plain image bytes remain unchanged" (Native.code baseline)
+        (Native.code overridden))
+    [ Native.Windows_x64; Native.System_v_x64 ]
+
+let divmod_limits () =
+  let simple = source_graph "84/2;" in
+  let baseline = image simple in
+  let ir = Native.ir_instructions baseline in
+  let bytes = String.length (Native.code baseline) in
+  Alcotest.(check int) "simple division keeps the five-node IR" 5 ir;
+  Alcotest.(check int)
+    "simple signed division counts capture, guards, two fault blocks and \
+     epilogue"
+    20
+    (Native.machine_instructions baseline);
+  Alcotest.(check int)
+    "simple signed division exact guarded image bytes" 114 bytes;
+  Alcotest.(check int)
+    "simple signed division peak is RAX/RCX/RDX plus private R11" 4
+    (Native.register_peak baseline);
+  Alcotest.(check int)
+    "simple division is register-only" 0
+    (Native.frame_bytes baseline);
+  let mnemonics = decoded_mnemonics (Native.code baseline) in
+  Alcotest.(check bool)
+    "simple division includes both fault stores" true
+    (List.mem "store-status-kind" mnemonics
+    && List.mem "store-status-site" mnemonics);
+  let exact =
+    compile ~max_ir_instructions:ir ~max_code_bytes:bytes ~max_stack_bytes:0
+      simple
+    |> require_ok native_errors
+  in
+  Alcotest.(check string)
+    "exact division quotas preserve the image" (Native.code baseline)
+    (Native.code exact);
+  ignore
+    (compile ~max_ir_instructions:(ir - 1) ~max_code_bytes:bytes
+       ~max_stack_bytes:0 simple
+    |> reject ~code:"HCBACK0001" "division one below exact IR quota");
+  ignore
+    (compile ~max_ir_instructions:ir ~max_code_bytes:(bytes - 1)
+       ~max_stack_bytes:0 simple
+    |> reject ~code:"HCBACK0005" "division one below exact code quota");
+  let pressured = divmod_pressure_graph () in
+  let pressured_baseline = image pressured in
+  let pressured_ir = Native.ir_instructions pressured_baseline in
+  let pressured_bytes = String.length (Native.code pressured_baseline) in
+  Alcotest.(check int)
+    "division pressure needs exactly one eight-byte slot" 8
+    (Native.frame_bytes pressured_baseline);
+  let windows_pressure = image ~status_abi:Native.Windows_x64 pressured in
+  let prologue =
+    decoded_mnemonics (Native.code windows_pressure)
+    |> List.filter (fun mnemonic ->
+        mnemonic = "alloc-stack"
+        || String.starts_with ~prefix:"capture-status" mnemonic)
+  in
+  Alcotest.(check bool)
+    "Windows spill prologue allocates seven bytes before capturing status" true
+    (match prologue with
+    | "alloc-stack" :: "capture-status-win" :: _ -> true
+    | _ -> false);
+  let windows_code = Native.code windows_pressure in
+  Alcotest.(check string)
+    "Windows status capture starts immediately after the seven-byte SUB \
+     prologue"
+    "4989cb"
+    (hex (String.sub windows_code 7 3));
+  let windows_mnemonics = decoded_mnemonics windows_code in
+  Alcotest.(check bool)
+    "all guarded exits share the frame release and terminal RET" true
+    (match List.rev windows_mnemonics with
+    | "ret" :: "free-stack" :: _ ->
+        List.length (List.filter (String.equal "ret") windows_mnemonics) = 1
+    | _ -> false);
+  Alcotest.(check string)
+    "fault-capable spill keeps the established unwind prologue offset seven"
+    "0107010007020000"
+    (hex (Native.windows_unwind_info windows_pressure));
+  let exact =
+    compile ~max_ir_instructions:pressured_ir ~max_code_bytes:pressured_bytes
+      ~max_stack_bytes:8 pressured
+    |> require_ok native_errors
+  in
+  Alcotest.(check string)
+    "exact guarded spill quotas preserve the image"
+    (Native.code pressured_baseline)
+    (Native.code exact);
+  ignore
+    (compile ~max_ir_instructions:(pressured_ir - 1)
+       ~max_code_bytes:pressured_bytes ~max_stack_bytes:8 pressured
+    |> reject ~code:"HCBACK0001" "guarded spill one below IR quota");
+  ignore
+    (compile ~max_ir_instructions:pressured_ir
+       ~max_code_bytes:(pressured_bytes - 1) ~max_stack_bytes:8 pressured
+    |> reject ~code:"HCBACK0005" "guarded spill one below code quota");
+  ignore
+    (compile ~max_ir_instructions:pressured_ir ~max_code_bytes:pressured_bytes
+       ~max_stack_bytes:7 pressured
+    |> reject ~code:"HCBACK0004" "guarded spill one below stack quota")
+
 let limits () =
   let checked = source_graph "6*7;" in
   let compiled = image checked in
@@ -2221,7 +2975,7 @@ let spill_lifetimes_and_preflight () =
     let _, final_value, tail = add_tail 9 0 [ 1; 2; 3; 4; 5; 6; 7 ] in
     single
       (definitions
-      @ [ binary 8 Opcode.Ic_div 0 1 ]
+      @ [ binary 8 Opcode.Ic_power 0 1 ]
       @ tail
       @ [ return_value 16 final_value; ret 17 ])
   in
@@ -2283,7 +3037,7 @@ let unsupported_source () =
         (List.exists
            (fun (error : Native.error) -> Option.is_some error.span)
            errors))
-    [ "1/0;"; "7%3;"; "2`3;"; "0&&(1/0);"; "1.0;" ];
+    [ "2`3;"; "0&&(2`3);"; "1||(2`3);"; "1.0;" ];
   List.iter
     (fun type_ ->
       ignore
@@ -2355,19 +3109,19 @@ let unsupported_graphs () =
     |> reject ~code:"HCBACK0002" "single-block self edge")
 
 let complete_preflight () =
-  let dead_division =
+  let dead_unsupported =
     single
       [
         imm 0 1L;
-        imm 1 0L;
-        binary 2 Opcode.Ic_div 0 1;
+        imm 1 2L;
+        binary 2 Opcode.Ic_power 0 1;
         imm 3 42L;
         return_value 4 3;
         ret 5;
       ]
   in
   let errors =
-    compile ~max_code_bytes:1 dead_division
+    compile ~max_code_bytes:1 dead_unsupported
     |> reject ~code:"HCBACK0002" "unused unsupported producer precedes emission"
   in
   Alcotest.(check bool)
@@ -2382,7 +3136,7 @@ let complete_preflight () =
   ignore
     (compile flagged |> reject ~code:"HCBACK0002" "known but nonzero IR flags");
   ignore
-    (compile ~max_ir_instructions:0 dead_division
+    (compile ~max_ir_instructions:0 dead_unsupported
     |> reject ~code:"HCBACK0001" "configuration precedes unsupported IR")
 
 let malformed_graphs () =
@@ -2560,6 +3314,66 @@ let shift_malformed () =
                (fun (error : Native.error) -> Option.is_some error.span)
                errors))
         [ "1.0<<2.0;"; "1.0>>2.0;" ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let divmod_malformed () =
+  let error_at label code position checked =
+    let errors = compile ~max_code_bytes:1 checked |> reject ~code label in
+    Alcotest.(check bool)
+      (label ^ " precedes byte planning at its own source")
+      true
+      (List.exists
+         (fun (error : Native.error) ->
+           error.span = Some (fixture_span position))
+         errors)
+  in
+  List.iter
+    (fun opcode ->
+      let checked =
+        single
+          [ imm 0 84L; imm 1 2L; binary 2 opcode 0 1; return_value 3 2; ret 4 ]
+      in
+      error_at
+        (Opcode.to_source_name opcode ^ " rejects nonzero flags")
+        "HCBACK0002" 2
+        (replace_instruction 2 (fun d -> { d with flags = 0x200L }) checked);
+      error_at
+        (Opcode.to_source_name opcode ^ " rejects an arithmetic payload")
+        "HCBACK0003" 2
+        (replace_instruction 2
+           (fun d -> { d with payload = Some (Sequence.Integer 1L) })
+           checked);
+      error_at
+        (Opcode.to_source_name opcode ^ " cannot promote I64 operands to U64")
+        "HCBACK0003" 2
+        (replace_instruction 2
+           (fun d -> { d with target_type = Some u64 })
+           checked);
+      error_at
+        (Opcode.to_source_name opcode ^ " mixed U64 divisor must promote result")
+        "HCBACK0003" 2
+        (single
+           [
+             imm 0 84L;
+             imm ~type_:u64 1 2L;
+             binary 2 opcode 0 1;
+             return_value 3 2;
+             ret 4;
+           ]))
+    [ Opcode.Ic_div; Opcode.Ic_mod ];
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source ->
+          let checked = source_graph ~mode source in
+          let errors = compile checked |> reject ~code:"HCBACK0002" source in
+          Alcotest.(check bool)
+            (source ^ " rejects F64 at its original source span")
+            true
+            (List.exists
+               (fun (error : Native.error) -> Option.is_some error.span)
+               errors))
+        [ "1.0/2.0;"; "1.0%2.0;" ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 (* The two expected truth columns describe nonzero/nonzero and nonzero/zero.
@@ -3339,14 +4153,14 @@ let logical_malformed () =
              ret 6;
            ]))
     logical_operations;
-  preflight_error_at "unused division after logical preparation still rejects"
+  preflight_error_at "unused power after logical preparation still rejects"
     "HCBACK0002" 3
     (single
        [
          imm 0 2L;
          imm 1 4L;
          binary 2 Opcode.Ic_and_and 0 1;
-         binary 3 Opcode.Ic_div 0 1;
+         binary 3 Opcode.Ic_power 0 1;
          return_value 4 2;
          ret 5;
        ])
@@ -3423,8 +4237,8 @@ let logical_source_boundaries () =
                      && e.primary.stop <= String.length contents)
                    errors))
         [
-          ("0&&(1/0);", "HCBACK0002");
-          ("1||(1/0);", "HCBACK0002");
+          ("0&&(2`3);", "HCBACK0002");
+          ("1||(2`3);", "HCBACK0002");
           ("0^^(2`3);", "HCBACK0002");
           ("1.0&&1;", "HCBACK0002");
           ("1||1.0;", "HCBACK0002");
@@ -3443,6 +4257,8 @@ let tests =
       `Quick encoder_extended_register_bytes;
     Alcotest.test_case "CL shift encoder bytes cover all volatile registers"
       `Quick encoder_shift_bytes;
+    Alcotest.test_case "DIV/IDIV guards and private-status encoder bytes" `Quick
+      encoder_divmod_status_bytes;
     Alcotest.test_case
       "high-register sharing preserves subtraction and duplicates" `Quick
       high_register_shared_bytes;
@@ -3463,6 +4279,14 @@ let tests =
       `Quick shift_shared_allocation;
     Alcotest.test_case "shift exact budgets and RCX spill pressure" `Quick
       shift_limits_and_pressure;
+    Alcotest.test_case "division/remainder source classes and guard ordering"
+      `Quick divmod_source_types_and_guards;
+    Alcotest.test_case "division/remainder fixed-register aliases and spills"
+      `Quick divmod_shared_allocation;
+    Alcotest.test_case "division/remainder status metadata and ABI contracts"
+      `Quick divmod_status_metadata;
+    Alcotest.test_case "guarded division exact IR, code and frame budgets"
+      `Quick divmod_limits;
     Alcotest.test_case "exact IR and machine-code budgets" `Quick limits;
     Alcotest.test_case "seven-register pressure boundary" `Quick pressure;
     Alcotest.test_case "compiled bytes have no mutable getter aliases" `Quick
@@ -3479,6 +4303,8 @@ let tests =
       `Quick invalid_type_relationships;
     Alcotest.test_case "shift flags, payloads, types and F64 domains reject"
       `Quick shift_malformed;
+    Alcotest.test_case "division flags, payloads, types and F64 domains reject"
+      `Quick divmod_malformed;
     Alcotest.test_case "predicate encoder condition and byte-register goldens"
       `Quick encoder_predicate_bytes;
     Alcotest.test_case "stack encoder bytes and bounded constructors" `Quick

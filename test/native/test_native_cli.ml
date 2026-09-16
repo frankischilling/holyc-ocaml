@@ -23,10 +23,11 @@ let with_file suffix contents action =
 
 let compiler =
   require
-    (Array.length Sys.argv = 7)
+    (Array.length Sys.argv = 8)
     "usage: test_native_cli.exe <holyc.exe> <native-integer-expression.hc> \
      <native-integer-predicates.hc> <native-integer-logical.hc> \
-     <native-integer-spills.hc> <native-integer-shifts.hc>";
+     <native-integer-spills.hc> <native-integer-shifts.hc> \
+     <native-integer-divmod.hc>";
   Sys.argv.(1)
 
 let invoke arguments =
@@ -459,6 +460,21 @@ let check_diagnostic ~source ~code report =
     "source failure must retain the input path and valid source location";
   diagnostic
 
+let check_diagnostic_at ~source ~code ~start ~stop ~column report =
+  let diagnostic = check_diagnostic ~source ~code report in
+  let primary = member "primary" diagnostic in
+  require
+    (integer "line" primary = 1
+    && integer "column" primary = column
+    && integer "start" primary = start
+    && integer "stop" primary = stop)
+    (Printf.sprintf
+       "%s must retain exact source operator span %d..%d at line 1 column %d: \
+        %s"
+       code start stop column
+       (Yojson.Safe.to_string primary));
+  diagnostic
+
 let spill_frames () =
   List.iter
     (fun mode ->
@@ -564,6 +580,111 @@ let shift_values () =
         "shift fixture must match the 16-step U64 baseline VM result")
     [ "jit"; "aot" ]
 
+let divmod_values () =
+  List.iter
+    (fun mode ->
+      let fixture = native_json ~mode 0 Sys.argv.(7) in
+      check_success fixture;
+      check_word fixture "U64" "42" "0x000000000000002a";
+      check_limits fixture 4096 65536;
+      let stdout, stderr =
+        checked_invoke 0 [ "eval-native"; "--mode=" ^ mode; Sys.argv.(7) ]
+      in
+      require
+        (String.trim stdout = "42" && stderr = "")
+        "division/remainder fixture returns U64 42 through the public native \
+         command";
+      let stdout, stderr =
+        checked_invoke 0
+          [ "eval"; "--format=json"; "--mode=" ^ mode; Sys.argv.(7) ]
+      in
+      require (stderr = "") "division/remainder fixture baseline VM diagnostics";
+      let report = Yojson.Safe.from_string stdout in
+      check_keys "division/remainder fixture baseline VM"
+        [ "schema"; "reference_commit"; "word_type"; "word"; "executed_steps" ]
+        report;
+      require
+        (string "schema" report = "holyc-integer-expression-v1"
+        && string "reference_commit" report = reference_commit
+        && string "word_type" report = "U64"
+        && string "word" report = "42"
+        && integer "executed_steps" report = 19)
+        "division/remainder fixture must match the 19-step U64 baseline VM \
+         result")
+    [ "jit"; "aot" ]
+
+let arithmetic_faults () =
+  let cases =
+    [
+      ("signed division by zero", "7/0;", "HCNATIVE0004", 1, 2, 2);
+      ("signed remainder by zero", "7%0;", "HCNATIVE0004", 1, 2, 2);
+      ( "unsigned division by zero",
+        "0x8000000000000000/0;",
+        "HCNATIVE0004",
+        18,
+        19,
+        19 );
+      ( "unsigned remainder by zero",
+        "0x8000000000000000%0;",
+        "HCNATIVE0004",
+        18,
+        19,
+        19 );
+      ( "signed division overflow",
+        "0x8000000000000000(I64i)/-1;",
+        "HCNATIVE0005",
+        24,
+        25,
+        25 );
+      ( "signed remainder overflow",
+        "0x8000000000000000(I64i)%-1;",
+        "HCNATIVE0005",
+        24,
+        25,
+        25 );
+      ("computed zero divisor", "7/(3-3);", "HCNATIVE0004", 1, 2, 2);
+      ("first reached arithmetic site", "84/2+7/0+1/0;", "HCNATIVE0004", 6, 7, 7);
+      ("eager logical AND operand", "0&&(1/0);", "HCNATIVE0004", 5, 6, 6);
+      ("eager logical OR operand", "1||(1/0);", "HCNATIVE0004", 5, 6, 6);
+    ]
+  in
+  List.iter
+    (fun (label, text, code, start, stop, column) ->
+      with_file ".hc" text (fun source ->
+          List.iter
+            (fun mode ->
+              let report = native_json ~mode 1 source in
+              check_limits report 4096 65536;
+              ignore
+                (check_diagnostic_at ~source ~code ~start ~stop ~column report))
+            [ "jit"; "aot" ];
+          ignore label))
+    cases;
+  List.iter
+    (fun (text, code, column) ->
+      with_file ".hc" text (fun source ->
+          List.iter
+            (fun mode ->
+              let stdout, stderr =
+                checked_invoke 1 [ "eval-native"; "--mode=" ^ mode; source ]
+              in
+              require
+                (stdout = ""
+                && contains stderr ("error[" ^ code ^ "]")
+                && contains stderr (Filename.basename source)
+                && contains stderr (Printf.sprintf ":1:%d:" column))
+                (Printf.sprintf
+                   "%s human arithmetic fault must retain code and exact \
+                    source column\n\
+                    stdout: %s\n\
+                    stderr: %s"
+                   mode stdout stderr))
+            [ "jit"; "aot" ]))
+    [
+      ("7/0;", "HCNATIVE0004", 2);
+      ("0x8000000000000000(I64i)%-1;", "HCNATIVE0005", 25);
+    ]
+
 let unsupported_sources () =
   List.iter
     (fun (text, code) ->
@@ -584,21 +705,18 @@ let unsupported_sources () =
       ("~2.0;", "HCEVAL0002");
       ("1.0;", "HCBACK0002");
       ("6.0*7.0;", "HCBACK0002");
-      ("6/2;", "HCBACK0002");
-      ("1/0;", "HCBACK0002");
-      ("7%2;", "HCBACK0002");
-      ("0x8000000000000000/2;", "HCBACK0002");
-      ("0x8000000000000000%3;", "HCBACK0002");
-      ("0&&(1/0);", "HCBACK0002");
-      ("1||(1/0);", "HCBACK0002");
-      ("1^^(0x8000000000000000/2);", "HCBACK0002");
+      ("2`3;", "HCBACK0002");
+      ("0&&(2`3);", "HCBACK0002");
+      ("1||(2`3);", "HCBACK0002");
+      ("1^^(2`3);", "HCBACK0002");
+      ("0&&((1/0)+(2`3));", "HCBACK0002");
       ("1==2<3==1;", "HCEVAL0002");
       ("1!=2>=3!=1;", "HCEVAL0002");
       ("!1.0;", "HCBACK0002");
       ("(6*);", "HCPARSE0018");
       ("6*7", "HCPARSE0047");
     ];
-  with_file ".hc" "6/2;" (fun source ->
+  with_file ".hc" "2`3;" (fun source ->
       let stdout, stderr = checked_invoke 1 [ "eval-native"; source ] in
       require
         (stdout = ""
@@ -894,6 +1012,8 @@ let () =
   logical_values ();
   spill_frames ();
   shift_values ();
+  divmod_values ();
+  arithmetic_faults ();
   unsupported_sources ();
   budgets ();
   exact_image_budgets ();

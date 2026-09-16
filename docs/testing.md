@@ -1,12 +1,24 @@
 # Testing holyc-ocaml
 
+Native division/remainder tests pin `DIV`, `IDIV`, `CQO`, RDX clearing, rel32
+guards and private status stores independently of native execution. Source and
+IR matrices cover signed/unsigned promotion, high-bit words, shared and fixed
+register inputs, one-slot spill pressure, signed and unsigned zero divisors for
+both quotient and remainder, and signed `MIN/-1` overflow for both operations.
+Actual execution includes 392
+independent full-bit boundary cases plus deterministic high-pressure sources in
+both preprocessing modes. Repeated fault/success calls check fresh C status and
+stack restoration; API tests reject foreign ABIs and malformed status; CLI tests
+pin fault codes and original operator spans. Windows unwind tests cover
+fault-capable frameless and framed images.
+
 Native shift tests cover the three qword CL encodings across all seven value
 registers, six-bit count boundaries, signed/unsigned and mixed computation
 classes, left-shift wraparound and full result bits. Allocation cases preserve
 an RCX-resident left operand, a count already in RCX, unrelated live RCX owners,
 shared/duplicate operands and spilled inputs. Actual native differential
-execution and the public shift fixture run in both modes; unsupported division,
-dead operations, wrong types/flags and exact resource limits retain controls.
+execution and the public shift fixture run in both modes; dead operations,
+wrong types/flags and exact resource limits retain controls.
 
 The `retained named aggregate` groups cover #650's original Class selection,
 same-name replacement, public-type-spelling shadows, retained source children,

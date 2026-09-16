@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Added guarded native integer division and remainder. Signed operands execute
+  `IDIV` after zero and `INT64_MIN/-1` guards; unsigned operands clear RDX and
+  execute `DIV`. Fault-capable images reserve R11 for a private ABI-tagged status
+  pointer, preserve live RAX/RCX/RDX owners through moves or bounded spills, and
+  route fault sites through the ordinary frame epilogue. The host bridge tears
+  down unwind registration and executable mappings before returning typed fault
+  status to OCaml. Added exact encoder/guard/status bytes, source and full-bit
+  differential cases, spill/fixed-register pressure, fault freshness, ABI and
+  malformed-status controls, unwind coverage, exact resource limits, and public
+  JIT/AOT CLI success/fault tests.
+
 - Added native integer left and right shifts. Counts use their low six bits,
   and the promoted computation class selects arithmetic SAR or logical SHR.
   Fixed-RCX allocation preserves shared operands and live values through the

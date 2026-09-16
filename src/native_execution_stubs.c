@@ -64,19 +64,26 @@ static void native_windows_mapping_error(void *mapping, const char *operation,
 }
 #endif
 
-CAMLprim value holyc_native_execute_image(value code, value unwind)
+CAMLprim value holyc_native_execute_image(value code, value unwind, value abi)
 {
-  CAMLparam2(code, unwind);
+  CAMLparam3(code, unwind, abi);
 #if HOLYC_NATIVE_PLATFORM == 0
   caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
 #else
+  CAMLlocal4(result, boxed_bits, boxed_kind, boxed_site);
   const mlsize_t length = caml_string_length(code);
   const mlsize_t unwind_length = caml_string_length(unwind);
+  const intnat abi_code = Long_val(abi);
   void *mapping;
-  uint64_t (*entry)(void);
+  uint64_t (*entry)(uint64_t *);
+  uint64_t status[2] = {0, 0};
   uint64_t bits;
-  int64_t signed_bits;
+  int64_t signed_bits, signed_kind, signed_site;
 
+  /* Zero denotes an ABI-neutral image that does not use the argument. Repeat
+     the ML-side check here before any executable-memory operation. */
+  if (abi_code != 0 && abi_code != HOLYC_NATIVE_PLATFORM)
+    caml_invalid_argument("native image status ABI does not match this process");
   /* This is a host allocation bound, independent of the OCaml image's tighter
      caller-selected code quota. No arbitrary byte executor is exported in ML. */
   if (length == 0 || length > 16u * 1024u * 1024u)
@@ -147,11 +154,13 @@ CAMLprim value holyc_native_execute_image(value code, value unwind)
   __builtin___clear_cache((char *)mapping, (char *)mapping + length);
 #endif
 
-  /* The checked image uses only common volatile registers and its bounded
-     private spill frame. Keep the OCaml runtime lock: it cannot call OCaml,
-     block, loop or allocate host objects. */
+  /* Fault-capable images reserve volatile R11 for this private status pointer.
+     ABI-neutral images ignore the extra argument and retain their old bytes.
+     Guards and status writes are generated in OCaml; this boundary does not
+     interpret the expression or recover arbitrary hardware exceptions. Keep
+     the runtime lock: the image cannot call OCaml, block or loop. */
   memcpy(&entry, &mapping, sizeof(entry));
-  bits = entry();
+  bits = entry(status);
 
 #if HOLYC_NATIVE_PLATFORM == 1
   if (function_table != NULL && !RtlDeleteFunctionTable(function_table))
@@ -165,7 +174,18 @@ CAMLprim value holyc_native_execute_image(value code, value unwind)
 
   /* Do not narrow through C long, an OCaml int, a JSON number or an exit code. */
   memcpy(&signed_bits, &bits, sizeof(signed_bits));
-  CAMLreturn(caml_copy_int64(signed_bits));
+  memcpy(&signed_kind, &status[0], sizeof(signed_kind));
+  memcpy(&signed_site, &status[1], sizeof(signed_site));
+  /* The mapping and its function table are gone before the first allocation,
+     including on the checked arithmetic-fault path. */
+  boxed_bits = caml_copy_int64(signed_bits);
+  boxed_kind = caml_copy_int64(signed_kind);
+  boxed_site = caml_copy_int64(signed_site);
+  result = caml_alloc_tuple(3);
+  Store_field(result, 0, boxed_bits);
+  Store_field(result, 1, boxed_kind);
+  Store_field(result, 2, boxed_site);
+  CAMLreturn(result);
 #endif
   CAMLreturn(Val_unit); /* unreachable on the unsupported host path */
 }

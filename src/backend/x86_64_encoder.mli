@@ -2,6 +2,7 @@ type register = Rax | Rcx | Rdx | R8 | R9 | R10 | R11
 type unary = Neg | Not
 type binary = Add | Sub | Imul | And | Or | Xor
 type shift = Shl | Shr | Sar
+type status_abi = Windows_x64 | System_v_x64
 type stack_slot
 type stack_frame
 
@@ -34,6 +35,27 @@ type instruction =
           logical right shift, and [Sar] arithmetic right shift. The count is
           read from RCX implicitly; the destination may be any public register.
       *)
+  | Capture_status of status_abi
+      (** Copy the ABI's first pointer argument into private R11. Windows x64
+          reads RCX; System V x86-64 reads RDI. RDI is not a general allocator
+          register. *)
+  | Zero_edx
+      (** Clear EDX with XOR EDX,EDX, which also clears the full RDX value. *)
+  | Cqo  (** Sign-extend RAX into RDX:RAX before signed division. *)
+  | Div_rcx
+      (** Unsigned divide RDX:RAX by RCX. Quotient is RAX, remainder RDX. *)
+  | Idiv_rcx
+      (** Signed divide RDX:RAX by RCX. Quotient is RAX, remainder RDX. *)
+  | Cmp_imm8 of register * int
+      (** Compare a full-width register with a sign-extended signed imm8. *)
+  | Jump of int64
+  | Jump_equal of int64
+  | Jump_not_equal of int64
+      (** Signed rel32 displacement from the end of this instruction. *)
+  | Store_status_kind of int
+  | Store_status_site of int
+      (** Private stores through R11 only. Kinds are 1..2 and sites 1..100000;
+          both use the qword C7 imm32 form at displacements zero/eight. *)
   | Cmp of register * register
       (** [Cmp (left, right)] sets flags for the full-width subtraction
           [left - right] without changing either register. *)
@@ -74,7 +96,9 @@ val size : instruction -> int
     is always three bytes (REX.W with REX.B when needed, D3, ModR/M). [Setcc]
     uses three bytes for AL/CL/DL and four for R8b through R11b. Stack
     loads/stores always use an eight-byte fixed-disp32 SIB form; stack
-    allocation/free always use seven-byte imm32 forms. *)
+    allocation/free always use seven-byte imm32 forms. Relative branches use
+    fixed rel32 forms; status stores are always eight bytes. Invalid immediate,
+    branch or private-status operands raise [Invalid_argument]. *)
 
 val encode : instruction -> string
 (** Encode one instruction into a fresh string using the pinned opcode facts. *)

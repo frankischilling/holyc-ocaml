@@ -6,7 +6,8 @@ type result = { image : Image.t; bits : int64; platform : Native.platform }
 let ( let* ) = Result.bind
 
 let compile ?(max_ir_instructions = 4096) ?(max_code_bytes = 65536)
-    ?(max_stack_bytes = Image.hard_max_stack_bytes) session ~config ~source =
+    ?(max_stack_bytes = Image.hard_max_stack_bytes) ?status_abi session ~config
+    ~source =
   let span = Integer_source.source_span source in
   let errors =
     List.map (fun (error : Image.error) ->
@@ -22,18 +23,29 @@ let compile ?(max_ir_instructions = 4096) ?(max_code_bytes = 65536)
     Image.validate_stack_limit ~max_stack_bytes |> Result.map_error errors
   in
   let* graph = Integer_expression.lower session ~config ~source in
-  Image.compile ~max_ir_instructions ~max_code_bytes ~max_stack_bytes graph
+  Image.compile ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
+    ?status_abi graph
   |> Result.map_error errors
 
-let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes session
-    ~config ~source =
+let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?status_abi
+    session ~config ~source =
   let* image =
-    compile ?max_ir_instructions ?max_code_bytes ?max_stack_bytes session
-      ~config ~source
+    compile ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?status_abi
+      session ~config ~source
   in
   let platform = Native.platform () in
-  match Native.execute image with
-  | Ok bits -> Ok { image; bits; platform }
+  match Native.execute_detailed image with
+  | Ok (Native.Returned bits) -> Ok { image; bits; platform }
+  | Ok (Native.Fault fault) ->
+      let error = Image.arithmetic_fault_error fault in
+      Error
+        [
+          Integer_source.diagnostic
+            ~span:
+              (Option.value error.span
+                 ~default:(Integer_source.source_span source))
+            error.code error.message;
+        ]
   | Error message ->
       Error
         [

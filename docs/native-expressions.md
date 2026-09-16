@@ -12,6 +12,7 @@ opam exec -- dune exec --root . -- bin/holyc.exe eval-native --format=json examp
 opam exec -- dune exec --root . -- bin/holyc.exe eval-native --format=json examples/native-integer-logical.hc
 opam exec -- dune exec --root . -- bin/holyc.exe eval-native --stack-byte-limit=8 --format=json examples/native-integer-spills.hc
 opam exec -- dune exec --root . -- bin/holyc.exe eval-native --format=json examples/native-integer-shifts.hc
+opam exec -- dune exec --root . -- bin/holyc.exe eval-native --format=json examples/native-integer-divmod.hc
 ```
 
 The fixture contains `(6*7);`. It lowers to five IR instructions and emits
@@ -49,15 +50,21 @@ It has 16 IR instructions and emits 107 bytes in 20 machine instructions, with
 a peak of four registers and no stack frame. The byte count includes all six
 register transports needed by the three CL-based shifts.
 
+The division/remainder fixture returns U64 42 after signed and unsigned quotient
+and remainder operations. It has 19 IR instructions and emits 384 bytes in 71
+machine instructions, with a peak of five registers and no stack frame. Each
+arithmetic site is guarded before `DIV`/`IDIV`; fault blocks and the shared
+return epilogue remain part of the planned image even on a successful call.
+
 ## Supported domain
 
 After preprocessing, the input must be exactly one ordinary expression
 statement. Parentheses and unary plus retain the existing lowering behavior.
 The native compiler admits internal I64/U64 literals, unary minus, bitwise
-complement, addition, subtraction, multiplication, bitwise AND, OR and XOR,
-left and right shifts (`<<`, `>>`), the six comparisons (`==`, `!=`, `<`, `>=`,
-`>`, `<=`), logical NOT (`!`),
-and eager logical AND, OR and XOR (`&&`, `||`, `^^`).
+complement, addition, subtraction, multiplication, division, remainder,
+bitwise AND, OR and XOR, left and right shifts (`<<`, `>>`), the six comparisons
+(`==`, `!=`, `<`, `>=`, `>`, `<=`), logical NOT (`!`), and eager logical AND,
+OR and XOR (`&&`, `||`, `^^`).
 Arithmetic retains the low 64 bits. Declared result type and intermediate
 computation class remain distinct: complement returns I64 but may retain an
 unsigned computation class consumed by its parent operation.
@@ -98,12 +105,12 @@ The verified IR must contain one entry block with no graph edges, zero flags,
 and exactly one final `IC_RETURN_VAL`, `IC_RET` pair. Every instruction is
 preflighted, including unused producers. Narrow/public primitive producers,
 general conversions, floating point, pointers, memory, declarations, calls,
-branches, division, remainder and conditional comparison chains
-remain outside this native gate.
-They receive diagnostics from their first unsupported source or IR stage.
-Division and remainder interpretation remain available through `eval`.
-Their native fault protocol and optimizer policy remain separate work in #585;
-native shift execution does not establish the TempleOS optimizer policy in #574.
+source control-flow branches and conditional comparison chains remain outside
+this native gate. They receive diagnostics from their first unsupported source
+or IR stage. Native division and remainder implement the checked raw IR
+semantics; the distinct TempleOS strength-reduction and fault-phase optimizer
+policy remains separate work in #585. Native shift execution likewise does not
+establish the constant-form optimizer policy in #574.
 The only admitted cast form is a full-width internal I64/U64 word view with
 `IC_HOLYC_TYPECAST`, integer payload zero and zero flags. It preserves all bits
 and selects the target computation class. The internal source spellings
@@ -117,9 +124,11 @@ checked word-view instruction does not give arbitrary source or byte data
 execution authority.
 
 The allocator uses only RAX, RCX, RDX and R8 through R11, which are volatile
-in both supported host conventions. It reuses registers after their final
-operand use and preserves shared/duplicate values. When all seven registers
-are occupied, it can store an unprotected live value in a private qword slot,
+in both supported host conventions. Ordinary images have seven value registers;
+images containing division or remainder reserve R11 for status and have six.
+It reuses registers after their final operand use and preserves shared/duplicate
+values. When the available registers are occupied, it can store an unprotected
+live value in a private qword slot,
 then reload it when needed. Current operands and working registers remain
 protected during eviction. Slot storage is reused after a reload; the original
 producer is never rerun. Expressions that fit in registers keep their existing
@@ -158,6 +167,19 @@ seven live IR values. Every move, store and reload counts toward the same frame,
 register-peak and code-size limits as other operations. Existing expressions
 without shifts retain their previous code bytes.
 
+Division and remainder constrain RAX to the dividend/quotient, RCX to the
+divisor and RDX to the high dividend/remainder only around that operation.
+Fault-capable images reserve volatile R11 for a private status pointer, so live
+owners of the three arithmetic registers are moved or spilled before staging.
+Both signed and unsigned division and remainder check the divisor for zero
+before entering hardware division. Signed operations additionally check
+RAX=`INT64_MIN`, RCX=-1 before `CQO` and `IDIV`; remainder uses the same overflow
+guard because x86-64 executes the same `IDIV`. Unsigned operations clear EDX
+before `DIV`. Reached
+faults branch to an image-owned block that writes a bounded kind/site pair and
+then joins the shared stack-restoring epilogue. No signal/SEH fault recovery is
+used, and these internal guard branches do not authorize source control flow.
+
 ## API and limits
 
 `Holyc_lib.Native_expression.compile` reuses `Integer_expression.lower` and
@@ -165,7 +187,11 @@ returns an opaque `X86_64_expression.t`. It does not allocate executable
 memory. `Native_expression.evaluate` compiles and executes, returning the
 image, all 64 result bits and the selected platform. Low-level callers can
 compile an `Ir_x87_stack.t` with `X86_64_expression.compile`, then explicitly
-call `Native_execution.execute` with the checked image.
+call `Native_execution.execute` with the checked image. The detailed
+`Native_execution.execute_detailed` path distinguishes a returned word from a
+checked arithmetic fault. Fault-capable images expose their required private
+status ABI as `Windows_x64` or `System_v_x64`; ordinary images report no status
+ABI and retain their legacy bytes even if a compile override is supplied.
 
 `X86_64_expression.code` and `windows_unwind_info` return fresh string copies.
 Changing an exported byte string cannot change a later execution. The latter
@@ -193,6 +219,10 @@ requires four and 21. Both have exact-limit and one-below API/CLI controls.
 Each simple two-literal logical value requires five IR instructions, 44 code
 bytes and ten machine instructions. Its exact-limit and one-below tests also
 check the literal emitted bytes, independently of the encoder's size reports.
+A simple signed `84/2` keeps the five-node IR and produces a 114-byte,
+20-machine-instruction guarded image with no frame; exact and one-below IR/code
+limits include status capture, both fault blocks and their rel32 branches.
+High-pressure division has the same exact/one-below frame checks as other spills.
 
 | Diagnostic | Meaning |
 | --- | --- |
@@ -202,8 +232,10 @@ check the literal emitted bytes, independently of the encoder's size reports.
 | HCBACK0004 | Register pressure requires more private frame bytes than allowed |
 | HCBACK0005 | Emitted code exceeds the byte limit |
 | HCNATIVE0001 | Unsupported execution platform |
-| HCNATIVE0002 | Native allocation, protection, cache, unwind registration or teardown failure |
+| HCNATIVE0002 | Foreign status ABI, invalid native status, or allocation, protection, cache, unwind registration or teardown failure |
 | HCNATIVE0003 | CLI source-loading or preprocessor-configuration failure |
+| HCNATIVE0004 | Reached native division/remainder with a zero divisor |
+| HCNATIVE0005 | Reached signed `INT64_MIN/-1` division/remainder overflow |
 
 Existing lexer/parser/semantic/lowering diagnostics retain their codes and
 source locations. Cmdliner argument errors, including an absent input path,
@@ -218,8 +250,13 @@ copies the completed image, changes pages to read/execute, synchronizes the
 instruction cache, calls the generated expression, and releases the mapping before allocating
 the OCaml return box. Linux additionally refuses `READ_IMPLIES_EXEC`, which
 would invalidate the non-executable writable phase. OS failures are returned
-as errors; they do not silently invoke the interpreter. All compilation,
-instruction selection and byte encoding stay in OCaml.
+as errors; they do not silently invoke the interpreter. Fault-capable entry
+points receive a private two-word zeroed status buffer using the declared host
+ABI. After entry, the bridge removes unwind state and releases the executable
+mapping before allocating OCaml values for the returned bits/kind/site. OCaml
+accepts status only when its kind and bounded site match metadata owned by the
+opaque compiled image. All compilation, instruction selection, guard planning,
+status decoding and byte encoding stay in OCaml.
 
 For a Windows frame, OCaml also emits the version-one unwind record describing
 the fixed stack adjustment. The bridge copies that record and its aligned
@@ -278,7 +315,10 @@ RSP SIB form. `OptPass6.HC:28-94,96-185` records stack temporaries and their
 register consumers. The reusable-slot allocator is a hosted implementation,
 not a reproduction of TempleOS's optimization passes.
 
-The Windows obligations come from Microsoft's
+The host ABI obligations come from Microsoft's
+[x64 calling convention](https://learn.microsoft.com/en-us/cpp/build/x64-calling-convention)
+and the [System V x86-64 psABI](https://gitlab.com/x86-psABIs/x86-64-ABI).
+Windows unwind obligations additionally come from Microsoft's
 [x64 unwind format](https://learn.microsoft.com/en-us/cpp/build/exception-handling-x64),
 [prologue and epilogue rules](https://learn.microsoft.com/en-us/cpp/build/prolog-and-epilog),
 [dynamic registration](https://learn.microsoft.com/en-us/windows/win32/api/winnt/nf-winnt-rtladdfunctiontable)
@@ -292,6 +332,15 @@ the left/right shift consumers. This implementation consistently uses the CL
 form, including literal counts, and preserves the existing low-six-bit runtime
 semantics. It does not claim the immediate-form or constant-folding optimizer
 behavior tracked separately in #574.
+
+Issue #654 consumes `BackA.HC:355-370,425-440` for fixed division operands and
+results, `BackLib.HC:404-411` for RDX zeroing, and `OpCodes.DD:284,365,496,584,
+608,612,708,713,780` for private qword stores, comparisons, rel32 guard branches,
+`DIV`, `IDIV` and `CQO`. The hosted selector uses those forms after full IR
+preflight and preserves the interpreter's promoted signed/unsigned class. The
+private R11 status pointer and its Windows/System V capture are host-boundary
+mechanics, not TempleOS language semantics. Strength reductions and native fault
+phase parity remain tracked in #585.
 
 `test/test_native_expression.ml` runs under ordinary `dune runtest` without
 entering native code. It checks exact bytes, source/type rules, sharing,
@@ -321,9 +370,13 @@ temporary-register exhaustion and both preprocessing modes. Chain regressions
 also run through the ordinary interpreter and function-call paths. Comparing
 native results only against the same faulty lowerer would miss the original
 COM regression, so its zero result is checked as a literal expectation.
-Spill coverage adds high-pressure arithmetic, predicates and logical values,
-shared/duplicate operands, reusable slots and exact/one-below frame and code
-limits. The maintained spill fixture runs through the public CLI in both
+Division/remainder coverage adds independent full-bit signed/unsigned boundary
+expectations, exact guard/status bytes, shared and fixed-register operands,
+zero/overflow sites, malformed-status and foreign-ABI rejection, repeated
+fault/success freshness, spill cleanup, deterministic high-pressure sources and
+public CLI diagnostics in both modes. Spill coverage adds high-pressure
+arithmetic, predicates and logical values, shared/duplicate operands, reusable
+slots and exact/one-below frame and code limits. The maintained spill fixture runs through the public CLI in both
 modes. `test/native/test_native_unwind.ml` checks generated records and uses a
 Windows-only C probe to run `RtlVirtualUnwind` over a synthetic caller context.
 That probe does not execute arbitrary bytes; it independently checks stack,
