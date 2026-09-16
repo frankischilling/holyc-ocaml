@@ -2548,6 +2548,18 @@ let stored_type type_ =
   | None ->
       Option.map (fun scalar -> Stored_narrow scalar) (Scalar.of_type type_)
 
+let frame_stored_type type_ =
+  match stored_type type_ with
+  | Some _ as stored -> stored
+  | None -> (
+      (* A checked aggregate pointer occupies one ordinary pointer slot even
+         before the pointee has a runtime layout. This admits only frame
+         storage; scalar_pointer_type still controls memory operations. *)
+      match Type.base type_ with
+      | Type.Aggregate _ when Type.pointer_depth type_ > 0 ->
+          Some (Stored_pointer type_)
+      | _ -> None)
+
 let stored_bytes = function
   | Stored_narrow scalar -> Scalar.byte_size scalar
   | Stored_word _ | Stored_pointer _ -> 8
@@ -2728,7 +2740,9 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
     List.iter
       (fun location ->
         let dimensions = Frame.location_dimensions location in
-        let storage_kind = stored_type (Frame.location_checked_type location) in
+        let storage_kind =
+          frame_stored_type (Frame.location_checked_type location)
+        in
         let allocation_bytes object_bytes =
           if
             Frame.location_kind location = Frame.Named_parameter

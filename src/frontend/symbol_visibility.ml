@@ -48,6 +48,7 @@ type entry = {
   name : string;
   kind : kind;
   origin : origin;
+  public_primitive : Common.Primitive_type.t option;
   function_call_shape : function_call_shape option;
   alias_original : entry option;
 }
@@ -56,6 +57,7 @@ let id entry = entry.id
 let name entry = entry.name
 let kind entry = entry.kind
 let origin entry = entry.origin
+let public_primitive entry = entry.public_primitive
 let function_call_shape entry = entry.function_call_shape
 let function_alias_original entry = entry.alias_original
 
@@ -179,7 +181,7 @@ module Environment = struct
     Fun.protect ~finally:(fun () -> environment.local_contexts <- contexts) run
 
   let add_entry ?(origin = Session_registration) ?function_call_shape
-      ?alias_original environment ~name ~kind () =
+      ?alias_original ?public_primitive environment ~name ~kind () =
     if String.length name = 0 then invalid_arg "symbol name cannot be empty";
     if Option.is_some function_call_shape && kind <> Function then
       invalid_arg "only function symbols may carry a function call shape";
@@ -192,6 +194,7 @@ module Environment = struct
         name;
         kind;
         origin;
+        public_primitive;
         function_call_shape;
         alias_original;
       }
@@ -208,6 +211,13 @@ module Environment = struct
 
   let add ?origin ?function_call_shape environment ~name ~kind () =
     add_entry ?origin ?function_call_shape environment ~name ~kind ()
+
+  let add_public_primitive environment ~primitive ~origin =
+    let info = Common.Primitive_type.info primitive in
+    if info.declaration_form <> Common.Primitive_type.Public_union then
+      invalid_arg "public primitive registration requires a pinned public union";
+    add_entry ~origin ~public_primitive:primitive environment
+      ~name:info.spelling ~kind:Class ()
 
   let validate_function_alias environment ~original_entry =
     if original_entry.kind <> Function then
@@ -282,6 +292,12 @@ module Environment = struct
           with
           | Some entry -> Present entry
           | None -> Absent)
+
+  let find_class environment name =
+    Option.bind
+      (Hashtbl.find_opt environment.store.entries_by_name name)
+      (List.find_opt (fun entry ->
+           visible environment entry && entry.kind = Class))
 
   let all environment =
     List.rev environment.store.entries_rev |> List.filter (visible environment)

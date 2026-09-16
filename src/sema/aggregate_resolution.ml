@@ -3,6 +3,7 @@ type declaration_kind = Forward | Definition
 
 type declaration = {
   symbol : Symbol.t;
+  identity_symbol : Symbol.t option;
   declaration_kind : declaration_kind;
   aggregate_kind : aggregate_kind;
   item_index : int;
@@ -57,12 +58,32 @@ let declaration_kind_name = function
   | Forward -> "forward"
   | Definition -> "definition"
 
-let make_declaration ~symbol ~declaration_kind ~aggregate_kind ~item_index =
+let make_declaration_with_identity ~symbol ~identity_symbol ~declaration_kind
+    ~aggregate_kind ~item_index =
   if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Aggregate_type) then
     Error "semantic aggregate resolution requires an aggregate-type symbol"
+  else if declaration_kind = Forward && Option.is_some identity_symbol then
+    Error "semantic aggregate forward declarations must start a fresh identity"
+  else if
+    Option.fold ~none:false
+      ~some:(fun identity ->
+        (not (Symbol.equal_kind (Symbol.kind identity) Symbol.Aggregate_type))
+        || not (String.equal (Symbol.name identity) (Symbol.name symbol)))
+      identity_symbol
+  then Error "semantic aggregate identity hint has the wrong kind or spelling"
   else if item_index < 0 then
     Error "semantic aggregate declaration item index cannot be negative"
-  else Ok { symbol; declaration_kind; aggregate_kind; item_index }
+  else
+    Ok { symbol; identity_symbol; declaration_kind; aggregate_kind; item_index }
+
+let make_declaration ~symbol ~declaration_kind ~aggregate_kind ~item_index =
+  make_declaration_with_identity ~symbol ~identity_symbol:None ~declaration_kind
+    ~aggregate_kind ~item_index
+
+let make_retained_declaration ~symbol ~identity_symbol ~declaration_kind
+    ~aggregate_kind ~item_index =
+  make_declaration_with_identity ~symbol ~identity_symbol:(Some identity_symbol)
+    ~declaration_kind ~aggregate_kind ~item_index
 
 module Int_set = Set.Make (Int)
 
@@ -82,6 +103,16 @@ let validate_declaration table parent previous_item_index seen
          (Symbol_table.scope_id parent))
   then
     Error "semantic aggregate declaration does not belong to the module scope"
+  else if
+    Option.fold ~none:false
+      ~some:(fun identity ->
+        (not (Symbol_table.owns_symbol table identity))
+        || not
+             (Symbol.Scope_id.equal (Symbol.scope_id identity)
+                (Symbol_table.scope_id parent)))
+      declaration.identity_symbol
+  then
+    Error "semantic aggregate identity hint belongs to another table or scope"
   else if declaration.item_index <= previous_item_index then
     Error "semantic aggregate declarations must be in increasing item order"
   else if Int_set.mem symbol_id seen then
@@ -107,6 +138,7 @@ let validate table parent declarations =
     check (-1) Int_set.empty declarations
 
 type pending_identity = {
+  symbol : Symbol.t;
   forward : declaration_site option;
   definition : declaration_site option;
   first_item_index : int;
@@ -124,12 +156,18 @@ let resolve_validated declarations =
       match declaration.declaration_kind with
       | Forward ->
           {
+            symbol =
+              Option.value declaration.identity_symbol
+                ~default:declaration.symbol;
             forward = Some declaration;
             definition = None;
             first_item_index = declaration.item_index;
           }
       | Definition ->
           {
+            symbol =
+              Option.value declaration.identity_symbol
+                ~default:declaration.symbol;
             forward = None;
             definition = Some declaration;
             first_item_index = declaration.item_index;
@@ -145,65 +183,81 @@ let resolve_validated declarations =
   let complete_or_add (declaration : declaration) =
     let name = Symbol.name declaration.symbol in
     match Hashtbl.find_opt latest_by_name name with
-    | None -> add_identity declaration
+    | None -> Ok (add_identity declaration)
     | Some identity_index -> (
         match pending.(identity_index) with
         | Some ({ forward = Some _; definition = None; _ } as identity) ->
-            pending.(identity_index) <-
-              Some { identity with definition = Some declaration };
-            identity_index
-        | Some _ -> add_identity declaration
+            if
+              Option.fold ~none:false
+                ~some:(fun hinted -> hinted != identity.symbol)
+                declaration.identity_symbol
+            then
+              Error
+                "semantic aggregate definition identity hint disagrees with \
+                 its newest forward"
+            else (
+              pending.(identity_index) <-
+                Some { identity with definition = Some declaration };
+              Ok identity_index)
+        | Some _ -> Ok (add_identity declaration)
         | None -> assert false)
   in
-  List.iteri
-    (fun declaration_index declaration ->
-      let identity_index =
-        match declaration.declaration_kind with
-        | Forward -> add_identity declaration
-        | Definition -> complete_or_add declaration
-      in
-      declaration_identity.(declaration_index) <- identity_index)
-    declarations;
-  let identity_at index =
-    match pending.(index) with
-    | Some identity -> identity
-    | None -> assert false
-  in
-  let resolved_identities =
-    List.init !identity_count (fun index ->
-        let pending = identity_at index in
-        match (pending.forward, pending.definition) with
-        | forward, Some definition ->
-            {
-              symbol = definition.symbol;
-              forward;
-              definition = Some definition;
-              aggregate_kind = definition.aggregate_kind;
-              first_item_index = pending.first_item_index;
-            }
-        | Some forward, None ->
-            {
-              symbol = forward.symbol;
-              forward = Some forward;
-              definition = None;
-              aggregate_kind = forward.aggregate_kind;
-              first_item_index = pending.first_item_index;
-            }
-        | None, None -> assert false)
-  in
-  let identities_by_index = Array.of_list resolved_identities in
-  let resolved_declarations =
-    List.mapi
-      (fun declaration_index site ->
-        let identity =
-          identities_by_index.(declaration_identity.(declaration_index))
+  let rec assign declaration_index = function
+    | [] -> Ok ()
+    | declaration :: rest ->
+        let selected =
+          match declaration.declaration_kind with
+          | Forward -> Ok (add_identity declaration)
+          | Definition -> complete_or_add declaration
         in
-        { site; identity_symbol = identity.symbol })
-      declarations
+        Result.bind selected (fun identity_index ->
+            declaration_identity.(declaration_index) <- identity_index;
+            assign (declaration_index + 1) rest)
   in
-  { identities = resolved_identities; declarations = resolved_declarations }
+  Result.bind (assign 0 declarations) (fun () ->
+      let identity_at index =
+        match pending.(index) with
+        | Some identity -> identity
+        | None -> assert false
+      in
+      let resolved_identities =
+        List.init !identity_count (fun index ->
+            let pending = identity_at index in
+            match (pending.forward, pending.definition) with
+            | forward, Some definition ->
+                {
+                  symbol = pending.symbol;
+                  forward;
+                  definition = Some definition;
+                  aggregate_kind = definition.aggregate_kind;
+                  first_item_index = pending.first_item_index;
+                }
+            | Some forward, None ->
+                {
+                  symbol = pending.symbol;
+                  forward = Some forward;
+                  definition = None;
+                  aggregate_kind = forward.aggregate_kind;
+                  first_item_index = pending.first_item_index;
+                }
+            | None, None -> assert false)
+      in
+      let identities_by_index = Array.of_list resolved_identities in
+      let resolved_declarations =
+        List.mapi
+          (fun declaration_index site ->
+            let identity =
+              identities_by_index.(declaration_identity.(declaration_index))
+            in
+            { site; identity_symbol = identity.symbol })
+          declarations
+      in
+      Ok
+        {
+          identities = resolved_identities;
+          declarations = resolved_declarations;
+        })
 
 let resolve ~table ~parent declarations =
-  Result.map
-    (fun () -> resolve_validated declarations)
-    (validate table parent declarations)
+  Result.bind (validate table parent declarations) (fun () ->
+      resolve_validated declarations)

@@ -67,6 +67,11 @@ let declaration_fact entry ast =
   let entry_kind = Sema.Declaration_collection.entry_kind entry in
   let item_index = Sema.Declaration_collection.entry_item_index entry in
   let symbol = Sema.Declaration_collection.entry_symbol entry in
+  let identity_symbol =
+    match Sema.Declaration_collection.entry_aggregate_identity entry with
+    | Some identity when identity != symbol -> Some identity
+    | Some _ | None -> None
+  in
   if entry_kind <> ast.declaration_kind then
     Error "semantic aggregate declaration does not match the AST kind"
   else if item_index <> ast.item_index then
@@ -81,8 +86,15 @@ let declaration_fact entry ast =
     match semantic_declaration_kind entry_kind with
     | Error _ as error -> error
     | Ok declaration_kind ->
-        Sema.Aggregate_resolution.make_declaration ~symbol ~declaration_kind
-          ~aggregate_kind:ast.aggregate_kind ~item_index
+        let make =
+          match identity_symbol with
+          | None -> Sema.Aggregate_resolution.make_declaration
+          | Some identity_symbol ->
+              Sema.Aggregate_resolution.make_retained_declaration
+                ~identity_symbol
+        in
+        make ~symbol ~declaration_kind ~aggregate_kind:ast.aggregate_kind
+          ~item_index
 
 let declaration_facts declarations module_ =
   let entries = aggregate_entries declarations in

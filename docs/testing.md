@@ -1,5 +1,14 @@
 # Testing holyc-ocaml
 
+The `retained named aggregate` groups cover #650's original Class selection,
+same-name replacement, public-type-spelling shadows, retained source children,
+foreign semantic owners and callback expiry. Direct pointer-return prototypes
+and parameter/local frames have separate source cases; uninitialized pointer
+reads and raw integer arguments retain their checked boundaries. Provisional
+and completed-header tests exercise the same selected-type proof. The maintained
+`stateful-exe-named-type-selection.hc` fixture runs through the public CLI in
+both modes and returns I64 42 with empty ordinary output.
+
 The twelve `partial global storage` groups cover real nested StreamPrint reads
 and writes during open declarations, scalar/array/copied-row completion, mixed
 fresh and retained allocations, exact byte quotas, unknown-cell faults and

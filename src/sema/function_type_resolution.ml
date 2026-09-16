@@ -86,6 +86,9 @@ type function_declaration = {
 type resolved_function = function_declaration
 type t = { functions : resolved_function list }
 
+type selected_aggregate_resolver =
+  Frontend.Ast.type_specifier -> Source_type_reference.selected_aggregate option
+
 let functions resolution = resolution.functions
 let function_symbol function_ = function_.function_symbol_
 let function_scope function_ = function_.function_scope_
@@ -893,13 +896,38 @@ let source_registers_match sources requests =
          | _ -> false)
        sources requests
 
-let source_builtin_matches type_specifier pointer_layers reference =
-  match Source_type_reference.builtin type_specifier pointer_layers with
+let source_type_reference ?owner ~selected_aggregate type_specifier
+    pointer_layers =
+  let ( let* ) = Result.bind in
+  match type_specifier with
+  | Frontend.Ast.Primitive_type_specifier _
+  | Frontend.Ast.Internal_type_specifier _ ->
+      Source_type_reference.builtin type_specifier pointer_layers
+  | Frontend.Ast.Named_type_specifier _ -> (
+      match selected_aggregate type_specifier with
+      | Some proof ->
+          let* () =
+            match owner with
+            | None -> Ok ()
+            | Some (table, namespace) ->
+                Source_type_reference.validate_selected_aggregate ~table
+                  ~namespace proof
+          in
+          Source_type_reference.selected proof type_specifier pointer_layers
+      | None -> Error "named source type lacks its retained aggregate selection"
+      )
+
+let source_type_matches ?owner ~selected_aggregate type_specifier pointer_layers
+    reference =
+  match
+    source_type_reference ?owner ~selected_aggregate type_specifier
+      pointer_layers
+  with
   | Error _ -> false
   | Ok expected -> same_type_reference expected reference
 
-let rec source_signature_matches ~opening ~parameters ~variadic ~closing
-    signature =
+let rec source_signature_matches ?owner ~selected_aggregate ~opening ~parameters
+    ~variadic ~closing signature =
   signature_opening_origin signature = source_location opening
   && signature_closing_origin signature = Option.map source_location closing
   && signature_variadic_origin signature
@@ -918,7 +946,8 @@ let rec source_signature_matches ~opening ~parameters ~variadic ~closing
        (fun (source : Frontend.Ast.function_parameter) parameter ->
          Option.fold ~none:false ~some:(( == ) source)
            (parameter_source parameter)
-         && source_builtin_matches source.type_specifier source.pointer_layers
+         && source_type_matches ?owner ~selected_aggregate source.type_specifier
+              source.pointer_layers
               (parameter_type_reference parameter)
          && source_registers_match source.register_qualifiers
               (parameter_register_requests parameter)
@@ -944,7 +973,7 @@ let rec source_signature_matches ~opening ~parameters ~variadic ~closing
                     (fun (layer : Frontend.Ast.pointer_layer) ->
                       source_location layer.location)
                     source.indirection_layers
-             && source_signature_matches
+             && source_signature_matches ?owner ~selected_aggregate
                   ~opening:source.signature_opening_parenthesis
                   ~parameters:source.signature_parameters
                   ~variadic:source.signature_variadic
@@ -954,13 +983,22 @@ let rec source_signature_matches ~opening ~parameters ~variadic ~closing
        parameters
        (signature_parameters signature)
 
-let validate_provisional_source_types shape =
+let validate_provisional_source_types ?table ?namespace
+    ?(selected_aggregate : selected_aggregate_resolver = fun _ -> None) shape =
   let module A = Frontend.Ast in
   let ( let* ) = Result.bind in
+  let* owner =
+    match (table, namespace) with
+    | None, None -> Ok None
+    | Some table, Some namespace -> Ok (Some (table, namespace))
+    | Some _, None | None, Some _ ->
+        Error
+          "provisional source type ownership requires both table and namespace"
+  in
   let type_source type_specifier pointers =
     Result.map
       (fun _ -> ())
-      (Source_type_reference.builtin type_specifier pointers)
+      (source_type_reference ?owner ~selected_aggregate type_specifier pointers)
   in
   let rec callback = function
     | None -> Ok ()
@@ -992,8 +1030,9 @@ let validate_provisional_source_types shape =
     (Ok ())
     (Function_record_phase.native_members snapshot)
 
-let make_provisional_function ~table ~namespace ~shape ~scope ~return_type
-    ~parameters ~variadic_register_requests =
+let make_provisional_function_with_selection
+    ~(selected_aggregate : selected_aggregate_resolver) ~table ~namespace ~shape
+    ~scope ~return_type ~parameters ~variadic_register_requests =
   let module N = Function_record_phase in
   let module P = Provisional_function in
   let ( let* ) = Result.bind in
@@ -1019,7 +1058,10 @@ let make_provisional_function ~table ~namespace ~shape ~scope ~return_type
          scope"
     else Ok ()
   in
-  let* () = validate_provisional_source_types shape in
+  let* () =
+    validate_provisional_source_types ~table ~namespace ~selected_aggregate
+      shape
+  in
   let* originals =
     let rec collect rev = function
       | [] -> Ok (List.rev rev)
@@ -1054,8 +1096,9 @@ let make_provisional_function ~table ~namespace ~shape ~scope ~return_type
   let* () =
     if
       (not
-         (source_builtin_matches native.function_header.type_specifier
-            native.function_pointer_layers return_type))
+         (source_type_matches ~owner:(table, namespace) ~selected_aggregate
+            native.function_header.type_specifier native.function_pointer_layers
+            return_type))
       || Type_reference.spelling return_type
          <> Frontend.Ast.type_specifier_spelling
               native.function_header.type_specifier
@@ -1072,9 +1115,9 @@ let make_provisional_function ~table ~namespace ~shape ~scope ~return_type
             (List.mapi (fun index p -> parameter_index p = index) parameters
             |> List.for_all Fun.id))
       || not
-           (source_signature_matches
-              ~opening:native.function_opening_parenthesis ~parameters:originals
-              ~variadic:marker ~closing:None signature)
+           (source_signature_matches ~owner:(table, namespace)
+              ~selected_aggregate ~opening:native.function_opening_parenthesis
+              ~parameters:originals ~variadic:marker ~closing:None signature)
     then
       Error
         "provisional call type projection substituted original native members \
@@ -1095,6 +1138,13 @@ let make_provisional_function ~table ~namespace ~shape ~scope ~return_type
       function_completed_header_ = None;
       function_header_reused_ = false;
     }
+
+let make_provisional_function ~table ~namespace ~shape ~scope ~return_type
+    ~parameters ~variadic_register_requests =
+  make_provisional_function_with_selection
+    ~selected_aggregate:(fun _ -> None)
+    ~table ~namespace ~shape ~scope ~return_type ~parameters
+    ~variadic_register_requests
 
 let function_variadic_count_type function_ =
   match function_provisional_call function_ with

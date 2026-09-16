@@ -86,8 +86,7 @@ let simple_completion () =
     Semantic_aggregate_resolution.identities resolution |> List.hd
   in
   Alcotest.(check int)
-    "the definition is canonical"
-    (symbol_id definition_symbol)
+    "the first forward is canonical" (symbol_id forward_symbol)
     (Semantic_aggregate_resolution.identity_symbol identity |> symbol_id);
   Alcotest.(check bool)
     "the earlier forward site is retained" true
@@ -98,9 +97,14 @@ let simple_completion () =
         |> Semantic_symbol.Id.equal (Semantic_symbol.id forward_symbol))
     |> Option.value ~default:false);
   Alcotest.(check (list int))
-    "both declarations map to the definition"
-    [ symbol_id definition_symbol; symbol_id definition_symbol ]
+    "both declarations map to the first forward"
+    [ symbol_id forward_symbol; symbol_id forward_symbol ]
     (declaration_identity_ids resolution);
+  Alcotest.(check int)
+    "the definition remains a distinct declaration site"
+    (symbol_id definition_symbol)
+    (List.nth (declaration_sites resolution) 1
+    |> Semantic_aggregate_resolution.declaration_site_symbol |> symbol_id);
   Alcotest.(check (list string))
     "both declaration roles remain visible"
     [ "forward"; "definition" ]
@@ -122,7 +126,21 @@ let newest_forward_and_kind () =
     parse session ~path:"newest.HC"
       "extern class Item; extern union Item; class Item { I64 value; };"
   in
-  let _, resolution = resolve session ast in
+  let declarations, resolution = resolve session ast in
+  let aggregate_entries =
+    Semantic_declaration_collection.entries declarations
+    |> List.filter (fun entry ->
+        match Semantic_declaration_collection.entry_kind entry with
+        | Semantic_declaration_collection.Aggregate_forward
+        | Semantic_declaration_collection.Aggregate_definition -> true
+        | _ -> false)
+  in
+  let newest_forward_symbol =
+    List.nth aggregate_entries 1 |> Semantic_declaration_collection.entry_symbol
+  in
+  let older_forward_symbol =
+    List.nth aggregate_entries 0 |> Semantic_declaration_collection.entry_symbol
+  in
   Alcotest.(check (list string))
     "each forward starts an identity" [ "Item"; "Item" ]
     (identity_names resolution);
@@ -132,6 +150,10 @@ let newest_forward_and_kind () =
   let identities = Semantic_aggregate_resolution.identities resolution in
   let first = List.nth identities 0 in
   let second = List.nth identities 1 in
+  Alcotest.(check int)
+    "the older repeated forward keeps its own fresh identity"
+    (symbol_id older_forward_symbol)
+    (Semantic_aggregate_resolution.identity_symbol first |> symbol_id);
   Alcotest.(check bool)
     "the older forward stays unresolved" true
     (Semantic_aggregate_resolution.identity_definition first |> Option.is_none);
@@ -141,6 +163,10 @@ let newest_forward_and_kind () =
     |> Option.get
     |> Semantic_aggregate_resolution.declaration_site_aggregate_kind
     |> Semantic_aggregate_resolution.aggregate_kind_name);
+  Alcotest.(check int)
+    "mixed-kind completion keeps the newest forward identity"
+    (symbol_id newest_forward_symbol)
+    (Semantic_aggregate_resolution.identity_symbol second |> symbol_id);
   Alcotest.(check (list int))
     "only the newest forward maps to the definition"
     [
@@ -149,6 +175,111 @@ let newest_forward_and_kind () =
       List.nth (identity_ids resolution) 1;
     ]
     (declaration_identity_ids resolution)
+
+let stable_type_reference_and_shadow () =
+  let session = Session.create () in
+  let ast =
+    parse session ~path:"stable-identity.HC"
+      "extern class Item; class Item {}; class Item {};"
+  in
+  let declarations = checked (Holyc_lib.collect_declarations session ast) in
+  let aggregate_entries =
+    Semantic_declaration_collection.entries declarations
+    |> List.filter (fun entry ->
+        match Semantic_declaration_collection.entry_kind entry with
+        | Semantic_declaration_collection.Aggregate_forward
+        | Semantic_declaration_collection.Aggregate_definition -> true
+        | _ -> false)
+  in
+  let forward_symbol =
+    List.nth aggregate_entries 0 |> Semantic_declaration_collection.entry_symbol
+  in
+  let first_definition_symbol =
+    List.nth aggregate_entries 1 |> Semantic_declaration_collection.entry_symbol
+  in
+  let shadow_symbol =
+    List.nth aggregate_entries 2 |> Semantic_declaration_collection.entry_symbol
+  in
+  let retained =
+    checked
+      (Semantic_type.make_aggregate ~symbol:forward_symbol ~pointer_depth:1)
+  in
+  let resolution =
+    checked (Holyc_lib.resolve_aggregates session ~declarations ast)
+  in
+  let identities = Semantic_aggregate_resolution.identities resolution in
+  let completed = List.nth identities 0 in
+  let shadow = List.nth identities 1 in
+  Alcotest.(check int)
+    "completion preserves the already selected forward symbol"
+    (symbol_id forward_symbol)
+    (Semantic_aggregate_resolution.identity_symbol completed |> symbol_id);
+  Alcotest.(check bool)
+    "completion does not replace the identity with its definition site" true
+    (Semantic_aggregate_resolution.identity_symbol completed
+    != first_definition_symbol);
+  let completed_type =
+    checked
+      (Semantic_type.make_aggregate
+         ~symbol:(Semantic_aggregate_resolution.identity_symbol completed)
+         ~pointer_depth:1)
+  in
+  Alcotest.(check bool)
+    "an old aggregate pointer type remains exactly equal after completion" true
+    (Semantic_type.equal retained completed_type);
+  Alcotest.(check int)
+    "a later resolved definition starts a fresh identity"
+    (symbol_id shadow_symbol)
+    (Semantic_aggregate_resolution.identity_symbol shadow |> symbol_id);
+  let shadow_type =
+    checked
+      (Semantic_type.make_aggregate
+         ~symbol:(Semantic_aggregate_resolution.identity_symbol shadow)
+         ~pointer_depth:1)
+  in
+  Alcotest.(check bool)
+    "the fresh shadow identity does not weaken aggregate type equality" false
+    (Semantic_type.equal retained shadow_type)
+
+let retained_identity_hint () =
+  let table = Semantic_symbol_table.create () in
+  let root = Semantic_symbol_table.root table in
+  let scope =
+    checked
+      (Semantic_symbol_table.create_scope table ~parent:root
+         ~kind:Semantic_symbol_table.Module ~name:"retained.HC" ())
+  in
+  let symbol origin =
+    checked
+      (Semantic_symbol_table.add table ~scope ~name:"Item"
+         ~kind:Semantic_symbol.Aggregate_type
+         ~origin:(Semantic_symbol.Synthesized origin))
+  in
+  let forward = symbol "forward" in
+  let definition = symbol "definition" in
+  let fact =
+    checked
+      (Semantic_aggregate_resolution.make_retained_declaration
+         ~symbol:definition ~identity_symbol:forward
+         ~declaration_kind:Semantic_aggregate_resolution.Definition
+         ~aggregate_kind:Semantic_aggregate_resolution.Class ~item_index:1)
+  in
+  let resolution =
+    checked
+      (Semantic_aggregate_resolution.resolve ~table ~parent:scope [ fact ])
+  in
+  let identity =
+    Semantic_aggregate_resolution.identities resolution |> List.hd
+  in
+  let site = declaration_sites resolution |> List.hd in
+  Alcotest.(check int)
+    "a definition-only retained view keeps its earlier canonical identity"
+    (symbol_id forward)
+    (Semantic_aggregate_resolution.identity_symbol identity |> symbol_id);
+  Alcotest.(check int)
+    "the retained definition site stays distinct from its identity"
+    (symbol_id definition)
+    (Semantic_aggregate_resolution.declaration_site_symbol site |> symbol_id)
 
 let shadowing_definitions_and_late_forward () =
   let session = Session.create () in
@@ -179,7 +310,7 @@ let shadowing_definitions_and_late_forward () =
    |> Option.is_some);
   let ids = identity_ids resolution in
   Alcotest.(check (list int))
-    "the late pair shares its definition identity"
+    "the late pair shares its forward identity"
     [ List.nth ids 0; List.nth ids 1; List.nth ids 2; List.nth ids 2 ]
     (declaration_identity_ids resolution)
 
@@ -331,6 +462,7 @@ let low_level_validation () =
   in
   let first = symbol "A" in
   let second = symbol "A" in
+  let third = symbol "A" in
   let forward =
     checked
       (Semantic_aggregate_resolution.make_declaration ~symbol:first
@@ -343,6 +475,26 @@ let low_level_validation () =
          ~declaration_kind:Semantic_aggregate_resolution.Definition
          ~aggregate_kind:Semantic_aggregate_resolution.Class ~item_index:1)
   in
+  let newer_forward =
+    checked
+      (Semantic_aggregate_resolution.make_declaration ~symbol:second
+         ~declaration_kind:Semantic_aggregate_resolution.Forward
+         ~aggregate_kind:Semantic_aggregate_resolution.Union ~item_index:1)
+  in
+  let stale_hint_definition =
+    checked
+      (Semantic_aggregate_resolution.make_retained_declaration ~symbol:third
+         ~identity_symbol:first
+         ~declaration_kind:Semantic_aggregate_resolution.Definition
+         ~aggregate_kind:Semantic_aggregate_resolution.Class ~item_index:2)
+  in
+  Alcotest.(check bool)
+    "a forward cannot import an earlier canonical identity" true
+    (Semantic_aggregate_resolution.make_retained_declaration ~symbol:first
+       ~identity_symbol:first
+       ~declaration_kind:Semantic_aggregate_resolution.Forward
+       ~aggregate_kind:Semantic_aggregate_resolution.Class ~item_index:0
+    |> Result.is_error);
   Alcotest.(check bool)
     "repeated input symbols are rejected" true
     (Semantic_aggregate_resolution.resolve ~table ~parent:module_scope
@@ -352,6 +504,12 @@ let low_level_validation () =
     "reversed item order is rejected" true
     (Semantic_aggregate_resolution.resolve ~table ~parent:module_scope
        [ definition; forward ]
+    |> Result.is_error);
+  Alcotest.(check bool)
+    "a definition cannot bypass the newest forward with a stale identity hint"
+    true
+    (Semantic_aggregate_resolution.resolve ~table ~parent:module_scope
+       [ forward; newer_forward; stale_hint_definition ]
     |> Result.is_error);
   let other_table = Semantic_symbol_table.create () in
   Alcotest.(check bool)
@@ -378,6 +536,10 @@ let tests =
     Alcotest.test_case "newest forward and kind" `Quick newest_forward_and_kind;
     Alcotest.test_case "shadowing definitions and late forward" `Quick
       shadowing_definitions_and_late_forward;
+    Alcotest.test_case "stable completed type identity and fresh shadow" `Quick
+      stable_type_reference_and_shadow;
+    Alcotest.test_case "retained definition-only canonical identity" `Quick
+      retained_identity_hint;
     Alcotest.test_case "modes and determinism" `Quick modes_and_determinism;
     Alcotest.test_case "generated provenance" `Quick generated_provenance;
     Alcotest.test_case "included provenance" `Quick included_provenance;

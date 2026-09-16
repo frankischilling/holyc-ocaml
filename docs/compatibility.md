@@ -1,5 +1,13 @@
 # holyc-ocaml compatibility status
 
+[Retained named types](retained-named-types.md) in #650 connect original
+aggregate selections to provisional and completed function headers. A later
+`#exe` class declaration cannot retarget an earlier direct pointer parameter.
+The private parser owner supplies the exact selected Class entry and pointer
+children; missing or substituted evidence rejects. Checked frame storage admits
+opaque aggregate pointers while general aggregate storage, member access,
+pointer-return execution and named callback signatures remain separate work.
+
 [Native integer expressions](native-expressions.md) in #642 connect checked
 source to the project's OCaml x86-64 encoder and explicit Windows/Linux x86-64
 execution. The bounded internal I64/U64 subset preserves all return bits

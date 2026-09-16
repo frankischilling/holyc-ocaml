@@ -39,6 +39,13 @@ module Dimensions = Hashtbl.Make (struct
   let hash = Hashtbl.hash
 end)
 
+module Type_specifiers = Hashtbl.Make (struct
+  type t = Ast.type_specifier
+
+  let equal left right = left == right
+  let hash = Hashtbl.hash
+end)
+
 type dimension_evaluation =
   | Observed_dimension
   | Failed_dimension
@@ -171,6 +178,8 @@ type reading_query = {
 type command = {
   calls : Sema.Function_call_phase.t list;
   namespace : Collection.namespace;
+  selected_aggregate_types :
+    Sema.Source_type_reference.selected_aggregate Type_specifiers.t;
   function_headers :
     (Sema.Compiler_record.declared_function
     * Sema.Function_collection.collected_function
@@ -269,6 +278,8 @@ type t = {
   dimension_owners : reading_dimensions Names.t;
   dimensions : Parser.completed_array_dimension Dimensions.t;
   checked_dimensions : Sema.Compiler_record.declared_dimension Dimensions.t;
+  selected_aggregate_types :
+    Sema.Source_type_reference.selected_aggregate Type_specifiers.t;
   initializers : (Ast.global_initializer * Sema.Initializer_source.t) Names.t;
 }
 
@@ -382,6 +393,7 @@ let create_with_authority ?compiler_positions ?(max_dimension_work = 100_000)
               dimension_owners = Names.create 16;
               dimensions = Dimensions.create 16;
               checked_dimensions = Dimensions.create 16;
+              selected_aggregate_types = Type_specifiers.create 16;
               initializers = Names.create 16;
             })
           binding)
@@ -506,6 +518,64 @@ let offset_work ledger = ledger.offset_work
 
 let selected_dimensions ledger dimensions =
   List.filter_map (Dimensions.find_opt ledger.checked_dimensions) dimensions
+
+let selected_aggregate_for ledger type_specifier =
+  Type_specifiers.find_opt ledger.selected_aggregate_types type_specifier
+
+let prepare_selected_aggregate ledger source =
+  let selection, type_specifier, span =
+    match source with
+    | Sema.Source_type_reference.Function_return function_ ->
+        ( function_.Parser.function_return_selection,
+          function_.function_header.type_specifier,
+          (Frontend.Ast.type_specifier_location
+             function_.function_header.type_specifier)
+            .span )
+    | Sema.Source_type_reference.Function_parameter parameter ->
+        ( parameter.Parser.parameter_type_selection,
+          parameter.parameter_type_specifier,
+          (Frontend.Ast.type_specifier_location
+             parameter.parameter_type_specifier)
+            .span )
+  in
+  match type_specifier with
+  | Ast.Primitive_type_specifier _ | Ast.Internal_type_specifier _ ->
+      if Option.is_some selection then
+        fail span
+          "primitive function type unexpectedly retained a class selection";
+      None
+  | Ast.Named_type_specifier _ ->
+      if Type_specifiers.mem ledger.selected_aggregate_types type_specifier then
+        fail span "named function type selection was already retained";
+      let selection =
+        match selection with
+        | Some selection -> selection
+        | None ->
+            fail span "named function type lacks its original class selection"
+      in
+      if selection.environment != ledger.symbols then
+        fail span "named function type selection has another parser environment";
+      let publication =
+        match Entries.find_opt ledger.entries selection.entry with
+        | Some
+            { publication; source = Aggregate { publication = original; _ }; _ }
+          when original.aggregate_entry == selection.entry -> publication
+        | _ ->
+            fail span
+              "named function type selection has no exact aggregate publication"
+      in
+      Some
+        (Sema.Source_type_reference.select_aggregate ~table:ledger.table
+           ~namespace:ledger.namespace ~source publication
+        |> checked span)
+
+let retain_selected_aggregate ledger type_specifier = function
+  | None -> ()
+  | Some proof ->
+      if Type_specifiers.mem ledger.selected_aggregate_types type_specifier then
+        fail (Frontend.Ast.type_specifier_location type_specifier).span
+          "named function type selection was already retained";
+      Type_specifiers.add ledger.selected_aggregate_types type_specifier proof
 
 let runtime_symbol = VM.admitted_source_symbol
 let retained_for ledger entry = Entries.find_opt ledger.runtime_entries entry
@@ -1031,6 +1101,7 @@ let capture_runtime_call_start ledger call =
         Sema.Function_record_phase.call_shape snapshot
         |> checked identifier.location.span
         |> Function_type_resolution.resolve_provisional_call ~scope
+             ~selected_aggregate:(selected_aggregate_for ledger)
              ~table:ledger.table ~namespace:ledger.namespace
         |> checked identifier.location.span
       in
@@ -1388,6 +1459,7 @@ let capture_runtime_implicit_arguments ledger call =
         Sema.Function_record_phase.implicit_argument_snapshot capture
         |> Sema.Function_record_phase.call_shape |> checked span
         |> Function_type_resolution.resolve_provisional_call ~scope
+             ~selected_aggregate:(selected_aggregate_for ledger)
              ~table:ledger.table ~namespace:ledger.namespace
         |> checked span
       in
@@ -2258,6 +2330,10 @@ let observe ?offset_runtime ledger event =
       | Parser.Function_declared publication ->
           validate_source ledger publication.function_environment
             publication.function_header publication.function_name;
+          let selected =
+            prepare_selected_aggregate ledger
+              (Sema.Source_type_reference.Function_return publication)
+          in
           assign ledger publication.function_name Sema.Symbol.Function
             (Function
                {
@@ -2271,7 +2347,9 @@ let observe ?offset_runtime ledger event =
                  typed_header = None;
                  body = None;
                })
-            publication.function_entry
+            publication.function_entry;
+          retain_selected_aggregate ledger
+            publication.function_header.type_specifier selected
       | Parser.Function_local_allocated receipt -> (
           let publication = receipt.allocation_function in
           validate_command ledger publication.function_header;
@@ -2325,9 +2403,21 @@ let observe ?offset_runtime ledger event =
           validate_command ledger publication.function_header;
           let span = publication.function_name.location.span in
           match (find ledger publication.function_name).source with
-          | Function state when state.publication == publication ->
+          | Function state when state.publication == publication -> (
+              let selected =
+                match event with
+                | Parser.Function_parameter_declared parameter ->
+                    prepare_selected_aggregate ledger
+                      (Sema.Source_type_reference.Function_parameter parameter)
+                | _ -> None
+              in
               observe_function_source span state.native_record
-                state.provisional_source event
+                state.provisional_source event;
+              match event with
+              | Parser.Function_parameter_declared parameter ->
+                  retain_selected_aggregate ledger
+                    parameter.parameter_type_specifier selected
+              | _ -> ())
           | _ -> fail span "provisional member belongs to another function")
       | Parser.Parameter_default_completed receipt -> (
           let publication = receipt.default_function in
@@ -2914,6 +3004,8 @@ let seal ledger (ast : Ast.module_) =
                         else None)
                       ledger.implicit_outputs;
                 namespace = ledger.namespace;
+                selected_aggregate_types =
+                  Type_specifiers.copy ledger.selected_aggregate_types;
                 function_headers =
                   List.filter_map
                     (fun assigned ->
@@ -3387,6 +3479,18 @@ let retained_function_headers ~table ~ast (command : command) =
         fail ast.Ast.span "retained headers belong to another source command";
       (command.namespace, command.function_headers))
 
+let selected_type_resolver ~table ~ast (command : command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span "selected types belong to another source command";
+      ( command.namespace,
+        fun type_specifier ->
+          Type_specifiers.find_opt command.selected_aggregate_types
+            type_specifier ))
+
+let source_selected_type_resolver ~table ~ast (Source_command command) =
+  selected_type_resolver ~table ~ast command
+
 let native_publication_event = function
   | Parser.Function_declared p -> Some p
   | Parser.Function_parameter_declared p -> Some p.parameter_function
@@ -3454,6 +3558,7 @@ let admit_function_phase ledger ~runtime event =
                   in
                   let function_ =
                     Function_type_resolution.resolve_provisional_call ?scope
+                      ~selected_aggregate:(selected_aggregate_for ledger)
                       ~table:ledger.table ~namespace:ledger.namespace shape
                     |> checked span
                   in
@@ -3533,7 +3638,9 @@ let admit_function_header ledger ~runtime header =
                 let pair =
                   Function_type_resolution
                   .resolve_completed_header_with_collection ~table:ledger.table
-                    ~namespace:ledger.namespace source
+                    ~namespace:ledger.namespace
+                    ~selected_aggregate:(selected_aggregate_for ledger)
+                    source
                   |> checked span
                 in
                 state.typed_header <- Some pair;
@@ -3596,6 +3703,7 @@ let admit_function_header ledger ~runtime header =
               |> Function_type_resolution.resolve_provisional_call
                    ~scope:
                      (Sema.Function_type_resolution.function_scope function_)
+                   ~selected_aggregate:(selected_aggregate_for ledger)
                    ~table:ledger.table ~namespace:ledger.namespace
               |> checked span
             in

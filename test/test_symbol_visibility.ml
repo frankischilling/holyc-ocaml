@@ -396,6 +396,39 @@ let task_views_and_detached_snapshots () =
     (E.find_preprocessor task "Later" = Symbol_visibility.Present later
     && E.find_preprocessor copied "Later" = Symbol_visibility.Absent)
 
+let public_primitive_identity () =
+  let session = Session.create () in
+  let environment = Session.symbols session in
+  let builtin =
+    match Symbol_visibility.Environment.find_preprocessor environment "I64" with
+    | Symbol_visibility.Present entry -> entry
+    | _ -> Alcotest.fail "missing original public I64 class"
+  in
+  Alcotest.(check bool)
+    "seeded class retains its primitive payload" true
+    (Symbol_visibility.public_primitive builtin = Some Primitive_type.I64);
+  let snapshot = Symbol_visibility.Environment.copy environment in
+  let shadow =
+    Symbol_visibility.Environment.add environment ~name:"I64"
+      ~kind:Symbol_visibility.Class
+      ~origin:(Symbol_visibility.origin builtin)
+      ()
+  in
+  Alcotest.(check bool)
+    "equal spelling and provenance cannot create a primitive class" true
+    (Symbol_visibility.public_primitive shadow = None);
+  Alcotest.(check bool)
+    "live lookup selects the new class" true
+    (Symbol_visibility.Environment.find_preprocessor environment "I64"
+    = Symbol_visibility.Present shadow);
+  Alcotest.(check bool)
+    "frozen lookup preserves the exact original class" true
+    (match Symbol_visibility.Environment.find_preprocessor snapshot "I64" with
+    | Symbol_visibility.Present original ->
+        original == builtin
+        && Symbol_visibility.public_primitive original = Some Primitive_type.I64
+    | _ -> false)
+
 let tests =
   [
     Alcotest.test_case
@@ -406,6 +439,8 @@ let tests =
       provisional_function_completion;
     Alcotest.test_case "source hash bits" `Quick source_kind_bits;
     Alcotest.test_case "session built-ins" `Quick session_builtins;
+    Alcotest.test_case "public primitive identity survives snapshots" `Quick
+      public_primitive_identity;
     Alcotest.test_case "import filtering" `Quick import_filtering;
     Alcotest.test_case "local shadowing" `Quick local_shadowing;
     Alcotest.test_case "function call shapes" `Quick function_call_shapes;

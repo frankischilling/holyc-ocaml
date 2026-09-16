@@ -6,6 +6,13 @@ phases before accepting a completed header. Retained JIT tasks admit those
 original native phases for provisional calls. Separate argument and emission
 phase binding remains unfinished.
 
+Direct named aggregate return and parameter pointers now keep the
+[type selected at their original token](retained-named-types.md), even when
+later lookahead runs `#exe` and installs another same-name class. The private
+function/parameter receipt supplies both the selected Class entry and original
+pointer children to the semantic proof. Provisional and completed headers use
+the same retained proof; missing evidence does not trigger a fresh name lookup.
+
 For `I64 F(I64 n=#exe {}40)#exe {}{return n;}`, the first directive sees n's
 original type and name before its default has been parsed. The second sees the
 original default and completed parameter, while the function header remains

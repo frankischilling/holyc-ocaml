@@ -186,6 +186,18 @@ val complete_initializer_runtime :
 
 type command
 
+val selected_type_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  ( Sema.Declaration_collection.namespace
+    * Sema.Function_type_resolution.selected_aggregate_resolver,
+    Common.Diagnostic.t list )
+  result
+(** Read the command's frozen original type proofs after exact table and AST
+    ownership checks. The resolver carries no runtime or source-replay
+    authority. *)
+
 val retained_function_headers :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->
@@ -213,6 +225,15 @@ val implicit_output_resolver :
 *)
 
 type source_command
+
+val source_selected_type_resolver :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  ( Sema.Declaration_collection.namespace
+    * Sema.Function_type_resolution.selected_aggregate_resolver,
+    Common.Diagnostic.t list )
+  result
 
 val begin_source_default :
   t ->
@@ -515,6 +536,15 @@ val observe :
 
 val symbol_for : t -> Frontend.Symbol_visibility.entry -> Sema.Symbol.t option
 (** Read-only association for this exact parser entry snapshot. *)
+
+val selected_aggregate_for :
+  t ->
+  Frontend.Ast.type_specifier ->
+  Sema.Source_type_reference.selected_aggregate option
+(** Read the retained proof for this exact physical named type occurrence. No
+    spelling or current-environment lookup is performed. Proofs survive source
+    promotion because the original ledger owns them; another ledger or rebuilt
+    type node cannot acquire one. *)
 
 val seal :
   t -> Frontend.Ast.module_ -> (command, Common.Diagnostic.t list) result

@@ -1,5 +1,11 @@
 # holyc-ocaml
 
+[Retained named types](docs/retained-named-types.md) preserve an aggregate
+selected before a nested `#exe` shadows its name. The original function header
+and parameter keep that identity through completion.
+`holyc run examples/stateful-exe-named-type-selection.hc` returns 42 in both
+outer modes using a checked aggregate-pointer parameter slot.
+
 [Variadic signatures](docs/variadic-header-termination.md) can omit the closing
 parenthesis after `...`, as in the pinned TempleOS parser.
 `holyc run examples/integer-variadic-termination.hc` returns 42.
