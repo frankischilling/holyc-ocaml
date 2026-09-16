@@ -116,11 +116,13 @@ let seed_public_unions symbols table =
     (fun (source : Generated.Primitive_raw_types.public_union) ->
       let path = Generated.Primitive_raw_types.kernel_source_path in
       let line = source.source_line in
+      let primitive =
+        Common.Primitive_type.of_storage_spelling source.storage_spelling
+        |> Option.get
+      in
       let frontend_entry =
-        Symbol_visibility.Environment.add symbols ~name:source.public_spelling
-          ~kind:Symbol_visibility.Class
+        Symbol_visibility.Environment.add_public_primitive symbols ~primitive
           ~origin:(Symbol_visibility.Pinned_source { path; line })
-          ()
       in
       let semantic_symbol =
         Sema.Symbol_table.add table
@@ -137,10 +139,6 @@ let seed_public_unions symbols table =
         |> function
         | Ok record -> record
         | Error message -> invalid_arg message
-      in
-      let primitive =
-        Common.Primitive_type.of_storage_spelling source.storage_spelling
-        |> Option.get
       in
       { frontend_entry; semantic_symbol; primitive; record })
     Generated.Primitive_raw_types.public_unions

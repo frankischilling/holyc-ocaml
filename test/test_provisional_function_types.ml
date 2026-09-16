@@ -5,6 +5,7 @@ module C = Semantic_declaration_collection
 module H = Semantic_function_type_resolution
 module D = Holyc_lib__Driver.Function_type_resolution
 module S = Semantic_symbol_table
+module SR = Semantic_source_type_reference
 
 let checked = Test_declaration_collection.checked
 
@@ -51,6 +52,81 @@ let one source =
   match fixture source with
   | table, namespace, [ snapshot ] -> (table, namespace, snapshot)
   | _ -> Alcotest.fail "expected one source phase"
+
+let selected_one source =
+  let session = Session.create () in
+  let table = Session.semantic_symbols session in
+  let namespace = C.create_namespace ~table () |> checked in
+  let registry =
+    N.create_registry ~mode:Preprocessor.Jit ~table ~namespace |> checked
+  in
+  let aggregate_publications = ref [] in
+  let selected_aggregates = ref [] in
+  let records = ref [] and snapshots = ref [] in
+  let semantic_aggregate entry =
+    !aggregate_publications
+    |> List.find (fun (source, _) -> source.Parser.aggregate_entry == entry)
+    |> snd
+  in
+  let retain source type_specifier selection =
+    match selection with
+    | None -> ()
+    | Some selection ->
+        let publication = semantic_aggregate selection.Parser.entry in
+        let proof =
+          SR.select_aggregate ~table ~namespace ~source publication |> checked
+        in
+        selected_aggregates := (type_specifier, proof) :: !selected_aggregates
+  in
+  let declaration event =
+    (match event with
+    | Parser.Aggregate_declared source ->
+        aggregate_publications :=
+          (source, C.publish_aggregate namespace source |> checked)
+          :: !aggregate_publications
+    | Parser.Function_declared source ->
+        retain (SR.Function_return source) source.function_header.type_specifier
+          source.function_return_selection;
+        let publication = C.publish_function namespace source |> checked in
+        records :=
+          (N.begin_header registry publication source |> checked) :: !records
+    | Parser.Function_parameter_declared source ->
+        retain (SR.Function_parameter source) source.parameter_type_specifier
+          source.parameter_type_selection;
+        List.iter
+          (fun record ->
+            if N.event_belongs record event then
+              N.observe record event |> checked)
+          !records
+    | _ ->
+        List.iter
+          (fun record ->
+            if N.event_belongs record event then
+              N.observe record event |> checked)
+          !records);
+    Ok ()
+  in
+  let commands = Test_provisional_function_parser.sink declaration in
+  let _, _, parsed, _, _, _ =
+    Test_stream_parser.parse ~session ~same_task:true ~commands
+      ~configure:(fun _ execution -> { execution with Parser.commands })
+      ~on_enter:(fun () ->
+        match !records with
+        | record :: _ -> snapshots := N.snapshot record :: !snapshots
+        | [] -> ())
+      source
+  in
+  ignore (Test_parser.expect_ast parsed);
+  let resolver type_specifier =
+    List.find_map
+      (fun (source, proof) ->
+        if source == type_specifier then Some proof else None)
+      !selected_aggregates
+  in
+  match List.rev !snapshots with
+  | [ snapshot ] ->
+      (table, namespace, resolver, List.rev !aggregate_publications, snapshot)
+  | _ -> Alcotest.fail "expected one selected aggregate source phase"
 
 let resolve table namespace snapshot =
   D.resolve_provisional_call ~table ~namespace (N.call_shape snapshot |> checked)
@@ -309,23 +385,32 @@ let ledger_native_phases () =
       Alcotest.fail "expected member and header snapshots for three functions"
 
 let unconsumed_named_members () =
-  List.iter
-    (fun source ->
-      let table, namespace, snapshot = one source in
-      let scope_count = List.length (S.all_scopes table) in
-      Alcotest.(check (option int))
-        "native argument count still zero" (Some 0)
-        (N.argument_count snapshot);
-      Alcotest.(check bool)
-        "unconsumed member still needs selected type evidence" true
-        (Result.is_error (resolve table namespace snapshot));
-      Alcotest.(check int)
-        "unsupported type fails before scope allocation" scope_count
-        (List.length (S.all_scopes table)))
-    [
-      "class C {};I64 F(C n)#exe {};";
-      "class C {};I64 F(I64 (*cb)(C n))#exe {};";
-    ]
+  let table, namespace, selected, _, snapshot =
+    selected_one "class C {};I64 F(C n)#exe {};"
+  in
+  let scope_count = List.length (S.all_scopes table) in
+  Alcotest.(check (option int))
+    "native argument count still zero" (Some 0)
+    (N.argument_count snapshot);
+  Alcotest.(check bool)
+    "aggregate value remains unsupported with authentic selection" true
+    (Result.is_error
+       (D.resolve_provisional_call ~selected_aggregate:selected ~table
+          ~namespace
+          (N.call_shape snapshot |> checked)));
+  Alcotest.(check int)
+    "aggregate value fails before scope allocation" scope_count
+    (List.length (S.all_scopes table));
+  let table, namespace, snapshot =
+    one "class C {};I64 F(I64 (*cb)(C n))#exe {};"
+  in
+  let scope_count = List.length (S.all_scopes table) in
+  Alcotest.(check bool)
+    "nested callback named type still lacks a selection receipt" true
+    (Result.is_error (resolve table namespace snapshot));
+  Alcotest.(check int)
+    "nested callback rejection allocates no scope" scope_count
+    (List.length (S.all_scopes table))
 
 let source_origin (location : Ast.location) =
   Semantic_symbol.Source_location
@@ -371,6 +456,176 @@ let semantic_named_return () =
        (H.make_provisional_function ~table ~namespace
           ~shape:(N.call_shape snapshot |> checked)
           ~scope ~return_type ~parameters:[] ~variadic_register_requests:[]))
+
+let selected_aggregate_pointers () =
+  let aggregate_symbol reference =
+    match Semantic_type_reference.resolved_type reference with
+    | type_ -> (
+        match Semantic_type.base type_ with
+        | Semantic_type.Aggregate symbol -> symbol
+        | Semantic_type.Primitive _ ->
+            Alcotest.fail "expected aggregate parameter")
+  in
+  List.iter
+    (fun (source, expected_count) ->
+      let table, namespace, selected, aggregates, snapshot =
+        selected_one source
+      in
+      let function_ =
+        D.resolve_provisional_call ~selected_aggregate:selected ~table
+          ~namespace
+          (N.call_shape snapshot |> checked)
+        |> checked
+      in
+      let parameters =
+        H.signature_parameters (H.function_signature function_)
+      in
+      Alcotest.(check int)
+        "native cursor keeps its original argument count" expected_count
+        (List.length parameters);
+      let source_member =
+        List.hd (P.members (N.source_snapshot snapshot))
+        |> P.member_completion |> Option.get
+      in
+      let ast = source_member.Parser.parameter_ast in
+      let proof = selected ast.type_specifier |> Option.get in
+      let reference =
+        SR.selected proof ast.type_specifier ast.pointer_layers |> checked
+      in
+      let symbol = aggregate_symbol reference in
+      List.iter
+        (fun parameter ->
+          Alcotest.(check bool)
+            "active native member uses the selected class" true
+            (aggregate_symbol (H.parameter_type_reference parameter) == symbol))
+        parameters;
+      match aggregates with
+      | [ (_, original); (_, shadow) ] ->
+          Alcotest.(check bool)
+            "provisional parameter keeps pre-lookahead aggregate" true
+            (symbol == Option.get (C.publication_aggregate_identity original));
+          Alcotest.(check bool)
+            "provisional parameter ignores later same-name shadow" true
+            (symbol != Option.get (C.publication_aggregate_identity shadow))
+      | _ -> Alcotest.fail "expected original and shadow aggregate publications")
+    [
+      ("class C {};I64 F(C *p)#exe {class C {};};", 0);
+      ("class C {};extern I64 F(C *p);#exe {class C {};}", 1);
+    ];
+  let table, namespace, selected, aggregates, snapshot =
+    selected_one "class C {};C *F()#exe {};"
+  in
+  let function_ =
+    D.resolve_provisional_call ~selected_aggregate:selected ~table ~namespace
+      (N.call_shape snapshot |> checked)
+    |> checked
+  in
+  let return_type =
+    H.function_return_type function_ |> Semantic_type_reference.resolved_type
+  in
+  match (Semantic_type.base return_type, aggregates) with
+  | Semantic_type.Aggregate symbol, [ (_, original) ] ->
+      Alcotest.(check bool)
+        "provisional return keeps selected aggregate" true
+        (symbol == Option.get (C.publication_aggregate_identity original));
+      Alcotest.(check int)
+        "selected aggregate return remains pointer-shaped" 1
+        (Semantic_type.pointer_depth return_type)
+  | _ -> Alcotest.fail "expected selected aggregate pointer return"
+
+let foreign_selected_aggregate_consumer_rejected () =
+  let session = Session.create () in
+  let table = Session.semantic_symbols session in
+  let namespace = C.create_namespace ~table () |> checked in
+  let foreign_namespace = C.create_namespace ~table () |> checked in
+  let foreign_session = Session.create () in
+  let foreign_table = Session.semantic_symbols foreign_session in
+  let foreign_table_namespace =
+    C.create_namespace ~table:foreign_table () |> checked
+  in
+  let registry =
+    N.create_registry ~mode:Preprocessor.Jit ~table ~namespace |> checked
+  in
+  let own_aggregate = ref None in
+  let foreign_namespace_aggregate = ref None in
+  let foreign_table_aggregate = ref None in
+  let foreign_namespace_proof = ref None in
+  let foreign_table_proof = ref None in
+  let records = ref [] and snapshots = ref [] in
+  let observe_record event =
+    List.iter
+      (fun record ->
+        if N.event_belongs record event then N.observe record event |> checked)
+      !records
+  in
+  let declaration event =
+    (match event with
+    | Parser.Aggregate_declared source ->
+        own_aggregate := Some (C.publish_aggregate namespace source |> checked);
+        foreign_namespace_aggregate :=
+          Some (C.publish_aggregate foreign_namespace source |> checked);
+        foreign_table_aggregate :=
+          Some (C.publish_aggregate foreign_table_namespace source |> checked)
+    | Parser.Function_declared source ->
+        let publication = C.publish_function namespace source |> checked in
+        records :=
+          (N.begin_header registry publication source |> checked) :: !records
+    | Parser.Function_parameter_declared parameter ->
+        let source = SR.Function_parameter parameter in
+        ignore
+          (SR.select_aggregate ~table ~namespace ~source
+             (Option.get !own_aggregate)
+          |> checked);
+        foreign_namespace_proof :=
+          Some
+            (SR.select_aggregate ~table ~namespace:foreign_namespace ~source
+               (Option.get !foreign_namespace_aggregate)
+            |> checked);
+        foreign_table_proof :=
+          Some
+            (SR.select_aggregate ~table:foreign_table
+               ~namespace:foreign_table_namespace ~source
+               (Option.get !foreign_table_aggregate)
+            |> checked);
+        observe_record event
+    | _ -> observe_record event);
+    Ok ()
+  in
+  let commands = Test_provisional_function_parser.sink declaration in
+  let _, _, parsed, _, _, _ =
+    Test_stream_parser.parse ~session ~same_task:true ~commands
+      ~configure:(fun _ execution -> { execution with Parser.commands })
+      ~on_enter:(fun () ->
+        match !records with
+        | record :: _ -> snapshots := N.snapshot record :: !snapshots
+        | [] -> ())
+      "class C {};I64 F(C *p)#exe {};"
+  in
+  ignore (Test_parser.expect_ast parsed);
+  let snapshot =
+    match List.rev !snapshots with
+    | [ snapshot ] -> snapshot
+    | _ -> Alcotest.fail "expected one foreign-proof provisional snapshot"
+  in
+  let shape = N.call_shape snapshot |> checked in
+  List.iter
+    (fun (label, proof) ->
+      let before = List.length (S.all_scopes table) in
+      let resolver _ = Some (Option.get proof) in
+      Alcotest.(check bool)
+        (label ^ " rejected by owning function namespace")
+        true
+        (Result.is_error
+           (D.resolve_provisional_call ~selected_aggregate:resolver ~table
+              ~namespace shape));
+      Alcotest.(check int)
+        (label ^ " rejects before function scope allocation")
+        before
+        (List.length (S.all_scopes table)))
+    [
+      ("same-AST foreign namespace proof", !foreign_namespace_proof);
+      ("same-AST foreign table proof", !foreign_table_proof);
+    ]
 
 let substituted_default_flag () =
   let table, namespace, snapshot = one "extern I64 F(U8 *s=\"x\");#exe {}" in
@@ -484,6 +739,10 @@ let tests =
       unconsumed_named_members;
     Alcotest.test_case "direct constructor rejects unselected aggregate" `Quick
       semantic_named_return;
+    Alcotest.test_case "selected aggregate pointer phases" `Quick
+      selected_aggregate_pointers;
+    Alcotest.test_case "foreign selected aggregate consumer ownership" `Quick
+      foreign_selected_aggregate_consumer_rejected;
     Alcotest.test_case "default flags cannot substitute original source" `Quick
       substituted_default_flag;
     Alcotest.test_case "primitive types cannot hide aggregate substitution"

@@ -8,6 +8,16 @@
   existing bounded spill frame. Added encoder, count-boundary, register-lifetime,
   native differential and public CLI tests in both preprocessing modes.
 
+- Preserved the original named aggregate selected for direct function return
+  and parameter types before later lexer lookahead runs `#exe`. Provisional and
+  completed headers consume the same owner-bound proof and original pointer
+  children. A Class selection also takes precedence over a matching public
+  primitive spelling. Checked frames now admit opaque aggregate-pointer slots
+  and their type-only `sizeof` queries without adding aggregate member access
+  or pointer-return execution. Forward completion preserves the original
+  canonical type while retaining the distinct definition source site. Added
+  source/API/CLI, shadowing, source-identity and foreign-owner regressions.
+
 - Aggregate `$$` expressions now use original local positions after runtime-sized
   primitive arrays. Bounds execute once during declaration; their task evidence
   survives captured positions, derived offsets, completed sizes and function
@@ -104,8 +114,9 @@
   callers acquire the joined body while preserving saved defaults, variadic
   arguments and source identity. Completion reuses the original parameter scope
   and typed signature. Source checks reject changed modifiers or bindings before
-  consuming a retained header. Provisional parameters, named aggregate headers
-  and native extern address slots remain unfinished in #635.
+  consuming a retained header. Broader partial parameters, aggregate-valued and
+  callback named types, and native extern address slots remain unfinished in
+  #635 and its follow-up type work.
 
 - Added parenthesis-free PutChars fixed arguments with adjacent expression
   boundaries. Defaults leave the original token untouched, including when the

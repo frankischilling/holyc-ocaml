@@ -11652,6 +11652,33 @@ excluded = ["aggregate-valued local positions", "runtime-dependent aggregate-mem
 native_oracle_status = "pinned-source audit and hosted execution; no new native capture"
 
 [[feature]]
+id = "HC-RETAINED-NAMED-TYPES"
+description = "Original named aggregate selections survive later lexer effects, provisional/completed function headers and forward completion, with opaque aggregate-pointer frame storage."
+sources = [
+  "Compiler/PrsVar.HC:472-489 original token class selected before Lex",
+  "Compiler/PrsVar.HC:285-308,332-360 PrsType pointer/name lookahead",
+  "Compiler/PrsVar.HC:521-529 selected member-class installation",
+  "Compiler/PrsStmt.HC:223-264,111-115 retained return class and function publication",
+  "Compiler/PrsStmt.HC:6-36 extern allocation and class-filtered forward completion"
+]
+implementation = ["src/frontend/parser.ml", "src/frontend/parser.mli", "src/frontend/symbol_visibility.ml", "src/frontend/symbol_visibility.mli", "src/driver/session.ml", "src/sema/declaration_collection.ml", "src/sema/declaration_collection.mli", "src/sema/aggregate_resolution.ml", "src/sema/aggregate_resolution.mli", "src/driver/aggregate_resolution.ml", "src/driver/aggregate_resolution.mli", "src/driver/aggregate_layout.ml", "src/driver/member_type_resolution.ml", "src/sema/source_type_reference.ml", "src/sema/source_type_reference.mli", "src/sema/function_type_resolution.ml", "src/sema/function_type_resolution.mli", "src/driver/function_type_resolution.ml", "src/driver/function_type_resolution.mli", "src/driver/task_declarations.ml", "src/driver/task_declarations.mli", "src/driver/integer_source.ml", "src/sema/compiler_record.ml", "src/ir/integer_interpreter.ml", "src/holyc_lib.ml", "src/holyc_lib.mli"]
+tests = ["test/test_retained_named_aggregate.ml", "test/test_provisional_function_types.ml", "test/test_completed_function_header.ml", "test/test_aggregate_resolution.ml", "test/test_module_expression_binding.ml", "test/test_symbol_visibility.ml", "test/test_stateful_exe_cli.ml", "test/test_main.ml", "test/dune", "examples/stateful-exe-named-type-selection.hc"]
+documentation = ["docs/retained-named-types.md", "docs/completed-function-headers.md", "docs/provisional-function-members.md", "docs/compatibility.md", "docs/testing.md", "docs/reference-source-map.md", "README.md", "REFERENCE_SOURCES.md", "CHANGELOG.md"]
+status = "partial"
+issue = 650
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+baseline = "At 5fd9b8ed98f3ca6b682efa28e96dd1422d4f91eb, class C {};I64 F(C *p)#exe {class C {};}{return 0;}42; rejects with HCRUN0004 for missing selected aggregate metadata in JIT and HCIRVM0011 for unsupported frame storage in AOT."
+selection = "Original located-token Class lookup precedes later pointer/name/suffix reads. Explicit seeded public-primitive payloads distinguish built-in unions from new same-name Class entries; both remain valid native Class bases. Private direct-return/parameter receipts retain the exact type node, selected entry, environment and pointer children."
+ownership = "Opaque type evidence is minted only from its current private parser owner and exact semantic aggregate publication; consumers validate original syntax and their own table/namespace. Retained proofs cannot be reconstructed from equal names/locations, grant source replay, or authorize layout/runtime effects."
+canonical_identity = "Forward and completing definition keep the first native aggregate identity while source-site symbols remain distinct. Original class-filtered predecessor evidence joins only the selected unresolved extern; repeated forwards and later resolved shadows start new identities. Incremental publication and batch/body type resolution use the same stable identity."
+frame_boundary = "Only checked direct aggregate pointers gain opaque eight-byte frame slots. Existing pointer lifetime and type checks remain; general scalar-memory classification and unknown-cell diagnostics do not change."
+body_handoff = "Completed source commands freeze a copy of their selected-type proofs. Body preparation validates the exact command AST, table and namespace before consuming the original proofs; later visible declarations do not retarget the header."
+pointer_sizeof = "Original direct pointer local/parameter children select the fixed pointer width without loading a value or resolving a pointee layout. Arrays still require their checked dimension receipts; by-value and named callback boundaries remain explicit."
+source_gate = "The maintained named-type-selection fixture returns I64 42 with empty ordinary output through public source/CLI execution in both outer modes; independent tests inspect retained type identity rather than inferring it from the constant result."
+excluded = ["aggregate-valued frames and general aggregate memory", "named callback-signature selection", "general null/integer pointer conversions", "pointer-return execution", "pointer-array storage", "guest reflection over class allocations", "native/BIN/loader acceptance", "bootstrap"]
+native_oracle_status = "pinned-source audit and hosted source/ownership tests; no new TempleOS native capture"
+
+[[feature]]
 id = "HC-NATIVE-INTEGER-EXPRESSION"
 description = "Checked source expressions compile through the own OCaml x86-64 encoder and execute explicitly on Windows/Linux x86-64 with full-width results."
 sources = [

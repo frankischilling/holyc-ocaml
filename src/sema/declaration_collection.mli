@@ -33,6 +33,13 @@ val collect :
 val scope : t -> Symbol_table.scope
 val entries : t -> entry list
 val entry_symbol : entry -> Symbol.t
+
+val entry_aggregate_identity : entry -> Symbol.t option
+(** Canonical aggregate identity retained independently of this declaration
+    site's symbol when a command-local view carries publication history.
+    Ordinary collected facts and nonaggregate entries return [None] and are
+    reconciled by aggregate resolution. *)
+
 val entry_kind : entry -> declaration_kind
 val entry_item_index : entry -> int
 val entry_declarator_index : entry -> int option
@@ -60,6 +67,10 @@ val publish :
 
 val publication_symbol : publication -> Symbol.t
 
+val publication_aggregate_identity : publication -> Symbol.t option
+(** Canonical aggregate identity for this publication. Declaration site symbols
+    remain distinct; nonaggregate publications return [None]. *)
+
 val publish_global :
   namespace ->
   Frontend.Parser.global_publication ->
@@ -83,6 +94,10 @@ val publish_aggregate :
   namespace ->
   Frontend.Parser.aggregate_publication ->
   (publication, string) result
+(** Allocate a distinct declaration-site symbol. A definition inherits the
+    canonical symbol of only its exact parser-recorded previous Class
+    publication when that prior source was an extern forward; forwards and fresh
+    definitions start new identities. No current-name lookup participates. *)
 
 val publication_source_aggregate :
   publication -> Frontend.Parser.aggregate_publication option

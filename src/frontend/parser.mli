@@ -335,9 +335,23 @@ val initializer_delimiter_is_current : completed_initializer_delimiter -> bool
 
 type function_activity
 
+type named_aggregate_selection = private {
+  type_specifier : Ast.type_specifier;
+  identifier : Ast.identifier;
+  environment : Symbol_visibility.Environment.t;
+  entry : Symbol_visibility.entry;
+}
+(** Exact visible aggregate selected when the original named type token was
+    produced. [type_specifier] is the same AST node retained by the surrounding
+    function source witness and [identifier] is its exact named child. The entry
+    is a snapshot, not authority for a later lookup or parser phase. A captured
+    Class selection takes precedence over a coincident public primitive
+    spelling, matching the original token's selected hash entry. *)
+
 type function_publication = private {
   function_activity : function_activity;
   function_header : declaration_header;
+  function_return_selection : named_aggregate_selection option;
   function_environment : Symbol_visibility.Environment.t;
   function_entry : Symbol_visibility.entry;
   function_previous : Symbol_visibility.lookup;
@@ -347,7 +361,9 @@ type function_publication = private {
 }
 
 val function_publication_is_current : function_publication -> bool
-(** True only during the original function-declaration callback. *)
+(** True only during the original function-declaration callback. A present
+    [function_return_selection] is the exact named aggregate selected for
+    [function_header.type_specifier] before later parameter/body lookahead. *)
 
 type function_parameter_activity
 type parameter_completion_activity
@@ -358,6 +374,7 @@ type function_parameter_publication = private {
   parameter_predecessor : completed_function_parameter option;
   parameter_register_qualifiers : Ast.register_qualifier list;
   parameter_type_specifier : Ast.type_specifier;
+  parameter_type_selection : named_aggregate_selection option;
   parameter_pointer_layers : Ast.pointer_layer list;
   parameter_name : Ast.identifier option;
   parameter_function_pointer : Ast.function_pointer_declarator option;
@@ -373,8 +390,10 @@ and completed_function_parameter = private {
 val function_parameter_is_current : function_parameter_publication -> bool
 (** Original named-function member head, after type lookahead and before default
     input. The predecessor is the exact preceding accepted parameter completion.
-    Recursive callback signature children remain attached to the original head.
-*)
+    A present [parameter_type_selection] selects the exact
+    [parameter_type_specifier] node. Recursive callback signature children
+    remain attached to the original head but do not gain aggregate-selection
+    receipts. *)
 
 val function_parameter_completion_is_current :
   completed_function_parameter -> bool
@@ -515,10 +534,14 @@ type aggregate_publication = private {
   aggregate_header : declaration_header;
   aggregate_environment : Symbol_visibility.Environment.t;
   aggregate_entry : Symbol_visibility.entry;
+  aggregate_previous : Symbol_visibility.entry option;
   aggregate_name : Ast.identifier;
   aggregate_kind : Ast.aggregate_kind;
   aggregate_activity : aggregate_activity;
 }
+(** [aggregate_previous] is the class-filtered entry selected in the original
+    parser environment immediately before [aggregate_entry] is published.
+    Same-name entries of other kinds do not mask it. *)
 
 type aggregate_phase = private {
   phase_aggregate : aggregate_publication;

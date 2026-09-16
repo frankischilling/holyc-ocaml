@@ -182,7 +182,18 @@ let prepare_unit ?environment:task_environment ?declaration_command
     |> checked
   in
   let* function_types =
-    Function_type_resolution.resolve
+    let* selected_types =
+      match (declaration_command, source_command) with
+      | Some command, None ->
+          Task_declarations.selected_type_resolver ~table ~ast command
+          |> Result.map Option.some
+      | None, Some command ->
+          Task_declarations.source_selected_type_resolver ~table ~ast command
+          |> Result.map Option.some
+      | None, None -> Ok None
+      | Some _, Some _ -> assert false
+    in
+    Function_type_resolution.resolve ?selected_types
       ~retained_headers:(List.map (fun (_, _, typed) -> typed) retained_headers)
       ~table ~declarations ~aggregates ~functions:collected_functions ast
     |> checked

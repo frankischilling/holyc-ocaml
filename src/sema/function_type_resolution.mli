@@ -29,6 +29,9 @@ type function_declaration
 type resolved_function
 type t
 
+type selected_aggregate_resolver =
+  Frontend.Ast.type_specifier -> Source_type_reference.selected_aggregate option
+
 val make_parameter :
   ?source:Frontend.Ast.function_parameter ->
   index:int ->
@@ -117,11 +120,34 @@ val make_provisional_function :
     explicit provisional provenance and cannot enter ordinary body resolution.
 *)
 
+val make_provisional_function_with_selection :
+  selected_aggregate:selected_aggregate_resolver ->
+  table:Symbol_table.t ->
+  namespace:Declaration_collection.namespace ->
+  shape:Function_record_phase.checked_call_shape ->
+  scope:Symbol_table.scope ->
+  return_type:Type_reference.t ->
+  parameters:parameter list ->
+  variadic_register_requests:Register_request.t list ->
+  (resolved_function, string) result
+(** The same checked projection with original named-aggregate selection proofs.
+    Each proof must belong to the supplied table and namespace. *)
+
 val validate_provisional_source_types :
-  Function_record_phase.checked_call_shape -> (unit, string) result
+  ?table:Symbol_table.t ->
+  ?namespace:Declaration_collection.namespace ->
+  ?selected_aggregate:selected_aggregate_resolver ->
+  Function_record_phase.checked_call_shape ->
+  (unit, string) result
 (** Preflight all current native member heads, including members outside the
-    active argument count and recursive callbacks. Named types require retained
-    selection evidence and are unavailable until that evidence is integrated. *)
+    active argument count and recursive callbacks. A named type is accepted only
+    when the supplied occurrence resolver returns its exact opaque selection
+    proof. The default resolver supplies no proofs, preserving
+    direct-constructor rejection. Supplying semantic ownership checks the proof
+    against that exact table and module namespace before any retained driver
+    scope is allocated. Recursive callback named types remain unsupported
+    because this gate retains selections only for direct function returns and
+    direct parameters. *)
 
 val function_variadic_count_type : resolved_function -> Type.t option
 

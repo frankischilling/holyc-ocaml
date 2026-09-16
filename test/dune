@@ -15,7 +15,8 @@
    %{dep:../examples/stateful-exe-shared-positions.hc}
    %{dep:../examples/stateful-exe-function-positions.hc}
    %{dep:../examples/stateful-exe-frame-positions.hc}
-   %{dep:../examples/stateful-exe-runtime-frame-positions.hc})))
+   %{dep:../examples/stateful-exe-runtime-frame-positions.hc}
+   %{dep:../examples/stateful-exe-named-type-selection.hc})))
 
 (test
  (name test_integer_program_cli)
@@ -74,6 +75,7 @@
  (modules
   test_main
   test_retained_aggregates
+  test_retained_named_aggregate
   test_runtime_frame_positions
   test_provisional_function_types
   test_provisional_function_authority

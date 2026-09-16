@@ -294,11 +294,16 @@ let validate_definition ~table ~scope event header aggregate
     Sema.Member_type_resolution.aggregate_symbol aggregate
   in
   let aggregate_scope = Sema.Member_type_resolution.aggregate_scope aggregate in
-  if not (same_symbol header_symbol event.identity_symbol) then
+  if
+    (not (Sema.Symbol_table.owns_symbol table event.declaration_symbol))
+    || (not (Sema.Symbol_table.owns_symbol table header_symbol))
+    || not (Sema.Symbol_table.owns_symbol table aggregate_symbol)
+  then
+    Error
+      "aggregate layout definition inputs belong to a different symbol table"
+  else if header_symbol != event.identity_symbol then
     Error "aggregate layout header has the wrong aggregate identity"
-  else if not (same_symbol aggregate_symbol event.declaration_symbol) then
-    Error "aggregate layout members have the wrong declaration identity"
-  else if not (same_symbol aggregate_symbol event.identity_symbol) then
+  else if aggregate_symbol != event.identity_symbol then
     Error "aggregate layout members have the wrong aggregate identity"
   else if
     Sema.Aggregate_header_resolution.header_item_index header

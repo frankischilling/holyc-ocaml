@@ -297,8 +297,16 @@ let completed_aggregate_forward_is_canonical () =
    |> Semantic_module_expression_binding.publication_canonical_symbol
    |> symbol_id);
   Alcotest.(check bool)
-    "completion changes the canonical symbol" true
-    (symbol_id forward_symbol <> symbol_id canonical)
+    "completion preserves the original canonical symbol" true
+    (forward_symbol == canonical);
+  let definition_site =
+    List.nth declarations 1
+    |> Semantic_aggregate_resolution.resolved_declaration_site
+    |> Semantic_aggregate_resolution.declaration_site_symbol
+  in
+  Alcotest.(check bool)
+    "definition retains a distinct source declaration" true
+    (definition_site != canonical)
 
 let mixed_hash_chain_uses_newest_kind () =
   let prepared =

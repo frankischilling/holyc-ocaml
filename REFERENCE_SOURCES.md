@@ -33,6 +33,15 @@ The existing checked computation-class and count rules feed fixed-RCX native
 emission with preserved live values. The pin is unchanged; byte tests and
 hosted differential execution do not imply a new TempleOS native capture.
 
+Issue #650 retains the named class selected by `PrsVar.HC:472-489` before
+following lexer effects. Pointer/name parsing and member installation use
+`:285-308,332-360,521-529`; function return publication uses
+`PrsStmt.HC:223-264,111-115`. The class allocation/forward-completion distinction
+is at `PrsStmt.HC:6-36`. The [retained type guide](docs/retained-named-types.md)
+separates those source semantics from hosted ownership proofs and the checked
+aggregate-pointer frame boundary. The pin is unchanged, and no new TempleOS
+native execution capture is implied.
+
 The native-expression gate in #642 uses the audited opcode forms for MOV,
 wrapping arithmetic, bitwise operations, NEG, NOT, IMUL and RET. Its return
 tail follows `PrsExp.HC:1117-1127` and `OptPass789A.HC:779-782`; multiplication

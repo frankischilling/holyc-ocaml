@@ -16,6 +16,7 @@ type declaration = {
 
 type entry = {
   symbol : Symbol.t;
+  aggregate_identity : Symbol.t option;
   declaration_kind : declaration_kind;
   item_index : int;
   declarator_index : int option;
@@ -26,6 +27,7 @@ type t = { scope : Symbol_table.scope; entries : entry list }
 type publication = {
   owner : unit ref;
   symbol : Symbol.t;
+  aggregate_identity : Symbol.t option;
   source_global : Frontend.Parser.global_publication option;
   source_function : Frontend.Parser.function_publication option;
   source_aggregate : Frontend.Parser.aggregate_publication option;
@@ -36,11 +38,13 @@ type namespace = {
   scope : Symbol_table.scope;
   owner : unit ref;
   mutable source_globals : publication list;
+  mutable source_aggregates : publication list;
 }
 
 let scope (collection : t) = collection.scope
 let entries collection = collection.entries
 let entry_symbol (entry : entry) = entry.symbol
+let entry_aggregate_identity (entry : entry) = entry.aggregate_identity
 let entry_kind entry = entry.declaration_kind
 let entry_item_index entry = entry.item_index
 let entry_declarator_index entry = entry.declarator_index
@@ -89,6 +93,7 @@ let add_entry table scope declaration =
       Ok
         {
           symbol;
+          aggregate_identity = None;
           declaration_kind = declaration.declaration_kind;
           item_index = declaration.item_index;
           declarator_index = declaration.declarator_index;
@@ -110,10 +115,20 @@ let collect ~table ?module_name declarations =
 let create_namespace ~table ?module_name () =
   create_module_scope table module_name
   |> Result.map (fun scope ->
-      { table; scope; owner = ref (); source_globals = [] })
+      {
+        table;
+        scope;
+        owner = ref ();
+        source_globals = [];
+        source_aggregates = [];
+      })
 
 let namespace_scope (namespace : namespace) = namespace.scope
 let publication_symbol (publication : publication) = publication.symbol
+
+let publication_aggregate_identity (publication : publication) =
+  publication.aggregate_identity
+
 let publication_source_global publication = publication.source_global
 let publication_source_function publication = publication.source_function
 let publication_source_aggregate publication = publication.source_aggregate
@@ -122,6 +137,12 @@ let namespace_owns_publication (namespace : namespace)
     (publication : publication) =
   publication.owner == namespace.owner
   && Symbol_table.owns_symbol namespace.table publication.symbol
+  && Option.fold ~none:true
+       ~some:(fun identity ->
+         Symbol_table.owns_symbol namespace.table identity
+         && Symbol.Scope_id.equal (Symbol.scope_id identity)
+              (Symbol_table.scope_id namespace.scope))
+       publication.aggregate_identity
 
 let namespace_owns_table (namespace : namespace) table =
   namespace.table == table
@@ -140,6 +161,9 @@ let publish (namespace : namespace) ~name ~kind ~origin =
           {
             owner = namespace.owner;
             symbol;
+            aggregate_identity =
+              (if Symbol.equal_kind kind Symbol.Aggregate_type then Some symbol
+               else None);
             source_global = None;
             source_function = None;
             source_aggregate = None;
@@ -200,7 +224,48 @@ let publish_aggregate namespace (source : Frontend.Parser.aggregate_publication)
     publish namespace ~name:source.aggregate_name.spelling
       ~kind:Symbol.Aggregate_type ~origin
     |> Result.map (fun publication ->
-        { publication with source_aggregate = Some source })
+        let prior =
+          Option.bind source.aggregate_previous (fun previous_entry ->
+              List.find_opt
+                (fun candidate ->
+                  match candidate.source_aggregate with
+                  | Some previous ->
+                      previous.aggregate_entry == previous_entry
+                      && previous.aggregate_environment
+                         == source.aggregate_environment
+                  | None -> false)
+                namespace.source_aggregates)
+        in
+        let prior_is_forward =
+          Option.fold ~none:false
+            ~some:(fun candidate ->
+              match candidate.source_aggregate with
+              | Some previous -> (
+                  (* The parser has disjoint aggregate grammars: only its extern
+                     forward path supplies an aggregate binding; definitions
+                     publish with [None]. The exact previous frontend entry was
+                     captured before this declaration was inserted. *)
+                  match previous.aggregate_header.binding with
+                  | Some binding -> binding.kind = Frontend.Ast.Extern
+                  | None -> false)
+              | None -> false)
+            prior
+        in
+        let aggregate_identity =
+          if Option.is_none source.aggregate_header.binding && prior_is_forward
+          then Option.bind prior (fun candidate -> candidate.aggregate_identity)
+          else publication.aggregate_identity
+        in
+        let publication =
+          {
+            publication with
+            aggregate_identity;
+            source_aggregate = Some source;
+          }
+        in
+        namespace.source_aggregates <-
+          publication :: namespace.source_aggregates;
+        publication)
 
 let view (namespace : namespace) publications =
   let rec validate previous seen entries_rev = function
@@ -208,6 +273,28 @@ let view (namespace : namespace) publications =
     | ((publication : publication), (declaration : declaration)) :: rest ->
         let symbol = publication.symbol in
         let position = (declaration.item_index, declaration.declarator_index) in
+        let aggregate_identity_valid =
+          match
+            (declaration.declaration_kind, publication.aggregate_identity)
+          with
+          | (Aggregate_forward | Aggregate_definition), Some identity ->
+              Symbol_table.owns_symbol namespace.table identity
+              && Symbol.equal_kind (Symbol.kind identity) Symbol.Aggregate_type
+              && String.equal (Symbol.name identity) declaration.name
+              && Symbol.Scope_id.equal (Symbol.scope_id identity)
+                   (Symbol_table.scope_id namespace.scope)
+          | (Aggregate_forward | Aggregate_definition), None -> false
+          | ( ( Aggregate_attached_global
+              | Global_variable
+              | Function_prototype
+              | Function_definition ),
+              None ) -> true
+          | ( ( Aggregate_attached_global
+              | Global_variable
+              | Function_prototype
+              | Function_definition ),
+              Some _ ) -> false
+        in
         let valid_shape =
           match
             (declaration.declaration_kind, declaration.declarator_index)
@@ -228,6 +315,9 @@ let view (namespace : namespace) publications =
                   (Symbol_table.scope_id namespace.scope))
         then
           Error "semantic declaration publication belongs to another namespace"
+        else if not aggregate_identity_valid then
+          Error
+            "semantic declaration publication has an invalid aggregate identity"
         else if List.exists (fun prior -> prior == publication) seen then
           Error "semantic declaration view repeats a publication"
         else if
@@ -250,6 +340,7 @@ let view (namespace : namespace) publications =
           let entry =
             {
               symbol;
+              aggregate_identity = publication.aggregate_identity;
               declaration_kind = declaration.declaration_kind;
               item_index = declaration.item_index;
               declarator_index = declaration.declarator_index;

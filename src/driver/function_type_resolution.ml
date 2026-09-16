@@ -54,16 +54,34 @@ let resolve_type visible type_specifier pointer_layers =
                    identifier.spelling)
           | Some symbol -> Sema.Type.make_aggregate ~symbol ~pointer_depth))
 
-let make_type_reference visible type_specifier pointer_layers =
-  match resolve_type visible type_specifier pointer_layers with
-  | Error _ as error -> error
-  | Ok resolved_type ->
-      Sema.Type_reference.make
-        ~spelling:(Frontend.Ast.type_specifier_spelling type_specifier)
-        ~spelling_origin:
-          (origin (Frontend.Ast.type_specifier_location type_specifier))
-        ~pointer_origins:(pointer_origins pointer_layers)
-        ~resolved_type
+let make_type_reference ?selected_aggregate ?selected_owner visible
+    type_specifier pointer_layers =
+  let ( let* ) = Result.bind in
+  match (type_specifier, selected_aggregate) with
+  | Frontend.Ast.Named_type_specifier _, Some resolve -> (
+      match resolve type_specifier with
+      | Some proof ->
+          let* () =
+            match selected_owner with
+            | None -> Ok ()
+            | Some (table, namespace) ->
+                Sema.Source_type_reference.validate_selected_aggregate ~table
+                  ~namespace proof
+          in
+          Sema.Source_type_reference.selected proof type_specifier
+            pointer_layers
+      | None ->
+          Error "named function type lacks its retained selected aggregate")
+  | _ -> (
+      match resolve_type visible type_specifier pointer_layers with
+      | Error _ as error -> error
+      | Ok resolved_type ->
+          Sema.Type_reference.make
+            ~spelling:(Frontend.Ast.type_specifier_spelling type_specifier)
+            ~spelling_origin:
+              (origin (Frontend.Ast.type_specifier_location type_specifier))
+            ~pointer_origins:(pointer_origins pointer_layers)
+            ~resolved_type)
 
 type aggregate_ast = {
   aggregate_identifier : Frontend.Ast.identifier;
@@ -451,11 +469,15 @@ let default_fact (default : Frontend.Ast.parameter_default) =
           keyword_origin = origin lastclass.lastclass_location;
         }
 
-let rec signature_fact visible ~opening parameters variadic ~closing =
+let rec signature_fact ?selected_aggregate ?selected_owner visible ~opening
+    parameters variadic ~closing =
   let rec parameter_facts index facts_rev = function
     | [] -> Ok (List.rev facts_rev)
     | (parameter : Frontend.Ast.function_parameter) :: rest -> (
-        match parameter_fact visible index parameter with
+        match
+          parameter_fact ?selected_aggregate ?selected_owner visible index
+            parameter
+        with
         | Error _ as error -> error
         | Ok fact -> parameter_facts (index + 1) (fact :: facts_rev) rest)
   in
@@ -477,12 +499,13 @@ let rec signature_fact visible ~opening parameters variadic ~closing =
             ?closing_origin:(Option.map origin closing)
             ()))
 
-and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
+and parameter_fact ?selected_aggregate ?selected_owner visible index
+    (parameter : Frontend.Ast.function_parameter) =
   Result.bind (Register_request.of_list parameter.register_qualifiers)
     (fun register_requests ->
       match
-        make_type_reference visible parameter.type_specifier
-          parameter.pointer_layers
+        make_type_reference ?selected_aggregate ?selected_owner visible
+          parameter.type_specifier parameter.pointer_layers
       with
       | Error _ as error -> error
       | Ok type_reference -> (
@@ -494,7 +517,7 @@ and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
                 | Error _ as error -> error
                 | Ok _ -> (
                     match
-                      signature_fact visible
+                      signature_fact ?selected_aggregate ?selected_owner visible
                         ~opening:pointer.signature_opening_parenthesis
                         pointer.signature_parameters pointer.signature_variadic
                         ~closing:pointer.signature_closing_parenthesis
@@ -642,23 +665,28 @@ let function_fact_with_types event ~return_type ~signature =
             ~item_index:event.function_ast.function_item_index ~return_type
             ~signature ~parameter_bindings ~variadic_bindings)
 
-let function_fact visible event =
+let function_fact ?selected_aggregate ?selected_owner visible event =
   let ast = event.function_ast in
   match
-    make_type_reference visible ast.function_return_type
-      ast.function_return_pointers
+    make_type_reference ?selected_aggregate ?selected_owner visible
+      ast.function_return_type ast.function_return_pointers
   with
   | Error _ as error -> error
   | Ok return_type -> (
       match
-        signature_fact visible ~opening:ast.function_opening
-          ast.function_parameters ast.function_variadic
-          ~closing:ast.function_closing
+        signature_fact ?selected_aggregate ?selected_owner visible
+          ~opening:ast.function_opening ast.function_parameters
+          ast.function_variadic ~closing:ast.function_closing
       with
       | Error _ as error -> error
       | Ok signature -> function_fact_with_types event ~return_type ~signature)
 
-let resolve_events ~retained_headers ~table ~scope aggregates functions =
+let resolve_events ?selected_types ~retained_headers ~table ~scope aggregates
+    functions =
+  let selected_aggregate = Option.map snd selected_types in
+  let selected_owner =
+    Option.map (fun (namespace, _) -> (table, namespace)) selected_types
+  in
   let rec resolve visible facts_rev aggregates functions =
     match (aggregates, functions) with
     | [], [] ->
@@ -671,7 +699,9 @@ let resolve_events ~retained_headers ~table ~scope aggregates functions =
         in
         resolve visible facts_rev aggregate_rest []
     | [], function_ :: function_rest -> (
-        match function_fact visible function_ with
+        match
+          function_fact ?selected_aggregate ?selected_owner visible function_
+        with
         | Error _ as error -> error
         | Ok fact -> resolve visible (fact :: facts_rev) [] function_rest)
     | aggregate :: aggregate_rest, function_ :: function_rest -> (
@@ -689,20 +719,29 @@ let resolve_events ~retained_headers ~table ~scope aggregates functions =
           = function_.function_ast.function_item_index
         then Error "aggregate and function declarations share one module item"
         else
-          match function_fact visible function_ with
+          match
+            function_fact ?selected_aggregate ?selected_owner visible function_
+          with
           | Error _ as error -> error
           | Ok fact ->
               resolve visible (fact :: facts_rev) aggregates function_rest)
   in
   resolve String_map.empty [] aggregates functions
 
-let resolve ?(retained_headers = []) ~table ~declarations ~aggregates ~functions
-    module_ =
+let resolve ?(retained_headers = []) ?selected_types ~table ~declarations
+    ~aggregates ~functions module_ =
   let scope = Sema.Declaration_collection.scope declarations in
   if not (Sema.Symbol_table.owns_scope table scope) then
     Error "semantic function type module belongs to a different symbol table"
   else if Sema.Symbol_table.scope_kind scope <> Sema.Symbol_table.Module then
     Error "semantic function types require a module declaration collection"
+  else if
+    Option.fold ~none:false
+      ~some:(fun (namespace, _) ->
+        (not (Sema.Declaration_collection.namespace_owns_table namespace table))
+        || Sema.Declaration_collection.namespace_scope namespace != scope)
+      selected_types
+  then Error "selected function types belong to another declaration namespace"
   else
     match aggregate_events ~table ~declarations ~aggregates module_ with
     | Error _ as error -> error
@@ -713,9 +752,13 @@ let resolve ?(retained_headers = []) ~table ~declarations ~aggregates ~functions
         with
         | Error _ as error -> error
         | Ok functions ->
-            resolve_events ~retained_headers ~table ~scope aggregates functions)
+            resolve_events ?selected_types ~retained_headers ~table ~scope
+              aggregates functions)
 
-let resolve_completed_header_with_collection ~table ~namespace declaration =
+let resolve_completed_header_with_collection
+    ?(selected_aggregate :
+        Sema.Function_type_resolution.selected_aggregate_resolver =
+      fun _ -> None) ~table ~namespace declaration =
   if not (Sema.Compiler_record.declared_function_owns_table declaration table)
   then Error "completed function header belongs to a different symbol table"
   else if
@@ -745,16 +788,17 @@ let resolve_completed_header_with_collection ~table ~namespace declaration =
         function_closing = header.closing_parenthesis;
       }
     in
-    (* A completed header does not retain selected aggregate-type evidence.
-       Do not substitute current namespace lookup for its source visibility. *)
     let visible = String_map.empty in
     Result.bind
-      (make_type_reference visible ast.function_return_type
-         ast.function_return_pointers) (fun return_type ->
+      (make_type_reference ~selected_aggregate
+         ~selected_owner:(table, namespace) visible ast.function_return_type
+         ast.function_return_pointers)
+      (fun return_type ->
         Result.bind
-          (signature_fact visible ~opening:ast.function_opening
-             ast.function_parameters ast.function_variadic
-             ~closing:ast.function_closing) (fun signature ->
+          (signature_fact ~selected_aggregate ~selected_owner:(table, namespace)
+             visible ~opening:ast.function_opening ast.function_parameters
+             ast.function_variadic ~closing:ast.function_closing)
+          (fun signature ->
             Result.bind
               (Function_collection.collect_completed_header ~table ~namespace
                  declaration) (fun collected ->
@@ -789,11 +833,15 @@ let resolve_completed_header_with_collection ~table ~namespace declaration =
                               "completed function header did not produce one \
                                resolved signature")))))
 
-let resolve_completed_header ~table ~namespace declaration =
+let resolve_completed_header ?selected_aggregate ~table ~namespace declaration =
   Result.map snd
-    (resolve_completed_header_with_collection ~table ~namespace declaration)
+    (resolve_completed_header_with_collection ?selected_aggregate ~table
+       ~namespace declaration)
 
-let resolve_provisional_call ?scope ~table ~namespace shape =
+let resolve_provisional_call ?scope
+    ?(selected_aggregate :
+        Sema.Function_type_resolution.selected_aggregate_resolver =
+      fun _ -> None) ~table ~namespace shape =
   let module N = Sema.Function_record_phase in
   let module P = Sema.Provisional_function in
   let ( let* ) = Result.bind in
@@ -820,12 +868,14 @@ let resolve_provisional_call ?scope ~table ~namespace shape =
      Resolve original children before allocating the call's empty owning scope.
      Selected named aggregate types need their own retained source evidence. *)
   let* () =
-    Sema.Function_type_resolution.validate_provisional_source_types shape
+    Sema.Function_type_resolution.validate_provisional_source_types ~table
+      ~namespace ~selected_aggregate shape
   in
   let visible = String_map.empty in
   let native = N.native_source snapshot in
   let* return_type =
-    make_type_reference visible native.function_header.type_specifier
+    make_type_reference ~selected_aggregate ~selected_owner:(table, namespace)
+      visible native.function_header.type_specifier
       native.function_pointer_layers
   in
   let rec parameters index rev = function
@@ -837,7 +887,10 @@ let resolve_provisional_call ?scope ~table ~namespace shape =
           | None ->
               Error "native fixed member has no checked source type completion"
         in
-        let* parameter = parameter_fact visible index original in
+        let* parameter =
+          parameter_fact ~selected_aggregate ~selected_owner:(table, namespace)
+            visible index original
+        in
         parameters (index + 1) (parameter :: rev) rest
   in
   let* parameters = parameters 0 [] (N.fixed_members shape) in
@@ -856,5 +909,6 @@ let resolve_provisional_call ?scope ~table ~namespace shape =
           ~kind:Sema.Symbol_table.Function ~name:native.function_name.spelling
           ()
   in
-  Sema.Function_type_resolution.make_provisional_function ~table ~namespace
-    ~shape ~scope ~return_type ~parameters ~variadic_register_requests
+  Sema.Function_type_resolution.make_provisional_function_with_selection ~table
+    ~namespace ~selected_aggregate ~shape ~scope ~return_type ~parameters
+    ~variadic_register_requests
