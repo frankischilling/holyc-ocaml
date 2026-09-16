@@ -1,6 +1,6 @@
 # holyc-ocaml roadmap
 
-GitHub milestones M0 through M10 hold measurable exit criteria. Current implementation work is in M5: IR and interpreter. Earlier milestone gaps, including compile-time execution, remain tracked in their original issues.
+GitHub milestones M0 through M10 hold measurable exit criteria. Current work spans M5 (IR and interpreter) and the bounded M6 hosted x86-64 backend. Earlier milestone gaps, including compile-time execution, remain tracked in their original issues.
 
 M0 covers the build, source model, diagnostics, pinned reference, first lexer slice, tests, and CI. Later milestones cover the source audit, integrated preprocessor, parser, semantic model, verified IR, interpreter, hosted x86-64 backend, TempleOS assembler, `.BIN` and JIT support, whole-tree compatibility, bootstrap work, and the 1.0 release.
 
@@ -23,7 +23,12 @@ Issue #657 extends the shared backend to closed source programs with structured
 branches and loops, a generated per-IR step budget, exact fault sites and one
 bounded spill frame. The public `run --target=host-jit` path uses a compile-only
 source pipeline and retains native progress without an interpreter fallback.
-Source storage, function frames/calls, the complete HolyC ABI and floating-point
-backends remain open, alongside assembler, BIN/loader and bootstrap gates.
+The next native gate connects source-defined functions, automatic I64/U64 scalar
+storage and direct generated calls. It must preserve checked source types,
+saved defaults, caller live values and bounded call-depth/frame accounting.
+The complete HolyC ABI, narrow and pointer memory operations, F64/x87 and
+conversions, runtime output, and general declaration/`#exe` native integration
+remain open. Optimizer parity, assembler and object/BIN output, actual TempleOS
+loader acceptance, whole-tree compilation and bootstrap retain their own gates.
 
 This file does not mark planned work as implemented. Current support is listed in the README and generated compatibility reports.
