@@ -1,5 +1,6 @@
 open Holyc_lib
 module Image = X86_64_expression
+module Program = X86_64_program
 module Encoder = X86_64_encoder
 module Runtime = Native_execution
 module Sequence = Ir_instruction_sequence
@@ -304,6 +305,56 @@ let check_fault_image ~windows ~status_abi ~literals frame_shape =
     (byte code (String.length code - 1) = 0xc3)
     (label ^ ": fault-capable image must return through the common epilogue")
 
+let program_status_abi_name = function
+  | Program.Windows_x64 -> "windows"
+  | Program.System_v_x64 -> "system-v"
+
+let check_program_unwind ~windows ~status_abi ~live expected_frame =
+  let image =
+    Program.compile ~status_abi ~max_ir_instructions:4096
+      ~max_code_bytes:1048576
+      (Test_native_program.pressure_graph live)
+    |> require_ok (fun errors ->
+        errors
+        |> List.map (fun (error : Program.error) ->
+            error.code ^ ": " ^ error.message)
+        |> String.concat "; ")
+  in
+  let label =
+    Printf.sprintf "program %s %d live values / %d-byte frame"
+      (program_status_abi_name status_abi)
+      live expected_frame
+  in
+  require
+    (Program.status_abi image = status_abi)
+    (label ^ ": program image lost its mandatory context ABI");
+  require
+    (Program.frame_bytes image = expected_frame)
+    (Printf.sprintf "%s: expected frame %d, got %d" label expected_frame
+       (Program.frame_bytes image));
+  let code = Program.code image in
+  let unwind = Program.windows_unwind_info image in
+  (if expected_frame = 0 then
+     require (unwind = "") (label ^ ": frameless program has unwind metadata")
+   else
+     let expected = expected_unwind expected_frame in
+     require (unwind = expected) (label ^ ": exact program unwind bytes");
+     check_frame_code label expected_frame code;
+     if windows then probe_windows_unwind code expected expected_frame);
+  let first = Program.windows_unwind_info image in
+  let second = Program.windows_unwind_info image in
+  if String.length first > 0 then
+    Bytes.set (Bytes.unsafe_of_string first) 0 '\xff';
+  require
+    (Program.windows_unwind_info image = second)
+    (label ^ ": program unwind getter must return immutable copies");
+  let capture = Encoder.encode (Encoder.Capture_status status_abi) in
+  let capture_offset = if expected_frame = 0 then 0 else 7 in
+  require
+    (String.length code >= capture_offset + String.length capture
+    && String.sub code capture_offset (String.length capture) = capture)
+    (label ^ ": context capture must follow the optional stack allocation")
+
 let () =
   let windows =
     match Runtime.platform () with
@@ -327,6 +378,13 @@ let () =
       check_fault_image ~windows ~status_abi ~literals:8 `Small;
       check_fault_image ~windows ~status_abi ~literals:24 `Large)
     [ Image.Windows_x64; Image.System_v_x64 ];
+  List.iter
+    (fun status_abi ->
+      check_program_unwind ~windows ~status_abi ~live:2 0;
+      check_program_unwind ~windows ~status_abi ~live:6 8;
+      check_program_unwind ~windows ~status_abi ~live:23 152;
+      check_program_unwind ~windows ~status_abi ~live:516 4088)
+    [ Program.Windows_x64; Program.System_v_x64 ];
   (* 518 simultaneous values need all 511 permitted spill slots. This also
      exercises the largest Version 1 large-allocation encoding without crossing
      the one-page probing boundary. *)

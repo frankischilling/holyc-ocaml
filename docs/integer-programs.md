@@ -45,6 +45,12 @@ The file needs no `main` function. `holyc dump-ir --program FILE` exposes the
 verified graph used by that command. Both commands accept the existing include,
 definition, deterministic predefined-value and JIT/AOT preprocessing options.
 
+`holyc run --target=host-jit` uses the shared source lowerer for the separate
+[closed native program gate](native-programs.md). It emits and executes real
+machine control flow with the same per-IR step accounting. Native source
+storage, function calls, runtime output and declaration execution remain outside
+that gate; their existing interpreter support below does not imply native support.
+
 ```text
 opam exec -- dune exec bin/holyc.exe -- run --target=ir examples/integer-control-flow.hc
 opam exec -- dune exec bin/holyc.exe -- dump-ir --program examples/integer-control-flow.hc

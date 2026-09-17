@@ -11873,3 +11873,54 @@ verification_boundary = "ordinary encoder/source/type/shared-owner/pressure/meta
 optimizer_boundary = "raw runtime DIV/MOD semantics only; constant folding, literal-divisor strength reductions and their fault-phase differences remain issue #585; constant-form shift parity remains issue #574"
 excluded = ["F64 division", "compound DIV/MOD assignment native emission", "optimizer strength reductions and compile-time arithmetic-fault timing (#585)", "general call ABI and source-visible memory", "arbitrary hardware fault recovery", "object/BIN emission and TempleOS loader acceptance", "bootstrap"]
 native_oracle_status = "raw DIV/MOD semantics are anchored by the existing pinned-source audit and integer-division oracle; hosted guarded execution adds a private status ABI without claiming TempleOS exception-delivery parity"
+
+[[feature]]
+id = "HC-NATIVE-INTEGER-PROGRAMS"
+description = "Closed integer source programs execute real x86-64 control flow through the shared word backend with exact per-IR budgets, retained faults and one bounded spill frame."
+sources = [
+  "Compiler/PrsStmt.HC:459-565 structured condition, loop, for-update and break order",
+  "Compiler/OptLib.HC:229-484 conditional NOT/AND/OR branch rewrites",
+  "Compiler/OptPass789A.HC:158-163 zero/nonzero test-and-branch consumers",
+  "Compiler/OptPass789A.HC:267-284 relative-jump consumer",
+  "Compiler/OpCodes.DD qword MOV/DEC/TEST/JMP/Jcc forms; existing native expression entries retain arithmetic source references"
+]
+implementation = [
+  "src/backend/x86_64_encoder.ml", "src/backend/x86_64_encoder.mli",
+  "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_word_codegen.mli",
+  "src/backend/x86_64_expression.ml", "src/backend/x86_64_expression.mli",
+  "src/backend/x86_64_program.ml", "src/backend/x86_64_program.mli",
+  "src/driver/native_program.ml", "src/driver/native_program.mli",
+  "src/runtime/native_program_execution.ml", "src/runtime/native_program_execution.mli",
+  "src/native_execution_stubs.c", "src/holyc_lib.ml", "src/holyc_lib.mli",
+  "bin/holyc.ml", "bin/run_report.ml"
+]
+tests = [
+  "test/test_native_program.ml", "test/test_native_expression.ml",
+  "test/test_integer_program_cli.ml", "test/test_main.ml", "test/dune",
+  "test/native/test_native_program_execution.ml", "test/native/test_native_program_cli.ml",
+  "test/native/test_native_unwind.ml", "test/native/native_unwind_probe.c", "test/native/dune",
+  "examples/native-integer-program.hc", "examples/integer-control-flow.hc"
+]
+documentation = [
+  "docs/native-programs.md", "docs/native-expressions.md", "docs/integer-programs.md",
+  "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md",
+  "README.md", "ARCHITECTURE.md", "REFERENCE_SOURCES.md", "ROADMAP.md", "SECURITY.md", "CHANGELOG.md"
+]
+status = "implemented"
+issue = 657
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "run --target=host-jit accepts closed expression/empty/block/sequence/if/while/do/for/break source in both preprocessing modes. native-integer-program.hc retains I64 42 in 26 reached instructions; integer-control-flow.hc retains I64 0 in 23 because its final for initializer updates the last-expression latch."
+compile_authority = "Parser.parse has no command/stream execution callbacks. An iterative fail-fast AST gate rejects declarations/functions/storage/calls/implicit output before Integer_unit.compile_ast; a defensive compiled-unit check requires zero functions, storage, calls, initialization and preparation. The ordinary entry is never interpreted during native compilation."
+graph = "whole-graph preflight includes unreachable code and preserves block order, canonical END_EXP/JMP/BR_ZERO/BR_NOT_ZERO/END forms, checked targets and source-order fallthrough; IR values and spill ownership are block-local; dense metadata sites retain original sparse block/instruction IDs and spans"
+meter = "R10 is loaded from the private positive budget once; before every IR instruction TEST/JE checks exhaustion and DEC consumes one step. Arithmetic faults consume their instruction; budget faults name the next instruction; end on the last step succeeds. Empty-block transfers and compiler housekeeping cost no extra IR steps."
+allocation = "shared expression word allocator with R10/R11 reserved and five value registers; full register peak includes reserved/fixed/scratch registers. Each block reuses private slots; one frame is the maximum padded block requirement, at most4088 bytes. Prologue SUB remains first7 bytes; all exits use one counted, stack-restoring epilogue."
+private_status_abi = "six uint64 words at offsets0/8/16/24/32/40 hold kind, fault site, immutable budget, executed steps, last END_EXP site and bits. Windows/System V capture is explicit for every program; foreign ABI rejects before mapping. The checked END_EXP metadata determines result type rather than an untrusted raw type tag."
+integrity = "positive budget; returned count within budget; success kind/site0 with at least one instruction; exact budget on step failure; arithmetic fault kind requires the matching operation and signedness; nonzero value site must name END_EXP and zero value site requires zero bits."
+cleanup = "program and expression wrappers share mapping/protection/cache/function-table lifetime. C removes Windows unwind state and releases the mapping before boxing status; failed unwind removal retains its registered mapping. The runtime lock remains held; the budget is not an isolation boundary or a CPU deadline."
+reporting = "holyc-integer-program-v2 with actual target host-jit, arithmetic runtime-native, full-width last value, actual steps and native platform/compile limits/metrics. Arithmetic and budget faults retain HCIRVM0009/0010/0007 source diagnostics; failure exposes no successful image/value. Existing IR v2 and native-expression v1 remain compatible; legacy run v1 rejects native target before entry."
+limits = "IR1..100000, blocks1..100000, code1..16MiB, frame0..4088; defaults4096IR/4096blocks/65536bytes/4088frame. Whole-graph counts precede maps, complete plan size precedes byte allocation, all guard/meter/fault/prologue/epilogue bytes count."
+verification_boundary = "ordinary context/control byte goldens, metadata/negative/quota/mutability/legacy-expression tests without native entry; explicit Windows/Linux native value and interpreter comparisons, both-mode source/CLI, exact/one-below and infinite-loop budgets, guarded faults, spill cleanup and unwind checks"
+extended_features = ["HC-NATIVE-INTEGER-EXPRESSION (#642)", "HC-NATIVE-INTEGER-PREDICATES (#644)", "HC-NATIVE-INTEGER-LOGICAL-VALUES (#646)", "HC-NATIVE-INTEGER-SPILLS (#648)", "HC-NATIVE-INTEGER-SHIFTS (#652)", "HC-NATIVE-INTEGER-DIVMOD (#654)"]
+excluded = ["native source storage and function frames/calls", "complete HolyC ABI and runtime output", "general declaration/#exe native entry integration", "floating execution and conversions", "optimizer parity (#574/#585) and multiple-pending comparison reductions (#593)", "integrated assembler and object/BIN writer", "TempleOS loader acceptance and bootstrap", "arbitrary machine fault recovery"]
+native_oracle_status = "pinned source control semantics plus the project's own hosted machine execution; instruction budgeting/context are host policies, not a TempleOS optimization or exception-delivery parity claim"

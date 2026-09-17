@@ -5,6 +5,10 @@ OCaml x86-64 encoder and explicitly executes the resulting machine code.
 Windows x86-64 and Linux x86-64 have separate host bridges. Other platforms
 can use the encoder but cannot execute its output through this bridge.
 
+The shared backend also serves [closed native programs](native-programs.md)
+through `run --target=host-jit`, which adds metered source branches and loops.
+The expression API and its byte sequences retain the single-expression contract.
+
 ```text
 opam exec -- dune exec --root . -- bin/holyc.exe eval-native --format=json examples/native-integer-expression.hc
 opam exec -- dune exec --root . -- bin/holyc.exe eval-native --mode=aot --format=json examples/native-integer-expression.hc
@@ -270,7 +274,7 @@ mapping; it does not report success. Linux does not register Windows metadata.
 Native execution occurs inside the current process and is not a sandbox.
 The finite supported instruction sequence has no loops or external calls.
 An encoder defect could nevertheless fault the process; there is no native
-fault recovery or CPU deadline. Ordinary preprocessing, `eval`, `run` and
+fault recovery or CPU deadline. Ordinary preprocessing, `eval`, `run --target=ir` and
 `dune runtest` do not execute generated machine code.
 
 The JSON schema is `holyc-native-expression-v1`. It records implementation
@@ -387,6 +391,7 @@ These tests execute the hosted encoder, not the TempleOS reference compiler.
 
 The CI workflow explicitly runs native tests on Windows x86-64 and both
 Linux OCaml jobs. Unsupported hosts fail this requested target instead of
-skipping it. General call frames, stack probing, calls/HolyC ABI, control flow, memory,
+skipping it. Metered closed control flow is implemented by the separate native
+program gate. General call frames, stack probing, calls/HolyC ABI, memory,
 x87 behavior, relocations, integrated assembler operands, object/BIN output,
 actual-loader acceptance and bootstrap remain required later gates.

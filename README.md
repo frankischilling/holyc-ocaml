@@ -57,6 +57,13 @@ and signed `INT64_MIN/-1` overflow before `DIV`/`IDIV` can fault the host.
 [Native expressions](docs/native-expressions.md) describes the supported
 integer subset, explicit execution boundary, diagnostics and limits.
 
+`holyc run --target=host-jit --format=json examples/native-integer-program.hc`
+executes closed integer control flow and returns I64 42 in 26 IR steps. The
+generated image checks a positive step budget before each reached instruction,
+including loop transfers and arithmetic faults. [Native programs](docs/native-programs.md)
+covers source admission, exact limits, lossless reports and the remaining native
+storage and function-call requirements. The ordinary `run` target remains `ir`.
+
 `holyc run --format=json examples/integer-narrow.hc` executes I8/I16/U16/I32/U32
 storage and signatures, captures `42`, and returns I64 42 in both modes.
 [Narrow integers](docs/integer-narrow.md) covers signed storage, full register

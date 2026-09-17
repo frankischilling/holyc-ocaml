@@ -1,5 +1,16 @@
 # Reference source map
 
+Issue #657 connects `PrsStmt.HC:459-565` structured statement order and
+`OptLib.HC:229-484` conditional NOT/AND/OR rewrites to the existing verified
+integer-program lowerer and the shared native word backend.
+`OptPass789A.HC:158-163,267-284` supplies zero/nonzero branch and relative-jump
+consumers. The hosted encoder uses fixed rel32 branches while preserving source
+block order and every charged IR control transfer. Private context moves,
+generated per-IR budget checks, dense status sites and host completion are
+project execution policy, documented in [native programs](native-programs.md).
+The compile-only driver does not execute the entry through `Integer_program` or
+its stateful task path, and native function/storage/ABI work remains distinct.
+
 Issue #654 connects existing source/IR integer division and remainder to guarded
 native execution. `Compiler/BackA.HC:355-370,425-440` supplies the fixed
 dividend/divisor and quotient/remainder register roles; `BackLib.HC:404-411`

@@ -56,6 +56,17 @@ type instruction =
   | Store_status_site of int
       (** Private stores through R11 only. Kinds are 1..2 and sites 1..100000;
           both use the qword C7 imm32 form at displacements zero/eight. *)
+  | Load_context of register * int
+      (** Load one qword from the private R11 context at an aligned byte offset
+          from zero through 40. *)
+  | Store_context of int * register
+      (** Store one qword to the private R11 context at an aligned byte offset
+          from zero through 40. *)
+  | Store_context_imm of int * int
+      (** Store a sign-extended imm32 qword to the private R11 context at an
+          aligned byte offset from zero through 40. *)
+  | Dec of register
+      (** Decrement one full-width register with the qword FF /1 form. *)
   | Cmp of register * register
       (** [Cmp (left, right)] sets flags for the full-width subtraction
           [left - right] without changing either register. *)
@@ -97,8 +108,9 @@ val size : instruction -> int
     uses three bytes for AL/CL/DL and four for R8b through R11b. Stack
     loads/stores always use an eight-byte fixed-disp32 SIB form; stack
     allocation/free always use seven-byte imm32 forms. Relative branches use
-    fixed rel32 forms; status stores are always eight bytes. Invalid immediate,
-    branch or private-status operands raise [Invalid_argument]. *)
+    fixed rel32 forms; status/context immediate stores are always eight bytes.
+    Private context register loads/stores use fixed disp8 forms. Invalid
+    immediate, branch or private-context operands raise [Invalid_argument]. *)
 
 val encode : instruction -> string
 (** Encode one instruction into a fresh string using the pinned opcode facts. *)

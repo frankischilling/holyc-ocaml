@@ -28,8 +28,11 @@ module Ir_effects = Ir.Effects
 module Ir_x87_stack = Ir.X87_stack
 module X86_64_encoder = Backend.X86_64_encoder
 module X86_64_expression = Backend.X86_64_expression
+module X86_64_program = Backend.X86_64_program
 module Native_execution = Runtime.Native_execution
+module Native_program_execution = Runtime.Native_program_execution
 module Native_expression = Driver.Native_expression
+module Native_program = Driver.Native_program
 
 module Ir_integer_globals : sig
   type t = Ir.Integer_globals.t

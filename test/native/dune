@@ -1,5 +1,7 @@
 (copy_files ../test_native_expression.ml)
 
+(copy_files ../test_native_program.ml)
+
 (executable
  (name test_native_execution)
  (modules test_native_execution test_native_expression)
@@ -11,9 +13,19 @@
   (run %{exe:test_native_execution.exe})))
 
 (executable
+ (name test_native_program_execution)
+ (modules test_native_program_execution test_native_program)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_program_execution.exe})))
+
+(executable
  (name test_native_unwind)
- (modules test_native_unwind)
- (libraries holyc_lib)
+ (modules test_native_unwind test_native_program)
+ (libraries holyc_lib alcotest)
  (foreign_stubs
   (language c)
   (names native_unwind_probe)))
@@ -47,3 +59,20 @@
    %{dep:../../examples/native-integer-spills.hc}
    %{dep:../../examples/native-integer-shifts.hc}
    %{dep:../../examples/native-integer-divmod.hc})))
+
+(executable
+ (name test_native_program_cli)
+ (modules test_native_program_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps
+  ../../examples/native-integer-program.hc
+  ../../examples/integer-control-flow.hc)
+ (action
+  (run
+   %{exe:test_native_program_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-integer-program.hc}
+   %{dep:../../examples/integer-control-flow.hc})))

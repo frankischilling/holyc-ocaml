@@ -190,3 +190,212 @@ let render ~human ~session ~limits ?command_error ?report () =
        ]
      |> Yojson.Safe.pretty_to_string |> print_endline);
   if Option.is_some result then 0 else 1
+
+type native_limits = {
+  ir_instructions : int;
+  code_bytes : int;
+  stack_bytes : int;
+  blocks : int;
+}
+
+let native_decimal (word : Holyc_lib.X86_64_program.word) =
+  match word.type_ with
+  | Holyc_lib.X86_64_program.I64 -> Int64.to_string word.bits
+  | Holyc_lib.X86_64_program.U64 -> Printf.sprintf "%Lu" word.bits
+
+let native_word_type (word : Holyc_lib.X86_64_program.word) =
+  match word.type_ with
+  | Holyc_lib.X86_64_program.I64 -> "i64"
+  | Holyc_lib.X86_64_program.U64 -> "u64"
+
+let render_native ~human ~session ~limits ~native_limits ?command_error ?report
+    () =
+  let result, diagnostics =
+    match report with
+    | None -> (None, [])
+    | Some report -> (
+        match Holyc_lib.Native_program.outcome report with
+        | Ok checked -> (Some checked.value, checked.diagnostics)
+        | Error diagnostics -> (None, diagnostics))
+  in
+  let platform =
+    Option.fold
+      ~none:(Holyc_lib.Native_program_execution.platform ())
+      ~some:Holyc_lib.Native_program.platform report
+  in
+  let executed_steps =
+    Option.bind report Holyc_lib.Native_program.executed_steps
+  in
+  let final_value =
+    Option.bind result (fun (value : Holyc_lib.Native_program.result) ->
+        value.execution.final_value)
+  in
+  let outcome = if Option.is_some result then "success" else "error" in
+  let image =
+    Option.map
+      (fun (value : Holyc_lib.Native_program.result) -> value.image)
+      result
+  in
+  (if human then (
+     Printf.printf
+       "holyc-integer-program-v2 implementation=%s reference=%s\n\
+        mode=%s target=%s arithmetic=runtime-native\n\
+        outcome=%s\n"
+       Holyc_lib.Version.implementation_commit VM.reference_commit limits.mode
+       limits.target outcome;
+     List.iter
+       (fun (name, value) -> Printf.printf "%s=%d\n" name value)
+       [
+         ("step-limit", limits.steps);
+         ("frame-byte-limit", limits.frame_bytes);
+         ("call-depth-limit", limits.call_depth);
+         ("global-byte-limit", limits.global_bytes);
+         ("literal-byte-limit", limits.literal_bytes);
+         ("initializer-step-limit", limits.initializer_steps);
+         ("dimension-work-limit", limits.dimension_work);
+         ("output-byte-limit", limits.output_bytes);
+         ("output-work-limit", limits.output_work);
+       ];
+     Printf.printf "steps=%s\n"
+       (Option.fold ~none:"unknown" ~some:string_of_int executed_steps);
+     print_endline "compiled-initializer-steps=0";
+     print_endline "dimension-preparation-work=0";
+     Printf.printf "termination=%s\n"
+       (if Option.is_some result then "stream-end" else "none");
+     (match final_value with
+     | None -> print_endline "final-value=none"
+     | Some word ->
+         Printf.printf "final-value=%s type=%s bits=0x%016Lx\n"
+           (native_decimal word) (native_word_type word) word.bits);
+     print_endline "output-byte-length=0";
+     print_endline "output-work=0";
+     print_endline "output-hex=";
+     Printf.printf "native-platform=%s\n"
+       (Holyc_lib.Native_program_execution.platform_name platform);
+     Printf.printf
+       "native-ir-instruction-limit=%d\n\
+        native-code-byte-limit=%d\n\
+        native-stack-byte-limit=%d\n\
+        native-block-limit=%d\n"
+       native_limits.ir_instructions native_limits.code_bytes
+       native_limits.stack_bytes native_limits.blocks;
+     Option.iter
+       (fun image ->
+         Printf.printf
+           "native-ir-instructions=%d\n\
+            native-machine-instructions=%d\n\
+            native-register-peak=%d\n\
+            native-frame-bytes=%d\n\
+            native-blocks=%d\n"
+           (Holyc_lib.X86_64_program.ir_instructions image)
+           (Holyc_lib.X86_64_program.machine_instructions image)
+           (Holyc_lib.X86_64_program.register_peak image)
+           (Holyc_lib.X86_64_program.frame_bytes image)
+           (Holyc_lib.X86_64_program.block_count image))
+       image;
+     List.iter
+       (fun diagnostic ->
+         Holyc_lib.Diagnostic_render.human
+           (Holyc_lib.Session.sources session)
+           diagnostic
+         |> output_string stderr)
+       diagnostics;
+     Option.iter
+       (fun (message, code) ->
+         match code with
+         | Some code -> Printf.eprintf "holyc: run: %s: %s\n" code message
+         | None -> Printf.eprintf "holyc: run: %s\n" message)
+       command_error)
+   else
+     let optional convert = Option.fold ~none:`Null ~some:convert in
+     let final_value =
+       optional
+         (fun word ->
+           `Assoc
+             [
+               ("type", `String (native_word_type word));
+               ("value", `String (native_decimal word));
+               ("bits", `String (Printf.sprintf "0x%016Lx" word.bits));
+             ])
+         final_value
+     in
+     let image =
+       optional
+         (fun image ->
+           `Assoc
+             [
+               ( "ir_instructions",
+                 `Int (Holyc_lib.X86_64_program.ir_instructions image) );
+               ( "machine_instructions",
+                 `Int (Holyc_lib.X86_64_program.machine_instructions image) );
+               ( "register_peak",
+                 `Int (Holyc_lib.X86_64_program.register_peak image) );
+               ("frame_bytes", `Int (Holyc_lib.X86_64_program.frame_bytes image));
+               ("block_count", `Int (Holyc_lib.X86_64_program.block_count image));
+             ])
+         image
+     in
+     let diagnostics =
+       `List
+         (List.map
+            (Holyc_lib.Diagnostic.to_yojson (Holyc_lib.Session.sources session))
+            diagnostics)
+     in
+     `Assoc
+       [
+         ("schema", `String "holyc-integer-program-v2");
+         ( "implementation_commit",
+           `String Holyc_lib.Version.implementation_commit );
+         ("reference_commit", `String VM.reference_commit);
+         ("mode", `String limits.mode);
+         ("target", `String limits.target);
+         ("arithmetic", `String "runtime-native");
+         ("outcome", `String outcome);
+         ("step_limit", `Int limits.steps);
+         ("executed_steps", optional (fun n -> `Int n) executed_steps);
+         ( "termination",
+           if Option.is_some result then `String "stream-end" else `Null );
+         ("frame_byte_limit", `Int limits.frame_bytes);
+         ("call_depth_limit", `Int limits.call_depth);
+         ("global_byte_limit", `Int limits.global_bytes);
+         ("literal_byte_limit", `Int limits.literal_bytes);
+         ("initializer_step_limit", `Int limits.initializer_steps);
+         ("dimension_work_limit", `Int limits.dimension_work);
+         ("dimension_preparation_work", `Int 0);
+         ("compiled_initializer_steps", `Int 0);
+         ("output_byte_limit", `Int limits.output_bytes);
+         ("output_work_limit", `Int limits.output_work);
+         ("output_byte_length", `Int 0);
+         ("output_work", `Int 0);
+         ("output_hex", `String "");
+         ("final_value", final_value);
+         ("diagnostics", diagnostics);
+         ( "command_error",
+           optional
+             (fun (message, code) ->
+               `Assoc
+                 [
+                   ("message", `String message);
+                   ("code", optional (fun text -> `String text) code);
+                 ])
+             command_error );
+         ( "native",
+           `Assoc
+             [
+               ( "platform",
+                 `String
+                   (Holyc_lib.Native_program_execution.platform_name platform)
+               );
+               ( "limits",
+                 `Assoc
+                   [
+                     ("ir_instructions", `Int native_limits.ir_instructions);
+                     ("code_bytes", `Int native_limits.code_bytes);
+                     ("stack_bytes", `Int native_limits.stack_bytes);
+                     ("blocks", `Int native_limits.blocks);
+                   ] );
+               ("image", image);
+             ] );
+       ]
+     |> Yojson.Safe.pretty_to_string |> print_endline);
+  if Option.is_some result then 0 else 1

@@ -64,21 +64,19 @@ static void native_windows_mapping_error(void *mapping, const char *operation,
 }
 #endif
 
-CAMLprim value holyc_native_execute_image(value code, value unwind, value abi)
+#if HOLYC_NATIVE_PLATFORM != 0
+/* Both sealed image kinds use the same mapping and unwind lifetime. The caller
+   roots the input strings and owns a stack-local, image-specific context. This
+   helper returns only after teardown. Cleanup failure may retain a mapping
+   while raising; no successful result is boxed before its mapping is released. */
+static uint64_t native_execute_checked_image(value code, value unwind,
+                                            intnat abi_code, uint64_t *context)
 {
-  CAMLparam3(code, unwind, abi);
-#if HOLYC_NATIVE_PLATFORM == 0
-  caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
-#else
-  CAMLlocal4(result, boxed_bits, boxed_kind, boxed_site);
   const mlsize_t length = caml_string_length(code);
   const mlsize_t unwind_length = caml_string_length(unwind);
-  const intnat abi_code = Long_val(abi);
   void *mapping;
   uint64_t (*entry)(uint64_t *);
-  uint64_t status[2] = {0, 0};
   uint64_t bits;
-  int64_t signed_bits, signed_kind, signed_site;
 
   /* Zero denotes an ABI-neutral image that does not use the argument. Repeat
      the ML-side check here before any executable-memory operation. */
@@ -154,13 +152,14 @@ CAMLprim value holyc_native_execute_image(value code, value unwind, value abi)
   __builtin___clear_cache((char *)mapping, (char *)mapping + length);
 #endif
 
-  /* Fault-capable images reserve volatile R11 for this private status pointer.
-     ABI-neutral images ignore the extra argument and retain their old bytes.
-     Guards and status writes are generated in OCaml; this boundary does not
-     interpret the expression or recover arbitrary hardware exceptions. Keep
-     the runtime lock: the image cannot call OCaml, block or loop. */
+  /* Context-bearing images reserve volatile R11 for their private pointer.
+     ABI-neutral expressions ignore the argument and retain their old bytes.
+     Programs meter every reached IR instruction, including loop transfers, in
+     generated code. Neither image kind calls OCaml or waits on host services.
+     Keep the runtime lock so an OCaml callback or blocking-section transition
+     cannot raise while the mapping or its registered unwind table is live. */
   memcpy(&entry, &mapping, sizeof(entry));
-  bits = entry(status);
+  bits = entry(context);
 
 #if HOLYC_NATIVE_PLATFORM == 1
   if (function_table != NULL && !RtlDeleteFunctionTable(function_table))
@@ -172,15 +171,34 @@ CAMLprim value holyc_native_execute_image(value code, value unwind, value abi)
     native_os_error("release", (unsigned long)errno);
 #endif
 
+  return bits;
+}
+
+static value native_box_word(uint64_t word)
+{
+  int64_t signed_word;
+  memcpy(&signed_word, &word, sizeof(signed_word));
+  return caml_copy_int64(signed_word);
+}
+#endif
+
+CAMLprim value holyc_native_execute_image(value code, value unwind, value abi)
+{
+  CAMLparam3(code, unwind, abi);
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
+#else
+  CAMLlocal4(result, boxed_bits, boxed_kind, boxed_site);
+  uint64_t status[2] = {0, 0};
+  const uint64_t bits =
+    native_execute_checked_image(code, unwind, Long_val(abi), status);
+
   /* Do not narrow through C long, an OCaml int, a JSON number or an exit code. */
-  memcpy(&signed_bits, &bits, sizeof(signed_bits));
-  memcpy(&signed_kind, &status[0], sizeof(signed_kind));
-  memcpy(&signed_site, &status[1], sizeof(signed_site));
   /* The mapping and its function table are gone before the first allocation,
      including on the checked arithmetic-fault path. */
-  boxed_bits = caml_copy_int64(signed_bits);
-  boxed_kind = caml_copy_int64(signed_kind);
-  boxed_site = caml_copy_int64(signed_site);
+  boxed_bits = native_box_word(bits);
+  boxed_kind = native_box_word(status[0]);
+  boxed_site = native_box_word(status[1]);
   result = caml_alloc_tuple(3);
   Store_field(result, 0, boxed_bits);
   Store_field(result, 1, boxed_kind);
@@ -188,4 +206,48 @@ CAMLprim value holyc_native_execute_image(value code, value unwind, value abi)
   CAMLreturn(result);
 #endif
   CAMLreturn(Val_unit); /* unreachable on the unsupported host path */
+}
+
+CAMLprim value holyc_native_execute_program(value code, value unwind, value abi,
+                                           value max_steps)
+{
+  CAMLparam4(code, unwind, abi, max_steps);
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
+#else
+  CAMLlocal5(boxed_kind, boxed_site, boxed_steps, boxed_value_site, boxed_bits);
+  CAMLlocal1(result);
+  const intnat step_limit = Long_val(max_steps);
+  const intnat abi_code = Long_val(abi);
+  /* The program ABI is always explicit; an expression's ABI-neutral zero is
+     never accepted for a program context. Validate before mapping allocation. */
+  if (abi_code != HOLYC_NATIVE_PLATFORM)
+    caml_invalid_argument("native program status ABI does not match this process");
+  if (step_limit <= 0)
+    caml_invalid_argument("native program max_steps must be greater than zero");
+
+  /* kind, fault site, budget, executed steps, last END_EXP site, result bits.
+     The checked image owns the type associated with an END_EXP site. C does
+     not guess a result type or interpret the program's instructions. */
+  uint64_t context[6] = {0, 0, (uint64_t)step_limit, 0, 0, 0};
+  (void)native_execute_checked_image(code, unwind, abi_code, context);
+  if (context[2] != (uint64_t)step_limit)
+    caml_failwith("native program status integrity failure: budget was modified");
+
+  /* All five words are boxed only after executable-memory and unwind teardown,
+     including exhausted-loop and guarded arithmetic-fault paths. */
+  boxed_kind = native_box_word(context[0]);
+  boxed_site = native_box_word(context[1]);
+  boxed_steps = native_box_word(context[3]);
+  boxed_value_site = native_box_word(context[4]);
+  boxed_bits = native_box_word(context[5]);
+  result = caml_alloc_tuple(5);
+  Store_field(result, 0, boxed_kind);
+  Store_field(result, 1, boxed_site);
+  Store_field(result, 2, boxed_steps);
+  Store_field(result, 3, boxed_value_site);
+  Store_field(result, 4, boxed_bits);
+  CAMLreturn(result);
+#endif
+  CAMLreturn(Val_unit);
 }

@@ -27,7 +27,7 @@ an explicitly bounded private frame. Division and remainder add only compiler-ow
 guard branches and a private two-word status channel; source control flow remains
 outside this gate. Calls, source-visible memory, general call frames, floating
 point, arbitrary code bytes and nonzero flags are rejected before
-executable-memory allocation. The ordinary `eval`, `run`, preprocessing
+executable-memory allocation. The ordinary `eval`, `run --target=ir`, preprocessing
 and `dune runtest` paths do not select native execution.
 
 Compilation checks IR, code-size and private-frame limits before allocating the executable
@@ -56,6 +56,31 @@ there is no CPU timeout or fault recovery for an encoder defect. The explicit
 `@native-tests` target runs maintained fixtures and deterministic differential
 cases on disposable CI runners with read-only permissions and no persisted
 checkout credentials. See [native expressions](docs/native-expressions.md).
+
+## Explicit native program execution
+
+`holyc run --target=host-jit` and `Native_program.evaluate` additionally execute
+closed structured control flow. Their source gate rejects declarations, calls,
+source storage, implicit output and unsupported statements before preparation;
+parsing supplies no command or stream executor. The compiled unit must have no
+initialization or preparation work. Every block, including unreachable code,
+passes the checked word/control preflight before executable allocation.
+
+Generated code checks and consumes a positive budget before each reached IR
+instruction. R10 owns the remaining count and R11 a fresh six-word private
+context; neither becomes a value register. Dense image-owned sites identify
+faults and the last reached expression, and the image validates returned counts,
+kinds, operation classes and value-site types. No raw context is exposed in CLI
+reports. The one private frame is bounded by the largest block requirement, and
+all successful, arithmetic-fault and budget exits restore it through one epilogue.
+
+The shared host bridge uses the same W^X and Windows unwind lifetime described
+above. It releases executable storage before boxing program status, including
+exhausted-loop exits, and keeps the OCaml runtime lock while generated code runs.
+This bounds checked IR loops but supplies no CPU deadline or recovery from an
+encoder defect. There is no interpreter fallback, source-visible memory, external
+call or arbitrary-byte constructor in this gate. See
+[native programs](docs/native-programs.md) for exact source and reporting limits.
 
 ## Supported versions
 

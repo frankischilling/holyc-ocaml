@@ -1,5 +1,17 @@
 # Testing holyc-ocaml
 
+Native program tests cover the shared word backend under its five-value-register
+budget, dense execution sites with sparse source IDs, literal context/branch
+bytes, exact IR/block/code/frame limits and immutable image exports. Ordinary
+tests compile and decode without executing machine code. Explicit native tests
+check independent values and interpreter parity, conditional short-circuiting
+versus eager values, exact successful and exhausted budgets, skipped/reached
+arithmetic faults, repeated spill-frame cleanup and the public CLI in both modes.
+The dedicated fixture returns I64 42 in 26 steps; the earlier control-flow
+fixture retains its I64 0 result and 23 steps. Windows unwind checks include
+program images and their shared stack-restoring epilogue. See
+[native programs](native-programs.md) for the source and reporting boundary.
+
 Native division/remainder tests pin `DIV`, `IDIV`, `CQO`, RDX clearing, rel32
 guards and private status stores independently of native execution. Source and
 IR matrices cover signed/unsigned promotion, high-bit words, shared and fixed
