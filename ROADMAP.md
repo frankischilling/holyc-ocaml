@@ -44,6 +44,12 @@ loads/stores remain distinct from full register results; U0 completion cannot
 be consumed as a word or leave a stale top-level result. Original frame ranges,
 call/default authority and all resource limits remain checked. See
 [native scalar functions](docs/native-scalars.md).
+Issue #664 connects existing function-local label resolution and goto fragments
+to shared executable blocks. Both interpreter and native source execution use
+the same owned occurrences and reserved label targets; labels are structural
+boundaries and gotos use the existing checked jump. Source order stays separate
+from `for` update execution order, and skipped initialization, return completeness
+and resource limits remain checked. See [goto execution](docs/integer-goto.md).
 The complete HolyC ABI, persistent and pointer memory operations, F64/x87 and
 conversions, runtime output, and general declaration/`#exe` native integration
 remain open. Optimizer parity, assembler and object/BIN output, actual TempleOS

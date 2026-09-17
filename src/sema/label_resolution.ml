@@ -10,6 +10,7 @@ type occurrence = {
   name : string;
   kind : occurrence_kind;
   origin : Symbol.origin;
+  statement_origin : Symbol.origin option;
   index : int;
 }
 
@@ -24,6 +25,7 @@ type resolved_occurrence = {
   symbol : Symbol.t;
   kind : occurrence_kind;
   origin : Symbol.origin;
+  statement_origin : Symbol.origin option;
   index : int;
 }
 
@@ -61,6 +63,10 @@ let label_use_count (label : label) = label.use_count
 let occurrence_symbol (occurrence : resolved_occurrence) = occurrence.symbol
 let occurrence_kind (occurrence : resolved_occurrence) = occurrence.kind
 let occurrence_origin (occurrence : resolved_occurrence) = occurrence.origin
+
+let occurrence_statement_origin (occurrence : resolved_occurrence) =
+  occurrence.statement_origin
+
 let occurrence_index (occurrence : resolved_occurrence) = occurrence.index
 
 let definition_kind_name = function
@@ -89,23 +95,44 @@ let check_origin = function
         Error "synthesized semantic symbol origin cannot be empty"
       else Ok ()
 
-let make_occurrence ~name ~kind ~origin ~occurrence_index =
+let make_occurrence ~statement_origin ~name ~kind ~origin ~occurrence_index =
   match check_name name with
   | Error _ as error -> error
   | Ok () -> (
       match check_origin origin with
       | Error _ as error -> error
-      | Ok () ->
-          if occurrence_index < 0 then
-            Error "semantic label occurrence index cannot be negative"
-          else Ok { name; kind; origin; index = occurrence_index })
+      | Ok () -> (
+          match Option.map check_origin statement_origin with
+          | Some (Error _ as error) -> error
+          | None | Some (Ok ()) ->
+              if occurrence_index < 0 then
+                Error "semantic label occurrence index cannot be negative"
+              else
+                Ok
+                  {
+                    name;
+                    kind;
+                    origin;
+                    statement_origin;
+                    index = occurrence_index;
+                  }))
 
 let make_definition ~name ~definition_kind ~origin ~occurrence_index =
-  make_occurrence ~name ~kind:(Definition definition_kind) ~origin
-    ~occurrence_index
+  make_occurrence ~statement_origin:None ~name
+    ~kind:(Definition definition_kind) ~origin ~occurrence_index
+
+let make_definition_with_statement ~statement_origin ~name ~definition_kind
+    ~origin ~occurrence_index =
+  make_occurrence ~statement_origin:(Some statement_origin) ~name
+    ~kind:(Definition definition_kind) ~origin ~occurrence_index
 
 let make_goto ~name ~origin ~occurrence_index =
-  make_occurrence ~name ~kind:Goto_reference ~origin ~occurrence_index
+  make_occurrence ~statement_origin:None ~name ~kind:Goto_reference ~origin
+    ~occurrence_index
+
+let make_goto_with_statement ~statement_origin ~name ~origin ~occurrence_index =
+  make_occurrence ~statement_origin:(Some statement_origin) ~name
+    ~kind:Goto_reference ~origin ~occurrence_index
 
 let validate_occurrences (occurrences : occurrence list) =
   let rec validate previous_index = function
@@ -414,6 +441,7 @@ let resolve_occurrences by_name (occurrences : occurrence list) =
         symbol = String_map.find occurrence.name by_name;
         kind = occurrence.kind;
         origin = occurrence.origin;
+        statement_origin = occurrence.statement_origin;
         index = occurrence.index;
       })
     occurrences

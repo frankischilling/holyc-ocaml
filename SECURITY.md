@@ -81,6 +81,12 @@ storage prevent a narrow write from reaching adjacent objects. A U0 completion
 has no numeric result and can only reach its checked discard; a reached top-level
 void discard clears both fields of the result latch. Word-return completeness
 is verified independently before entry.
+Function-local goto/label composition requires the original function, AST
+statement and resolved occurrence identities. Every occurrence is consumed once;
+targets come from the checked label mapping. Empty label blocks only fall through,
+while every goto cycle reaches a metered jump. Jumps preserve invocation-local
+initialization flags, so skipping a store cannot expose uninitialized host stack
+data. Unsupported assembly, switch, lock and exception regions remain rejected.
 
 Generated code checks and consumes a positive budget before each reached IR
 instruction. R10 owns the remaining count and R11 a fresh private context;

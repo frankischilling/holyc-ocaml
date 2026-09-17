@@ -11,6 +11,7 @@ type prepared = {
   initializers_ : Sema.Global_initializer_binding.t option;
   function_outputs_ : Sema.Implicit_output_argument_binding.t;
   top_level_outputs_ : Sema.Top_level_implicit_output_argument_binding.t;
+  labels_ : Label_resolution.indexed;
 }
 
 let top_level prepared = prepared.top_level_
@@ -22,6 +23,7 @@ let global_layouts prepared = prepared.global_layouts_
 let initializers prepared = prepared.initializers_
 let function_outputs prepared = prepared.function_outputs_
 let top_level_outputs prepared = prepared.top_level_outputs_
+let labels prepared = prepared.labels_
 let ( let* ) = Result.bind
 
 let diagnostic ~span code message =
@@ -180,6 +182,19 @@ let prepare_unit ?environment:task_environment ?declaration_command
         (List.map (fun (_, collected, _) -> collected) retained_headers)
       ~table ~declarations ast
     |> checked
+  in
+  let* labels_ =
+    Label_resolution.resolve_indexed ~table ~functions:collected_functions ast
+    |> Result.map_error (fun error ->
+        [
+          diagnostic
+            ~span:
+              (Option.value
+                 (Label_resolution.error_span error)
+                 ~default:ast.span)
+            "HCEVAL0003"
+            (Label_resolution.error_message error);
+        ])
   in
   let* function_types =
     let* selected_types =
@@ -485,6 +500,7 @@ let prepare_unit ?environment:task_environment ?declaration_command
       records_ = records;
       function_outputs_;
       top_level_outputs_;
+      labels_;
     }
 
 let prepare session ~config ~span ast =

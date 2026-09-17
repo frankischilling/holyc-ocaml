@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Connected function-local language labels and direct gotos to shared checked
+  source execution in the interpreter and native target. Original owner and
+  occurrence identities select reserved blocks; labels are structural boundaries,
+  including consecutive/trailing labels and reordered for updates. Jumps retain
+  frame initialization, call/default authority, U0 completion and step bounds.
+
 - Added native scalar I8/U8/I16/U16/I32/U32 parameters, automatic locals, returns
   and constant defaults through the existing checked call/preparation pipeline.
   Exact-width memory accesses preserve adjacent objects while returned register

@@ -2,6 +2,7 @@ module Ast = Frontend.Ast
 module Typed = Sema.Function_call_expression_result
 module Lower = Ir.Integer_program_lowering
 module Span_map = Map.Make (Common.Span)
+module Int_map = Map.Make (Int)
 module Source = Sema.Function_call_resolution
 module Frame = Sema.Function_frame_layout
 module Body = Ir.Function_body
@@ -82,7 +83,9 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
             | Ast.Empty_statement _
             | Ast.Expression_statement _
             | Ast.Implicit_output_statement _
-            | Ast.Break_statement _ -> ()
+            | Ast.Break_statement _
+            | Ast.Goto_statement _
+            | Ast.Label_statement _ -> ()
             | Ast.Block_statement block ->
                 List.iter (validate ~in_function) block.block_statements
             | Ast.Sequence_statement sequence ->
@@ -286,7 +289,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                 Span_map.add span value map)
               Span_map.empty values
           in
-          let lower_statements roots initializers returns outputs statements =
+          let lower_statements ?function_symbol roots initializers returns
+              outputs statements =
             let initializers =
               ref
                 (List.fold_left
@@ -329,6 +333,67 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               | None -> fail span "HCRUN0003" detail
             in
             let consumed = ref Span_map.empty in
+            let labels = Integer_source.labels prepared in
+            let label_function =
+              match function_symbol with
+              | None -> None
+              | Some symbol -> (
+                  match Label_resolution.function_for_symbol labels symbol with
+                  | Some function_ -> Some function_
+                  | None ->
+                      fail ast.span "HCRUN0004"
+                        "source function has no exact checked label owner")
+            in
+            let expected_label_occurrences =
+              match label_function with
+              | None -> []
+              | Some function_ ->
+                  Sema.Label_resolution.function_occurrences function_
+                  |> List.filter (fun occurrence ->
+                      match
+                        Sema.Label_resolution.occurrence_kind occurrence
+                      with
+                      | Sema.Label_resolution.Goto_reference
+                      | Sema.Label_resolution.Definition
+                          Sema.Label_resolution.Language_label -> true
+                      | Sema.Label_resolution.Definition _ -> false)
+            in
+            let consumed_label_occurrences = ref Int_map.empty in
+            let label_occurrence source_statement at =
+              let owner =
+                match function_symbol with
+                | Some owner -> owner
+                | None ->
+                    fail at "HCRUN0004"
+                      "goto or label source is outside a checked function owner"
+              in
+              let occurrence =
+                match
+                  Label_resolution.occurrence_for_statement labels
+                    ~function_symbol:owner source_statement
+                with
+                | Ok occurrence -> occurrence
+                | Error message -> fail at "HCRUN0004" message
+              in
+              let occurrence_index =
+                Sema.Label_resolution.occurrence_index occurrence
+              in
+              (match
+                 Int_map.find_opt occurrence_index !consumed_label_occurrences
+               with
+              | Some previous when previous == occurrence ->
+                  fail at "HCRUN0004"
+                    "source goto or label occurrence was consumed more than \
+                     once"
+              | Some _ ->
+                  fail at "HCRUN0004"
+                    "source goto or label occurrence identity was reused"
+              | None -> ());
+              consumed_label_occurrences :=
+                Int_map.add occurrence_index occurrence
+                  !consumed_label_occurrences;
+              occurrence
+            in
             let expression source =
               let span = (Ast.expression_location source).span in
               match Span_map.find_opt span roots with
@@ -342,7 +407,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                   fail span "HCRUN0004"
                     "source expression has no matching typed root"
             in
-            let rec statement = function
+            let rec statement source_statement =
+              match source_statement with
               | Ast.Empty_statement empty ->
                   Lower.Empty empty.empty_statement_location.span
               | Ast.Expression_statement item ->
@@ -485,6 +551,12 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                        (fun item -> statement item.Ast.sequence_statement)
                        sequence.sequence_elements)
               | Ast.Break_statement item -> Lower.Break item.break_location.span
+              | Ast.Goto_statement item ->
+                  let at = item.goto_location.span in
+                  Lower.Goto (at, label_occurrence source_statement at)
+              | Ast.Label_statement item ->
+                  let at = item.label_location.span in
+                  Lower.Label (at, label_occurrence source_statement at)
               | Ast.If_statement item ->
                   Lower.If
                     ( expression item.if_condition,
@@ -520,6 +592,12 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               fail ast.span "HCRUN0004"
                 "function body did not consume every initializer, return and \
                  output root";
+            if
+              Int_map.cardinal !consumed_label_occurrences
+              <> List.length expected_label_occurrences
+            then
+              fail ast.span "HCRUN0004"
+                "function body did not consume every resolved goto and label";
             statements
           in
           let checked_result show =
@@ -667,15 +745,29 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                        )
                    in
                    let statements =
-                     lower_statements roots
+                     lower_statements
+                       ~function_symbol:(Typed.function_symbol function_)
+                       roots
                        (Typed.function_initializers function_)
                        (Typed.function_returns function_)
                        outputs
                        (Option.to_list definition.body)
                    in
+                   let labels =
+                     match
+                       Label_resolution.function_for_symbol
+                         (Integer_source.labels prepared)
+                         (Typed.function_symbol function_)
+                     with
+                     | Some labels -> labels
+                     | None ->
+                         fail definition.location.span "HCRUN0004"
+                           "source function has no exact checked label owner"
+                   in
                    let* lowered =
                      Lower.lower_complete ~frame ~globals:globals_ ~records
-                       ~function_calls ~span:definition.location.span statements
+                       ~labels ~function_calls ~span:definition.location.span
+                       statements
                    in
                    let graph = Lower.graph lowered in
                    let members kind =

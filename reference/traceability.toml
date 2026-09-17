@@ -12066,3 +12066,49 @@ verification_boundary = "independent literal encoder bytes and compile-only sour
 extends = ["HC-NATIVE-INTEGER-FUNCTIONS", "HC-NATIVE-INTEGER-DEFAULTS"]
 excluded = ["persistent/pointer/array/aggregate memory", "general effectful or interleaved defaults, strings and lastclass", "word fallthrough without a checked return value", "variadic/indirect/external/prototype calls and full HolyC ABI", "Bool/I0/F64 and general conversions", "runtime output and native declaration/#exe execution", "optimizer/register-allocation parity, assembler/object/BIN writing, actual loader acceptance, whole-tree compilation and bootstrap"]
 native_oracle_status = "source-derived storage/return/call semantics and own hosted machine execution; checked initialization, strict return completeness, fixed-frame convention and resource meters remain explicit hosted policies rather than new TempleOS oracle captures"
+
+[[feature]]
+id = "HC-INTEGER-GOTO-EXECUTION"
+description = "Original function-local language goto and label occurrences compose with the checked structured block builder and execute through the existing interpreter and native jump/fallthrough paths."
+sources = [
+  "Compiler/PrsStmt.HC:1169-1184 visible callable/local statement classification precedes language-label parsing",
+  "Compiler/PrsStmt.HC:1121-1131 function-local goto target lookup and IC_JMP emission",
+  "Compiler/PrsStmt.HC:1182-1199 language label definition, duplicate rejection and no-global-label boundary",
+  "Compiler/PrsLib.HC:152-162 code-control language/assembly label namespace lookup",
+  "Compiler/PrsLib.HC:79-97 instruction flags and original source line",
+  "Compiler/PrsStmt.HC:459-565 structured loop and for-update execution order",
+  "Existing semantic label resolution from issue 172 and goto/label fragment lowering from issue 514"
+]
+implementation = [
+  "src/sema/label_resolution.ml", "src/sema/label_resolution.mli",
+  "src/driver/label_resolution.ml", "src/driver/label_resolution.mli",
+  "src/driver/integer_source.ml", "src/driver/integer_source.mli",
+  "src/driver/integer_unit.ml",
+  "src/ir/goto_label_lowering.ml", "src/ir/goto_label_lowering.mli",
+  "src/ir/integer_program_lowering.ml", "src/ir/integer_program_lowering.mli",
+  "src/hosted/native_program.ml", "src/hosted/native_program.mli"
+]
+tests = [
+  "test/test_ir_goto_execution.ml", "test/test_integer_goto_execution.ml",
+  "test/native/test_native_goto_execution.ml", "test/native/test_native_goto_cli.ml",
+  "test/dune", "test/native/dune", "examples/integer-goto.hc",
+  "test/test_label_resolution.ml", "test/test_ir_goto_label_lowering.ml"
+]
+documentation = [
+  "docs/integer-goto.md", "docs/integer-programs.md", "docs/native-programs.md",
+  "docs/reference-source-map.md", "docs/compatibility.md", "docs/testing.md",
+  "README.md", "ARCHITECTURE.md", "ROADMAP.md", "SECURITY.md", "CHANGELOG.md"
+]
+status = "implemented"
+issue = 664
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "both preprocessing modes retain original function-scoped forward/backward language targets, including unused and unreachable definitions; missing, duplicate, cross-function and top-level occurrences reject with source diagnostics"
+identity = "indexed resolution binds exact original AST statement objects to opaque resolved occurrences and original function owners; complete lowering checks frame/scope/item, occurrence kind and exact once-only membership; equal IDs, spelling or reconstructed source alone do not confer authority"
+provenance = "resolved occurrences retain separate identifier and full-statement origins; exact full-statement primary-span validation supports goto keywords and target names from different definition expansion frames without assuming same-source containment"
+composition = "existing goto/label fragment mapping reserves target blocks after entry/leave and before generated branch/loop allocation; gotos emit checked IC_JMP with full source statement span, while labels become structural fallthrough block boundaries without executable IC_LABEL or synthetic label steps"
+ordering = "original source identities are separate from physical emitted order, including for updates parsed before the body and executed after it; consecutive/trailing/post-terminator labels remain independently targetable and deterministic"
+storage_and_calls = "jumps retain invocation-local object and initialization state, source-derived return behavior, checked calls and full default preparation ownership; skipped initialized stores fault on a reached uninitialized read/update; U0 completion and native word-return completeness remain independently enforced"
+resources = "every goto cycle reaches a metered IC_JMP while structural empty-block fallthrough costs no IR steps; native code/block/frame/depth/active-stack bounds and checked fault unwind remain unchanged"
+verification = "ordinary source/graph/identity/provenance/error/budget tests plus explicit Windows/Linux native API/CLI tests with independent expectations, fresh public interpreter semantics and corresponding isolated-unit exact runtime meters"
+excluded = ["top-level language labels/gotos", "computed or indirect goto", "assembly-label execution and repeated-address validation", "switch/sub-switch, lock and exception-region execution", "general memory, full ABI and optimizer parity", "object/BIN writing, actual loader acceptance, whole-tree compilation and bootstrap"]
+native_oracle_status = "pinned source control semantics plus checked interpreter and own generated machine execution; identity proof, initialized-object faults and quotas remain hosted policies, with no new TempleOS oracle capture"

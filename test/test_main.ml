@@ -5,6 +5,8 @@ let () =
       ("native expression encoding", Test_native_expression.tests);
       ("native program encoding", Test_native_program.tests);
       ("native scalar functions", Test_native_scalar_functions.tests);
+      ("integer goto execution", Test_integer_goto_execution.tests);
+      ("IR goto composition", Test_ir_goto_execution.tests);
       ("lexer", Test_lexer.tests);
       ("preprocessor", Test_preprocessor.tests);
       ("parser", Test_parser.tests);

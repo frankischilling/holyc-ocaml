@@ -28,6 +28,8 @@ type statement =
       * statement option
       * statement
   | Break of Common.Span.t
+  | Goto of Common.Span.t * Sema.Label_resolution.resolved_occurrence
+  | Label of Common.Span.t * Sema.Label_resolution.resolved_occurrence
 
 type t
 
@@ -35,6 +37,7 @@ val lower_complete :
   ?frame:Sema.Function_frame_layout.function_layout ->
   ?globals:Integer_globals.t ->
   ?records:Sema.Function_record_classification.t ->
+  ?labels:Sema.Label_resolution.resolved_function ->
   ?top_calls:Sema.Top_level_function_call_target_classification.t list ->
   ?function_calls:Sema.Function_call_target_classification.t list ->
   span:Common.Span.t ->

@@ -1,6 +1,7 @@
 module Sequence = Instruction_sequence
 module Typed = Sema.Function_call_expression_result
 module Source = Sema.Function_call_resolution
+module Int_map = Map.Make (Int)
 
 type statement =
   | Empty of Common.Span.t
@@ -22,6 +23,8 @@ type statement =
   | Do_while of statement * Typed.expression_result
   | For of statement * Typed.expression_result * statement option * statement
   | Break of Common.Span.t
+  | Goto of Common.Span.t * Sema.Label_resolution.resolved_occurrence
+  | Label of Common.Span.t * Sema.Label_resolution.resolved_occurrence
 
 type t = {
   expression_source_ : (Integer_globals.t * Typed.expression_result) option;
@@ -63,7 +66,7 @@ let span_of_result fallback result =
   | Sema.Symbol.Source_location location -> location.span
   | _ -> fallback
 
-let lower_complete ?frame ?globals ?records ?(top_calls = [])
+let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
     ?(function_calls = []) ~span statements =
   try
     let instruction_count = ref 0
@@ -77,6 +80,17 @@ let lower_complete ?frame ?globals ?records ?(top_calls = [])
       | Ok value -> value
       | Error (e : Sequence.error) -> fail span e.code e.message
     in
+    let lower_errors errors =
+      raise
+        (Invalid
+           (List.map
+              (fun (e : Sequence.error) ->
+                Common.Diagnostic.make ~code:e.code
+                  ~severity:Common.Diagnostic.Error ~message:e.message
+                  ~primary:(Option.value e.span ~default:span)
+                  ())
+              errors))
+    in
     let allocate make count =
       if !count = Int.max_int then
         fail span "HCIRL0005" "integer program identity space is exhausted";
@@ -87,6 +101,101 @@ let lower_complete ?frame ?globals ?records ?(top_calls = [])
     let block () = allocate Sequence.Block_id.of_int block_count in
     let entry = block () in
     let leave = Option.map (fun _ -> block ()) frame in
+    let label_lowering =
+      match (frame, labels) with
+      | None, None -> None
+      | None, Some _ ->
+          fail span "HCRUN0004" "goto labels require a named function frame"
+      | Some _, None -> None
+      | Some frame, Some labels -> (
+          let owner = Sema.Label_resolution.function_symbol labels in
+          let owner_scope = Sema.Label_resolution.function_scope labels in
+          if
+            (not (owner == Sema.Function_frame_layout.function_symbol frame))
+            || (not
+                  (Sema.Symbol.Scope_id.equal
+                     (Sema.Symbol_table.scope_id owner_scope)
+                     (Sema.Symbol_table.scope_id
+                        (Sema.Function_frame_layout.function_scope frame))))
+            || Sema.Label_resolution.function_item_index labels
+               <> Sema.Function_frame_layout.function_item_index frame
+          then
+            fail span "HCRUN0004"
+              "goto labels do not belong to the exact lowered function frame";
+          let instruction_id =
+            Sequence.Instruction_id.of_int !instruction_count |> checked_id
+          in
+          let block_id = Sequence.Block_id.of_int !block_count |> checked_id in
+          match
+            Goto_label_lowering.lower_function_labels ~instruction_id ~block_id
+              labels
+          with
+          | Error errors -> lower_errors errors
+          | Ok lowered ->
+              instruction_count :=
+                Goto_label_lowering.next_instruction_id lowered
+                |> Sequence.Instruction_id.to_int;
+              block_count :=
+                Goto_label_lowering.next_block_id lowered
+                |> Sequence.Block_id.to_int;
+              Some lowered)
+    in
+    let expected_label_occurrences =
+      match labels with
+      | None -> []
+      | Some labels ->
+          Sema.Label_resolution.function_occurrences labels
+          |> List.filter (fun occurrence ->
+              match Sema.Label_resolution.occurrence_kind occurrence with
+              | Sema.Label_resolution.Goto_reference
+              | Sema.Label_resolution.Definition
+                  Sema.Label_resolution.Language_label -> true
+              | Sema.Label_resolution.Definition _ -> false)
+    in
+    let consumed_label_occurrences = ref Int_map.empty in
+    let occurrence_description ~at ~kind occurrence =
+      let occurrence_index =
+        Sema.Label_resolution.occurrence_index occurrence
+      in
+      (match Int_map.find_opt occurrence_index !consumed_label_occurrences with
+      | Some previous when previous == occurrence ->
+          fail at "HCRUN0004"
+            "goto or label occurrence was lowered more than once"
+      | Some _ ->
+          fail at "HCRUN0004" "goto or label occurrence identity was reused"
+      | None -> ());
+      if Sema.Label_resolution.occurrence_kind occurrence <> kind then
+        fail at "HCRUN0004" "goto or label occurrence has the wrong source kind";
+      (match Sema.Label_resolution.occurrence_statement_origin occurrence with
+      | Some (Sema.Symbol.Source_location location)
+        when Common.Span.compare location.span at = 0 -> ()
+      | Some (Sema.Symbol.Source_location _)
+      | Some (Sema.Symbol.Pinned_source _)
+      | Some (Sema.Symbol.Synthesized _)
+      | None ->
+          fail at "HCRUN0004"
+            "goto or label statement span does not match its checked source \
+             occurrence");
+      let lowered =
+        match label_lowering with
+        | Some lowered -> lowered
+        | None ->
+            fail at "HCRUN0004"
+              "goto or label occurrence has no checked function label lowering"
+      in
+      let description =
+        match
+          Goto_label_lowering.description_for_occurrence lowered occurrence
+        with
+        | Some description -> description
+        | None ->
+            fail at "HCRUN0004"
+              "goto or label occurrence is foreign to the checked function"
+      in
+      consumed_label_occurrences :=
+        Int_map.add occurrence_index occurrence !consumed_label_occurrences;
+      description
+    in
     let current = ref (Some (entry, [])) and blocks = ref [] in
     let start block_id =
       match !current with
@@ -185,17 +294,6 @@ let lower_complete ?frame ?globals ?records ?(top_calls = [])
         (Expression_lowering.next_instruction_id result)
         (Expression_lowering.next_value_id result)
         (Expression_lowering.result_value result)
-    in
-    let lower_errors errors =
-      raise
-        (Invalid
-           (List.map
-              (fun (e : Sequence.error) ->
-                Common.Diagnostic.make ~code:e.code
-                  ~severity:Common.Diagnostic.Error ~message:e.message
-                  ~primary:(Option.value e.span ~default:span)
-                  ())
-              errors))
     in
     let rec direct_call_in frame ~instruction_id ~value_id value =
       let lowered =
@@ -560,6 +658,34 @@ let lower_complete ?frame ?globals ?records ?(top_calls = [])
           match break_target with
           | Some target -> jump ~at target
           | None -> fail at "HCRUN0002" "break has no enclosing loop target")
+      | Goto (at, occurrence) ->
+          let description =
+            occurrence_description ~at
+              ~kind:Sema.Label_resolution.Goto_reference occurrence
+          in
+          if description.opcode <> Opcode.Ic_jmp then
+            fail at "HCRUN0004" "resolved goto did not lower to IC_JMP";
+          (match description.payload with
+          | Some (Sequence.Block _) -> ()
+          | _ -> fail at "HCRUN0004" "resolved goto has no label block target");
+          append { description with span = Some at };
+          finish ()
+      | Label (at, occurrence) ->
+          let description =
+            occurrence_description ~at
+              ~kind:
+                (Sema.Label_resolution.Definition
+                   Sema.Label_resolution.Language_label) occurrence
+          in
+          if description.opcode <> Opcode.Ic_label then
+            fail at "HCRUN0004" "resolved label did not lower to IC_LABEL";
+          let target =
+            match description.payload with
+            | Some (Sequence.Block target) -> target
+            | _ -> fail at "HCRUN0004" "resolved label has no assigned block"
+          in
+          Option.iter (fun _ -> finish ()) !current;
+          start target
       | If (value, then_branch, else_branch) ->
           let at = span_of_result span value in
           let yes = block () in
@@ -610,6 +736,12 @@ let lower_complete ?frame ?globals ?records ?(top_calls = [])
           start done_
     in
     List.iter (statement None) statements;
+    if
+      Int_map.cardinal !consumed_label_occurrences
+      <> List.length expected_label_occurrences
+    then
+      fail span "HCRUN0004"
+        "function body did not consume every checked goto and label occurrence";
     (match leave with
     | None -> instruction ~at:span Opcode.Ic_end
     | Some leave ->

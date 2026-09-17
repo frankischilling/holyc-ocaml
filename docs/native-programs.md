@@ -36,6 +36,10 @@ comma statement sequences, `if`/`else`, `while`, `do`/`while`, `for` and `break`
 Source-defined functions add named fixed I8/U8/I16/U16/I32/U32/I64/U64 parameters,
 automatic scalar integer declarations, local assignment and updates, and
 value-return statements. U0 procedures also admit bare returns and fallthrough.
+Function-local language labels and direct gotos use the same checked block
+lowering as the interpreter; [goto execution](integer-goto.md) records their
+source identity, empty-block fallthrough and initialization behavior. Switch,
+assembly-label and protected-region control flow remain outside this gate.
 Direct calls bind to checked definitions in the same compilation unit, including
 self-recursion. Function locals persist across the function's control transfers
 and are separate in every recursive invocation.

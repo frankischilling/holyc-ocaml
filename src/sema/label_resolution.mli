@@ -19,7 +19,22 @@ val make_definition :
   occurrence_index:int ->
   (occurrence, string) result
 
+val make_definition_with_statement :
+  statement_origin:Symbol.origin ->
+  name:string ->
+  definition_kind:definition_kind ->
+  origin:Symbol.origin ->
+  occurrence_index:int ->
+  (occurrence, string) result
+
 val make_goto :
+  name:string ->
+  origin:Symbol.origin ->
+  occurrence_index:int ->
+  (occurrence, string) result
+
+val make_goto_with_statement :
+  statement_origin:Symbol.origin ->
   name:string ->
   origin:Symbol.origin ->
   occurrence_index:int ->
@@ -60,6 +75,7 @@ val label_use_count : label -> int
 val occurrence_symbol : resolved_occurrence -> Symbol.t
 val occurrence_kind : resolved_occurrence -> occurrence_kind
 val occurrence_origin : resolved_occurrence -> Symbol.origin
+val occurrence_statement_origin : resolved_occurrence -> Symbol.origin option
 val occurrence_index : resolved_occurrence -> int
 val definition_kind_name : definition_kind -> string
 val occurrence_kind_name : occurrence_kind -> string

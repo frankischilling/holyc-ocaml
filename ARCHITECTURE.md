@@ -2,6 +2,14 @@
 
 The compiler is split into explicit stages. Each stage consumes immutable inputs and returns either a value or structured diagnostics. Sessions own source IDs and configuration; compiler modules do not rely on hidden global state.
 
+Function-local goto execution composes the existing label-resolution and fragment
+passes with `Integer_program_lowering`. Original AST occurrence identity remains
+separate from source-order semantic IDs and emitted instruction order. Reserved
+label blocks precede generated control-block allocation; language labels create
+structural fallthrough boundaries, while gotos use the existing checked jump.
+Both execution targets consume the resulting verified graph. See
+[goto execution](docs/integer-goto.md) for ownership and unsupported-region limits.
+
 Module-level expression binders share one immutable publication cursor. `Sema.Module_binding_environment` validates the mixed module stream, compilation mode, and outer snapshot once. `Sema.Global_binding_environment` adds the checked global-record association: initializer binding advances through the owner, while dimension binding stops immediately before it and advances afterward. Function-default binding advances through the current named header without installing its parameter namespace. These entry points expose their separate source boundaries without evaluating expressions.
 
 The current slice has seven layers:

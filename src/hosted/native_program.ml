@@ -386,6 +386,8 @@ let ast_errors (ast : Ast.module_) =
                   (source_error returned.return_location.span
                      "native program entry source cannot contain return \
                       statements")
+            | (Ast.Goto_statement _ | Ast.Label_statement _) when in_function ->
+                ()
             | ( Ast.Assembly_block_statement _
               | Ast.Inline_assembly_statement _
               | Ast.Goto_statement _
