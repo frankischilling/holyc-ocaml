@@ -8,6 +8,8 @@ type status_abi = Windows_x64 | System_v_x64
 type condition = E | NE | L | GE | G | LE | B | AE | A | BE
 type stack_slot = { offset : int }
 type stack_frame = { bytes : int }
+type frame_slot = { frame_offset : int }
+type call_frame = { call_bytes : int }
 
 type instruction =
   | Mov_imm64 of register * int64
@@ -16,6 +18,14 @@ type instruction =
   | Store_stack of stack_slot * register
   | Alloc_stack of stack_frame
   | Free_stack of stack_frame
+  | Push_rbp
+  | Mov_rbp_rsp
+  | Load_frame of register * frame_slot
+  | Store_frame of frame_slot * register
+  | Alloc_call_frame of call_frame
+  | Free_call_frame of call_frame
+  | Call of int64
+  | Pop_rbp
   | Unary of unary * register
   | Binary of binary * register * register
   | Shift_cl of shift * register
@@ -53,6 +63,20 @@ let stack_frame ~bytes =
     Error
       "stack frame size must be between 8 and 4088 and congruent to 8 mod 16"
   else Ok { bytes }
+
+let frame_slot ~offset =
+  let value = Int64.of_int offset in
+  if
+    offset mod 8 <> 0
+    || Int64.compare value (-0x80000000L) < 0
+    || Int64.compare value 0x7ffffff8L > 0
+  then Error "frame slot offset must be an aligned signed 32-bit displacement"
+  else Ok { frame_offset = offset }
+
+let call_frame ~bytes =
+  if bytes < 16 || bytes > 4080 || bytes mod 16 <> 0 then
+    Error "call frame size must be a 16-byte multiple between 16 and 4080 bytes"
+  else Ok { call_bytes = bytes }
 
 let register_spelling = function
   | Rax -> "RAX"
@@ -95,6 +119,9 @@ let mov_immediate = source_form "MOV" 276
 let mov_register = source_form "MOV" 265
 let mov_load = source_form "MOV" 261
 let mov_store = source_form "MOV" 265
+let push_register = source_form "PUSH" 227
+let pop_register = source_form "POP" 243
+let call_relative = source_form "CALL" 571
 let add_immediate = source_form "ADD" 322
 let subtract_immediate = source_form "SUB" 437
 let negate = source_form "NEG" 680
@@ -157,6 +184,14 @@ let form = function
   | Store_stack _ -> mov_store
   | Alloc_stack _ -> subtract_immediate
   | Free_stack _ -> add_immediate
+  | Push_rbp -> push_register
+  | Mov_rbp_rsp -> mov_register
+  | Load_frame _ -> mov_load
+  | Store_frame _ -> mov_store
+  | Alloc_call_frame _ -> subtract_immediate
+  | Free_call_frame _ -> add_immediate
+  | Call _ -> call_relative
+  | Pop_rbp -> pop_register
   | Unary (Neg, _) -> negate
   | Unary (Not, _) -> complement
   | Binary (Add, _, _) -> add
@@ -196,12 +231,15 @@ let signed_int32 value =
   && Int64.compare value 0x7fffffffL <= 0
 
 let valid_context_offset offset =
-  offset >= 0 && offset <= 40 && offset mod 8 = 0
+  offset >= 0 && offset <= 64 && offset mod 8 = 0
 
 let validate = function
   | Cmp_imm8 (_, immediate) when immediate < -128 || immediate > 127 ->
       invalid_arg "Cmp_imm8 immediate must fit signed eight bits"
-  | (Jump displacement | Jump_equal displacement | Jump_not_equal displacement)
+  | Jump displacement
+  | Jump_equal displacement
+  | Jump_not_equal displacement
+  | Call displacement
     when not (signed_rel32 displacement) ->
       invalid_arg "relative branch displacement must fit signed 32 bits"
   | Store_status_kind kind when kind < 1 || kind > 2 ->
@@ -210,9 +248,9 @@ let validate = function
       invalid_arg "status site must be between 1 and 100000"
   | (Load_context (_, offset) | Store_context (offset, _))
     when not (valid_context_offset offset) ->
-      invalid_arg "private context offset must be aligned from 0 through 40"
+      invalid_arg "private context offset must be aligned from 0 through 64"
   | Store_context_imm (offset, _) when not (valid_context_offset offset) ->
-      invalid_arg "private context offset must be aligned from 0 through 40"
+      invalid_arg "private context offset must be aligned from 0 through 64"
   | Store_context_imm (_, immediate) when not (signed_int32 immediate) ->
       invalid_arg "private context immediate must fit signed 32 bits"
   | _ -> ()
@@ -224,6 +262,11 @@ let size instruction =
   | Mov_imm64 _ -> opcode_bytes + 1 + 8
   | Load_stack _ | Store_stack _ -> 8
   | Alloc_stack _ | Free_stack _ -> 7
+  | Push_rbp | Pop_rbp -> 1
+  | Mov_rbp_rsp -> 3
+  | Load_frame _ | Store_frame _ -> 7
+  | Alloc_call_frame _ | Free_call_frame _ -> 7
+  | Call _ -> 5
   | Capture_status _ | Div_rcx | Idiv_rcx -> 3
   | Zero_edx | Cqo -> 2
   | Cmp_imm8 _ -> 4
@@ -305,6 +348,38 @@ let write buffer position instruction =
       opcodes ();
       byte (0xc0 lor (selected.slash_value lsl 3) lor 4);
       imm32 frame.bytes
+  | Push_rbp ->
+      List.iter (fun opcode -> byte (opcode lor 5)) selected.opcode_bytes
+  | Mov_rbp_rsp ->
+      (* MOV RBP,RSP uses the ordinary RM64,R64 form without making either
+         architectural stack register allocator-visible. *)
+      byte 0x48;
+      opcodes ();
+      byte 0xe5
+  | Load_frame (destination, slot) ->
+      let destination = register_number destination in
+      (* Fixed disp32 RBP form. RBP as a ModR/M base requires an explicit
+         displacement; using disp32 keeps every accepted slot one exact shape. *)
+      byte (0x48 lor ((destination land 8) lsr 1));
+      opcodes ();
+      byte (0x85 lor ((destination land 7) lsl 3));
+      imm32 slot.frame_offset
+  | Store_frame (slot, source) ->
+      let source = register_number source in
+      byte (0x48 lor ((source land 8) lsr 1));
+      opcodes ();
+      byte (0x85 lor ((source land 7) lsl 3));
+      imm32 slot.frame_offset
+  | Alloc_call_frame frame | Free_call_frame frame ->
+      byte 0x48;
+      opcodes ();
+      byte (0xc0 lor (selected.slash_value lsl 3) lor 4);
+      imm32 frame.call_bytes
+  | Call displacement ->
+      opcodes ();
+      imm32_int64 displacement
+  | Pop_rbp ->
+      List.iter (fun opcode -> byte (opcode lor 5)) selected.opcode_bytes
   | Unary (_, destination) ->
       modrm ~reg:selected.slash_value ~rm:(register_number destination)
   | Binary (Imul, destination, source) ->

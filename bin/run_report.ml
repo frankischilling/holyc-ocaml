@@ -196,6 +196,7 @@ type native_limits = {
   code_bytes : int;
   stack_bytes : int;
   blocks : int;
+  active_stack_bytes : int;
 }
 
 let native_decimal (word : Holyc_lib.X86_64_program.word) =
@@ -276,9 +277,11 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
        "native-ir-instruction-limit=%d\n\
         native-code-byte-limit=%d\n\
         native-stack-byte-limit=%d\n\
-        native-block-limit=%d\n"
+        native-block-limit=%d\n\
+        native-active-stack-byte-limit=%d\n"
        native_limits.ir_instructions native_limits.code_bytes
-       native_limits.stack_bytes native_limits.blocks;
+       native_limits.stack_bytes native_limits.blocks
+       native_limits.active_stack_bytes;
      Option.iter
        (fun image ->
          Printf.printf
@@ -286,12 +289,16 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
             native-machine-instructions=%d\n\
             native-register-peak=%d\n\
             native-frame-bytes=%d\n\
-            native-blocks=%d\n"
+            native-blocks=%d\n\
+            native-functions=%d\n\
+            native-entry-stack-bytes=%d\n"
            (Holyc_lib.X86_64_program.ir_instructions image)
            (Holyc_lib.X86_64_program.machine_instructions image)
            (Holyc_lib.X86_64_program.register_peak image)
            (Holyc_lib.X86_64_program.frame_bytes image)
-           (Holyc_lib.X86_64_program.block_count image))
+           (Holyc_lib.X86_64_program.block_count image)
+           (Holyc_lib.X86_64_program.function_count image)
+           (Holyc_lib.X86_64_program.entry_stack_bytes image))
        image;
      List.iter
        (fun diagnostic ->
@@ -332,6 +339,10 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
                  `Int (Holyc_lib.X86_64_program.register_peak image) );
                ("frame_bytes", `Int (Holyc_lib.X86_64_program.frame_bytes image));
                ("block_count", `Int (Holyc_lib.X86_64_program.block_count image));
+               ( "function_count",
+                 `Int (Holyc_lib.X86_64_program.function_count image) );
+               ( "entry_stack_bytes",
+                 `Int (Holyc_lib.X86_64_program.entry_stack_bytes image) );
              ])
          image
      in
@@ -393,6 +404,8 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
                      ("code_bytes", `Int native_limits.code_bytes);
                      ("stack_bytes", `Int native_limits.stack_bytes);
                      ("blocks", `Int native_limits.blocks);
+                     ( "active_stack_bytes",
+                       `Int native_limits.active_stack_bytes );
                    ] );
                ("image", image);
              ] );

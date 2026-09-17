@@ -23,13 +23,14 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 4)
+    (Array.length Sys.argv = 5)
     "usage: test_native_program_cli.exe <holyc.exe> <native-program.hc> \
-     <integer-control-flow.hc>"
+     <integer-control-flow.hc> <native-functions.hc>"
 
 let compiler = Sys.argv.(1)
 let native_fixture = Sys.argv.(2)
 let control_fixture = Sys.argv.(3)
+let function_fixture = Sys.argv.(4)
 
 let invoke arguments =
   with_file ".stdout" "" (fun stdout ->
@@ -135,7 +136,13 @@ let native_json ?(status = 0) ?(mode = "jit") ?(options = []) source =
   in
   require (platform = expected_platform) "native platform metadata";
   check_keys "native limits"
-    [ "ir_instructions"; "code_bytes"; "stack_bytes"; "blocks" ]
+    [
+      "ir_instructions";
+      "code_bytes";
+      "stack_bytes";
+      "blocks";
+      "active_stack_bytes";
+    ]
     (member "limits" native);
   report
 
@@ -185,6 +192,8 @@ let check_success report =
       "register_peak";
       "frame_bytes";
       "block_count";
+      "function_count";
+      "entry_stack_bytes";
     ]
     image;
   require
@@ -193,7 +202,9 @@ let check_success report =
     && image |> member "register_peak" |> to_int >= 2
     && image |> member "register_peak" |> to_int <= 7
     && image |> member "frame_bytes" |> to_int <= Program.hard_max_stack_bytes
-    && image |> member "block_count" |> to_int >= 1)
+    && image |> member "block_count" |> to_int >= 1
+    && image |> member "function_count" |> to_int >= 0
+    && image |> member "entry_stack_bytes" |> to_int > 0)
     "bounded native image metrics"
 
 let checked_source_compile contents =
@@ -233,6 +244,21 @@ let fixture_modes () =
         (one_below |> member "executed_steps" |> to_int = 25
         && first_code one_below = "HCIRVM0007")
         "maintained control fixture one-below stops before its final END")
+    [ "jit"; "aot" ]
+
+let function_fixture_modes () =
+  List.iter
+    (fun mode ->
+      let report = native_json ~mode function_fixture in
+      check_success report;
+      check_word report "i64" "42" "0x000000000000002a";
+      let image = report |> member "native" |> member "image" in
+      require
+        (image |> member "function_count" |> to_int = 2)
+        "checked-in native function fixture must retain Add and Wrap";
+      require
+        (image |> member "entry_stack_bytes" |> to_int > 0)
+        "callable fixture exposes its root physical stack charge")
     [ "jit"; "aot" ]
 
 let exact_meter_and_empty () =
@@ -368,10 +394,67 @@ let source_rejection_has_no_native_outcome () =
             (contents ^ " rejects before native entry")))
     [
       "I64 x=42;";
-      "I64 Add(I64 x){return x;} Add(42);";
+      "I64 Bad(){F64 x=1.0;return 0;} 42;";
+      "I64 F(I64 n=42){return n;} F(1);";
+      "extern I64 Add(I64 x); 42;";
       "\"output\";";
       "#exe {42;}\n42;";
     ]
+
+let callable_resource_limits () =
+  let recursion =
+    "I64 Recur(I64 n){if(n)return Recur(n-1);return 42;}\nRecur(3);"
+  in
+  with_file ".hc" recursion (fun source ->
+      let exact =
+        native_json
+          ~options:[ "--frame-byte-limit=32"; "--call-depth-limit=4" ]
+          source
+      in
+      check_success exact;
+      check_word exact "i64" "42" "0x000000000000002a";
+      let depth =
+        native_json ~status:1
+          ~options:[ "--frame-byte-limit=32"; "--call-depth-limit=3" ]
+          source
+      in
+      require
+        (first_code depth = "HCIRVM0015"
+        && depth |> member "executed_steps" <> `Null)
+        "call-depth one-below is a native execution fault";
+      let frame =
+        native_json ~status:1
+          ~options:[ "--frame-byte-limit=31"; "--call-depth-limit=4" ]
+          source
+      in
+      require
+        (first_code frame = "HCIRVM0011"
+        && frame |> member "executed_steps" <> `Null)
+        "active-frame one-below is a native execution fault")
+
+let active_stack_root_boundary () =
+  let contents = "42;" in
+  let compiled = checked_source_compile contents in
+  let root = Program.entry_stack_bytes compiled in
+  require (root > 1) "root physical stack fixture requires a nontrivial charge";
+  with_file ".hc" contents (fun source ->
+      let exact =
+        native_json
+          ~options:[ "--active-stack-byte-limit=" ^ string_of_int root ]
+          source
+      in
+      check_success exact;
+      let one_below =
+        native_json ~status:1
+          ~options:[ "--active-stack-byte-limit=" ^ string_of_int (root - 1) ]
+          source
+      in
+      require
+        (one_below |> member "executed_steps" = `Null
+        && one_below |> member "final_value" = `Null
+        && one_below |> member "native" |> member "image" = `Null
+        && first_code one_below = "HCNATIVE0002")
+        "root one-below physical stack budget fails before native entry")
 
 let exact_native_input_limits () =
   let contents = "if(0) 1; else 1+(2+(3+(4+(5+6))));" in
@@ -423,10 +506,13 @@ let host_jit_v1_rejected () =
 
 let () =
   fixture_modes ();
+  function_fixture_modes ();
   exact_meter_and_empty ();
   control_fixture_matches_ir_contract ();
   full_width_values ();
   faults_and_loops ();
   source_rejection_has_no_native_outcome ();
+  callable_resource_limits ();
+  active_stack_root_boundary ();
   exact_native_input_limits ();
   host_jit_v1_rejected ()

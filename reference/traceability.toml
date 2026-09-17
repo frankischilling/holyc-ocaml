@@ -11924,3 +11924,53 @@ verification_boundary = "ordinary context/control byte goldens, metadata/negativ
 extended_features = ["HC-NATIVE-INTEGER-EXPRESSION (#642)", "HC-NATIVE-INTEGER-PREDICATES (#644)", "HC-NATIVE-INTEGER-LOGICAL-VALUES (#646)", "HC-NATIVE-INTEGER-SPILLS (#648)", "HC-NATIVE-INTEGER-SHIFTS (#652)", "HC-NATIVE-INTEGER-DIVMOD (#654)"]
 excluded = ["native source storage and function frames/calls", "complete HolyC ABI and runtime output", "general declaration/#exe native entry integration", "floating execution and conversions", "optimizer parity (#574/#585) and multiple-pending comparison reductions (#593)", "integrated assembler and object/BIN writer", "TempleOS loader acceptance and bootstrap", "arbitrary machine fault recovery"]
 native_oracle_status = "pinned source control semantics plus the project's own hosted machine execution; instruction budgeting/context are host policies, not a TempleOS optimization or exception-delivery parity claim"
+extended_by = ["HC-NATIVE-INTEGER-FUNCTIONS (#659): direct scalar functions/storage extend the source gate and add per-owner frames, sites and unwind records; the closed-only entry above records the original #657 boundary"]
+
+[[feature]]
+id = "HC-NATIVE-INTEGER-FUNCTIONS"
+description = "Fixed direct I64/U64 source functions and automatic scalar locals execute real generated calls with exact frame/call ownership, isolated activations, bounded resources and full-chain checked-fault unwinding."
+sources = [
+  "Compiler/PrsStmt.HC:114-170 fixed parameter offsets and function body boundaries",
+  "Compiler/PrsExp.HC:438-586 argument append order, saved call values, direct-call selection and cleanup/end metadata",
+  "Compiler/OpCodes.DD:227,243,261,265,322,437,571,961 PUSH/POP, MOV, stack adjustment, CALL and RET forms",
+  "Existing HC-IR-INTEGER-FUNCTION-FRAMES and HC-IR-TOP-LEVEL-DIRECT-CALLS retain source typing, frame and call provenance"
+]
+implementation = [
+  "src/backend/x86_64_encoder.ml", "src/backend/x86_64_encoder.mli",
+  "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_word_codegen.mli",
+  "src/backend/x86_64_program.ml", "src/backend/x86_64_program.mli",
+  "src/driver/native_program.ml", "src/driver/native_program.mli",
+  "src/runtime/native_program_execution.ml", "src/runtime/native_program_execution.mli",
+  "src/native_execution_stubs.c", "bin/holyc.ml", "bin/run_report.ml"
+]
+tests = [
+  "test/test_native_program.ml", "test/native/test_native_program_execution.ml",
+  "test/native/test_native_program_cli.ml", "test/native/test_native_unwind.ml",
+  "test/native/native_unwind_probe.c", "test/native/dune",
+  "examples/integer-function.hc", "examples/native-integer-functions.hc"
+]
+documentation = [
+  "docs/native-programs.md", "docs/native-expressions.md", "docs/integer-programs.md",
+  "docs/testing.md", "docs/compatibility.md", "docs/reference-source-map.md",
+  "README.md", "ARCHITECTURE.md", "REFERENCE_SOURCES.md", "ROADMAP.md", "SECURITY.md", "CHANGELOG.md"
+]
+status = "implemented"
+issue = 659
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+source_gate = "ordinary callback-free parsing and Integer_unit.compile_ast admit fixed named I64/U64 function definitions, automatic scalar locals, assignments/updates, value returns, structured control and same-unit direct calls; entry never executes through the interpreter"
+authority = "compile_callable requires the exact Runtime_call_context entry/body/initialization bundle and each Function_body's original checked frame; the original initialization context must be empty without storage, publications or preparation, and a foreign empty context still rejects; whole-bundle preflight includes unused bodies and keeps owner-qualified dense fault sites despite repeated sparse local block/instruction IDs"
+default_admission = "zero storage bytes and prepared storage steps do not establish absence of saved defaults; callable argument preflight rejects the exact Runtime.is_prepared_default producer and original selected/definition headers reject defaults even with explicit arguments or unused functions"
+default_preparation_followup = 660
+private_call_convention = "PUSH RBP, MOV RBP,RSP and an optional at-most4080-byte aligned16 allocation; body RSP remains fixed; exact parameters start at RBP+16 and autos use checked negative displacements; every owner ends through stack restore, POP RBP and plain RET"
+argument_lifetime = "provided arguments follow the original right-to-left evaluation order; each open call has distinct staging; formal-order copies populate one fixed outgoing area immediately before a real rel32 CALL; caller-live values spill and the returned RAX word is captured by the original CALL_END result; cleanup IR is validated and metered but needs no machine argument pop under this private convention"
+storage = "automatic locals and parameters live in each native activation; fresh hidden init flags guard local reads/updates before any host-stack data read; assignment sets the flag; flags/spills/staging are physical storage only and do not inflate the checked semantic frame quota"
+meter = "all reached IR instructions share R10 across the call chain; housekeeping and fault propagation add no IR steps; the original Add42 fixture executes29 steps in both modes; only reached entry END_EXP publishes the final value"
+resources = "runtime max_frame_bytes defaults1048576 and charges checked local frame plus8 bytes per fixed argument; max_call_depth defaults128 and counts active named calls, excluding entry; max_active_stack_bytes is1..65536 and independently charges return addresses, savedRBP and actual allocations including entry; root footprint is checked before native entry and calls reserve before allocation"
+faults = "kind1 division-by-zero,2 signed overflow,3 exact step exhaustion,4 call-depth,5 semantic-frame,6 physical-stack,7 uninitialized read; diagnostics HCIRVM0009/0010/0007/0015/0011, HCNATIVE0006 and HCIRVM0012 preserve exact source/function/block/instruction identity and reached steps"
+unwind = "checked faults return through every generated callee epilogue; callers restore their successful reservations before propagating without charging skipped cleanup/end; C verifies semantic/depth/physical counters restored before boxing status; Windows registers one sorted per-owner table with fixedRSP RBP-save/alloc unwind records and retains a mapping if table removal fails"
+context = "closed image six-word ABI remains unchanged; callable context adds remaining semantic frame/depth/physical bytes at48/56/64; only the opaque image grants native execution authority and inspection getters return fresh bytes"
+reporting = "integer-program-v2 native reports add active_stack_bytes limit, function_count and entry_stack_bytes metrics; function-qualified diagnostics retain fault progress, while bridge/status/cleanup failures expose no trusted progress or successful value"
+extended_features = ["HC-NATIVE-INTEGER-PROGRAMS (#657)", "HC-IR-INTEGER-FUNCTION-FRAMES", "HC-IR-TOP-LEVEL-DIRECT-CALLS"]
+excluded = ["all parameter defaults until original declaration-time preparation is connected", "global/static, narrow/pointer/array and floating storage", "prototypes/extern/import/indirect/variadic calls", "all explicit source declaration modifiers and register qualifiers, calling-convention flags beyond automatically derived Ret1, and full HolyC ABI", "bare returns and terminal function paths without a word value", "large/probed native frames", "runtime output and native declaration/#exe integration", "optimizer parity, assembler/object/BIN output, actual TempleOS loader acceptance and bootstrap", "arbitrary machine-fault recovery"]
+native_oracle_status = "source-grounded frame/call lowering plus own hosted machine execution; fixedRSP ABI, metering, initialization checks and resource-fault transport are documented host policies, not new TempleOS oracle captures"

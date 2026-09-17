@@ -1,5 +1,17 @@
 # Reference source map
 
+Issue #659 connects the original checked function/body/frame and direct-call
+records to native scalar functions. `PrsStmt.HC:114-170` supplies positive fixed
+parameter offsets and body boundaries. `PrsExp.HC:438-586` supplies argument tree
+append order, saved-value call substitution, call selection and cleanup/end
+metadata. The new native gate consumes exact fixed supplied arguments; it rejects
+defaults until their original preparation authority is connected. Dedicated
+RBP-relative loads/stores and rel32 CALL/RET use the existing `OpCodes.DD` facts.
+Caller staging, live-value preservation, fixed RSP, initialization flags and
+simultaneous semantic/depth/physical-stack limits are explicit hosted execution
+policies. [Native programs](native-programs.md) describes the private convention
+and per-owner Windows unwind records without claiming the full HolyC ABI.
+
 Issue #657 connects `PrsStmt.HC:459-565` structured statement order and
 `OptLib.HC:229-484` conditional NOT/AND/OR rewrites to the existing verified
 integer-program lowerer and the shared native word backend.
@@ -9,7 +21,8 @@ block order and every charged IR control transfer. Private context moves,
 generated per-IR budget checks, dense status sites and host completion are
 project execution policy, documented in [native programs](native-programs.md).
 The compile-only driver does not execute the entry through `Integer_program` or
-its stateful task path, and native function/storage/ABI work remains distinct.
+its stateful task path. Direct scalar functions extend this path in #659;
+broader storage and full-ABI work remain distinct.
 
 Issue #654 connects existing source/IR integer division and remainder to guarded
 native execution. `Compiler/BackA.HC:355-370,425-440` supplies the fixed

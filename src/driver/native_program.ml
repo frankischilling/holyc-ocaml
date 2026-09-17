@@ -57,13 +57,90 @@ let item_span = function
 
 type gate_node =
   | Gate_item of Ast.item
-  | Gate_statement of Ast.statement
-  | Gate_expression of Ast.expression
+  | Gate_statement of bool * Ast.statement
+  | Gate_expression of bool * Ast.expression
 
-let prepend_statements statements rest =
+let prepend_statements in_function statements rest =
   List.rev_append
-    (List.rev_map (fun statement -> Gate_statement statement) statements)
+    (List.rev_map
+       (fun statement -> Gate_statement (in_function, statement))
+       statements)
     rest
+
+let scalar_word_type = function
+  | Ast.Primitive_type_specifier primitive ->
+      List.mem primitive.primitive [ Common.Primitive_type.I64; U64 ]
+  | Ast.Internal_type_specifier primitive ->
+      List.mem primitive.primitive [ Common.Primitive_type.I64; U64 ]
+  | Ast.Named_type_specifier _ -> false
+
+let function_source_error (definition : Ast.function_definition) =
+  let reject message = Some (source_error definition.location.span message) in
+  if not (scalar_word_type definition.return_type) then
+    reject "native functions require an I64 or U64 return type"
+  else if definition.return_pointer_layers <> [] then
+    reject "native functions do not admit pointer returns"
+  else if definition.modifiers <> [] then
+    reject "native functions do not admit explicit declaration modifiers"
+  else if Option.is_some definition.variadic then
+    reject "native functions require fixed parameters without a variadic tail"
+  else if Option.is_none definition.body then
+    reject "native functions require their original source definition body"
+  else
+    List.find_map
+      (fun (parameter : Ast.function_parameter) ->
+        let reject message =
+          Some (source_error parameter.location.span message)
+        in
+        if not (scalar_word_type parameter.type_specifier) then
+          reject "native function parameters require scalar I64 or U64 types"
+        else if
+          parameter.pointer_layers <> []
+          || Option.is_some parameter.function_pointer
+        then reject "native functions do not admit pointer parameters"
+        else if parameter.register_qualifiers <> [] then
+          reject "native functions do not admit explicit parameter registers"
+        else if Option.is_none parameter.name then
+          reject "native function definitions require named fixed parameters"
+        else if Option.is_some parameter.default then
+          reject
+            "native parameter defaults require original declaration-time \
+             preparation, which this compile-only source gate does not admit"
+        else None)
+      definition.parameters
+
+let local_source_error (declaration : Ast.local_declaration) =
+  let reject message =
+    Some (source_error declaration.local_declaration_location.span message)
+  in
+  if declaration.local_storage <> Ast.Automatic_local then
+    reject "native functions do not admit static local storage"
+  else if declaration.local_modifiers <> [] then
+    reject "native automatic locals do not admit declaration modifiers"
+  else if not (scalar_word_type declaration.local_type_specifier) then
+    reject "native automatic locals require scalar I64 or U64 types"
+  else
+    List.find_map
+      (fun (local : Ast.local_declarator) ->
+        let reject message =
+          Some (source_error local.local_declarator_location.span message)
+        in
+        if
+          local.local_pointer_layers <> []
+          || Option.is_some local.local_function_pointer
+        then reject "native automatic locals do not admit pointers"
+        else if local.local_array_dimensions <> [] then
+          reject "native automatic locals do not admit arrays"
+        else if local.local_register_qualifiers <> [] then
+          reject "native automatic locals do not admit explicit registers"
+        else
+          match local.local_initializer with
+          | None -> None
+          | Some { local_initializer_value = Ast.Scalar_initializer _; _ } ->
+              None
+          | Some _ ->
+              reject "native automatic locals require scalar initializers")
+      declaration.local_declarators
 
 let storage_binary (operator : Frontend.Operator.binary_operator) =
   List.mem operator.ic_name
@@ -98,13 +175,21 @@ let ast_errors (ast : Ast.module_) =
         work := rest;
         match node with
         | Gate_item (Ast.Top_level_statement statement) ->
-            work := Gate_statement statement :: !work
+            work := Gate_statement (false, statement) :: !work
+        | Gate_item (Ast.Function_definition definition) -> (
+            match function_source_error definition with
+            | Some error -> reject error
+            | None ->
+                Option.iter
+                  (fun body -> work := Gate_statement (true, body) :: !work)
+                  definition.body)
         | Gate_item item ->
             reject
               (source_error (item_span item)
-                 "native programs do not admit declarations or function \
-                  definitions")
-        | Gate_expression expression -> (
+                 "native programs admit only source function definitions and \
+                  executable statements; other declarations require a later \
+                  source gate")
+        | Gate_expression (in_function, expression) -> (
             match expression with
             | Ast.Integer_literal _
             | Ast.Float_literal _
@@ -118,19 +203,27 @@ let ast_errors (ast : Ast.module_) =
                   (source_error literal.literal_location.span
                      "native programs do not admit string-literal storage")
             | Ast.Identifier_expression identifier ->
-                reject
-                  (source_error identifier.location.span
-                     "native programs require closed expressions without \
-                      identifier storage")
+                if not in_function then
+                  reject
+                    (source_error identifier.location.span
+                       "native entry expressions do not admit identifier \
+                        storage")
             | Ast.Parenthesized_expression grouped ->
-                work := Gate_expression grouped.grouped_expression :: !work
+                work :=
+                  Gate_expression (in_function, grouped.grouped_expression)
+                  :: !work
             | Ast.Prefix_expression prefix -> (
                 match prefix.prefix_operator_kind with
                 | Ast.Unary_plus
                 | Ast.Unary_minus
                 | Ast.Logical_not
                 | Ast.Bitwise_not ->
-                    work := Gate_expression prefix.prefix_operand :: !work
+                    work :=
+                      Gate_expression (in_function, prefix.prefix_operand)
+                      :: !work
+                | (Ast.Pre_increment | Ast.Pre_decrement) when in_function ->
+                    work :=
+                      Gate_expression (true, prefix.prefix_operand) :: !work
                 | Ast.Dereference
                 | Ast.Address_of
                 | Ast.Pre_increment
@@ -140,25 +233,48 @@ let ast_errors (ast : Ast.module_) =
                          "native programs do not admit pointer or storage \
                           prefix expressions"))
             | Ast.Postfix_cast_expression cast ->
-                work := Gate_expression cast.cast_operand :: !work
+                work :=
+                  Gate_expression (in_function, cast.cast_operand) :: !work
             | Ast.Binary_expression binary ->
-                if storage_binary binary.binary_operator_spec then
+                if storage_binary binary.binary_operator_spec && not in_function
+                then
                   reject
                     (source_error binary.binary_location.span
                        "native programs do not admit assignment or compound \
                         storage expressions")
                 else
                   work :=
-                    Gate_expression binary.binary_left
-                    :: Gate_expression binary.binary_right :: !work
+                    Gate_expression (in_function, binary.binary_left)
+                    :: Gate_expression (in_function, binary.binary_right)
+                    :: !work
             | Ast.Postfix_expression postfix ->
-                reject
-                  (source_error postfix.postfix_location.span
-                     "native programs do not admit storage update expressions")
-            | Ast.Call_expression call ->
-                reject
-                  (source_error call.call_location.span
-                     "native programs do not admit function calls")
+                if in_function then
+                  work :=
+                    Gate_expression (true, postfix.postfix_operand) :: !work
+                else
+                  reject
+                    (source_error postfix.postfix_location.span
+                       "native entry expressions do not admit storage updates")
+            | Ast.Call_expression call -> (
+                match call.call_callee with
+                | Ast.Identifier_expression _ ->
+                    work :=
+                      List.rev_append
+                        (List.rev_map
+                           (fun argument ->
+                             match argument.Ast.call_argument_value with
+                             | Ast.Provided_call_argument expression ->
+                                 Some
+                                   (Gate_expression (in_function, expression))
+                             | Ast.Omitted_call_argument -> None)
+                           call.call_arguments
+                        |> List.filter_map Fun.id)
+                        !work
+                | _ ->
+                    reject
+                      (source_error call.call_location.span
+                         "native programs require direct calls to checked \
+                          source-defined functions"))
             | Ast.Index_expression index ->
                 reject
                   (source_error index.index_location.span
@@ -167,58 +283,98 @@ let ast_errors (ast : Ast.module_) =
                 reject
                   (source_error member.member_location.span
                      "native programs do not admit member storage"))
-        | Gate_statement statement -> (
+        | Gate_statement (in_function, statement) -> (
             match statement with
             | Ast.Empty_statement _ | Ast.Break_statement _ -> ()
             | Ast.Expression_statement statement ->
                 work :=
-                  Gate_expression statement.expression_statement_expression
+                  Gate_expression
+                    (in_function, statement.expression_statement_expression)
                   :: !work
             | Ast.Block_statement block ->
-                work := prepend_statements block.block_statements !work
+                work :=
+                  prepend_statements in_function block.block_statements !work
             | Ast.Sequence_statement sequence ->
                 work :=
                   List.rev_append
                     (List.rev_map
                        (fun element ->
-                         Gate_statement element.Ast.sequence_statement)
+                         Gate_statement
+                           (in_function, element.Ast.sequence_statement))
                        sequence.sequence_elements)
                     !work
             | Ast.If_statement branch ->
                 let rest =
                   match branch.if_else_clause with
-                  | None -> Gate_statement branch.if_then_branch :: !work
+                  | None ->
+                      Gate_statement (in_function, branch.if_then_branch)
+                      :: !work
                   | Some clause ->
-                      Gate_statement branch.if_then_branch
-                      :: Gate_statement clause.Ast.else_branch :: !work
+                      Gate_statement (in_function, branch.if_then_branch)
+                      :: Gate_statement (in_function, clause.Ast.else_branch)
+                      :: !work
                 in
-                work := Gate_expression branch.if_condition :: rest
+                work :=
+                  Gate_expression (in_function, branch.if_condition) :: rest
             | Ast.While_statement loop ->
                 work :=
-                  Gate_expression loop.while_condition
-                  :: Gate_statement loop.while_body :: !work
+                  Gate_expression (in_function, loop.while_condition)
+                  :: Gate_statement (in_function, loop.while_body)
+                  :: !work
             | Ast.Do_while_statement loop ->
                 work :=
-                  Gate_statement loop.do_body
-                  :: Gate_expression loop.do_while_condition :: !work
+                  Gate_statement (in_function, loop.do_body)
+                  :: Gate_expression (in_function, loop.do_while_condition)
+                  :: !work
             | Ast.For_statement loop ->
-                let rest = Gate_statement loop.for_body :: !work in
+                let rest =
+                  Gate_statement (in_function, loop.for_body) :: !work
+                in
                 let rest =
                   match loop.for_update with
                   | None -> rest
-                  | Some update -> Gate_statement update :: rest
+                  | Some update -> Gate_statement (in_function, update) :: rest
                 in
                 work :=
-                  Gate_statement loop.for_initializer
-                  :: Gate_expression loop.for_condition :: rest
+                  Gate_statement (in_function, loop.for_initializer)
+                  :: Gate_expression (in_function, loop.for_condition)
+                  :: rest
             | Ast.Implicit_output_statement statement ->
                 reject
                   (source_error statement.location.span
                      "native programs do not admit implicit runtime output")
+            | Ast.Local_declaration_statement declaration when in_function -> (
+                match local_source_error declaration with
+                | Some error -> reject error
+                | None ->
+                    let initializers =
+                      List.filter_map
+                        (fun (local : Ast.local_declarator) ->
+                          match local.local_initializer with
+                          | Some
+                              {
+                                local_initializer_value =
+                                  Ast.Scalar_initializer expression;
+                                _;
+                              } -> Some (Gate_expression (true, expression))
+                          | _ -> None)
+                        declaration.local_declarators
+                    in
+                    work := List.rev_append (List.rev initializers) !work)
             | Ast.Local_declaration_statement declaration ->
                 reject
                   (source_error declaration.local_declaration_location.span
-                     "native programs do not admit local storage declarations")
+                     "native entry statements do not admit local storage \
+                      declarations")
+            | Ast.Return_statement returned when in_function -> (
+                match returned.return_value with
+                | Some expression ->
+                    work := Gate_expression (true, expression) :: !work
+                | None ->
+                    reject
+                      (source_error returned.return_location.span
+                         "native word functions require a value in return \
+                          statements"))
             | Ast.Return_statement returned ->
                 reject
                   (source_error returned.return_location.span
@@ -239,19 +395,15 @@ let ast_errors (ast : Ast.module_) =
   done;
   Option.to_list !first_error
 
-let closed_program_errors compiled span =
+let program_storage_errors compiled span =
   let errors = ref [] in
   let add message = errors := source_error span message :: !errors in
-  if Integer_unit.functions compiled <> [] then
-    add "native programs require an entry with no named functions";
   let globals = Integer_unit.globals compiled in
   if Ir.Integer_globals.byte_size globals <> 0 then
     add "native programs require an entry with no global or static storage";
   if Ir.Integer_globals.has_initializers globals then
     add
       "native programs require an entry with no global initializer preparation";
-  if Integer_unit.has_entry_calls compiled then
-    add "native programs require an entry with no runtime calls";
   let initialization = Integer_unit.initialization compiled in
   if
     Ir.Global_initialization.regions initialization <> []
@@ -292,12 +444,23 @@ let compile ?(max_ir_instructions = 4096) ?(max_code_bytes = 65536)
           | Error errors -> Error (parsed.diagnostics @ errors)
           | Ok checked -> (
               let diagnostics = parsed.diagnostics @ checked.diagnostics in
-              match closed_program_errors checked.value span with
+              match program_storage_errors checked.value span with
               | _ :: _ as errors -> Error (diagnostics @ errors)
               | [] ->
-                  Image.compile ?status_abi ~max_stack_bytes ~max_blocks
-                    ~max_ir_instructions ~max_code_bytes
-                    (Integer_unit.entry checked.value)
+                  (match Integer_unit.functions checked.value with
+                    | [] ->
+                        Image.compile ?status_abi ~max_stack_bytes ~max_blocks
+                          ~max_ir_instructions ~max_code_bytes
+                          (Integer_unit.entry checked.value)
+                    | functions ->
+                        Image.compile_callable ?status_abi ~max_stack_bytes
+                          ~max_blocks ~max_ir_instructions ~max_code_bytes
+                          ~runtime_calls:
+                            (Integer_unit.runtime_calls checked.value)
+                          ~initialization:
+                            (Integer_unit.initialization checked.value)
+                          ~entry:(Integer_unit.entry checked.value)
+                          ~functions ())
                   |> Result.map (fun image -> { value = image; diagnostics })
                   |> Result.map_error (fun errors ->
                       diagnostics @ image_errors ~fallback:span errors))))
@@ -323,16 +486,30 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
         ("HCIRVM0010", opcode ^ " signed quotient overflows I64")
     | Image.Step_limit_exceeded ->
         ("HCIRVM0007", "the bounded integer execution step limit was exhausted")
+    | Image.Call_depth_exceeded ->
+        ("HCIRVM0015", "the runtime call depth limit was exhausted")
+    | Image.Frame_limit_exceeded ->
+        ( "HCIRVM0011",
+          "the simultaneous parameter and local frame limit was exhausted" )
+    | Image.Native_stack_limit_exceeded ->
+        ( "HCNATIVE0006",
+          "the simultaneous native stack byte limit was exhausted" )
+    | Image.Uninitialized_read ->
+        ("HCIRVM0012", "native execution read an uninitialized automatic local")
   in
   Common.Diagnostic.make ~code ~severity:Common.Diagnostic.Error ~message
     ~primary:(Option.value fault.span ~default:fallback)
     ~notes:
-      [
-        "stage=execution";
-        Printf.sprintf "executed_steps=%d" fault.executed_steps;
-        Printf.sprintf "block_id=%d" fault.block_id;
-        Printf.sprintf "instruction_id=%d" fault.instruction_id;
-      ]
+      ([
+         "stage=execution";
+         Printf.sprintf "executed_steps=%d" fault.executed_steps;
+         Printf.sprintf "block_id=%d" fault.block_id;
+         Printf.sprintf "instruction_id=%d" fault.instruction_id;
+       ]
+      @ Option.to_list
+          (Option.map (Printf.sprintf "function_id=%d") fault.function_id)
+      @ Option.to_list
+          (Option.map (Printf.sprintf "function_name=%s") fault.function_name))
     ()
 
 let host_diagnostic ~span platform message =
@@ -341,15 +518,26 @@ let host_diagnostic ~span platform message =
     message
 
 let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
-    ?status_abi session ~config ~source ~max_steps =
+    ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
+    ?(max_active_stack_bytes = Native.hard_max_active_stack_bytes) ?status_abi
+    session ~config ~source ~max_steps =
   let span = Integer_source.source_span source in
   let platform = Native.platform () in
-  if max_steps <= 0 then
+  if
+    max_steps <= 0 || max_frame_bytes <= 0 || max_call_depth <= 0
+    || max_active_stack_bytes <= 0
+    || max_active_stack_bytes > Native.hard_max_active_stack_bytes
+  then
     {
       outcome_ =
         Error
           [
-            diagnostic ~span "HCIRVM0001" "max_steps must be greater than zero";
+            diagnostic ~span "HCIRVM0001"
+              (Printf.sprintf
+                 "max_steps, max_frame_bytes and max_call_depth must be \
+                  greater than zero; max_active_stack_bytes must be between 1 \
+                  and %d"
+                 Native.hard_max_active_stack_bytes);
           ];
       image_ = None;
       native_outcome_ = None;
@@ -370,7 +558,10 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
           executed_steps_ = None;
         }
     | Ok checked -> (
-        match Native.execute ~max_steps checked.value with
+        match
+          Native.execute ~max_steps ~max_frame_bytes ~max_call_depth
+            ~max_active_stack_bytes checked.value
+        with
         | Error message ->
             {
               outcome_ =

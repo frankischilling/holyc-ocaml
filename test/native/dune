@@ -69,10 +69,12 @@
  (alias native-tests)
  (deps
   ../../examples/native-integer-program.hc
-  ../../examples/integer-control-flow.hc)
+  ../../examples/integer-control-flow.hc
+  ../../examples/native-integer-functions.hc)
  (action
   (run
    %{exe:test_native_program_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/native-integer-program.hc}
-   %{dep:../../examples/integer-control-flow.hc})))
+   %{dep:../../examples/integer-control-flow.hc}
+   %{dep:../../examples/native-integer-functions.hc})))

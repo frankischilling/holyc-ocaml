@@ -14,8 +14,13 @@ type arithmetic_fault_site = {
 
 type expression_image
 
+type program_owner =
+  | Entry_owner
+  | Function_owner of { function_id : int; function_name : string }
+
 type program_site = {
   site : int;
+  owner : program_owner;
   block_id : int;
   instruction_id : int;
   position : int;
@@ -23,6 +28,8 @@ type program_site = {
   span : Common.Span.t option;
   arithmetic : (arithmetic_operation * bool) option;
   value_type : word_type option;
+  call_site : bool;
+  uninitialized_read_site : bool;
 }
 
 type program_image
@@ -65,12 +72,39 @@ val compile_program :
   Ir.X87_stack.t ->
   (program_image, error list) result
 
+val compile_callable :
+  ?status_abi:status_abi ->
+  ?max_stack_bytes:int ->
+  ?max_blocks:int ->
+  max_ir_instructions:int ->
+  max_code_bytes:int ->
+  runtime_calls:Ir.Runtime_call_context.t ->
+  initialization:Ir.Global_initialization.t ->
+  entry:Ir.X87_stack.t ->
+  functions:Ir.Integer_interpreter.function_definition list ->
+  unit ->
+  (program_image, error list) result
+(** Compile one checked ordinary-source entry plus its exact fixed scalar source
+    functions as one callable native bundle. All entry and named-function
+    graphs, including unreachable definitions, pass preflight before machine
+    allocation. Direct calls are resolved only through the supplied sealed
+    runtime-call context and exact function/frame ownership. *)
+
 val program_code : program_image -> string
 val program_windows_unwind_info : program_image -> string
+
+val program_windows_unwind_functions :
+  program_image -> (int * int * string) list
+(** [begin_offset,end_offset,unwind_info] for every emitted machine function.
+    Callable images return the entry first followed by source functions; closed
+    images retain one entry record. Returned unwind strings are fresh copies. *)
+
 val program_status_abi : program_image -> status_abi
 val program_ir_instructions : program_image -> int
 val program_machine_instructions : program_image -> int
 val program_register_peak : program_image -> int
 val program_frame_bytes : program_image -> int
 val program_block_count : program_image -> int
+val program_function_count : program_image -> int
+val program_entry_stack_bytes : program_image -> int
 val program_sites : program_image -> program_site list

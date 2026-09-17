@@ -60,9 +60,13 @@ integer subset, explicit execution boundary, diagnostics and limits.
 `holyc run --target=host-jit --format=json examples/native-integer-program.hc`
 executes closed integer control flow and returns I64 42 in 26 IR steps. The
 generated image checks a positive step budget before each reached instruction,
-including loop transfers and arithmetic faults. [Native programs](docs/native-programs.md)
-covers source admission, exact limits, lossless reports and the remaining native
-storage and function-call requirements. The ordinary `run` target remains `ir`.
+including loop transfers and arithmetic faults.
+`holyc run --target=host-jit examples/native-integer-functions.hc` returns I64 42
+through source-defined functions, scalar automatic locals and nested generated
+calls. Calls preserve live values and share bounded depth, semantic-frame and
+physical-stack accounting. [Native programs](docs/native-programs.md) covers
+source admission, exact limits, lossless reports and the remaining defaults,
+storage and full-ABI requirements. The ordinary `run` target remains `ir`.
 
 `holyc run --format=json examples/integer-narrow.hc` executes I8/I16/U16/I32/U32
 storage and signatures, captures `42`, and returns I64 42 in both modes.
@@ -463,7 +467,7 @@ dune exec holyc -- corpus parse --mode=aot --require-all --reference-root=third_
 
 `lex`, `preprocess`, `parse`, `dump-ast`, `dump-symbols`, `dump-layout`, and `corpus lex` exit with status 1 when they report an error. `dump-symbols` still writes the state accumulated before a parser failure, which makes partial corpus failures inspectable without turning them into successful parses. Its default output includes the 576 pinned compiler entries; `--source-only` keeps declarations published from the input stream. `dump-layout` behaves differently: it writes no layout to stdout until parsing, type resolution, closed layout, and duplicate validation all succeed. Its JSON success schema is `holyc-aggregate-layout-v1`; semantic failures use `holyc-command-error-v1` on stderr. `corpus parse` normally succeeds after a complete comparison because known incompatibilities are its output; `--require-all` returns status 1 unless every file parses with the project prelude. A failed constant `#assert` is a warning, so later input remains available and the command succeeds when no error follows. JIT preprocessing is the default for single files. The parser corpus defaults to AOT, and `--mode=jit` selects its other branch. All columns and offsets are byte positions.
 
-`holyc run --target=ir examples/integer-arrays.hc` executes the documented array program through semantic checking, verified IR and the bounded interpreter. The earlier integer function, control-flow, global, static and pointer examples use the same path. `eval-native` separately compiles and executes the supported integer-expression subset. General native programs and complete HolyC execution remain unfinished.
+`holyc run --target=ir examples/integer-arrays.hc` executes the documented array program through semantic checking, verified IR and the bounded interpreter. The earlier integer function, control-flow, global, static and pointer examples use the same path. `eval-native` separately compiles and executes the supported integer-expression subset, while `run --target=host-jit` adds structured control flow and fixed direct I64/U64 functions with scalar automatic locals. General native declarations, persistent and pointer storage, the full ABI and complete HolyC execution remain unfinished.
 
 ## TempleOS modules
 

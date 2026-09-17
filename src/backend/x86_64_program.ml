@@ -15,6 +15,10 @@ type fault_kind =
   | Division_by_zero
   | Signed_division_overflow
   | Step_limit_exceeded
+  | Call_depth_exceeded
+  | Frame_limit_exceeded
+  | Native_stack_limit_exceeded
+  | Uninitialized_read
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
   | Divide
@@ -29,6 +33,8 @@ type fault = {
   global_position : int;
   span : Common.Span.t option;
   executed_steps : int;
+  function_id : int option;
+  function_name : string option;
 }
 
 type execution = { executed_steps : int; final_value : word option }
@@ -60,10 +66,22 @@ let compile ?status_abi ?max_stack_bytes ?max_blocks ~max_ir_instructions
   |> Result.map_error project_errors
   |> Result.map (fun image -> { image })
 
+let compile_callable ?status_abi ?max_stack_bytes ?max_blocks
+    ~max_ir_instructions ~max_code_bytes ~runtime_calls ~initialization ~entry
+    ~functions () =
+  Codegen.compile_callable ?status_abi ?max_stack_bytes ?max_blocks
+    ~max_ir_instructions ~max_code_bytes ~runtime_calls ~initialization ~entry
+    ~functions ()
+  |> Result.map_error project_errors
+  |> Result.map (fun image -> { image })
+
 let code compiled = Codegen.program_code compiled.image
 
 let windows_unwind_info compiled =
   Codegen.program_windows_unwind_info compiled.image
+
+let windows_unwind_functions compiled =
+  Codegen.program_windows_unwind_functions compiled.image
 
 let status_abi compiled = Codegen.program_status_abi compiled.image
 let ir_instructions compiled = Codegen.program_ir_instructions compiled.image
@@ -74,6 +92,10 @@ let machine_instructions compiled =
 let register_peak compiled = Codegen.program_register_peak compiled.image
 let frame_bytes compiled = Codegen.program_frame_bytes compiled.image
 let block_count compiled = Codegen.program_block_count compiled.image
+let function_count compiled = Codegen.program_function_count compiled.image
+
+let entry_stack_bytes compiled =
+  Codegen.program_entry_stack_bytes compiled.image
 
 let project_word_type = function
   | Codegen.I64 -> I64
@@ -82,6 +104,11 @@ let project_word_type = function
 let project_operation = function
   | Codegen.Divide -> Divide
   | Codegen.Remainder -> Remainder
+
+let project_owner = function
+  | Codegen.Entry_owner -> (None, None)
+  | Codegen.Function_owner { function_id; function_name } ->
+      (Some function_id, Some function_name)
 
 let site_by_value (compiled : t) site =
   if Int64.compare site 1L < 0 || Int64.compare site 100_000L > 0 then
@@ -115,12 +142,15 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
           match site_by_value compiled value_site with
           | Error _ as error -> error
           | Ok candidate -> (
-              match candidate.value_type with
-              | Some type_ ->
+              match (candidate.owner, candidate.value_type) with
+              | Codegen.Entry_owner, Some type_ ->
                   Ok (Some { type_ = project_word_type type_; bits })
-              | None ->
+              | Codegen.Entry_owner, None ->
                   Error
-                    "native program value site does not identify an IC_END_EXP")
+                    "native program value site does not identify an IC_END_EXP"
+              | Codegen.Function_owner _, _ ->
+                  Error "native program value site belongs to a source function"
+              )
       in
       match final_value with
       | Error _ as error -> error
@@ -140,6 +170,9 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
             | Error _ as error -> error
             | Ok candidate ->
                 let make_fault kind operation =
+                  let function_id, function_name =
+                    project_owner candidate.owner
+                  in
                   Ok
                     (Fault
                        {
@@ -151,6 +184,8 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                          global_position = candidate.global_position;
                          span = candidate.span;
                          executed_steps = executed_steps_int;
+                         function_id;
+                         function_name;
                        })
                 in
                 if Int64.equal kind 1L then
@@ -191,4 +226,41 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                       "native program step-limit status does not equal the \
                        supplied budget"
                   else make_fault Step_limit_exceeded None
+                else if Int64.equal kind 4L then
+                  if not candidate.call_site then
+                    Error
+                      "native program call-depth status names a non-call site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native program call-depth fault did not consume its \
+                       IC_CALL"
+                  else make_fault Call_depth_exceeded None
+                else if Int64.equal kind 5L then
+                  if not candidate.call_site then
+                    Error
+                      "native program frame-limit status names a non-call site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native program frame-limit fault did not consume its \
+                       IC_CALL"
+                  else make_fault Frame_limit_exceeded None
+                else if Int64.equal kind 6L then
+                  if not candidate.call_site then
+                    Error
+                      "native program native-stack status names a non-call site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native program native-stack fault did not consume its \
+                       IC_CALL"
+                  else make_fault Native_stack_limit_exceeded None
+                else if Int64.equal kind 7L then
+                  if not candidate.uninitialized_read_site then
+                    Error
+                      "native program uninitialized-read status names a \
+                       non-load site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native program uninitialized read did not consume its \
+                       instruction"
+                  else make_fault Uninitialized_read None
                 else Error "native program status has an unknown fault kind")

@@ -6,8 +6,9 @@ M0 covers the build, source model, diagnostics, pinned reference, first lexer sl
 
 M6 now has a bounded source-to-native expression gate in issue #642. The own
 encoder and explicit Windows/Linux x86-64 execution path cover bounded
-I64/U64 expressions; general call frames, calls, memory, floating point,
-relocations and object/BIN output remain open backend work.
+I64/U64 expressions, with later increments below connecting control flow and
+direct scalar functions. General memory, floating point, relocations and
+object/BIN output remain open backend work.
 Issue #644 extends that gate with six integer comparisons and logical NOT.
 Issue #646 adds eager binary logical values and ordinary comparison chains,
 including corrected forwarded computation classes in the shared lowerer.
@@ -23,9 +24,16 @@ Issue #657 extends the shared backend to closed source programs with structured
 branches and loops, a generated per-IR step budget, exact fault sites and one
 bounded spill frame. The public `run --target=host-jit` path uses a compile-only
 source pipeline and retains native progress without an interpreter fallback.
-The next native gate connects source-defined functions, automatic I64/U64 scalar
-storage and direct generated calls. It must preserve checked source types,
-saved defaults, caller live values and bounded call-depth/frame accounting.
+Issue #659 connects source-defined fixed I64/U64 functions, automatic scalar
+storage and direct generated calls. It preserves checked body/frame/call identity,
+caller live values, nested argument staging and per-activation initialization.
+Generated checks bound simultaneous semantic frames, named-call depth and
+physical native stack bytes; checked faults unwind the complete call chain.
+Issue #660 tracks preparing original declaration-time defaults before native
+compilation and reusing their saved values at calls. The current native gate
+rejects all defaults, including unused headers, rather than
+silently skipping their effects. Broader scalar storage and full-ABI work must
+continue through the same checked source/function/frame path.
 The complete HolyC ABI, narrow and pointer memory operations, F64/x87 and
 conversions, runtime output, and general declaration/`#exe` native integration
 remain open. Optimizer parity, assembler and object/BIN output, actual TempleOS

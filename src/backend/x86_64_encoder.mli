@@ -5,6 +5,8 @@ type shift = Shl | Shr | Sar
 type status_abi = Windows_x64 | System_v_x64
 type stack_slot
 type stack_frame
+type frame_slot
+type call_frame
 
 type condition =
   | E
@@ -28,6 +30,23 @@ type instruction =
   | Store_stack of stack_slot * register
   | Alloc_stack of stack_frame
   | Free_stack of stack_frame
+  | Push_rbp
+      (** Save the caller's RBP. RBP is intentionally not allocator-visible. *)
+  | Mov_rbp_rsp
+      (** Establish RBP from the current RSP with the fixed [MOV RBP,RSP] form.
+      *)
+  | Load_frame of register * frame_slot
+      (** Load one qword from a validated fixed RBP-relative frame slot. *)
+  | Store_frame of frame_slot * register
+      (** Store one qword to a validated fixed RBP-relative frame slot. *)
+  | Alloc_call_frame of call_frame
+  | Free_call_frame of call_frame
+      (** Allocate/free a fixed 16-byte-aligned callable frame while keeping RSP
+          constant throughout the function body. *)
+  | Call of int64
+      (** Direct CALL with a signed rel32 displacement from the instruction end.
+      *)
+  | Pop_rbp  (** Restore the caller's RBP immediately before returning. *)
   | Unary of unary * register
   | Binary of binary * register * register
   | Shift_cl of shift * register
@@ -58,13 +77,13 @@ type instruction =
           both use the qword C7 imm32 form at displacements zero/eight. *)
   | Load_context of register * int
       (** Load one qword from the private R11 context at an aligned byte offset
-          from zero through 40. *)
+          from zero through 64. *)
   | Store_context of int * register
       (** Store one qword to the private R11 context at an aligned byte offset
-          from zero through 40. *)
+          from zero through 64. *)
   | Store_context_imm of int * int
       (** Store a sign-extended imm32 qword to the private R11 context at an
-          aligned byte offset from zero through 40. *)
+          aligned byte offset from zero through 64. *)
   | Dec of register
       (** Decrement one full-width register with the qword FF /1 form. *)
   | Cmp of register * register
@@ -83,8 +102,10 @@ type instruction =
       (** Apart from [Cmp]'s left/right operands, register pairs are destination
           then source. Arithmetic and bitwise operations use the full 64-bit
           registers; [Imul] retains the low 64 product bits. Spill instructions
-          address their validated fixed RSP frame explicitly; the only implicit
-          stack access is the return address read by [Ret]. *)
+          address their validated fixed RSP frame explicitly. [Call]/[Ret] write
+          and read the return address; [Push_rbp]/[Pop_rbp] save and restore the
+          frame pointer. Other storage operations use their explicit frame
+          slots. *)
 
 val registers : register list
 (** Deterministic allocation order: RAX, RCX, RDX, R8, R9, R10, R11. *)
@@ -98,6 +119,16 @@ val stack_frame : bytes:int -> (stack_frame, string) result
     keeping the generated body aligned after the host call pushes its return
     address. *)
 
+val frame_slot : offset:int -> (frame_slot, string) result
+(** Construct an aligned qword slot addressed from RBP with a signed disp32.
+    This dedicated address form does not expose RBP as a general register. *)
+
+val call_frame : bytes:int -> (call_frame, string) result
+(** Construct a fixed callable frame. Sizes are positive 16-byte multiples up to
+    4080 bytes, so PUSH RBP plus one frame allocation never skips a 4 KiB stack
+    guard page. Outgoing ABI home space, when required, is part of this fixed
+    allocation. *)
+
 val max_code_bytes : int
 (** Hard limit of 16 MiB for one encoded instruction sequence, further bounded
     by [Sys.max_string_length] on the compiler host. *)
@@ -107,10 +138,12 @@ val size : instruction -> int
     is always three bytes (REX.W with REX.B when needed, D3, ModR/M). [Setcc]
     uses three bytes for AL/CL/DL and four for R8b through R11b. Stack
     loads/stores always use an eight-byte fixed-disp32 SIB form; stack
-    allocation/free always use seven-byte imm32 forms. Relative branches use
-    fixed rel32 forms; status/context immediate stores are always eight bytes.
-    Private context register loads/stores use fixed disp8 forms. Invalid
-    immediate, branch or private-context operands raise [Invalid_argument]. *)
+    allocation/free always use seven-byte imm32 forms. Frame loads/stores use a
+    seven-byte RBP+disp32 form and callable allocation/free a seven-byte imm32
+    RSP form. Direct CALL and branches use fixed rel32 forms; status/context
+    immediate stores are always eight bytes. Private context register
+    loads/stores use fixed disp8 forms. Invalid immediate, branch or
+    private-context operands raise [Invalid_argument]. *)
 
 val encode : instruction -> string
 (** Encode one instruction into a fresh string using the pinned opcode facts. *)

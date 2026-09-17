@@ -60,26 +60,40 @@ checkout credentials. See [native expressions](docs/native-expressions.md).
 ## Explicit native program execution
 
 `holyc run --target=host-jit` and `Native_program.evaluate` additionally execute
-closed structured control flow. Their source gate rejects declarations, calls,
-source storage, implicit output and unsupported statements before preparation;
-parsing supplies no command or stream executor. The compiled unit must have no
-initialization or preparation work. Every block, including unreachable code,
-passes the checked word/control preflight before executable allocation.
+structured control flow and fixed direct I64/U64 functions with scalar automatic
+storage. Their source gate rejects globals/statics, defaults, prototypes/externs,
+pointer or indirect calls, non-word signatures, explicit register/function flags,
+implicit output and unsupported statements before preparation; parsing supplies
+no command or stream executor. The compiled unit must have no initialization or
+preparation work. Every block and unused function body passes checked
+word/storage/call preflight, including exact body/frame and call ownership,
+before executable allocation.
 
 Generated code checks and consumes a positive budget before each reached IR
-instruction. R10 owns the remaining count and R11 a fresh six-word private
-context; neither becomes a value register. Dense image-owned sites identify
+instruction. R10 owns the remaining count and R11 a fresh private context;
+neither becomes a value register. Dense image-owned sites identify
 faults and the last reached expression, and the image validates returned counts,
 kinds, operation classes and value-site types. No raw context is exposed in CLI
-reports. The one private frame is bounded by the largest block requirement, and
-all successful, arithmetic-fault and budget exits restore it through one epilogue.
+reports. Callable contexts add simultaneous semantic-frame, call-depth and
+physical-stack counters. The root physical footprint is checked before entering
+the image, and each generated call checks its reservations before allocation.
+The physical allowance is independently capped at 65,536 bytes, including return
+addresses, saved RBP and compiler-private storage, so zero-local recursion cannot
+evade stack bounds. Individual callable allocations stay at or below 4,080 bytes.
+Separate staging preserves outer arguments across nested calls. Fresh hidden
+local-init flags prevent reading uninitialized host stack data. Successful and
+checked-fault exits unwind through the actual generated frames and restore all
+resource counters; the bridge checks those counters before exposing status.
 
 The shared host bridge uses the same W^X and Windows unwind lifetime described
-above. It releases executable storage before boxing program status, including
-exhausted-loop exits, and keeps the OCaml runtime lock while generated code runs.
-This bounds checked IR loops but supplies no CPU deadline or recovery from an
-encoder defect. There is no interpreter fallback, source-visible memory, external
-call or arbitrary-byte constructor in this gate. See
+above. Callable images register every owner in one checked Windows function table
+whose records share the executable mapping's lifetime. The bridge releases that
+storage before boxing program status, including exhausted-loop/call exits, and
+keeps the OCaml runtime lock while generated code runs. This bounds checked IR
+loops and call chains but supplies no CPU deadline or recovery from an encoder
+defect or arbitrary host-stack exhaustion outside the controlled call chain.
+There is no interpreter fallback, source pointer access, external call or
+arbitrary-byte constructor in this gate. See
 [native programs](docs/native-programs.md) for exact source and reporting limits.
 
 ## Supported versions
