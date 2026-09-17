@@ -16,7 +16,8 @@ success-only report and stderr diagnostics.
 [U0 function calls](integer-u0.md) execute ordinary procedures, early bare
 returns and fallthrough through the same checked call protocol. A discarded U0
 call reports no final word; it preserves preceding storage effects and resumes
-the caller. Numeric returns remain I64/U64.
+the caller. [Narrow integer execution](integer-narrow.md) describes the additional
+scalar parameter, local and return types and their full register results.
 
 [Owned string literals](integer-strings.md) use one mutable byte object per
 source site and execution image. They compose with U8 pointer initialization,
@@ -27,7 +28,8 @@ payloads plus terminators separately from frame/global storage.
 with automatic byte scalars and arrays, plain assignment and exact U8* aliases.
 Stored bytes narrow independently from assignment results, and frame limits
 use checked allocation sizes. The linked guide records the fixture and its
-verification status; I64/U64 numeric parameters and returns remain unchanged.
+verification status for that initial byte-storage increment. The later
+[narrow integer path](integer-narrow.md) covers all eight scalar integer types.
 
 [Automatic I64/U64 arrays](integer-arrays.md) execute indexed loads, assignments,
 updates and element aliases through this pipeline. The caller-element fixture
@@ -47,10 +49,14 @@ definition, deterministic predefined-value and JIT/AOT preprocessing options.
 
 `holyc run --target=host-jit` uses the shared source lowerer for the separate
 [native program gate](native-programs.md). It emits real machine control flow,
-fixed direct I64/U64 calls and scalar automatic storage with the same per-IR step
-accounting. Native defaults, persistent/narrow/pointer storage, full ABI behavior,
-runtime output and general declaration execution remain outside that gate; their
-existing interpreter support below does not imply native support.
+fixed direct scalar integer calls, U0 procedures and declared-width automatic
+storage. [Native scalar functions](native-scalars.md) and
+[native defaults](native-defaults.md) describe the supported widths and original
+constant preparation proof. Persistent/pointer storage, full ABI behavior,
+runtime output and general declaration execution remain outside that gate.
+Per-IR step accounting matches execution of the corresponding isolated checked
+unit. Stateful JIT source tasks can execute additional declaration units, whose
+work remains a separate source-stream meter.
 
 ```text
 opam exec -- dune exec bin/holyc.exe -- run --target=ir examples/integer-control-flow.hc
@@ -60,7 +66,7 @@ opam exec -- dune exec bin/holyc.exe -- dump-ir --program examples/integer-contr
 The accepted statements are ordinary integer expressions, empty statements,
 blocks, comma statement sequences, `if`/`else`, `while`, `do`/`while`, `for`,
 and `break`, plus scalar function-local declarations and returns. Functions use
-checked I64/U64 parameters, the automatic storage described above and direct
+checked scalar integer parameters, the automatic storage described above and direct
 call expressions. See
 [integer source functions](integer-functions.md) for the original Add fixture,
 call shapes, argument order and storage limits. The report retains the last
@@ -160,9 +166,11 @@ source/IR join, and `HCRUN0005` rejects an unavailable execution target.
 `HCRUN0006` retains the initializer optimizer boundary, including transitive
 callees; `HCIRVM0017` rejects missing or inconsistent initialization contexts.
 
-General memory, arbitrary indirect/external execution, compiler-state changes, `#exe`, native emission and
-general program execution remain unfinished under [M5 issue #396](https://github.com/frankischilling/holyc-ocaml/issues/396)
-and the backend milestones. The complete stateful compiler must execute source
+General memory, arbitrary indirect/external execution, the complete compiler-state
+surface and broader native execution remain unfinished under
+[M5 issue #396](https://github.com/frankischilling/holyc-ocaml/issues/396) and the
+backend milestones. Bounded stateful declaration/`#exe` execution and the native
+paths linked above do not complete those requirements. The complete stateful compiler must execute source
 and compiler effects in stream order as those operations become available.
 
 ## Verification
