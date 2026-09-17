@@ -10,8 +10,16 @@ interpreter or directive executor. Issue #660 adds source-owned scalar defaults
 prepared at their original header callbacks, with separate work/payload limits
 and saved reuse by native calls. [Native defaults](native-defaults.md) lists the
 closed-expression and definitions-before-entry boundary. Effectful defaults,
-persistent/pointer/narrow storage, the full ABI, runtime output and general
+persistent/pointer storage, the full ABI, runtime output and general
 declaration execution remain open; existing interpreter support is unchanged.
+
+Issue #663 adds [native scalar functions and U0 procedures](native-scalars.md).
+All eight integer widths use declared-width parameter/local accesses while
+assignment, compound and return registers retain their source-derived full bits.
+Narrow defaults keep the existing original preparation proof and eight-byte saved
+payload. Exact U0 completion remains separate from words and clears a reached
+top-level final-value latch. This extends the bounded native storage/call path;
+it does not claim general memory, optimizer, ABI or loader compatibility.
 
 Issue #654 adds guarded native integer division and remainder to the checked
 I64/U64 expression subset. Promoted operand classes select signed `IDIV` or

@@ -1562,6 +1562,106 @@ let encoder_stack_bytes () =
       | Ok _ -> Alcotest.failf "invalid stack frame %d was accepted" bytes)
     [ -8; 0; 7; 16; 4080; 4089; 4096 ]
 
+let encoder_narrow_frame_bytes () =
+  (* OpCodes.DD's MOV/MOVSX/MOVZX/MOVSXD forms and Asm.HC's REX/ModRM
+     placement give these independent bytes. RBP uses mod=10 and disp32;
+     byte/word reads extend to 64 bits, while a dword MOV clears upper bits. *)
+  let slot offset = Encoder.scalar_frame_slot ~offset |> require_ok Fun.id in
+  let cases =
+    let open Encoder in
+    [
+      ( "signed byte local into RAX",
+        Load_frame_narrow (Rax, slot (-1), Frame8, Sign_extend),
+        "480fbe85ffffffff" );
+      ( "unsigned byte local into RDX",
+        Load_frame_narrow (Rdx, slot (-1), Frame8, Zero_extend),
+        "480fb695ffffffff" );
+      ( "signed word local into R8",
+        Load_frame_narrow (R8, slot (-2), Frame16, Sign_extend),
+        "4c0fbf85feffffff" );
+      ( "unaligned unsigned word into R11",
+        Load_frame_narrow (R11, slot (-3), Frame16, Zero_extend),
+        "4c0fb79dfdffffff" );
+      ( "signed dword local into RCX",
+        Load_frame_narrow (Rcx, slot (-4), Frame32, Sign_extend),
+        "48638dfcffffff" );
+      ( "unsigned dword local into R9",
+        Load_frame_narrow (R9, slot (-4), Frame32, Zero_extend),
+        "448b8dfcffffff" );
+      ( "signed byte parameter at RBP+16",
+        Load_frame_narrow (Rax, slot 16, Frame8, Sign_extend),
+        "480fbe8510000000" );
+      ( "unsigned word parameter at RBP+24",
+        Load_frame_narrow (R10, slot 24, Frame16, Zero_extend),
+        "4c0fb79518000000" );
+      ( "store low byte from RCX",
+        Store_frame_narrow (slot (-1), Frame8, Rcx),
+        "40888dffffffff" );
+      ( "store low byte from R10",
+        Store_frame_narrow (slot (-1), Frame8, R10),
+        "448895ffffffff" );
+      ( "store low word from RAX",
+        Store_frame_narrow (slot (-2), Frame16, Rax),
+        "66408985feffffff" );
+      ( "store low word from R11",
+        Store_frame_narrow (slot (-2), Frame16, R11),
+        "6644899dfeffffff" );
+      ( "store low dword from RCX",
+        Store_frame_narrow (slot (-4), Frame32, Rcx),
+        "40898dfcffffff" );
+      ( "store low dword from R8",
+        Store_frame_narrow (slot (-4), Frame32, R8),
+        "448985fcffffff" );
+    ]
+  in
+  List.iter
+    (fun (label, instruction, expected) ->
+      Alcotest.(check string) label expected (hex (Encoder.encode instruction));
+      Alcotest.(check int)
+        (label ^ " exact byte count")
+        (String.length expected / 2)
+        (Encoder.size instruction))
+    cases;
+  let instructions = List.map (fun (_, instruction, _) -> instruction) cases in
+  let expected =
+    String.concat "" (List.map (fun (_, _, bytes) -> bytes) cases)
+  in
+  let bytes = String.length expected / 2 in
+  Alcotest.(check string)
+    "mixed scalar widths consume their exact code quota" expected
+    (Encoder.encode_all ~max_code_bytes:bytes instructions
+    |> require_ok Fun.id |> hex);
+  Alcotest.(check bool)
+    "mixed scalar widths reject one byte below their code quota" true
+    (Encoder.encode_all ~max_code_bytes:(bytes - 1) instructions
+    |> Result.is_error);
+  List.iter
+    (fun instruction ->
+      Alcotest.(check bool)
+        "unaligned scalar slots do not bypass qword frame validation" true
+        (Encoder.encode_all ~max_code_bytes:32 [ instruction ]
+        |> Result.is_error))
+    [
+      Encoder.Load_frame (Encoder.Rax, slot (-1));
+      Encoder.Store_frame (slot (-2), Encoder.Rcx);
+    ];
+  if Sys.int_size > 32 then (
+    List.iter
+      (fun offset ->
+        Alcotest.(check bool)
+          "scalar frame offset outside signed disp32 rejects" true
+          (Encoder.scalar_frame_slot ~offset:(Int64.to_int offset)
+          |> Result.is_error))
+      [ -2147483649L; 2147483648L ];
+    let edge = slot (Int64.to_int (-2147483648L)) in
+    Alcotest.(check string)
+      "negative signed disp32 edge retains every displacement bit"
+      "4c0fbe9d00000080"
+      (Encoder.encode
+         (Encoder.Load_frame_narrow
+            (Encoder.R11, edge, Encoder.Frame8, Encoder.Sign_extend))
+      |> hex))
+
 let predicate_bytes () =
   let comparisons =
     [
@@ -4259,6 +4359,8 @@ let tests =
       `Quick encoder_shift_bytes;
     Alcotest.test_case "DIV/IDIV guards and private-status encoder bytes" `Quick
       encoder_divmod_status_bytes;
+    Alcotest.test_case "narrow RBP memory forms preserve width and extension"
+      `Quick encoder_narrow_frame_bytes;
     Alcotest.test_case
       "high-register sharing preserves subtraction and duplicates" `Quick
       high_register_shared_bytes;

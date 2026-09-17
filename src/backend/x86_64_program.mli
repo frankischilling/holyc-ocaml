@@ -77,14 +77,17 @@ val compile_callable :
   functions:Ir.Integer_interpreter.function_definition list ->
   unit ->
   (t, error list) result
-(** Compile a checked entry and its exact fixed I64/U64 source functions as one
-    native callable bundle. Every named definition is preflighted, including
-    definitions unreachable from the entry. Calls are emitted only from exact
-    sealed runtime-call metadata and preserve the shared native status context.
-    The exact initialization context must be supplied even when empty; storage,
-    initialization regions, publications and preparation work are not admitted.
-    Declaration-time parameter defaults require [parameter_defaults] from the
-    exact source preparation; omitting it preserves the low-level rejection. *)
+(** Compile a checked entry and its exact fixed scalar integer functions and U0
+    procedures as one native callable bundle. Parameters and automatic objects
+    use their declared integer widths; word returns retain full register bits.
+    Every named definition is preflighted, including definitions unreachable
+    from the entry. Calls are emitted only from exact sealed runtime-call
+    metadata and preserve the shared native status context. The exact
+    initialization context must be supplied even when empty; persistent storage,
+    initialization regions, publications and their preparation work are not
+    admitted. Declaration-time parameter defaults require [parameter_defaults]
+    from the exact source preparation; omitting it preserves the low-level
+    rejection. *)
 
 val code : t -> string
 val windows_unwind_info : t -> string

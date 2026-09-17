@@ -86,12 +86,14 @@ val compile_callable :
   unit ->
   (program_image, error list) result
 (** Compile one checked ordinary-source entry plus its exact fixed scalar source
-    functions as one callable native bundle. All entry and named-function
-    graphs, including unreachable definitions, pass preflight before machine
-    allocation. Direct calls are resolved only through the supplied sealed
-    runtime-call context and exact function/frame ownership. Parameter defaults
-    remain rejected unless [parameter_defaults] seals the exact original
-    declaration-time preparation for this bundle. *)
+    functions as one callable native bundle. Source parameters, automatic
+    locals, and word returns admit the checked 8/16/32/64-bit integer family; U0
+    functions complete without producing a numeric value. All entry and
+    named-function graphs, including unreachable definitions, pass preflight
+    before machine allocation. Direct calls are resolved only through the
+    supplied sealed runtime-call context and exact function/frame ownership.
+    Parameter defaults remain rejected unless [parameter_defaults] seals the
+    exact original declaration-time preparation for this bundle. *)
 
 val program_code : program_image -> string
 val program_windows_unwind_info : program_image -> string

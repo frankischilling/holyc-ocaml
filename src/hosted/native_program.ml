@@ -70,17 +70,27 @@ let prepend_statements in_function statements rest =
        statements)
     rest
 
+let scalar_integer primitive =
+  let info = Common.Primitive_type.info primitive in
+  info.category = Common.Primitive_type.Integer && info.byte_size > 0
+
 let scalar_word_type = function
-  | Ast.Primitive_type_specifier primitive ->
-      List.mem primitive.primitive [ Common.Primitive_type.I64; U64 ]
-  | Ast.Internal_type_specifier primitive ->
-      List.mem primitive.primitive [ Common.Primitive_type.I64; U64 ]
+  | Ast.Primitive_type_specifier primitive -> scalar_integer primitive.primitive
+  | Ast.Internal_type_specifier primitive -> scalar_integer primitive.primitive
   | Ast.Named_type_specifier _ -> false
+
+let void_return_type = function
+  | Ast.Primitive_type_specifier { primitive = U0; _ }
+  | Ast.Internal_type_specifier { primitive = U0; _ } -> true
+  | _ -> false
 
 let function_source_error (definition : Ast.function_definition) =
   let reject message = Some (source_error definition.location.span message) in
-  if not (scalar_word_type definition.return_type) then
-    reject "native functions require an I64 or U64 return type"
+  if
+    not
+      (scalar_word_type definition.return_type
+      || void_return_type definition.return_type)
+  then reject "native functions require a scalar integer or U0 return type"
   else if definition.return_pointer_layers <> [] then
     reject "native functions do not admit pointer returns"
   else if definition.modifiers <> [] then
@@ -96,7 +106,8 @@ let function_source_error (definition : Ast.function_definition) =
           Some (source_error parameter.location.span message)
         in
         if not (scalar_word_type parameter.type_specifier) then
-          reject "native function parameters require scalar I64 or U64 types"
+          reject
+            "native function parameters require nonzero scalar integer types"
         else if
           parameter.pointer_layers <> []
           || Option.is_some parameter.function_pointer
@@ -117,7 +128,7 @@ let local_source_error (declaration : Ast.local_declaration) =
   else if declaration.local_modifiers <> [] then
     reject "native automatic locals do not admit declaration modifiers"
   else if not (scalar_word_type declaration.local_type_specifier) then
-    reject "native automatic locals require scalar I64 or U64 types"
+    reject "native automatic locals require nonzero scalar integer types"
   else
     List.find_map
       (fun (local : Ast.local_declarator) ->
@@ -369,11 +380,7 @@ let ast_errors (ast : Ast.module_) =
                 match returned.return_value with
                 | Some expression ->
                     work := Gate_expression (true, expression) :: !work
-                | None ->
-                    reject
-                      (source_error returned.return_location.span
-                         "native word functions require a value in return \
-                          statements"))
+                | None -> ())
             | Ast.Return_statement returned ->
                 reject
                   (source_error returned.return_location.span

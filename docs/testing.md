@@ -1,5 +1,23 @@
 # Testing holyc-ocaml
 
+Native scalar tests add independent width/extension encoder bytes and source
+cases for all eight integer parameter/local/return types. They distinguish full
+assignment/compound/return registers from normalized storage and prefix/postfix
+results, protect adjacent objects, and preserve producer computation classes.
+Narrow defaults exercise original preparation and separate saved-payload limits.
+U0 cases cover fallthrough, bare returns, nested/recursive calls, no-value final
+results and invalid word uses. Ordinary tests only compile and inspect; separate
+native scalar execution and CLI executables run through `@native-tests` in both
+preprocessing modes, including independent expectations, interpreter comparison
+and exact/one-below resource limits. Source-level value comparisons use fresh
+public interpreter runs. Native instruction counts use interpreter execution of
+the corresponding isolated source unit; stateful JIT declaration units have
+their own additional `IC_END` work and remain a separate reported meter.
+The original default-proof tampering matrix runs for every integer width,
+including replacement of full saved bits with narrowed object bits.
+The maintained examples are
+`native-scalar-functions.hc` and `native-u0-functions.hc`.
+
 Native default tests cover declaration-time preparation in both modes, saved
 reuse, mixed omitted/explicit arguments, high-bit words, unused definitions and
 right-to-left supplied argument effects. Nine source fixtures compare full-word

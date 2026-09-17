@@ -1,3 +1,9 @@
+(library
+ (name native_scalar_support)
+ (wrapped false)
+ (modules native_scalar_fixture)
+ (libraries holyc_lib))
+
 (test
  (name test_stateful_exe_cli)
  (modules test_stateful_exe_cli)
@@ -89,6 +95,7 @@
   test_integer_expression
   test_native_expression
   test_native_program
+  test_native_scalar_functions
   test_integer_program
   test_integer_functions
   test_integer_nested_calls
@@ -255,6 +262,7 @@
   global_record_flag_tools
   member_flag_tools
   holyc_lib
+  native_scalar_support
   intermediate_code_tools
   opcode_table_tools
   operator_table_tools

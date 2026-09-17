@@ -13,7 +13,9 @@ val create :
     callable bundle. Every default-bearing selected/source header in every
     supplied definition, including unreachable definitions, must be covered by
     its original prepared value and opaque charged native preparation receipt.
-    Foreign, duplicate and unused evidence is rejected. *)
+    Foreign, duplicate and unused evidence is rejected. Saved values retain
+    their full bits and exact declared parameter type, including narrow types.
+*)
 
 val matches :
   t ->

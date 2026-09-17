@@ -1,5 +1,16 @@
 # Reference source map
 
+Issue #663 connects scalar storage widths and U0 completion to native calls.
+`BackLib.HC:281-309,509-534,550-572` supplies the narrow storage movements;
+`OptPass789A.HC:710-717,779-782,1026-1030` distinguishes update/return register
+results. `PrsVar.HC:619-657` retains eight-byte argument slots and full saved
+defaults; `PrsExp.HC:438-586` supplies their call consumers and return classes.
+`PrsStmt.HC:150-169,1110-1119` supplies procedure tails and return parsing.
+The existing `Integer_scalar_storage` and `Integer_computation_class` consumers
+remain separate. Private U0 identity, initialization guards, exact range checks
+and resource quotas are hosted policy. [Native scalar functions](native-scalars.md)
+records the bounded behavior and remaining optimizer/ABI/loader requirements.
+
 Issue #660 connects original scalar default preparation to the native source
 driver. `Compiler/PrsVar.HC:629-657` compiles and calls a default expression while
 reading the parameter, stores `dft_val`, and only then marks it available.

@@ -23,16 +23,16 @@ val compile :
   source:Common.Source_file.t ->
   (Backend.X86_64_program.t checked, Common.Diagnostic.t list) Stdlib.result
 (** Parse ordinary source without command or [#exe] executors. Compile the exact
-    checked entry and its fixed direct I64/U64 source functions, with scalar
-    automatic storage, through the shared native word backend. Supported scalar
-    parameter defaults are prepared once at their original declaration callbacks
-    through the checked constant-preparation engine. Unsupported declarations,
-    defaults and persistent storage reject before native entry. This never
-    interprets ordinary commands or allocates executable memory. Parser warnings
-    retain their original source identities. Defaults are 4096 total IR
-    instructions, 65536 code bytes, 4088 private frame bytes, 4096 total blocks,
-    100,000 declaration-preparation steps and 65,536 bytes of saved default
-    payloads (eight bytes per prepared value). *)
+    checked entry and its fixed direct scalar integer or U0 source functions,
+    with width-correct automatic integer storage, through the shared native word
+    backend. Supported scalar parameter defaults are prepared once at their
+    original declaration callbacks through the checked constant-preparation
+    engine. Unsupported declarations, defaults and persistent storage reject
+    before native entry. This never interprets ordinary commands or allocates
+    executable memory. Parser warnings retain their original source identities.
+    Defaults are 4096 total IR instructions, 65536 code bytes, 4088 private
+    frame bytes, 4096 total blocks, 100,000 declaration-preparation steps and
+    65,536 bytes of saved default payloads (eight bytes per prepared value). *)
 
 val evaluate :
   ?max_ir_instructions:int ->

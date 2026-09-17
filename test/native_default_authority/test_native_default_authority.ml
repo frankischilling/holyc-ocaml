@@ -24,13 +24,14 @@ let diagnostics = function
 let reject label result =
   Alcotest.(check bool) label true (Result.is_error result)
 
-let fixture mode ending =
+let fixture mode type_name default ending =
   let session = Session.create () in
   let source =
     Session.add_source session ~path:"native-default-authority.hc"
       ~contents:
-        ("I64 F(I64 n=20+22){return n;} I64 Unused(I64 x=7){return x;} "
-       ^ ending)
+        (Printf.sprintf
+           "%s F(%s n=%s){return n;} I64 Unused(I64 x=7){return x;} %s"
+           type_name type_name default ending)
   in
   let table = Session.semantic_symbols session in
   let ledger = D.create_source session ~source |> checked in
@@ -101,79 +102,121 @@ let proof_ownership () =
   List.iter
     (fun mode ->
       List.iter
-        (fun ending ->
-          let unit_, prepared, executions = fixture mode ending in
-          let foreign_unit, foreign_prepared, foreign_executions =
-            fixture mode ending
-          in
-          Alcotest.(check int)
-            "fixture includes an unused default owner" 2 (List.length prepared);
-          let proof = seal unit_ prepared executions |> checked in
-          Alcotest.(check bool)
-            "authentic preparation compiles without native execution" true
-            (Result.is_ok (compile ~parameter_defaults:proof unit_));
-          reject "even supplied and unused defaults need proof" (compile unit_);
-          reject "equal-source foreign bundle cannot borrow proof"
-            (compile ~parameter_defaults:proof foreign_unit);
-          reject "saved values alone do not authorize preparation"
-            (seal unit_ prepared []);
-          List.iteri
-            (fun index saved ->
-              let label = Printf.sprintf "default %d with %s" index ending in
-              let remaining_prepared = List.filter (( != ) saved) prepared in
-              let remaining_executions =
-                List.filter
-                  (fun completion ->
-                    completion |> Preparation.execution
-                    |> Default_program.authority |> Fragment.authorized_fragment
-                    |> Fragment.receipt
-                    |> fun receipt -> receipt != Saved.receipt saved)
-                  executions
+        (fun (type_name, default, expected_bits, stored_bits) ->
+          List.iter
+            (fun ending ->
+              let unit_, prepared, executions =
+                fixture mode type_name default ending
+              in
+              let foreign_unit, foreign_prepared, foreign_executions =
+                fixture mode type_name default ending
               in
               Alcotest.(check int)
-                (label ^ " removes only its prepared value")
-                1
-                (List.length remaining_prepared);
-              Alcotest.(check int)
-                (label ^ " removes only its matching completion")
-                1
-                (List.length remaining_executions);
-              reject
-                (label ^ " requires its prepared owner")
-                (seal unit_ remaining_prepared executions);
-              reject
-                (label ^ " requires its completed execution")
-                (seal unit_ prepared remaining_executions);
-              reject
-                (label ^ " cannot omit both matched proofs")
-                (seal unit_ remaining_prepared remaining_executions))
-            prepared;
-          reject "duplicate prepared receipts are rejected"
-            (seal unit_ (List.hd prepared :: prepared) executions);
-          reject "duplicate completed receipts are rejected"
-            (seal unit_ prepared (List.hd executions :: executions));
-          reject "extra foreign preparation is rejected"
-            (seal unit_ (List.hd foreign_prepared :: prepared) executions);
-          reject "equal-source foreign completed fragments are rejected"
-            (seal unit_ prepared foreign_executions);
-          let saved = List.hd prepared in
-          let reconstructed =
-            Saved.create ~publication:(Saved.publication saved)
-              ~header:(Saved.header saved) ~receipt:(Saved.receipt saved)
-              ~bits:(Saved.bits saved)
-            |> checked
-          in
-          reject "equal saved facts are not the original prepared object"
-            (seal unit_ (reconstructed :: List.tl prepared) executions);
-          let changed =
-            Saved.create ~publication:(Saved.publication saved)
-              ~header:(Saved.header saved) ~receipt:(Saved.receipt saved)
-              ~bits:(Int64.logxor (Saved.bits saved) 1L)
-            |> checked
-          in
-          reject "caller-chosen bits cannot borrow successful preparation"
-            (seal unit_ (changed :: List.tl prepared) executions))
-        [ "F();"; "F(1);"; "42;" ])
+                "fixture includes an unused default owner" 2
+                (List.length prepared);
+              let proof = seal unit_ prepared executions |> checked in
+              Alcotest.(check bool)
+                "authentic preparation compiles without native execution" true
+                (Result.is_ok (compile ~parameter_defaults:proof unit_));
+              reject "even supplied and unused defaults need proof"
+                (compile unit_);
+              reject "equal-source foreign bundle cannot borrow proof"
+                (compile ~parameter_defaults:proof foreign_unit);
+              reject "saved values alone do not authorize preparation"
+                (seal unit_ prepared []);
+              List.iteri
+                (fun index saved ->
+                  let label =
+                    Printf.sprintf "default %d with %s" index ending
+                  in
+                  let remaining_prepared =
+                    List.filter (( != ) saved) prepared
+                  in
+                  let remaining_executions =
+                    List.filter
+                      (fun completion ->
+                        completion |> Preparation.execution
+                        |> Default_program.authority
+                        |> Fragment.authorized_fragment |> Fragment.receipt
+                        |> fun receipt -> receipt != Saved.receipt saved)
+                      executions
+                  in
+                  Alcotest.(check int)
+                    (label ^ " removes only its prepared value")
+                    1
+                    (List.length remaining_prepared);
+                  Alcotest.(check int)
+                    (label ^ " removes only its matching completion")
+                    1
+                    (List.length remaining_executions);
+                  reject
+                    (label ^ " requires its prepared owner")
+                    (seal unit_ remaining_prepared executions);
+                  reject
+                    (label ^ " requires its completed execution")
+                    (seal unit_ prepared remaining_executions);
+                  reject
+                    (label ^ " cannot omit both matched proofs")
+                    (seal unit_ remaining_prepared remaining_executions))
+                prepared;
+              reject "duplicate prepared receipts are rejected"
+                (seal unit_ (List.hd prepared :: prepared) executions);
+              reject "duplicate completed receipts are rejected"
+                (seal unit_ prepared (List.hd executions :: executions));
+              reject "extra foreign preparation is rejected"
+                (seal unit_ (List.hd foreign_prepared :: prepared) executions);
+              reject "equal-source foreign completed fragments are rejected"
+                (seal unit_ prepared foreign_executions);
+              let saved =
+                List.find
+                  (fun saved ->
+                    (Saved.header saved).function_publication.function_name
+                      .spelling = "F")
+                  prepared
+              in
+              let remaining_prepared = List.filter (( != ) saved) prepared in
+              Alcotest.(check int64)
+                (type_name
+               ^ " saves full register bits before parameter narrowing")
+                expected_bits (Saved.bits saved);
+              let reconstructed =
+                Saved.create ~publication:(Saved.publication saved)
+                  ~header:(Saved.header saved) ~receipt:(Saved.receipt saved)
+                  ~bits:(Saved.bits saved)
+                |> checked
+              in
+              reject "equal saved facts are not the original prepared object"
+                (seal unit_ (reconstructed :: remaining_prepared) executions);
+              let changed =
+                Saved.create ~publication:(Saved.publication saved)
+                  ~header:(Saved.header saved) ~receipt:(Saved.receipt saved)
+                  ~bits:(Int64.logxor (Saved.bits saved) 1L)
+                |> checked
+              in
+              reject "caller-chosen bits cannot borrow successful preparation"
+                (seal unit_ (changed :: remaining_prepared) executions);
+              if expected_bits <> stored_bits then
+                let narrowed =
+                  Saved.create ~publication:(Saved.publication saved)
+                    ~header:(Saved.header saved) ~receipt:(Saved.receipt saved)
+                    ~bits:stored_bits
+                  |> checked
+                in
+                reject
+                  (type_name
+                 ^ " normalized storage bits cannot replace the saved word")
+                  (seal unit_ (narrowed :: remaining_prepared) executions))
+            [ "F();"; "F(1);"; "42;" ])
+        [
+          ("I8", "255", 255L, -1L);
+          ("U8", "554", 554L, 42L);
+          ("I16", "65535", 65535L, -1L);
+          ("U16", "65578", 65578L, 42L);
+          ("I32", "4294967295", 4294967295L, -1L);
+          ("U32", "4294967338", 4294967338L, 42L);
+          ("I64", "20+22", 42L, 42L);
+          ("U64", "0xffffffffffffffff", -1L, -1L);
+        ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let () =

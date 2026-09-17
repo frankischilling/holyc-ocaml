@@ -4,6 +4,7 @@ module Opcode = Ir.Opcode
 module Type = Sema.Type
 module Primitive = Sema.Primitive_type
 module Computation = Sema.Integer_computation_class
+module Scalar = Ir.Integer_scalar_storage
 module Encoder = X86_64_encoder
 module Runtime = Ir.Runtime_call_context
 module Defaults = Driver.Native_parameter_defaults
@@ -13,6 +14,7 @@ module Headers = Sema.Function_type_resolution
 module Frame = Sema.Function_frame_layout
 module Symbol = Sema.Symbol
 module Value_map = Map.Make (Sequence.Value_id)
+module Value_set = Set.Make (Sequence.Value_id)
 module Instruction_set = Set.Make (Sequence.Instruction_id)
 module Block_map = Map.Make (Sequence.Block_id)
 module Int_map = Map.Make (Int)
@@ -107,21 +109,44 @@ let unsupported (description : Sequence.description) message =
   reject ?span:description.span "HCBACK0002"
     (Printf.sprintf "%s: %s" (Opcode.to_source_name description.opcode) message)
 
-let checked_word ?(allow_public = false) description type_ =
+type scalar_value = { word_type : word_type; byte_size : int }
+
+let scalar_value ?(allow_public = false) type_ =
+  let form_allowed =
+    match Type.base type_ with
+    | Type.Primitive (Type.Internal_storage, _) -> true
+    | Type.Primitive (Type.Public_spelling, _) -> allow_public
+    | Type.Aggregate _ -> false
+  in
+  if not form_allowed then None
+  else
+    Option.map
+      (fun scalar ->
+        {
+          word_type = (if Scalar.is_unsigned scalar then U64 else I64);
+          byte_size = Scalar.byte_size scalar;
+        })
+      (Scalar.of_type type_)
+
+let checked_scalar ?(allow_public = false) description type_ =
   if Type.pointer_depth type_ <> 0 then
     unsupported description "native expressions do not support pointer values";
-  match Type.base type_ with
-  | Type.Primitive (Type.Internal_storage, Primitive.I64) -> I64
-  | Type.Primitive (Type.Internal_storage, Primitive.U64) -> U64
-  | Type.Primitive (Type.Public_spelling, Primitive.I64) when allow_public ->
-      I64
-  | Type.Primitive (Type.Public_spelling, Primitive.U64) when allow_public ->
-      U64
-  | _ ->
+  match scalar_value ~allow_public type_ with
+  | Some scalar -> scalar
+  | None ->
       unsupported description
         (if allow_public then
-           "native callable programs require scalar I64 or U64 values"
+           "native callable programs require nonzero scalar integer values"
          else "native expressions require internal I64 or U64 values")
+
+let checked_word ?(allow_public = false) description type_ =
+  let scalar = checked_scalar ~allow_public description type_ in
+  if scalar.byte_size <> 8 then
+    unsupported description
+      (if allow_public then
+         "this native operation requires scalar I64 or U64 values"
+       else "native expressions require internal I64 or U64 values");
+  scalar.word_type
 
 type value = {
   value_id : Sequence.Value_id.t;
@@ -130,13 +155,18 @@ type value = {
   mutable last_use : int;
 }
 
-type frame_access = { frame_offset : int; initialized_flag_offset : int option }
+type frame_access = {
+  frame_offset : int;
+  frame_bytes : int;
+  frame_word : word_type;
+  initialized_flag_offset : int option;
+}
 
 type direct_call = {
   callee_index : int;
   activation_bytes : int;
   argument_stage_slots : int array;
-  result_stage_slot : int;
+  result_stage_slot : int option;
 }
 
 type frame_update =
@@ -170,9 +200,11 @@ type operation =
   | Direct_call of direct_call
   | Call_cleanup
   | Call_end of int * value
+  | Call_end_void
   | Return_value of value
   | Return
   | Discard_value of value * word_type
+  | Discard_void
   | Jump_to of Sequence.Block_id.t
   | Branch_zero of value * Sequence.Block_id.t
   | Branch_not_zero of value * Sequence.Block_id.t
@@ -314,11 +346,16 @@ let promoted_type description left right =
   in
   Computation.forward selected
 
-let prepare_word_operation ?(allow_public = false) ~values ~fault_sites
-    ~position ~site (description : Sequence.description) =
+let prepare_word_operation ?(allow_public = false) ?(allow_narrow = false)
+    ~values ~fault_sites ~position ~site (description : Sequence.description) =
   let operand = operand values description position in
   let define = define values description position in
   let require_type = require_type ~allow_public in
+  let checked_value type_ =
+    if allow_narrow then
+      (checked_scalar ~allow_public description type_).word_type
+    else checked_word ~allow_public description type_
+  in
   match opcode_kind description.opcode with
   | None -> None
   | Some kind ->
@@ -337,22 +374,25 @@ let prepare_word_operation ?(allow_public = false) ~values ~fault_sites
         | ( Immediate_kind,
             ([], Some result, Some target_type, Some (Sequence.Integer bits)) )
           ->
-            let _ = checked_word ~allow_public description target_type in
+            let _ = checked_value target_type in
             let value =
               define result target_type (Computation.forward target_type)
             in
             Load_immediate (value, bits)
         | Unary_kind unary, ([ operand_id ], Some result, Some target_type, None)
           ->
-            let word = checked_word ~allow_public description target_type in
             let input = operand operand_id in
             let computation_type =
               match unary with
               | Encoder.Neg ->
+                  ignore (checked_value target_type);
                   let expected = Computation.negate input.computation_type in
                   require_type description expected target_type;
                   Computation.forward target_type
               | Encoder.Not ->
+                  let word =
+                    checked_word ~allow_public description target_type
+                  in
                   if word <> I64 then
                     malformed description "complement must declare internal I64";
                   Computation.forward input.computation_type
@@ -361,7 +401,7 @@ let prepare_word_operation ?(allow_public = false) ~values ~fault_sites
             Apply_unary (unary, input, result)
         | Logical_not_kind, ([ operand_id ], Some result, Some target_type, None)
           ->
-            let _ = checked_word ~allow_public description target_type in
+            let _ = checked_value target_type in
             let input = operand operand_id in
             let computation_type = Computation.forward input.computation_type in
             require_type description computation_type target_type;
@@ -394,7 +434,7 @@ let prepare_word_operation ?(allow_public = false) ~values ~fault_sites
               "native expressions do not support parenthesized casts"
         | ( Binary_kind binary,
             ([ left_id; right_id ], Some result, Some target_type, None) ) ->
-            let _ = checked_word ~allow_public description target_type in
+            let _ = checked_value target_type in
             let left = operand left_id in
             let right = operand right_id in
             require_type description
@@ -406,7 +446,7 @@ let prepare_word_operation ?(allow_public = false) ~values ~fault_sites
             Apply_binary (binary, left, right, result)
         | ( Shift_kind direction,
             ([ left_id; right_id ], Some result, Some target_type, None) ) ->
-            let word = checked_word ~allow_public description target_type in
+            let word = checked_value target_type in
             let left = operand left_id in
             let right = operand right_id in
             require_type description
@@ -424,7 +464,7 @@ let prepare_word_operation ?(allow_public = false) ~values ~fault_sites
             Apply_shift (shift, left, right, result)
         | ( Division_kind arithmetic_operation,
             ([ left_id; right_id ], Some result, Some target_type, None) ) ->
-            let word = checked_word ~allow_public description target_type in
+            let word = checked_value target_type in
             let left = operand left_id in
             let right = operand right_id in
             require_type description
@@ -455,8 +495,13 @@ let prepare_word_operation ?(allow_public = false) ~values ~fault_sites
             let right = operand right_id in
             let condition =
               match
-                checked_word ~allow_public description
-                  (promoted_type description left right)
+                if allow_narrow then
+                  (checked_scalar ~allow_public description
+                     (promoted_type description left right))
+                    .word_type
+                else
+                  checked_word ~allow_public description
+                    (promoted_type description left right)
               with
               | I64 -> signed
               | U64 -> unsigned
@@ -764,6 +809,37 @@ let encoder_frame_slot span offset =
   match Encoder.frame_slot ~offset with
   | Ok slot -> slot
   | Error message -> reject ?span "HCBACK0003" message
+
+let encoder_scalar_frame_slot span offset =
+  match Encoder.scalar_frame_slot ~offset with
+  | Ok slot -> slot
+  | Error message -> reject ?span "HCBACK0003" message
+
+let narrow_frame_width ?span = function
+  | 1 -> Encoder.Frame8
+  | 2 -> Encoder.Frame16
+  | 4 -> Encoder.Frame32
+  | _ -> reject ?span "HCBACK0003" "native scalar frame width is invalid"
+
+let load_frame_scalar span destination access =
+  if access.frame_bytes = 8 then
+    Encoder.Load_frame (destination, encoder_frame_slot span access.frame_offset)
+  else
+    Encoder.Load_frame_narrow
+      ( destination,
+        encoder_scalar_frame_slot span access.frame_offset,
+        narrow_frame_width ?span access.frame_bytes,
+        if access.frame_word = I64 then Encoder.Sign_extend
+        else Encoder.Zero_extend )
+
+let store_frame_scalar span access source =
+  if access.frame_bytes = 8 then
+    Encoder.Store_frame (encoder_frame_slot span access.frame_offset, source)
+  else
+    Encoder.Store_frame_narrow
+      ( encoder_scalar_frame_slot span access.frame_offset,
+        narrow_frame_width ?span access.frame_bytes,
+        source )
 
 let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
     ~mode prepared =
@@ -1429,9 +1505,7 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
               emit (Encoder.Test target);
               emit_branch Equal uninitialized)
             access.initialized_flag_offset;
-          emit
-            (Encoder.Load_frame
-               (target, encoder_frame_slot instruction.span access.frame_offset));
+          emit (load_frame_scalar instruction.span target access);
           assign position destination result
       | Store_frame_value (access, input, result) ->
           let inputs, protected = ensure_inputs instruction.span [ input ] in
@@ -1443,9 +1517,7 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
           if destination <> source then
             emit (Encoder.Mov (registers.(destination), registers.(source)));
           emit
-            (Encoder.Store_frame
-               ( encoder_frame_slot instruction.span access.frame_offset,
-                 registers.(destination) ));
+            (store_frame_scalar instruction.span access registers.(destination));
           Option.iter
             (fun flag_offset ->
               let scratch =
@@ -1476,10 +1548,7 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
               emit (Encoder.Test Encoder.Rax);
               emit_branch Equal uninitialized)
             access.initialized_flag_offset;
-          emit
-            (Encoder.Load_frame
-               ( Encoder.Rax,
-                 encoder_frame_slot instruction.span access.frame_offset ));
+          emit (load_frame_scalar instruction.span Encoder.Rax access);
           if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
           (match input with
           | Some input -> copy_value_to instruction.span input rcx
@@ -1527,9 +1596,13 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
                 | Remainder -> rdx)
           in
           emit
-            (Encoder.Store_frame
-               ( encoder_frame_slot instruction.span access.frame_offset,
-                 registers.(computed_index) ));
+            (store_frame_scalar instruction.span access
+               registers.(computed_index));
+          if (not old_result) && Option.is_none input && access.frame_bytes < 8
+          then
+            emit
+              (load_frame_scalar instruction.span registers.(computed_index)
+                 access);
           note_peak
             ~temporaries:
               (if old_result then [ rax; rcx; rdx; r8 ] else [ rax; rcx; rdx ])
@@ -1599,10 +1672,12 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
           emit (Encoder.Store_context (64, Encoder.Rax));
           planned := Planned_call call.callee_index :: !planned;
           (* Save RAX before quota restoration/status inspection clobbers it. *)
-          emit
-            (Encoder.Store_stack
-               ( staged_stack_slot instruction.span call.result_stage_slot,
-                 Encoder.Rax ));
+          Option.iter
+            (fun stage ->
+              emit
+                (Encoder.Store_stack
+                   (staged_stack_slot instruction.span stage, Encoder.Rax)))
+            call.result_stage_slot;
           emit (Encoder.Load_context (Encoder.Rax, 56));
           emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L));
           emit (Encoder.Binary (Encoder.Add, Encoder.Rax, Encoder.Rcx));
@@ -1631,6 +1706,7 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
                ( registers.(destination),
                  staged_stack_slot instruction.span stage ));
           assign position destination result
+      | Call_end_void -> release_through position
       | Return_value input ->
           let inputs, _ = ensure_inputs instruction.span [ input ] in
           let source = List.hd inputs in
@@ -1663,6 +1739,17 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
               let source = List.hd inputs in
               emit (Encoder.Store_context (40, registers.(source)));
               emit (Encoder.Store_context_imm (32, site));
+              release_through position
+          | Callable_control { is_entry = false; _ } -> release_through position
+          )
+      | Discard_void -> (
+          match mode with
+          | Expression_control _ ->
+              reject ?span:instruction.span "HCBACK0003"
+                "native expression contains no-value discard"
+          | Program_control _ | Callable_control { is_entry = true; _ } ->
+              emit (Encoder.Store_context_imm (40, 0));
+              emit (Encoder.Store_context_imm (32, 0));
               release_through position
           | Callable_control { is_entry = false; _ } -> release_through position
           )
@@ -2045,11 +2132,16 @@ type callable_slot = {
   access : frame_access;
 }
 
+type callable_return_kind =
+  | Callable_word_return of scalar_value
+  | Callable_void_return
+
 type callable_function_info = {
   definition : Ir.Integer_interpreter.function_definition;
   owner : program_owner;
   parameter_count : int;
   parameter_types : Type.t array;
+  return_kind : callable_return_kind;
   rbp_bytes : int;
   activation_bytes : int;
   frame_slots : callable_slot Int_map.t;
@@ -2068,7 +2160,7 @@ type callable_call_scope = {
   callee_index : int;
   activation_bytes : int;
   stage_base : int;
-  result_stage : int;
+  result_stage : int option;
   argument_stages : int array;
   pushed : bool array;
   mutable phase : callable_call_phase;
@@ -2106,16 +2198,26 @@ let int_of_frame_displacement ?span value =
       "native frame displacement exceeds the checked host integer range";
   Int64.to_int value
 
-let source_word ?span label type_ =
-  if Type.pointer_depth type_ <> 0 then
-    reject ?span "HCBACK0002"
-      (label ^ " must be a non-pointer I64 or U64 scalar");
-  match Type.base type_ with
-  | Type.Primitive (_, Primitive.I64) -> I64
-  | Type.Primitive (_, Primitive.U64) -> U64
-  | _ ->
-      reject ?span "HCBACK0002"
-        (label ^ " must be a non-pointer I64 or U64 scalar")
+let source_scalar ?span label type_ =
+  match Scalar.of_type type_ with
+  | Some scalar ->
+      {
+        word_type = (if Scalar.is_unsigned scalar then U64 else I64);
+        byte_size = Scalar.byte_size scalar;
+      }
+  | None ->
+      reject ?span "HCBACK0002" (label ^ " must be a nonzero scalar integer")
+
+let source_return_kind ?span type_ =
+  if Type.pointer_depth type_ = 0 then
+    match Type.base type_ with
+    | Type.Primitive (_, Primitive.U0) -> Callable_void_return
+    | _ ->
+        Callable_word_return
+          (source_scalar ?span "native source function return type" type_)
+  else
+    Callable_word_return
+      (source_scalar ?span "native source function return type" type_)
 
 let callable_frame_update opcode word =
   match opcode with
@@ -2158,9 +2260,7 @@ let prepare_callable_function ~max_stack_bytes
   then
     reject ?span "HCBACK0002"
       "native source functions do not admit explicit calling-convention flags";
-  ignore
-    (source_word ?span "native source function return type"
-       (Function.return_type body));
+  let return_kind = source_return_kind ?span (Function.return_type body) in
   let local_frame_bytes =
     int_of_frame_size ?span (Frame.function_frame_size frame)
   in
@@ -2171,11 +2271,28 @@ let prepare_callable_function ~max_stack_bytes
           max_stack_bytes (%d)"
          local_frame_bytes max_stack_bytes);
   let slots = ref Int_map.empty in
-  let add_slot offset slot =
-    if Int_map.mem offset !slots then
+  let slot_ranges = ref Int_map.empty in
+  let add_slot offset bytes slot =
+    let limit = offset + bytes in
+    let before, exact, after = Int_map.split offset !slot_ranges in
+    let overlaps_before =
+      match Int_map.max_binding_opt before with
+      | Some (other_offset, other_bytes) -> other_offset + other_bytes > offset
+      | None -> false
+    in
+    let overlaps_after =
+      match Int_map.min_binding_opt after with
+      | Some (other_offset, _) -> other_offset < limit
+      | None -> false
+    in
+    if
+      Option.is_some exact || Int_map.mem offset !slots || overlaps_before
+      || overlaps_after
+    then
       reject ?span "HCBACK0003"
         "native source function has overlapping checked frame slots";
-    slots := Int_map.add offset slot !slots
+    slots := Int_map.add offset slot !slots;
+    slot_ranges := Int_map.add offset bytes !slot_ranges
   in
   let parameters = Function.parameters body in
   List.iteri
@@ -2186,8 +2303,8 @@ let prepare_callable_function ~max_stack_bytes
           "HCBACK0003"
           "native source function parameter positions are inconsistent";
       let type_ = Function.member_type member in
-      let word =
-        source_word ?span:(Function.member_span member) "parameter" type_
+      let scalar =
+        source_scalar ?span:(Function.member_span member) "parameter" type_
       in
       let location =
         match Frame.find_location frame (Function.member_symbol member) with
@@ -2212,12 +2329,14 @@ let prepare_callable_function ~max_stack_bytes
         || Frame.location_value_shape location <> Frame.Scalar
         || Frame.location_dimensions location <> []
         || (not (Type.equal (Frame.location_checked_type location) type_))
+        || Frame.location_element_size location <> Int64.of_int scalar.byte_size
         || Frame.location_allocated_size location <> 8L
+        || Frame.location_alignment location <> 8
       then
         reject
           ?span:(Function.member_span member)
           "HCBACK0002"
-          "native source parameters require fixed scalar I64/U64 frame slots";
+          "native source parameters require fixed scalar integer ABI slots";
       let slot =
         match Frame.location_frame_slot location with
         | Some slot -> slot
@@ -2237,11 +2356,17 @@ let prepare_callable_function ~max_stack_bytes
           ?span:(Function.member_span member)
           "HCBACK0003"
           "native source parameter displacement disagrees with the private ABI";
-      add_slot actual
+      add_slot actual 8
         {
           slot_type = type_;
-          slot_word = word;
-          access = { frame_offset = actual; initialized_flag_offset = None };
+          slot_word = scalar.word_type;
+          access =
+            {
+              frame_offset = actual;
+              frame_bytes = scalar.byte_size;
+              frame_word = scalar.word_type;
+              initialized_flag_offset = None;
+            };
         })
     parameters;
   let locals = Function.locals body in
@@ -2249,8 +2374,10 @@ let prepare_callable_function ~max_stack_bytes
   List.iteri
     (fun index member ->
       let type_ = Function.member_type member in
-      let word =
-        source_word ?span:(Function.member_span member) "automatic local" type_
+      let scalar =
+        source_scalar
+          ?span:(Function.member_span member)
+          "automatic local" type_
       in
       let location =
         match Frame.find_location frame (Function.member_symbol member) with
@@ -2275,12 +2402,15 @@ let prepare_callable_function ~max_stack_bytes
         || Frame.location_value_shape location <> Frame.Scalar
         || Frame.location_dimensions location <> []
         || (not (Type.equal (Frame.location_checked_type location) type_))
-        || Frame.location_allocated_size location <> 8L
+        || Frame.location_element_size location <> Int64.of_int scalar.byte_size
+        || Frame.location_allocated_size location
+           <> Int64.of_int scalar.byte_size
+        || Frame.location_alignment location <> scalar.byte_size
       then
         reject
           ?span:(Function.member_span member)
           "HCBACK0002"
-          "native source locals require automatic scalar I64/U64 stack storage";
+          "native source locals require automatic scalar integer stack storage";
       let slot =
         match Frame.location_frame_slot location with
         | Some slot -> slot
@@ -2295,23 +2425,25 @@ let prepare_callable_function ~max_stack_bytes
           (Frame.frame_slot_displacement slot)
       in
       if
-        actual > -8
+        actual > -scalar.byte_size
         || actual < -local_frame_bytes
-        || actual mod 8 <> 0
-        || Frame.frame_slot_size slot <> 8L
+        || actual mod scalar.byte_size <> 0
+        || Frame.frame_slot_size slot <> Int64.of_int scalar.byte_size
       then
         reject
           ?span:(Function.member_span member)
           "HCBACK0003" "native automatic local has an invalid RBP displacement";
       let flag_offset = -(local_frame_bytes + (8 * (index + 1))) in
       init_flag_offsets_rev := flag_offset :: !init_flag_offsets_rev;
-      add_slot actual
+      add_slot actual scalar.byte_size
         {
           slot_type = type_;
-          slot_word = word;
+          slot_word = scalar.word_type;
           access =
             {
               frame_offset = actual;
+              frame_bytes = scalar.byte_size;
+              frame_word = scalar.word_type;
               initialized_flag_offset = Some flag_offset;
             };
         })
@@ -2333,6 +2465,7 @@ let prepare_callable_function ~max_stack_bytes
     parameter_types =
       Array.of_list
         (List.map (fun member -> Function.member_type member) parameters);
+    return_kind;
     rbp_bytes;
     activation_bytes = local_frame_bytes + (8 * List.length parameters);
     frame_slots = !slots;
@@ -2392,49 +2525,52 @@ let callable_callee_index functions call =
   in
   find 0
 
-let validate_callable_returns graph =
-  let blocks =
-    List.fold_left
-      (fun index block -> Block_map.add (Graph.block_id block) block index)
-      Block_map.empty (Graph.blocks graph)
-  in
-  let pending = Queue.create () in
-  let visited = ref Block_map.empty in
-  let enqueue block_id has_value =
-    let bit = if has_value then 2 else 1 in
-    let previous =
-      Option.value (Block_map.find_opt block_id !visited) ~default:0
-    in
-    if previous land bit = 0 then (
-      visited := Block_map.add block_id (previous lor bit) !visited;
-      Queue.add (block_id, has_value) pending)
-  in
-  enqueue (Graph.block_id (Graph.entry graph)) false;
-  while not (Queue.is_empty pending) do
-    let block_id, incoming = Queue.take pending in
-    let block = Block_map.find block_id blocks in
-    let has_value = ref incoming in
-    List.iter
-      (fun instruction ->
-        let description = Sequence.description instruction in
-        match description.opcode with
-        | Opcode.Ic_return_val -> has_value := true
-        | Opcode.Ic_ret ->
-            if not !has_value then
-              reject ?span:description.span "HCBACK0002"
-                "native source function has a reachable return without its own \
-                 word value"
-        | Opcode.Ic_jmp -> ()
-        | _ ->
-            (* Only empty blocks and unconditional transfers may carry RAX from
+let validate_callable_returns graph return_kind =
+  match return_kind with
+  | Callable_void_return -> ()
+  | Callable_word_return _ ->
+      let blocks =
+        List.fold_left
+          (fun index block -> Block_map.add (Graph.block_id block) block index)
+          Block_map.empty (Graph.blocks graph)
+      in
+      let pending = Queue.create () in
+      let visited = ref Block_map.empty in
+      let enqueue block_id has_value =
+        let bit = if has_value then 2 else 1 in
+        let previous =
+          Option.value (Block_map.find_opt block_id !visited) ~default:0
+        in
+        if previous land bit = 0 then (
+          visited := Block_map.add block_id (previous lor bit) !visited;
+          Queue.add (block_id, has_value) pending)
+      in
+      enqueue (Graph.block_id (Graph.entry graph)) false;
+      while not (Queue.is_empty pending) do
+        let block_id, incoming = Queue.take pending in
+        let block = Block_map.find block_id blocks in
+        let has_value = ref incoming in
+        List.iter
+          (fun instruction ->
+            let description = Sequence.description instruction in
+            match description.opcode with
+            | Opcode.Ic_return_val -> has_value := true
+            | Opcode.Ic_ret ->
+                if not !has_value then
+                  reject ?span:description.span "HCBACK0002"
+                    "native source function has a reachable return without its \
+                     own word value"
+            | Opcode.Ic_jmp -> ()
+            | _ ->
+                (* Only empty blocks and unconditional transfers may carry RAX from
                the checked source RETURN_VAL to its shared return block. Every
                other IR instruction requires a subsequent value return. *)
-            has_value := false)
-      (Graph.instructions block |> Sequence.instructions);
-    List.iter
-      (fun successor -> enqueue successor !has_value)
-      (Graph.successors block)
-  done
+                has_value := false)
+          (Graph.instructions block |> Sequence.instructions);
+        List.iter
+          (fun successor -> enqueue successor !has_value)
+          (Graph.successors block)
+      done
 
 let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
     ~runtime_owner ~owner ~frame_slots ~expected_return ~is_entry ~next_site
@@ -2445,10 +2581,11 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
   let home_slots = ref 0 in
   let stage_high_water = ref 0 in
   let ir_count = ref 0 in
-  let define_frame frame_values values description result term =
+  let define_frame frame_values values void_values description result term =
     if
       Value_map.mem result.Sequence.value_id !frame_values
       || Value_map.mem result.Sequence.value_id !values
+      || Value_set.mem result.Sequence.value_id !void_values
     then
       malformed description
         (Printf.sprintf "value %%%d is defined more than once"
@@ -2467,6 +2604,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
     let block_id = Graph.block_id block in
     let values = ref Value_map.empty in
     let frame_values = ref Value_map.empty in
+    let void_values = ref Value_set.empty in
     let arithmetic_sites = ref [] in
     let prepared_rev = ref [] in
     let calls = ref [] in
@@ -2491,6 +2629,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
             if
               Value_map.mem result.Sequence.value_id !values
               || Value_map.mem result.Sequence.value_id !frame_values
+              || Value_set.mem result.Sequence.value_id !void_values
             then
               malformed description
                 (Printf.sprintf "value %%%d is defined more than once"
@@ -2570,8 +2709,15 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                 malformed description
                   "direct call does not cover every fixed parameter";
               let stage_base = !stage_cursor in
-              let result_stage = stage_base + callee.parameter_count in
-              stage_cursor := result_stage + 1;
+              let result_stage =
+                match callee.return_kind with
+                | Callable_word_return _ ->
+                    Some (stage_base + callee.parameter_count)
+                | Callable_void_return -> None
+              in
+              stage_cursor :=
+                stage_base + callee.parameter_count
+                + if Option.is_some result_stage then 1 else 0;
               stage_high_water := max !stage_high_water !stage_cursor;
               home_slots := max !home_slots callee.parameter_count;
               let scope =
@@ -2658,7 +2804,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                     "call cleanup is outside a reached direct call")
           | Opcode.Ic_call_end -> (
               match !calls with
-              | scope :: remaining when scope.phase = Needs_end ->
+              | scope :: remaining when scope.phase = Needs_end -> (
                   if
                     description.flags <> 0L || description.operands <> []
                     || not
@@ -2683,15 +2829,39 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                         malformed description
                           "IC_CALL_END result is inconsistent"
                   in
-                  ignore
-                    (checked_word ~allow_public:true description target_type);
-                  let value =
-                    define values description position result target_type
-                      (Computation.declared target_type)
-                  in
                   calls := remaining;
                   stage_cursor := scope.stage_base;
-                  (Call_end (scope.result_stage, value), None)
+                  let callee = functions.(scope.callee_index) in
+                  match callee.return_kind with
+                  | Callable_word_return scalar ->
+                      let actual =
+                        checked_scalar ~allow_public:true description
+                          target_type
+                      in
+                      if
+                        actual.byte_size <> scalar.byte_size
+                        || actual.word_type <> scalar.word_type
+                      then
+                        malformed description
+                          "IC_CALL_END scalar return class is inconsistent";
+                      let value =
+                        define values description position result target_type
+                          (Computation.declared target_type)
+                      in
+                      let stage =
+                        match scope.result_stage with
+                        | Some stage -> stage
+                        | None ->
+                            malformed description
+                              "word-returning call has no result stage"
+                      in
+                      (Call_end (stage, value), None)
+                  | Callable_void_return ->
+                      if Option.is_some scope.result_stage then
+                        malformed description
+                          "U0 call unexpectedly has a result stage";
+                      void_values := Value_set.add result.value_id !void_values;
+                      (Call_end_void, None))
               | _ ->
                   malformed description
                     "IC_CALL_END is outside a completed call scope")
@@ -2706,8 +2876,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               match (description.result, description.target_type) with
               | Some result, Some target_type
                 when Type.pointer_depth target_type = 1 ->
-                  define_frame frame_values values description result
-                    (Frame_base target_type);
+                  define_frame frame_values values void_values description
+                    result (Frame_base target_type);
                   (Frame_tick, None)
               | _ -> malformed description "IC_RBP requires one pointer result")
           | Opcode.Ic_imm_i64
@@ -2725,7 +2895,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   let offset =
                     int_of_frame_displacement ?span:description.span offset
                   in
-                  define_frame frame_values values description result
+                  define_frame frame_values values void_values description
+                    result
                     (Frame_offset (target_type, offset));
                   (Frame_tick, None)
               | _ ->
@@ -2753,8 +2924,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       | Some slot -> (
                           match Type.pointer_to slot.slot_type with
                           | Ok expected when Type.equal expected target_type ->
-                              define_frame frame_values values description
-                                result (Frame_address slot);
+                              define_frame frame_values values void_values
+                                description result (Frame_address slot);
                               (Frame_tick, None)
                           | _ ->
                               malformed description
@@ -2779,7 +2950,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   | Frame_address slot
                     when Type.equal target_type slot.slot_type ->
                       ignore
-                        (checked_word ~allow_public:true description target_type);
+                        (checked_scalar ~allow_public:true description
+                           target_type);
                       let value =
                         define values description position result target_type
                           (Computation.forward target_type)
@@ -2805,7 +2977,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                         operand values description position input_id
                       in
                       ignore
-                        (checked_word ~allow_public:true description
+                        (checked_scalar ~allow_public:true description
                            input.declared_type);
                       let value =
                         define values description position result target_type
@@ -2853,7 +3025,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                               operand values description position input_id
                             in
                             ignore
-                              (checked_word ~allow_public:true description
+                              (checked_scalar ~allow_public:true description
                                  input.declared_type);
                             Some input
                         | false, [] -> None
@@ -2907,13 +3079,19 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   description.payload )
               with
               | [ operand_id ], None, None, None ->
-                  let input = operand values description position operand_id in
-                  let word =
-                    checked_word ~allow_public:true description
-                      input.declared_type
-                  in
-                  ( Discard_value (input, word),
-                    if is_entry then Some word else None )
+                  if Value_set.mem operand_id !void_values then
+                    (Discard_void, None)
+                  else
+                    let input =
+                      operand values description position operand_id
+                    in
+                    let word =
+                      (checked_scalar ~allow_public:true description
+                         input.declared_type)
+                        .word_type
+                    in
+                    ( Discard_value (input, word),
+                      if is_entry then Some word else None )
               | _ -> malformed description "invalid IC_END_EXP shape")
           | Opcode.Ic_jmp ->
               if
@@ -2932,7 +3110,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | [ operand_id ] ->
                   let input = operand values description position operand_id in
                   ignore
-                    (checked_word ~allow_public:true description
+                    (checked_scalar ~allow_public:true description
                        input.declared_type);
                   let target = checked_target graph description in
                   ( (if description.opcode = Opcode.Ic_br_zero then
@@ -2950,13 +3128,17 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                 (description.operands, description.target_type, expected_return)
               with
               | [ operand_id ], Some target_type, Some expected
-                when Type.equal target_type expected ->
+                when Type.equal target_type expected -> (
                   let input = operand values description position operand_id in
-                  ignore
-                    (checked_word ~allow_public:true description
-                       input.declared_type);
-                  ignore (checked_word ~allow_public:true description expected);
-                  (Return_value input, None)
+                  match source_return_kind ?span:description.span expected with
+                  | Callable_void_return ->
+                      unsupported description
+                        "U0 source functions cannot return a word value"
+                  | Callable_word_return _ ->
+                      ignore
+                        (checked_scalar ~allow_public:true description
+                           input.declared_type);
+                      (Return_value input, None))
               | _ ->
                   malformed description
                     "IC_RETURN_VAL disagrees with function return type")
@@ -2984,8 +3166,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                 malformed description
                   "native word producer has unsupported flags";
               match
-                prepare_word_operation ~allow_public:true ~values
-                  ~fault_sites:arithmetic_sites ~position ~site description
+                prepare_word_operation ~allow_public:true ~allow_narrow:true
+                  ~values ~fault_sites:arithmetic_sites ~position ~site
+                  description
               with
               | Some operation -> (operation, None)
               | None -> assert false)
@@ -3077,10 +3260,10 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                             malformed raw
                               "pushed argument source type is inconsistent");
                         ignore
-                          (checked_word ~allow_public:true raw
+                          (checked_scalar ~allow_public:true raw
                              (Runtime.argument_target_type argument));
                         ignore
-                          (checked_word ~allow_public:true raw
+                          (checked_scalar ~allow_public:true raw
                              value.declared_type);
                         scope.pushed.(index) <- true;
                         value.last_use <- max value.last_use position;
@@ -3194,7 +3377,13 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
         visit (visit_block block next :: reversed) remaining
   in
   let callable_blocks = visit [] blocks in
-  if not is_entry then validate_callable_returns graph;
+  (if not is_entry then
+     let return_kind =
+       match expected_return with
+       | Some type_ -> source_return_kind type_
+       | None -> reject "HCBACK0003" "native source function has no return type"
+     in
+     validate_callable_returns graph return_kind);
   {
     callable_blocks;
     callable_sites = List.rev !sites_rev;
