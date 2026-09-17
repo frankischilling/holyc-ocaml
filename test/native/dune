@@ -107,3 +107,27 @@
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/native-scalar-functions.hc}
    %{dep:../../examples/native-u0-functions.hc})))
+
+(executable
+ (name test_native_goto_execution)
+ (modules test_native_goto_execution)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_goto_execution.exe})))
+
+(executable
+ (name test_native_goto_cli)
+ (modules test_native_goto_cli)
+ (libraries holyc_lib native_scalar_support unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/integer-goto.hc)
+ (action
+  (run
+   %{exe:test_native_goto_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/integer-goto.hc})))

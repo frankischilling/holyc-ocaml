@@ -80,6 +80,13 @@ fallthrough, early return and recursion; its last procedure call finishes withou
 a numeric final value. [Native scalar functions](docs/native-scalars.md) explains
 the distinction between stored bytes, returned bits and no-value completion.
 
+`holyc run --target=host-jit examples/integer-goto.hc` and the ordinary `ir`
+target return I64 42 through function-local forward/backward gotos and labels.
+They share the existing checked label identities and structured block builder,
+including jumps in `for` updates, recursive frames, narrow defaults and U0
+procedures. [Goto execution](docs/integer-goto.md) describes source ownership,
+skipped-initialization faults and the remaining switch/assembly/exception limits.
+
 `holyc run --format=json examples/integer-narrow.hc` executes I8/I16/U16/I32/U32
 storage and signatures, captures `42`, and returns I64 42 in both modes.
 [Narrow integers](docs/integer-narrow.md) covers signed storage, full register

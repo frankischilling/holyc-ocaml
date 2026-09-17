@@ -1,5 +1,9 @@
 # Integer programs in the IR interpreter
 
+[Function-local goto and labels](integer-goto.md) now compose with the shared
+structured block lowerer. Original source occurrences retain their exact owner
+and target; forward/backward jumps execute through both supported targets.
+
 [Persistent scalar U8 globals and statics](integer-persistent-bytes.md) now
 share the checked byte storage path. Initial images and reached stores narrow
 independently from expression results, with exact source owners and bounds.
@@ -65,7 +69,8 @@ opam exec -- dune exec bin/holyc.exe -- dump-ir --program examples/integer-contr
 
 The accepted statements are ordinary integer expressions, empty statements,
 blocks, comma statement sequences, `if`/`else`, `while`, `do`/`while`, `for`,
-and `break`, plus scalar function-local declarations and returns. Functions use
+and `break`, plus scalar function-local declarations, returns, language labels
+and direct `goto` statements. Functions use
 checked scalar integer parameters, the automatic storage described above and direct
 call expressions. See
 [integer source functions](integer-functions.md) for the original Add fixture,
@@ -114,6 +119,10 @@ or unconsumed roots. Generated expansion frames keep their distinct source IDs.
 explicit branch destinations and physical fallthrough blocks. Expression values
 never cross a block boundary. Graph construction and x87 verification precede
 whole-graph integer VM preflight.
+Function-local label blocks are reserved before generated control blocks, using
+the existing checked label fragment mapping. Labels are structural boundaries;
+gotos emit `IC_JMP`. Original AST identity keeps source-order label assignment
+separate from the execution order of `for` updates.
 
 The lowerer retains unreachable supported instructions. An unsupported opcode,
 type or flag in a skipped branch therefore fails preflight. A supported division
@@ -149,8 +158,11 @@ array in its report; legacy run and IR dumping use stderr.
 Lowering can produce a graph containing a VM-unsupported type or opcode;
 execution performs the VM-domain preflight before running any instruction.
 
-`HCRUN0001` rejects unsupported declarations, top-level returns, labels,
-`goto`, switches, exceptions and locks, even inside unreachable source.
+Unsupported declarations, top-level returns and language labels/gotos, switches,
+exceptions and locks reject before execution, even inside unreachable source.
+Function-local missing/duplicate targets and inconsistent occurrence ownership
+retain source diagnostics; supported local labels and gotos use the shared path
+described above.
 `HCRUN0002` reports a break without an enclosing loop target. `HCRUN0003`
 rejects unsupported expressions, including chains inside conditions.
 Ordinary integer value chains such as `1<2==2` share their middle operands

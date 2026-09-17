@@ -243,6 +243,8 @@
   test_ir_condition_lowering
   test_ir_return_lowering
   test_ir_goto_label_lowering
+  test_ir_goto_execution
+  test_integer_goto_execution
   test_ir_break_lowering
   test_ir_frame_address_lowering
   test_ir_direct_call_lowering

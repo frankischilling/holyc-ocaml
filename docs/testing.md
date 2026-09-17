@@ -1,5 +1,22 @@
 # Testing holyc-ocaml
 
+Goto execution tests connect original function-local label resolution to public
+interpreter, native API and CLI runs in both preprocessing modes. They cover
+forward/backward jumps, equal names in separate functions, consecutive/trailing
+labels, labels after terminators, for-update source identity, nested structured
+control flow, direct entry into conditional and loop bodies, recursive frames,
+defaults and U0 completion. Negative controls retain exact original source IDs
+and statement spans for missing/duplicate/cross-function/top-level errors,
+including an invalid included source. They also cover unreachable validation,
+skipped-initialization faults and parser-valid assembly/switch/protected regions
+rejected by the execution gate. A goto to a word-returning function's trailing
+label preserves the interpreter's reached fault and native pre-entry rejection;
+returning-word and U0 fallthrough controls remain executable.
+The source fixture is `examples/integer-goto.hc`. Native exact-meter comparisons
+reuse the checked isolated-unit helper, while public source execution supplies
+the independent semantic result. Low-level composition tests reject foreign,
+duplicated and missing occurrence evidence before any execution.
+
 Native scalar tests add independent width/extension encoder bytes and source
 cases for all eight integer parameter/local/return types. They distinguish full
 assignment/compound/return registers from normalized storage and prefix/postfix

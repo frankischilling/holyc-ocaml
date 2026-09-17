@@ -47,3 +47,5 @@ val function_outputs : prepared -> Sema.Implicit_output_argument_binding.t
 
 val top_level_outputs :
   prepared -> Sema.Top_level_implicit_output_argument_binding.t
+
+val labels : prepared -> Label_resolution.indexed

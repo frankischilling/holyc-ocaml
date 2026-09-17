@@ -1,5 +1,16 @@
 # Reference source map
 
+Issue #664 connects function-local goto and label fragments to executable source
+graphs. `PrsStmt.HC:1121-1131,1182-1199` supplies direct transfers, label
+definitions, duplicate checks and the no-global-label boundary;
+`PrsLib.HC:152-162` supplies code-control namespace lookup and `79-97` instruction
+source metadata. `PrsStmt.HC:459-565` keeps `for` execution order distinct from
+the parser's source order. Existing semantic resolution and fragment lowering
+retain target identity; the composed graph uses structural label blocks and
+metered `IC_JMP`, without adding an executable `IC_LABEL`. Original AST/owner
+checks, initialized-object faults and quotas remain explicit hosted policies.
+See [goto execution](integer-goto.md) for the connected gate and exclusions.
+
 Issue #663 connects scalar storage widths and U0 completion to native calls.
 `BackLib.HC:281-309,509-534,550-572` supplies the narrow storage movements;
 `OptPass789A.HC:710-717,779-782,1026-1030` distinguishes update/return register

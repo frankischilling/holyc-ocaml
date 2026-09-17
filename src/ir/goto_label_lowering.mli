@@ -17,5 +17,12 @@ val label_blocks : t -> label_block list
 val next_instruction_id : t -> Instruction_sequence.Instruction_id.t
 val next_block_id : t -> Instruction_sequence.Block_id.t
 
+val description_for_occurrence :
+  t ->
+  Sema.Label_resolution.resolved_occurrence ->
+  Instruction_sequence.description option
+(** Recover the fragment instruction belonging to this exact resolved occurrence
+    object. Foreign or reconstructed occurrences are not accepted. *)
+
 val human : t -> string
 (** Render the versioned deterministic goto and label lowering form. *)

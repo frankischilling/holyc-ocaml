@@ -1,12 +1,15 @@
 module Sequence = Instruction_sequence
 module Labels = Sema.Label_resolution
 module Symbol = Sema.Symbol
+module Int_map = Map.Make (Int)
 
 type label_block = Symbol.t * Sequence.Block_id.t
 
 type t = {
   sequence_ : Sequence.t;
   label_blocks_ : label_block list;
+  occurrence_descriptions_ :
+    (Labels.resolved_occurrence * Sequence.description) Int_map.t;
   next_instruction_id_ : Sequence.Instruction_id.t;
   next_block_id_ : Sequence.Block_id.t;
 }
@@ -144,31 +147,47 @@ let lower_occurrence index instruction_id occurrence =
                   Ok (description, next))))
 
 let lower_occurrences index start occurrences =
-  let rec loop current reversed = function
-    | [] -> Ok (List.rev reversed, current)
+  let rec loop current reversed bindings = function
+    | [] -> Ok (List.rev reversed, bindings, current)
     | occurrence :: rest -> (
         match lower_occurrence index current occurrence with
         | Error _ as error -> error
         | Ok (description, next) ->
-            let reversed = description :: reversed in
-            loop next reversed rest)
+            let occurrence_index = Labels.occurrence_index occurrence in
+            if Int_map.mem occurrence_index bindings then
+              Error
+                (metadata_error
+                   "resolved label occurrence identity appears more than once")
+            else
+              let reversed = description :: reversed in
+              let bindings =
+                Int_map.add occurrence_index (occurrence, description) bindings
+              in
+              loop next reversed bindings rest)
   in
-  loop start [] occurrences
+  loop start [] Int_map.empty occurrences
 
-let make_lowered sequence_ label_blocks_ next_instruction_id_ next_block_id_ =
-  { sequence_; label_blocks_; next_instruction_id_; next_block_id_ }
+let make_lowered sequence_ label_blocks_ occurrence_descriptions_
+    next_instruction_id_ next_block_id_ =
+  {
+    sequence_;
+    label_blocks_;
+    occurrence_descriptions_;
+    next_instruction_id_;
+    next_block_id_;
+  }
 
 let finish_lowering label_blocks_ next_block_id_ instruction_id occurrences =
   let index = block_index label_blocks_ in
   match lower_occurrences index instruction_id occurrences with
   | Error item -> Error [ item ]
-  | Ok (items, next_instruction_id_) -> (
+  | Ok (items, occurrence_descriptions_, next_instruction_id_) -> (
       match Sequence.create items with
       | Error errors -> Error errors
       | Ok sequence_ ->
           let lowered =
-            make_lowered sequence_ label_blocks_ next_instruction_id_
-              next_block_id_
+            make_lowered sequence_ label_blocks_ occurrence_descriptions_
+              next_instruction_id_ next_block_id_
           in
           Ok lowered)
 
@@ -184,6 +203,12 @@ let sequence lowered = lowered.sequence_
 let label_blocks lowered = lowered.label_blocks_
 let next_instruction_id lowered = lowered.next_instruction_id_
 let next_block_id lowered = lowered.next_block_id_
+
+let description_for_occurrence lowered occurrence =
+  let occurrence_index = Labels.occurrence_index occurrence in
+  match Int_map.find_opt occurrence_index lowered.occurrence_descriptions_ with
+  | Some (source, description) when source == occurrence -> Some description
+  | Some _ | None -> None
 
 let label_block_name (symbol, block) =
   Printf.sprintf "@s%d:%S=^b%d" (symbol_number symbol) (Symbol.name symbol)
