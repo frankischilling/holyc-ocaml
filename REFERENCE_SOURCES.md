@@ -27,6 +27,16 @@ A reference update requires a dedicated issue, an impact report, corpus and comp
 
 ## Current audit
 
+Issue #660 connects `Compiler/PrsVar.HC:629-657` declaration-time default
+preparation and `Compiler/PrsExp.HC:455-468` saved-value substitution to native
+scalar functions. The bounded hosted path prepares original closed I64/U64
+expressions at header callbacks in their actual JIT/AOT mode, including unused
+defaults. Exact completed source and preparation evidence survives into each
+native argument producer. Preparation work and saved payload quotas are hosted
+policies. Effectful/interleaved defaults, owned strings, `lastclass`, broader
+types and optimizer parity remain outside this increment. No reference pin,
+generated table or TempleOS oracle capture changed.
+
 Issue #659 reuses the existing checked source function, frame and call records
 for generated fixed I64/U64 calls and automatic scalar storage.
 `Compiler/PrsStmt.HC:114-170` supplies parameter offsets and function boundaries;
@@ -35,8 +45,8 @@ cleanup/end metadata. The encoder consumes the existing `OpCodes.DD` PUSH/POP,
 MOV, CALL and RET forms. RBP-relative slots remain tied to the original checked
 frame. Fixed RSP, private outgoing/staging areas, per-IR metering, initialization
 flags and depth/frame/physical-stack fault transport are bounded hosted policies.
-They do not establish the full TempleOS ABI, uninitialized-read behavior or
-declaration-time default execution. The reference pin and generated tables are
+They do not establish the full TempleOS ABI or uninitialized-read behavior;
+#660 separately connects bounded declaration-time defaults. The reference pin and generated tables are
 unchanged.
 
 Issue #657 consumes the existing closed source/control graph through the shared

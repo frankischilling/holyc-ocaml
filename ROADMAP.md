@@ -22,18 +22,22 @@ guarded signed and unsigned division/remainder plus a private checked arithmetic
 fault channel across the Windows/System V host boundary.
 Issue #657 extends the shared backend to closed source programs with structured
 branches and loops, a generated per-IR step budget, exact fault sites and one
-bounded spill frame. The public `run --target=host-jit` path uses a compile-only
-source pipeline and retains native progress without an interpreter fallback.
+bounded spill frame. The public `run --target=host-jit` path compiles the entry
+and retains native progress without interpreting ordinary source commands.
 Issue #659 connects source-defined fixed I64/U64 functions, automatic scalar
 storage and direct generated calls. It preserves checked body/frame/call identity,
 caller live values, nested argument staging and per-activation initialization.
 Generated checks bound simultaneous semantic frames, named-call depth and
 physical native stack bytes; checked faults unwind the complete call chain.
-Issue #660 tracks preparing original declaration-time defaults before native
-compilation and reusing their saved values at calls. The current native gate
-rejects all defaults, including unused headers, rather than
-silently skipping their effects. Broader scalar storage and full-ABI work must
-continue through the same checked source/function/frame path.
+Issue #660 connects bounded, source-owned scalar I64/U64 defaults. Every admitted
+default prepares at its original header callback, including unused functions
+and functions called with explicit arguments. Calls reuse saved values; exact
+header/preparation/call evidence controls native admission. Preparation work and
+saved payload bytes have explicit limits and survive later failures in reports.
+Default-bearing definitions must precede executable top-level statements.
+Effectful defaults, interleaved declaration execution, owned strings, `lastclass`
+and broader default types remain separate work, alongside storage and full-ABI
+requirements. See [native defaults](docs/native-defaults.md).
 The complete HolyC ABI, narrow and pointer memory operations, F64/x87 and
 conversions, runtime output, and general declaration/`#exe` native integration
 remain open. Optimizer parity, assembler and object/BIN output, actual TempleOS

@@ -6,7 +6,10 @@ module Primitive = Sema.Primitive_type
 module Computation = Sema.Integer_computation_class
 module Encoder = X86_64_encoder
 module Runtime = Ir.Runtime_call_context
+module Defaults = Driver.Native_parameter_defaults
+module Prepared_default = Ir.Prepared_parameter_default
 module Function = Ir.Function_body
+module Headers = Sema.Function_type_resolution
 module Frame = Sema.Function_frame_layout
 module Symbol = Sema.Symbol
 module Value_map = Map.Make (Sequence.Value_id)
@@ -2336,7 +2339,7 @@ let prepare_callable_function ~max_stack_bytes
     init_flag_offsets = List.rev !init_flag_offsets_rev;
   }
 
-let validate_callable_parameter_defaults functions =
+let validate_callable_parameter_defaults ~parameter_defaults functions =
   let header_has_default header =
     header |> Sema.Function_type_resolution.function_signature
     |> Sema.Function_type_resolution.signature_parameters
@@ -2363,7 +2366,9 @@ let validate_callable_parameter_defaults functions =
         declaration |> Sema.Function_resolution.resolved_declaration_site
         |> Sema.Function_resolution.declaration_site_function
       in
-      if header_has_default selected_header || header_has_default source_header
+      if
+        (header_has_default selected_header || header_has_default source_header)
+        && Option.is_none parameter_defaults
       then
         reject ?span "HCBACK0002"
           "native source functions do not admit parameter defaults")
@@ -2431,8 +2436,9 @@ let validate_callable_returns graph =
       (Graph.successors block)
   done
 
-let preflight_callable_graph ~runtime_calls ~functions ~runtime_owner ~owner
-    ~frame_slots ~expected_return ~is_entry ~next_site graph =
+let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
+    ~runtime_owner ~owner ~frame_slots ~expected_return ~is_entry ~next_site
+    graph =
   let blocks = Graph.blocks graph in
   let instruction_ids = ref Instruction_set.empty in
   let sites_rev = ref [] in
@@ -3015,19 +3021,53 @@ let preflight_callable_graph ~runtime_calls ~functions ~runtime_owner ~owner
                   when Sequence.Value_id.equal
                          (Runtime.argument_value argument)
                          result.value_id -> (
-                    let producer_id = Runtime.argument_producer argument in
-                    if
-                      Runtime.is_prepared_default runtime_calls
-                        ~owner:runtime_owner producer_id
-                    then
-                      unsupported raw
-                        "native callable programs do not admit prepared \
-                         parameter defaults";
                     match Runtime.argument_role argument with
                     | Runtime.Fixed index
                       when index >= 0
                            && index < Array.length scope.pushed
                            && not scope.pushed.(index) ->
+                        (match Runtime.argument_prepared_default argument with
+                        | None -> ()
+                        | Some prepared -> (
+                            match parameter_defaults with
+                            | None ->
+                                unsupported raw
+                                  "native callable programs do not admit \
+                                   prepared parameter defaults"
+                            | Some proof ->
+                                let header = Runtime.header scope.call in
+                                let parameter =
+                                  header |> Headers.function_signature
+                                  |> Headers.signature_parameters
+                                  |> fun parameters ->
+                                  List.nth_opt parameters index
+                                in
+                                (match parameter with
+                                | Some parameter
+                                  when Defaults.admits proof ~prepared ~header
+                                         ~parameter -> ()
+                                | _ ->
+                                    malformed raw
+                                      "prepared parameter default is outside \
+                                       its sealed native source authority");
+                                if
+                                  raw.opcode <> Opcode.Ic_imm_i64
+                                  || raw.operands <> [] || raw.flags <> 0x2000L
+                                  || raw.payload
+                                     <> Some
+                                          (Sequence.Integer
+                                             (Prepared_default.bits prepared))
+                                  || not
+                                       (Option.fold ~none:false
+                                          ~some:
+                                            (Type.equal
+                                               (Prepared_default.type_ prepared))
+                                          raw.target_type)
+                                then
+                                  malformed raw
+                                    "prepared parameter default producer \
+                                     differs from its sealed declaration-time \
+                                     value"));
                         (match raw.target_type with
                         | Some type_
                           when Type.equal
@@ -3457,8 +3497,8 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
               with Rejected error -> Error [ error ])))
 
 let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
-    ?(max_blocks = 4096) ~max_ir_instructions ~max_code_bytes ~runtime_calls
-    ~initialization ~entry ~functions () =
+    ?(max_blocks = 4096) ?parameter_defaults ~max_ir_instructions
+    ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions () =
   let globals = Ir.Global_initialization.globals initialization in
   if
     Ir.Integer_globals.byte_size globals <> 0
@@ -3483,8 +3523,24 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
       Runtime.matches runtime_calls ~entry ~initialization:(Some initialization)
         ~functions:[]
     then
-      compile_program ?status_abi ~max_stack_bytes ~max_blocks
-        ~max_ir_instructions ~max_code_bytes entry
+      match parameter_defaults with
+      | Some proof
+        when not
+               (Defaults.matches proof ~globals ~runtime_calls ~initialization
+                  ~entry ~functions:[]) ->
+          Error
+            [
+              {
+                code = "HCBACK0003";
+                message =
+                  "native parameter-default authority belongs to another \
+                   callable bundle";
+                span = None;
+              };
+            ]
+      | None | Some _ ->
+          compile_program ?status_abi ~max_stack_bytes ~max_blocks
+            ~max_ir_instructions ~max_code_bytes entry
     else
       Error
         [
@@ -3523,6 +3579,17 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                     reject "HCBACK0003"
                       "native callable bundle disagrees with its sealed \
                        runtime-call context";
+                  Option.iter
+                    (fun proof ->
+                      if
+                        not
+                          (Defaults.matches proof ~globals ~runtime_calls
+                             ~initialization ~entry ~functions)
+                      then
+                        reject "HCBACK0003"
+                          "native parameter-default authority belongs to \
+                           another callable bundle")
+                    parameter_defaults;
                   let entry_graph = Ir.X87_stack.graph entry in
                   let function_graphs =
                     List.map
@@ -3546,7 +3613,7 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                   in
                   let next_site = ref 0 in
                   let entry_prepared =
-                    preflight_callable_graph ~runtime_calls
+                    preflight_callable_graph ~runtime_calls ~parameter_defaults
                       ~functions:function_infos ~runtime_owner:Runtime.Entry
                       ~owner:Entry_owner ~frame_slots:Int_map.empty
                       ~expected_return:None ~is_entry:true ~next_site
@@ -3557,7 +3624,7 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                       (fun info ->
                         let body = info.definition.body in
                         preflight_callable_graph ~runtime_calls
-                          ~functions:function_infos
+                          ~parameter_defaults ~functions:function_infos
                           ~runtime_owner:(Runtime.Function body)
                           ~owner:info.owner ~frame_slots:info.frame_slots
                           ~expected_return:(Some (Function.return_type body))
@@ -3565,7 +3632,8 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                           (Ir.X87_stack.graph (Function.x87 body)))
                       function_infos
                   in
-                  validate_callable_parameter_defaults function_infos;
+                  validate_callable_parameter_defaults ~parameter_defaults
+                    function_infos;
                   let preflight_ir_count =
                     entry_prepared.callable_ir_count
                     + Array.fold_left

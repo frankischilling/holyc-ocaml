@@ -48,7 +48,7 @@ type owner = Entry | Function of Function_body.t
 type argument_role = Fixed of int | Variadic_count | Variadic of int
 
 type argument = {
-  prepared_default : bool;
+  prepared_default : Prepared_parameter_default.t option;
   role : argument_role;
   producer : Seq.Instruction_id.t;
   value : Seq.Value_id.t;
@@ -108,6 +108,7 @@ let argument_producer argument = argument.producer
 let argument_value argument = argument.value
 let argument_source_type argument = argument.source_type
 let argument_target_type argument = argument.target_type
+let argument_prepared_default argument = argument.prepared_default
 let variadic_count call = call.variadic_count_
 let declaration call = call.declaration_
 let header call = call.header_
@@ -187,7 +188,7 @@ let is_prepared_default context ~owner id =
         (fun _ call ->
           List.exists
             (fun argument ->
-              argument.prepared_default
+              Option.is_some argument.prepared_default
               && Seq.Instruction_id.equal argument.producer id)
             call.arguments_)
         graph.calls)
@@ -672,7 +673,7 @@ let approved_provider shape =
   | _ -> None
 
 type expected_argument = {
-  expected_default : bool;
+  expected_default : Prepared_parameter_default.t option;
   expected_role : argument_role;
   expected_source : Type.t;
   expected_target : Type.t;
@@ -803,7 +804,7 @@ let expected_arguments ~globals shape =
       expected_target = Option.value target ~default:source;
       expected_origin = producer_origin value;
       expected_count = None;
-      expected_default = false;
+      expected_default = None;
     }
   in
   let fixed =
@@ -819,7 +820,7 @@ let expected_arguments ~globals shape =
               expected_target = parameter_type parameter;
               expected_origin = span;
               expected_count = Some (Prepared_parameter_default.bits prepared);
-              expected_default = true;
+              expected_default = Some prepared;
             })
       shape.fixed
   in
@@ -837,7 +838,7 @@ let expected_arguments ~globals shape =
             expected_target = type_;
             expected_origin = span;
             expected_count = Some (Int64.of_int (List.length shape.variadic));
-            expected_default = false;
+            expected_default = None;
           };
         ]
   in

@@ -68,6 +68,7 @@ val compile_callable :
   ?status_abi:status_abi ->
   ?max_stack_bytes:int ->
   ?max_blocks:int ->
+  ?parameter_defaults:Driver.Native_parameter_defaults.t ->
   max_ir_instructions:int ->
   max_code_bytes:int ->
   runtime_calls:Ir.Runtime_call_context.t ->
@@ -82,7 +83,8 @@ val compile_callable :
     sealed runtime-call metadata and preserve the shared native status context.
     The exact initialization context must be supplied even when empty; storage,
     initialization regions, publications and preparation work are not admitted.
-*)
+    Declaration-time parameter defaults require [parameter_defaults] from the
+    exact source preparation; omitting it preserves the low-level rejection. *)
 
 val code : t -> string
 val windows_unwind_info : t -> string

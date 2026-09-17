@@ -178,28 +178,44 @@ let is_offset_fragment globals = globals.fragment_kind_ = Some Offset_context
 let is_initializer_fragment globals =
   globals.fragment_kind_ = Some Initializer_context
 
+let isolated_default_context mode =
+  Ok
+    {
+      source_defaults = [];
+      fragment_kind_ = Some Default_context;
+      declared_slots_ = [];
+      slots_ = [];
+      symbols = Symbols.empty;
+      statics_ = [];
+      mode;
+      global_byte_size_ = 0;
+      global_cell_count_ = 0;
+      byte_size_ = 0;
+      task_view = None;
+      function_publications_ = [];
+    }
+
 let source_default_context fragment =
   if
     Sema.Outer_environment.compilation_mode
       (Sema.Default_fragment.environment fragment)
     <> Sema.Outer_environment.Aot
   then Error "source default context requires its original AOT environment"
+  else isolated_default_context Resolution.Aot
+
+let native_source_default_context fragment =
+  if Sema.Default_fragment.references fragment <> [] then
+    Error "native source default context requires a closed original expression"
   else
-    Ok
-      {
-        source_defaults = [];
-        fragment_kind_ = Some Default_context;
-        declared_slots_ = [];
-        slots_ = [];
-        symbols = Symbols.empty;
-        statics_ = [];
-        mode = Resolution.Aot;
-        global_byte_size_ = 0;
-        global_cell_count_ = 0;
-        byte_size_ = 0;
-        task_view = None;
-        function_publications_ = [];
-      }
+    let mode =
+      match
+        Sema.Outer_environment.compilation_mode
+          (Sema.Default_fragment.environment fragment)
+      with
+      | Sema.Outer_environment.Jit -> Resolution.Jit
+      | Sema.Outer_environment.Aot -> Resolution.Aot
+    in
+    isolated_default_context mode
 
 let with_source_defaults globals defaults =
   if
@@ -207,6 +223,32 @@ let with_source_defaults globals defaults =
     || Option.is_some globals.task_view
     || globals.source_defaults <> []
   then Error "source defaults require their isolated AOT output context"
+  else Ok { globals with source_defaults = defaults }
+
+let with_native_source_defaults globals defaults =
+  if
+    Option.is_some globals.task_view
+    || globals.source_defaults <> []
+    || Option.is_some globals.fragment_kind_
+    || globals.byte_size_ <> 0 || globals.slots_ <> [] || globals.statics_ <> []
+    || globals.declared_slots_ <> []
+  then
+    Error "native source defaults require their isolated empty storage context"
+  else if
+    List.exists
+      (fun value ->
+        let receipt = Prepared_parameter_default.receipt value in
+        match
+          ( globals.mode,
+            Frontend.Parser.context_mode
+              receipt.default_function.function_header.declaration_command
+                .command_context )
+        with
+        | Resolution.Jit, Frontend.Preprocessor.Jit
+        | Resolution.Aot, Frontend.Preprocessor.Aot -> false
+        | _ -> true)
+      defaults
+  then Error "native source defaults have another original compilation mode"
   else Ok { globals with source_defaults = defaults }
 
 let is_default_fragment globals = globals.fragment_kind_ = Some Default_context

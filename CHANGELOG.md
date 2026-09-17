@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added bounded declaration-time I64/U64 defaults to native source functions.
+  Original header callbacks prepare every admitted default once, including
+  unused and explicitly supplied parameters. Native calls reuse saved values
+  under an exact source/preparation/call certificate. Reports retain preparation
+  work and saved payload bytes independently of native execution, with positive
+  work/storage limits and explicit rejection of unsupported expressions and
+  interleaved declaration execution.
+
 - Added native fixed direct I64/U64 source functions and scalar automatic locals
   through `run --target=host-jit`. Generated calls preserve caller values and
   pending arguments; recursive activations retain separate storage and checked
@@ -9,8 +17,8 @@
   frame, depth and physical-stack limits unwind through every generated frame.
   Windows registers a checked function table for entry and each callee. Native
   reports add function ownership to faults and expose physical-stack limits and
-  image metrics. Source defaults, broader storage and the complete HolyC ABI
-  remain explicit later gates.
+  image metrics. Broader storage and the complete HolyC ABI remain later gates;
+  bounded scalar defaults extend this path separately.
 
 - Added closed native integer programs through `run --target=host-jit`.
   Structured branches and loops execute through the shared word encoder and

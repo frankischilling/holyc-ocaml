@@ -61,13 +61,20 @@ checkout credentials. See [native expressions](docs/native-expressions.md).
 
 `holyc run --target=host-jit` and `Native_program.evaluate` additionally execute
 structured control flow and fixed direct I64/U64 functions with scalar automatic
-storage. Their source gate rejects globals/statics, defaults, prototypes/externs,
+storage. Their source gate rejects globals/statics, prototypes/externs,
 pointer or indirect calls, non-word signatures, explicit register/function flags,
-implicit output and unsupported statements before preparation; parsing supplies
-no command or stream executor. The compiled unit must have no initialization or
-preparation work. Every block and unused function body passes checked
+implicit output and unsupported statements; parsing supplies no command or
+stream executor. Bounded scalar defaults prepare through their original source
+callbacks before entry compilation. Only checked constant preparation is admitted;
+calls, storage, strings, `lastclass` and interleaving after executable top-level
+statements reject explicitly. Preparation has a positive work quota and a
+separate saved-payload byte quota. Reached work and completed payload bytes remain
+visible after failure. The compiled entry must still have no global/static
+initialization or storage-preparation work. Every block and unused function body passes checked
 word/storage/call preflight, including exact body/frame and call ownership,
-before executable allocation.
+before executable allocation. Defaults additionally require their exact source
+header, parameter, completed preparation and argument producer; an arbitrary
+literal or a zero-byte global layout cannot establish that authority.
 
 Generated code checks and consumes a positive budget before each reached IR
 instruction. R10 owns the remaining count and R11 a fresh private context;

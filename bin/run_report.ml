@@ -197,6 +197,7 @@ type native_limits = {
   stack_bytes : int;
   blocks : int;
   active_stack_bytes : int;
+  default_bytes : int;
 }
 
 let native_decimal (word : Holyc_lib.X86_64_program.word) =
@@ -226,6 +227,12 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
   in
   let executed_steps =
     Option.bind report Holyc_lib.Native_program.executed_steps
+  in
+  let preparation_steps =
+    Option.fold ~none:0 ~some:Holyc_lib.Native_program.preparation_steps report
+  in
+  let default_bytes =
+    Option.fold ~none:0 ~some:Holyc_lib.Native_program.default_bytes report
   in
   let final_value =
     Option.bind result (fun (value : Holyc_lib.Native_program.result) ->
@@ -259,7 +266,8 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
        ];
      Printf.printf "steps=%s\n"
        (Option.fold ~none:"unknown" ~some:string_of_int executed_steps);
-     print_endline "compiled-initializer-steps=0";
+     Printf.printf "compiled-initializer-steps=%d\n" preparation_steps;
+     Printf.printf "prepared-default-bytes=%d\n" default_bytes;
      print_endline "dimension-preparation-work=0";
      Printf.printf "termination=%s\n"
        (if Option.is_some result then "stream-end" else "none");
@@ -278,10 +286,11 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
         native-code-byte-limit=%d\n\
         native-stack-byte-limit=%d\n\
         native-block-limit=%d\n\
-        native-active-stack-byte-limit=%d\n"
+        native-active-stack-byte-limit=%d\n\
+        native-default-byte-limit=%d\n"
        native_limits.ir_instructions native_limits.code_bytes
        native_limits.stack_bytes native_limits.blocks
-       native_limits.active_stack_bytes;
+       native_limits.active_stack_bytes native_limits.default_bytes;
      Option.iter
        (fun image ->
          Printf.printf
@@ -373,7 +382,8 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
          ("initializer_step_limit", `Int limits.initializer_steps);
          ("dimension_work_limit", `Int limits.dimension_work);
          ("dimension_preparation_work", `Int 0);
-         ("compiled_initializer_steps", `Int 0);
+         ("compiled_initializer_steps", `Int preparation_steps);
+         ("prepared_default_bytes", `Int default_bytes);
          ("output_byte_limit", `Int limits.output_bytes);
          ("output_work_limit", `Int limits.output_work);
          ("output_byte_length", `Int 0);
@@ -406,6 +416,7 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
                      ("blocks", `Int native_limits.blocks);
                      ( "active_stack_bytes",
                        `Int native_limits.active_stack_bytes );
+                     ("default_bytes", `Int native_limits.default_bytes);
                    ] );
                ("image", image);
              ] );

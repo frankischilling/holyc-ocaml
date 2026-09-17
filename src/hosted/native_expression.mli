@@ -1,3 +1,5 @@
+open Driver
+
 type result = private {
   image : Backend.X86_64_expression.t;
   bits : int64;

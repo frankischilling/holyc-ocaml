@@ -9,6 +9,10 @@ module VM = Ir_integer_interpreter
 module Opcode = Ir_opcode
 module Type = Semantic_type
 module Runtime = Ir_runtime_call_context
+module Native_defaults = Native_parameter_defaults
+module Function_body = Ir_function_body
+module Function_resolution = Semantic_function_resolution
+module Headers = Semantic_function_type_resolution
 
 let require_ok show = function
   | Ok value -> value
@@ -677,7 +681,7 @@ let source_gate_is_compile_only () =
           "I64 F(I64 *p){return *p;} 42;";
           "I64 F(I64 n,...){return n;} F(42);";
           "extern I64 F(I64 n); 42;";
-          "I64 F(I64 n=42){return n;} F(1);";
+          "I64 F(I64 n=1<<3){return n;} F(1);";
           "I64 Missing(I64 n){if(n)return 42;} Missing(1);";
           "I64 Missing(){42;} 0;";
           "I64 Apply(I64 (*fp)(I64),I64 n){return fp(n);}\n\
@@ -685,14 +689,20 @@ let source_gate_is_compile_only () =
           "\"output\";";
           "#exe {1/0;}\n42;";
         ];
-      match source_program_compile ~mode "I64 F(I64 n=42){return n;} F(1);" with
-      | Ok _ -> Alcotest.fail "native source gate admitted a saved default"
-      | Error [] ->
-          Alcotest.fail "saved-default rejection returned no diagnostic"
-      | Error (first :: _) ->
-          Alcotest.(check string)
-            "saved defaults reject at the native source gate" "HCRUN0001"
-            first.code)
+      List.iter
+        (fun call ->
+          match
+            source_program_compile ~mode ("I64 F(I64 n=42){return n;} " ^ call)
+          with
+          | Ok _ -> ()
+          | Error diagnostics ->
+              Alcotest.failf
+                "original scalar default failed source compilation: %s"
+                (String.concat "; "
+                   (List.map
+                      (fun (d : Diagnostic.t) -> d.code ^ ": " ^ d.message)
+                      diagnostics)))
+        [ "F();"; "F(1);"; "42;" ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let callable_ownership_joins_are_exact () =
@@ -844,6 +854,22 @@ let callable_prepared_defaults_are_rejected_at_argument_producer () =
     "omitted argument producer retains prepared-default metadata" true
     (Runtime.is_prepared_default default_calls ~owner:Runtime.Entry
        (Runtime.argument_producer default_argument));
+  let default_initialization = integer_program_initialization defaulted in
+  let default_globals =
+    Ir_global_initialization.globals default_initialization
+  in
+  let default_prepared =
+    Runtime.argument_prepared_default default_argument |> Option.get
+  in
+  Alcotest.(check bool)
+    "a prepared value alone cannot mint native default authority" true
+    (Native_defaults.create ~globals:default_globals
+       ~runtime_calls:(integer_program_runtime_calls defaulted)
+       ~initialization:default_initialization
+       ~entry:(integer_program_entry defaulted)
+       ~functions:(integer_program_functions defaulted)
+       ~prepared:[ default_prepared ] ~completions:[]
+    |> Result.is_error);
   (match compile_callable defaulted with
   | Ok _ -> Alcotest.fail "prepared default argument unexpectedly compiled"
   | Error [] -> Alcotest.fail "prepared default rejection returned no error"

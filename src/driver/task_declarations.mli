@@ -246,6 +246,23 @@ val finish_source_default :
   Ir.Default_fragment_program.execution ->
   (unit, Common.Diagnostic.t list) result
 
+val begin_native_source_default :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.completed_parameter_default ->
+  (Sema.Default_fragment.authority, Common.Diagnostic.t list) result
+(** Begin an original closed scalar default in either native preprocessing mode.
+    The source ledger remains isolated; no source task is activated and no
+    ordinary command is executed. The exact mode and current callback are
+    required, and this attempt cannot complete through the ordinary AOT API. *)
+
+val finish_native_source_default :
+  t ->
+  Ir.Default_fragment_program.execution ->
+  (unit, Common.Diagnostic.t list) result
+(** Complete only the exact native attempt, once, with work charged to its
+    owning invocation before publication. *)
+
 val complete_source_defaults :
   t ->
   Frontend.Parser.completed_function_header ->
@@ -256,6 +273,14 @@ val source_defaults :
   ast:Frontend.Ast.module_ ->
   source_command ->
   (Ir.Prepared_parameter_default.t list, Common.Diagnostic.t list) result
+
+val native_source_defaults :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  (Ir.Prepared_parameter_default.t list, Common.Diagnostic.t list) result
+(** Only values from successful native attempts published at their original
+    completed headers and retained by this exact source seal. *)
 
 type query
 

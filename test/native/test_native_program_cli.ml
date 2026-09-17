@@ -23,14 +23,15 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 5)
+    (Array.length Sys.argv = 6)
     "usage: test_native_program_cli.exe <holyc.exe> <native-program.hc> \
-     <integer-control-flow.hc> <native-functions.hc>"
+     <integer-control-flow.hc> <native-functions.hc> <native-defaults.hc>"
 
 let compiler = Sys.argv.(1)
 let native_fixture = Sys.argv.(2)
 let control_fixture = Sys.argv.(3)
 let function_fixture = Sys.argv.(4)
+let default_fixture = Sys.argv.(5)
 
 let invoke arguments =
   with_file ".stdout" "" (fun stdout ->
@@ -101,6 +102,7 @@ let native_json ?(status = 0) ?(mode = "jit") ?(options = []) source =
       "dimension_work_limit";
       "dimension_preparation_work";
       "compiled_initializer_steps";
+      "prepared_default_bytes";
       "output_byte_limit";
       "output_work_limit";
       "output_byte_length";
@@ -142,6 +144,7 @@ let native_json ?(status = 0) ?(mode = "jit") ?(options = []) source =
       "stack_bytes";
       "blocks";
       "active_stack_bytes";
+      "default_bytes";
     ]
     (member "limits" native);
   report
@@ -170,7 +173,7 @@ let report_error_code report =
       | `Assoc _ as error -> error |> member "code" |> to_string
       | _ -> failwith "expected a diagnostic or command error")
 
-let check_success report =
+let check_success ?(preparation = 0) ?(default_bytes = 0) report =
   require
     (report |> member "outcome" |> to_string = "success"
     && report |> member "termination" |> to_string = "stream-end"
@@ -178,12 +181,13 @@ let check_success report =
     && member "command_error" report = `Null)
     "successful host-jit outcome";
   require
-    (report |> member "compiled_initializer_steps" |> to_int = 0
+    (report |> member "compiled_initializer_steps" |> to_int = preparation
+    && report |> member "prepared_default_bytes" |> to_int = default_bytes
     && report |> member "dimension_preparation_work" |> to_int = 0
     && report |> member "output_byte_length" |> to_int = 0
     && report |> member "output_work" |> to_int = 0
     && report |> member "output_hex" |> to_string = "")
-    "closed native gate must not invent preparation or output work";
+    "closed native gate must report bounded preparation and no output work";
   let image = report |> member "native" |> member "image" in
   check_keys "native image"
     [
@@ -232,6 +236,10 @@ let fixture_modes () =
     (fun mode ->
       let report = native_json ~mode native_fixture in
       check_success report;
+      require
+        (report |> member "compiled_initializer_steps" |> to_int = 0
+        && report |> member "prepared_default_bytes" |> to_int = 0)
+        "default-free native fixture performs no declaration preparation";
       check_word report "i64" "42" "0x000000000000002a";
       require
         (report |> member "executed_steps" |> to_int = 26)
@@ -251,6 +259,10 @@ let function_fixture_modes () =
     (fun mode ->
       let report = native_json ~mode function_fixture in
       check_success report;
+      require
+        (report |> member "compiled_initializer_steps" |> to_int = 0
+        && report |> member "prepared_default_bytes" |> to_int = 0)
+        "default-free function fixture performs no declaration preparation";
       check_word report "i64" "42" "0x000000000000002a";
       let image = report |> member "native" |> member "image" in
       require
@@ -259,6 +271,156 @@ let function_fixture_modes () =
       require
         (image |> member "entry_stack_bytes" |> to_int > 0)
         "callable fixture exposes its root physical stack charge")
+    [ "jit"; "aot" ]
+
+let default_fixture_modes () =
+  List.iter
+    (fun mode ->
+      let report = native_json ~mode default_fixture in
+      let preparation =
+        report |> member "compiled_initializer_steps" |> to_int
+      in
+      check_success ~preparation ~default_bytes:32 report;
+      check_word report "i64" "42" "0x000000000000002a";
+      require (preparation > 0)
+        "default fixture performs declaration preparation";
+      require
+        (report |> member "prepared_default_bytes" |> to_int = 32)
+        "four fixture defaults occupy four saved words";
+      require
+        (report |> member "native" |> member "limits" |> member "default_bytes"
+       |> to_int = 65_536)
+        "native report exposes the configured default-byte limit";
+      let exact_steps =
+        native_json ~mode
+          ~options:[ "--initializer-step-limit=" ^ string_of_int preparation ]
+          default_fixture
+      in
+      check_success ~preparation ~default_bytes:32 exact_steps;
+      require
+        (exact_steps
+        |> member "compiled_initializer_steps"
+        |> to_int = preparation)
+        "exact declaration preparation allowance succeeds";
+      let one_below_steps =
+        native_json ~status:1 ~mode
+          ~options:
+            [ "--initializer-step-limit=" ^ string_of_int (preparation - 1) ]
+          default_fixture
+      in
+      require
+        (first_code one_below_steps = "HCIRVM0007"
+        && one_below_steps
+           |> member "compiled_initializer_steps"
+           |> to_int = preparation - 1
+        && one_below_steps |> member "prepared_default_bytes" |> to_int = 24
+        && member "executed_steps" one_below_steps = `Null
+        && one_below_steps |> member "native" |> member "image" = `Null)
+        "one-below declaration preparation fails before native entry";
+      let exact_bytes =
+        native_json ~mode ~options:[ "--default-byte-limit=32" ] default_fixture
+      in
+      check_success ~preparation ~default_bytes:32 exact_bytes;
+      require
+        (exact_bytes |> member "prepared_default_bytes" |> to_int = 32)
+        "exact saved-default byte allowance succeeds";
+      let one_below_bytes =
+        native_json ~status:1 ~mode
+          ~options:[ "--default-byte-limit=31" ]
+          default_fixture
+      in
+      require
+        (first_code one_below_bytes = "HCIRVM0011"
+        && one_below_bytes |> member "prepared_default_bytes" |> to_int = 24
+        && one_below_bytes
+           |> member "compiled_initializer_steps"
+           |> to_int = preparation - 3
+        && member "executed_steps" one_below_bytes = `Null
+        && one_below_bytes |> member "native" |> member "image" = `Null)
+        "one-below saved-default bytes retain the first three values before \
+         entry")
+    [ "jit"; "aot" ];
+  let status, stdout, stderr =
+    invoke [ "run"; "--target=host-jit"; default_fixture ]
+  in
+  require
+    (status = Unix.WEXITED 0 && stderr = "")
+    "default fixture human report succeeds";
+  require
+    (stdout |> String.split_on_char '\n'
+    |> List.exists (fun line -> String.trim line = "prepared-default-bytes=32")
+    )
+    "human report exposes saved-default payload bytes";
+  List.iter
+    (fun option ->
+      let report = native_json ~status:1 ~options:[ option ] default_fixture in
+      require
+        (report_error_code report = "HCIRVM0001"
+        && report |> member "compiled_initializer_steps" |> to_int = 0
+        && report |> member "prepared_default_bytes" |> to_int = 0
+        && member "executed_steps" report = `Null)
+        (option ^ " rejects before source preparation"))
+    [ "--initializer-step-limit=0"; "--default-byte-limit=0" ]
+
+let default_failure_reporting () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (contents, code, did_prepare) ->
+          with_file ".hc" contents (fun source ->
+              let report = native_json ~status:1 ~mode source in
+              require
+                (first_code report = code
+                && report
+                   |> member "compiled_initializer_steps"
+                   |> to_int > 0 = did_prepare
+                && report |> member "prepared_default_bytes" |> to_int = 0
+                && member "executed_steps" report = `Null
+                && member "final_value" report = `Null)
+                "declaration failure retains preparation separately from \
+                 absent native execution";
+              let primary = List.hd (diagnostics report) |> member "primary" in
+              require
+                (primary |> member "path" |> to_string = source)
+                "default failure retains its original source path"))
+        [
+          ("I64 F(I64 n=1/0){return n;} F(42);", "HCIRVM0009", true);
+          ("I64 F(I64 n=1/0){return n;} 42;", "HCIRVM0009", true);
+          ("I64 F(I64 n=1<<3){return n;} F();", "HCRUN0006", false);
+          ("1/0; I64 F(I64 n=42){return n;} F();", "HCRUN0006", false);
+        ];
+      with_file ".hc" "I64 F(I64 n=42){return n;} 1/0;" (fun source ->
+          let report = native_json ~status:1 ~mode source in
+          require
+            (first_code report = "HCIRVM0009"
+            && report |> member "compiled_initializer_steps" |> to_int = 3
+            && report |> member "prepared_default_bytes" |> to_int = 8
+            && report |> member "executed_steps" |> to_int > 0)
+            "native arithmetic failure retains earlier default preparation");
+      with_file ".hc" "I64 F(I64 n=42){return n;} @invalid" (fun source ->
+          let report = native_json ~status:1 ~mode source in
+          require
+            (report |> member "compiled_initializer_steps" |> to_int = 3
+            && report |> member "prepared_default_bytes" |> to_int = 8
+            && member "executed_steps" report = `Null)
+            "later parse failure retains earlier default preparation");
+      with_file ".hc" "@invalid" (fun source ->
+          List.iter
+            (fun option ->
+              let report =
+                native_json ~status:1 ~mode ~options:[ option ] source
+              in
+              require
+                (report_error_code report = "HCIRVM0001"
+                && report |> member "compiled_initializer_steps" |> to_int = 0
+                && report |> member "prepared_default_bytes" |> to_int = 0
+                && member "executed_steps" report = `Null)
+                "invalid preparation configuration precedes parsing")
+            [
+              "--initializer-step-limit=0";
+              "--default-byte-limit=0";
+              "--default-byte-limit=-1";
+            ]))
     [ "jit"; "aot" ]
 
 let exact_meter_and_empty () =
@@ -395,7 +557,8 @@ let source_rejection_has_no_native_outcome () =
     [
       "I64 x=42;";
       "I64 Bad(){F64 x=1.0;return 0;} 42;";
-      "I64 F(I64 n=42){return n;} F(1);";
+      "1/0; I64 F(I64 n=42){return n;} F();";
+      "I64 F(I64 n=1<<3){return n;} F();";
       "extern I64 Add(I64 x); 42;";
       "\"output\";";
       "#exe {42;}\n42;";
@@ -507,6 +670,8 @@ let host_jit_v1_rejected () =
 let () =
   fixture_modes ();
   function_fixture_modes ();
+  default_fixture_modes ();
+  default_failure_reporting ();
   exact_meter_and_empty ();
   control_fixture_matches_ir_contract ();
   full_width_values ();

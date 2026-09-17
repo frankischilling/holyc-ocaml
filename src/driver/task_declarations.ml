@@ -187,6 +187,7 @@ type command = {
     list;
   implicit_outputs : selected_implicit_output list;
   source_defaults : Ir.Prepared_parameter_default.t list;
+  native_source_defaults : Ir.Prepared_parameter_default.t list;
   table : Sema.Symbol_table.t;
   runtime : VM.task_state option;
   ast : Ast.module_;
@@ -206,6 +207,8 @@ type authority =
   | Semantic_analysis
   | Source_compilation of Common.Source_file.t
   | Task_runtime of VM.task_state
+
+type source_default_owner = Output_aot_default | Native_source_default
 
 type command_phase =
   | Ready
@@ -236,6 +239,7 @@ type t = {
   mutable source_default_attempts :
     (Parser.completed_parameter_default
     * Sema.Default_fragment.authority
+    * source_default_owner
     * int
     * int64 option ref)
     list;
@@ -3036,6 +3040,24 @@ let seal ledger (ast : Ast.module_) =
                           == Ir.Prepared_parameter_default.publication value)
                         !claimed)
                     ledger.prepared_source_defaults;
+                native_source_defaults =
+                  List.filter
+                    (fun value ->
+                      List.exists
+                        (fun assigned ->
+                          assigned.publication
+                          == Ir.Prepared_parameter_default.publication value)
+                        !claimed
+                      && List.exists
+                           (fun (receipt, _, owner, _, bits) ->
+                             owner = Native_source_default
+                             && receipt
+                                == Ir.Prepared_parameter_default.receipt value
+                             && !bits
+                                = Some
+                                    (Ir.Prepared_parameter_default.bits value))
+                           ledger.source_default_attempts)
+                    ledger.prepared_source_defaults;
                 table = ledger.table;
                 runtime = ledger_runtime ledger;
                 ast;
@@ -3823,23 +3845,30 @@ let default_fragment_authority ledger ~runtime ~task_view receipt =
         ~namespace:ledger.namespace fragment
       |> checked span)
 
-let begin_source_default ledger ~runtime receipt =
+let begin_source_default_with_owner owner ledger ~runtime receipt =
   protect (fun () ->
       let span = receipt.Parser.default_ast.location.span in
+      let mode =
+        Parser.context_mode
+          receipt.default_function.function_header.declaration_command
+            .command_context
+      in
       (match ledger.authority with
       | Source_compilation _
-        when Parser.context_mode
-               receipt.default_function.function_header.declaration_command
-                 .command_context
-             = Frontend.Preprocessor.Aot -> ()
+        when owner = Native_source_default || mode = Frontend.Preprocessor.Aot
+        -> ()
       | _ ->
           fail span
             "output default preparation requires its original AOT source ledger");
+      if
+        owner = Native_source_default
+        && not (VM.task_owns_table runtime ledger.table)
+      then fail span "source default preparation has another semantic table";
       if not (Parser.parameter_default_is_current receipt) then
         fail span "output default preparation is outside its original callback";
       if
         List.exists
-          (fun (prior, _, _, _) -> prior == receipt)
+          (fun (prior, _, _, _, _) -> prior == receipt)
           ledger.source_default_attempts
       then fail span "output default preparation was already attempted";
       (match ledger.source_defaults_runtime with
@@ -3862,8 +3891,9 @@ let begin_source_default ledger ~runtime receipt =
               if
                 not
                   (List.exists
-                     (fun (prior, _, _, value) ->
-                       prior == previous && Option.is_some !value)
+                     (fun (prior, _, prior_owner, _, value) ->
+                       prior == previous && prior_owner = owner
+                       && Option.is_some !value)
                      ledger.source_default_attempts)
               then
                 fail span "output default requires its successful predecessor")
@@ -3877,16 +3907,30 @@ let begin_source_default ledger ~runtime receipt =
       if Sema.Initializer_source.expression_identifier_nodes expression <> []
       then
         fail ~code:"HCRUN0006" span
-          "AOT default references require proven output relocation and \
-           callable authority";
+          (match owner with
+          | Output_aot_default ->
+              "AOT default references require proven output relocation and \
+               callable authority"
+          | Native_source_default ->
+              "native defaults require closed expressions without value or \
+               function references");
       let module Outer = Sema.Outer_environment in
-      let assembler =
-        Outer.make_table ~table_kind:Outer.Assembler ~table_index:0 []
-        |> Result.map_error Outer.error_to_string
-        |> checked span
+      let compilation_mode, tables =
+        match mode with
+        | Frontend.Preprocessor.Aot -> (Outer.Aot, [ (Outer.Assembler, 0) ])
+        | Frontend.Preprocessor.Jit ->
+            (Outer.Jit, [ (Outer.Jit_task 0, 0); (Outer.Assembler, 1) ])
+      in
+      let tables =
+        List.map
+          (fun (table_kind, table_index) ->
+            Outer.make_table ~table_kind ~table_index []
+            |> Result.map_error Outer.error_to_string
+            |> checked span)
+          tables
       in
       let environment =
-        Outer.create ~table:ledger.table ~compilation_mode:Aot [ assembler ]
+        Outer.create ~table:ledger.table ~compilation_mode tables
         |> Result.map_error Outer.error_to_string
         |> checked span
       in
@@ -3910,11 +3954,16 @@ let begin_source_default ledger ~runtime receipt =
       in
       ledger.source_defaults_runtime <- Some runtime;
       ledger.source_default_attempts <-
-        (receipt, authority, VM.task_initializer_steps runtime, ref None)
+        (receipt, authority, owner, VM.task_initializer_steps runtime, ref None)
         :: ledger.source_default_attempts;
       authority)
 
-let finish_source_default ledger execution =
+let begin_source_default = begin_source_default_with_owner Output_aot_default
+
+let begin_native_source_default =
+  begin_source_default_with_owner Native_source_default
+
+let finish_source_default_with_owner expected_owner ledger execution =
   protect (fun () ->
       let module Program = Ir.Default_fragment_program in
       let authority = Program.authority execution in
@@ -3926,10 +3975,11 @@ let finish_source_default ledger execution =
       let before, value =
         match
           List.find_opt
-            (fun (prior, proof, _, _) -> prior == receipt && proof == authority)
+            (fun (prior, proof, owner, _, _) ->
+              prior == receipt && proof == authority && owner = expected_owner)
             ledger.source_default_attempts
         with
-        | Some (_, _, before, value) when !value = None -> (before, value)
+        | Some (_, _, _, before, value) when !value = None -> (before, value)
         | _ -> fail span "output default completion is foreign or repeated"
       in
       (match ledger.source_defaults_runtime with
@@ -3945,6 +3995,11 @@ let finish_source_default ledger execution =
       | Program.Scheduled _ ->
           fail ~code:"HCRUN0006" span
             "AOT default execution requires output relocation authority")
+
+let finish_source_default = finish_source_default_with_owner Output_aot_default
+
+let finish_native_source_default =
+  finish_source_default_with_owner Native_source_default
 
 let complete_source_defaults ledger header =
   protect (fun () ->
@@ -3978,13 +4033,13 @@ let complete_source_defaults ledger header =
                 let receipt, bits =
                   match
                     List.find_opt
-                      (fun (receipt, _, _, _) ->
+                      (fun (receipt, _, _, _, _) ->
                         receipt.Parser.default_function
                         == header.function_publication
                         && receipt.default_parameter_index = index)
                       ledger.source_default_attempts
                   with
-                  | Some (receipt, _, _, value) when Option.is_some !value ->
+                  | Some (receipt, _, _, _, value) when Option.is_some !value ->
                       (receipt, Option.get !value)
                   | _ ->
                       fail span
@@ -4013,6 +4068,12 @@ let source_defaults ~table ~ast (Source_command command) =
       if command.table != table || command.ast != ast then
         fail ast.Ast.span "output defaults belong to another source seal";
       command.source_defaults)
+
+let native_source_defaults ~table ~ast (Source_command command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span "native defaults belong to another source seal";
+      command.native_source_defaults)
 
 let begin_initializer_runtime ledger ~runtime start =
   let ( let* ) = Result.bind in

@@ -196,7 +196,26 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                 in
                 if defaults = [] then Ok globals_
                 else
-                  Ir.Integer_globals.with_source_defaults globals_ defaults
+                  let* native_defaults =
+                    Task_declarations.native_source_defaults
+                      ~table:(Session.semantic_symbols session)
+                      ~ast command
+                  in
+                  (if native_defaults = [] then
+                     Ir.Integer_globals.with_source_defaults globals_ defaults
+                   else if
+                     List.length native_defaults = List.length defaults
+                     && List.for_all
+                          (fun value ->
+                            List.exists (( == ) value) native_defaults)
+                          defaults
+                   then
+                     Ir.Integer_globals.with_native_source_defaults globals_
+                       defaults
+                   else
+                     Error
+                       "source defaults mix native and ordinary preparation \
+                        owners")
                   |> Result.map_error (fun message ->
                       [
                         Integer_source.diagnostic ~span:ast.span "HCRUN0004"

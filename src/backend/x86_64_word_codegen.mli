@@ -76,6 +76,7 @@ val compile_callable :
   ?status_abi:status_abi ->
   ?max_stack_bytes:int ->
   ?max_blocks:int ->
+  ?parameter_defaults:Driver.Native_parameter_defaults.t ->
   max_ir_instructions:int ->
   max_code_bytes:int ->
   runtime_calls:Ir.Runtime_call_context.t ->
@@ -88,7 +89,9 @@ val compile_callable :
     functions as one callable native bundle. All entry and named-function
     graphs, including unreachable definitions, pass preflight before machine
     allocation. Direct calls are resolved only through the supplied sealed
-    runtime-call context and exact function/frame ownership. *)
+    runtime-call context and exact function/frame ownership. Parameter defaults
+    remain rejected unless [parameter_defaults] seals the exact original
+    declaration-time preparation for this bundle. *)
 
 val program_code : program_image -> string
 val program_windows_unwind_info : program_image -> string
