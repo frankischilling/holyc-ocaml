@@ -6,6 +6,7 @@ module Primitive = Sema.Primitive_type
 module Computation = Sema.Integer_computation_class
 module Scalar = Ir.Integer_scalar_storage
 module Encoder = X86_64_encoder
+module Global_storage = X86_64_global_storage
 module Runtime = Ir.Runtime_call_context
 module Defaults = Driver.Native_parameter_defaults
 module Prepared_default = Ir.Prepared_parameter_default
@@ -54,6 +55,7 @@ type expression_image = {
 let hard_ir_limit = 100_000
 let hard_max_stack_bytes = 4088
 let hard_block_limit = 100_000
+let hard_max_global_bytes = Global_storage.hard_max_global_bytes
 
 let validate_limits ~max_ir_instructions ~max_code_bytes =
   let invalid message =
@@ -96,6 +98,12 @@ let validate_block_limit ~max_blocks =
         };
       ]
   else Ok ()
+
+let validate_global_limit ~max_global_bytes =
+  Global_storage.validate_global_limit ~max_global_bytes
+  |> Result.map_error
+       (List.map (fun (error : Global_storage.error) ->
+            { code = error.code; message = error.message; span = error.span }))
 
 exception Rejected of error
 
@@ -162,6 +170,13 @@ type frame_access = {
   initialized_flag_offset : int option;
 }
 
+type arena_access = {
+  arena_offset : int;
+  arena_bytes : int;
+  arena_word : word_type;
+  initialized_flag_offset : int;
+}
+
 type direct_call = {
   callee_index : int;
   activation_bytes : int;
@@ -190,6 +205,16 @@ type operation =
   | Store_frame_value of frame_access * value * value
   | Update_frame_value of
       frame_access
+      * frame_update
+      * value option
+      * bool
+      * value
+      * word_type
+      * fault_site option
+  | Load_arena_value of arena_access * value
+  | Store_arena_value of arena_access * value * value
+  | Update_arena_value of
+      arena_access
       * frame_update
       * value option
       * bool
@@ -815,6 +840,11 @@ let encoder_scalar_frame_slot span offset =
   | Ok slot -> slot
   | Error message -> reject ?span "HCBACK0003" message
 
+let encoder_arena_slot span offset =
+  match Encoder.arena_slot ~offset with
+  | Ok slot -> slot
+  | Error message -> reject ?span "HCBACK0003" message
+
 let narrow_frame_width ?span = function
   | 1 -> Encoder.Frame8
   | 2 -> Encoder.Frame16
@@ -840,6 +870,39 @@ let store_frame_scalar span access source =
       ( encoder_scalar_frame_slot span access.frame_offset,
         narrow_frame_width ?span access.frame_bytes,
         source )
+
+let load_arena_scalar span destination access =
+  if access.arena_bytes = 8 then
+    Encoder.Load_arena (destination, encoder_arena_slot span access.arena_offset)
+  else
+    Encoder.Load_arena_narrow
+      ( destination,
+        encoder_arena_slot span access.arena_offset,
+        narrow_frame_width ?span access.arena_bytes,
+        if access.arena_word = I64 then Encoder.Sign_extend
+        else Encoder.Zero_extend )
+
+let store_arena_scalar span access source =
+  if access.arena_bytes = 8 then
+    Encoder.Store_arena (encoder_arena_slot span access.arena_offset, source)
+  else
+    Encoder.Store_arena_narrow
+      ( encoder_arena_slot span access.arena_offset,
+        narrow_frame_width ?span access.arena_bytes,
+        source )
+
+let load_arena_flag span destination access =
+  Encoder.Load_arena_narrow
+    ( destination,
+      encoder_arena_slot span access.initialized_flag_offset,
+      Encoder.Frame8,
+      Encoder.Zero_extend )
+
+let store_arena_flag span source access =
+  Encoder.Store_arena_narrow
+    ( encoder_arena_slot span access.initialized_flag_offset,
+      Encoder.Frame8,
+      source )
 
 let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
     ~mode prepared =
@@ -1532,6 +1595,41 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
               owners.(scratch) <- None)
             access.initialized_flag_offset;
           assign position destination result
+      | Load_arena_value (access, result) ->
+          let destination =
+            acquire_destination instruction.span position ~protected:[]
+              ~excluded:[]
+          in
+          let target = registers.(destination) in
+          let site = Option.get instruction.site in
+          let uninitialized = fresh_label supply in
+          fault_blocks :=
+            { label = uninitialized; kind_value = 7; site_value = site }
+            :: !fault_blocks;
+          emit (load_arena_flag instruction.span target access);
+          emit (Encoder.Test target);
+          emit_branch Equal uninitialized;
+          emit (load_arena_scalar instruction.span target access);
+          assign position destination result
+      | Store_arena_value (access, input, result) ->
+          let inputs, protected = ensure_inputs instruction.span [ input ] in
+          let source = List.hd inputs in
+          let destination =
+            acquire_destination instruction.span position ~protected
+              ~excluded:[]
+          in
+          if destination <> source then
+            emit (Encoder.Mov (registers.(destination), registers.(source)));
+          emit
+            (store_arena_scalar instruction.span access registers.(destination));
+          let scratch =
+            acquire_empty instruction.span ~protected:[ destination ]
+              ~excluded:[]
+          in
+          emit (Encoder.Mov_imm64 (registers.(scratch), 1L));
+          emit (store_arena_flag instruction.span registers.(scratch) access);
+          owners.(scratch) <- None;
+          assign position destination result
       | Update_frame_value
           (access, update, input, old_result, result, word, arithmetic_site) ->
           spill_all_registers instruction.span;
@@ -1602,6 +1700,77 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
           then
             emit
               (load_frame_scalar instruction.span registers.(computed_index)
+                 access);
+          note_peak
+            ~temporaries:
+              (if old_result then [ rax; rcx; rdx; r8 ] else [ rax; rcx; rdx ])
+            ();
+          assign position (if old_result then r8 else computed_index) result
+      | Update_arena_value
+          (access, update, input, old_result, result, word, arithmetic_site) ->
+          spill_all_registers instruction.span;
+          let site = Option.get instruction.site in
+          let uninitialized = fresh_label supply in
+          fault_blocks :=
+            { label = uninitialized; kind_value = 7; site_value = site }
+            :: !fault_blocks;
+          emit (load_arena_flag instruction.span Encoder.Rax access);
+          emit (Encoder.Test Encoder.Rax);
+          emit_branch Equal uninitialized;
+          emit (load_arena_scalar instruction.span Encoder.Rax access);
+          if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
+          (match input with
+          | Some input -> copy_value_to instruction.span input rcx
+          | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
+          let computed_index =
+            match update with
+            | Update_binary binary ->
+                emit (Encoder.Binary (binary, Encoder.Rax, Encoder.Rcx));
+                rax
+            | Update_shift shift ->
+                emit (Encoder.Shift_cl (shift, Encoder.Rax));
+                rax
+            | Update_division arithmetic_operation -> (
+                let site = Option.get arithmetic_site in
+                let zero_label = fresh_label supply in
+                fault_blocks :=
+                  { label = zero_label; kind_value = 1; site_value = site.site }
+                  :: !fault_blocks;
+                emit (Encoder.Test Encoder.Rcx);
+                emit_branch Equal zero_label;
+                (match word with
+                | U64 ->
+                    emit Encoder.Zero_edx;
+                    emit Encoder.Div_rcx
+                | I64 ->
+                    let overflow_label = fresh_label supply in
+                    let safe_label = fresh_label supply in
+                    fault_blocks :=
+                      {
+                        label = overflow_label;
+                        kind_value = 2;
+                        site_value = site.site;
+                      }
+                      :: !fault_blocks;
+                    emit (Encoder.Mov_imm64 (Encoder.Rdx, Int64.min_int));
+                    emit (Encoder.Cmp (Encoder.Rax, Encoder.Rdx));
+                    emit_branch Not_equal safe_label;
+                    emit (Encoder.Cmp_imm8 (Encoder.Rcx, -1));
+                    emit_branch Equal overflow_label;
+                    mark safe_label;
+                    emit Encoder.Cqo;
+                    emit Encoder.Idiv_rcx);
+                match arithmetic_operation with
+                | Divide -> rax
+                | Remainder -> rdx)
+          in
+          emit
+            (store_arena_scalar instruction.span access
+               registers.(computed_index));
+          if (not old_result) && Option.is_none input && access.arena_bytes < 8
+          then
+            emit
+              (load_arena_scalar instruction.span registers.(computed_index)
                  access);
           note_peak
             ~temporaries:
@@ -1912,6 +2081,8 @@ type program_image = {
   block_count : int;
   function_count : int;
   entry_stack_bytes : int;
+  global_bytes : int;
+  global_image : string;
   sites : program_site list;
 }
 
@@ -2152,6 +2323,7 @@ type frame_term =
   | Frame_base of Type.t
   | Frame_offset of Type.t * int
   | Frame_address of callable_slot
+  | Global_address of Global_storage.slot
 
 type callable_call_phase = Collecting | Needs_cleanup | Needs_end
 
@@ -2207,6 +2379,15 @@ let source_scalar ?span label type_ =
       }
   | None ->
       reject ?span "HCBACK0002" (label ^ " must be a nonzero scalar integer")
+
+let arena_access slot =
+  let scalar = Global_storage.scalar slot in
+  {
+    arena_offset = Global_storage.data_offset slot;
+    arena_bytes = Scalar.byte_size scalar;
+    arena_word = (if Scalar.is_unsigned scalar then U64 else I64);
+    initialized_flag_offset = Global_storage.flag_offset slot;
+  }
 
 let source_return_kind ?span type_ =
   if Type.pointer_depth type_ = 0 then
@@ -2573,8 +2754,8 @@ let validate_callable_returns graph return_kind =
       done
 
 let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
-    ~runtime_owner ~owner ~frame_slots ~expected_return ~is_entry ~next_site
-    graph =
+    ~global_storage ~runtime_owner ~owner ~frame_slots ~expected_return
+    ~is_entry ~next_site graph =
   let blocks = Graph.blocks graph in
   let instruction_ids = ref Instruction_set.empty in
   let sites_rev = ref [] in
@@ -2880,6 +3061,52 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                     result (Frame_base target_type);
                   (Frame_tick, None)
               | _ -> malformed description "IC_RBP requires one pointer result")
+          | (Opcode.Ic_imm_i64 | Opcode.Ic_abs_addr)
+            when Option.fold ~none:false
+                   ~some:(fun type_ -> Type.pointer_depth type_ = 1)
+                   description.target_type
+                 &&
+                 match description.payload with
+                 | Some (Sequence.Symbol _) -> true
+                 | _ -> false -> (
+              if description.flags <> 0L || description.operands <> [] then
+                malformed description "invalid native global address producer";
+              match
+                ( description.result,
+                  description.target_type,
+                  description.payload )
+              with
+              | Some result, Some target_type, Some (Sequence.Symbol symbol)
+                -> (
+                  match Global_storage.find_symbol global_storage symbol with
+                  | None ->
+                      malformed description
+                        "global address symbol is absent from the exact sealed \
+                         storage layout"
+                  | Some slot ->
+                      let source_slot = Global_storage.source_slot slot in
+                      let expected_type =
+                        match Type.pointer_to (Global_storage.type_ slot) with
+                        | Ok type_ -> type_
+                        | Error _ ->
+                            malformed description
+                              "global address slot has no checked pointer type"
+                      in
+                      if
+                        Ir.Integer_globals.slot_symbol source_slot != symbol
+                        || Ir.Integer_globals.slot_opcode source_slot
+                           <> description.opcode
+                        || not (Type.equal expected_type target_type)
+                      then
+                        malformed description
+                          "global address opcode, type or exact slot owner is \
+                           inconsistent";
+                      define_frame frame_values values void_values description
+                        result (Global_address slot);
+                      (Frame_tick, None))
+              | _ ->
+                  malformed description "invalid native global address producer"
+              )
           | Opcode.Ic_imm_i64
             when Option.fold ~none:false
                    ~some:(fun type_ -> Type.pointer_depth type_ = 1)
@@ -2957,10 +3184,20 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                           (Computation.forward target_type)
                       in
                       (Load_frame_value (slot.access, value), None)
+                  | Global_address slot
+                    when Type.equal target_type (Global_storage.type_ slot) ->
+                      ignore
+                        (checked_scalar ~allow_public:true description
+                           target_type);
+                      let value =
+                        define values description position result target_type
+                          (Computation.forward target_type)
+                      in
+                      (Load_arena_value (arena_access slot, value), None)
                   | _ ->
                       malformed description
-                        "scalar frame load does not name its exact slot")
-              | _ -> malformed description "invalid scalar frame load")
+                        "scalar load does not name its exact checked slot")
+              | _ -> malformed description "invalid scalar load")
           | Opcode.Ic_assign -> (
               if description.flags <> 0L || Option.is_some description.payload
               then malformed description "invalid scalar frame assignment";
@@ -2984,10 +3221,23 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                           (Computation.forward target_type)
                       in
                       (Store_frame_value (slot.access, input, value), None)
+                  | Global_address slot
+                    when Type.equal target_type (Global_storage.type_ slot) ->
+                      let input =
+                        operand values description position input_id
+                      in
+                      ignore
+                        (checked_scalar ~allow_public:true description
+                           input.declared_type);
+                      let value =
+                        define values description position result target_type
+                          (Computation.forward target_type)
+                      in
+                      (Store_arena_value (arena_access slot, input, value), None)
                   | _ ->
                       malformed description
                         "scalar assignment does not name its exact slot")
-              | _ -> malformed description "invalid scalar frame assignment")
+              | _ -> malformed description "invalid scalar assignment")
           | Opcode.Ic_add_equ
           | Opcode.Ic_sub_equ
           | Opcode.Ic_mul_equ
@@ -3065,10 +3315,65 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                             slot.slot_word,
                             arithmetic_site ),
                         None )
+                  | Global_address slot
+                    when Type.equal target_type (Global_storage.type_ slot) ->
+                      let access = arena_access slot in
+                      let update, old_result, expects_operand =
+                        Option.get
+                          (callable_frame_update description.opcode
+                             access.arena_word)
+                      in
+                      let input =
+                        match (expects_operand, operands) with
+                        | true, [ input_id ] ->
+                            let input =
+                              operand values description position input_id
+                            in
+                            ignore
+                              (checked_scalar ~allow_public:true description
+                                 input.declared_type);
+                            Some input
+                        | false, [] -> None
+                        | _ ->
+                            malformed description
+                              "invalid scalar update operands"
+                      in
+                      let value =
+                        define values description position result target_type
+                          (Computation.forward target_type)
+                      in
+                      let arithmetic_site =
+                        match update with
+                        | Update_division arithmetic_operation ->
+                            let fault_site =
+                              {
+                                site;
+                                operation = arithmetic_operation;
+                                instruction_id =
+                                  Sequence.Instruction_id.to_int
+                                    description.instruction_id;
+                                position;
+                                span = description.span;
+                                signed = access.arena_word = I64;
+                              }
+                            in
+                            arithmetic_sites := fault_site :: !arithmetic_sites;
+                            Some fault_site
+                        | Update_binary _ | Update_shift _ -> None
+                      in
+                      ( Update_arena_value
+                          ( access,
+                            update,
+                            input,
+                            old_result,
+                            value,
+                            access.arena_word,
+                            arithmetic_site ),
+                        None )
                   | _ ->
                       malformed description
                         "scalar update does not name its exact slot")
-              | _ -> malformed description "invalid scalar frame update")
+              | _ -> malformed description "invalid scalar update")
           | Opcode.Ic_end_exp -> (
               if description.flags <> 0x200L then
                 malformed description "IC_END_EXP requires flags=0x000000200";
@@ -3283,6 +3588,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
           | Update_frame_value
               (_, Update_division arithmetic_operation, _, _, _, word, _) ->
               Some (arithmetic_operation, word = I64)
+          | Update_arena_value
+              (_, Update_division arithmetic_operation, _, _, _, word, _) ->
+              Some (arithmetic_operation, word = I64)
           | _ -> None
         in
         sites_rev :=
@@ -3307,6 +3615,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | Update_frame_value
                   ({ initialized_flag_offset = Some _; _ }, _, _, _, _, _, _) ->
                   true
+              | Load_arena_value _ | Update_arena_value _ -> true
               | _ -> false);
           }
           :: !sites_rev;
@@ -3681,33 +3990,26 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                         block_count;
                         function_count = 0;
                         entry_stack_bytes = 8 + !frame_size;
+                        global_bytes = 0;
+                        global_image = "";
                         sites;
                       }
               with Rejected error -> Error [ error ])))
 
 let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
-    ?(max_blocks = 4096) ?parameter_defaults ~max_ir_instructions
-    ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions () =
+    ?(max_blocks = 4096) ?(max_global_bytes = 1_048_576) ?parameter_defaults
+    ~max_ir_instructions ~max_code_bytes ~runtime_calls ~initialization ~entry
+    ~functions () =
   let globals = Ir.Global_initialization.globals initialization in
-  if
-    Ir.Integer_globals.byte_size globals <> 0
-    || Ir.Integer_globals.has_initializers globals
-    || Ir.Global_initialization.regions initialization <> []
-    || Ir.Global_initialization.static_regions initialization <> []
-    || Ir.Global_initialization.publications initialization <> []
-    || Ir.Global_initialization.prepared_steps initialization <> 0
-  then
-    Error
-      [
-        {
-          code = "HCBACK0002";
-          message =
-            "native callable programs require an empty initialization context \
-             without storage or preparation work";
-          span = None;
-        };
-      ]
-  else if functions = [] then
+  let ( let* ) = Result.bind in
+  let* global_storage =
+    Global_storage.create ~max_global_bytes ~initialization ~entry
+    |> Result.map_error
+         (List.map (fun (error : Global_storage.error) ->
+              { code = error.code; message = error.message; span = error.span }))
+  in
+  let has_globals = not (Global_storage.is_empty global_storage) in
+  if functions = [] && not has_globals then
     if
       Runtime.matches runtime_calls ~entry ~initialization:(Some initialization)
         ~functions:[]
@@ -3803,10 +4105,10 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                   let next_site = ref 0 in
                   let entry_prepared =
                     preflight_callable_graph ~runtime_calls ~parameter_defaults
-                      ~functions:function_infos ~runtime_owner:Runtime.Entry
-                      ~owner:Entry_owner ~frame_slots:Int_map.empty
-                      ~expected_return:None ~is_entry:true ~next_site
-                      entry_graph
+                      ~functions:function_infos ~global_storage
+                      ~runtime_owner:Runtime.Entry ~owner:Entry_owner
+                      ~frame_slots:Int_map.empty ~expected_return:None
+                      ~is_entry:true ~next_site entry_graph
                   in
                   let function_prepared =
                     Array.map
@@ -3814,7 +4116,7 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                         let body = info.definition.body in
                         preflight_callable_graph ~runtime_calls
                           ~parameter_defaults ~functions:function_infos
-                          ~runtime_owner:(Runtime.Function body)
+                          ~global_storage ~runtime_owner:(Runtime.Function body)
                           ~owner:info.owner ~frame_slots:info.frame_slots
                           ~expected_return:(Some (Function.return_type body))
                           ~is_entry:false ~next_site
@@ -3899,7 +4201,10 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                           allocate_body
                             ~callable_frame:{ rbp_bytes; fixed_stack_slots }
                             ~max_stack_bytes
-                            ~reserved_registers:[ Encoder.R10; Encoder.R11 ]
+                            ~reserved_registers:
+                              (if has_globals then
+                                 [ Encoder.R9; Encoder.R10; Encoder.R11 ]
+                               else [ Encoder.R10; Encoder.R11 ])
                             ~supply
                             ~mode:
                               (Callable_control
@@ -3967,6 +4272,12 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                              Planned_instruction (Encoder.Capture_status abi);
                              Planned_instruction
                                (Encoder.Load_context (Encoder.R10, 16));
+                           ]
+                         else [])
+                      @ (if is_entry && has_globals then
+                           [
+                             Planned_instruction
+                               (Encoder.Load_context (Encoder.R9, 72));
                            ]
                          else [])
                       @ List.concat_map
@@ -4140,7 +4451,7 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                           encoded = Bytes.of_string encoded;
                           ir_count;
                           machine_count;
-                          peak = max 5 peak;
+                          peak = max (if has_globals then 6 else 5) peak;
                           frame_size;
                           unwind_info = Bytes.copy entry_allocated.body_unwind;
                           unwind_functions;
@@ -4149,6 +4460,9 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                           function_count = Array.length function_infos;
                           entry_stack_bytes =
                             16 + entry_allocated.body_frame_size;
+                          global_bytes =
+                            Global_storage.global_bytes global_storage;
+                          global_image = Global_storage.image global_storage;
                           sites;
                         }
                 with Rejected error -> Error [ error ])))
@@ -4196,3 +4510,7 @@ let program_entry_stack_bytes (compiled : program_image) =
   compiled.entry_stack_bytes
 
 let program_sites (compiled : program_image) = compiled.sites
+let program_global_bytes (compiled : program_image) = compiled.global_bytes
+
+let program_global_image (compiled : program_image) =
+  Bytes.to_string (Bytes.of_string compiled.global_image)

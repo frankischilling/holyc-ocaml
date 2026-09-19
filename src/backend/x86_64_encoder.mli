@@ -8,6 +8,7 @@ type frame_extension = Sign_extend | Zero_extend
 type stack_slot
 type stack_frame
 type frame_slot
+type arena_slot
 type call_frame
 
 type condition =
@@ -48,6 +49,16 @@ type instruction =
   | Store_frame_narrow of frame_slot * narrow_frame_width * register
       (** Store only the selected low 8/16/32 bits to an RBP-relative scalar.
           Adjacent bytes are not modified. *)
+  | Load_arena of register * arena_slot
+      (** Load one qword from the sealed R9-relative private data arena. *)
+  | Store_arena of arena_slot * register
+      (** Store one qword to the sealed R9-relative private data arena. *)
+  | Load_arena_narrow of
+      register * arena_slot * narrow_frame_width * frame_extension
+      (** Load an 8/16/32-bit arena scalar and sign- or zero-extend it exactly
+          as the corresponding RBP-relative scalar load. *)
+  | Store_arena_narrow of arena_slot * narrow_frame_width * register
+      (** Store only the selected low 8/16/32 bits to the private data arena. *)
   | Alloc_call_frame of call_frame
   | Free_call_frame of call_frame
       (** Allocate/free a fixed 16-byte-aligned callable frame while keeping RSP
@@ -86,7 +97,8 @@ type instruction =
           both use the qword C7 imm32 form at displacements zero/eight. *)
   | Load_context of register * int
       (** Load one qword from the private R11 context at an aligned byte offset
-          from zero through 64. *)
+          from zero through 72. Offset 72 is the immutable arena pointer; the
+          generated instruction API cannot write that word. *)
   | Store_context of int * register
       (** Store one qword to the private R11 context at an aligned byte offset
           from zero through 64. *)
@@ -136,6 +148,12 @@ val scalar_frame_slot : offset:int -> (frame_slot, string) result
 (** Construct an RBP-relative scalar address with any signed disp32. Width and
     extension remain explicit in [Load_frame_narrow]/[Store_frame_narrow]. *)
 
+val arena_slot : offset:int -> (arena_slot, string) result
+(** Construct an R9-relative private-arena address. Offsets are nonnegative
+    signed disp32 values and need not be aligned, so adjacent narrow scalar
+    objects and initialization bytes remain representable. The constructor does
+    not expose or synthesize an arena base address. *)
+
 val call_frame : bytes:int -> (call_frame, string) result
 (** Construct a fixed callable frame. Sizes are positive 16-byte multiples up to
     4080 bytes, so PUSH RBP plus one frame allocation never skips a 4 KiB stack
@@ -156,8 +174,10 @@ val size : instruction -> int
     eight bytes depending on width/prefix requirements. Callable allocation/free
     uses a seven-byte imm32 RSP form. Direct CALL and branches use fixed rel32
     forms; status/context immediate stores are always eight bytes. Private
-    context register loads/stores use fixed disp8 forms. Invalid immediate,
-    branch or private-context operands raise [Invalid_argument]. *)
+    context register loads/stores use fixed disp8 forms. Context loads admit the
+    immutable arena-pointer word at offset 72; stores remain restricted through
+    offset 64. Arena qword/narrow accesses use fixed R9+disp32 forms. Invalid
+    immediate, branch or private-context operands raise [Invalid_argument]. *)
 
 val encode : instruction -> string
 (** Encode one instruction into a fresh string using the pinned opcode facts. *)

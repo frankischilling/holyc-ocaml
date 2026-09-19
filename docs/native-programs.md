@@ -56,10 +56,10 @@ and payload-zero internal word views.
 
 The source driver parses without a command or stream executor. Original
 declaration callbacks prepare bounded scalar defaults in both modes; an
-iterative source gate rejects globals, statics, prototypes/externs,
+iterative source gate admits ordinary scalar globals without initializers and rejects statics, prototypes/externs,
 explicit register/declaration modifiers, non-integer parameters or locals,
 arrays, source pointer operations, indirect calls, implicit output and unsupported
-statements. Arrays, globals and aggregates reject before their preparation.
+statements. Arrays, global initializers and aggregates reject before their preparation.
 Entry statements cannot declare storage.
 It reports the first source-domain violation while retaining parser diagnostics.
 A directive needing
@@ -75,7 +75,7 @@ source-order, ownership and resource boundary.
 
 The backend preflights the complete bundle, including unreachable instructions
 and unused function bodies. The exact `Runtime_call_context` must match the entry
-and definition bodies, including their original empty initialization context,
+and definition bodies, including their original initialization context,
 and every body must retain its exact associated frame. A foreign context with
 the same empty contents cannot replace that original authority.
 Zero storage bytes and zero prepared storage steps do not prove that a bundle
@@ -127,7 +127,9 @@ stream end on the last allowed instruction succeeds.
 
 `X86_64_word_codegen` shares word validation, register/spill allocation, exact
 branch resolution and frame/unwind generation between expressions and programs.
-Programs have five value registers, RAX/RCX/RDX/R8/R9; the reported register peak
+Programs without globals have five value registers, RAX/RCX/RDX/R8/R9.
+Storage-bearing callable programs reserve R9 for the arena and use four value
+registers; the reported register peak
 also counts R10, R11 and any fixed or temporary registers. Each block has fresh
 value ownership and reusable spill slots. Closed programs keep their original
 single frame, sized to the largest block, with a maximum of 4,088 bytes.
@@ -210,7 +212,7 @@ The compiler counts all IR and blocks before allocating its maps, preflights the
 whole bundle, and checks the complete planned image before allocating encoded
 bytes. Prologue, meter, guard, fault-block and epilogue bytes all count toward
 the code quota. Existing `run` global, literal and output options retain their
-configuration validation; this gate consumes none of those resources. Default
+configuration validation; scalar globals consume the declared global-byte quota. See [native globals](native-globals.md) for private arena accounting. Default
 preparation has independent work and saved-payload bounds. The semantic
 live-frame limit counts the checked local frame plus
 eight bytes per fixed argument, excluding compiler-private storage. The physical

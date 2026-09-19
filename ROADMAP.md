@@ -50,6 +50,10 @@ the same owned occurrences and reserved label targets; labels are structural
 boundaries and gotos use the existing checked jump. Source order stays separate
 from `for` update execution order, and skipped initialization, return completeness
 and resource limits remain checked. See [goto execution](docs/integer-goto.md).
+Issue #667 adds [native scalar globals](docs/native-globals.md), shared by entry
+and generated calls with exact declared widths, AOT zero/JIT unknown state and
+fresh private arenas. Global declaration initializers and broader persistent
+storage remain open.
 The complete HolyC ABI, persistent and pointer memory operations, F64/x87 and
 conversions, runtime output, and general declaration/`#exe` native integration
 remain open. Optimizer parity, assembler and object/BIN output, actual TempleOS
