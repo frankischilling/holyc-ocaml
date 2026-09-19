@@ -111,6 +111,18 @@ let prepare_default context fragment =
         fragment)
     bindings
 
+let prepare_static context fragment =
+  let* bindings =
+    Top_level_expression_binding.resolve_static_fragment ~table:context.table
+      ~parent:context.parent ~module_expressions:context.expressions fragment
+  in
+  finish context
+    ~environment:(Sema.Static_initializer_fragment.environment fragment)
+    ~build:(fun ~table ~expressions ->
+      Top_level_expression_tree.build_static_fragment ~table ~expressions
+        fragment)
+    bindings
+
 let prepare_dimension context fragment =
   let* bindings =
     Top_level_expression_binding.resolve_dimension_fragment ~table:context.table

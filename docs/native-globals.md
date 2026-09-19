@@ -58,10 +58,12 @@ a complete HolyC ABI, or a module relocation format.
 ## Static locals
 
 `examples/native-scalar-statics.hc` returns 42 in both modes. Ordinary scalar
-static locals without declaration initializers share the arena across direct
+static locals share the arena across direct
 and recursive calls. Same-spelled statics in separate functions have distinct
-objects. Each execution restores AOT zero or JIT unknown state, including after
-a previous fault. A static declaration does not reinitialize on function entry.
+objects. Closed scalar initializers prepare once during parsing, including in
+unused functions and unreachable declarations. Each execution restores their
+declared-width values. Statics without initializers restore AOT zero or JIT
+unknown state, including after a previous fault. A static declaration does not reinitialize on function entry.
 
 The layout requires each static's exact symbol, type, frame and location, and
 one supplied compiled function bound to that frame. Every static location must
@@ -69,9 +71,24 @@ have one storage slot, including unused declarations. Address preflight checks
 the owning function; entry and other functions cannot use its static symbol.
 Global and RBP address paths retain their own ownership checks. Saved defaults,
 prepared globals, switches and automatic locals compose with this storage.
-Static declaration initializers, explicit registers and data-heap options remain
-unsupported. Static allocation is separate from each call's semantic frame and
+Explicit registers and data-heap options remain unsupported. Static allocation is separate from each call's semantic frame and
 from runtime instruction work.
+
+`examples/native-static-initializers.hc` combines a global, saved default and
+persistent static counter. Static preparation runs after expression lookahead
+and before checking the declaration delimiter. Its receipt retains the exact
+allocation, function and initializer AST. Completion retains the original local
+declarator. The final import checks the function symbol, declared type and exact
+initializer expression, then seals the saved value to the compiled storage and
+call bundle. An incomplete declaration cannot authorize an image, even if its
+expression already consumed preparation work.
+
+Static expressions use the same closed numeric engine and invocation budget as
+globals and defaults. They cannot read globals or locals, call functions, use
+strings or floating values, or bypass the existing shift-optimizer restriction.
+Preparation remains separate from runtime instruction work and never runs again
+on a function call. A statically prepared neighbor does not initialize an object
+whose declaration has no initializer.
 
 ## Limits and reports
 
@@ -87,11 +104,11 @@ Native v2 reports add `native.image.global_bytes` and `global_arena_bytes`.
 Code, IR, block, spill, semantic frame, call-depth and active-stack limits remain
 independent. Storage bookkeeping adds machine instructions, not extra IR steps.
 Initializer work counts toward `--initializer-step-limit`, shared with defaults.
-Global payloads count toward the global-byte quota, not `--default-byte-limit`.
+Global and static payloads count toward the global-byte quota, not `--default-byte-limit`.
 The native API tests compare exact runtime meters with fresh isolated checked
 interpreter execution; public source tests independently check values.
 
-Effectful or call-dependent initializers, static initializers, arrays, pointers, aggregates,
+Effectful or call-dependent initializers, arrays, pointers, aggregates,
 aliases, extern/import/data-heap storage and retained task storage remain
 unsupported. Defaults still prepare closed numeric expressions in a separate
 empty fragment at their original declaration boundary; admitting globals does
@@ -112,6 +129,8 @@ its storage to eight bytes and emits AOT zero bytes;
 `Compiler/BackC.HC:159-204` separates assignment storage and result registers.
 `Compiler/PrsVar.HC:1-115,206-212` distinguishes immediate initializer preparation
 from AOT scheduling, converts its result and copies the declared width.
+`PrsVar.HC:215-228,555-585` invokes that path for static declarations and writes
+the prepared bytes into AOT storage before declaration parsing continues.
 
 `test/test_native_expression.ml` checks literal arena instruction encodings.
 `test/test_native_program.ml` checks exact ownership, corrupted address

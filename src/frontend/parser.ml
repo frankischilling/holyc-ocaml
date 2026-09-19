@@ -424,6 +424,48 @@ let function_local_allocation_is_current receipt =
        .command_context
        .context_active
 
+type static_initializer_preparation = {
+  static_allocation : function_local_allocation;
+  static_initializer : Ast.local_initializer;
+  static_activity : static_initializer_activity;
+}
+
+and completed_static_initializer = {
+  static_preparation : static_initializer_preparation;
+  static_declarator : Ast.local_declarator;
+}
+
+and static_initializer_activity = {
+  mutable static_current : static_initializer_preparation option;
+  mutable static_completion_current : completed_static_initializer option;
+  mutable static_completed : Ast.local_declarator option;
+}
+
+let static_initializer_context_is_current receipt =
+  let context =
+    receipt.static_allocation.allocation_function.function_header
+      .declaration_command
+      .command_context
+  in
+  context.context_active
+  &&
+  match (context.context_position, !(context.context_stack)) with
+  | Some position, active :: _ -> position == active
+  | _ -> false
+
+let static_initializer_is_current receipt =
+  Option.fold ~none:false ~some:(( == ) receipt)
+    receipt.static_activity.static_current
+  && static_initializer_context_is_current receipt
+
+let static_initializer_completion_is_current receipt =
+  Option.fold ~none:false ~some:(( == ) receipt)
+    receipt.static_preparation.static_activity.static_completion_current
+  && static_initializer_context_is_current receipt.static_preparation
+
+let static_initializer_completed_declarator receipt =
+  receipt.static_activity.static_completed
+
 type function_position_write = {
   position_function : function_publication;
   position_source : compiler_position_source;
@@ -706,6 +748,8 @@ type declaration_event =
   | Function_declared of function_publication
   | Function_position_written of function_position_write
   | Function_local_allocated of function_local_allocation
+  | Static_initializer_preparing of static_initializer_preparation
+  | Static_initializer_completed of completed_static_initializer
   | Function_parameter_declared of function_parameter_publication
   | Parameter_default_completed of completed_parameter_default
   | Function_parameter_completed of completed_function_parameter
@@ -7062,6 +7106,7 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                   cursor.local_allocations <-
                     receipt :: cursor.local_allocations)
                 cursor.local_function;
+              let pending_static = ref None in
               let parsed_initializer =
                 if equals_item.token.kind <> Token_kind.Punctuation '=' then
                   Some (None, [])
@@ -7075,6 +7120,7 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                           following statement"
                          name.spelling)
                 else if storage = Ast.Static_local then
+                  let allocation = List.nth_opt cursor.local_allocations 0 in
                   let equals_item = take cursor in
                   Option.map
                     (fun (value : parsed_initializer) ->
@@ -7085,6 +7131,31 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                           ~value:value.node
                           ~location:(location_from_expression_tokens tokens)
                       in
+                      (match (cursor.declaration, allocation) with
+                      | Some _, Some static_allocation ->
+                          let static_activity =
+                            {
+                              static_current = None;
+                              static_completion_current = None;
+                              static_completed = None;
+                            }
+                          in
+                          let receipt =
+                            {
+                              static_allocation;
+                              static_initializer = initial_value;
+                              static_activity;
+                            }
+                          in
+                          static_activity.static_current <- Some receipt;
+                          Fun.protect
+                            ~finally:(fun () ->
+                              static_activity.static_current <- None)
+                            (fun () ->
+                              publish_declaration cursor (peek cursor)
+                                (Static_initializer_preparing receipt));
+                          pending_static := Some receipt
+                      | _ -> ());
                       (Some initial_value, tokens))
                     (parse_initializer_value cursor
                        ~declarator_context:
@@ -7158,6 +7229,21 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                           ~array_dimensions ~initial_value ~delimiter
                           ~location:(location_from_expression_tokens tokens)
                       in
+                      Option.iter
+                        (fun static_preparation ->
+                          let receipt =
+                            { static_preparation; static_declarator = node }
+                          in
+                          let activity = static_preparation.static_activity in
+                          activity.static_completion_current <- Some receipt;
+                          Fun.protect
+                            ~finally:(fun () ->
+                              activity.static_completion_current <- None)
+                            (fun () ->
+                              publish_declaration cursor delimiter_item
+                                (Static_initializer_completed receipt));
+                          activity.static_completed <- Some node)
+                        !pending_static;
                       Some ({ node; tokens } : parsed_local_declarator)))
 
 let parse_local_declaration cursor ~boundary : parsed_statement option =

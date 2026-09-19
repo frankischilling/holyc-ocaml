@@ -5,7 +5,9 @@ between generated entry code and direct functions.
 `holyc run --target=host-jit examples/native-scalar-globals.hc` returns 42 in
 both preprocessing modes. Closed scalar declaration initializers also prepare
 at their original source boundary; `examples/native-scalar-initializers.hc`
-combines them with a saved default. Effectful initializers and pointer storage
+combines them with a saved default.
+`examples/native-static-initializers.hc` adds a persistent function-local static
+counter prepared at its declaration. Effectful initializers and pointer storage
 remain unsupported by this native increment.
 
 [Retained named types](docs/retained-named-types.md) preserve an aggregate

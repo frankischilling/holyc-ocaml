@@ -70,7 +70,7 @@ A directive needing
 `#exe` execution receives the parser's explicit missing-capability diagnostic;
 it cannot route the ordinary program into the interpreter. Compilation also
 checks that the resulting unit has no scheduled global/static initialization
-before invoking the backend. Prepared global images require their original
+before invoking the backend. Prepared global and static images require their original
 native preparation certificate. Every admitted default prepares
 once, even when all arguments are supplied or its function is unused. Calls reuse
 the saved value. Default-bearing definitions must precede executable top-level

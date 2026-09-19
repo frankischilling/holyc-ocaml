@@ -14,9 +14,9 @@ val create :
   (t, error list) result
 (** Seal ordinary scalar globals and uninitialized scalar statics for one exact
     compiled bundle. Statics require their unique supplied function and exact
-    frame/location. Global initial values require original native preparation
-    proof. Static initializers, arrays, retained task storage and foreign owners
-    are rejected. *)
+    frame/location. Declaration initial values require [create_prepared] and
+    original native preparation proof. Arrays, retained task storage and foreign
+    owners are rejected. *)
 
 val create_prepared :
   functions:Ir.Integer_interpreter.function_definition list ->
@@ -25,6 +25,10 @@ val create_prepared :
   initialization:Ir.Global_initialization.t ->
   entry:Ir.X87_stack.t ->
   (t, error list) result
+
+(** Seal original prepared global/static values to the same exact bundle and
+    restore their declared-width bytes and initialization flags in each image.
+*)
 
 val globals : t -> Ir.Integer_globals.t
 val entry : t -> Ir.X87_stack.t

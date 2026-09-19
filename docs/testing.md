@@ -43,6 +43,12 @@ unknown JIT reads, AOT zero, fault unwind and exact/one-below padded quotas.
 Compile-only ownership tests cover missing, duplicate, foreign and reconstructed
 frames, cross-function address substitution, opcode/type corruption and both ABI
 encodings. The CLI fixture is `examples/native-scalar-statics.hc`.
+Static initializer cases also cover live and expired callbacks, cloned receipts,
+missing/reordered/foreign preparation, exact bundle ownership, both ABI encodings
+and shared work limits. Native execution covers persistent initialized values,
+source queries, widths, unused declarations and restored images. Parse and
+preparation failures retain reached work without entering native code. CLI tests
+exercise `examples/native-static-initializers.hc` in both modes.
 
 Goto execution tests connect original function-local label resolution to public
 interpreter, native API and CLI runs in both preprocessing modes. They cover

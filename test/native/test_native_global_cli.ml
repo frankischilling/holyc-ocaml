@@ -22,9 +22,9 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 5)
+    (Array.length Sys.argv = 6)
     "usage: test_native_global_cli.exe <holyc.exe> <globals.hc> \
-     <initializers.hc>"
+     <initializers.hc> <statics.hc> <static-initializers.hc>"
 
 let compiler = Sys.argv.(1)
 let global_fixture = Sys.argv.(2)
@@ -127,6 +127,35 @@ let check_word report type_ value bits =
 let () =
   List.iter
     (fun mode ->
+      with_file ".hc"
+        "I8 G=20;I64 F(I64 n=2){static I8 s=20;return s+=n;}G+F();"
+        (fun source ->
+          let prepared = host_json ~mode source in
+          check_success prepared;
+          check_word prepared "i64" "42" "0x000000000000002a";
+          check_word (ir_json ~mode source) "i64" "42" "0x000000000000002a";
+          let steps =
+            prepared |> member "compiled_initializer_steps" |> to_int
+          in
+          require (steps = 9) "global/default/static work";
+          require
+            (prepared |> member "prepared_default_bytes" |> to_int = 8)
+            "static bytes are not default payloads";
+          check_success
+            (host_json ~mode
+               ~options:
+                 [ "--initializer-step-limit=9"; "--global-byte-limit=9" ]
+               source);
+          let failed =
+            host_json ~status:1 ~mode
+              ~options:[ "--initializer-step-limit=8" ]
+              source
+          in
+          require
+            (member "executed_steps" failed = `Null)
+            "static quota before native entry");
+      check_word (host_json ~mode Sys.argv.(5)) "i64" "42" "0x000000000000002a";
+      check_word (ir_json ~mode Sys.argv.(5)) "i64" "42" "0x000000000000002a";
       let statics = host_json ~mode Sys.argv.(4) in
       check_success statics;
       check_word statics "i64" "42" "0x000000000000002a";
@@ -221,7 +250,7 @@ let () =
           "I64 G[1];42;";
           "I64 *G;42;";
           "extern I64 G;42;";
-          "I64 F(){static I64 G=1;return 42;}F();";
+          "I64 F(){static I64 G=1<<2;return 42;}F();";
           "F64 G;42;";
           "I64 G;I64 F(I64 x=G){return x;}F();";
         ])

@@ -8,6 +8,10 @@ type initializer_completion = {
   preparation : Integer_initializers.native_preparation;
 }
 
+type static_completion = {
+  static_preparation : Integer_initializers.native_static_preparation;
+}
+
 type t = {
   compilation_mode : Frontend.Preprocessor.compilation_mode;
   table : Sema.Symbol_table.t;
@@ -17,6 +21,7 @@ type t = {
   mutable ledger : Task_declarations.t option;
   mutable completed_rev : completion list;
   mutable initializer_attempts : Parser.completed_initializer_leaf list;
+  mutable statics_rev : static_completion list;
   mutable initializers_rev : initializer_completion list;
 }
 
@@ -50,6 +55,7 @@ let create ~compilation_mode ~max_initializer_steps
         completed_rev = [];
         initializer_attempts = [];
         initializers_rev = [];
+        statics_rev = [];
       }
 
 let scalar_integer primitive =
@@ -221,4 +227,77 @@ let prepare_initializer value ~session ~ledger receipt =
       ~max_steps:(VM.task_initializer_limit value.state - before)
   in
   value.initializers_rev <- { preparation = prepared } :: value.initializers_rev;
+  Ok ()
+
+let static_completions value = List.rev value.statics_rev
+let static_preparation completion = completion.static_preparation
+
+let static_initializers value =
+  List.map static_preparation (static_completions value)
+
+let prepare_static value ~session ~ledger receipt =
+  let span =
+    receipt.Parser.static_initializer.local_initializer_location.span
+  in
+  let diagnose result =
+    Result.map_error
+      (fun message -> [ Integer_source.message_diagnostic ~span message ])
+      result
+  in
+  let* () =
+    if
+      Session.semantic_symbols session != value.table
+      || Option.fold ~none:false
+           ~some:(fun prior -> prior != ledger)
+           value.ledger
+      || Parser.context_mode
+           receipt.static_allocation.allocation_function.function_header
+             .declaration_command
+             .command_context
+         <> value.compilation_mode
+    then
+      diagnose
+        (Error
+           "HCRUN0004: native static initializer has another source owner or \
+            mode")
+    else Ok ()
+  in
+  let* fragment =
+    Task_declarations.native_static_initializer_fragment ledger
+      ~runtime:value.state receipt
+  in
+  let* () =
+    if
+      Expression_facts.contains_string_literal
+        (Sema.Static_initializer_fragment.expression fragment)
+    then
+      diagnose
+        (Error
+           "HCRUN0006: native static initializers do not admit string-backed \
+            values")
+    else Ok ()
+  in
+  value.ledger <- Some ledger;
+  let create_context =
+    match value.compilation_mode with
+    | Frontend.Preprocessor.Jit -> Initializer_fragment_typing.create_context
+    | Frontend.Preprocessor.Aot ->
+        Initializer_fragment_typing.create_aot_context
+  in
+  let* context =
+    create_context ~table:value.table
+      ~parent:(Task_declarations.initializer_scope ledger)
+    |> diagnose
+  in
+  let* typed =
+    Initializer_fragment_typing.prepare_static context fragment |> diagnose
+  in
+  let before = work value in
+  let* static_preparation =
+    Integer_initializers.prepare_native_static ~fragment ~typed
+      ~on_progress:(fun steps ->
+        VM.record_task_preparation value.state ~before ~steps)
+      ~max_steps:(VM.task_initializer_limit value.state - before)
+  in
+  value.statics_rev <- { static_preparation } :: value.statics_rev;
   Ok ()

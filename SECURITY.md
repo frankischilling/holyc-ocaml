@@ -132,7 +132,7 @@ There is no interpreter fallback, source pointer access, external call or
 arbitrary-byte constructor in this gate. See
 [native programs](docs/native-programs.md) for exact source and reporting limits.
 
-Native scalar globals and uninitialized scalar statics allocate a separate RW,
+Native scalar globals and statics allocate a separate RW,
 non-executable arena for each
 execution. Exact checked symbol/type/opcode ownership restricts generated
 accesses; arbitrary integers cannot supply arena addresses. Logical declared
@@ -144,6 +144,11 @@ addresses also require their exact compiled function, frame and location;
 other functions and entry cannot borrow that symbol. Unused statics consume
 their padded allocation before native entry, and per-object initialization flags
 count toward the separate arena cap.
+Closed static initializers require the original live preparation receipt and
+successful declaration completion. Saved bits alone cannot authorize an image.
+Their work shares the global/default preparation budget; their payload occupies
+the padded static allocation. Calls reuse that value, and each image execution
+restores it.
 
 ## Supported versions
 

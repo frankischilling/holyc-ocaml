@@ -10,6 +10,7 @@ type root_role =
   | Global_initializer of Global_initializer_binding.resolved_global
   | Initializer_fragment of Initializer_fragment.t
   | Default_fragment of Default_fragment.t
+  | Static_initializer_fragment of Static_initializer_fragment.t
   | Dimension_fragment of Dimension_fragment.t
   | Offset_fragment of Offset_fragment.t
   | Implicit_output_fixed of {
@@ -188,6 +189,13 @@ val statement_implicit_outputs :
 val make_offset_root :
   index:int ->
   fragment:Offset_fragment.t ->
+  expression:Function_call_resolution.argument_expression ->
+  calls:call list ->
+  (root, error) result
+
+val make_static_root :
+  index:int ->
+  fragment:Static_initializer_fragment.t ->
   expression:Function_call_resolution.argument_expression ->
   calls:call list ->
   (root, error) result

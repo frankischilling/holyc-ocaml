@@ -54,3 +54,20 @@ val completions : t -> completion list
 val execution : completion -> Ir.Default_fragment_program.execution
 (** Read-only fragment facts; a raw fragment execution cannot create a receipt.
 *)
+
+type static_completion
+
+val prepare_static :
+  t ->
+  session:Session.t ->
+  ledger:Task_declarations.t ->
+  Frontend.Parser.static_initializer_preparation ->
+  (unit, Common.Diagnostic.t list) result
+
+val static_completions : t -> static_completion list
+
+val static_preparation :
+  static_completion -> Integer_initializers.native_static_preparation
+
+val static_initializers :
+  t -> Integer_initializers.native_static_preparation list

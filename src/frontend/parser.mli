@@ -415,6 +415,30 @@ val function_local_allocation_is_current : function_local_allocation -> bool
 (** Original local declaration after type/dimension lookahead and before its
     initializer. The predecessor belongs to this function's parser cursor. *)
 
+type static_initializer_activity
+
+type static_initializer_preparation = private {
+  static_allocation : function_local_allocation;
+  static_initializer : Ast.local_initializer;
+  static_activity : static_initializer_activity;
+}
+
+type completed_static_initializer = private {
+  static_preparation : static_initializer_preparation;
+  static_declarator : Ast.local_declarator;
+}
+
+val static_initializer_is_current : static_initializer_preparation -> bool
+
+val static_initializer_completion_is_current :
+  completed_static_initializer -> bool
+
+val static_initializer_completed_declarator :
+  static_initializer_preparation -> Ast.local_declarator option
+(** Scalar preparation follows expression lookahead and precedes declarator
+    delimiter validation. Completion retains the original declarator after its
+    delimiter is consumed. Callback-free parsing emits neither event. *)
+
 type function_position_write = private {
   position_function : function_publication;
   position_source : compiler_position_source;
@@ -640,6 +664,8 @@ type declaration_event = private
   | Function_declared of function_publication
   | Function_position_written of function_position_write
   | Function_local_allocated of function_local_allocation
+  | Static_initializer_preparing of static_initializer_preparation
+  | Static_initializer_completed of completed_static_initializer
   | Function_parameter_declared of function_parameter_publication
   | Parameter_default_completed of completed_parameter_default
   | Function_parameter_completed of completed_function_parameter

@@ -23,6 +23,7 @@ val prepare_dimension :
 type item
 type static_item
 type t
+type native_static_preparation
 type native_preparation
 
 val prepare_native :
@@ -70,6 +71,7 @@ val fragment_steps : fragment_preparation -> int
 
 val prepare :
   ?native_preparations:native_preparation list ->
+  ?native_static_preparations:native_static_preparation list ->
   ?function_calls:Sema.Function_call_target_classification.t list ->
   ?allow_zero_budget:bool ->
   ?retained_function_source:
@@ -120,3 +122,17 @@ val prepare_offset :
   top_calls:Sema.Top_level_function_call_target_classification.t list ->
   Ir.Offset_fragment_destination.t ->
   (classification * int, Common.Diagnostic.t list) result
+
+val prepare_native_static :
+  fragment:Sema.Static_initializer_fragment.t ->
+  typed:Sema.Function_call_expression_result.top_level_t ->
+  on_progress:(int -> unit) ->
+  max_steps:int ->
+  (native_static_preparation, Common.Diagnostic.t list) result
+
+val native_static_evidence : t -> native_static_preparation list
+
+val native_static_receipt :
+  native_static_preparation -> Frontend.Parser.static_initializer_preparation
+
+val native_statics_complete : span:Common.Span.t -> t -> bool
