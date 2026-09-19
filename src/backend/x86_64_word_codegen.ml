@@ -4166,12 +4166,33 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
 
 let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
     ?(max_blocks = 4096) ?(max_global_bytes = 1_048_576) ?parameter_defaults
-    ~max_ir_instructions ~max_code_bytes ~runtime_calls ~initialization ~entry
-    ~functions () =
+    ?global_initializers ~max_ir_instructions ~max_code_bytes ~runtime_calls
+    ~initialization ~entry ~functions () =
   let globals = Ir.Global_initialization.globals initialization in
   let ( let* ) = Result.bind in
+  let* () =
+    match global_initializers with
+    | Some proof
+      when not
+             (Driver.Native_global_initializers.matches proof ~runtime_calls
+                ~initialization ~entry ~functions) ->
+        Error
+          [
+            {
+              code = "HCBACK0003";
+              message =
+                "native global preparation belongs to another callable bundle";
+              span = None;
+            };
+          ]
+    | _ -> Ok ()
+  in
   let* global_storage =
-    Global_storage.create ~max_global_bytes ~initialization ~entry
+    (match global_initializers with
+      | None -> Global_storage.create ~max_global_bytes ~initialization ~entry
+      | Some initializers ->
+          Global_storage.create_prepared ~initializers ~max_global_bytes
+            ~initialization ~entry)
     |> Result.map_error
          (List.map (fun (error : Global_storage.error) ->
               { code = error.code; message = error.message; span = error.span }))

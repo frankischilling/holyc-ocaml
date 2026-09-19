@@ -4,6 +4,10 @@ module Parser = Frontend.Parser
 
 type completion = { execution : Ir.Default_fragment_program.execution }
 
+type initializer_completion = {
+  preparation : Integer_initializers.native_preparation;
+}
+
 type t = {
   compilation_mode : Frontend.Preprocessor.compilation_mode;
   table : Sema.Symbol_table.t;
@@ -12,6 +16,8 @@ type t = {
   mutable saved_bytes : int;
   mutable ledger : Task_declarations.t option;
   mutable completed_rev : completion list;
+  mutable initializer_attempts : Parser.completed_initializer_leaf list;
+  mutable initializers_rev : initializer_completion list;
 }
 
 let ( let* ) = Result.bind
@@ -19,6 +25,11 @@ let work value = VM.task_initializer_steps value.state
 let bytes value = value.saved_bytes
 let completions value = List.rev value.completed_rev
 let execution completion = completion.execution
+let initializer_completions value = List.rev value.initializers_rev
+let initializer_preparation completion = completion.preparation
+
+let initializers value =
+  List.map initializer_preparation (initializer_completions value)
 
 let create ~compilation_mode ~max_initializer_steps
     ?(max_default_bytes = 65_536) session =
@@ -37,6 +48,8 @@ let create ~compilation_mode ~max_initializer_steps
         saved_bytes = 0;
         ledger = None;
         completed_rev = [];
+        initializer_attempts = [];
+        initializers_rev = [];
       }
 
 let scalar_integer primitive =
@@ -140,4 +153,72 @@ let prepare value ~session ~ledger receipt =
   let* () = Task_declarations.finish_native_source_default ledger execution in
   value.saved_bytes <- value.saved_bytes + 8;
   value.completed_rev <- { execution } :: value.completed_rev;
+  Ok ()
+
+let prepare_initializer value ~session ~ledger receipt =
+  let span = receipt.Parser.leaf_initializer.initializer_equals.span in
+  let diagnose result =
+    Result.map_error
+      (fun message -> [ Integer_source.message_diagnostic ~span message ])
+      result
+  in
+  let* () =
+    if
+      Session.semantic_symbols session != value.table
+      || Option.fold ~none:false
+           ~some:(fun prior -> prior != ledger)
+           value.ledger
+      || Parser.context_mode
+           receipt.leaf_initializer.initializer_owner.global_header
+             .declaration_command
+             .command_context
+         <> value.compilation_mode
+      || List.exists (( == ) receipt) value.initializer_attempts
+    then
+      diagnose
+        (Error
+           "HCRUN0004: native initializer has another owner or was already \
+            attempted")
+    else Ok ()
+  in
+  let* authority =
+    Task_declarations.native_initializer_fragment ledger ~runtime:value.state
+      receipt
+  in
+  let fragment = Sema.Initializer_fragment.authorized_fragment authority in
+  let expression =
+    fragment |> Sema.Initializer_fragment.leaf
+    |> Sema.Initializer_source.leaf_expression_ast
+  in
+  let* () =
+    if Expression_facts.contains_string_literal expression then
+      diagnose
+        (Error
+           "HCRUN0006: native initializers do not admit string-backed values")
+    else Ok ()
+  in
+  value.ledger <- Some ledger;
+  value.initializer_attempts <- receipt :: value.initializer_attempts;
+  let create_context =
+    match value.compilation_mode with
+    | Frontend.Preprocessor.Jit -> Initializer_fragment_typing.create_context
+    | Frontend.Preprocessor.Aot ->
+        Initializer_fragment_typing.create_aot_context
+  in
+  let* context =
+    create_context ~table:value.table
+      ~parent:(Task_declarations.initializer_scope ledger)
+    |> diagnose
+  in
+  let* typed =
+    Initializer_fragment_typing.prepare context fragment |> diagnose
+  in
+  let before = work value in
+  let* prepared =
+    Integer_initializers.prepare_native ~authority ~typed
+      ~on_progress:(fun steps ->
+        VM.record_task_preparation value.state ~before ~steps)
+      ~max_steps:(VM.task_initializer_limit value.state - before)
+  in
+  value.initializers_rev <- { preparation = prepared } :: value.initializers_rev;
   Ok ()

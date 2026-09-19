@@ -75,8 +75,8 @@ let fail span code message =
 
 let compile_parsed_with_limit ?task_view ?initializer_progress
     ?declaration_command ?source_command ?retained_function_source
-    ?(allow_zero_initializer_budget = false) ~max_initializer_steps session
-    ~config (parsed : Frontend.Parser.output) =
+    ?native_initializers ?(allow_zero_initializer_budget = false)
+    ~max_initializer_steps session ~config (parsed : Frontend.Parser.output) =
   match parsed.ast with
   | None -> Error parsed.diagnostics
   | Some ast -> (
@@ -958,8 +958,9 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                    Ok Ir.Integer_interpreter.{ frame; body })
           in
           let* preparation_ =
-            Integer_initializers.prepare ~max_steps:max_initializer_steps
-              ?retained_function_source
+            Integer_initializers.prepare
+              ?native_preparations:native_initializers
+              ~max_steps:max_initializer_steps ?retained_function_source
               ~allow_zero_budget:
                 (allow_zero_initializer_budget || Option.is_some task_view)
               ?on_progress:initializer_progress
@@ -1166,8 +1167,8 @@ let compile_ast_internal ?task_view ?initializer_progress ?declaration_command
 let compile_ast ?max_initializer_steps session ~config ast =
   compile_ast_internal ?max_initializer_steps session ~config ast
 
-let compile_source_output ?initializer_progress ~source_command
-    ~max_initializer_steps session ~config parsed =
+let compile_source_output ?initializer_progress ?native_initializers
+    ~source_command ~max_initializer_steps session ~config parsed =
   let offset_work = Task_declarations.source_offset_work source_command in
   if offset_work > max_initializer_steps then
     Error
@@ -1177,8 +1178,8 @@ let compile_source_output ?initializer_progress ~source_command
           "the bounded aggregate offset preparation work limit was exhausted";
       ]
   else
-    compile_parsed_with_limit ?initializer_progress ~source_command
-      ~allow_zero_initializer_budget:(offset_work > 0)
+    compile_parsed_with_limit ?initializer_progress ?native_initializers
+      ~source_command ~allow_zero_initializer_budget:(offset_work > 0)
       ~max_initializer_steps:(max_initializer_steps - offset_work)
       session ~config parsed
 

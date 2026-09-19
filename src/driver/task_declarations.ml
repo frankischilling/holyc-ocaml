@@ -247,6 +247,7 @@ type t = {
     list;
   mutable source_defaults_runtime : VM.task_state option;
   mutable prepared_source_defaults : Ir.Prepared_parameter_default.t list;
+  mutable native_initializer_attempts : Sema.Initializer_source.leaf list;
   storage_boundaries : storage_boundary Names.t;
   mutable last_storage_global : Sema.Symbol.t option;
   session : Session.t;
@@ -377,6 +378,7 @@ let create_with_authority ?compiler_positions ?max_switch_work ?switch_budget
                   source_default_attempts = [];
                   source_defaults_runtime = None;
                   prepared_source_defaults = [];
+                  native_initializer_attempts = [];
                   storage_boundaries = Names.create 16;
                   last_storage_global = None;
                   session;
@@ -3189,6 +3191,91 @@ let initializer_leaf_for ledger (receipt : Parser.completed_initializer_leaf) =
         when original == publication ->
           Sema.Initializer_source.parser_leaf pending receipt |> checked span
       | _ -> fail span "initializer leaf belongs to another source declaration")
+
+let native_initializer_fragment ledger ~runtime receipt =
+  let ( let* ) = Result.bind in
+  let* leaf = initializer_leaf_for ledger receipt in
+  protect (fun () ->
+      let publication = receipt.Parser.leaf_initializer.initializer_owner in
+      let span = receipt.leaf_initializer.initializer_equals.span in
+      (match ledger.authority with
+      | Source_compilation _ when Parser.initializer_leaf_is_current receipt ->
+          ()
+      | _ ->
+          fail span "native initializer requires its original source callback");
+      validate_command ledger publication.global_header;
+      if not (VM.task_owns_table runtime ledger.table) then
+        fail span "native initializer has another semantic table";
+      (match ledger.source_defaults_runtime with
+      | Some prior when prior != runtime ->
+          fail span "native initializer has another invocation budget"
+      | _ -> ());
+      if List.exists (( == ) leaf) ledger.native_initializer_attempts then
+        fail span "native initializer was already attempted";
+      if Sema.Initializer_source.leaf_identifier_nodes leaf <> [] then
+        fail ~code:"HCRUN0006" span
+          "native initializers require closed expressions without value or \
+           function references";
+      if
+        publication.global_dimensions <> []
+        || Sema.Initializer_source.leaf_path leaf <> []
+      then
+        fail ~code:"HCRUN0001" span
+          "native initializers require scalar declarations";
+      let boundary =
+        Names.find ledger.storage_boundaries publication.global_name
+      in
+      let assigned = find ledger publication.global_name in
+      let declaration =
+        Sema.Compiler_record.declare_global ~dimensions:[] ~table:ledger.table
+          ~namespace:ledger.namespace ~predecessor:boundary.storage_predecessor
+          ~previous_global:boundary.storage_previous_global assigned.publication
+        |> checked span
+      in
+      let module Outer = Sema.Outer_environment in
+      let compilation_mode, tables =
+        match
+          Parser.context_mode
+            publication.global_header.declaration_command.command_context
+        with
+        | Frontend.Preprocessor.Aot -> (Outer.Aot, [ (Outer.Assembler, 0) ])
+        | Frontend.Preprocessor.Jit ->
+            (Outer.Jit, [ (Outer.Jit_task 0, 0); (Outer.Assembler, 1) ])
+      in
+      let tables =
+        List.map
+          (fun (table_kind, table_index) ->
+            Outer.make_table ~table_kind ~table_index []
+            |> Result.map_error Outer.error_to_string
+            |> checked span)
+          tables
+      in
+      let environment =
+        Outer.create ~table:ledger.table ~compilation_mode tables
+        |> Result.map_error Outer.error_to_string
+        |> checked span
+      in
+      let queries =
+        Sema.Query_selection.source_queries
+          (Sema.Initializer_source.leaf_expression_ast leaf)
+        |> List.map (fun expression ->
+            match Query_expressions.find_opt ledger.queries expression with
+            | Some query -> query.query_selection
+            | None -> fail span "native initializer lacks its original query")
+      in
+      let fragment =
+        Sema.Initializer_fragment.create_native_closed ~table:ledger.table
+          ~declaration ~leaf ~environment ~queries
+        |> checked span
+      in
+      let authority =
+        Sema.Initializer_fragment.authorize ~namespace:ledger.namespace fragment
+        |> checked span
+      in
+      ledger.native_initializer_attempts <-
+        leaf :: ledger.native_initializer_attempts;
+      ledger.source_defaults_runtime <- Some runtime;
+      authority)
 
 let initializer_declaration ledger (start : Parser.global_initializer_start) =
   protect (fun () ->

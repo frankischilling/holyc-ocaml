@@ -78,6 +78,7 @@ val compile_callable :
   ?max_blocks:int ->
   ?max_global_bytes:int ->
   ?parameter_defaults:Driver.Native_parameter_defaults.t ->
+  ?global_initializers:Driver.Native_global_initializers.t ->
   max_ir_instructions:int ->
   max_code_bytes:int ->
   runtime_calls:Ir.Runtime_call_context.t ->

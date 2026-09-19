@@ -128,6 +128,14 @@ val default_fragment_authority :
 
 val initializer_scope : t -> Sema.Symbol_table.scope
 
+val native_initializer_fragment :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.completed_initializer_leaf ->
+  (Sema.Initializer_fragment.authority, Common.Diagnostic.t list) result
+(** Authorize only the current original closed scalar leaf of an isolated source
+    ledger, without admitting its declaration to a runtime task. *)
+
 val initializer_declaration :
   t ->
   Frontend.Parser.global_initializer_start ->

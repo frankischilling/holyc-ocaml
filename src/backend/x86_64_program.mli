@@ -70,6 +70,7 @@ val compile_callable :
   ?max_blocks:int ->
   ?max_global_bytes:int ->
   ?parameter_defaults:Driver.Native_parameter_defaults.t ->
+  ?global_initializers:Driver.Native_global_initializers.t ->
   max_ir_instructions:int ->
   max_code_bytes:int ->
   runtime_calls:Ir.Runtime_call_context.t ->
@@ -85,10 +86,11 @@ val compile_callable :
     from the entry. Calls are emitted only from exact sealed runtime-call
     metadata and preserve the shared native status context. The exact
     initialization context must be supplied even when empty. Ordinary scalar
-    globals without initializers use a private arena; statics, arrays, retained
-    storage, initialization regions and their preparation work are rejected.
-    Declaration-time parameter defaults require [parameter_defaults] from the
-    exact source preparation; omitting it preserves the low-level rejection. *)
+    globals use a private arena. Initial values require [global_initializers]
+    from their exact source preparation. Statics, arrays, retained storage and
+    scheduled initialization regions are rejected. Declaration-time parameter
+    defaults require [parameter_defaults] from the exact source preparation;
+    omitting it preserves the low-level rejection. *)
 
 val code : t -> string
 

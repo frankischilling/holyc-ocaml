@@ -79,16 +79,18 @@ preparations and a certificate from another bundle reject before executable
 allocation. Low-level `X86_64_program.compile_callable` still rejects defaults
 when no certificate is supplied.
 
-The entry's global/static initialization and storage-preparation requirements
-remain empty. Saved defaults do not turn an empty global layout into evidence of
-preparation, and accepting their immediate producers does not authorize
-arbitrary literals as defaults.
+Scheduled global/static initialization remains excluded. Closed global
+initializers require their separate original preparation certificate; a default
+certificate cannot authorize them. Likewise, accepting immediate producers does
+not authorize arbitrary literals as defaults.
 
 ## Bounds and reports
 
 `Native_program.compile` and `evaluate` accept `max_initializer_steps`
 (default 100,000) and `max_default_bytes` (default 65,536). Both must be positive.
 The CLI names are `--initializer-step-limit` and `--default-byte-limit`.
+Closed global initializers share the work allowance with defaults, in declaration
+order. Their payload uses the global storage quota, not the saved-default quota.
 The preparation engine charges reached work, including faults. Each successfully
 prepared scalar default retains eight payload bytes. The byte allowance is
 checked before attempting the next default; repeated calls consume no new

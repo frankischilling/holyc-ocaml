@@ -59,8 +59,11 @@ evaluation remain separate gates. See [switch execution](docs/integer-switch.md)
 
 Issue #667 adds [native scalar globals](docs/native-globals.md), shared by entry
 and generated calls with exact declared widths, AOT zero/JIT unknown state and
-fresh private arenas. Global declaration initializers and broader persistent
-storage remain open.
+fresh private arenas. Issue #673 adds closed scalar global initializers, prepared
+once at their original leaf callbacks under the shared declaration-work budget.
+Native execution restores their declared-width values from owned preparation
+receipts. Effectful initializers, interleaved declaration execution and broader
+persistent storage remain open.
 The complete HolyC ABI, persistent and pointer memory operations, F64/x87 and
 conversions, runtime output, and general declaration/`#exe` native integration
 remain open. Optimizer parity, assembler and object/BIN output, actual TempleOS

@@ -95,6 +95,102 @@ let check_public_word label expected_type expected_bits = function
 
 let modes = [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let prepared_initializers () =
+  let cases =
+    [
+      ("entry", "I64 G=40;G+=2;G;", "I64", 42L);
+      ("declarator list", "I64 A=20,B=22;A+B;", "I64", 42L);
+      ("primitive size", "I64 G=sizeof(I64)+34;G;", "I64", 42L);
+      ("calls", "I64 G=40;I64 Add(I64 n=2){G+=n;return G;}Add();", "I64", 42L);
+      ("earlier default", "I64 F(I64 n=2){return n;}I64 G=40;G+F();", "I64", 42L);
+      ( "recursion",
+        "I64 G=21;I64 F(I64 n){if(n){G+=n;return F(n-1);}return G;}F(6);",
+        "I64",
+        42L );
+      ( "all widths",
+        "I8 A=255;U8 B=258;I16 C=65533;U16 D=65540;I32 E=4294967291;U32 \
+         F=4294967302;I64 G=-7;U64 H=46;A+B+C+D+E+F+G+H;",
+        "U64",
+        42L );
+      ("high bits", "U64 G=0x8000000000000000;G;", "U64", Int64.min_int);
+      ("unused", "I64 Unused=6*7;42;", "I64", 42L);
+      ("shadow", "I64 G=40;I64 F(){I64 G=2;return G;}G+F();", "I64", 42L);
+      ( "switch",
+        "I64 G=40;switch(G){case 40:G+=2;break;default:G=0;}G;",
+        "I64",
+        42L );
+      ("eager values", "I64 G=0||2;G+41;", "I64", 42L);
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, contents, type_, bits) ->
+          let report, native = native_success ~mode contents in
+          check_native_word label type_ bits native.execution.final_value;
+          check_public_word label type_ bits (public_run ~mode contents);
+          Alcotest.(check bool)
+            "declaration work retained" true
+            (Native_program.preparation_steps report > 0);
+          for _ = 1 to 3 do
+            match
+              Runtime.execute ~max_steps:10000 native.image |> require_ok Fun.id
+            with
+            | Program.Completed result ->
+                check_native_word "fresh prepared image" type_ bits
+                  result.final_value
+            | Program.Fault _ -> Alcotest.fail "fresh prepared image faulted"
+          done)
+        cases)
+    modes
+
+let initializer_limits () =
+  List.iter
+    (fun mode ->
+      let contents = "I8 A=255;I64 B=6*7-1;I64 F(I64 n=2){return A+B+n;}F();" in
+      let report, native = native_success ~mode contents in
+      let steps = Native_program.preparation_steps report in
+      Alcotest.(check int)
+        "only default payload" 8
+        (Native_program.default_bytes report);
+      let evaluate limit bytes =
+        let session, config, source = source_inputs ~mode contents in
+        Native_program.evaluate ~max_initializer_steps:limit
+          ~max_global_bytes:bytes ~max_default_bytes:8 session ~config ~source
+          ~max_steps:1000
+      in
+      let exact = evaluate steps 9 in
+      let result =
+        Native_program.outcome exact |> require_ok diagnostics_text
+      in
+      check_native_word "exact shared preparation and storage limits" "I64" 42L
+        result.value.execution.final_value;
+      List.iter
+        (fun failed ->
+          Alcotest.(check bool)
+            "quota rejects before entry" true
+            (Option.is_none (Native_program.image failed));
+          Alcotest.(check bool)
+            "work survives quota failure" true
+            (Native_program.preparation_steps failed > 0))
+        [ evaluate (steps - 1) 9; evaluate steps 8 ];
+      let repeated, _ = native_success ~mode (contents ^ "F();F();") in
+      Alcotest.(check int)
+        "calls never reprepare" steps
+        (Native_program.preparation_steps repeated);
+      let session, config, source = source_inputs ~mode "I64 G=40;G+=2;1/0;" in
+      let failure =
+        Native_program.evaluate session ~config ~source ~max_steps:1000
+      in
+      let image = Native_program.image failure |> Option.get in
+      for _ = 1 to 2 do
+        match Runtime.execute ~max_steps:1000 image |> require_ok Fun.id with
+        | Program.Fault fault when fault.kind = Program.Division_by_zero -> ()
+        | _ -> Alcotest.fail "prepared fault image did not unwind"
+      done;
+      ignore native)
+    modes
+
 let scalar_globals () =
   let cases =
     [
@@ -315,6 +411,11 @@ let () =
             "width edges, compound operations and nested faults" `Quick
             updates_and_widths;
           Alcotest.test_case "scalar storage and sharing" `Quick scalar_globals;
+          Alcotest.test_case "original scalar initializer preparation" `Quick
+            prepared_initializers;
+          Alcotest.test_case
+            "shared initializer/default limits and fault cleanup" `Quick
+            initializer_limits;
           Alcotest.test_case "fresh images and nested fault unwind" `Quick
             fresh_storage_and_faults;
           Alcotest.test_case "storage and step boundaries" `Quick

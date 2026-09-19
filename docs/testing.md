@@ -31,6 +31,11 @@ calls, defaults, gotos, compound RHS effects, fresh arena state and nested fault
 unwind in both modes. Compile-only tests verify exact storage identities and
 reject mutated address producers; API/CLI tests verify values and quotas through
 `examples/native-scalar-globals.hc`. See [native globals](native-globals.md).
+`test/native_initializer_authority` checks original closed preparation, missing
+and substituted receipts, exact preparation quotas and both ABI encodings
+without entering machine code. Native API/CLI cases also cover every scalar
+width, shared calls/defaults/switches and restored values on repeated execution
+through `examples/native-scalar-initializers.hc`.
 
 Goto execution tests connect original function-local label resolution to public
 interpreter, native API and CLI runs in both preprocessing modes. They cover

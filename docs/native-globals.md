@@ -2,7 +2,9 @@
 
 `holyc run --target=host-jit examples/native-scalar-globals.hc` returns I64 42
 in JIT and AOT preprocessing modes. Generated entry code and direct functions
-share ordinary I8/U8/I16/U16/I32/U32/I64/U64 globals declared without initializers.
+share ordinary I8/U8/I16/U16/I32/U32/I64/U64 globals, including closed scalar
+declaration initializers. `examples/native-scalar-initializers.hc` combines
+prepared globals and a saved parameter default and returns 42 in both modes.
 Loads, assignments, compound operations and prefix/postfix updates execute as
 machine instructions. Calls, recursion, local shadowing, constant parameter
 defaults and function-local gotos retain their existing checked semantics.
@@ -15,12 +17,25 @@ before a compound operation reads its old value.
 
 ## Initialization and ownership
 
-AOT globals start at zero. JIT globals start unknown and a reached read or update
+Globals without an initializer start at zero in AOT mode. In JIT mode they start
+unknown, and a reached read or update
 before assignment reports `HCIRVM0012`. The JIT rule is the existing hosted
 policy, not a claim about TempleOS allocator contents. Plain assignment sets
 the initialization flag after storing. Skipped assignments do not initialize.
 Every execution, including repeated executions of one image, receives fresh
 storage. Checked faults unwind named calls and release the arena.
+
+Closed integer initializers prepare at their original parser leaf, including
+unused declarations. They use the same checked constant-preparation engine and
+work budget as scalar defaults. The compiled unit reuses each prepared value
+without reevaluating its expression. Declared widths normalize stored bytes;
+each execution restores these bytes and their initialized flags.
+
+`Native_global_initializers` binds successful preparation to the original
+ordered leaves, symbols, types, initialization, entry and call bundle. Missing,
+duplicate, reordered or foreign evidence rejects. Ordinary batch preparation
+and caller-supplied initial bits cannot supply this certificate. Preparation
+faults occur before native entry and retain earlier declaration work.
 
 `X86_64_global_storage` seals the original initialization/entry bundle, exact
 global symbol objects, declared types, slots and address opcodes. JIT uses the
@@ -52,15 +67,19 @@ packed layout does not expose padding or raw pointers.
 Native v2 reports add `native.image.global_bytes` and `global_arena_bytes`.
 Code, IR, block, spill, semantic frame, call-depth and active-stack limits remain
 independent. Storage bookkeeping adds machine instructions, not extra IR steps.
+Initializer work counts toward `--initializer-step-limit`, shared with defaults.
+Global payloads count toward the global-byte quota, not `--default-byte-limit`.
 The native API tests compare exact runtime meters with fresh isolated checked
 interpreter execution; public source tests independently check values.
 
-Declaration initializers, static locals, arrays, pointers, aggregates,
+Effectful or call-dependent initializers, static locals, arrays, pointers, aggregates,
 aliases, extern/import/data-heap storage and retained task storage remain
 unsupported. Defaults still prepare closed numeric expressions in a separate
 empty fragment at their original declaration boundary; admitting globals does
 not authorize a default to read them. Full memory/runtime support, object/BIN
 output, loader acceptance and bootstrap remain open.
+Initializers must precede executable top-level statements. String-backed values,
+floating values and unresolved initializer shift-optimizer behavior also reject.
 
 ## Source evidence and verification
 
@@ -69,10 +88,14 @@ The reference is `c26482bb6ad3f80106d28504ec5db3c6a360732c`:
 `Compiler/PrsStmt.HC:285-435` allocates and publishes global storage;
 `Compiler/BackLib.HC:281-309,453-572` selects declared-width movements;
 `Compiler/BackC.HC:159-204` separates assignment storage and result registers.
+`Compiler/PrsVar.HC:1-115,206-212` distinguishes immediate initializer preparation
+from AOT scheduling, converts its result and copies the declared width.
 
 `test/test_native_expression.ml` checks literal arena instruction encodings.
 `test/test_native_program.ml` checks exact ownership, corrupted address
 producers, unsupported storage and immutable exports without native execution.
+`test/native_initializer_authority` checks original leaf ownership, exact and
+one-below preparation quotas, both ABI encodings and failure before entry.
 `test/native/test_native_global_execution.ml` covers all widths, shared calls,
 recursive faults, fresh images, updates and exact resource boundaries.
 `test/native/test_native_global_cli.ml` exercises the maintained source fixture,
