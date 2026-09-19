@@ -76,6 +76,7 @@ let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
   |> Result.map (fun image -> { image })
 
 let code compiled = Codegen.program_code compiled.image
+let code_bytes compiled = Codegen.program_code_bytes compiled.image
 
 let windows_unwind_info compiled =
   Codegen.program_windows_unwind_info compiled.image

@@ -594,6 +594,10 @@ let immutable_exports () =
   let unwind = Program.windows_unwind_info image in
   let original_code = Bytes.to_string (Bytes.of_string code) in
   let original_unwind = Bytes.to_string (Bytes.of_string unwind) in
+  Alcotest.(check int)
+    "encoded byte count excludes unwind metadata"
+    (String.length original_code)
+    (Program.code_bytes image);
   if String.length code > 0 then
     Bytes.set (Bytes.unsafe_of_string code) 0 '\xff';
   if String.length unwind > 0 then
@@ -601,6 +605,10 @@ let immutable_exports () =
   Alcotest.(check string)
     "code getter returns a fresh immutable copy" original_code
     (Program.code image);
+  Alcotest.(check int)
+    "export mutation preserves encoded byte count"
+    (String.length original_code)
+    (Program.code_bytes image);
   Alcotest.(check string)
     "unwind getter returns a fresh immutable copy" original_unwind
     (Program.windows_unwind_info image)

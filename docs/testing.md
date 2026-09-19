@@ -1,5 +1,10 @@
 # Testing holyc-ocaml
 
+Native program report tests compare JSON/human code-byte counts with encoded
+artifacts compiled from the same source in both modes. Control flow, functions
+and saved defaults have separate fixtures. Exact/one-below code quotas and the
+existing absent-image reports on failure remain covered.
+
 Switch execution tests join original parser-time endpoint preparation with
 ordinary source execution, native API and CLI runs in both preprocessing modes.
 Independent expected values cover scalar selectors, implicit cases, inclusive

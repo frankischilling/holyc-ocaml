@@ -310,6 +310,7 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
          Printf.printf
            "native-ir-instructions=%d\n\
             native-machine-instructions=%d\n\
+            native-code-bytes=%d\n\
             native-register-peak=%d\n\
             native-frame-bytes=%d\n\
             native-blocks=%d\n\
@@ -319,6 +320,7 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
             native-global-arena-bytes=%d\n"
            (Holyc_lib.X86_64_program.ir_instructions image)
            (Holyc_lib.X86_64_program.machine_instructions image)
+           (Holyc_lib.X86_64_program.code_bytes image)
            (Holyc_lib.X86_64_program.register_peak image)
            (Holyc_lib.X86_64_program.frame_bytes image)
            (Holyc_lib.X86_64_program.block_count image)
@@ -362,6 +364,7 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
                  `Int (Holyc_lib.X86_64_program.ir_instructions image) );
                ( "machine_instructions",
                  `Int (Holyc_lib.X86_64_program.machine_instructions image) );
+               ("code_bytes", `Int (Holyc_lib.X86_64_program.code_bytes image));
                ( "register_peak",
                  `Int (Holyc_lib.X86_64_program.register_peak image) );
                ("frame_bytes", `Int (Holyc_lib.X86_64_program.frame_bytes image));

@@ -195,6 +195,7 @@ let check_success ?(preparation = 0) ?(default_bytes = 0) report =
     [
       "ir_instructions";
       "machine_instructions";
+      "code_bytes";
       "register_peak";
       "frame_bytes";
       "block_count";
@@ -207,6 +208,10 @@ let check_success ?(preparation = 0) ?(default_bytes = 0) report =
   require
     (image |> member "ir_instructions" |> to_int >= 1
     && image |> member "machine_instructions" |> to_int >= 1
+    && image |> member "code_bytes" |> to_int > 0
+    && image |> member "code_bytes" |> to_int
+       <= (report |> member "native" |> member "limits" |> member "code_bytes"
+         |> to_int)
     && image |> member "register_peak" |> to_int >= 2
     && image |> member "register_peak" |> to_int <= 7
     && image |> member "frame_bytes" |> to_int <= Program.hard_max_stack_bytes
@@ -215,14 +220,14 @@ let check_success ?(preparation = 0) ?(default_bytes = 0) report =
     && image |> member "entry_stack_bytes" |> to_int > 0)
     "bounded native image metrics"
 
-let checked_source_compile contents =
+let checked_source_compile ?(mode = Holyc_lib.Preprocessor.Jit) contents =
   let session = Holyc_lib.Session.create () in
   let source =
     Holyc_lib.Session.add_source session ~path:"native-program-cli-limit.hc"
       ~contents
   in
   let config =
-    match Holyc_lib.Preprocessor.Config.create () with
+    match Holyc_lib.Preprocessor.Config.create ~compilation_mode:mode () with
     | Ok config -> config
     | Error message -> failwith message
   in
@@ -628,6 +633,9 @@ let exact_native_input_limits () =
   let compiled = checked_source_compile contents in
   let ir = Program.ir_instructions compiled in
   let bytes = String.length (Program.code compiled) in
+  require
+    (Program.code_bytes compiled = bytes)
+    "code byte getter matches encoded artifact";
   let frame = Program.frame_bytes compiled in
   let blocks = Program.block_count compiled in
   require (frame > 0) "limit fixture must force a program spill";
@@ -642,6 +650,10 @@ let exact_native_input_limits () =
       in
       let exact = native_json ~options source in
       check_success exact;
+      require
+        (exact |> member "native" |> member "image" |> member "code_bytes"
+       |> to_int = bytes)
+        "image reports its exact code byte quota";
       let one_below name value code =
         let replacement = "--" ^ name ^ "=" ^ string_of_int (value - 1) in
         let filtered =
@@ -662,6 +674,35 @@ let exact_native_input_limits () =
       one_below "stack-byte-limit" frame "HCBACK0004";
       one_below "block-limit" blocks "HCBACK0001")
 
+let emitted_code_size_reports () =
+  List.iter
+    (fun (mode, compilation_mode) ->
+      List.iter
+        (fun fixture ->
+          let compiled =
+            checked_source_compile ~mode:compilation_mode (read fixture)
+          in
+          let expected = String.length (Program.code compiled) in
+          let report = native_json ~mode fixture in
+          require
+            (report |> member "native" |> member "image" |> member "code_bytes"
+           |> to_int = expected)
+            "CLI count matches the source artifact's encoded bytes";
+          let status, stdout, stderr =
+            invoke [ "run"; "--target=host-jit"; "--mode=" ^ mode; fixture ]
+          in
+          require
+            (status = Unix.WEXITED 0 && stderr = "")
+            "human size report succeeds";
+          require
+            (stdout |> String.split_on_char '\n'
+            |> List.exists (fun line ->
+                String.trim line = "native-code-bytes=" ^ string_of_int expected)
+            )
+            "human report matches encoded byte length")
+        [ native_fixture; function_fixture; default_fixture ])
+    [ ("jit", Holyc_lib.Preprocessor.Jit); ("aot", Holyc_lib.Preprocessor.Aot) ]
+
 let host_jit_v1_rejected () =
   let status, stdout, stderr =
     invoke [ "run"; "--target=host-jit"; "--report-version=1"; native_fixture ]
@@ -672,6 +713,7 @@ let host_jit_v1_rejected () =
     "host-jit must not impersonate the legacy IR v1 report"
 
 let () =
+  emitted_code_size_reports ();
   fixture_modes ();
   function_fixture_modes ();
   default_fixture_modes ();

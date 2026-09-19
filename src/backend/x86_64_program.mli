@@ -91,6 +91,12 @@ val compile_callable :
     exact source preparation; omitting it preserves the low-level rejection. *)
 
 val code : t -> string
+
+val code_bytes : t -> int
+(** Exact encoded code length, including prologues, meters, guards and
+    epilogues. Reads image metadata without copying code. Excludes unwind
+    metadata, stack storage, global arenas and host mapping alignment. *)
+
 val windows_unwind_info : t -> string
 val windows_unwind_functions : t -> (int * int * string) list
 val status_abi : t -> status_abi

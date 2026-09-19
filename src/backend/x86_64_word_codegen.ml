@@ -4661,6 +4661,9 @@ let expression_status_abi (compiled : expression_image) = compiled.status_abi
 let expression_fault_sites (compiled : expression_image) = compiled.fault_sites
 let program_code (compiled : program_image) = Bytes.to_string compiled.encoded
 
+let program_code_bytes (compiled : program_image) =
+  Bytes.length compiled.encoded
+
 let program_windows_unwind_info (compiled : program_image) =
   Bytes.to_string compiled.unwind_info
 
