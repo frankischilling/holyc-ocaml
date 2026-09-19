@@ -64,6 +64,9 @@ once at their original leaf callbacks under the shared declaration-work budget.
 Native execution restores their declared-width values from owned preparation
 receipts. Effectful initializers, interleaved declaration execution and broader
 persistent storage remain open.
+Issue #675 connects uninitialized scalar static locals to the native arena with
+exact function ownership, padded allocation quotas and sharing across recursive
+calls. Static initializers and broader persistent storage remain separate gates.
 The complete HolyC ABI, persistent and pointer memory operations, F64/x87 and
 conversions, runtime output, and general declaration/`#exe` native integration
 remain open. Optimizer parity, assembler and object/BIN output, actual TempleOS

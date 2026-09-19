@@ -47,7 +47,9 @@ let create ~span ~completions ~preparation ~runtime_calls ~initialization ~entry
     || Ir.Global_initialization.publications initialization <> []
     || Option.is_some
          (Ir.Global_initialization.publication_evidence initialization)
-    || Ir.Integer_globals.statics globals <> []
+    || List.exists
+         (fun slot -> Ir.Integer_globals.static_initializers slot <> [])
+         (Ir.Integer_globals.statics globals)
     || Ir.Integer_globals.is_task_command globals
     || Ir.Global_initialization.prepared_steps initialization
        <> Integer_initializers.executed_steps preparation

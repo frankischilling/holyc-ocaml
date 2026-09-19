@@ -12194,3 +12194,18 @@ identity = "Original ordered leaves, source symbols, declared types and successf
 resources = "Defaults and global initializers share the declaration-work budget. Global payloads use declared-byte and private-arena quotas. Reached preparation survives later faults and does not consume native runtime steps."
 excluded = ["initializers after executable top-level statements", "effectful or call-dependent initializers", "unresolved shift optimizer behavior", "strings and floating values", "arrays, statics, pointers and data-heap storage", "object/BIN loading and bootstrap"]
 native_oracle_status = "Pinned source and hosted interpreter/native tests; no new TempleOS oracle capture."
+
+[[feature]]
+id = "HC-NATIVE-SCALAR-STATICS"
+description = "Uninitialized scalar static locals execute through exact function-owned private arena storage."
+status = "implemented"
+issue = 675
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:492-495", "Compiler/PrsVar.HC:534-589", "Compiler/PrsStmt.HC:1067-1068", "Compiler/PrsStmt.HC:1160-1161"]
+implementation = ["src/backend/x86_64_global_storage.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml", "src/driver/native_global_initializers.ml", "src/ir/integer_globals.ml"]
+tests = ["test/test_native_program.ml", "test/native/test_native_global_execution.ml", "test/native/test_native_global_cli.ml", "examples/native-scalar-statics.hc"]
+documentation = ["docs/native-globals.md", "docs/native-defaults.md", "docs/native-programs.md", "docs/reference-source-map.md", "docs/testing.md", "SECURITY.md"]
+semantics = "Uninitialized scalar statics share exact owned arena objects across direct and recursive calls; separate executions restore AOT zero or hosted JIT unknown state. Declared widths control accesses and each static allocation rounds to eight bytes."
+authority = "Exact symbol, checked type, frame/location and unique supplied definition; complete static location coverage; address access restricted to the owning compiled body."
+resources = "Padded unused statics count toward max_global_bytes before native entry; one flag per object counts toward the separate arena cap; semantic activation frames and instruction work remain independent."
+excluded = ["static declaration initializers", "arrays and pointers", "explicit registers and data-heap options", "retained tasks", "full ABI", "object/BIN output, loader acceptance and bootstrap"]

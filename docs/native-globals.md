@@ -1,4 +1,4 @@
-# Native scalar globals
+# Native scalar globals and statics
 
 `holyc run --target=host-jit examples/native-scalar-globals.hc` returns I64 42
 in JIT and AOT preprocessing modes. Generated entry code and direct functions
@@ -55,14 +55,33 @@ releases both mappings before boxing status. The exported initial image is a
 copy. These are private hosted implementation details, not TempleOS addresses,
 a complete HolyC ABI, or a module relocation format.
 
+## Static locals
+
+`examples/native-scalar-statics.hc` returns 42 in both modes. Ordinary scalar
+static locals without declaration initializers share the arena across direct
+and recursive calls. Same-spelled statics in separate functions have distinct
+objects. Each execution restores AOT zero or JIT unknown state, including after
+a previous fault. A static declaration does not reinitialize on function entry.
+
+The layout requires each static's exact symbol, type, frame and location, and
+one supplied compiled function bound to that frame. Every static location must
+have one storage slot, including unused declarations. Address preflight checks
+the owning function; entry and other functions cannot use its static symbol.
+Global and RBP address paths retain their own ownership checks. Saved defaults,
+prepared globals, switches and automatic locals compose with this storage.
+Static declaration initializers, explicit registers and data-heap options remain
+unsupported. Static allocation is separate from each call's semantic frame and
+from runtime instruction work.
+
 ## Limits and reports
 
 `--global-byte-limit` / `max_global_bytes` defaults to 1,048,576 declared bytes,
-with a positive configuration range capped at 16,777,216. Unused objects count.
+with a positive configuration range capped at 16,777,216. Static allocations
+round each declared width up to eight bytes. Unused objects count.
 The compiler checks this bound before allocating the private image; execution
 checks it again before native entry. One initialization byte per object is
 charged separately in a private arena capped at 33,554,432 bytes. The private
-packed layout does not expose padding or raw pointers.
+layout does not expose static padding or raw pointers.
 
 Native v2 reports add `native.image.global_bytes` and `global_arena_bytes`.
 Code, IR, block, spill, semantic frame, call-depth and active-stack limits remain
@@ -72,7 +91,7 @@ Global payloads count toward the global-byte quota, not `--default-byte-limit`.
 The native API tests compare exact runtime meters with fresh isolated checked
 interpreter execution; public source tests independently check values.
 
-Effectful or call-dependent initializers, static locals, arrays, pointers, aggregates,
+Effectful or call-dependent initializers, static initializers, arrays, pointers, aggregates,
 aliases, extern/import/data-heap storage and retained task storage remain
 unsupported. Defaults still prepare closed numeric expressions in a separate
 empty fragment at their original declaration boundary; admitting globals does
@@ -84,6 +103,9 @@ floating values and unresolved initializer shift-optimizer behavior also reject.
 ## Source evidence and verification
 
 The reference is `c26482bb6ad3f80106d28504ec5db3c6a360732c`:
+`Compiler/PrsVar.HC:492-495,534-589` disables static register allocation, rounds
+its storage to eight bytes and emits AOT zero bytes;
+`Compiler/PrsStmt.HC:1067-1068,1160-1161` selects that local declaration path;
 `Compiler/PrsExp.HC:867-902` selects global addresses;
 `Compiler/PrsStmt.HC:285-435` allocates and publishes global storage;
 `Compiler/BackLib.HC:281-309,453-572` selects declared-width movements;

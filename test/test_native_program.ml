@@ -687,6 +687,10 @@ let source_gate_is_compile_only () =
           "F64 Bad(){return 1.0;} 42;";
           "I64 F(){return 42;} I64 G=F(); G;";
           "I64 F(){static I64 n=0;return ++n;} F();";
+          "I64 Bad(){static I64 n=1/0;return 0;}42;";
+          "I64 Bad(){static I64 *n;return 0;}42;";
+          "I64 Bad(){static I64 n[2];return 0;}42;";
+          "I64 Bad(){static I64 reg n;return 0;}42;";
           "I64 F(I64 *p){return *p;} 42;";
           "I64 F(I64 n,...){return n;} F(42);";
           "extern I64 F(I64 n); 42;";
@@ -1196,7 +1200,7 @@ let native_global_admission () =
               ~entry:(integer_program_entry unit)
               ~functions:[] ()));
       let layout =
-        Layout.create ~max_global_bytes:1
+        Layout.create ~functions:[] ~max_global_bytes:1
           ~initialization:(integer_program_initialization unit)
           ~entry:(integer_program_entry unit)
         |> require_ok (fun es ->
@@ -1267,10 +1271,139 @@ let native_global_admission () =
       let unit = integer_unit ~mode:Preprocessor.Aot source in
       ignore
         (reject ~code:"HCBACK0002" "unsupported storage" (compile_callable unit)))
-    [ "I64 G=42;G;"; "I64 G[1];42;"; "I64 F(){static I64 G;return 42;}F();" ]
+    [ "I64 G=42;G;"; "I64 G[1];42;"; "I64 F(){static I64 G=1;return 42;}F();" ]
+
+let native_static_admission () =
+  let module Globals = Ir_integer_globals in
+  let module Layout = Holyc_lib__Backend.X86_64_global_storage in
+  let source =
+    "I8 G;I64 F(){static I8 n;n=20;return n;}I64 H(){static I8 n;n=22;return \
+     n;}F()+H();"
+  in
+  List.iter
+    (fun mode ->
+      let unit = integer_unit ~mode source in
+      let other = integer_unit ~mode source in
+      let definitions = integer_program_functions unit in
+      let first = List.hd definitions in
+      let second = List.nth definitions 1 in
+      List.iter
+        (fun abi ->
+          ignore
+            (compile_callable ~status_abi:abi unit |> require_ok program_errors))
+        [ Program.System_v_x64; Program.Windows_x64 ];
+      let layout functions =
+        Layout.create ~functions ~max_global_bytes:17
+          ~initialization:(integer_program_initialization unit)
+          ~entry:(integer_program_entry unit)
+      in
+      let own =
+        layout definitions
+        |> require_ok (fun es ->
+            String.concat "; "
+              (List.map (fun (e : Layout.error) -> e.message) es))
+      in
+      let check_bad label functions =
+        Alcotest.(check bool) label true (Result.is_error (layout functions))
+      in
+      check_bad "missing static function" [ second ];
+      check_bad "duplicate static function" (first :: definitions);
+      check_bad "foreign functions" (integer_program_functions other);
+      check_bad "cross-function frame"
+        [ { first with frame = second.frame }; second ];
+      check_bad "reconstructed frame"
+        [
+          { first with frame = Obj.obj (Obj.dup (Obj.repr first.frame)) };
+          second;
+        ];
+      let statics = Globals.statics (integer_program_globals unit) in
+      let symbol slot = Globals.static_storage slot |> Globals.storage_symbol in
+      let slot =
+        Layout.find_symbol own (symbol (List.hd statics)) |> Option.get
+      in
+      Alcotest.(check bool)
+        "reconstructed static symbol" true
+        (Option.is_none
+           (Layout.find_symbol own
+              (Obj.obj (Obj.dup (Obj.repr (symbol (List.hd statics)))))));
+      Alcotest.(check bool)
+        "static exact function" true
+        (Layout.owns_address slot (Runtime.Function first.body));
+      Alcotest.(check bool)
+        "static wrong function" false
+        (Layout.owns_address slot (Runtime.Function second.body));
+      Alcotest.(check bool)
+        "static entry" false
+        (Layout.owns_address slot Runtime.Entry);
+      List.iter
+        (fun (label, change) ->
+          let unit = integer_unit ~mode source in
+          ignore (compile_callable unit |> require_ok program_errors);
+          let definitions = integer_program_functions unit in
+          let first = List.hd definitions in
+          let rec producer = function
+            | [] -> None
+            | head :: rest as cell -> (
+                let d = Sequence.description head in
+                match d.payload with
+                | Some (Sequence.Symbol _) -> Some (cell, d)
+                | _ -> producer rest)
+          in
+          let cell, d =
+            Function_body.x87 first.body
+            |> X87.graph |> Graph.blocks
+            |> List.find_map (fun b ->
+                producer (Graph.instructions b |> Sequence.instructions))
+            |> Option.get
+          in
+          Obj.set_field (Obj.repr cell) 0 (Obj.repr (change unit d));
+          ignore (reject ~code:"HCBACK0003" label (compile_callable unit)))
+        [
+          ( "cross-function static address",
+            fun unit d ->
+              {
+                d with
+                payload =
+                  Some
+                    (Sequence.Symbol
+                       ( Globals.statics (integer_program_globals unit)
+                       |> fun slots -> symbol (List.nth slots 1) ));
+              } );
+          ( "foreign static address",
+            fun _ d ->
+              {
+                d with
+                payload =
+                  Some
+                    (Sequence.Symbol
+                       (Globals.statics (integer_program_globals other)
+                       |> List.hd |> symbol));
+              } );
+          ( "wrong static address opcode",
+            fun _ d ->
+              {
+                d with
+                opcode =
+                  (if mode = Preprocessor.Jit then Opcode.Ic_abs_addr
+                   else Opcode.Ic_imm_i64);
+              } );
+          ( "wrong static address type",
+            fun _ d ->
+              {
+                d with
+                target_type = Some (Type.pointer_to u64 |> require_ok Fun.id);
+              } );
+          ( "static impersonates RBP",
+            fun _ d -> { d with opcode = Opcode.Ic_rbp } );
+          ( "numeric static address",
+            fun _ d -> { d with payload = Some (Sequence.Integer 0L) } );
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let tests =
   [
+    Alcotest.test_case "native static storage authority" `Quick
+      native_static_admission;
     Alcotest.test_case "native global storage authority" `Quick
       native_global_admission;
     Alcotest.test_case "decoder preserves completion and exact step count"

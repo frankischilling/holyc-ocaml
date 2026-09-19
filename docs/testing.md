@@ -26,7 +26,7 @@ a maximum-size table whose destinations alternate.
 Literal `JB` byte tests cover zero and both rel32 endpoints, plus rejection just
 outside the displacement range.
 
-Native global tests cover declared widths, adjacent objects, shared/recursive
+Native global/static tests cover declared widths, adjacent objects, shared/recursive
 calls, defaults, gotos, compound RHS effects, fresh arena state and nested fault
 unwind in both modes. Compile-only tests verify exact storage identities and
 reject mutated address producers; API/CLI tests verify values and quotas through
@@ -36,6 +36,13 @@ and substituted receipts, exact preparation quotas and both ABI encodings
 without entering machine code. Native API/CLI cases also cover every scalar
 width, shared calls/defaults/switches and restored values on repeated execution
 through `examples/native-scalar-initializers.hc`.
+
+Static tests include every integer width, separate same-spelled function
+objects, recursion, unused and unreachable declarations, repeated executions,
+unknown JIT reads, AOT zero, fault unwind and exact/one-below padded quotas.
+Compile-only ownership tests cover missing, duplicate, foreign and reconstructed
+frames, cross-function address substitution, opcode/type corruption and both ABI
+encodings. The CLI fixture is `examples/native-scalar-statics.hc`.
 
 Goto execution tests connect original function-local label resolution to public
 interpreter, native API and CLI runs in both preprocessing modes. They cover

@@ -132,13 +132,18 @@ There is no interpreter fallback, source pointer access, external call or
 arbitrary-byte constructor in this gate. See
 [native programs](docs/native-programs.md) for exact source and reporting limits.
 
-Native scalar globals allocate a separate RW, non-executable arena for each
+Native scalar globals and uninitialized scalar statics allocate a separate RW,
+non-executable arena for each
 execution. Exact checked symbol/type/opcode ownership restricts generated
 accesses; arbitrary integers cannot supply arena addresses. Logical declared
 bytes are capped at 16 MiB and private data plus initialization flags at 32 MiB,
 with checked sizes before allocation. The context's arena pointer is read-only
 to emitted code. Checked success/fault paths release the arena and code mapping
-before status allocation. See [native globals](docs/native-globals.md).
+before status allocation. See [native globals](docs/native-globals.md). Static
+addresses also require their exact compiled function, frame and location;
+other functions and entry cannot borrow that symbol. Unused statics consume
+their padded allocation before native entry, and per-object initialization flags
+count toward the separate arena cap.
 
 ## Supported versions
 
