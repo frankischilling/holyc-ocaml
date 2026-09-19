@@ -1,5 +1,26 @@
 # Testing holyc-ocaml
 
+Switch execution tests join original parser-time endpoint preparation with
+ordinary source execution, native API and CLI runs in both preprocessing modes.
+Independent expected values cover scalar selectors, implicit cases, inclusive
+reversed ranges, holes, defaults, fallthrough, nested breaks and function-local
+gotos. Preparation tests exercise original ownership and phase failure; checked
+IR tests reject malformed bounds and table descriptors. Exact/one-below numeric
+work, invalid limits, fresh recovery and cumulative dispatch storage remain
+separate from runtime instruction limits. The fixture is
+`examples/integer-switch.hc`; native instruction comparisons use the matching
+isolated checked unit. See [switch execution](integer-switch.md).
+
+`examples/integer-switch-large-range.hc` covers native execution of the maximum
+65,535-value range through the CLI. Grouped dispatch tests cover range endpoints,
+holes, singleton groups, signed/high-bit selectors and recursion in both modes.
+Compile-only tests compare code size and instruction count for one-entry and
+maximum-size constant-destination tables on both ABIs, check exact/one-below code
+limits and deterministic recompilation, and retain preallocation rejection for
+a maximum-size table whose destinations alternate.
+Literal `JB` byte tests cover zero and both rel32 endpoints, plus rejection just
+outside the displacement range.
+
 Native global tests cover declared widths, adjacent objects, shared/recursive
 calls, defaults, gotos, compound RHS effects, fresh arena state and nested fault
 unwind in both modes. Compile-only tests verify exact storage identities and
@@ -14,7 +35,7 @@ control flow, direct entry into conditional and loop bodies, recursive frames,
 defaults and U0 completion. Negative controls retain exact original source IDs
 and statement spans for missing/duplicate/cross-function/top-level errors,
 including an invalid included source. They also cover unreachable validation,
-skipped-initialization faults and parser-valid assembly/switch/protected regions
+skipped-initialization faults and parser-valid assembly/no-bound-switch/protected regions
 rejected by the execution gate. A goto to a word-returning function's trailing
 label preserves the interpreter's reached fault and native pre-entry rejection;
 returning-word and U0 fallthrough controls remain executable.

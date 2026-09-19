@@ -16,6 +16,16 @@ structural fallthrough boundaries, while gotos use the existing checked jump.
 Both execution targets consume the resulting verified graph. See
 [goto execution](docs/integer-goto.md) for ownership and unsupported-region limits.
 
+Bounded switch execution adds parser-owned endpoint and completion receipts to
+the declaration ledger. Closed case preparation retains exact original owners
+and successful values before semantic source composition; the syntax and typed
+selector/case APIs alone still provide no evaluated dispatch table. The shared
+lowerer consumes that sealed descriptor and emits canonical `IC_SWITCH` with
+checked immediate bounds and ordered targets. Interpreter dispatch and own-encoder
+native branches share graph validation and source fault sites. Numeric preparation
+and cumulative table storage are bounded across one source invocation, including
+nested source tasks. See [switch execution](docs/integer-switch.md).
+
 Module-level expression binders share one immutable publication cursor. `Sema.Module_binding_environment` validates the mixed module stream, compilation mode, and outer snapshot once. `Sema.Global_binding_environment` adds the checked global-record association: initializer binding advances through the owner, while dimension binding stops immediately before it and advances afterward. Function-default binding advances through the current named header without installing its parameter namespace. These entry points expose their separate source boundaries without evaluating expressions.
 
 The current slice has seven layers:

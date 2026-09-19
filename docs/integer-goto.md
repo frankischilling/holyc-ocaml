@@ -114,8 +114,10 @@ call-depth and physical-stack bounds remain in force. Checked failure unwinds
 the generated call chain, and a fresh invocation starts with fresh status.
 
 Top-level language labels and gotos remain rejected. This gate does not add
-assembly-label execution, computed/indirect goto, switch dispatch or jumps
-through lock/exception/sub-switch regions. Those enclosing unsupported forms
+assembly-label execution or computed/indirect goto. Issue #668 extends the shared
+builder with [ordinary bounded switches](integer-switch.md), including labels
+and gotos in supported case bodies. Jumps through lock/exception/sub-switch
+regions and no-bound switch execution remain outside the gate. Those unsupported forms
 still reject, including when unreachable. Full label-warning behavior,
 output-address validation for repeated assembly labels, general memory,
 exceptions, optimizer parity and object/BIN/loader/bootstrap work remain separate.
@@ -134,7 +136,7 @@ source of checked scope and target identity.
 Ordinary tests cover public source execution, unsupported targets, exact original
 diagnostic source IDs and spans (including included files), deterministic graphs,
 initialization faults and exact step budgets. Parser-valid sources exercise each
-excluded assembly, switch, lock, exception and sub-switch region at the execution
+excluded assembly, no-bound switch, lock, exception and sub-switch region at the execution
 gate. Word-return completeness tests distinguish a reached interpreter fault
 from native pre-entry rejection and retain positive U0 and returning-word controls.
 Separate native API and CLI tests exercise the same source families in both

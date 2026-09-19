@@ -1,7 +1,12 @@
 module VM = Ir.Integer_interpreter
 
 type stream = VM.task_stream
-type progress = { runtime : VM.task_progress; dimension_work : int }
+
+type progress = {
+  runtime : VM.task_progress;
+  dimension_work : int;
+  switch_work : int;
+}
 
 type t = {
   session : Session.t;
@@ -19,10 +24,10 @@ and command = {
   mutable frontend_pending : bool;
 }
 
-let create ?compiler_positions ?max_steps ?max_initializer_steps
-    ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
-    ?max_output_bytes ?max_output_work ?max_generated_bytes ?max_stream_depth
-    session =
+let create ?compiler_positions ?max_switch_work ?switch_budget ?max_steps
+    ?max_initializer_steps ?max_global_bytes ?max_literal_bytes ?max_frame_bytes
+    ?max_call_depth ?max_output_bytes ?max_output_work ?max_generated_bytes
+    ?max_stream_depth session =
   let session = Session.task_frontend session in
   let config =
     match Frontend.Preprocessor.Config.create ~compilation_mode:Jit () with
@@ -36,7 +41,8 @@ let create ?compiler_positions ?max_steps ?max_initializer_steps
     ()
   |> fun result ->
   Result.bind result (fun state ->
-      Task_declarations.create ?compiler_positions ~runtime:state session
+      Task_declarations.create ?compiler_positions ?max_switch_work
+        ?switch_budget ~runtime:state session
       |> Result.map (fun declarations ->
           {
             session;
@@ -88,11 +94,13 @@ let observe_source_offset task ledger event =
   Task_declarations.observe ~offset_runtime:task.state ledger event
 
 let dimension_work task = Task_declarations.dimension_work task.declarations
+let switch_work task = Task_declarations.switch_work task.declarations
 
 let progress task =
   {
     runtime = VM.task_progress task.state;
     dimension_work = dimension_work task;
+    switch_work = switch_work task;
   }
 
 let admit_global task publication =
@@ -664,6 +672,11 @@ let execution_commands task span ~active =
           preparation.dimension_owner.dimensions_command
       | Array_dimension_completed completed ->
           completed.dimension_preparation.dimension_owner.dimensions_command
+      | Switch_case_preparing preparation ->
+          preparation.switch_owner.switch_command
+      | Switch_case_completed completed ->
+          completed.completed_case_owner.switch_command
+      | Switch_completed completed -> completed.switch_owner.switch_command
       | Global_declared publication | Global_completed (publication, _) ->
           publication.global_header.declaration_command
       | Global_initializer_started start ->

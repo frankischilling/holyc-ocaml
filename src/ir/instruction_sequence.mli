@@ -54,6 +54,12 @@ type description = {
   span : Common.Span.t option;
 }
 
+type bounded_switch_shape = {
+  adjusted_index : Value_id.t;
+  range_value : Value_id.t;
+  targets : Block_id.t list;
+}
+
 type instruction
 type t
 
@@ -63,6 +69,12 @@ val known_flag_mask : int64
 val create : description list -> (t, error list) result
 (** Check instruction shapes, source order, IDs, spans, and flag bits before
     constructing an immutable sequence. *)
+
+val bounded_switch_shape : description -> (bounded_switch_shape, string) result
+(** Validate the descriptor-local portion of canonical bounded [IC_SWITCH]. The
+    ordered targets retain the default first and every table entry thereafter;
+    repeated destinations are significant and are not removed. The defining
+    range value is checked against this table by [Block_graph.create]. *)
 
 val instructions : t -> instruction list
 val description : instruction -> description

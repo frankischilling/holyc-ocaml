@@ -2,6 +2,23 @@ module Sequence = Instruction_sequence
 module Typed = Sema.Function_call_expression_result
 module Source = Sema.Function_call_resolution
 module Int_map = Map.Make (Int)
+module Switch = Sema.Integer_switch_preparation
+
+module Switch_cases = Hashtbl.Make (struct
+  type t = Switch.case
+
+  let equal = ( == )
+
+  let hash case =
+    Hashtbl.hash (Switch.case_source case).switch_case_keyword.span
+end)
+
+module Switches = Hashtbl.Make (struct
+  type t = Switch.t
+
+  let equal = ( == )
+  let hash prepared = Hashtbl.hash (Switch.source prepared).switch_keyword.span
+end)
 
 type statement =
   | Empty of Common.Span.t
@@ -22,9 +39,15 @@ type statement =
   | While of Typed.expression_result * statement
   | Do_while of statement * Typed.expression_result
   | For of statement * Typed.expression_result * statement option * statement
+  | Switch of Switch.t * Typed.expression_result * switch_element list
   | Break of Common.Span.t
   | Goto of Common.Span.t * Sema.Label_resolution.resolved_occurrence
   | Label of Common.Span.t * Sema.Label_resolution.resolved_occurrence
+
+and switch_element =
+  | Switch_case of Switch.case
+  | Switch_default of Frontend.Ast.switch_default_label
+  | Switch_statement of statement
 
 type t = {
   expression_source_ : (Integer_globals.t * Typed.expression_result) option;
@@ -75,6 +98,8 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
     let initial_regions = ref [] in
     let static_regions = ref [] in
     let runtime_calls = ref [] in
+    let switches = Switches.create 16 in
+    let switch_table_entries = ref 0 in
     let publications = ref [] in
     let checked_id = function
       | Ok value -> value
@@ -234,6 +259,32 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
           flags;
           span = Some at;
         }
+    in
+    let integer_word ?(operands = []) ?payload ~at opcode =
+      let instruction_id =
+        allocate Sequence.Instruction_id.of_int instruction_count
+      in
+      let value_id = allocate Sequence.Value_id.of_int value_count in
+      let type_ =
+        match
+          Sema.Type.make_primitive ~form:Sema.Type.Internal_storage
+            ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
+        with
+        | Ok type_ -> type_
+        | Error message -> fail at "HCRUN0004" message
+      in
+      append
+        {
+          Sequence.instruction_id;
+          opcode;
+          operands;
+          result = Some { value_id };
+          target_type = Some type_;
+          payload;
+          flags = 0L;
+          span = Some at;
+        };
+      value_id
     in
     let jump ~at target =
       instruction ~at ~payload:(Sequence.Block target) Opcode.Ic_jmp;
@@ -686,6 +737,158 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
           in
           Option.iter (fun _ -> finish ()) !current;
           start target
+      | Switch (prepared, selector, elements) ->
+          let source = Switch.source prepared in
+          let at = source.switch_location.span in
+          if Switches.mem switches prepared then
+            fail at "HCRUN0004"
+              "switch preparation was consumed more than once in one body";
+          Switches.add switches prepared ();
+          let exact_selector =
+            match Typed.result_origin selector with
+            | Sema.Symbol.Source_location location ->
+                Common.Span.compare location.span
+                  (Frontend.Ast.expression_location source.switch_expression)
+                    .span
+                = 0
+            | _ -> false
+          in
+          if not exact_selector then
+            fail at "HCRUN0004"
+              "switch selector does not match its original prepared source";
+          let integer_selector =
+            match Typed.result_type selector with
+            | Some type_ when Sema.Type.pointer_depth type_ = 0 -> (
+                match Sema.Type.base type_ with
+                | Sema.Type.Primitive
+                    ( _,
+                      ( Sema.Primitive_type.I8
+                      | Sema.Primitive_type.U8
+                      | Sema.Primitive_type.I16
+                      | Sema.Primitive_type.U16
+                      | Sema.Primitive_type.I32
+                      | Sema.Primitive_type.U32
+                      | Sema.Primitive_type.I64
+                      | Sema.Primitive_type.U64 ) ) -> true
+                | _ -> false)
+            | _ -> false
+          in
+          if not integer_selector then
+            fail at "HCRUN0001"
+              "bounded switch execution requires a scalar integer selector";
+          let done_ = block () in
+          let default = Switch.default prepared in
+          let default_target =
+            match default with
+            | None -> done_
+            | Some _ -> block ()
+          in
+          let cases = Switch.cases prepared in
+          let targets = Switch_cases.create (List.length cases) in
+          List.iter
+            (fun case ->
+              if Switch_cases.mem targets case then
+                fail at "HCRUN0004"
+                  "prepared switch repeats an original case identity";
+              Switch_cases.add targets case (block ()))
+            cases;
+          let exact_elements =
+            List.length source.switch_elements = List.length elements
+            && List.for_all2
+                 (fun original lowered ->
+                   match (original, lowered) with
+                   | Frontend.Ast.Switch_case_element original, Switch_case case
+                     ->
+                       Switch_cases.mem targets case
+                       && original == Switch.case_source case
+                   | ( Frontend.Ast.Switch_default_element original,
+                       Switch_default label ) ->
+                       original == label
+                       && Option.fold ~none:false ~some:(( == ) label) default
+                   | Frontend.Ast.Switch_statement_element _, Switch_statement _
+                     -> true
+                   | _ -> false)
+                 source.switch_elements elements
+          in
+          if not exact_elements then
+            fail at "HCRUN0004"
+              "switch body does not retain its original ordered case and \
+               default identities";
+          let range = Switch.range prepared in
+          if range <= 0 || range > 0xFFFF then
+            fail at "HCRUN0004" "prepared switch range is outside 1..65535";
+          let entries = range + 1 in
+          if entries > Switch.hard_max_table_entries - !switch_table_entries
+          then
+            fail at "HCRUN0001"
+              "switch dispatch tables exceed the bounded storage allowance";
+          switch_table_entries := !switch_table_entries + entries;
+          let lo = Switch.lower_bound prepared in
+          let table = Array.make range default_target in
+          List.iter
+            (fun case ->
+              let first = Int64.sub (Switch.case_lower_bound case) lo in
+              let last = Int64.sub (Switch.case_upper_bound case) lo in
+              if
+                Int64.unsigned_compare first (Int64.of_int range) >= 0
+                || Int64.unsigned_compare last (Int64.of_int range) >= 0
+                || Int64.unsigned_compare first last > 0
+              then
+                fail at "HCRUN0004"
+                  "prepared case is outside its owning switch range";
+              let target = Switch_cases.find targets case in
+              for index = Int64.to_int first to Int64.to_int last do
+                table.(index) <- target
+              done)
+            cases;
+          let selector_value = expression selector in
+          (* Switch dispatch consumes raw integer bits in the internal I64
+             class, independently of the selector's public width/signedness. *)
+          let selector_value =
+            match Option.map Sema.Type.base (Typed.result_type selector) with
+            | Some (Sema.Type.Primitive (_, Sema.Primitive_type.U64)) ->
+                integer_word ~at ~operands:[ selector_value ]
+                  ~payload:(Sequence.Integer 0L) Opcode.Ic_holyc_typecast
+            | _ ->
+                (* Adding an internal-I64 zero promotes narrow scalar classes
+                   without granting general narrow postfix casts. *)
+                let zero =
+                  integer_word ~at ~payload:(Sequence.Integer 0L)
+                    Opcode.Ic_imm_i64
+                in
+                integer_word ~at ~operands:[ selector_value; zero ]
+                  Opcode.Ic_add
+          in
+          let lower_value =
+            integer_word ~at ~payload:(Sequence.Integer lo) Opcode.Ic_imm_i64
+          in
+          let adjusted =
+            integer_word ~at
+              ~operands:[ selector_value; lower_value ]
+              Opcode.Ic_sub
+          in
+          let range_value =
+            integer_word ~at
+              ~payload:(Sequence.Integer (Int64.of_int range))
+              Opcode.Ic_imm_i64
+          in
+          instruction ~at ~operands:[ adjusted; range_value ]
+            ~payload:
+              (Sequence.Block_targets (default_target :: Array.to_list table))
+            Opcode.Ic_switch;
+          finish ();
+          List.iter
+            (function
+              | Switch_statement body -> statement (Some done_) body
+              | Switch_case case ->
+                  Option.iter (fun _ -> finish ()) !current;
+                  start (Switch_cases.find targets case)
+              | Switch_default _ ->
+                  Option.iter (fun _ -> finish ()) !current;
+                  start default_target)
+            elements;
+          Option.iter (fun _ -> finish ()) !current;
+          start done_
       | If (value, then_branch, else_branch) ->
           let at = span_of_result span value in
           let yes = block () in

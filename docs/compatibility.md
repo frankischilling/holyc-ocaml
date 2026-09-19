@@ -1,5 +1,13 @@
 # holyc-ocaml compatibility status
 
+[Bounded integer switch execution](integer-switch.md) connects #668's original
+closed case preparation to canonical `IC_SWITCH`, checked tables and both
+execution targets. Endpoint values prepare at their original parser callbacks;
+final range/overlap validation follows closing-brace lookahead. Implicit values,
+reversed inclusive ranges, holes, defaults, fallthrough and nested breaks are
+admitted under separate preparation and cumulative table bounds. No-bound,
+sub-switch, multiple-default and effectful-case execution remain explicit gates.
+
 [Native scalar globals](native-globals.md) add ordinary uninitialized integer
 declarations to the hosted native target. AOT storage starts at zero; reached
 JIT unknown reads use the existing hosted fault policy. Initializers, statics,

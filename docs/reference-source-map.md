@@ -1,5 +1,25 @@
 # Reference source map
 
+Issue #668 connects bounded switch source execution through original case
+preparation. `PrsStmt.HC:578-789` supplies the endpoint/colon/brace phase order,
+implicit sentinel, descending inclusive ranges, small-positive lower-bound
+adjustment, late range check and overlap detection. `PrsExp.HC:1117-1151`
+compiles and calls an expression before F64-to-I64 conversion. The admitted
+closed subset uses the existing numeric engine at the original callback;
+effectful cases remain excluded. `BackC.HC:602-771` supplies unsigned adjusted
+index dispatch and the ordered default/table targets. The shared graph requires
+canonical immediate bounds; native emission uses bounded existing-encoder
+branches with one IC meter/site. Sealed receipt ownership, finite conversion
+guards, cumulative numeric work and table-slot caps are hosted policy. See
+[switch execution](integer-switch.md).
+
+Native dispatch groups adjacent equal destinations from that checked table.
+The unsigned out-of-range branch and each in-range destination follow
+`BackC.HC:ICSwitch`; group comparison/subtraction is an own-encoder optimization.
+Unsigned group branches use the `JB` rel32 form in `OpCodes.DD:600`.
+The large-range fixture tests the maximum source range without allocating a
+machine branch for every value. It does not establish native byte parity.
+
 [Native globals](native-globals.md) connects `PrsExp.HC:867-902`,
 `PrsStmt.HC:285-435`, `BackLib.HC:281-309,453-572` and
 `BackC.HC:159-204` to checked arena layout, generated scalar accesses and the

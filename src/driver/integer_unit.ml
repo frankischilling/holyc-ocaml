@@ -8,6 +8,7 @@ module Frame = Sema.Function_frame_layout
 module Body = Ir.Function_body
 module Records = Sema.Function_record_classification
 module Resolution = Sema.Function_resolution
+module Switch = Sema.Integer_switch_preparation
 
 type 'a checked = { value : 'a; diagnostics : Common.Diagnostic.t list }
 
@@ -17,6 +18,7 @@ type compiled = {
   initialization_ : Ir.Global_initialization.t;
   preparation_ : Integer_initializers.t;
   dimension_work_ : int;
+  switch_work_ : int;
   functions_ : Ir.Integer_interpreter.function_definition list;
   runtime_calls_ : Ir.Runtime_call_context.t;
   entry_has_calls_ : bool;
@@ -27,6 +29,7 @@ let globals compiled = compiled.globals_
 let initialization compiled = compiled.initialization_
 let initializer_preparation compiled = compiled.preparation_
 let dimension_preparation_work compiled = compiled.dimension_work_
+let switch_preparation_work compiled = compiled.switch_work_
 let functions compiled = compiled.functions_
 let runtime_calls compiled = compiled.runtime_calls_
 let has_entry_calls compiled = compiled.entry_has_calls_
@@ -65,10 +68,10 @@ let human compiled =
 
 let ( let* ) = Result.bind
 
-exception Invalid of Common.Diagnostic.t
+exception Invalid of Common.Diagnostic.t list
 
 let fail span code message =
-  raise (Invalid (Integer_source.diagnostic ~span code message))
+  raise (Invalid [ Integer_source.diagnostic ~span code message ])
 
 let compile_parsed_with_limit ?task_view ?initializer_progress
     ?declaration_command ?source_command ?retained_function_source
@@ -104,6 +107,20 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                 validate ~in_function loop.for_initializer;
                 Option.iter (validate ~in_function) loop.for_update;
                 validate ~in_function loop.for_body
+            | Ast.Switch_statement switch ->
+                if switch.switch_mode <> Ast.Bounded_switch then
+                  fail switch.switch_location.span "HCRUN0001"
+                    "integer execution does not admit no-bound switches";
+                List.iter
+                  (function
+                    | Ast.Switch_statement_element body ->
+                        validate ~in_function body
+                    | Ast.Switch_case_element _ | Ast.Switch_default_element _
+                      -> ()
+                    | Ast.Switch_subswitch_element subswitch ->
+                        fail subswitch.subswitch_location.span "HCRUN0001"
+                          "integer execution does not admit sub-switch regions")
+                  switch.switch_elements
             | (Ast.Local_declaration_statement _ | Ast.Return_statement _)
               when in_function -> ()
             | other ->
@@ -289,8 +306,8 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                 Span_map.add span value map)
               Span_map.empty values
           in
-          let lower_statements ?function_symbol roots initializers returns
-              outputs statements =
+          let lower_statements ?function_symbol ?(switch_cases = []) roots
+              initializers returns outputs statements =
             let initializers =
               ref
                 (List.fold_left
@@ -324,6 +341,14 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                          "duplicate implicit output marker identity";
                      Span_map.add marker (statement, values) map)
                    Span_map.empty outputs)
+            in
+            let switch_cases =
+              ref
+                (source_map
+                   (fun case ->
+                     case |> Typed.switch_case_source
+                     |> Source.switch_case_origin)
+                   switch_cases)
             in
             let consume map span detail =
               match Span_map.find_opt span !map with
@@ -406,6 +431,72 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               | None ->
                   fail span "HCRUN0004"
                     "source expression has no matching typed root"
+            in
+            let prepared_switch source =
+              let result =
+                match (declaration_command, source_command) with
+                | Some command, None ->
+                    Task_declarations.switch_for
+                      ~table:(Session.semantic_symbols session)
+                      ~ast command source
+                | None, Some command ->
+                    Task_declarations.source_switch_for
+                      ~table:(Session.semantic_symbols session)
+                      ~ast command source
+                | _ ->
+                    fail source.Ast.switch_location.span "HCRUN0004"
+                      "source switch requires its original parser preparation \
+                       receipt"
+              in
+              match result with
+              | Ok prepared when Switch.source prepared == source -> prepared
+              | Ok _ ->
+                  fail source.switch_location.span "HCRUN0004"
+                    "switch preparation belongs to another original source node"
+              | Error diagnostics -> raise (Invalid diagnostics)
+            in
+            let consume_case_source (source : Ast.switch_case_label) =
+              let exact_value original value =
+                match
+                  Typed.result_origin (Typed.switch_case_value_result value)
+                with
+                | Sema.Symbol.Source_location location ->
+                    Common.Span.compare location.span
+                      (Ast.expression_location original).span
+                    = 0
+                | _ -> false
+              in
+              match function_symbol with
+              | None -> (
+                  match source.switch_case_pattern with
+                  | Ast.Implicit_case -> ()
+                  | Ast.Single_case value -> ignore (expression value)
+                  | Ast.Ranged_case range ->
+                      ignore (expression range.case_range_start);
+                      ignore (expression range.case_range_end))
+              | Some _ ->
+                  let typed =
+                    consume switch_cases source.switch_case_location.span
+                      "switch case has no matching checked function source"
+                  in
+                  let exact =
+                    match
+                      ( source.switch_case_pattern,
+                        Typed.switch_case_pattern typed )
+                    with
+                    | Ast.Implicit_case, Typed.Implicit_case_result -> true
+                    | Ast.Single_case original, Typed.Single_case_result value
+                      -> exact_value original value
+                    | ( Ast.Ranged_case range,
+                        Typed.Ranged_case_result { start_value; end_value } ) ->
+                        exact_value range.case_range_start start_value
+                        && exact_value range.case_range_end end_value
+                    | _ -> false
+                  in
+                  if not exact then
+                    fail source.switch_case_location.span "HCRUN0004"
+                      "switch case does not own its original checked endpoint \
+                       roots"
             in
             let rec statement source_statement =
               match source_statement with
@@ -576,6 +667,38 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                       expression item.for_condition,
                       Option.map statement item.for_update,
                       statement item.for_body )
+              | Ast.Switch_statement item ->
+                  let prepared = prepared_switch item in
+                  let remaining = ref (Switch.cases prepared) in
+                  let elements =
+                    List.map
+                      (function
+                        | Ast.Switch_case_element label -> (
+                            consume_case_source label;
+                            match !remaining with
+                            | case :: rest when Switch.case_source case == label
+                              ->
+                                remaining := rest;
+                                Lower.Switch_case case
+                            | _ ->
+                                fail label.switch_case_location.span "HCRUN0004"
+                                  "switch preparation lost its original case \
+                                   order")
+                        | Ast.Switch_default_element label ->
+                            Lower.Switch_default label
+                        | Ast.Switch_statement_element body ->
+                            Lower.Switch_statement (statement body)
+                        | Ast.Switch_subswitch_element nested ->
+                            fail nested.subswitch_location.span "HCRUN0001"
+                              "integer execution does not admit sub-switch \
+                               regions")
+                      item.switch_elements
+                  in
+                  if !remaining <> [] then
+                    fail item.switch_location.span "HCRUN0004"
+                      "switch source did not consume every prepared case";
+                  Lower.Switch
+                    (prepared, expression item.switch_expression, elements)
               | other ->
                   fail (Ast.statement_location other).span "HCRUN0001"
                     "statement is outside the integer program execution domain"
@@ -587,11 +710,12 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
             if
               not
                 (Span_map.is_empty !initializers
-                && Span_map.is_empty !returns && Span_map.is_empty !outputs)
+                && Span_map.is_empty !returns && Span_map.is_empty !outputs
+                && Span_map.is_empty !switch_cases)
             then
               fail ast.span "HCRUN0004"
-                "function body did not consume every initializer, return and \
-                 output root";
+                "function body did not consume every initializer, return, \
+                 output and switch-case root";
             if
               Int_map.cardinal !consumed_label_occurrences
               <> List.length expected_label_occurrences
@@ -741,12 +865,15 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                           (Typed.function_expression_statements function_)
                        @ List.map Typed.condition_value
                            (Typed.function_conditions function_)
+                       @ List.map Typed.selector_value
+                           (Typed.function_selectors function_)
                        @ List.concat_map (fun (_, _, values) -> values) outputs
                        )
                    in
                    let statements =
                      lower_statements
                        ~function_symbol:(Typed.function_symbol function_)
+                       ~switch_cases:(Typed.function_switch_cases function_)
                        roots
                        (Typed.function_initializers function_)
                        (Typed.function_returns function_)
@@ -1001,11 +1128,18 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                 | None, Some command ->
                     Task_declarations.source_dimension_work command
                 | _ -> 0);
+              switch_work_ =
+                (match (declaration_command, source_command) with
+                | Some command, None ->
+                    Task_declarations.command_switch_work command
+                | None, Some command ->
+                    Task_declarations.source_switch_work command
+                | _ -> 0);
               functions_ = definitions;
               runtime_calls_;
               entry_has_calls_ = entry_calls <> [];
             }
-        with Invalid diagnostic -> Error [ diagnostic ]
+        with Invalid diagnostics -> Error diagnostics
       in
       match lowered with
       | Ok value -> Ok { value; diagnostics = parsed.diagnostics }

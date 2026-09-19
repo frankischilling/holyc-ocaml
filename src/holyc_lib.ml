@@ -521,6 +521,9 @@ let integer_program_compilation_progress =
 let integer_program_compilation_dimension_work =
   Driver.Integer_program.compilation_dimension_work
 
+let integer_program_compilation_switch_work =
+  Driver.Integer_program.compilation_switch_work
+
 let compile_integer_program = Driver.Integer_program.compile
 let compile_integer_ast = Driver.Integer_program.compile_ast
 let compile_integer_task_ast = Driver.Integer_program.compile_task_ast
@@ -533,6 +536,9 @@ let integer_program_initializer_preparation =
 
 let integer_program_dimension_preparation_work =
   Driver.Integer_program.dimension_preparation_work
+
+let integer_program_switch_preparation_work =
+  Driver.Integer_program.switch_preparation_work
 
 let integer_program_functions = Driver.Integer_program.functions
 let integer_program_runtime_calls = Driver.Integer_program.runtime_calls
@@ -549,6 +555,9 @@ let integer_program_report_output_bytes =
 
 let integer_program_report_dimension_work =
   Driver.Integer_program_report.dimension_work
+
+let integer_program_report_switch_work =
+  Driver.Integer_program_report.switch_work
 
 let integer_program_report_preparation_work =
   Driver.Integer_program_report.preparation_work

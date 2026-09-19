@@ -513,6 +513,59 @@ and completed_array_dimension = private {
 val dimension_preparation_is_current : array_dimension_preparation -> bool
 val dimension_completion_is_current : completed_array_dimension -> bool
 
+type switch_activity
+
+type switch_owner = private {
+  switch_command : command_start;
+  switch_environment : Symbol_visibility.Environment.t;
+  switch_mode : Ast.switch_mode;
+  switch_keyword : Ast.location;
+  switch_expression : Ast.expression;
+  switch_opening_brace : Ast.location;
+  switch_activity : switch_activity;
+}
+
+type switch_case_endpoint = Switch_case_start | Switch_case_end
+
+type switch_case_preparation = private {
+  switch_owner : switch_owner;
+  switch_case_index : int;
+  switch_case_predecessor : completed_switch_case option;
+  switch_case_keyword : Ast.location;
+  switch_case_endpoint : switch_case_endpoint;
+  switch_case_expression : Ast.expression;
+  switch_case_endpoint_predecessor : switch_case_preparation option;
+  switch_case_activity : switch_activity;
+}
+
+and completed_switch_case = private {
+  completed_case_owner : switch_owner;
+  completed_case_index : int;
+  completed_case_predecessor : completed_switch_case option;
+  switch_case_start_preparation : switch_case_preparation option;
+  switch_case_end_preparation : switch_case_preparation option;
+  switch_case_ast : Ast.switch_case_label;
+  completed_case_activity : switch_activity;
+}
+
+type completed_switch = private {
+  switch_owner : switch_owner;
+  switch_cases : completed_switch_case list;
+  switch_ast : Ast.switch_statement;
+  switch_activity : switch_activity;
+}
+
+val switch_owner_is_current : switch_owner -> bool
+val switch_case_preparation_is_current : switch_case_preparation -> bool
+val switch_case_completion_is_current : completed_switch_case -> bool
+
+val switch_completion_is_current : completed_switch -> bool
+(** Case preparation runs after the exact endpoint expression has completed and
+    before validating its following ':' or range ellipsis. Case completion runs
+    after the label colon's following lookahead. Switch completion runs after
+    the closing brace's following lookahead. These receipts are source witnesses
+    only; they carry no numeric or execution authority. *)
+
 type aggregate_activity
 
 type aggregate_step =
@@ -576,6 +629,9 @@ type declaration_event = private
   | Aggregate_completed of completed_aggregate
   | Array_dimension_preparing of array_dimension_preparation
   | Array_dimension_completed of completed_array_dimension
+  | Switch_case_preparing of switch_case_preparation
+  | Switch_case_completed of completed_switch_case
+  | Switch_completed of completed_switch
   | Global_declared of global_publication
   | Global_initializer_started of global_initializer_start
   | Global_initializer_leaf_completed of completed_initializer_leaf

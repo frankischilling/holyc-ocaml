@@ -20,6 +20,7 @@ type compilation_report = {
     (compilation Unit.checked, Common.Diagnostic.t list) result;
   source_span : Common.Span.t;
   source_dimension_work : int;
+  source_switch_work : int;
   source_offset_work : int;
   source_initializer_work : int;
   task : Task.t option;
@@ -33,6 +34,7 @@ type report = {
   output_bytes_ : string;
   output_work_ : int;
   dimension_work_ : int;
+  switch_work_ : int;
   source_offset_work_ : int;
   source_initializer_work_ : int;
   progress_ : Task.progress option;
@@ -64,10 +66,12 @@ let task_dimensions progress =
 let compilation_dimension_work report =
   report.source_dimension_work + task_dimensions report.compilation_progress_
 
+let compilation_switch_work report = report.source_switch_work
 let outcome report = report.outcome_
 let output_bytes report = report.output_bytes_
 let output_work report = report.output_work_
 let dimension_work report = report.dimension_work_
+let switch_work report = report.switch_work_
 
 let preparation_work report =
   match report.progress_ with
@@ -115,7 +119,7 @@ let install_providers ?(suspended = false) task =
         if suspended then Task.run_suspended task ~source
         else Task.run task ~source |> Result.map ignore)
 
-let compile_report ?(max_dimension_work = 100_000)
+let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
     ?(max_initializer_steps = 100_000) ?(max_steps = 100_000)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
@@ -135,6 +139,7 @@ let compile_report ?(max_dimension_work = 100_000)
   let task = ref None in
   let completed_sequence = ref None in
   let source_dimension_work = ref 0 in
+  let source_switch_work = ref 0 in
   let source_offset_work = ref 0 in
   let source_initializer_work = ref 0 in
   let span = Integer_source.source_span source in
@@ -150,6 +155,12 @@ let compile_report ?(max_dimension_work = 100_000)
           Integer_source.diagnostic ~span "HCIRVM0001"
             "max_dimension_work must be greater than zero";
         ]
+    else if max_switch_work <= 0 then
+      Error
+        [
+          Integer_source.diagnostic ~span "HCIRVM0001"
+            "max_switch_work must be greater than zero";
+        ]
     else
       let compiler_positions =
         Sema.Compiler_record.create_compiler_positions
@@ -157,7 +168,8 @@ let compile_report ?(max_dimension_work = 100_000)
       in
       let* ledger =
         Task_declarations.create_source ~compiler_positions ~max_dimension_work
-          ~max_offset_work:max_initializer_steps session ~source
+          ~max_switch_work ~max_offset_work:max_initializer_steps session
+          ~source
         |> Result.map_error (fun message ->
             [ Integer_source.diagnostic ~span "HCRUN0004" message ])
       in
@@ -177,7 +189,8 @@ let compile_report ?(max_dimension_work = 100_000)
               match task_session with
               | Some task_session ->
                   fun () ->
-                    Task.create ~compiler_positions ~max_steps
+                    Task.create ~compiler_positions ~max_steps ~max_switch_work
+                      ~switch_budget:(Task_declarations.switch_budget ledger)
                       ~max_initializer_steps ~max_global_bytes
                       ~max_literal_bytes ~max_frame_bytes ~max_call_depth
                       ~max_output_bytes ~max_output_work
@@ -342,6 +355,7 @@ let compile_report ?(max_dimension_work = 100_000)
       source_dimension_work :=
         if is_jit && Option.is_some !task then 0
         else Task_declarations.dimension_work ledger;
+      source_switch_work := Task_declarations.switch_work ledger;
       source_offset_work :=
         if is_jit && Option.is_some !task then 0
         else Task_declarations.offset_work ledger;
@@ -374,6 +388,7 @@ let compile_report ?(max_dimension_work = 100_000)
     compilation_outcome_;
     source_span = span;
     source_dimension_work = !source_dimension_work;
+    source_switch_work = !source_switch_work;
     source_offset_work = !source_offset_work;
     source_initializer_work = !source_initializer_work;
     task = !task;
@@ -382,13 +397,13 @@ let compile_report ?(max_dimension_work = 100_000)
     limits;
   }
 
-let run ?max_dimension_work ?max_initializer_steps ?max_global_bytes
-    ?max_literal_bytes ?max_frame_bytes ?max_call_depth ?max_output_bytes
-    ?max_output_work session ~config ~source ~max_steps =
+let run ?max_dimension_work ?max_switch_work ?max_initializer_steps
+    ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
+    ?max_output_bytes ?max_output_work session ~config ~source ~max_steps =
   let compilation =
-    compile_report ?max_dimension_work ?max_initializer_steps ?max_global_bytes
-      ?max_literal_bytes ?max_frame_bytes ?max_call_depth ?max_output_bytes
-      ?max_output_work ~max_steps session ~config ~source
+    compile_report ?max_dimension_work ?max_switch_work ?max_initializer_steps
+      ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
+      ?max_output_bytes ?max_output_work ~max_steps session ~config ~source
   in
   let span = Integer_source.source_span source in
   let program_ =
@@ -448,6 +463,7 @@ let run ?max_dimension_work ?max_initializer_steps ?max_global_bytes
     program_;
     dimension_work_ =
       compilation.source_dimension_work + task_dimensions progress_;
+    switch_work_ = compilation.source_switch_work;
     source_offset_work_ = compilation.source_offset_work;
     source_initializer_work_ = compilation.source_initializer_work;
     task_units_ = compilation.task_units_;

@@ -61,6 +61,12 @@ type description = {
   span : Common.Span.t option;
 }
 
+type bounded_switch_shape = {
+  adjusted_index : Value_id.t;
+  range_value : Value_id.t;
+  targets : Block_id.t list;
+}
+
 type instruction = description
 type t = instruction list
 
@@ -86,6 +92,33 @@ let expected_argument_count = function
   | Opcode.One -> Some 1
   | Opcode.Two -> Some 2
   | Opcode.Variable -> None
+
+let bounded_switch_shape description =
+  if description.opcode <> Opcode.Ic_switch then
+    Error "descriptor is not canonical bounded IC_SWITCH"
+  else if description.flags <> 0L then Error "IC_SWITCH requires zero flags"
+  else if Option.is_some description.result then
+    Error "IC_SWITCH cannot produce a result"
+  else if Option.is_some description.target_type then
+    Error "IC_SWITCH cannot declare a target type"
+  else
+    match (description.operands, description.payload) with
+    | [ adjusted_index; range_value ], Some (Block_targets targets) -> (
+        let rec bounded_count count = function
+          | [] -> Ok count
+          | _ when count = 0x10000 ->
+              Error "IC_SWITCH target table exceeds canonical range 0xFFFF"
+          | _ :: rest -> bounded_count (count + 1) rest
+        in
+        match bounded_count 0 targets with
+        | Error _ as error -> error
+        | Ok count when count < 2 ->
+            Error "IC_SWITCH requires a default and at least one table target"
+        | Ok _ -> Ok { adjusted_index; range_value; targets })
+    | _ ->
+        Error
+          "IC_SWITCH requires adjusted-index/range operands and ordered block \
+           targets"
 
 let validate_shape description =
   let info = Opcode.info description.opcode in

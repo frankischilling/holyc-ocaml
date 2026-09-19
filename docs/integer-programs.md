@@ -158,8 +158,12 @@ array in its report; legacy run and IR dumping use stderr.
 Lowering can produce a graph containing a VM-unsupported type or opcode;
 execution performs the VM-domain preflight before running any instruction.
 
-Unsupported declarations, top-level returns and language labels/gotos, switches,
-exceptions and locks reject before execution, even inside unreachable source.
+Ordinary bounded integer switches use original closed case preparation and
+canonical checked dispatch; see [switch execution](integer-switch.md) for
+implicit values, ranges, fallthrough, source phases and preparation limits.
+Unsupported declarations, top-level returns and language labels/gotos,
+no-bound/sub-switch forms, exceptions and locks reject before execution,
+even inside unreachable source.
 Function-local missing/duplicate targets and inconsistent occurrence ownership
 retain source diagnostics; supported local labels and gotos use the shared path
 described above.

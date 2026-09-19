@@ -465,14 +465,14 @@ let print_integer_program_result format mode max_steps max_frame_bytes
   0
 
 let integer_expression_file ?(max_dimension_work = 100_000)
-    ?(max_initializer_steps = 100_000) ?(max_global_bytes = 1_048_576)
-    ?(max_literal_bytes = 1_048_576) ?(max_frame_bytes = 1_048_576)
-    ?(max_call_depth = 128) ?(max_output_bytes = 1_048_576)
-    ?(max_output_work = 1_048_576) ?(report_version = 2) program target dump
-    max_steps format include_roots templeos_root max_include_depth
-    max_source_bytes max_definition_depth max_generated_bytes
-    max_conditional_depth max_expression_nodes compilation_mode predefined_date
-    predefined_time command_line_source path =
+    ?(max_switch_work = 100_000) ?(max_initializer_steps = 100_000)
+    ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
+    ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
+    ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576)
+    ?(report_version = 2) program target dump max_steps format include_roots
+    templeos_root max_include_depth max_source_bytes max_definition_depth
+    max_generated_bytes max_conditional_depth max_expression_nodes
+    compilation_mode predefined_date predefined_time command_line_source path =
   let command = if dump then "dump-ir" else if program then "run" else "eval" in
   let session = Holyc_lib.Session.create () in
   let captured_report = program && (not dump) && report_version = 2 in
@@ -492,6 +492,7 @@ let integer_expression_file ?(max_dimension_work = 100_000)
           literal_bytes = max_literal_bytes;
           initializer_steps = max_initializer_steps;
           dimension_work = max_dimension_work;
+          switch_work = max_switch_work;
           output_bytes = max_output_bytes;
           output_work = max_output_work;
         }
@@ -515,6 +516,8 @@ let integer_expression_file ?(max_dimension_work = 100_000)
     fail "HCIRVM0001: max_steps must be greater than zero"
   else if program && max_dimension_work <= 0 then
     fail "HCIRVM0001: max_dimension_work must be greater than zero"
+  else if program && max_switch_work <= 0 then
+    fail "HCIRVM0001: max_switch_work must be greater than zero"
   else if
     program
     && (max_frame_bytes <= 0 || max_call_depth <= 0 || max_global_bytes <= 0
@@ -549,8 +552,8 @@ let integer_expression_file ?(max_dimension_work = 100_000)
                 (if program then
                    let report =
                      Holyc_lib.compile_integer_program_report
-                       ~max_dimension_work ~max_initializer_steps session
-                       ~config ~source
+                       ~max_dimension_work ~max_switch_work
+                       ~max_initializer_steps session ~config ~source
                    in
                    Holyc_lib.integer_program_compilation_result report
                    |> Result.map program_value
@@ -576,16 +579,17 @@ let integer_expression_file ?(max_dimension_work = 100_000)
                   (render
                      ~report:
                        (Holyc_lib.run_integer_program_report ~max_dimension_work
-                          ~max_initializer_steps ~max_global_bytes
-                          ~max_literal_bytes ~max_frame_bytes ~max_call_depth
-                          ~max_output_bytes ~max_output_work session ~config
-                          ~source ~max_steps)
+                          ~max_switch_work ~max_initializer_steps
+                          ~max_global_bytes ~max_literal_bytes ~max_frame_bytes
+                          ~max_call_depth ~max_output_bytes ~max_output_work
+                          session ~config ~source ~max_steps)
                      ())
               else if program then
                 Holyc_lib.run_integer_program ~max_dimension_work
-                  ~max_initializer_steps ~max_global_bytes ~max_literal_bytes
-                  ~max_frame_bytes ~max_call_depth ~max_output_bytes
-                  ~max_output_work session ~config ~source ~max_steps
+                  ~max_switch_work ~max_initializer_steps ~max_global_bytes
+                  ~max_literal_bytes ~max_frame_bytes ~max_call_depth
+                  ~max_output_bytes ~max_output_work session ~config ~source
+                  ~max_steps
                 |> Result.map program_value
                 |> Result.map
                      (print_integer_program_result format compilation_mode
@@ -633,6 +637,15 @@ let dimension_work_limit_argument =
           "Maximum evaluated numeric node visits in source array dimensions. \
            Separate from initializer and runtime instructions; must be \
            positive.")
+
+let switch_work_limit_argument =
+  Arg.(
+    value & opt int 100000
+    & info [ "switch-work-limit" ] ~docv:"COUNT"
+        ~doc:
+          "Maximum cumulative numeric node visits preparing closed switch case \
+           endpoints, including nested source tasks. Separate from dimensions, \
+           initializers and runtime instructions; must be positive.")
 
 let eval_command =
   Cmd.v
@@ -726,14 +739,14 @@ let eval_native_command =
     (source_parser_options
        Term.(const native_expression_file $ instructions $ bytes $ stack_bytes))
 
-let native_program_file ~max_dimension_work ~max_initializer_steps
-    ~max_global_bytes ~max_literal_bytes ~max_frame_bytes ~max_call_depth
-    ~max_output_bytes ~max_output_work ~report_version ~max_ir_instructions
-    ~max_code_bytes ~max_stack_bytes ~max_blocks ~max_active_stack_bytes
-    ~max_default_bytes max_steps format include_roots templeos_root
-    max_include_depth max_source_bytes max_definition_depth max_generated_bytes
-    max_conditional_depth max_expression_nodes compilation_mode predefined_date
-    predefined_time command_line_source path =
+let native_program_file ~max_dimension_work ~max_switch_work
+    ~max_initializer_steps ~max_global_bytes ~max_literal_bytes ~max_frame_bytes
+    ~max_call_depth ~max_output_bytes ~max_output_work ~report_version
+    ~max_ir_instructions ~max_code_bytes ~max_stack_bytes ~max_blocks
+    ~max_active_stack_bytes ~max_default_bytes max_steps format include_roots
+    templeos_root max_include_depth max_source_bytes max_definition_depth
+    max_generated_bytes max_conditional_depth max_expression_nodes
+    compilation_mode predefined_date predefined_time command_line_source path =
   let session = Holyc_lib.Session.create () in
   let mode =
     match compilation_mode with
@@ -751,6 +764,7 @@ let native_program_file ~max_dimension_work ~max_initializer_steps
       literal_bytes = max_literal_bytes;
       initializer_steps = max_initializer_steps;
       dimension_work = max_dimension_work;
+      switch_work = max_switch_work;
       output_bytes = max_output_bytes;
       output_work = max_output_work;
     }
@@ -786,16 +800,16 @@ let native_program_file ~max_dimension_work ~max_initializer_steps
       (Printf.sprintf "active_stack_byte_limit must be between 1 and %d"
          Holyc_lib.Native_program_execution.hard_max_active_stack_bytes)
   else if
-    max_steps <= 0 || max_dimension_work <= 0 || max_frame_bytes <= 0
-    || max_call_depth <= 0 || max_global_bytes <= 0
+    max_steps <= 0 || max_dimension_work <= 0 || max_switch_work <= 0
+    || max_frame_bytes <= 0 || max_call_depth <= 0 || max_global_bytes <= 0
     || max_initializer_steps <= 0 || max_literal_bytes <= 0
     || max_default_bytes <= 0 || max_output_bytes <= 0 || max_output_work <= 0
   then
     fail "HCIRVM0001"
-      "max_steps, max_dimension_work, max_frame_bytes, max_call_depth, \
-       max_global_bytes, max_literal_bytes, max_initializer_steps, \
-       max_default_bytes, max_output_bytes and max_output_work must be greater \
-       than zero"
+      "max_steps, max_dimension_work, max_switch_work, max_frame_bytes, \
+       max_call_depth, max_global_bytes, max_literal_bytes, \
+       max_initializer_steps, max_default_bytes, max_output_bytes and \
+       max_output_work must be greater than zero"
   else
     let native_limit_result =
       Result.bind
@@ -834,8 +848,9 @@ let native_program_file ~max_dimension_work ~max_initializer_steps
                     (Holyc_lib.Native_program.evaluate ~max_ir_instructions
                        ~max_code_bytes ~max_stack_bytes ~max_blocks
                        ~max_initializer_steps ~max_default_bytes
-                       ~max_frame_bytes ~max_call_depth ~max_active_stack_bytes
-                       ~max_global_bytes session ~config ~source ~max_steps)
+                       ~max_switch_work ~max_frame_bytes ~max_call_depth
+                       ~max_active_stack_bytes ~max_global_bytes session ~config
+                       ~source ~max_steps)
                   ()))
 
 let run_target_argument =
@@ -969,6 +984,7 @@ let run_command =
              literals
              initial_steps
              dimension_work
+             switch_work
              output_bytes
              output_work
              report_version
@@ -981,6 +997,7 @@ let run_command =
            ->
              if target = "host-jit" then
                native_program_file ~max_dimension_work:dimension_work
+                 ~max_switch_work:switch_work
                  ~max_initializer_steps:initial_steps ~max_global_bytes:globals
                  ~max_literal_bytes:literals ~max_frame_bytes:bytes
                  ~max_call_depth:depth ~max_output_bytes:output_bytes
@@ -991,6 +1008,7 @@ let run_command =
                  ~max_default_bytes:native_defaults steps
              else
                integer_expression_file ~max_dimension_work:dimension_work
+                 ~max_switch_work:switch_work
                  ~max_initializer_steps:initial_steps ~max_global_bytes:globals
                  ~max_literal_bytes:literals ~max_frame_bytes:bytes
                  ~max_call_depth:depth ~max_output_bytes:output_bytes
@@ -998,10 +1016,10 @@ let run_command =
                  steps)
          $ run_target_argument $ step_limit_argument $ frame_limit $ call_depth
          $ global_limit $ literal_limit $ initializer_step_limit_argument
-         $ dimension_work_limit_argument $ output_limit $ output_work
-         $ report_version $ native_instructions $ native_code_bytes
-         $ native_stack_bytes $ native_blocks $ native_active_stack_bytes
-         $ native_default_bytes))
+         $ dimension_work_limit_argument $ switch_work_limit_argument
+         $ output_limit $ output_work $ report_version $ native_instructions
+         $ native_code_bytes $ native_stack_bytes $ native_blocks
+         $ native_active_stack_bytes $ native_default_bytes))
 
 let program_ir_argument =
   Arg.(
@@ -1020,11 +1038,12 @@ let dump_ir_command =
           prepares constant global initializers within its preparation budget.")
     (source_parser_options
        Term.(
-         const (fun program initial_steps dimension_work ->
+         const (fun program initial_steps dimension_work switch_work ->
              integer_expression_file ~max_dimension_work:dimension_work
-               ~max_initializer_steps:initial_steps program "ir" true 0)
+               ~max_switch_work:switch_work ~max_initializer_steps:initial_steps
+               program "ir" true 0)
          $ program_ir_argument $ initializer_step_limit_argument
-         $ dimension_work_limit_argument))
+         $ dimension_work_limit_argument $ switch_work_limit_argument))
 
 let parser_term = source_parser_term parse_file
 

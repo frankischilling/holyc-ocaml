@@ -26,6 +26,7 @@ val result :
 type progress = private {
   runtime : Ir.Integer_interpreter.task_progress;
   dimension_work : int;
+  switch_work : int;
 }
 
 val progress : t -> progress
@@ -60,6 +61,8 @@ val execute_isolated :
 
 val create :
   ?compiler_positions:Sema.Compiler_record.compiler_positions ->
+  ?max_switch_work:int ->
+  ?switch_budget:Sema.Integer_switch_preparation.budget ->
   ?max_steps:int ->
   ?max_initializer_steps:int ->
   ?max_global_bytes:int ->
@@ -182,6 +185,7 @@ val output_bytes : t -> string
 val output_work : t -> int
 val generated_bytes : t -> int
 val executed_steps : t -> int
+val switch_work : t -> int
 
 val initializer_steps : t -> int
 (** Cumulative task preparation, including numeric dimension visits. *)

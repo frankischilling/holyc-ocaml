@@ -12,6 +12,7 @@ type report
 
 val compile_report :
   ?max_dimension_work:int ->
+  ?max_switch_work:int ->
   ?max_initializer_steps:int ->
   ?max_steps:int ->
   ?max_global_bytes:int ->
@@ -30,11 +31,13 @@ val compilation_outcome :
   (Integer_unit.compiled Integer_unit.checked, Common.Diagnostic.t list) result
 
 val compilation_dimension_work : compilation_report -> int
+val compilation_switch_work : compilation_report -> int
 val compilation_progress : compilation_report -> Integer_task.progress option
 val compilation_task_units : compilation_report -> Integer_unit.compiled list
 
 val run :
   ?max_dimension_work:int ->
+  ?max_switch_work:int ->
   ?max_initializer_steps:int ->
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->
@@ -57,6 +60,11 @@ val outcome :
 val output_bytes : report -> string
 val output_work : report -> int
 val dimension_work : report -> int
+
+val switch_work : report -> int
+(** Cumulative case endpoint preparation work, including reached failures and
+    nested source execution. Shared source/task budgets are counted once. *)
+
 val preparation_work : report -> int option
 val progress : report -> Integer_task.progress option
 val program : report -> Integer_unit.compiled option

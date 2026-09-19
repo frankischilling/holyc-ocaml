@@ -7,6 +7,10 @@ let () =
       ("native scalar functions", Test_native_scalar_functions.tests);
       ("integer goto execution", Test_integer_goto_execution.tests);
       ("IR goto composition", Test_ir_goto_execution.tests);
+      ("integer switch execution", Test_integer_switch_execution.tests);
+      ("integer switch preparation", Test_integer_switch_preparation.tests);
+      ("switch callback lifetime", Test_switch_callback_lifetime.tests);
+      ("IR switch dispatch", Test_ir_switch_dispatch.tests);
       ("lexer", Test_lexer.tests);
       ("preprocessor", Test_preprocessor.tests);
       ("parser", Test_parser.tests);

@@ -133,6 +133,33 @@
    %{dep:../../examples/integer-goto.hc})))
 
 (executable
+ (name test_native_switch_execution)
+ (modules test_native_switch_execution)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_switch_execution.exe})))
+
+(executable
+ (name test_native_switch_cli)
+ (modules test_native_switch_cli)
+ (libraries holyc_lib native_scalar_support unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps
+  ../../examples/integer-switch.hc
+  ../../examples/integer-switch-large-range.hc)
+ (action
+  (run
+   %{exe:test_native_switch_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/integer-switch.hc}
+   %{dep:../../examples/integer-switch-large-range.hc})))
+
+(executable
  (name test_native_global_execution)
  (modules test_native_global_execution)
  (libraries holyc_lib native_scalar_support alcotest))

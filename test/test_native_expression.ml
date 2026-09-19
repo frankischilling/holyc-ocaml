@@ -1349,6 +1349,9 @@ let encoder_divmod_status_bytes () =
       ("jump rel32 zero", Jump 0L, "e900000000");
       ("JE rel32 minus one", Jump_equal (-1L), "0f84ffffffff");
       ("JNE rel32 one", Jump_not_equal 1L, "0f8501000000");
+      ("JB rel32 zero", Jump_below 0L, "0f8200000000");
+      ("JB rel32 minimum", Jump_below (-0x80000000L), "0f8200000080");
+      ("JB rel32 maximum", Jump_below 0x7fffffffL, "0f82ffffff7f");
       ("store zero-divide kind", Store_status_kind 1, "49c7430001000000");
       ("store overflow kind", Store_status_kind 2, "49c7430002000000");
       ("store first site", Store_status_site 1, "49c7430801000000");
@@ -1391,6 +1394,8 @@ let encoder_divmod_status_bytes () =
   invalid "CMP imm8 above signed byte" (Cmp_imm8 (Rax, 128));
   invalid "jump below rel32" (Jump (-0x80000001L));
   invalid "jump above rel32" (Jump 0x80000000L);
+  invalid "JB below rel32" (Jump_below (-0x80000001L));
+  invalid "JB above rel32" (Jump_below 0x80000000L);
   invalid "status kind zero" (Store_status_kind 0);
   invalid "status kind three" (Store_status_kind 3);
   invalid "status site zero" (Store_status_site 0);

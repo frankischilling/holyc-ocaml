@@ -140,6 +140,10 @@ let event_context = function
             p.dimension_owner.dimensions_command
         | Parser.Array_dimension_completed p ->
             p.dimension_preparation.dimension_owner.dimensions_command
+        | Parser.Switch_case_preparing p -> p.switch_owner.switch_command
+        | Parser.Switch_case_completed p ->
+            p.completed_case_owner.switch_command
+        | Parser.Switch_completed p -> p.switch_owner.switch_command
         | Parser.Global_declared p | Parser.Global_completed (p, _) ->
             p.global_header.declaration_command
         | Parser.Global_initializer_started p ->

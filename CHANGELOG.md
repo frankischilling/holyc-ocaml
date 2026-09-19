@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- Compacted consecutive equal switch destinations in native dispatch. Maximum
+  single-case ranges now fit the default code limit while alternating targets
+  retain code-quota checks. IR table storage and runtime work stay separately
+  bounded.
+
+- Connected ordinary bounded integer switches to original parser-time closed
+  case preparation, checked block graphs, interpreter dispatch and own-encoder
+  native execution. Inclusive reversed ranges, implicit values, defaults,
+  source fallthrough and nested breaks preserve their source order. Separate
+  preparation-work and cumulative table-storage bounds retain progress on
+  failure; unsupported case effects and no-bound/sub-switch regions reject.
+
 - Added native scalar globals shared by entry code and direct/recursive calls.
   Generated accesses preserve declared widths and full expression results;
   fresh arenas retain AOT zero initialization and hosted JIT unknown-read faults.
