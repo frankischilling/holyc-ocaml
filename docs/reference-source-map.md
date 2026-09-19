@@ -1,5 +1,12 @@
 # Reference source map
 
+Issue #675 connects uninitialized native scalar statics. At the pinned reference,
+`PrsVar.HC:492-495,534-589` disables registers, rounds static allocations to eight
+bytes and emits AOT zero bytes. `PrsStmt.HC:1067-1068,1160-1161` selects the static
+member path. The backend retains exact function/frame/location ownership and
+shares a fresh arena across calls. JIT unknown-read faults remain hosted policy.
+See [native storage](native-globals.md).
+
 Issue #673 connects closed scalar native global initializers to their original
 source callbacks. At `c26482bb6ad3f80106d28504ec5db3c6a360732c`,
 `Compiler/PrsVar.HC:1-115,206-212` prepares constant expressions, converts their

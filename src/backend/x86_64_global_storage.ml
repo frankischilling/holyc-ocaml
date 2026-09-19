@@ -9,7 +9,8 @@ module Symbol_map = Map.Make (Symbol.Id)
 type error = { code : string; message : string; span : Common.Span.t option }
 
 type slot = {
-  source_slot : Globals.slot;
+  source_slot : Globals.storage_slot;
+  owner : Ir.Function_body.t option;
   symbol : Symbol.t;
   type_ : Sema.Type.t;
   scalar : Scalar.t;
@@ -42,7 +43,8 @@ let span_of_symbol symbol =
   | Symbol.Source_location location -> Some location.span
   | Symbol.Pinned_source _ | Symbol.Synthesized _ -> None
 
-let create_internal ?initializers ~max_global_bytes ~initialization ~entry () =
+let create_internal ?initializers ~functions ~max_global_bytes ~initialization
+    ~entry () =
   let ( let* ) = Result.bind in
   let* () = validate_global_limit ~max_global_bytes in
   let globals = Initialization.globals initialization in
@@ -58,8 +60,6 @@ let create_internal ?initializers ~max_global_bytes ~initialization ~entry () =
   let* () =
     if Globals.is_task_command globals then
       unsupported "native globals do not admit retained task storage"
-    else if Globals.statics globals <> [] then
-      unsupported "native globals do not admit static local storage"
     else if Globals.has_initializers globals && Option.is_none initializers then
       unsupported "native globals do not admit declaration initializers"
     else if
@@ -94,7 +94,49 @@ let create_internal ?initializers ~max_global_bytes ~initialization ~entry () =
            declared_bytes max_global_bytes)
     else Ok ()
   in
-  let source_slots = Globals.slots globals in
+  let* static_owners =
+    List.fold_left
+      (fun checked (definition : Ir.Integer_interpreter.function_definition) ->
+        let* owners = checked in
+        let module Frame = Sema.Function_frame_layout in
+        List.fold_left
+          (fun checked location ->
+            let* owners = checked in
+            if Frame.location_kind location <> Frame.Static_local then Ok owners
+            else if
+              Option.is_none
+                (Ir.Function_body.definition_declaration definition.body)
+              || not
+                   (Ir.Function_body.definition_matches_frame definition.body
+                      definition.frame)
+            then
+              invalid "native static requires its exact compiled function frame"
+            else
+              let id = Symbol.id (Frame.location_symbol location) in
+              if Symbol_map.mem id owners then
+                invalid "native static repeats a function/location owner"
+              else
+                Ok
+                  (Symbol_map.add id
+                     (definition.body, definition.frame, location)
+                     owners))
+          (Ok owners)
+          (Frame.function_locations definition.frame))
+      (Ok Symbol_map.empty) functions
+  in
+  let* () =
+    if Symbol_map.cardinal static_owners = List.length (Globals.statics globals)
+    then Ok ()
+    else invalid "native function requires every exact static storage location"
+  in
+  let source_slots =
+    List.map
+      (fun slot -> (Globals.global_storage slot, Some slot, None))
+      (Globals.slots globals)
+    @ List.map
+        (fun slot -> (Globals.static_storage slot, None, Some slot))
+        (Globals.statics globals)
+  in
   let slot_count = List.length source_slots in
   let* arena_bytes =
     if slot_count > hard_max_arena_bytes - declared_bytes then
@@ -129,11 +171,11 @@ let create_internal ?initializers ~max_global_bytes ~initialization ~entry () =
               image = Bytes.to_string image;
               slots;
             }
-    | source_slot :: rest ->
-        let symbol = Globals.slot_symbol source_slot in
+    | (source_slot, global, static) :: rest ->
+        let symbol = Globals.storage_symbol source_slot in
         let span = span_of_symbol symbol in
-        let storage = Globals.global_storage source_slot in
-        let type_ = Globals.slot_type source_slot in
+        let storage = source_slot in
+        let type_ = Globals.storage_type source_slot in
         let* scalar =
           match
             ( Scalar.of_type type_,
@@ -147,35 +189,96 @@ let create_internal ?initializers ~max_global_bytes ~initialization ~entry () =
                 "native globals require public nonzero scalar integer objects"
         in
         let width = Scalar.byte_size scalar in
-        let* () =
-          if Symbol.equal_kind (Symbol.kind symbol) Symbol.Global_variable then
-            Ok ()
-          else invalid ?span "native global slot does not own a global symbol"
+        let* owner, allocation_bytes =
+          match (global, static) with
+          | Some slot, None ->
+              if
+                not
+                  (Symbol.equal_kind (Symbol.kind symbol) Symbol.Global_variable)
+              then
+                invalid ?span "native global slot does not own a global symbol"
+              else if Globals.slot_reuses_declared_storage slot then
+                unsupported ?span
+                  "native globals do not admit retained declared storage"
+              else Ok (None, width)
+          | None, Some slot -> (
+              let frame = Globals.static_frame slot in
+              let location = Globals.static_location slot in
+              let module Frame = Sema.Function_frame_layout in
+              if
+                Globals.static_initializers slot <> []
+                || Option.is_some (Globals.static_array_initializers slot)
+                || Globals.storage_preparation_steps storage <> 0
+              then
+                unsupported ?span
+                  "native statics do not admit declaration initializers"
+              else if
+                Sema.Compiler_option.is_enabled
+                  ~mask:(Globals.static_compiler_options slot)
+                  Sema.Compiler_option.Globals_on_data_heap
+              then
+                unsupported ?span
+                  "native statics do not admit data-heap options"
+              else if
+                Frame.location_kind location <> Frame.Static_local
+                || (not
+                      (Symbol.equal_kind (Symbol.kind symbol)
+                         Symbol.Local_variable))
+                || Frame.location_declarator_shape location <> Frame.Object
+                || Frame.location_value_shape location <> Frame.Scalar
+                || Frame.location_dimensions location <> []
+                || Frame.location_allocated_size location <> Int64.of_int width
+                || Frame.location_element_size location <> Int64.of_int width
+                || Frame.location_alignment location <> 8
+                || (match Frame.location_register_selection location with
+                  | Sema.Register_request.Unspecified
+                  | Sema.Register_request.Disabled -> false
+                  | Sema.Register_request.Allocatable
+                  | Sema.Register_request.Explicit _ -> true)
+                || Frame.location_symbol location != symbol
+                || (not
+                      (Sema.Type.equal
+                         (Frame.location_checked_type location)
+                         type_))
+                || Option.is_some (Frame.location_frame_slot location)
+              then
+                invalid ?span
+                  "native static has another checked frame or location"
+              else
+                match Symbol_map.find_opt (Symbol.id symbol) static_owners with
+                | Some (body, expected_frame, expected_location)
+                  when expected_frame == frame && expected_location == location
+                  -> Ok (Some body, 8)
+                | _ ->
+                    invalid ?span
+                      "native static requires its unique exact compiled \
+                       function")
+          | _ -> invalid ?span "native storage has an invalid owner"
         in
         let* () =
-          if Globals.slot_reuses_declared_storage source_slot then
-            unsupported ?span
-              "native globals do not admit retained declared storage"
-          else if Globals.storage_element_count storage <> 1 then
+          if Globals.storage_element_count storage <> 1 then
             unsupported ?span "native globals do not admit array storage"
-          else if Globals.slot_index source_slot <> ordinal then
+          else if Globals.storage_index storage <> ordinal then
             invalid ?span
-              "native global slot order disagrees with its sealed layout"
-          else if width > declared_bytes - byte_offset then
-            invalid ?span "native global width exceeds its sealed byte image"
+              "native storage order disagrees with its sealed layout"
+          else if allocation_bytes > declared_bytes - byte_offset then
+            invalid ?span "native storage width exceeds its sealed byte image"
           else Ok ()
         in
         let* initially_initialized =
           if
-            Option.is_some (Globals.slot_initializer source_slot)
+            Option.fold ~none:false
+              ~some:(fun slot -> Option.is_some (Globals.slot_initializer slot))
+              global
             && Option.is_some initializers
           then
-            match Globals.slot_initial_bits source_slot with
+            match Globals.storage_initial_bits source_slot with
             | Some bits
-              when Globals.slot_initializer_materialized source_slot
-                   && (Globals.slot_opcode source_slot = Opcode.Ic_imm_i64
-                      || Globals.slot_opcode source_slot = Opcode.Ic_abs_addr)
-              ->
+              when Option.fold ~none:false
+                     ~some:Globals.slot_initializer_materialized global
+                   && (Globals.storage_opcode source_slot = Opcode.Ic_imm_i64
+                      || Globals.storage_opcode source_slot = Opcode.Ic_abs_addr
+                      ) ->
                 for byte = 0 to width - 1 do
                   Bytes.set image (byte_offset + byte)
                     (Char.chr
@@ -187,8 +290,8 @@ let create_internal ?initializers ~max_global_bytes ~initialization ~entry () =
             | _ -> invalid ?span "native global has no prepared scalar image"
           else
             match
-              ( Globals.slot_opcode source_slot,
-                Globals.slot_initial_bits source_slot )
+              ( Globals.storage_opcode source_slot,
+                Globals.storage_initial_bits source_slot )
             with
             | Opcode.Ic_imm_i64, None -> Ok false
             | Opcode.Ic_abs_addr, Some bits when Int64.equal bits 0L -> Ok true
@@ -208,6 +311,7 @@ let create_internal ?initializers ~max_global_bytes ~initialization ~entry () =
         let slot =
           {
             source_slot;
+            owner;
             symbol;
             type_;
             scalar;
@@ -220,17 +324,20 @@ let create_internal ?initializers ~max_global_bytes ~initialization ~entry () =
         if Symbol_map.mem id slots then
           invalid ?span "native global layout repeats a symbol identity"
         else
-          collect (ordinal + 1) (byte_offset + width)
+          collect (ordinal + 1)
+            (byte_offset + allocation_bytes)
             (Symbol_map.add id slot slots)
             rest
   in
   collect 0 0 Symbol_map.empty source_slots
 
-let create ~max_global_bytes ~initialization ~entry =
-  create_internal ~max_global_bytes ~initialization ~entry ()
+let create ~functions ~max_global_bytes ~initialization ~entry =
+  create_internal ~functions ~max_global_bytes ~initialization ~entry ()
 
-let create_prepared ~initializers ~max_global_bytes ~initialization ~entry =
-  create_internal ~initializers ~max_global_bytes ~initialization ~entry ()
+let create_prepared ~functions ~initializers ~max_global_bytes ~initialization
+    ~entry =
+  create_internal ~functions ~initializers ~max_global_bytes ~initialization
+    ~entry ()
 
 let globals layout = layout.globals
 let entry layout = layout.entry
@@ -250,3 +357,9 @@ let scalar slot = slot.scalar
 let data_offset slot = slot.data_offset
 let flag_offset slot = slot.flag_offset
 let initially_initialized slot = slot.initially_initialized
+
+let owns_address slot runtime_owner =
+  match (slot.owner, runtime_owner) with
+  | None, _ -> true
+  | Some expected, Ir.Runtime_call_context.Function actual -> expected == actual
+  | Some _, _ -> false

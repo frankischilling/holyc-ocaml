@@ -22,7 +22,7 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 4)
+    (Array.length Sys.argv = 5)
     "usage: test_native_global_cli.exe <holyc.exe> <globals.hc> \
      <initializers.hc>"
 
@@ -127,6 +127,27 @@ let check_word report type_ value bits =
 let () =
   List.iter
     (fun mode ->
+      let statics = host_json ~mode Sys.argv.(4) in
+      check_success statics;
+      check_word statics "i64" "42" "0x000000000000002a";
+      check_word (ir_json ~mode Sys.argv.(4)) "i64" "42" "0x000000000000002a";
+      let static_image = statics |> member "native" |> member "image" in
+      require
+        (static_image |> member "global_bytes" |> to_int = 9)
+        "static padded bytes";
+      require
+        (static_image |> member "global_arena_bytes" |> to_int = 11)
+        "static arena flags";
+      check_success
+        (host_json ~mode ~options:[ "--global-byte-limit=9" ] Sys.argv.(4));
+      let below_static =
+        host_json ~status:1 ~mode
+          ~options:[ "--global-byte-limit=8" ]
+          Sys.argv.(4)
+      in
+      require
+        (member "executed_steps" below_static = `Null)
+        "static quota before entry";
       let prepared = host_json ~mode Sys.argv.(3) in
       check_success prepared;
       check_word prepared "i64" "42" "0x000000000000002a";
@@ -200,7 +221,7 @@ let () =
           "I64 G[1];42;";
           "I64 *G;42;";
           "extern I64 G;42;";
-          "I64 F(){static I64 G;return 42;}F();";
+          "I64 F(){static I64 G=1;return 42;}F();";
           "F64 G;42;";
           "I64 G;I64 F(I64 x=G){return x;}F();";
         ])

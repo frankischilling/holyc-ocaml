@@ -217,7 +217,9 @@ The compiler counts all IR and blocks before allocating its maps, preflights the
 whole bundle, and checks the complete planned image before allocating encoded
 bytes. Prologue, meter, guard, fault-block and epilogue bytes all count toward
 the code quota. Existing `run` global, literal and output options retain their
-configuration validation; scalar globals consume the declared global-byte quota. See [native globals](native-globals.md) for private arena accounting. Default
+configuration validation. Scalar globals consume their declared bytes and scalar
+statics consume eight-byte-rounded allocations under the global-byte quota. See
+[native globals](native-globals.md) for private arena accounting. Default
 preparation has independent work and saved-payload bounds. The semantic
 live-frame limit counts the checked local frame plus
 eight bytes per fixed argument, excluding compiler-private storage. The physical

@@ -400,6 +400,161 @@ let updates_and_widths () =
       done)
     modes
 
+let static_locals () =
+  let cases =
+    [
+      ( "persistent",
+        "I64 F(I64 reset){static I8 n;if(reset)n=40;else n+=1;return \
+         n;}F(1);F(0);F(0);",
+        42L );
+      ( "distinct owners",
+        "I64 F(){static I8 n;n=20;return n;}I64 G(){static I8 n;n=22;return \
+         n;}F()+G();",
+        42L );
+      ( "recursion",
+        "I64 F(I64 n){static I16 sum;if(n==6)sum=21;if(n){sum+=n;return \
+         F(n-1);}return sum;}F(6);",
+        42L );
+      ( "globals defaults switch",
+        "I8 G=40;I64 F(I64 n=2){static I8 s;I64 a=G;switch(n){case \
+         2:s=a+n;break;default:s=0;}return s;}F();",
+        42L );
+      ("unused declaration", "I64 F(){return 1;static I8 n;}42;", 42L);
+      ("shadow", "I64 n=40;I64 F(){static I8 n;n=2;return n;}n+F();", 42L);
+      ( "adjacent narrow",
+        "I64 F(){static I8 a,b;a=255;b=43;return a+b;}F();",
+        42L );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, text, expected) ->
+          let _, native = native_success ~mode text in
+          check_native_word label "I64" expected native.execution.final_value;
+          check_public_word label "I64" expected (public_run ~mode text);
+          for _ = 1 to 3 do
+            match
+              Runtime.execute ~max_steps:10000 native.image |> require_ok Fun.id
+            with
+            | Program.Completed result ->
+                check_native_word label "I64" expected result.final_value
+            | _ -> Alcotest.fail "repeated static execution faulted"
+          done)
+        cases;
+      List.iter
+        (fun (type_, input, expected, tag) ->
+          let text =
+            Printf.sprintf "I64 F(){static %s n;n=%s;return n;}F();" type_ input
+          in
+          let _, native = native_success ~mode text in
+          check_native_word type_ tag expected native.execution.final_value;
+          check_public_word type_ tag expected (public_run ~mode text))
+        [
+          ("I8", "255", -1L, "I64");
+          ("U8", "257", 1L, "I64");
+          ("I16", "65535", -1L, "I64");
+          ("U16", "65537", 1L, "I64");
+          ("I32", "4294967295", -1L, "I64");
+          ("U32", "4294967297", 1L, "I64");
+          ("I64", "-1", -1L, "I64");
+          ("U64", "0xffffffffffffffff", -1L, "I64");
+        ];
+      let report = native_report ~mode "I64 F(){static I8 n;return n;}F();" in
+      (match (mode, Native_program.native_outcome report) with
+      | Preprocessor.Aot, Some (Program.Completed r) ->
+          check_native_word "AOT zero" "I64" 0L r.final_value
+      | Preprocessor.Jit, Some (Program.Fault f)
+        when f.kind = Program.Uninitialized_read -> ()
+      | _ -> Alcotest.fail "incorrect static initial state");
+      let text =
+        "I64 F(I64 n){static I8 s;s=42;if(n)return F(n-1);s/=0;return s;}F(3);"
+      in
+      let report = native_report ~mode text in
+      let image = Native_program.image report |> Option.get in
+      for _ = 1 to 3 do
+        match Runtime.execute ~max_steps:10000 image |> require_ok Fun.id with
+        | Program.Fault f when f.kind = Program.Division_by_zero ->
+            Alcotest.(check (option string))
+              "static fault owner" (Some "F") f.function_name
+        | _ -> Alcotest.fail "recursive static fault did not unwind"
+      done;
+      let session, config, source =
+        source_inputs ~mode "I8 G;I64 F(){static I8 a,b;return 1;}G=42;G;"
+      in
+      let image =
+        Native_program.compile ~max_global_bytes:17 session ~config ~source
+        |> require_ok diagnostics_text
+      in
+      Alcotest.(check int)
+        "padded static quota" 17
+        (Program.global_bytes image.value);
+      Alcotest.(check int)
+        "static flags" 20
+        (String.length (Program.global_image image.value));
+      (match
+         Native_program.compile ~max_global_bytes:16 session ~config ~source
+       with
+      | Error _ -> ()
+      | Ok _ -> Alcotest.fail "unused statics escaped allocation quota");
+      (match
+         Runtime.execute ~max_global_bytes:16 ~max_steps:1000 image.value
+       with
+      | Error _ -> ()
+      | Ok _ -> Alcotest.fail "statics escaped runtime allocation quota");
+      ignore
+        (Runtime.execute ~max_global_bytes:17 ~max_steps:1000 image.value
+        |> require_ok Fun.id))
+    modes
+
+let static_initial_state_and_meters () =
+  let text =
+    "I64 F(I64 reset){static I8 n;if(reset)n=40;else n++;return \
+     n;}F(1);F(0);F(0);"
+  in
+  List.iter
+    (fun mode ->
+      let _, native = native_success ~mode text in
+      let _, interpreted = batch_success ~mode text in
+      Alcotest.(check int)
+        "static native and checked IR steps"
+        (VM.executed_steps interpreted)
+        native.execution.executed_steps;
+      let steps = native.execution.executed_steps in
+      (match
+         Runtime.execute ~max_frame_bytes:8 ~max_steps:steps native.image
+         |> require_ok Fun.id
+       with
+      | Program.Completed r ->
+          check_native_word "exact steps with static outside frame" "I64" 42L
+            r.final_value
+      | _ -> Alcotest.fail "static consumed semantic activation bytes");
+      match
+        Runtime.execute ~max_steps:(steps - 1) native.image |> require_ok Fun.id
+      with
+      | Program.Fault f when f.kind = Program.Step_limit_exceeded -> ()
+      | _ -> Alcotest.fail "static one-below meter failed")
+    modes;
+  let _, native =
+    native_success ~mode:Preprocessor.Aot "I64 F(){static I8 n;return ++n;}F();"
+  in
+  for _ = 1 to 3 do
+    match Runtime.execute ~max_steps:1000 native.image |> require_ok Fun.id with
+    | Program.Completed r ->
+        check_native_word "AOT reset without explicit assignment" "I64" 1L
+          r.final_value
+    | _ -> Alcotest.fail "AOT fresh static faulted"
+  done;
+  let report =
+    native_report ~mode:Preprocessor.Jit "I64 F(){static I8 n;return n;}F();"
+  in
+  let image = Native_program.image report |> Option.get in
+  for _ = 1 to 3 do
+    match Runtime.execute ~max_steps:1000 image |> require_ok Fun.id with
+    | Program.Fault f when f.kind = Program.Uninitialized_read -> ()
+    | _ -> Alcotest.fail "JIT unknown static was not restored"
+  done
+
 let () =
   if Runtime.platform () = Runtime.Unsupported then
     failwith "native globals tests require x86-64";
@@ -407,6 +562,9 @@ let () =
     [
       ( "globals",
         [
+          Alcotest.test_case "scalar static locals" `Quick static_locals;
+          Alcotest.test_case "static initial state and meters" `Quick
+            static_initial_state_and_meters;
           Alcotest.test_case
             "width edges, compound operations and nested faults" `Quick
             updates_and_widths;

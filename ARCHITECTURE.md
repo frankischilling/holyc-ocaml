@@ -7,6 +7,9 @@ invocation. Saved numeric defaults still prepare in isolated empty fragments.
 Closed global initializers use the same preparation engine and shared declaration
 budget. `Driver.Native_global_initializers` seals original leaf receipts and
 prepared values to the exact compiled storage, entry and call bundle.
+Uninitialized scalar statics share this arena across calls, with exact compiled
+function/frame/location ownership and eight-byte-rounded allocations. Static
+initializers retain their separate preparation boundary.
 See [native globals](docs/native-globals.md) for ownership and resource contracts.
 
 The compiler is split into explicit stages. Each stage consumes immutable inputs and returns either a value or structured diagnostics. Sessions own source IDs and configuration; compiler modules do not rely on hidden global state.

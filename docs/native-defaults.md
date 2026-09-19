@@ -79,6 +79,8 @@ preparations and a certificate from another bundle reject before executable
 allocation. Low-level `X86_64_program.compile_callable` still rejects defaults
 when no certificate is supplied.
 
+Uninitialized scalar statics compose with saved defaults and consume the
+global storage quota. Default evaluation still uses its empty fragment.
 Scheduled global/static initialization remains excluded. Closed global
 initializers require their separate original preparation certificate; a default
 certificate cannot authorize them. Likewise, accepting immediate producers does

@@ -125,12 +125,18 @@ let local_source_error (declaration : Ast.local_declaration) =
   let reject message =
     Some (source_error declaration.local_declaration_location.span message)
   in
-  if declaration.local_storage <> Ast.Automatic_local then
-    reject "native functions do not admit static local storage"
-  else if declaration.local_modifiers <> [] then
-    reject "native automatic locals do not admit declaration modifiers"
+  let is_static = declaration.local_storage = Ast.Static_local in
+  if
+    if is_static then
+      declaration.local_modifiers = []
+      || List.exists
+           (fun (modifier : Ast.declaration_modifier) ->
+             modifier.kind <> Ast.Static || modifier.spelling <> "static")
+           declaration.local_modifiers
+    else declaration.local_modifiers <> []
+  then reject "native locals do not admit declaration modifiers"
   else if not (scalar_word_type declaration.local_type_specifier) then
-    reject "native automatic locals require nonzero scalar integer types"
+    reject "native locals require nonzero scalar integer types"
   else
     List.find_map
       (fun (local : Ast.local_declarator) ->
@@ -140,18 +146,19 @@ let local_source_error (declaration : Ast.local_declaration) =
         if
           local.local_pointer_layers <> []
           || Option.is_some local.local_function_pointer
-        then reject "native automatic locals do not admit pointers"
+        then reject "native locals do not admit pointers"
         else if local.local_array_dimensions <> [] then
-          reject "native automatic locals do not admit arrays"
+          reject "native locals do not admit arrays"
         else if local.local_register_qualifiers <> [] then
-          reject "native automatic locals do not admit explicit registers"
+          reject "native locals do not admit explicit registers"
         else
           match local.local_initializer with
           | None -> None
+          | Some _ when is_static ->
+              reject "native statics do not admit declaration initializers"
           | Some { local_initializer_value = Ast.Scalar_initializer _; _ } ->
               None
-          | Some _ ->
-              reject "native automatic locals require scalar initializers")
+          | Some _ -> reject "native locals require scalar initializers")
       declaration.local_declarators
 
 let global_source_error ~span ~modifiers ~binding ~type_specifier
@@ -431,9 +438,6 @@ let ast_errors (ast : Ast.module_) =
 let program_storage_errors compiled span =
   let errors = ref [] in
   let add message = errors := source_error span message :: !errors in
-  let globals = Integer_unit.globals compiled in
-  if Ir.Integer_globals.statics globals <> [] then
-    add "native programs do not admit static local storage";
   let initialization = Integer_unit.initialization compiled in
   if
     Ir.Global_initialization.regions initialization <> []
