@@ -860,6 +860,101 @@ let pointer_faults_and_limits () =
       done)
     modes
 
+let automatic_array_preparation_and_layout () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (type_, bytes) ->
+          ignore
+            (compare_source ~mode ~label:("array layout " ^ type_)
+               ~expected_type:"I64"
+               ~expected_bits:(Int64.of_int ((6 * bytes) + 42))
+               (Printf.sprintf
+                  "I64 F(){%s a[2][3];I8 marker=42;return \
+                   sizeof(a)+marker;}F();"
+                  type_)))
+        [
+          ("I8", 1);
+          ("U8", 1);
+          ("I16", 2);
+          ("U16", 2);
+          ("I32", 4);
+          ("U32", 4);
+          ("I64", 8);
+          ("U64", 8);
+        ];
+      let contents = "I64 F(){I16 a[1+2][7];return sizeof(a);}F();" in
+      let run ?max_dimension_work ?max_frame_bytes contents =
+        let session, config, source = source_inputs ~mode contents in
+        Native_program.evaluate ?max_dimension_work ?max_frame_bytes session
+          ~config ~source ~max_steps:1000
+      in
+      let report = run contents in
+      let value =
+        Native_program.outcome report |> require_ok diagnostics_text
+      in
+      check_native_word "array sizeof" "I64" 42L
+        value.value.execution.final_value;
+      let work = Native_program.dimension_work report in
+      Alcotest.(check bool) "nonzero original dimension work" true (work > 1);
+      ignore
+        (Native_program.outcome (run ~max_dimension_work:work contents)
+        |> require_ok diagnostics_text);
+      let failed = run ~max_dimension_work:(work - 1) contents in
+      Alcotest.(check bool)
+        "dimension one below rejects" true
+        (Result.is_error (Native_program.outcome failed));
+      Alcotest.(check int)
+        "dimension failure retains reached work" (work - 1)
+        (Native_program.dimension_work failed);
+      Alcotest.(check bool)
+        "dimension failure prevents entry" true
+        (Option.is_none (Native_program.image failed));
+      let invalid = run ~max_dimension_work:0 contents in
+      Alcotest.(check int)
+        "invalid dimension limit prevents parsing" 0
+        (Native_program.dimension_work invalid);
+      Alcotest.(check bool)
+        "invalid dimension limit rejects" true
+        (Result.is_error (Native_program.outcome invalid));
+      let twice = run (contents ^ "F();") in
+      Alcotest.(check int)
+        "calls reuse dimensions" work
+        (Native_program.dimension_work twice);
+      let unused = run "I64 F(){I16 a[1+2][7];return sizeof(a);}42;" in
+      Alcotest.(check int)
+        "unused function prepares dimensions" work
+        (Native_program.dimension_work unused);
+      let malformed = run "I64 F(){I16 a[1+2][7;return 42;}F();" in
+      Alcotest.(check bool)
+        "closing bracket failure" true
+        (Result.is_error (Native_program.outcome malformed));
+      Alcotest.(check int)
+        "lookahead failure retains preparation" work
+        (Native_program.dimension_work malformed);
+      ignore
+        (Native_program.outcome (run ~max_frame_bytes:48 contents)
+        |> require_ok diagnostics_text);
+      let failed = run ~max_frame_bytes:47 contents in
+      (match Native_program.native_outcome failed with
+      | Some (Program.Fault { kind = Program.Frame_limit_exceeded; _ }) -> ()
+      | _ -> Alcotest.fail "array semantic frame one below did not fault");
+      let recursive =
+        "I64 F(I64 n){I16 a[3][7];if(n)return F(n-1);return sizeof(a);}F(2);"
+      in
+      ignore
+        (compare_source ~mode ~label:"recursive array layout"
+           ~expected_type:"I64" ~expected_bits:42L recursive);
+      let image = value.value.image in
+      for _ = 1 to 3 do
+        match Runtime.execute ~max_steps:1000 image |> require_ok Fun.id with
+        | Program.Completed execution ->
+            check_native_word "repeated array layout" "I64" 42L
+              execution.final_value
+        | Program.Fault _ -> Alcotest.fail "repeated array layout faulted"
+      done)
+    modes
+
 let () =
   match Runtime.platform () with
   | Runtime.Unsupported ->
@@ -870,6 +965,8 @@ let () =
         [
           ( "native scalar functions",
             [
+              Alcotest.test_case "automatic array preparation and frame bounds"
+                `Quick automatic_array_preparation_and_layout;
               Alcotest.test_case
                 "typed pointer aliases preserve source semantics" `Quick
                 pointer_alias_semantics;

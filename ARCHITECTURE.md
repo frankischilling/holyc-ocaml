@@ -99,3 +99,10 @@ Integer and character payload words with a negative signed `int64` representatio
 ## Determinism
 
 Byte offsets and source order are preserved. Reports sort data only when source order has no meaning. Version output always names the pinned reference commit. Tests override data that could depend on clocks, locale, process IDs, or temporary directories.
+
+Native automatic arrays reuse original source dimension receipts and checked
+function-frame layouts. The backend validates complete object ranges and source
+alignment, then bounds per-element initialization metadata before expansion.
+Dimension work has an independent public limit and survives failure in reports.
+Element address generation remains unfinished in #681; the current path admits
+layout and sizeof only. See [native arrays](docs/native-arrays.md).

@@ -1242,3 +1242,13 @@ LEA alongside the previously audited scalar move forms. Native descriptors,
 initialization checks and the nonescaping local/parameter lifetime restriction
 are hosted policy; see [native pointers](native-pointers.md). No new TempleOS
 execution capture is claimed.
+
+## Native automatic array preparation (#681, partial)
+
+`Compiler/PrsVar.HC:247-281,590-606` at the pinned revision supplies dimension
+preparation, products and automatic allocation/alignment. The native source
+path consumes `Task_declarations` receipts and `Function_frame_layout` objects;
+`x86_64_word_codegen.ml` checks full ranges and reserves bounded per-element
+initialization state. `test_native_scalar_functions.ml`, the native scalar
+execution suite and `test_native_array_cli.ml` cover preparation and sizeof.
+Indexing and stable array aliases remain open; see [native arrays](native-arrays.md).

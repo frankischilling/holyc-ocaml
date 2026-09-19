@@ -500,8 +500,81 @@ let borrowed_static_reference_does_not_grant_symbol_authority () =
            "borrowed reference cannot synthesize caller static symbol")
     modes
 
+let automatic_array_layout () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun type_ ->
+          List.iter
+            (fun status_abi ->
+              let session, config, source =
+                source_inputs ~mode ~path:"array-layout.hc"
+                  (Printf.sprintf
+                     "%s F(){%s a[2][3];I8 marker=42;return \
+                      sizeof(a)+marker;}F();"
+                     "I64" type_)
+              in
+              ignore
+                (Native_program.compile ~status_abi session ~config ~source
+                |> require_ok diagnostics_text))
+            [ Program.Windows_x64; Program.System_v_x64 ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32"; "I64"; "U64" ];
+      let unit =
+        integer_unit ~mode "I64 F(){I16 a[3][7];return sizeof(a);}F();"
+      in
+      let other =
+        integer_unit ~mode "I64 F(){I16 a[3][7];return sizeof(a);}F();"
+      in
+      let original = List.hd (integer_program_functions unit) in
+      let compile functions =
+        Program.compile_callable ~max_ir_instructions:4096 ~max_code_bytes:65536
+          ~runtime_calls:(integer_program_runtime_calls unit)
+          ~initialization:(integer_program_initialization unit)
+          ~entry:(integer_program_entry unit)
+          ~functions ()
+      in
+      ignore (compile [ original ] |> require_ok program_errors);
+      compile
+        [
+          {
+            original with
+            frame = (List.hd (integer_program_functions other)).frame;
+          };
+        ]
+      |> reject_backend "array body joined to foreign frame";
+      compile
+        [
+          { original with frame = Obj.obj (Obj.dup (Obj.repr original.frame)) };
+        ]
+      |> reject_backend "array body joined to reconstructed frame";
+      let contents = "I64 F(){I16 a[3][7];return sizeof(a);}F();" in
+      let compiled = image ~mode contents in
+      let bytes = Program.frame_bytes compiled in
+      ignore (image ~mode ~max_stack_bytes:bytes contents);
+      compile_source ~mode ~max_stack_bytes:(bytes - 1) contents
+      |> reject_compile ~code:"HCBACK0004" "array private frame one below";
+      List.iter
+        (fun contents ->
+          compile_source ~mode contents
+          |> reject_compile "array unsupported storage or addressing")
+        [
+          "I64 F(){I8 a[2];return *a;}F();";
+          "I64 F(){I8 a[2];I8 *p=a;return 42;}F();";
+          "I64 F(){I8 a[2];return a[0];}F();";
+          "I64 F(){I8 a[2]={1,2};return 42;}F();";
+          "I64 F(){static I8 a[2];return 42;}F();";
+          "I64 F(){I8 *a[2];return 42;}F();";
+          "I64 F(){I8 a[0];return 42;}F();";
+          "I64 F(){I8 a[1000000000];return 42;}F();";
+          "I64 F(){I8 a[9223372036854775807][2];return 42;}F();";
+          "I64 Count(){return 2;}I64 F(){I8 a[Count()];return 42;}F();";
+        ])
+    modes
+
 let tests =
   [
+    Alcotest.test_case "original automatic array dimensions and bounded layout"
+      `Quick automatic_array_layout;
     Alcotest.test_case
       "borrowed static reference does not grant symbol ownership" `Quick
       borrowed_static_reference_does_not_grant_symbol_authority;

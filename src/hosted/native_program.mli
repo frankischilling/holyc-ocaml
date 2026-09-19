@@ -17,6 +17,7 @@ val compile :
   ?max_blocks:int ->
   ?max_initializer_steps:int ->
   ?max_switch_work:int ->
+  ?max_dimension_work:int ->
   ?max_default_bytes:int ->
   ?max_global_bytes:int ->
   ?status_abi:Backend.X86_64_program.status_abi ->
@@ -30,16 +31,20 @@ val compile :
     pointer locals and fixed parameters, and function-local language goto/labels
     and bounded integer switches, through the shared native word backend. Closed
     case endpoints prepare at their original parser callbacks under an
-    independent 100,000-node work limit. Supported scalar parameter defaults are
-    prepared once at their original declaration callbacks through the checked
-    constant-preparation engine. Closed scalar global initializers prepare at
-    their original leaf callbacks under that same work budget. Closed scalar
-    static initializers prepare after expression lookahead and require their
-    completed original declarations. Their exact receipts authorize the native
-    initial image, which restores declared-width values on each execution.
-    Reference descriptors retain exact object ownership and initialization state
-    within the physical frame budget. Effectful initializers, escaping/deeper
-    pointers, arrays and other unsupported declarations/defaults reject before
+    independent 100,000-node work limit. Closed automatic scalar array
+    dimensions prepare at their original callbacks under [max_dimension_work].
+    Their full aligned frames and per-element flags are bounded before
+    expansion; sizeof can consume the checked extent. Element access remains
+    unsupported. Supported scalar parameter defaults are prepared once at their
+    original declaration callbacks through the checked constant-preparation
+    engine. Closed scalar global initializers prepare at their original leaf
+    callbacks under that same work budget. Closed scalar static initializers
+    prepare after expression lookahead and require their completed original
+    declarations. Their exact receipts authorize the native initial image, which
+    restores declared-width values on each execution. Reference descriptors
+    retain exact object ownership and initialization state within the physical
+    frame budget. Effectful initializers, escaping/deeper pointers, array
+    element addresses and other unsupported declarations/defaults reject before
     native entry. This never interprets ordinary commands or allocates
     executable memory. Parser warnings retain their original source identities.
     Defaults are 4096 total IR instructions, 65536 code bytes, 4088 private
@@ -56,6 +61,7 @@ val evaluate :
   ?max_initializer_steps:int ->
   ?max_default_bytes:int ->
   ?max_switch_work:int ->
+  ?max_dimension_work:int ->
   ?max_global_bytes:int ->
   ?max_frame_bytes:int ->
   ?max_call_depth:int ->
@@ -99,4 +105,9 @@ val switch_work : report -> int
 val default_bytes : report -> int
 (** Saved scalar default payload bytes successfully prepared before completion
     or failure. Repeated calls do not prepare or charge the saved value again.
+*)
+
+val dimension_work : report -> int
+(** Original closed dimension preparation work, retained after failure and
+    bounded independently by [max_dimension_work] (positive, default 100,000).
 *)

@@ -1006,3 +1006,10 @@ parameter rebinding, RHS effects, recursive ownership, initialization faults,
 exact budgets and repeated images. The CLI fixture combines pointers with
 closed static/global initialization and a scalar default. See
 [native pointers](native-pointers.md).
+
+Native array preparation tests cover all integer widths and both ABI images,
+original dimension-work limits, full frame bounds, recursive/repeated calls,
+unused declarations and delimiter failures. The explicit native CLI suite runs
+`examples/native-array-layout.hc` in both modes and checks human/JSON work
+reports. Array element operations remain rejected under #681; see
+[native automatic arrays](native-arrays.md).

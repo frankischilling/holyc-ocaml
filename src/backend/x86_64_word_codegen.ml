@@ -2553,6 +2553,7 @@ let preflight_program graph =
 type callable_slot = {
   slot_type : Type.t;
   slot_word : word_type;
+  slot_dimensions : int64 list;
   access : frame_access;
 }
 
@@ -2808,6 +2809,7 @@ let prepare_callable_function ~max_stack_bytes
         {
           slot_type = type_;
           slot_word = scalar.word_type;
+          slot_dimensions = [];
           access =
             {
               frame_offset = actual;
@@ -2819,8 +2821,9 @@ let prepare_callable_function ~max_stack_bytes
     parameters;
   let locals = Function.locals body in
   let init_flag_offsets_rev = ref [] in
-  List.iteri
-    (fun index member ->
+  let flag_count = ref 0 in
+  List.iter
+    (fun member ->
       let type_ = Function.member_type member in
       let scalar =
         source_slot_scalar
@@ -2836,6 +2839,46 @@ let prepare_callable_function ~max_stack_bytes
               "HCBACK0003"
               "native automatic local has no checked frame location"
       in
+      let dimensions = Frame.location_dimensions location in
+      let counts = List.map Frame.dimension_value dimensions in
+      let elements, object_bytes =
+        if counts = [] then (1, scalar.byte_size)
+        else (
+          if
+            Type.pointer_depth type_ <> 0
+            || (not (Frame.location_source_dimensions_checked location))
+            || List.exists
+                 (fun dimension ->
+                   Frame.dimension_kind dimension <> Frame.Source_extent
+                   || Frame.dimension_runtime_dependencies dimension <> []
+                   || Frame.dimension_offset_dependencies dimension <> [])
+                 dimensions
+          then
+            reject ?span "HCBACK0002"
+              "native automatic arrays require original closed scalar \
+               dimensions";
+          match Ir.Integer_storage_shape.create ~type_ ~dimensions:counts with
+          | Ok shape ->
+              ( Ir.Integer_storage_shape.element_count shape,
+                Ir.Integer_storage_shape.byte_size shape )
+          | Error _ ->
+              reject ?span "HCBACK0002"
+                "native automatic array extent is invalid or overflows")
+      in
+      (* Charge before constructing the per-element initialization metadata. *)
+      if
+        object_bytes > local_frame_bytes
+        || elements > ((max_stack_bytes - local_frame_bytes) / 8) - !flag_count
+      then
+        reject ?span "HCBACK0004"
+          "native frame and per-element initialization state exceed \
+           max_stack_bytes";
+      let alignment =
+        if object_bytes >= 8 then 8
+        else if object_bytes >= 4 then 4
+        else if object_bytes >= 2 then 2
+        else 1
+      in
       let register_ok =
         match Frame.location_register_selection location with
         | Sema.Register_request.Unspecified | Sema.Register_request.Disabled ->
@@ -2847,18 +2890,18 @@ let prepare_callable_function ~max_stack_bytes
         Frame.location_kind location <> Frame.Automatic_local
         || (not register_ok)
         || Frame.location_declarator_shape location <> Frame.Object
-        || Frame.location_value_shape location <> Frame.Scalar
-        || Frame.location_dimensions location <> []
+        || (Frame.location_value_shape location
+           <> if counts = [] then Frame.Scalar else Frame.Array)
         || (not (Type.equal (Frame.location_checked_type location) type_))
         || Frame.location_element_size location <> Int64.of_int scalar.byte_size
-        || Frame.location_allocated_size location
-           <> Int64.of_int scalar.byte_size
-        || Frame.location_alignment location <> scalar.byte_size
+        || Frame.location_allocated_size location <> Int64.of_int object_bytes
+        || Frame.location_alignment location <> alignment
       then
         reject
           ?span:(Function.member_span member)
           "HCBACK0002"
-          "native source locals require automatic scalar integer stack storage";
+          "native source locals require automatic scalar integer or array \
+           stack storage";
       let slot =
         match Frame.location_frame_slot location with
         | Some slot -> slot
@@ -2873,20 +2916,26 @@ let prepare_callable_function ~max_stack_bytes
           (Frame.frame_slot_displacement slot)
       in
       if
-        actual > -scalar.byte_size
+        actual > -object_bytes
         || actual < -local_frame_bytes
-        || actual mod scalar.byte_size <> 0
-        || Frame.frame_slot_size slot <> Int64.of_int scalar.byte_size
+        || actual mod alignment <> 0
+        || Frame.frame_slot_size slot <> Int64.of_int object_bytes
       then
         reject
           ?span:(Function.member_span member)
           "HCBACK0003" "native automatic local has an invalid RBP displacement";
-      let flag_offset = -(local_frame_bytes + (8 * (index + 1))) in
-      init_flag_offsets_rev := flag_offset :: !init_flag_offsets_rev;
-      add_slot actual scalar.byte_size
+      let flag_offset = -(local_frame_bytes + (8 * (!flag_count + 1))) in
+      for index = 1 to elements do
+        init_flag_offsets_rev :=
+          -(local_frame_bytes + (8 * (!flag_count + index)))
+          :: !init_flag_offsets_rev
+      done;
+      flag_count := !flag_count + elements;
+      add_slot actual object_bytes
         {
           slot_type = type_;
           slot_word = scalar.word_type;
+          slot_dimensions = counts;
           access =
             {
               frame_offset = actual;
@@ -2896,7 +2945,7 @@ let prepare_callable_function ~max_stack_bytes
             };
         })
     locals;
-  let rbp_bytes = local_frame_bytes + (8 * List.length locals) in
+  let rbp_bytes = local_frame_bytes + (8 * !flag_count) in
   if rbp_bytes > max_stack_bytes then
     reject ?span "HCBACK0004"
       (Printf.sprintf
@@ -3439,6 +3488,10 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                          && Type.equal offset_type target_type -> (
                       match Int_map.find_opt offset frame_slots with
                       | Some slot -> (
+                          if slot.slot_dimensions <> [] then
+                            unsupported description
+                              "native array element addresses require checked \
+                               indexing";
                           match Type.pointer_to slot.slot_type with
                           | Ok expected when Type.equal expected target_type ->
                               define_frame frame_values values void_values

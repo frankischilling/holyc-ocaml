@@ -203,3 +203,17 @@
    %{exe:test_native_pointer_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/native-scalar-pointers.hc})))
+
+(executable
+ (name test_native_array_cli)
+ (modules test_native_array_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/native-array-layout.hc)
+ (action
+  (run
+   %{exe:test_native_array_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-array-layout.hc})))

@@ -12239,3 +12239,16 @@ resources = "Private 16-byte descriptors count against fixed and active physical
 identity = "Only exact checked scalar frame/global/static objects materialize references. Pointer copies/calls retain exact pointee type; static symbol materialization retains original function ownership. Local/parameter-only downward flow prevents reference escape across returns."
 excluded = ["pointer returns and persistent pointer storage", "integer/null casts and pointer comparisons", "arithmetic and deeper indirection", "arrays and aggregates", "foreign calls and complete ABI", "object/BIN output, loader acceptance and bootstrap"]
 verification_boundary = "Pinned source, independent expectations, checked interpreter comparison, literal encoder bytes and explicit native API/CLI execution; descriptors and checked lifetime/initialization policies are hosted safeguards, not new TempleOS oracle captures."
+
+[[feature]]
+id = "HC-NATIVE-AUTOMATIC-ARRAYS"
+description = "Closed automatic array dimensions and full checked frame extents reach native sizeof execution; indexed element access remains open."
+status = "partial"
+issue = 681
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:247-281", "Compiler/PrsVar.HC:590-606"]
+implementation = ["src/hosted/native_program.ml", "src/backend/x86_64_word_codegen.ml", "src/driver/task_declarations.ml", "src/sema/function_frame_layout.ml", "bin/run_report.ml"]
+tests = ["test/test_native_scalar_functions.ml", "test/native/test_native_scalar_function_execution.ml", "test/native/test_native_array_cli.ml", "examples/native-array-layout.hc"]
+documentation = ["docs/native-arrays.md", "docs/reference-source-map.md"]
+resources = "Original dimension callbacks consume independently bounded work retained after failure; full aligned object frames and per-element flags are bounded before metadata expansion."
+excluded = ["indexed addresses and array decay", "element access and stable aliases", "runtime-dependent dimensions", "array initialization and persistent arrays", "pointer/aggregate elements", "full ABI, objects, BIN, loader and bootstrap"]

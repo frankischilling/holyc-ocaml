@@ -539,3 +539,8 @@ partial function headers and the remaining #635 requirements are still open.
 ## License and attribution
 
 New project code is licensed under the MIT License. TempleOS is retained as a pinned reference and is not covered by this project's license. The upstream credits call TempleOS public domain while also listing material with separate provenance or uncertain permission. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) records the narrow reference use and those caveats.
+
+Native automatic array dimension preparation and frame allocation are under
+implementation in #681. `examples/native-array-layout.hc` returns 42 through
+`sizeof` in both modes. Element access still rejects; see
+[native automatic arrays](docs/native-arrays.md) for the current boundary.

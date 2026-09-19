@@ -164,3 +164,9 @@ must add a lifetime mechanism before admission. See
 ## Supported versions
 
 The project is pre-release. Security fixes apply to the current default branch until the first versioned support policy is published.
+
+Native automatic array layout validates original closed dimensions and the full
+owned frame range. It charges per-element initialization flags against the
+physical frame bound before expanding metadata. Runtime-dependent extents and
+all array element addresses still reject before native entry. See the current
+[array implementation boundary](docs/native-arrays.md).

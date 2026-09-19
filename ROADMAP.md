@@ -1,5 +1,9 @@
 # holyc-ocaml roadmap
 
+Issue #681 now prepares closed automatic array dimensions and reserves bounded
+frame storage. Indexed access and stable element aliases remain unfinished.
+See [native automatic arrays](docs/native-arrays.md).
+
 Issue #679 adds native one-level scalar pointer aliases in automatic locals and
 fixed parameters, with checked object ownership, private descriptor storage and
 existing initialization/resource faults. Pointer returns, persistent pointer

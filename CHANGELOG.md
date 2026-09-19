@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Connected native automatic array dimension preparation, sizeof and checked
+  frame allocation. API/CLI reports retain original dimension work on failure.
+  Element addressing and array aliases remain unfinished in #681.
+
 - Prepared closed scalar native global initializers at their original source
   callbacks in both modes. Native images reuse checked values, normalize their
   declared widths and restore fresh initialized storage on every execution.
