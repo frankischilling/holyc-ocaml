@@ -230,10 +230,20 @@ let with_native_source_defaults globals defaults =
     Option.is_some globals.task_view
     || globals.source_defaults <> []
     || Option.is_some globals.fragment_kind_
-    || globals.byte_size_ <> 0 || globals.slots_ <> [] || globals.statics_ <> []
+    || globals.statics_ <> []
+    || List.exists
+         (fun slot ->
+           Option.is_some slot.declared_owner
+           || Shape.dimensions slot.shape <> []
+           || Option.is_some slot.initializer_root
+           || Option.is_some slot.array_initializers
+           || slot.initializer_preparation_steps <> 0)
+         globals.slots_
     || globals.declared_slots_ <> []
   then
-    Error "native source defaults require their isolated empty storage context"
+    Error
+      "native source defaults require isolated scalar storage without \
+       initializers"
   else if
     List.exists
       (fun value ->

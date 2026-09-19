@@ -102,12 +102,12 @@ let compile ?(max_initializer_steps = 100_000) ?(max_default_bytes = 65_536)
       completions = Preparation.completions preparation;
     }
 
-let execute ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128) ~max_steps
-    fixture =
+let execute ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
+    ?(max_global_bytes = 1_048_576) ~max_steps fixture =
   VM.execute_program
     ~runtime_calls:(Unit.runtime_calls fixture.unit_)
     ~globals:(Unit.globals fixture.unit_)
     ~initialization:(Unit.initialization fixture.unit_)
-    ~max_steps ~max_frame_bytes ~max_call_depth
+    ~max_steps ~max_frame_bytes ~max_call_depth ~max_global_bytes
     ~functions:(Unit.functions fixture.unit_)
     (Unit.entry fixture.unit_)

@@ -11,6 +11,7 @@ type frame_extension = Sign_extend | Zero_extend
 type stack_slot = { offset : int }
 type stack_frame = { bytes : int }
 type frame_slot = { frame_offset : int }
+type arena_slot = { arena_offset : int }
 type call_frame = { call_bytes : int }
 
 type instruction =
@@ -27,6 +28,11 @@ type instruction =
   | Load_frame_narrow of
       register * frame_slot * narrow_frame_width * frame_extension
   | Store_frame_narrow of frame_slot * narrow_frame_width * register
+  | Load_arena of register * arena_slot
+  | Store_arena of arena_slot * register
+  | Load_arena_narrow of
+      register * arena_slot * narrow_frame_width * frame_extension
+  | Store_arena_narrow of arena_slot * narrow_frame_width * register
   | Alloc_call_frame of call_frame
   | Free_call_frame of call_frame
   | Call of int64
@@ -85,6 +91,12 @@ let scalar_frame_slot ~offset =
     || Int64.compare value 0x7fffffffL > 0
   then Error "scalar frame slot offset must be a signed 32-bit displacement"
   else Ok { frame_offset = offset }
+
+let arena_slot ~offset =
+  let value = Int64.of_int offset in
+  if offset < 0 || Int64.compare value 0x7fffffffL > 0 then
+    Error "arena slot offset must be a nonnegative signed 32-bit displacement"
+  else Ok { arena_offset = offset }
 
 let call_frame ~bytes =
   if bytes < 16 || bytes > 4080 || bytes mod 16 <> 0 then
@@ -227,6 +239,11 @@ let form = function
   | Load_frame_narrow (_, _, width, extension) ->
       narrow_load_form width extension
   | Store_frame_narrow (_, width, _) -> narrow_store_form width
+  | Load_arena _ -> mov_load
+  | Store_arena _ -> mov_store
+  | Load_arena_narrow (_, _, width, extension) ->
+      narrow_load_form width extension
+  | Store_arena_narrow (_, width, _) -> narrow_store_form width
   | Alloc_call_frame _ -> subtract_immediate
   | Free_call_frame _ -> add_immediate
   | Call _ -> call_relative
@@ -269,7 +286,10 @@ let signed_int32 value =
   Int64.compare value (-0x80000000L) >= 0
   && Int64.compare value 0x7fffffffL <= 0
 
-let valid_context_offset offset =
+let valid_context_read_offset offset =
+  offset >= 0 && offset <= 72 && offset mod 8 = 0
+
+let valid_context_write_offset offset =
   offset >= 0 && offset <= 64 && offset mod 8 = 0
 
 let validate = function
@@ -288,11 +308,14 @@ let validate = function
       invalid_arg "status kind must be 1 or 2"
   | Store_status_site site when site < 1 || site > 100_000 ->
       invalid_arg "status site must be between 1 and 100000"
-  | (Load_context (_, offset) | Store_context (offset, _))
-    when not (valid_context_offset offset) ->
-      invalid_arg "private context offset must be aligned from 0 through 64"
-  | Store_context_imm (offset, _) when not (valid_context_offset offset) ->
-      invalid_arg "private context offset must be aligned from 0 through 64"
+  | Load_context (_, offset) when not (valid_context_read_offset offset) ->
+      invalid_arg
+        "private context read offset must be aligned from 0 through 72"
+  | Store_context (offset, _) when not (valid_context_write_offset offset) ->
+      invalid_arg
+        "private context write offset must be aligned from 0 through 64"
+  | Store_context_imm (offset, _) when not (valid_context_write_offset offset)
+    -> invalid_arg "private context offset must be aligned from 0 through 64"
   | Store_context_imm (_, immediate) when not (signed_int32 immediate) ->
       invalid_arg "private context immediate must fit signed 32 bits"
   | _ -> ()
@@ -311,6 +334,11 @@ let size instruction =
   | Load_frame_narrow (_, _, Frame32, _) -> 7
   | Store_frame_narrow (_, Frame16, _) -> 8
   | Store_frame_narrow (_, (Frame8 | Frame32), _) -> 7
+  | Load_arena _ | Store_arena _ -> 7
+  | Load_arena_narrow (_, _, (Frame8 | Frame16), _) -> 8
+  | Load_arena_narrow (_, _, Frame32, _) -> 7
+  | Store_arena_narrow (_, Frame16, _) -> 8
+  | Store_arena_narrow (_, (Frame8 | Frame32), _) -> 7
   | Alloc_call_frame _ | Free_call_frame _ -> 7
   | Call _ -> 5
   | Capture_status _ | Div_rcx | Idiv_rcx -> 3
@@ -440,6 +468,40 @@ let write buffer position instruction =
       opcodes ();
       byte (0x85 lor ((source land 7) lsl 3));
       imm32 slot.frame_offset
+  | Load_arena (destination, slot) ->
+      let destination = register_number destination in
+      (* R9 is the sealed private arena base. Mod=10 with RM=001 selects
+         [R9+disp32]; REX.B is therefore always set while REX.R extends the
+         destination. The base register is not caller-selectable. *)
+      byte (0x49 lor ((destination land 8) lsr 1));
+      opcodes ();
+      byte (0x81 lor ((destination land 7) lsl 3));
+      imm32 slot.arena_offset
+  | Store_arena (slot, source) ->
+      let source = register_number source in
+      byte (0x49 lor ((source land 8) lsr 1));
+      opcodes ();
+      byte (0x81 lor ((source land 7) lsl 3));
+      imm32 slot.arena_offset
+  | Load_arena_narrow (destination, slot, width, extension) ->
+      let destination = register_number destination in
+      byte
+        ((match (width, extension) with
+           | Frame32, Zero_extend -> 0x41
+           | Frame8, (Sign_extend | Zero_extend)
+           | Frame16, (Sign_extend | Zero_extend)
+           | Frame32, Sign_extend -> 0x49)
+        lor ((destination land 8) lsr 1));
+      opcodes ();
+      byte (0x81 lor ((destination land 7) lsl 3));
+      imm32 slot.arena_offset
+  | Store_arena_narrow (slot, width, source) ->
+      let source = register_number source in
+      if width = Frame16 then byte 0x66;
+      byte (0x41 lor ((source land 8) lsr 1));
+      opcodes ();
+      byte (0x81 lor ((source land 7) lsl 3));
+      imm32 slot.arena_offset
   | Alloc_call_frame frame | Free_call_frame frame ->
       byte 0x48;
       opcodes ();

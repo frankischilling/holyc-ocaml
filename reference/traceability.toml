@@ -12112,3 +12112,18 @@ resources = "every goto cycle reaches a metered IC_JMP while structural empty-bl
 verification = "ordinary source/graph/identity/provenance/error/budget tests plus explicit Windows/Linux native API/CLI tests with independent expectations, fresh public interpreter semantics and corresponding isolated-unit exact runtime meters"
 excluded = ["top-level language labels/gotos", "computed or indirect goto", "assembly-label execution and repeated-address validation", "switch/sub-switch, lock and exception-region execution", "general memory, full ABI and optimizer parity", "object/BIN writing, actual loader acceptance, whole-tree compilation and bootstrap"]
 native_oracle_status = "pinned source control semantics plus checked interpreter and own generated machine execution; identity proof, initialized-object faults and quotas remain hosted policies, with no new TempleOS oracle capture"
+
+[[feature]]
+id = "HC-NATIVE-SCALAR-GLOBALS"
+description = "Ordinary scalar globals execute through checked symbolic addresses and fresh private native arenas shared by entry and direct functions."
+sources = ["Compiler/PrsExp.HC:867-902", "Compiler/PrsStmt.HC:285-435", "Compiler/BackLib.HC:281-309,453-572", "Compiler/BackC.HC:159-204"]
+implementation = ["src/backend/x86_64_global_storage.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_encoder.ml", "src/backend/x86_64_program.ml", "src/hosted/native_program.ml", "src/ir/integer_globals.ml", "src/runtime/native_program_execution.ml", "src/native_execution_stubs.c", "bin/run_report.ml"]
+tests = ["test/test_native_expression.ml", "test/test_native_program.ml", "test/native/test_native_global_execution.ml", "test/native/test_native_global_cli.ml", "examples/native-scalar-globals.hc"]
+documentation = ["docs/native-globals.md", "docs/native-programs.md", "SECURITY.md", "docs/testing.md"]
+status = "implemented"
+issue = 667
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+resources = "Declared widths count against the positive global-byte limit (16 MiB hard cap); one initialization byte per object has a separate 32 MiB arena cap. Native images without named functions still use the arena bridge when storage is present."
+identity = "Exact initialization/entry/call/default bundles and original symbol objects select checked scalar slots, address opcodes and pointer types. Exported image bytes are copies."
+excluded = ["declaration initializers", "static locals", "arrays and pointers", "aggregates", "aliases and extern/import/data-heap storage", "retained task storage", "full ABI and runtime", "object/BIN output and loader acceptance"]
+native_oracle_status = "Pinned source plus checked interpreter and generated host execution; no new TempleOS oracle capture. JIT unknown reads and quotas are hosted policies."

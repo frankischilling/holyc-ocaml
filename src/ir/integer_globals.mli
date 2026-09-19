@@ -12,7 +12,8 @@ val with_source_defaults :
 
 val with_native_source_defaults :
   t -> Prepared_parameter_default.t list -> (t, string) result
-(** Attach same-mode saved values only to an isolated empty storage context.
+(** Attach same-mode saved values to isolated ordinary scalar storage without
+    initializers. Default evaluation still uses its separate empty fragment.
     Native executable admission separately requires their complete source and
     preparation certificate. Ordinary AOT and retained-task contracts are
     unchanged. *)

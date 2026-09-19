@@ -131,3 +131,27 @@
    %{exe:test_native_goto_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/integer-goto.hc})))
+
+(executable
+ (name test_native_global_execution)
+ (modules test_native_global_execution)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_global_execution.exe})))
+
+(executable
+ (name test_native_global_cli)
+ (modules test_native_global_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/native-scalar-globals.hc)
+ (action
+  (run
+   %{exe:test_native_global_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-scalar-globals.hc})))
