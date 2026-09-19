@@ -403,6 +403,23 @@ let updates_and_widths () =
 let static_locals () =
   let cases =
     [
+      ("prepared query", "I64 F(){static I8 n=sizeof(I8)+41;return n;}F();", 42L);
+      ("prepared persistent", "I64 F(){static I8 n=40;return ++n;}F();F();", 42L);
+      ( "prepared owners",
+        "I64 F(){static I8 n=20;return n;}I64 G(){static I8 n=22;return \
+         n;}F()+G();",
+        42L );
+      ( "prepared recursion",
+        "I64 F(I64 n){static I16 s=21;if(n){s+=n;return F(n-1);}return s;}F(6);",
+        42L );
+      ("prepared unreachable", "I64 F(){return 1;static I8 n=6*7;}42;", 42L);
+      ( "prepared neighbors",
+        "I64 F(){static I8 a=255,b=43;return a+b;}F();",
+        42L );
+      ( "prepared defaults switch",
+        "I8 G=20;I64 F(I64 n=2){static I8 s=20;switch(n){case 2:s+=n;}return \
+         s;}G+F();",
+        42L );
       ( "persistent",
         "I64 F(I64 reset){static I8 n;if(reset)n=40;else n+=1;return \
          n;}F(1);F(0);F(0);",
@@ -449,6 +466,12 @@ let static_locals () =
           in
           let _, native = native_success ~mode text in
           check_native_word type_ tag expected native.execution.final_value;
+          check_public_word type_ tag expected (public_run ~mode text);
+          let text =
+            Printf.sprintf "I64 F(){static %s n=%s;return n;}F();" type_ input
+          in
+          let _, native = native_success ~mode text in
+          check_native_word type_ tag expected native.execution.final_value;
           check_public_word type_ tag expected (public_run ~mode text))
         [
           ("I8", "255", -1L, "I64");
@@ -460,6 +483,16 @@ let static_locals () =
           ("I64", "-1", -1L, "I64");
           ("U64", "0xffffffffffffffff", -1L, "I64");
         ];
+      let report =
+        native_report ~mode
+          "I64 F(){static I8 ready=42,unknown;return unknown;}F();"
+      in
+      (match (mode, Native_program.native_outcome report) with
+      | Preprocessor.Aot, Some (Program.Completed r) ->
+          check_native_word "uninitialized neighbor" "I64" 0L r.final_value
+      | Preprocessor.Jit, Some (Program.Fault f)
+        when f.kind = Program.Uninitialized_read -> ()
+      | _ -> Alcotest.fail "prepared static initialized its neighbor");
       let report = native_report ~mode "I64 F(){static I8 n;return n;}F();" in
       (match (mode, Native_program.native_outcome report) with
       | Preprocessor.Aot, Some (Program.Completed r) ->
@@ -509,8 +542,7 @@ let static_locals () =
 
 let static_initial_state_and_meters () =
   let text =
-    "I64 F(I64 reset){static I8 n;if(reset)n=40;else n++;return \
-     n;}F(1);F(0);F(0);"
+    "I64 F(I64 reset){static I8 n=40;if(!reset)n++;return n;}F(1);F(0);F(0);"
   in
   List.iter
     (fun mode ->

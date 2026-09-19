@@ -691,6 +691,13 @@ let execution_commands task span ~active =
           publication.function_header.declaration_command
       | Function_position_written p ->
           p.position_function.function_header.declaration_command
+      | Static_initializer_preparing p ->
+          p.static_allocation.allocation_function.function_header
+            .declaration_command
+      | Static_initializer_completed p ->
+          p.static_preparation.static_allocation.allocation_function
+            .function_header
+            .declaration_command
       | Function_local_allocated p ->
           p.allocation_function.function_header.declaration_command
       | Function_parameter_declared p ->

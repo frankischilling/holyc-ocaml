@@ -683,3 +683,9 @@ val finish_runtime_offset :
   succeeded:bool ->
   Frontend.Parser.aggregate_phase ->
   (unit, Common.Diagnostic.t list) result
+
+val native_static_initializer_fragment :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  Frontend.Parser.static_initializer_preparation ->
+  (Sema.Static_initializer_fragment.t, Common.Diagnostic.t list) result

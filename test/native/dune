@@ -179,11 +179,13 @@
  (deps
   ../../examples/native-scalar-globals.hc
   ../../examples/native-scalar-initializers.hc
-  ../../examples/native-scalar-statics.hc)
+  ../../examples/native-scalar-statics.hc
+  ../../examples/native-static-initializers.hc)
  (action
   (run
    %{exe:test_native_global_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/native-scalar-globals.hc}
    %{dep:../../examples/native-scalar-initializers.hc}
-   %{dep:../../examples/native-scalar-statics.hc})))
+   %{dep:../../examples/native-scalar-statics.hc}
+   %{dep:../../examples/native-static-initializers.hc})))

@@ -206,9 +206,10 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
               let location = Globals.static_location slot in
               let module Frame = Sema.Function_frame_layout in
               if
-                Globals.static_initializers slot <> []
-                || Option.is_some (Globals.static_array_initializers slot)
-                || Globals.storage_preparation_steps storage <> 0
+                Option.is_some (Globals.static_array_initializers slot)
+                || (Globals.static_initializers slot <> []
+                   || Globals.storage_preparation_steps storage <> 0)
+                   && Option.is_none initializers
               then
                 unsupported ?span
                   "native statics do not admit declaration initializers"
@@ -267,15 +268,25 @@ let create_internal ?initializers ~functions ~max_global_bytes ~initialization
         in
         let* initially_initialized =
           if
-            Option.fold ~none:false
-              ~some:(fun slot -> Option.is_some (Globals.slot_initializer slot))
-              global
+            (Option.fold ~none:false
+               ~some:(fun slot ->
+                 Option.is_some (Globals.slot_initializer slot))
+               global
+            || Option.fold ~none:false
+                 ~some:(fun slot -> Globals.static_initializers slot <> [])
+                 static)
             && Option.is_some initializers
           then
             match Globals.storage_initial_bits source_slot with
             | Some bits
-              when Option.fold ~none:false
-                     ~some:Globals.slot_initializer_materialized global
+              when (Option.fold ~none:false
+                      ~some:Globals.slot_initializer_materialized global
+                   || Option.fold ~none:false
+                        ~some:(fun slot ->
+                          List.for_all
+                            (Globals.static_root_materialized slot)
+                            (Globals.static_initializers slot))
+                        static)
                    && (Globals.storage_opcode source_slot = Opcode.Ic_imm_i64
                       || Globals.storage_opcode source_slot = Opcode.Ic_abs_addr
                       ) ->

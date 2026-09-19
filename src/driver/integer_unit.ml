@@ -75,8 +75,9 @@ let fail span code message =
 
 let compile_parsed_with_limit ?task_view ?initializer_progress
     ?declaration_command ?source_command ?retained_function_source
-    ?native_initializers ?(allow_zero_initializer_budget = false)
-    ~max_initializer_steps session ~config (parsed : Frontend.Parser.output) =
+    ?native_initializers ?native_static_initializers
+    ?(allow_zero_initializer_budget = false) ~max_initializer_steps session
+    ~config (parsed : Frontend.Parser.output) =
   match parsed.ast with
   | None -> Error parsed.diagnostics
   | Some ast -> (
@@ -960,6 +961,7 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
           let* preparation_ =
             Integer_initializers.prepare
               ?native_preparations:native_initializers
+              ?native_static_preparations:native_static_initializers
               ~max_steps:max_initializer_steps ?retained_function_source
               ~allow_zero_budget:
                 (allow_zero_initializer_budget || Option.is_some task_view)
@@ -1168,7 +1170,8 @@ let compile_ast ?max_initializer_steps session ~config ast =
   compile_ast_internal ?max_initializer_steps session ~config ast
 
 let compile_source_output ?initializer_progress ?native_initializers
-    ~source_command ~max_initializer_steps session ~config parsed =
+    ?native_static_initializers ~source_command ~max_initializer_steps session
+    ~config parsed =
   let offset_work = Task_declarations.source_offset_work source_command in
   if offset_work > max_initializer_steps then
     Error
@@ -1179,7 +1182,8 @@ let compile_source_output ?initializer_progress ?native_initializers
       ]
   else
     compile_parsed_with_limit ?initializer_progress ?native_initializers
-      ~source_command ~allow_zero_initializer_budget:(offset_work > 0)
+      ?native_static_initializers ~source_command
+      ~allow_zero_initializer_budget:(offset_work > 0)
       ~max_initializer_steps:(max_initializer_steps - offset_work)
       session ~config parsed
 

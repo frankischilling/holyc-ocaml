@@ -2,6 +2,7 @@ type t
 
 val create :
   span:Common.Span.t ->
+  static_completions:Native_default_preparation.static_completion list ->
   completions:Native_default_preparation.initializer_completion list ->
   preparation:Integer_initializers.t ->
   runtime_calls:Ir.Runtime_call_context.t ->

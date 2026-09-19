@@ -1,5 +1,15 @@
 # Reference source map
 
+Issue #677 connects closed scalar native static initializers.
+`Compiler/PrsVar.HC:51-112,215-228,555-585` compiles and executes the expression,
+converts and copies its declared width, and writes AOT static bytes before
+parsing continues. The hosted receipt follows the original expression
+lookahead and precedes delimiter validation. Successful completion and exact
+function, AST, type and storage ownership are required before emission.
+Preparation uses the existing numeric engine and shared declaration budget;
+repeated image execution restores the saved bytes. This adds no TempleOS
+oracle capture or broader initializer domain. See [native storage](native-globals.md).
+
 Issue #675 connects uninitialized native scalar statics. At the pinned reference,
 `PrsVar.HC:492-495,534-589` disables registers, rounds static allocations to eight
 bytes and emits AOT zero bytes. `PrsStmt.HC:1067-1068,1160-1161` selects the static

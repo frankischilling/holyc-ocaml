@@ -92,6 +92,7 @@ type input = {
     option;
   fragment_owner : Initializer_fragment.t option;
   default_owner : Default_fragment.t option;
+  static_owner : Static_initializer_fragment.t option;
   dimension_owner : Dimension_fragment.t option;
   offset_owner : Offset_fragment.t option;
 }
@@ -111,6 +112,7 @@ let make_statement ~statement_index ~item_index ~origin events =
         initial_owner = None;
         fragment_owner = None;
         default_owner = None;
+        static_owner = None;
         dimension_owner = None;
         offset_owner = None;
       }
@@ -123,7 +125,7 @@ let make_source_statement ~source ~statement_index ~item_index events =
     events
   |> Result.map (fun input -> { input with original_statement = Some source })
 
-let make_fragment_input ~leaf ~origin ~references ~source_queries
+let make_fragment_input ?static_owner ~leaf ~origin ~references ~source_queries
     ~fragment_owner ~default_owner ~dimension_owner ~offset_owner events =
   let same_leaf actual =
     match (leaf, actual) with
@@ -188,6 +190,7 @@ let make_fragment_input ~leaf ~origin ~references ~source_queries
         initial_owner = None;
         fragment_owner;
         default_owner;
+        static_owner;
         dimension_owner;
         offset_owner;
       }
@@ -208,6 +211,14 @@ let make_default_fragment ~fragment events =
     ~source_queries:(Default_fragment.queries fragment)
     ~fragment_owner:None ~default_owner:(Some fragment) ~dimension_owner:None
     ~offset_owner:None events
+
+let make_static_fragment ~fragment events =
+  make_fragment_input ~leaf:None
+    ~origin:(Static_initializer_fragment.origin fragment)
+    ~references:(Static_initializer_fragment.references fragment)
+    ~source_queries:(Static_initializer_fragment.queries fragment)
+    ~fragment_owner:None ~default_owner:None ~static_owner:fragment
+    ~dimension_owner:None ~offset_owner:None events
 
 let make_dimension_fragment ~fragment events =
   make_fragment_input ~leaf:None
@@ -297,6 +308,7 @@ let statement_initializer (statement : statement) =
 
 let statement_fragment (statement : statement) = statement.source.fragment_owner
 let statement_default (statement : statement) = statement.source.default_owner
+let statement_static (statement : statement) = statement.source.static_owner
 
 let statement_dimension (statement : statement) =
   statement.source.dimension_owner
@@ -726,15 +738,27 @@ let resolve ~table ~parent ~module_expressions inputs =
       (fun input ->
         Option.fold ~none:false
           ~some:(fun fragment ->
-            (not (Default_fragment.owns_table fragment table))
+            (not (Static_initializer_fragment.owns_table fragment table))
             || (not
                   (symbol_in_scope
                      (Declaration_collection.publication_symbol
-                        (Default_fragment.publication fragment))
+                        (Static_initializer_fragment.publication fragment))
                      parent))
             || Module_expression_binding.publications module_expressions <> []
             || List.length inputs <> 1)
-          input.default_owner
+          input.static_owner
+        || Option.fold ~none:false
+             ~some:(fun fragment ->
+               (not (Default_fragment.owns_table fragment table))
+               || (not
+                     (symbol_in_scope
+                        (Declaration_collection.publication_symbol
+                           (Default_fragment.publication fragment))
+                        parent))
+               || Module_expression_binding.publications module_expressions
+                  <> []
+               || List.length inputs <> 1)
+             input.default_owner
         || Option.fold ~none:false
              ~some:(fun fragment ->
                (not (Dimension_fragment.owns_table fragment table))

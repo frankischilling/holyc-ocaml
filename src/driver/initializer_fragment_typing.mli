@@ -34,3 +34,8 @@ val prepare_offset :
   context ->
   Sema.Offset_fragment.t ->
   (Sema.Function_call_expression_result.top_level_t, string) result
+
+val prepare_static :
+  context ->
+  Sema.Static_initializer_fragment.t ->
+  (Sema.Function_call_expression_result.top_level_t, string) result

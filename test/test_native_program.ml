@@ -647,6 +647,7 @@ let source_gate_is_compile_only () =
        I64 Add(I64 a,I64 b){I64 sum=a+b;return sum;}\n\
        Add(20,22);";
       "I64 G=42; I64 F(){return G;} F();";
+      "I64 F(){static I64 n=0;return ++n;} F();";
     ]
   in
   List.iter
@@ -686,8 +687,8 @@ let source_gate_is_compile_only () =
           "I64 Bad(){F64 x=1.0;return 0;} 42;";
           "F64 Bad(){return 1.0;} 42;";
           "I64 F(){return 42;} I64 G=F(); G;";
-          "I64 F(){static I64 n=0;return ++n;} F();";
-          "I64 Bad(){static I64 n=1/0;return 0;}42;";
+          "I64 F(){static I64 n=1<<2;return ++n;} F();";
+          "I64 Bad(){static I64 n={1/0};return 0;}42;";
           "I64 Bad(){static I64 *n;return 0;}42;";
           "I64 Bad(){static I64 n[2];return 0;}42;";
           "I64 Bad(){static I64 reg n;return 0;}42;";

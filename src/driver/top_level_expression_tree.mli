@@ -35,3 +35,9 @@ val build_offset_fragment :
   expressions:Sema.Top_level_outer_expression_binding.t ->
   Sema.Offset_fragment.t ->
   (Sema.Top_level_expression_tree.t, string) result
+
+val build_static_fragment :
+  table:Sema.Symbol_table.t ->
+  expressions:Sema.Top_level_outer_expression_binding.t ->
+  Sema.Static_initializer_fragment.t ->
+  (Sema.Top_level_expression_tree.t, string) result

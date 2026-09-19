@@ -242,6 +242,23 @@ let native_initializer_context fragment =
         { context with fragment_kind_ = Some Initializer_context })
       (isolated_default_context mode)
 
+let native_static_initializer_context fragment =
+  if Sema.Static_initializer_fragment.references fragment <> [] then
+    Error "native initializer context requires a closed original expression"
+  else
+    let mode =
+      match
+        Sema.Outer_environment.compilation_mode
+          (Sema.Static_initializer_fragment.environment fragment)
+      with
+      | Sema.Outer_environment.Jit -> Resolution.Jit
+      | Sema.Outer_environment.Aot -> Resolution.Aot
+    in
+    Result.map
+      (fun context ->
+        { context with fragment_kind_ = Some Initializer_context })
+      (isolated_default_context mode)
+
 let with_native_source_defaults globals defaults =
   if
     Option.is_some globals.task_view
@@ -249,7 +266,7 @@ let with_native_source_defaults globals defaults =
     || Option.is_some globals.fragment_kind_
     || List.exists
          (fun slot ->
-           Integer_statics.initializers slot <> []
+           Option.is_some (Integer_statics.array_initializers slot)
            || Shape.dimensions (Integer_statics.shape slot) <> []
            || Integer_statics.preparation_steps slot <> 0)
          globals.statics_

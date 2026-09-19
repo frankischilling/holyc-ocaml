@@ -154,8 +154,6 @@ let local_source_error (declaration : Ast.local_declaration) =
         else
           match local.local_initializer with
           | None -> None
-          | Some _ when is_static ->
-              reject "native statics do not admit declaration initializers"
           | Some { local_initializer_value = Ast.Scalar_initializer _; _ } ->
               None
           | Some _ -> reject "native locals require scalar initializers")
@@ -549,6 +547,16 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
                         "native initializers must precede executable top-level \
                          statements";
                     ]
+              | Frontend.Parser.Static_initializer_preparing receipt
+                when !entry_statement_seen ->
+                  Error
+                    [
+                      source_error
+                        receipt.static_initializer.local_initializer_location
+                          .span
+                        "native static initializers must precede executable \
+                         top-level statements";
+                    ]
               | Frontend.Parser.Aggregate_declared _ ->
                   Error
                     [
@@ -565,6 +573,9 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
             | Frontend.Parser.Global_initializer_leaf_completed receipt ->
                 Native_default_preparation.prepare_initializer preparation
                   ~session ~ledger receipt
+            | Frontend.Parser.Static_initializer_preparing receipt ->
+                Native_default_preparation.prepare_static preparation ~session
+                  ~ledger receipt
             | Frontend.Parser.Function_header_completed header ->
                 Task_declarations.complete_source_defaults ledger header
             | _ -> Ok ());
@@ -599,6 +610,8 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
           in
           match
             Integer_unit.compile_source_output ~source_command
+              ~native_static_initializers:
+                (Native_default_preparation.static_initializers preparation)
               ~native_initializers:
                 (Native_default_preparation.initializers preparation)
               ~max_initializer_steps session ~config
@@ -643,6 +656,9 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
                         in
                         let* global_initializers =
                           Native_global_initializers.create ~span
+                            ~static_completions:
+                              (Native_default_preparation.static_completions
+                                 preparation)
                             ~completions:
                               (Native_default_preparation
                                .initializer_completions preparation)

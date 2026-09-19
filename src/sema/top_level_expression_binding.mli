@@ -146,3 +146,8 @@ val make_offset_fragment :
   fragment:Offset_fragment.t -> event list -> (input, string) result
 
 val statement_offset : statement -> Offset_fragment.t option
+
+val make_static_fragment :
+  fragment:Static_initializer_fragment.t -> event list -> (input, string) result
+
+val statement_static : statement -> Static_initializer_fragment.t option

@@ -22,16 +22,56 @@ let diagnostics = function
 let reject label result =
   Alcotest.(check bool) label true (Result.is_error result)
 
-let fixture mode =
+let fixture ?(statics = false) mode =
   let session = Session.create () in
   let source =
     Session.add_source session ~path:"native-initializer-authority.hc"
-      ~contents:"I8 A=255;I64 B=6*7;I64 F(){return B;}A+F();"
+      ~contents:
+        (if statics then
+           "I8 A=255;I64 F(){static I8 n=40;return ++n;}I64 G(){static I8 \
+            n=6*7;return n;}F();F();"
+         else "I8 A=255;I64 B=6*7;I64 F(){return B;}A+F();")
   in
   let ledger = D.create_source session ~source |> checked in
   let preparation =
     Preparation.create ~compilation_mode:mode ~max_initializer_steps:100 session
     |> checked
+  in
+  let check_suspended context current =
+    let token = Parser.suspend_context context |> checked in
+    let child =
+      Session.add_source session ~path:"empty-static-child.hc" ~contents:""
+    in
+    let commands : Parser.command_sink =
+      {
+        checkpoint =
+          Some
+            (fun _ ->
+              Alcotest.(check bool)
+                "suspended static receipt" false (current ());
+              Ok ());
+        query = None;
+        reference = None;
+        implicit_output = None;
+        call = None;
+        declaration = None;
+        dimension_count = None;
+        command = (fun _ -> Ok ());
+        resume = (fun () -> Ok ());
+      }
+    in
+    let config =
+      Preprocessor.Config.create ~compilation_mode:mode () |> checked
+    in
+    let child =
+      Parser.parse_suspended token ~commands ~sources:(Session.sources session)
+        ~definitions:(Session.definitions session)
+        ~symbols:(Parser.context_environment context)
+        ~config child
+      |> checked
+    in
+    Alcotest.(check bool) "empty nested source" false (Parser.has_errors child);
+    Alcotest.(check bool) "restored static receipt" true (current ())
   in
   let receipts = ref [] in
   let commands : Parser.command_sink =
@@ -64,6 +104,46 @@ let fixture mode =
                              ~ledger receipt))
                       (Preparation.prepare_initializer preparation ~session
                          ~ledger receipt)
+                | Parser.Static_initializer_preparing receipt ->
+                    check_suspended
+                      receipt.static_allocation.allocation_function
+                        .function_header
+                        .declaration_command
+                        .command_context (fun () ->
+                        Parser.static_initializer_is_current receipt);
+                    Alcotest.(check bool)
+                      "original static callback" true
+                      (Parser.static_initializer_is_current receipt);
+                    let clone = Obj.obj (Obj.dup (Obj.repr receipt)) in
+                    Alcotest.(check bool)
+                      "cloned static receipt" false
+                      (Parser.static_initializer_is_current clone);
+                    reject "cloned receipt cannot prepare"
+                      (Preparation.prepare_static preparation ~session ~ledger
+                         clone);
+                    Result.map
+                      (fun () ->
+                        reject "static callback cannot prepare twice"
+                          (Preparation.prepare_static preparation ~session
+                             ~ledger receipt))
+                      (Preparation.prepare_static preparation ~session ~ledger
+                         receipt)
+                | Parser.Static_initializer_completed receipt ->
+                    check_suspended
+                      receipt.static_preparation.static_allocation
+                        .allocation_function
+                        .function_header
+                        .declaration_command
+                        .command_context (fun () ->
+                        Parser.static_initializer_completion_is_current receipt);
+                    Alcotest.(check bool)
+                      "original static completion" true
+                      (Parser.static_initializer_completion_is_current receipt);
+                    let clone = Obj.obj (Obj.dup (Obj.repr receipt)) in
+                    Alcotest.(check bool)
+                      "cloned static completion" false
+                      (Parser.static_initializer_completion_is_current clone);
+                    Ok ()
                 | _ -> Ok ()));
       dimension_count = Some (D.grammar_dimension_count ledger);
       command = (fun _ -> Ok ());
@@ -80,6 +160,19 @@ let fixture mode =
   in
   if Parser.has_errors output then
     ignore (diagnostics (Error output.diagnostics));
+  List.iter
+    (fun prepared ->
+      let receipt = Initializers.native_static_receipt prepared in
+      Alcotest.(check bool)
+        "original static callback expired" false
+        (Parser.static_initializer_is_current receipt);
+      Alcotest.(check bool)
+        "original static completed" true
+        (Option.is_some
+           (Parser.static_initializer_completed_declarator receipt));
+      reject "expired static cannot prepare"
+        (Preparation.prepare_static preparation ~session ~ledger receipt))
+    (Preparation.static_initializers preparation);
   let ast = Option.get output.ast in
   let source_command = D.seal_source ledger ast |> diagnostics in
   let runtime =
@@ -93,15 +186,16 @@ let fixture mode =
       reject "expired source callback"
         (D.native_initializer_fragment ledger ~runtime receipt))
     !receipts;
-  let compile ?native_initializers ?(max_initializer_steps = 100) () =
-    Unit.compile_source_output ?native_initializers ~source_command
-      ~max_initializer_steps session ~config output
+  let compile ?native_initializers ?native_static_initializers
+      ?(max_initializer_steps = 100) () =
+    Unit.compile_source_output ?native_initializers ?native_static_initializers
+      ~source_command ~max_initializer_steps session ~config output
     |> Result.map (fun (unit_ : Unit.compiled Unit.checked) -> unit_.value)
   in
   (ast.span, preparation, compile)
 
-let proof span completions unit_ =
-  Proof.create ~span ~completions
+let proof ?(static_completions = []) span completions unit_ =
+  Proof.create ~span ~static_completions ~completions
     ~preparation:(Unit.initializer_preparation unit_)
     ~runtime_calls:(Unit.runtime_calls unit_)
     ~initialization:(Unit.initialization unit_)
@@ -179,6 +273,91 @@ let ownership () =
            ~max_initializer_steps:(steps - 1) ()))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let static_ownership () =
+  List.iter
+    (fun mode ->
+      let span, prepared, compile = fixture ~statics:true mode in
+      let evidence = Preparation.static_initializers prepared in
+      let globals = Preparation.initializers prepared in
+      let unit_ =
+        compile ~native_initializers:globals
+          ~native_static_initializers:evidence ()
+        |> diagnostics
+      in
+      let completions = Preparation.static_completions prepared in
+      let seal ?(static_completions = completions) unit_ =
+        proof ~static_completions span
+          (Preparation.initializer_completions prepared)
+          unit_
+      in
+      let sealed = seal unit_ |> checked in
+      List.iter
+        (fun status_abi ->
+          ignore
+            (emit ~global_initializers:sealed ~status_abi unit_
+            |> Result.map_error (fun _ -> "ABI encoding failed")
+            |> checked))
+        [ Image.Windows_x64; Image.System_v_x64 ];
+      reject "static prepared bits without certificate" (emit unit_);
+      let cloned_evidence =
+        List.map (fun p -> Obj.obj (Obj.dup (Obj.repr p))) evidence
+      in
+      let reconstructed =
+        compile ~native_initializers:globals
+          ~native_static_initializers:cloned_evidence ()
+        |> diagnostics
+      in
+      reject "reconstructed static preparation cannot match charged completion"
+        (seal reconstructed);
+
+      reject "missing static completions" (seal ~static_completions:[] unit_);
+      reject "reordered static completions"
+        (seal ~static_completions:(List.rev completions) unit_);
+      List.iter
+        (fun mutate ->
+          let _, p, c = fixture ~statics:true mode in
+          reject "missing repeated reordered or foreign static proof"
+            (c
+               ~native_initializers:(Preparation.initializers p)
+               ~native_static_initializers:
+                 (mutate (Preparation.static_initializers p))
+               ()))
+        [
+          (fun _ -> []);
+          List.tl;
+          (fun xs -> List.hd xs :: xs);
+          List.rev;
+          (fun _ -> evidence);
+        ];
+      let _, p, c = fixture ~statics:true mode in
+      let foreign =
+        c
+          ~native_initializers:(Preparation.initializers p)
+          ~native_static_initializers:(Preparation.static_initializers p)
+          ()
+        |> diagnostics
+      in
+      reject "foreign static bundle" (emit ~global_initializers:sealed foreign);
+      let _, _, c = fixture ~statics:true mode in
+      let ordinary = c () |> diagnostics in
+      reject "ordinary static preparation lacks source authority"
+        (seal ordinary);
+      let _, p, c = fixture ~statics:true mode in
+      let steps = Preparation.work p in
+      ignore
+        (c
+           ~native_initializers:(Preparation.initializers p)
+           ~native_static_initializers:(Preparation.static_initializers p)
+           ~max_initializer_steps:steps ()
+        |> diagnostics);
+      let _, p, c = fixture ~statics:true mode in
+      reject "static shared budget one below"
+        (c
+           ~native_initializers:(Preparation.initializers p)
+           ~native_static_initializers:(Preparation.static_initializers p)
+           ~max_initializer_steps:(steps - 1) ()))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let failed_preparation () =
   List.iter
     (fun mode ->
@@ -201,7 +380,12 @@ let failed_preparation () =
             | Ok _ -> Alcotest.fail "invalid initializer reached native entry"
           in
           Alcotest.(check bool)
-            "expected guard" true
+            ("expected " ^ code ^ " for " ^ contents ^ ": "
+            ^ String.concat "; "
+                (List.map
+                   (fun (d : Diagnostic.t) -> d.code ^ ": " ^ d.message)
+                   errors))
+            true
             (List.exists (fun (d : Diagnostic.t) -> d.code = code) errors);
           Alcotest.(check bool)
             "no native image" true
@@ -221,6 +405,18 @@ let failed_preparation () =
           ("I64 A=40;I64 B=A;42;", "HCRUN0006");
           ("I64 A=40;I64 B=1<<2;42;", "HCRUN0006");
           ("I64 A=40;42;I64 B=2;", "HCRUN0001");
+          ("I64 A=40;I64 F(){static I8 n=1/0;return n;}42;", "HCIRVM0009");
+          ("I64 F(){static I8 n=40;return n;}I64 B=1/0;42;", "HCIRVM0009");
+          ("I64 F(){return 1;static I8 n=1/0;}42;", "HCIRVM0009");
+          ("I64 F(){static I8 n=40 junk;return n;}42;", "HCPARSE0102");
+          ("I64 A=40;I64 F(){static I8 n=A;return n;}42;", "HCRUN0006");
+          ( "I64 A=40;I64 H(){return 2;}I64 F(){static I8 n=H();return n;}42;",
+            "HCRUN0006" );
+          ("I64 A=40;I64 F(){static I8 n={2};return n;}42;", "HCRUN0001");
+          ("I64 A=40;I64 F(){static I8 n[1]={2};return n[0];}42;", "HCRUN0001");
+          ("I64 A=40;I64 F(){static I8 n=\"a\";return n;}42;", "HCRUN0006");
+          ("I64 A=40;I64 F(){static I8 n=1<<2;return n;}42;", "HCRUN0006");
+          ("I64 A=40;42;I64 F(){static I8 n=2;return n;}", "HCRUN0001");
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -231,6 +427,8 @@ let () =
         [
           Alcotest.test_case "original preparation and bundle ownership" `Quick
             ownership;
+          Alcotest.test_case "static original preparation and bundle ownership"
+            `Quick static_ownership;
           Alcotest.test_case "preparation failures precede entry" `Quick
             failed_preparation;
         ] );

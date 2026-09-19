@@ -23,16 +23,25 @@ let matches proof ~runtime_calls ~initialization ~entry ~functions =
   && List.length proof.functions = List.length functions
   && List.for_all2 ( == ) proof.functions (bodies functions)
 
-let create ~span ~completions ~preparation ~runtime_calls ~initialization ~entry
-    ~functions =
+let create ~span ~static_completions ~completions ~preparation ~runtime_calls
+    ~initialization ~entry ~functions =
   let globals = Integer_initializers.globals preparation in
   let functions = bodies functions in
   let evidence = Integer_initializers.native_evidence preparation in
   let completed =
     List.map Native_default_preparation.initializer_preparation completions
   in
+  let static_evidence =
+    Integer_initializers.native_static_evidence preparation
+  in
+  let completed_statics =
+    List.map Native_default_preparation.static_preparation static_completions
+  in
   if
-    (not (Integer_initializers.native_complete ~span preparation))
+    (not (Integer_initializers.native_statics_complete ~span preparation))
+    || List.length static_evidence <> List.length completed_statics
+    || (not (List.for_all2 ( == ) static_evidence completed_statics))
+    || (not (Integer_initializers.native_complete ~span preparation))
     || List.length evidence <> List.length completed
     || not (List.for_all2 ( == ) evidence completed)
   then
@@ -47,9 +56,6 @@ let create ~span ~completions ~preparation ~runtime_calls ~initialization ~entry
     || Ir.Global_initialization.publications initialization <> []
     || Option.is_some
          (Ir.Global_initialization.publication_evidence initialization)
-    || List.exists
-         (fun slot -> Ir.Integer_globals.static_initializers slot <> [])
-         (Ir.Integer_globals.statics globals)
     || Ir.Integer_globals.is_task_command globals
     || Ir.Global_initialization.prepared_steps initialization
        <> Integer_initializers.executed_steps preparation

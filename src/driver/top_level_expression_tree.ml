@@ -1377,6 +1377,15 @@ let build_default_fragment ~table ~expressions fragment =
     ~make_root:
       (Sema.Top_level_expression_tree.make_default_root ~index:0 ~fragment)
 
+let build_static_fragment ~table ~expressions fragment =
+  build_fragment ~offset_fragment:None ~table ~expressions
+    ~matches_source:(fun source ->
+      Option.fold ~none:false ~some:(( == ) fragment)
+        (Sema.Top_level_expression_binding.statement_static source))
+    ~source_expression:(Sema.Static_initializer_fragment.expression fragment)
+    ~make_root:
+      (Sema.Top_level_expression_tree.make_static_root ~index:0 ~fragment)
+
 let build_dimension_fragment ~table ~expressions fragment =
   build_fragment ~offset_fragment:None ~table ~expressions
     ~matches_source:(fun source ->

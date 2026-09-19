@@ -247,6 +247,9 @@ type t = {
     list;
   mutable source_defaults_runtime : VM.task_state option;
   mutable prepared_source_defaults : Ir.Prepared_parameter_default.t list;
+  mutable native_static_attempts : Parser.static_initializer_preparation list;
+  mutable static_preparations : Parser.static_initializer_preparation list;
+  mutable static_completions : Parser.completed_static_initializer list;
   mutable native_initializer_attempts : Sema.Initializer_source.leaf list;
   storage_boundaries : storage_boundary Names.t;
   mutable last_storage_global : Sema.Symbol.t option;
@@ -379,6 +382,9 @@ let create_with_authority ?compiler_positions ?max_switch_work ?switch_budget
                   source_defaults_runtime = None;
                   prepared_source_defaults = [];
                   native_initializer_attempts = [];
+                  native_static_attempts = [];
+                  static_preparations = [];
+                  static_completions = [];
                   storage_boundaries = Names.create 16;
                   last_storage_global = None;
                   session;
@@ -2405,6 +2411,35 @@ let observe ?offset_runtime ledger event =
                   |> checked span)
                 state.native_record
           | _ -> fail span "local allocation belongs to another declaration")
+      | Parser.Static_initializer_preparing receipt ->
+          let publication = receipt.static_allocation.allocation_function in
+          let span = publication.function_name.location.span in
+          validate_command ledger publication.function_header;
+          if
+            (not (Parser.static_initializer_is_current receipt))
+            || List.exists (( == ) receipt) ledger.static_preparations
+          then
+            fail span
+              "static preparation is outside its original callback or repeated";
+          (match (find ledger publication.function_name).source with
+          | Function state when state.publication == publication -> ()
+          | _ -> fail span "static preparation belongs to another declaration");
+          ledger.static_preparations <- receipt :: ledger.static_preparations
+      | Parser.Static_initializer_completed receipt ->
+          let preparation = receipt.static_preparation in
+          let publication = preparation.static_allocation.allocation_function in
+          let span = publication.function_name.location.span in
+          validate_command ledger publication.function_header;
+          if
+            (not (Parser.static_initializer_completion_is_current receipt))
+            || (not
+                  (List.exists (( == ) preparation) ledger.static_preparations))
+            || List.exists
+                 (fun p -> p.Parser.static_preparation == preparation)
+                 ledger.static_completions
+          then
+            fail span "static completion is foreign, repeated or out of order";
+          ledger.static_completions <- receipt :: ledger.static_completions
       | Parser.Function_position_written receipt -> (
           let publication = receipt.position_function in
           validate_command ledger publication.function_header;
@@ -3276,6 +3311,84 @@ let native_initializer_fragment ledger ~runtime receipt =
         leaf :: ledger.native_initializer_attempts;
       ledger.source_defaults_runtime <- Some runtime;
       authority)
+
+let native_static_initializer_fragment ledger ~runtime receipt =
+  protect (fun () ->
+      let publication = receipt.Parser.static_allocation.allocation_function in
+      let span = publication.function_name.location.span in
+      (match ledger.authority with
+      | Source_compilation _ when Parser.static_initializer_is_current receipt
+        -> ()
+      | _ ->
+          fail span
+            "native static initializer requires its original source callback");
+      validate_command ledger publication.function_header;
+      if not (VM.task_owns_table runtime ledger.table) then
+        fail span "native static initializer has another semantic table";
+      (match ledger.source_defaults_runtime with
+      | Some prior when prior != runtime ->
+          fail span "native static initializer has another invocation budget"
+      | _ -> ());
+      if
+        (not (List.exists (( == ) receipt) ledger.static_preparations))
+        || List.exists (( == ) receipt) ledger.native_static_attempts
+      then
+        fail span "native static initializer is unobserved or already attempted";
+      let assigned = find ledger publication.function_name in
+      let module Outer = Sema.Outer_environment in
+      let compilation_mode, tables =
+        match
+          Parser.context_mode
+            publication.function_header.declaration_command.command_context
+        with
+        | Frontend.Preprocessor.Aot -> (Outer.Aot, [ (Outer.Assembler, 0) ])
+        | Frontend.Preprocessor.Jit ->
+            (Outer.Jit, [ (Outer.Jit_task 0, 0); (Outer.Assembler, 1) ])
+      in
+      let tables =
+        List.map
+          (fun (table_kind, table_index) ->
+            Outer.make_table ~table_kind ~table_index []
+            |> Result.map_error Outer.error_to_string
+            |> checked span)
+          tables
+      in
+      let environment =
+        Outer.create ~table:ledger.table ~compilation_mode tables
+        |> Result.map_error Outer.error_to_string
+        |> checked span
+      in
+      let expression =
+        match receipt.static_initializer.local_initializer_value with
+        | Ast.Scalar_initializer expression -> expression
+        | _ ->
+            fail ~code:"HCRUN0001" span
+              "native static initializers require scalar expressions"
+      in
+      let queries =
+        Sema.Query_selection.source_queries expression
+        |> List.map (fun expression ->
+            match Query_expressions.find_opt ledger.queries expression with
+            | Some query -> query.query_selection
+            | None ->
+                fail span "native static initializer lacks its original query")
+      in
+      let fragment =
+        Sema.Static_initializer_fragment.create ~table:ledger.table
+          ~namespace:ledger.namespace ~publication:assigned.publication ~receipt
+          ~environment ~queries
+        |> function
+        | Error message when String.starts_with ~prefix:"HCRUN0001: " message ->
+            fail ~code:"HCRUN0001" span
+              (String.sub message 11 (String.length message - 11))
+        | Error message when String.starts_with ~prefix:"HCRUN0006: " message ->
+            fail ~code:"HCRUN0006" span
+              (String.sub message 11 (String.length message - 11))
+        | result -> checked span result
+      in
+      ledger.native_static_attempts <- receipt :: ledger.native_static_attempts;
+      ledger.source_defaults_runtime <- Some runtime;
+      fragment)
 
 let initializer_declaration ledger (start : Parser.global_initializer_start) =
   protect (fun () ->

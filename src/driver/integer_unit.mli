@@ -4,6 +4,8 @@ type compiled
 val compile_source_output :
   ?initializer_progress:(int -> unit) ->
   ?native_initializers:Integer_initializers.native_preparation list ->
+  ?native_static_initializers:
+    Integer_initializers.native_static_preparation list ->
   source_command:Task_declarations.source_command ->
   max_initializer_steps:int ->
   Session.t ->

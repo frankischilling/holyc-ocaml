@@ -16,11 +16,11 @@ val with_source_defaults :
 
 val with_native_source_defaults :
   t -> Prepared_parameter_default.t list -> (t, string) result
-(** Attach same-mode saved values to isolated ordinary scalar globals and
-    uninitialized scalar statics. Default evaluation still uses its separate
-    empty fragment. Native executable admission separately requires their
-    complete source and preparation certificate. Ordinary AOT and retained-task
-    contracts are unchanged. *)
+(** Attach same-mode saved values to isolated ordinary scalar globals and scalar
+    statics. Default evaluation still uses its separate empty fragment. Native
+    executable admission separately requires their complete source and
+    preparation certificate. Ordinary AOT and retained-task contracts are
+    unchanged. *)
 
 type slot
 type static_slot
@@ -356,3 +356,6 @@ val check_offset_source :
   task_catalog -> Frontend.Parser.aggregate_phase -> (unit, string) result
 
 val offset_dependencies : t -> Sema.Compiler_record.aggregate_offset list
+
+val native_static_initializer_context :
+  Sema.Static_initializer_fragment.t -> (t, string) result

@@ -10,6 +10,7 @@ type root_role =
   | Global_initializer of Global_initializer_binding.resolved_global
   | Initializer_fragment of Initializer_fragment.t
   | Default_fragment of Default_fragment.t
+  | Static_initializer_fragment of Static_initializer_fragment.t
   | Dimension_fragment of Dimension_fragment.t
   | Offset_fragment of Offset_fragment.t
   | Implicit_output_fixed of {
@@ -58,6 +59,7 @@ type root = {
   origin : Symbol.origin;
   initializer_leaf_ : Initializer_source.leaf option;
   default_fragment_ : Default_fragment.t option;
+  static_fragment_ : Static_initializer_fragment.t option;
   dimension_fragment_ : Dimension_fragment.t option;
   offset_fragment_ : Offset_fragment.t option;
   initializer_calls_ : Function_call_resolution.call list;
@@ -161,6 +163,11 @@ let root_role_name = function
       Printf.sprintf "dimension:%s:%d"
         (Dimension_fragment.receipt fragment).dimension_owner.dimensions_name
           .spelling (Dimension_fragment.receipt fragment).dimension_index
+  | Static_initializer_fragment fragment ->
+      "static-initializer:"
+      ^ (Static_initializer_fragment.receipt fragment).static_allocation
+          .allocation_local
+          .local_spelling
   | Default_fragment fragment ->
       Printf.sprintf "function:%d:parameter-default:%d"
         (fragment |> Default_fragment.publication
@@ -218,7 +225,10 @@ let valid_origin = function
   | Symbol.Synthesized description -> not (String.equal description "")
 
 let role_is_valid = function
-  | Default_fragment _ | Dimension_fragment _ | Offset_fragment _ -> true
+  | Static_initializer_fragment _
+  | Default_fragment _
+  | Dimension_fragment _
+  | Offset_fragment _ -> true
   | Initializer_fragment _ -> true
   | Global_initializer global ->
       Option.is_some
@@ -259,6 +269,7 @@ let make_root ~index ~role ~expression ~origin =
         origin;
         initializer_leaf_ = None;
         default_fragment_ = None;
+        static_fragment_ = None;
         dimension_fragment_ = None;
         offset_fragment_ = None;
         initializer_calls_ = [];
@@ -406,6 +417,38 @@ let make_default_root ~index ~fragment ~expression ~calls =
     {
       root with
       default_fragment_ = Some fragment;
+      initializer_calls_ = source_calls;
+      initializer_call_trees_ = trees;
+    }
+
+let make_static_root ~index ~fragment ~expression ~calls =
+  let ( let* ) = Result.bind in
+  let source_calls = List.map (fun (call : call) -> call.source) calls in
+  let trees =
+    List.map
+      (fun (call : call) ->
+        (call.source, call.callee_expression, call.result_expression))
+      calls
+  in
+  let* () =
+    Function_call_resolution.validate_source_expression
+      ~source:(Static_initializer_fragment.expression fragment)
+      ~expression ~calls:source_calls
+      ~callee_expressions:
+        (List.map (fun (source, callee, _) -> (source, callee)) trees)
+      ~call_expressions:
+        (List.map (fun (source, _, result) -> (source, result)) trees)
+      ()
+    |> Result.map_error invalid_input
+  in
+  let* root =
+    make_root ~index ~role:(Static_initializer_fragment fragment) ~expression
+      ~origin:(Static_initializer_fragment.origin fragment)
+  in
+  Ok
+    {
+      root with
+      static_fragment_ = Some fragment;
       initializer_calls_ = source_calls;
       initializer_call_trees_ = trees;
     }
@@ -669,49 +712,47 @@ let make_statement_input ~allow_absent_outputs ~source ~roots ~calls
       source |> Top_level_outer_expression_binding.statement_source
       |> Top_level_expression_binding.statement_offset
     in
-    match (offset, dimension, default, fragment) with
-    | Some offset, None, None, None -> (
-        match (owner, roots) with
-        | ( None,
-            [
-              ({
-                 role = Offset_fragment selected;
-                 offset_fragment_ = Some proof;
-                 _;
-               } as root);
-            ] ) ->
-            selected == offset && proof == offset
-            && root.origin = Offset_fragment.origin offset
-            && Function_call_resolution.argument_expression_origin
-                 root.expression
-               = root.origin
-            && switch_cases = []
-            && List.length calls = List.length root.initializer_call_trees_
-            && List.for_all2
-                 (fun (call : call) (source_call, callee, result) ->
-                   call.source == source_call
-                   && call.callee_expression == callee
-                   && call.result_expression == result
-                   && List.exists (( == ) call.callee)
-                        (Top_level_outer_expression_binding
-                         .statement_occurrences source))
-                 calls root.initializer_call_trees_
+    let static =
+      source |> Top_level_outer_expression_binding.statement_source
+      |> Top_level_expression_binding.statement_static
+    in
+    match static with
+    | Some static -> (
+        Option.is_none offset && Option.is_none dimension
+        && Option.is_none default && Option.is_none fragment
+        && Option.is_none owner && switch_cases = [] && calls = []
+        &&
+        match roots with
+        | [
+         {
+           role = Static_initializer_fragment selected;
+           static_fragment_ = Some proof;
+           initializer_calls_ = [];
+           initializer_call_trees_ = [];
+           origin;
+           expression;
+           _;
+         };
+        ] ->
+            selected == static && proof == static
+            && origin = Static_initializer_fragment.origin static
+            && Function_call_resolution.argument_expression_origin expression
+               = origin
         | _ -> false)
-    | Some _, _, _, _ -> false
-    | None, dimension, default, fragment -> (
-        match (dimension, default, fragment) with
-        | Some dimension, None, None -> (
+    | None -> (
+        match (offset, dimension, default, fragment) with
+        | Some offset, None, None, None -> (
             match (owner, roots) with
             | ( None,
                 [
                   ({
-                     role = Dimension_fragment selected;
-                     dimension_fragment_ = Some proof;
+                     role = Offset_fragment selected;
+                     offset_fragment_ = Some proof;
                      _;
                    } as root);
                 ] ) ->
-                selected == dimension && proof == dimension
-                && root.origin = Dimension_fragment.origin dimension
+                selected == offset && proof == offset
+                && root.origin = Offset_fragment.origin offset
                 && Function_call_resolution.argument_expression_origin
                      root.expression
                    = root.origin
@@ -727,107 +768,148 @@ let make_statement_input ~allow_absent_outputs ~source ~roots ~calls
                              .statement_occurrences source))
                      calls root.initializer_call_trees_
             | _ -> false)
-        | Some _, _, _ -> false
-        | None, Some default, None -> (
-            match (owner, roots) with
-            | ( None,
-                [
-                  ({
-                     role = Default_fragment selected;
-                     default_fragment_ = Some proof;
-                     _;
-                   } as root);
-                ] ) ->
-                selected == default && proof == default
-                && root.origin = Default_fragment.origin default
-                && Function_call_resolution.argument_expression_origin
-                     root.expression
-                   = root.origin
-                && switch_cases = []
-                && List.length calls = List.length root.initializer_call_trees_
-                && List.for_all2
-                     (fun (call : call) (source_call, callee, result) ->
-                       call.source == source_call
-                       && call.callee_expression == callee
-                       && call.result_expression == result
-                       && List.exists (( == ) call.callee)
-                            (Top_level_outer_expression_binding
-                             .statement_occurrences source))
-                     calls root.initializer_call_trees_
-            | _ -> false)
-        | None, Some _, Some _ -> false
-        | None, None, Some fragment -> (
-            match (owner, roots) with
-            | ( None,
-                [
-                  ({
-                     role = Initializer_fragment selected;
-                     initializer_leaf_ = Some leaf;
-                     _;
-                   } as root);
-                ] ) ->
-                selected == fragment
-                && leaf == Initializer_fragment.leaf fragment
-                && root.origin = Initializer_source.leaf_origin leaf
-                && Function_call_resolution.argument_expression_origin
-                     root.expression
-                   = root.origin
-                && switch_cases = []
-                && List.length calls = List.length root.initializer_call_trees_
-                && List.for_all2
-                     (fun (call : call) (source_call, callee, result) ->
-                       call.source == source_call
-                       && call.callee_expression == callee
-                       && call.result_expression == result
-                       && List.exists (( == ) call.callee)
-                            (Top_level_outer_expression_binding
-                             .statement_occurrences source))
-                     calls root.initializer_call_trees_
-            | _ -> false)
-        | None, None, None -> (
-            match (owner, roots) with
-            | None, roots ->
-                not
-                  (List.exists
-                     (fun root ->
-                       match root.role with
-                       | Global_initializer _
-                       | Initializer_fragment _
-                       | Default_fragment _
-                       | Dimension_fragment _
-                       | Offset_fragment _ -> true
-                       | _ -> false)
-                     roots)
-            | Some owner, _ when retained_matches owner -> true
-            | ( Some owner,
-                [
-                  { role = Global_initializer selected; expression; origin; _ };
-                ] ) -> (
-                owner == selected && switch_cases = []
-                &&
-                match
-                  owner |> Global_initializer_binding.global_record
-                  |> Global_resolution.global_record_global
-                  |> Global_type_resolution.global_initializer
-                with
-                | Some initial ->
-                    Option.is_none
-                      (Global_type_resolution.initializer_source initial)
-                    && Global_type_resolution.initializer_kind initial
-                       = Global_type_resolution.Scalar_initializer
-                    && owner |> Global_initializer_binding.global_record
-                       |> Global_resolution.global_record_global
-                       |> Global_type_resolution.global_array_dimensions = []
-                    && List.for_all
-                         (fun root -> root.initializer_leaf_ = None)
-                         roots
-                    && Global_type_resolution.initializer_value_origin initial
-                       = origin
+        | Some _, _, _, _ -> false
+        | None, dimension, default, fragment -> (
+            match (dimension, default, fragment) with
+            | Some dimension, None, None -> (
+                match (owner, roots) with
+                | ( None,
+                    [
+                      ({
+                         role = Dimension_fragment selected;
+                         dimension_fragment_ = Some proof;
+                         _;
+                       } as root);
+                    ] ) ->
+                    selected == dimension && proof == dimension
+                    && root.origin = Dimension_fragment.origin dimension
                     && Function_call_resolution.argument_expression_origin
-                         expression
-                       = origin
-                | None -> false)
-            | Some _, _ -> false))
+                         root.expression
+                       = root.origin
+                    && switch_cases = []
+                    && List.length calls
+                       = List.length root.initializer_call_trees_
+                    && List.for_all2
+                         (fun (call : call) (source_call, callee, result) ->
+                           call.source == source_call
+                           && call.callee_expression == callee
+                           && call.result_expression == result
+                           && List.exists (( == ) call.callee)
+                                (Top_level_outer_expression_binding
+                                 .statement_occurrences source))
+                         calls root.initializer_call_trees_
+                | _ -> false)
+            | Some _, _, _ -> false
+            | None, Some default, None -> (
+                match (owner, roots) with
+                | ( None,
+                    [
+                      ({
+                         role = Default_fragment selected;
+                         default_fragment_ = Some proof;
+                         _;
+                       } as root);
+                    ] ) ->
+                    selected == default && proof == default
+                    && root.origin = Default_fragment.origin default
+                    && Function_call_resolution.argument_expression_origin
+                         root.expression
+                       = root.origin
+                    && switch_cases = []
+                    && List.length calls
+                       = List.length root.initializer_call_trees_
+                    && List.for_all2
+                         (fun (call : call) (source_call, callee, result) ->
+                           call.source == source_call
+                           && call.callee_expression == callee
+                           && call.result_expression == result
+                           && List.exists (( == ) call.callee)
+                                (Top_level_outer_expression_binding
+                                 .statement_occurrences source))
+                         calls root.initializer_call_trees_
+                | _ -> false)
+            | None, Some _, Some _ -> false
+            | None, None, Some fragment -> (
+                match (owner, roots) with
+                | ( None,
+                    [
+                      ({
+                         role = Initializer_fragment selected;
+                         initializer_leaf_ = Some leaf;
+                         _;
+                       } as root);
+                    ] ) ->
+                    selected == fragment
+                    && leaf == Initializer_fragment.leaf fragment
+                    && root.origin = Initializer_source.leaf_origin leaf
+                    && Function_call_resolution.argument_expression_origin
+                         root.expression
+                       = root.origin
+                    && switch_cases = []
+                    && List.length calls
+                       = List.length root.initializer_call_trees_
+                    && List.for_all2
+                         (fun (call : call) (source_call, callee, result) ->
+                           call.source == source_call
+                           && call.callee_expression == callee
+                           && call.result_expression == result
+                           && List.exists (( == ) call.callee)
+                                (Top_level_outer_expression_binding
+                                 .statement_occurrences source))
+                         calls root.initializer_call_trees_
+                | _ -> false)
+            | None, None, None -> (
+                match (owner, roots) with
+                | None, roots ->
+                    not
+                      (List.exists
+                         (fun root ->
+                           match root.role with
+                           | Global_initializer _
+                           | Initializer_fragment _
+                           | Static_initializer_fragment _
+                           | Default_fragment _
+                           | Dimension_fragment _
+                           | Offset_fragment _ -> true
+                           | _ -> false)
+                         roots)
+                | Some owner, _ when retained_matches owner -> true
+                | ( Some owner,
+                    [
+                      {
+                        role = Global_initializer selected;
+                        expression;
+                        origin;
+                        _;
+                      };
+                    ] ) -> (
+                    owner == selected && switch_cases = []
+                    &&
+                    match
+                      owner |> Global_initializer_binding.global_record
+                      |> Global_resolution.global_record_global
+                      |> Global_type_resolution.global_initializer
+                    with
+                    | Some initial ->
+                        Option.is_none
+                          (Global_type_resolution.initializer_source initial)
+                        && Global_type_resolution.initializer_kind initial
+                           = Global_type_resolution.Scalar_initializer
+                        && owner |> Global_initializer_binding.global_record
+                           |> Global_resolution.global_record_global
+                           |> Global_type_resolution.global_array_dimensions
+                           = []
+                        && List.for_all
+                             (fun root -> root.initializer_leaf_ = None)
+                             roots
+                        && Global_type_resolution.initializer_value_origin
+                             initial
+                           = origin
+                        && Function_call_resolution.argument_expression_origin
+                             expression
+                           = origin
+                    | None -> false)
+                | Some _, _ -> false)))
   in
   if not (unique_implicit_sources roots) then
     Error (invalid_input "implicit source statement appears twice in statement")
