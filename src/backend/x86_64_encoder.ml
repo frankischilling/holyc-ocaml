@@ -49,6 +49,7 @@ type instruction =
   | Jump of int64
   | Jump_equal of int64
   | Jump_not_equal of int64
+  | Jump_below of int64
   | Store_status_kind of int
   | Store_status_site of int
   | Load_context of register * int
@@ -177,6 +178,7 @@ let sign_extend_rax = source_form "CQO" 780
 let jump = source_form "JMP" 584
 let jump_equal = source_form "JE" 608
 let jump_not_equal = source_form "JNE" 612
+let jump_below = source_form "JB" 600
 let store_immediate = source_form "MOV" 284
 let decrement = source_form "DEC" 670
 let compare = source_form "CMP" 376
@@ -266,6 +268,7 @@ let form = function
   | Jump _ -> jump
   | Jump_equal _ -> jump_equal
   | Jump_not_equal _ -> jump_not_equal
+  | Jump_below _ -> jump_below
   | Store_status_kind _ | Store_status_site _ -> store_immediate
   | Load_context _ -> mov_load
   | Store_context _ -> mov_store
@@ -301,6 +304,7 @@ let validate = function
   | Jump displacement
   | Jump_equal displacement
   | Jump_not_equal displacement
+  | Jump_below displacement
   | Call displacement
     when not (signed_rel32 displacement) ->
       invalid_arg "relative branch displacement must fit signed 32 bits"
@@ -345,7 +349,7 @@ let size instruction =
   | Zero_edx | Cqo -> 2
   | Cmp_imm8 _ -> 4
   | Jump _ -> 5
-  | Jump_equal _ | Jump_not_equal _ -> 6
+  | Jump_equal _ | Jump_not_equal _ | Jump_below _ -> 6
   | Store_status_kind _ | Store_status_site _ -> 8
   | Load_context _ | Store_context _ -> 4
   | Store_context_imm _ -> 8
@@ -550,7 +554,10 @@ let write buffer position instruction =
       opcodes ();
       byte (0xc0 lor (selected.slash_value lsl 3) lor (register land 7));
       byte (immediate land 0xff)
-  | Jump displacement | Jump_equal displacement | Jump_not_equal displacement ->
+  | Jump displacement
+  | Jump_equal displacement
+  | Jump_not_equal displacement
+  | Jump_below displacement ->
       opcodes ();
       imm32_int64 displacement
   | Store_status_kind _ | Store_status_site _ ->

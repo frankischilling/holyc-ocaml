@@ -75,6 +75,20 @@ instruction and retains one source/fault site despite its expanded machine code.
 Selector instructions, class normalization and the lower-bound/range instructions
 charge separately.
 
+Native emission groups consecutive table entries with the same destination.
+After the unsigned bounds check, each group tests its length against the remaining
+index; a failed test subtracts that length before the next group. The last group
+jumps directly. Singleton groups retain their test/decrement sequence. This is a
+hosted code-size optimization of the checked table, not TempleOS machine-byte
+parity. It preserves holes, source fallthrough and the original dispatch site.
+
+`examples/integer-switch-large-range.hc` exercises a 65,535-value case and returns
+42 with the default native code limit. A single destination group has constant
+dispatch code size as its range grows. Alternating destinations still require
+separate branches. The code-quota preflight counts groups without allocating a
+group list, and final encoding enforces the exact byte limit. Dense IR table
+storage keeps its independent invocation cap.
+
 Case and default labels begin structural blocks in source order. Ordinary
 fallthrough, a default in the middle of the body, the nearest `break`, nested
 switches/loops and function-local gotos retain their normal continuations.

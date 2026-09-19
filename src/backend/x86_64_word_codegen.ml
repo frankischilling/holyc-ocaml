@@ -630,7 +630,18 @@ type allocation = {
   unwind_info : bytes;
 }
 
-type branch_kind = Unconditional | Equal | Not_equal
+type branch_kind = Unconditional | Equal | Not_equal | Below
+
+let fold_switch_runs f initial targets =
+  let rec visit acc target count = function
+    | next :: rest when Sequence.Block_id.compare target next = 0 ->
+        visit acc target (count + 1) rest
+    | next :: rest -> visit (f acc target count false) next 1 rest
+    | [] -> f acc target count true
+  in
+  match targets with
+  | [] -> initial
+  | target :: rest -> visit initial target 1 rest
 
 type planned_item =
   | Planned_instruction of Encoder.instruction
@@ -647,6 +658,7 @@ let branch_instruction kind displacement =
   | Unconditional -> Encoder.Jump displacement
   | Equal -> Encoder.Jump_equal displacement
   | Not_equal -> Encoder.Jump_not_equal displacement
+  | Below -> Encoder.Jump_below displacement
 
 let planned_size = function
   | Planned_instruction instruction -> Encoder.size instruction
@@ -1970,17 +1982,26 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
                   emit (Encoder.Movzx8 (range_register, range_register));
                   emit (Encoder.Test range_register);
                   emit_branch Not_equal (target_label default_target);
-                  let rec emit_entries = function
-                    | [] -> assert false
-                    | [ target ] ->
+                  fold_switch_runs
+                    (fun () target count last ->
+                      if last then
                         emit_branch Unconditional (target_label target)
-                    | target :: rest ->
+                      else if count = 1 then (
                         emit (Encoder.Test adjusted_register);
                         emit_branch Equal (target_label target);
-                        emit (Encoder.Dec adjusted_register);
-                        emit_entries rest
-                  in
-                  emit_entries entries;
+                        emit (Encoder.Dec adjusted_register))
+                      else
+                        (* Earlier runs have been subtracted from the unsigned
+                           in-range index. Compare against this run's length,
+                           then advance only when its branch is not taken. *)
+                        let length = Int64.of_int count in
+                        emit (Encoder.Mov_imm64 (range_register, length));
+                        emit (Encoder.Cmp (adjusted_register, range_register));
+                        emit_branch Below (target_label target);
+                        emit
+                          (Encoder.Binary
+                             (Encoder.Sub, adjusted_register, range_register)))
+                    () entries;
                   release_through position
               | [] | [ _ ] ->
                   reject ?span:instruction.span "HCBACK0003"
@@ -3865,15 +3886,18 @@ let bounded_callable_counts ~max_ir_instructions ~max_blocks graphs =
 let validate_switch_code_floor ~max_code_bytes ~label block_groups =
   let used = ref 0 in
   let charge targets =
-    let entries = List.length targets - 1 in
-    if entries <= 0 then
-      reject "HCBACK0003" "native IC_SWITCH has no bounded target table";
+    let runs =
+      match targets with
+      | _ :: (_ :: _ as entries) ->
+          fold_switch_runs (fun count _ _ _ -> count + 1) 0 entries
+      | _ -> reject "HCBACK0003" "native IC_SWITCH has no bounded target table"
+    in
     (* The generated bounded dispatch necessarily contains one out-of-range
        conditional branch, one final target jump, and one conditional branch
-       for every table entry except the last. This intentionally ignores the
-       compare/test/decrement instructions, so it is a strict lower bound that
-       can reject an impossible code quota before allocating the linear plan. *)
-    let minimum = 11 + (6 * (entries - 1)) in
+       for every contiguous destination run except the last. The scan does not
+       allocate runs. Ignoring their arithmetic instructions gives a strict
+       lower bound before allocating the machine instruction plan. *)
+    let minimum = 11 + (6 * (runs - 1)) in
     if minimum > max_code_bytes - !used then
       reject "HCBACK0005"
         (Printf.sprintf

@@ -23,11 +23,13 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 3)
-    "usage: test_native_switch_cli.exe <holyc.exe> <integer-switch.hc>"
+    (Array.length Sys.argv = 4)
+    "usage: test_native_switch_cli.exe <holyc.exe> <integer-switch.hc> \
+     <integer-switch-large-range.hc>"
 
 let compiler = Sys.argv.(1)
 let switch_fixture = Sys.argv.(2)
+let large_range_fixture = Sys.argv.(3)
 
 let invoke arguments =
   with_file ".stdout" "" (fun stdout ->
@@ -306,6 +308,19 @@ let selected_runtime_fault () =
 
 let () =
   maintained_fixture_contract ();
+  List.iter
+    (fun mode ->
+      let interpreted = ir_json ~mode large_range_fixture in
+      let native = host_json ~mode large_range_fixture in
+      List.iter
+        (fun report ->
+          check_success report;
+          check_word report)
+        [ interpreted; native ];
+      require
+        (switch_work native = 2 && switch_work interpreted = 2)
+        "large range retains original endpoint work")
+    [ "jit"; "aot" ];
   invalid_limits_precede_parsing ();
   resource_and_domain_failures ();
   selected_runtime_fault ()

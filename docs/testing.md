@@ -11,6 +11,16 @@ separate from runtime instruction limits. The fixture is
 `examples/integer-switch.hc`; native instruction comparisons use the matching
 isolated checked unit. See [switch execution](integer-switch.md).
 
+`examples/integer-switch-large-range.hc` covers native execution of the maximum
+65,535-value range through the CLI. Grouped dispatch tests cover range endpoints,
+holes, singleton groups, signed/high-bit selectors and recursion in both modes.
+Compile-only tests compare code size and instruction count for one-entry and
+maximum-size constant-destination tables on both ABIs, check exact/one-below code
+limits and deterministic recompilation, and retain preallocation rejection for
+a maximum-size table whose destinations alternate.
+Literal `JB` byte tests cover zero and both rel32 endpoints, plus rejection just
+outside the displacement range.
+
 Native global tests cover declared widths, adjacent objects, shared/recursive
 calls, defaults, gotos, compound RHS effects, fresh arena state and nested fault
 unwind in both modes. Compile-only tests verify exact storage identities and

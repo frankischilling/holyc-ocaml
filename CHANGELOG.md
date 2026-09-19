@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Compacted consecutive equal switch destinations in native dispatch. Maximum
+  single-case ranges now fit the default code limit while alternating targets
+  retain code-quota checks. IR table storage and runtime work stay separately
+  bounded.
+
 - Connected ordinary bounded integer switches to original parser-time closed
   case preparation, checked block graphs, interpreter dispatch and own-encoder
   native execution. Inclusive reversed ranges, implicit values, defaults,

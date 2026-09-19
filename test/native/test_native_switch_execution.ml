@@ -87,6 +87,59 @@ let compare ~mode ~label ~expected contents =
 
 let modes = [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let contiguous_range_differentials () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (selector, expected) ->
+          let source =
+            Printf.sprintf
+              "I64 F(I64 n){switch(n){case 17...65551:return 42;default:return \
+               -1;}}F(%s);"
+              selector
+          in
+          let report = compare ~mode ~label:selector ~expected source in
+          let image = Native_program.image report |> Option.get in
+          Alcotest.(check bool)
+            "maximum range fits 4 KiB" true
+            (String.length (Program.code image) < 4096))
+        [
+          ("16", -1L);
+          ("17", 42L);
+          ("40000", 42L);
+          ("65551", 42L);
+          ("65552", -1L);
+          ("-1", -1L);
+          ("0x8000000000000000", -1L);
+        ];
+      List.iter
+        (fun selector ->
+          let expected =
+            if selector >= -5 && selector <= -3 then 42L
+            else if selector = 0 then 7L
+            else if selector >= 2 && selector <= 6 then 19L
+            else -1L
+          in
+          ignore
+            (compare ~mode ~label:"mixed runs, singleton and default holes"
+               ~expected
+               (Printf.sprintf
+                  "I64 F(I64 n){switch(n){case -3...-5:return 42;case 0:return \
+                   7;case 2...6:return 19;default:return -1;}}F(%d);"
+                  selector)))
+        (List.init 15 (fun i -> i - 7));
+      ignore
+        (compare ~mode ~label:"high-bit run boundaries" ~expected:42L
+           "I64 F(U64 n){switch(n){case \
+            0x8000000000000000...0x8000000000000002:return 42;case \
+            0x8000000000000004:return 7;default:return \
+            -1;}}F(0x8000000000000002);");
+      ignore
+        (compare ~mode ~label:"recursive calls through a range" ~expected:42L
+           "I64 F(I64 n){switch(n){case 1...60000:return F(n-1)+1;case \
+            0:return 40;default:return -1;}}F(2);"))
+    modes
+
 let successful_differentials () =
   let cases =
     [
@@ -338,6 +391,8 @@ let () =
         [
           ( "switch execution",
             [
+              Alcotest.test_case "contiguous range dispatch boundaries" `Quick
+                contiguous_range_differentials;
               Alcotest.test_case "successful switch programs match checked IR"
                 `Quick successful_differentials;
               Alcotest.test_case "all scalar selector widths" `Quick

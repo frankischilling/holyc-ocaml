@@ -91,6 +91,9 @@ type instruction =
   | Jump_equal of int64
   | Jump_not_equal of int64
       (** Signed rel32 displacement from the end of this instruction. *)
+  | Jump_below of int64
+      (** Unsigned below (carry set), with a signed rel32 displacement from the
+          instruction end. Uses the pinned JB form in OpCodes.DD:600. *)
   | Store_status_kind of int
   | Store_status_site of int
       (** Private stores through R11 only. Kinds are 1..2 and sites 1..100000;

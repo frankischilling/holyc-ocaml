@@ -12121,6 +12121,7 @@ sources = [
   "Compiler/PrsStmt.HC:578-789 original endpoint/colon/brace phases, implicit sentinel, inclusive reversed ranges, low adjustment, late range and duplicate checks",
   "Compiler/PrsExp.HC:1117-1151 expression compilation/evaluation and F64 result conversion to I64",
   "Compiler/BackC.HC:602-771 bounded unsigned adjusted-index dispatch and ordered default/table targets",
+  "Compiler/OpCodes.DD:600 unsigned JB rel32 encoding for native contiguous destination groups",
   "Existing typed selector/case roots and checked structured blocks retain source types, statement order and enclosing break continuation"
 ]
 implementation = [
@@ -12142,8 +12143,10 @@ tests = [
   "test/test_integer_switch_preparation.ml", "test/test_integer_switch_execution.ml",
   "test/test_switch_callback_lifetime.ml",
   "test/test_ir_switch_dispatch.ml", "test/test_ir_block_graph.ml",
+  "test/test_native_expression.ml",
   "test/native/test_native_switch_execution.ml", "test/native/test_native_switch_cli.ml",
-  "test/dune", "test/native/dune", "examples/integer-switch.hc"
+  "test/dune", "test/native/dune", "examples/integer-switch.hc",
+  "examples/integer-switch-large-range.hc"
 ]
 documentation = [
   "docs/integer-switch.md", "docs/integer-programs.md", "docs/native-programs.md",
@@ -12156,7 +12159,7 @@ reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 source_gate = "ordinary bounded switch with scalar integer selector and original closed numeric case endpoints in both preprocessing modes; implicit and inclusive reversed cases, default holes, source fallthrough, nested breaks and supported function-local gotos compose through the shared block builder"
 preparation = "endpoint evaluation follows original expression lookahead and precedes following delimiter validation; case completion follows colon lookahead and final range/overlap validation follows closing-brace lookahead; callback-free parsing remains syntax-only; no late reevaluation from an AST or final environment"
 identity = "private parser receipts retain exact switch/endpoint/predecessor/source nodes; sealed command retrieval requires the original semantic table and module AST; source lowering consumes typed selector/case roots and original ordered case/default identities once"
-dispatch = "single-evaluated selector normalized to internal I64 via zero addition or U64 word view; internal I64 immediate low, subtraction, immediate range and canonical IC_SWITCH(adjusted,range) with ordered payload default plus range entries; graph checks producer shape, cardinality and targets, retaining repeated destinations; unsigned bounds select default before indexing or bounded native branches"
+dispatch = "single-evaluated selector normalized to internal I64 via zero addition or U64 word view; internal I64 immediate low, subtraction, immediate range and canonical IC_SWITCH(adjusted,range) with ordered payload default plus range entries; graph checks producer shape, cardinality and targets, retaining repeated destinations; unsigned bounds select default before indexing or bounded native branches; native emission groups consecutive equal destinations, with allocation-free group counting before machine planning and exact encoded-byte quotas"
 resources = "positive max_switch_work defaults100000 and counts reached numeric node visits independently of initializer/dimension/runtime work; nested source tasks share the invocation budget; total dense dispatch slots including defaults are capped at65536 before expansion, separately from per-switch source range65535; existing native code/block/frame/depth/stack bounds remain in force"
 reporting = "source/native report getters preserve reached switch work on failure; v2 switch_work_limit and switch_preparation_work are additive fields; each reached dispatch retains one IC instruction meter and original source/fault site despite machine expansion"
 excluded = ["no-bound bracket dispatch", "sub-switch front porch/start/end execution", "multiple-default execution", "effectful case evaluation and unsupported reference/query forms", "floating selectors and general conversion/optimizer parity", "native declaration/#exe execution and full HolyC ABI", "object/BIN writing, actual loader acceptance, whole-tree compilation and bootstrap"]

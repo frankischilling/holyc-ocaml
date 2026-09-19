@@ -108,9 +108,9 @@ let checked_graph ~adjusted_bits ~entries =
 let verified ~adjusted_bits ~entries =
   checked_graph ~adjusted_bits ~entries |> X87.verify |> require_ok x87_errors
 
-let compile ?(max_code_bytes = 65_536) checked =
-  Program.compile ~max_stack_bytes:Program.hard_max_stack_bytes ~max_blocks:4096
-    ~max_ir_instructions:100_000 ~max_code_bytes checked
+let compile ?status_abi ?(max_code_bytes = 65_536) checked =
+  Program.compile ?status_abi ~max_stack_bytes:Program.hard_max_stack_bytes
+    ~max_blocks:4096 ~max_ir_instructions:100_000 ~max_code_bytes checked
 
 let execute_vm ~max_steps checked =
   VM.execute_program ~max_steps ~max_frame_bytes:4096 ~max_call_depth:64
@@ -264,7 +264,7 @@ let malformed_shape_and_range_evidence_are_rejected () =
       Alcotest.fail "IC_SWITCH with mismatched range evidence was accepted"
 
 let maximum_table_hits_native_code_quota_before_plan () =
-  let entries = List.init 0xffff (fun _ -> 20) in
+  let entries = List.init 0xffff (fun i -> if i mod 2 = 0 then 20 else 30) in
   let checked = verified ~adjusted_bits:0L ~entries in
   match compile ~max_code_bytes:65_536 checked with
   | Error errors ->
@@ -279,8 +279,43 @@ let maximum_table_hits_native_code_quota_before_plan () =
       Alcotest.fail
         "maximum switch table unexpectedly fit the 64 KiB code quota"
 
+let contiguous_targets_have_bounded_code () =
+  List.iter
+    (fun status_abi ->
+      let compile = compile ~status_abi in
+      let small = verified ~adjusted_bits:0L ~entries:[ 20 ] in
+      let large =
+        verified ~adjusted_bits:0L ~entries:(List.init 0xffff (fun _ -> 20))
+      in
+      let small_image = compile small |> require_ok program_errors in
+      let large_image = compile large |> require_ok program_errors in
+      let size = String.length (Program.code large_image) in
+      Alcotest.(check int)
+        "one run has constant encoded size"
+        (String.length (Program.code small_image))
+        size;
+      Alcotest.(check int)
+        "one run has constant instruction count"
+        (Program.machine_instructions small_image)
+        (Program.machine_instructions large_image);
+      ignore (compile ~max_code_bytes:size large |> require_ok program_errors);
+      (match compile ~max_code_bytes:(size - 1) large with
+      | Error errors ->
+          Alcotest.(check bool)
+            "exact encoded quota remains enforced" true
+            (List.exists
+               (fun (e : Program.error) -> e.code = "HCBACK0005")
+               errors)
+      | Ok _ -> Alcotest.fail "one-below code quota admitted");
+      Alcotest.(check string)
+        "fresh compilation is deterministic" (Program.code large_image)
+        (compile large |> require_ok program_errors |> Program.code))
+    [ Program.Windows_x64; Program.System_v_x64 ]
+
 let tests =
   [
+    Alcotest.test_case "contiguous switch targets use bounded native code"
+      `Quick contiguous_targets_have_bounded_code;
     Alcotest.test_case "bounded switch dispatches cases and default" `Quick
       valid_default_and_case_dispatch;
     Alcotest.test_case "adjusted negative words use unsigned default bounds"

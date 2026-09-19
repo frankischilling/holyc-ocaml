@@ -13,6 +13,13 @@ branches with one IC meter/site. Sealed receipt ownership, finite conversion
 guards, cumulative numeric work and table-slot caps are hosted policy. See
 [switch execution](integer-switch.md).
 
+Native dispatch groups adjacent equal destinations from that checked table.
+The unsigned out-of-range branch and each in-range destination follow
+`BackC.HC:ICSwitch`; group comparison/subtraction is an own-encoder optimization.
+Unsigned group branches use the `JB` rel32 form in `OpCodes.DD:600`.
+The large-range fixture tests the maximum source range without allocating a
+machine branch for every value. It does not establish native byte parity.
+
 [Native globals](native-globals.md) connects `PrsExp.HC:867-902`,
 `PrsStmt.HC:285-435`, `BackLib.HC:281-309,453-572` and
 `BackC.HC:159-204` to checked arena layout, generated scalar accesses and the
