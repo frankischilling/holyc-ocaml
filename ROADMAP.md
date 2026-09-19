@@ -50,6 +50,12 @@ the same owned occurrences and reserved label targets; labels are structural
 boundaries and gotos use the existing checked jump. Source order stays separate
 from `for` update execution order, and skipped initialization, return completeness
 and resource limits remain checked. See [goto execution](docs/integer-goto.md).
+Issue #668 connects original closed case preparation and bounded integer switch
+dispatch to both execution targets. The shared graph preserves range holes,
+fallthrough, nested breaks and source ownership. Preparation nodes and cumulative
+table slots have independent bounds; native dispatch uses the existing encoder
+and retains one metered IC site. No-bound/sub-switch regions and effectful case
+evaluation remain separate gates. See [switch execution](docs/integer-switch.md).
 The complete HolyC ABI, persistent and pointer memory operations, F64/x87 and
 conversions, runtime output, and general declaration/`#exe` native integration
 remain open. Optimizer parity, assembler and object/BIN output, actual TempleOS

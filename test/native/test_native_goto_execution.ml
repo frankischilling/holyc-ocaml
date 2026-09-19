@@ -450,9 +450,9 @@ let unsupported_regions_reject_before_native_entry () =
       ( "try/catch region",
         "U0 F(){done:try goto done;catch return;}F();",
         "try goto done;catch return;" );
-      ( "switch region",
-        "U0 F(I64 n){switch(n){case 0:goto done;}done:return;}F(0);",
-        "switch(n){case 0:goto done;}" );
+      ( "no-bound switch region",
+        "U0 F(I64 n){switch[n]{case 0:goto done;}done:return;}F(0);",
+        "switch[n]{case 0:goto done;}" );
       ( "sub-switch region",
         "U0 F(I64 n){switch(n){start:case 0:goto done;end:}done:return;}F(0);",
         "switch(n){start:case 0:goto done;end:}" );

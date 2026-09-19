@@ -229,6 +229,7 @@ type prepared_operation =
   | Return_value of prepared_operand * word_type
   | Jump of int
   | Branch of branch_condition * prepared_operand * int
+  | Switch of prepared_operand * prepared_operand * int array
   | Return
   | End
 
@@ -2379,6 +2380,7 @@ type opcode_kind =
   | Return_value_kind
   | Jump_kind
   | Branch_kind of branch_condition
+  | Switch_kind
   | Return_kind
   | End_kind
 
@@ -2462,6 +2464,7 @@ let opcode_kind = function
   | Opcode.Ic_jmp -> Some Jump_kind
   | Opcode.Ic_br_zero -> Some (Branch_kind Zero)
   | Opcode.Ic_br_not_zero -> Some (Branch_kind Not_zero)
+  | Opcode.Ic_switch -> Some Switch_kind
   | Opcode.Ic_ret -> Some Return_kind
   | Opcode.Ic_end -> Some End_kind
   | _ -> None
@@ -3849,6 +3852,32 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                   | None, _ -> Error (invalid_type_matrix block_id description)
                   | Some _, None -> Error (malformed block_id description))
               | _ -> Error (malformed block_id description))
+          | Switch_kind -> (
+              match Sequence.bounded_switch_shape description with
+              | Error _ -> Error (malformed block_id description)
+              | Ok shape -> (
+                  match
+                    ( operand_of_value types shape.adjusted_index,
+                      operand_of_value types shape.range_value )
+                  with
+                  | Some adjusted, Some range
+                    when adjusted.expected_type = I64
+                         && range.expected_type = I64 ->
+                      let rec resolve_targets reversed = function
+                        | [] -> Ok (Array.of_list (List.rev reversed))
+                        | target :: rest -> (
+                            match Block_map.find_opt target block_index with
+                            | Some index ->
+                                resolve_targets (index :: reversed) rest
+                            | None -> Error (malformed block_id description))
+                      in
+                      Result.map
+                        (fun targets -> Switch (adjusted, range, targets))
+                        (resolve_targets [] shape.targets)
+                  | Some _, Some _ ->
+                      Error (invalid_type_matrix block_id description)
+                  | None, _ | _, None ->
+                      Error (invalid_type_matrix block_id description)))
           | Return_kind -> (
               match
                 ( description.operands,
@@ -4227,7 +4256,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
             | Ok prepared ->
                 let control_transfer =
                   match prepared.operation with
-                  | Jump _ | Branch _ | Return | End -> true
+                  | Jump _ | Branch _ | Switch _ | Return | End -> true
                   | _ -> false
                 in
                 if control_transfer && !calls <> [] then
@@ -5454,6 +5483,33 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                                "HCIRVM0008"
                                "a conditional branch has no physical \
                                 fallthrough")))
+          | Switch (adjusted, range, targets) -> (
+              match
+                ( require_operand block instruction adjusted,
+                  require_operand block instruction range )
+              with
+              | Some adjusted, Some range ->
+                  let table_range = Array.length targets - 1 in
+                  if
+                    table_range <= 0
+                    || not (Int64.equal range.bits (Int64.of_int table_range))
+                  then
+                    failed :=
+                      Some
+                        (runtime_error ~instruction block !steps "HCIRVM0008"
+                           "prepared IC_SWITCH range disagrees with its target \
+                            table")
+                  else
+                    let target =
+                      if
+                        Int64.unsigned_compare adjusted.bits
+                          (Int64.of_int table_range)
+                        >= 0
+                      then targets.(0)
+                      else targets.(Int64.to_int adjusted.bits + 1)
+                    in
+                    transfer target
+              | None, _ | _, None -> ())
           | Return
             when match !program.required_return with
                  | Some (Word_return _) -> Option.is_none !pending_return

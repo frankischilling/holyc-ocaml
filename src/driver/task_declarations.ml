@@ -3,6 +3,7 @@ module Parser = Frontend.Parser
 module Visibility = Frontend.Symbol_visibility
 module Collection = Sema.Declaration_collection
 module VM = Ir.Integer_interpreter
+module Switch = Sema.Integer_switch_preparation
 
 module Names = Hashtbl.Make (struct
   type t = Ast.identifier
@@ -196,6 +197,7 @@ type command = {
   queries : query Query_expressions.t;
   dimensions : Parser.completed_array_dimension Dimensions.t;
   checked_dimensions : Sema.Compiler_record.declared_dimension Dimensions.t;
+  switches : Switch.t list;
   offsets : Sema.Compiler_record.aggregate_offset list;
   initializers : (Ast.global_initializer * Sema.Initializer_source.t) Names.t;
   source_order : Sema.Task_command_order.command option;
@@ -264,6 +266,8 @@ type t = {
   mutable source_events_rev : Parser.command_event list;
   mutable activation_events_rev : Sema.Source_activation.event list;
   mutable activation : Sema.Source_activation.t option;
+  switch_budget : Switch.budget;
+  switch_tracker : Switch.tracker;
   max_dimension_work : int;
   max_offset_work : int;
   mutable dimension_work : int;
@@ -312,8 +316,9 @@ let origin (name : Ast.identifier) =
       defined_at = location.defined_at;
     }
 
-let create_with_authority ?compiler_positions ?(max_dimension_work = 100_000)
-    ?(max_offset_work = 100_000) authority session =
+let create_with_authority ?compiler_positions ?max_switch_work ?switch_budget
+    ?(max_dimension_work = 100_000) ?(max_offset_work = 100_000) authority
+    session =
   let runtime =
     match authority with
     | Task_runtime runtime -> Some runtime
@@ -327,6 +332,16 @@ let create_with_authority ?compiler_positions ?(max_dimension_work = 100_000)
         Sema.Compiler_record.create_compiler_positions
           ~sources:(Session.sources session)
   in
+  let switch_budget =
+    match (switch_budget, max_switch_work) with
+    | Some budget, None -> Ok budget
+    | Some budget, Some limit when Switch.budget_limit budget = limit ->
+        Ok budget
+    | Some _, Some _ ->
+        Error "shared switch preparation budget has a different max_switch_work"
+    | None, limit ->
+        Switch.create_budget ~max_work:(Option.value ~default:100_000 limit)
+  in
   if
     (not
        (Sema.Compiler_record.compiler_positions_own_sources compiler_positions
@@ -336,81 +351,86 @@ let create_with_authority ?compiler_positions ?(max_dimension_work = 100_000)
          runtime
   then Error "task declaration runtime belongs to another semantic table"
   else
-    let module_name =
-      match authority with
-      | Source_compilation source ->
-          Some (Common.Source_file.display_path source)
-      | _ -> None
-    in
-    Collection.create_namespace ~table ?module_name () |> fun result ->
-    Result.bind result (fun namespace ->
-        let binding =
+    Result.bind switch_budget (fun switch_budget ->
+        let module_name =
           match authority with
-          | Task_runtime runtime -> VM.bind_task_namespace runtime namespace
-          | _ -> Ok ()
+          | Source_compilation source ->
+              Some (Common.Source_file.display_path source)
+          | _ -> None
         in
-        Result.map
-          (fun () ->
-            {
-              compiler_positions;
-              call_journal =
-                Sema.Source_activation.create_call_journal ~namespace ();
-              calls = [];
-              native_functions = None;
-              native_function_events = [];
-              source_default_attempts = [];
-              source_defaults_runtime = None;
-              prepared_source_defaults = [];
-              storage_boundaries = Names.create 16;
-              last_storage_global = None;
-              session;
-              table;
-              namespace;
-              sources = Session.sources session;
-              symbols = Session.symbols session;
-              names = Names.create 32;
-              entries = Entries.create 32;
-              commands = [];
-              next_ordinal = 0;
-              sequences = [];
-              active = [];
-              views = [];
-              sequence_views = [];
-              authority;
-              source_events_rev = [];
-              activation_events_rev = [];
-              activation = None;
-              max_dimension_work;
-              max_offset_work;
-              dimension_work = 0;
-              offset_work = 0;
-              offsets_rev = [];
-              runtime_offset_completions = [];
-              source_dimensions_rev = [];
-              runtime_entries = Entries.create 32;
-              runtime_records = Entries.create 32;
-              admissions = [];
-              references = Names.create 32;
-              implicit_outputs = [];
-              query_roots = Query_roots.create 16;
-              queries = Query_expressions.create 16;
-              dimension_owners = Names.create 16;
-              dimensions = Dimensions.create 16;
-              checked_dimensions = Dimensions.create 16;
-              selected_aggregate_types = Type_specifiers.create 16;
-              initializers = Names.create 16;
-            })
-          binding)
+        Collection.create_namespace ~table ?module_name () |> fun result ->
+        Result.bind result (fun namespace ->
+            let binding =
+              match authority with
+              | Task_runtime runtime -> VM.bind_task_namespace runtime namespace
+              | _ -> Ok ()
+            in
+            Result.map
+              (fun () ->
+                {
+                  compiler_positions;
+                  call_journal =
+                    Sema.Source_activation.create_call_journal ~namespace ();
+                  calls = [];
+                  native_functions = None;
+                  native_function_events = [];
+                  source_default_attempts = [];
+                  source_defaults_runtime = None;
+                  prepared_source_defaults = [];
+                  storage_boundaries = Names.create 16;
+                  last_storage_global = None;
+                  session;
+                  table;
+                  namespace;
+                  sources = Session.sources session;
+                  symbols = Session.symbols session;
+                  names = Names.create 32;
+                  entries = Entries.create 32;
+                  commands = [];
+                  next_ordinal = 0;
+                  sequences = [];
+                  active = [];
+                  views = [];
+                  sequence_views = [];
+                  authority;
+                  source_events_rev = [];
+                  activation_events_rev = [];
+                  activation = None;
+                  switch_budget;
+                  switch_tracker = Switch.create_tracker ~budget:switch_budget;
+                  max_dimension_work;
+                  max_offset_work;
+                  dimension_work = 0;
+                  offset_work = 0;
+                  offsets_rev = [];
+                  runtime_offset_completions = [];
+                  source_dimensions_rev = [];
+                  runtime_entries = Entries.create 32;
+                  runtime_records = Entries.create 32;
+                  admissions = [];
+                  references = Names.create 32;
+                  implicit_outputs = [];
+                  query_roots = Query_roots.create 16;
+                  queries = Query_expressions.create 16;
+                  dimension_owners = Names.create 16;
+                  dimensions = Dimensions.create 16;
+                  checked_dimensions = Dimensions.create 16;
+                  selected_aggregate_types = Type_specifiers.create 16;
+                  initializers = Names.create 16;
+                })
+              binding))
 
-let create ?compiler_positions ?runtime session =
-  create_with_authority ?compiler_positions
+let create ?compiler_positions ?max_switch_work ?switch_budget ?runtime session
+    =
+  create_with_authority ?compiler_positions ?max_switch_work ?switch_budget
     (match runtime with
     | None -> Semantic_analysis
     | Some runtime -> Task_runtime runtime)
     session
 
-let create_source ?compiler_positions ?(max_dimension_work = 100_000)
-    ?(max_offset_work = 100_000) session ~source =
+let create_source ?compiler_positions ?max_switch_work ?switch_budget
+    ?(max_dimension_work = 100_000) ?(max_offset_work = 100_000) session ~source
+    =
   if max_dimension_work <= 0 || max_offset_work <= 0 then
     Error "source preparation limit must be positive"
   else
@@ -419,8 +439,9 @@ let create_source ?compiler_positions ?(max_dimension_work = 100_000)
         (Common.Source_file.id source)
     with
     | Some registered when registered == source ->
-        create_with_authority ?compiler_positions ~max_dimension_work
-          ~max_offset_work (Source_compilation source) session
+        create_with_authority ?compiler_positions ?max_switch_work
+          ?switch_budget ~max_dimension_work ~max_offset_work
+          (Source_compilation source) session
     | _ -> Error "ordinary source ledger requires its exact registered input"
 
 let promote_source_with_activation ~activate ledger ~runtime session ~source =
@@ -519,6 +540,9 @@ let requires_query_metadata ledger =
 
 let dimension_work ledger = ledger.dimension_work
 let offset_work ledger = ledger.offset_work
+let switch_budget ledger = ledger.switch_budget
+let switch_work ledger = Switch.budget_work ledger.switch_budget
+let switch_preparation_work = switch_work
 
 let selected_dimensions ledger dimensions =
   List.filter_map (Dimensions.find_opt ledger.checked_dimensions) dimensions
@@ -2245,6 +2269,9 @@ let observe ?offset_runtime ledger event =
           prepare_dimension ledger preparation
       | Parser.Array_dimension_completed receipt ->
           complete_dimension ledger receipt
+      | Parser.Switch_case_preparing _
+      | Parser.Switch_case_completed _
+      | Parser.Switch_completed _ -> ()
       | Parser.Global_initializer_started start -> (
           let publication = start.initializer_owner in
           validate_command ledger publication.global_header;
@@ -2572,6 +2599,14 @@ let observe ?offset_runtime ledger event =
                 "function body completion is foreign, repeated or out of order"))
 
 let observe ?offset_runtime ledger event =
+  let observed = observe ?offset_runtime ledger event in
+  let observed =
+    Result.bind observed (fun () ->
+        match ledger.authority with
+        | Semantic_analysis -> Ok ()
+        | Source_compilation _ | Task_runtime _ ->
+            Switch.observe ledger.switch_tracker event)
+  in
   Result.map
     (fun () ->
       let publication =
@@ -2603,7 +2638,7 @@ let observe ?offset_runtime ledger event =
           | _ -> ())
         publication;
       record_activation_event ledger (Sema.Source_activation.Declaration event))
-    (observe ?offset_runtime ledger event)
+    observed
 
 let defer_source_runtime_dimension ledger ~preparation event =
   protect (fun () ->
@@ -3108,6 +3143,14 @@ let seal ledger (ast : Ast.module_) =
                         (Dimensions.find_opt ledger.checked_dimensions dimension);
                       checked)
                     dimensions (Dimensions.create 16);
+                switches =
+                  List.filter
+                    (fun prepared ->
+                      List.exists
+                        (fun entry ->
+                          entry.receipt.command_start == Switch.command prepared)
+                        original_commands)
+                    (Switch.preparations ledger.switch_tracker);
                 offsets =
                   List.filter
                     (fun offset ->
@@ -4477,6 +4520,28 @@ let command_dimension_work (command : command) =
       count + Sema.Compiler_record.dimension_work dimension)
     command.checked_dimensions 0
 
+let switch_for ~table ~ast (command : command) (source : Ast.switch_statement) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span
+          "switch preparation seal belongs to another table or source AST";
+      match
+        List.find_opt
+          (fun prepared -> Switch.source prepared == source)
+          command.switches
+      with
+      | Some prepared -> prepared
+      | None ->
+          fail source.switch_location.span
+            "switch has no original completed case preparation in this command")
+
+let command_switch_work (command : command) =
+  List.fold_left
+    (fun total prepared -> total + Switch.work prepared)
+    0 command.switches
+
+let command_switch_preparation_work = command_switch_work
+
 let checked_offset_for ~table ~ast (command : command) expression =
   protect (fun () ->
       if command.table != table || command.ast != ast then
@@ -4530,6 +4595,12 @@ let source_checked_dimension_for ~table ~ast (Source_command command) dimension
 
 let source_dimension_work (Source_command command) =
   command_dimension_work command
+
+let source_switch_for ~table ~ast (Source_command command) source =
+  switch_for ~table ~ast command source
+
+let source_switch_work (Source_command command) = command_switch_work command
+let source_switch_preparation_work = source_switch_work
 
 let reference_resolver ~table ~ast ~task_view command =
   let module Selection = Sema.Reference_selection in

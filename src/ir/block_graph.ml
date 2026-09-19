@@ -121,7 +121,9 @@ let duplicate_identity_errors blocks =
           match description.result with
           | None -> ()
           | Some result -> (
-              let value_id = Sequence.Value_id.to_int result.value_id in
+              let value_id =
+                Sequence.Value_id.to_int result.Sequence.value_id
+              in
               match Int_map.find_opt value_id !value_owners with
               | Some owner ->
                   add
@@ -172,6 +174,93 @@ let block_index blocks =
     (fun index block -> Block_map.add block.checked_id block index)
     Block_map.empty blocks
 
+let internal_i64 type_ =
+  Sema.Type.pointer_depth type_ = 0
+  &&
+  match Sema.Type.base type_ with
+  | Sema.Type.Primitive (Sema.Type.Internal_storage, primitive) ->
+      Sema.Primitive_type.equal primitive Sema.Primitive_type.I64
+  | Sema.Type.Primitive _ | Sema.Type.Aggregate _ -> false
+
+let switch_contract_error block description message =
+  error ~block_id:block.checked_id
+    ~instruction_id:description.Sequence.instruction_id ?span:description.span
+    "HCIR0038" message
+
+let validate_bounded_switch block (producers : Sequence.description Int_map.t)
+    description =
+  match Sequence.bounded_switch_shape description with
+  | Error message -> Some (switch_contract_error block description message)
+  | Ok shape ->
+      let producer value =
+        Int_map.find_opt (Sequence.Value_id.to_int value) producers
+      in
+      let immediate_i64 value =
+        match producer value with
+        | Some source -> (
+            match
+              ( source.opcode,
+                source.operands,
+                source.result,
+                source.target_type,
+                source.payload,
+                source.flags )
+            with
+            | ( Opcode.Ic_imm_i64,
+                [],
+                Some result,
+                Some type_,
+                Some (Sequence.Integer bits),
+                0L )
+              when Sequence.Value_id.equal result.value_id value
+                   && internal_i64 type_ -> Some bits
+            | _ -> None)
+        | None -> None
+      in
+      let adjusted_is_canonical =
+        match producer shape.adjusted_index with
+        | Some source -> (
+            match
+              ( source.opcode,
+                source.operands,
+                source.result,
+                source.target_type,
+                source.payload,
+                source.flags )
+            with
+            | ( Opcode.Ic_sub,
+                [ _selector; low_value ],
+                Some result,
+                Some type_,
+                None,
+                0L ) ->
+                Sequence.Value_id.equal result.value_id shape.adjusted_index
+                && internal_i64 type_
+                && Option.is_some (immediate_i64 low_value)
+            | _ -> false)
+        | None -> false
+      in
+      let target_count = List.length shape.targets in
+      let expected_range = target_count - 1 in
+      let range_matches =
+        match immediate_i64 shape.range_value with
+        | Some range ->
+            range = Int64.of_int expected_range
+            && range > 0L && range <= 0xffffL
+        | None -> false
+      in
+      if not adjusted_is_canonical then
+        Some
+          (switch_contract_error block description
+             "IC_SWITCH adjusted index must be an earlier internal I64 \
+              subtraction from an immediate low bound")
+      else if not range_matches then
+        Some
+          (switch_contract_error block description
+             "IC_SWITCH range must be an earlier internal I64 immediate \
+              matching the ordered target table")
+      else None
+
 let control_flow_errors blocks index =
   let errors = ref [] in
   let end_seen = ref false in
@@ -189,6 +278,7 @@ let control_flow_errors blocks index =
   List.iter
     (fun block ->
       let terminated = ref None in
+      let producers = ref Int_map.empty in
       let block_after_end = !end_seen in
       if block_after_end && Sequence.length block.checked_instructions = 0 then
         add
@@ -222,6 +312,9 @@ let control_flow_errors blocks index =
                 (error ~block_id:block.checked_id
                    ~instruction_id:description.instruction_id
                    ?span:description.span "HCIR0016" message));
+          if description.opcode = Opcode.Ic_switch then
+            Option.iter add
+              (validate_bounded_switch block !producers description);
           if description.opcode = Opcode.Ic_end then
             if !end_seen then
               add
@@ -231,7 +324,14 @@ let control_flow_errors blocks index =
                    "IC_END appears more than once in the function")
             else end_seen := true;
           if Flow.ends_block description.opcode && Option.is_none !terminated
-          then terminated := Some (instruction_number description))
+          then terminated := Some (instruction_number description);
+          Option.iter
+            (fun result ->
+              producers :=
+                Int_map.add
+                  (Sequence.Value_id.to_int result.Sequence.value_id)
+                  description !producers)
+            description.result)
         (Sequence.instructions block.checked_instructions))
     blocks;
   List.rev !errors

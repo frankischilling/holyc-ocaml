@@ -29,6 +29,7 @@ val compile_ast :
 
 val compile :
   ?max_dimension_work:int ->
+  ?max_switch_work:int ->
   ?max_initializer_steps:int ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->
@@ -55,6 +56,7 @@ val lower :
 
 val run :
   ?max_dimension_work:int ->
+  ?max_switch_work:int ->
   ?max_initializer_steps:int ->
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->
@@ -74,6 +76,11 @@ val dimension_preparation_work : compiled -> int
     allowance; runtime-bound commands share their owning task preparation limit.
 *)
 
+val switch_preparation_work : compiled -> int
+(** Original closed case endpoint preparation retained by this compilation unit.
+    Repeated runtime dispatch never evaluates or charges these endpoints again.
+*)
+
 type compilation_report
 type compilation = Isolated of compiled | Stateful of Ir.Integer_interpreter.t
 
@@ -82,6 +89,7 @@ val compilation_result :
 
 val compile_report :
   ?max_dimension_work:int ->
+  ?max_switch_work:int ->
   ?max_initializer_steps:int ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->
@@ -92,5 +100,6 @@ val compilation_outcome :
   compilation_report -> (compiled checked, Common.Diagnostic.t list) result
 
 val compilation_dimension_work : compilation_report -> int
+val compilation_switch_work : compilation_report -> int
 val compilation_progress : compilation_report -> Integer_task.progress option
 val compilation_task_units : compilation_report -> Integer_unit.compiled list

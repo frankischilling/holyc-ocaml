@@ -14,17 +14,19 @@ let compilation_outcome = Integer_source_execution.compilation_outcome
 let compilation_dimension_work =
   Integer_source_execution.compilation_dimension_work
 
+let compilation_switch_work = Integer_source_execution.compilation_switch_work
 let compilation_progress = Integer_source_execution.compilation_progress
 let compilation_task_units = Integer_source_execution.compilation_task_units
 
-let compile_report ?max_dimension_work ?max_initializer_steps session ~config
-    ~source =
-  Integer_source_execution.compile_report ?max_dimension_work
+let compile_report ?max_dimension_work ?max_switch_work ?max_initializer_steps
+    session ~config ~source =
+  Integer_source_execution.compile_report ?max_dimension_work ?max_switch_work
     ?max_initializer_steps session ~config ~source
 
-let compile ?max_dimension_work ?max_initializer_steps session ~config ~source =
-  compile_report ?max_dimension_work ?max_initializer_steps session ~config
-    ~source
+let compile ?max_dimension_work ?max_switch_work ?max_initializer_steps session
+    ~config ~source =
+  compile_report ?max_dimension_work ?max_switch_work ?max_initializer_steps
+    session ~config ~source
   |> compilation_outcome
 
 let lower session ~config ~source =
@@ -45,10 +47,11 @@ let lower session ~config ~source =
                compiled-program API";
           ])
 
-let run ?max_dimension_work ?max_initializer_steps ?max_global_bytes
-    ?max_literal_bytes ?max_frame_bytes ?max_call_depth ?max_output_bytes
-    ?max_output_work session ~config ~source ~max_steps =
-  Integer_source_execution.run ?max_dimension_work ?max_initializer_steps
+let run ?max_dimension_work ?max_switch_work ?max_initializer_steps
     ?max_global_bytes ?max_literal_bytes ?max_frame_bytes ?max_call_depth
-    ?max_output_bytes ?max_output_work session ~config ~source ~max_steps
+    ?max_output_bytes ?max_output_work session ~config ~source ~max_steps =
+  Integer_source_execution.run ?max_dimension_work ?max_switch_work
+    ?max_initializer_steps ?max_global_bytes ?max_literal_bytes ?max_frame_bytes
+    ?max_call_depth ?max_output_bytes ?max_output_work session ~config ~source
+    ~max_steps
   |> Integer_source_execution.outcome

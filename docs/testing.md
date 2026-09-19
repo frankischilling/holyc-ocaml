@@ -1,5 +1,16 @@
 # Testing holyc-ocaml
 
+Switch execution tests join original parser-time endpoint preparation with
+ordinary source execution, native API and CLI runs in both preprocessing modes.
+Independent expected values cover scalar selectors, implicit cases, inclusive
+reversed ranges, holes, defaults, fallthrough, nested breaks and function-local
+gotos. Preparation tests exercise original ownership and phase failure; checked
+IR tests reject malformed bounds and table descriptors. Exact/one-below numeric
+work, invalid limits, fresh recovery and cumulative dispatch storage remain
+separate from runtime instruction limits. The fixture is
+`examples/integer-switch.hc`; native instruction comparisons use the matching
+isolated checked unit. See [switch execution](integer-switch.md).
+
 Goto execution tests connect original function-local label resolution to public
 interpreter, native API and CLI runs in both preprocessing modes. They cover
 forward/backward jumps, equal names in separate functions, consecutive/trailing
@@ -8,7 +19,7 @@ control flow, direct entry into conditional and loop bodies, recursive frames,
 defaults and U0 completion. Negative controls retain exact original source IDs
 and statement spans for missing/duplicate/cross-function/top-level errors,
 including an invalid included source. They also cover unreachable validation,
-skipped-initialization faults and parser-valid assembly/switch/protected regions
+skipped-initialization faults and parser-valid assembly/no-bound-switch/protected regions
 rejected by the execution gate. A goto to a word-returning function's trailing
 label preserves the interpreter's reached fault and native pre-entry rejection;
 returning-word and U0 fallthrough controls remain executable.

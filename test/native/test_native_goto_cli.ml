@@ -509,8 +509,8 @@ let unsupported_goto_regions () =
       ("U0 F(){done:lock goto done;}F();", "lock goto done;");
       ( "U0 F(){done:try goto done;catch return;}F();",
         "try goto done;catch return;" );
-      ( "U0 F(I64 n){switch(n){case 0:goto done;}done:return;}F(0);",
-        "switch(n){case 0:goto done;}" );
+      ( "U0 F(I64 n){switch[n]{case 0:goto done;}done:return;}F(0);",
+        "switch[n]{case 0:goto done;}" );
       ( "U0 F(I64 n){switch(n){start:case 0:goto done;end:}done:return;}F(0);",
         "switch(n){start:case 0:goto done;end:}" );
     ]

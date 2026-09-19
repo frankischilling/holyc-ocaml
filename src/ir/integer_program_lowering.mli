@@ -27,9 +27,18 @@ type statement =
       * Sema.Function_call_expression_result.expression_result
       * statement option
       * statement
+  | Switch of
+      Sema.Integer_switch_preparation.t
+      * Sema.Function_call_expression_result.expression_result
+      * switch_element list
   | Break of Common.Span.t
   | Goto of Common.Span.t * Sema.Label_resolution.resolved_occurrence
   | Label of Common.Span.t * Sema.Label_resolution.resolved_occurrence
+
+and switch_element =
+  | Switch_case of Sema.Integer_switch_preparation.case
+  | Switch_default of Frontend.Ast.switch_default_label
+  | Switch_statement of statement
 
 type t
 

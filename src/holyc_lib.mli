@@ -871,6 +871,7 @@ type integer_program_compilation_report
 
 val compile_integer_program_report :
   ?max_dimension_work:int ->
+  ?max_switch_work:int ->
   ?max_initializer_steps:int ->
   Session.t ->
   config:Preprocessor.Config.t ->
@@ -892,6 +893,9 @@ val integer_program_compilation_dimension_work :
 (** Ordinary and AOT output have an isolated artifact. An activated JIT source
     reports its completed cumulative task result and individually inspectable
     task units; it has no single isolated executable graph. *)
+
+val integer_program_compilation_switch_work :
+  integer_program_compilation_report -> int
 
 val compile_integer_task_ast :
   task:Ir_integer_interpreter.task_state ->
@@ -923,6 +927,7 @@ val compile_integer_ast :
 
 val compile_integer_program :
   ?max_dimension_work:int ->
+  ?max_switch_work:int ->
   ?max_initializer_steps:int ->
   Session.t ->
   config:Preprocessor.Config.t ->
@@ -939,6 +944,7 @@ val integer_program_initializer_preparation :
   integer_program -> Integer_initializer_preparation.t
 
 val integer_program_dimension_preparation_work : integer_program -> int
+val integer_program_switch_preparation_work : integer_program -> int
 
 val integer_program_functions :
   integer_program -> Ir_integer_interpreter.function_definition list
@@ -948,6 +954,7 @@ val integer_program_runtime_calls : integer_program -> Ir_runtime_call_context.t
 
 val run_integer_program :
   ?max_dimension_work:int ->
+  ?max_switch_work:int ->
   ?max_initializer_steps:int ->
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->
@@ -999,6 +1006,7 @@ type integer_program_report
 
 val run_integer_program_report :
   ?max_dimension_work:int ->
+  ?max_switch_work:int ->
   ?max_initializer_steps:int ->
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->
@@ -1023,6 +1031,12 @@ val integer_program_report_outcome :
 val integer_program_report_output_bytes : integer_program_report -> string
 val integer_program_report_output_work : integer_program_report -> int
 val integer_program_report_dimension_work : integer_program_report -> int
+
+val integer_program_report_switch_work : integer_program_report -> int
+(** Evaluated closed case endpoint nodes, including reached preparation
+    failures. [max_switch_work] defaults to 100,000 and must be positive. The
+    allowance is shared with nested source tasks; runtime switch dispatch has a
+    separate IR instruction charge. *)
 
 val integer_program_report_preparation_work :
   integer_program_report -> int option

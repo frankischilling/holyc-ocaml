@@ -16,6 +16,7 @@ val compile :
   ?max_stack_bytes:int ->
   ?max_blocks:int ->
   ?max_initializer_steps:int ->
+  ?max_switch_work:int ->
   ?max_default_bytes:int ->
   ?status_abi:Backend.X86_64_program.status_abi ->
   Session.t ->
@@ -25,15 +26,16 @@ val compile :
 (** Parse ordinary source without command or [#exe] executors. Compile the exact
     checked entry and its fixed direct scalar integer or U0 source functions,
     with width-correct automatic integer storage and function-local language
-    goto/labels, through the shared native word backend. Supported scalar
-    parameter defaults are prepared once at their original declaration callbacks
-    through the checked constant-preparation engine. Unsupported declarations,
-    defaults and persistent storage reject before native entry. This never
-    interprets ordinary commands or allocates executable memory. Parser warnings
-    retain their original source identities. Defaults are 4096 total IR
-    instructions, 65536 code bytes, 4088 private frame bytes, 4096 total blocks,
-    100,000 declaration-preparation steps and 65,536 bytes of saved default
-    payloads (eight bytes per prepared value). *)
+    goto/labels and ordinary bounded integer switches, through the shared native
+    word backend. Closed case endpoints are prepared at their original parser
+    callbacks. Supported scalar parameter defaults are prepared once at their
+    original declaration callbacks through the checked constant-preparation
+    engine. Unsupported declarations, defaults and persistent storage reject
+    before native entry. This never interprets ordinary commands or allocates
+    executable memory. Parser warnings retain their original source identities.
+    Defaults are 4096 total IR instructions, 65536 code bytes, 4088 private
+    frame bytes, 4096 total blocks, 100,000 declaration-preparation steps and
+    65,536 bytes of saved default payloads (eight bytes per prepared value). *)
 
 val evaluate :
   ?max_ir_instructions:int ->
@@ -42,6 +44,7 @@ val evaluate :
   ?max_blocks:int ->
   ?max_initializer_steps:int ->
   ?max_default_bytes:int ->
+  ?max_switch_work:int ->
   ?max_frame_bytes:int ->
   ?max_call_depth:int ->
   ?max_active_stack_bytes:int ->
@@ -71,6 +74,11 @@ val preparation_steps : report -> int
 (** Reached declaration-time preparation work, retained independently of native
     entry steps after preparation, parsing, compilation or execution failures.
 *)
+
+val switch_work : report -> int
+(** Reached closed case endpoint node visits, preserved after failures and
+    separately bounded by [max_switch_work] (positive, default 100,000). These
+    values are prepared once; native dispatch never reevaluates case source. *)
 
 val default_bytes : report -> int
 (** Saved scalar default payload bytes successfully prepared before completion

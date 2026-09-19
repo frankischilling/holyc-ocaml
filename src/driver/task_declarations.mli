@@ -286,6 +286,8 @@ type query
 
 val create_source :
   ?compiler_positions:Sema.Compiler_record.compiler_positions ->
+  ?max_switch_work:int ->
+  ?switch_budget:Sema.Integer_switch_preparation.budget ->
   ?max_dimension_work:int ->
   ?max_offset_work:int ->
   Session.t ->
@@ -355,8 +357,15 @@ type reference_stage = private
       * Frontend.Ast.function_definition option
 
 val dimension_work : t -> int
+val switch_budget : t -> Sema.Integer_switch_preparation.budget
+val switch_work : t -> int
+val switch_preparation_work : t -> int
 val command_dimension_work : command -> int
+val command_switch_work : command -> int
+val command_switch_preparation_work : command -> int
 val source_dimension_work : source_command -> int
+val source_switch_work : source_command -> int
+val source_switch_preparation_work : source_command -> int
 
 val initializer_leaf_for :
   t ->
@@ -444,6 +453,22 @@ val checked_dimension_for :
   Frontend.Ast.array_dimension ->
   (Sema.Compiler_record.declared_dimension, Common.Diagnostic.t list) result
 
+val switch_for :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  command ->
+  Frontend.Ast.switch_statement ->
+  (Sema.Integer_switch_preparation.t, Common.Diagnostic.t list) result
+
+val source_switch_for :
+  table:Sema.Symbol_table.t ->
+  ast:Frontend.Ast.module_ ->
+  source_command ->
+  Frontend.Ast.switch_statement ->
+  (Sema.Integer_switch_preparation.t, Common.Diagnostic.t list) result
+(** Retrieve only the completed preparation for this exact physical switch AST
+    in its sealed command. This lookup never evaluates case expressions. *)
+
 val source_checked_dimension_for :
   table:Sema.Symbol_table.t ->
   ast:Frontend.Ast.module_ ->
@@ -523,6 +548,8 @@ val call_resolver :
 
 val create :
   ?compiler_positions:Sema.Compiler_record.compiler_positions ->
+  ?max_switch_work:int ->
+  ?switch_budget:Sema.Integer_switch_preparation.budget ->
   ?runtime:Ir.Integer_interpreter.task_state ->
   Session.t ->
   (t, string) result

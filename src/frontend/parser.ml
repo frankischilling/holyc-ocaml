@@ -556,6 +556,77 @@ let dimension_completion_is_current receipt =
   && preparation.dimension_owner.dimensions_command.command_context
        .context_active
 
+type switch_activity = {
+  mutable switch_active : bool;
+  mutable switch_case_preparation_active : bool;
+  mutable switch_case_completion_active : bool;
+  mutable switch_completion_active : bool;
+}
+
+let make_switch_activity ?(owner = false) () =
+  {
+    switch_active = owner;
+    switch_case_preparation_active = false;
+    switch_case_completion_active = false;
+    switch_completion_active = false;
+  }
+
+type switch_owner = {
+  switch_command : command_start;
+  switch_environment : Symbol_visibility.Environment.t;
+  switch_mode : Ast.switch_mode;
+  switch_keyword : Ast.location;
+  switch_expression : Ast.expression;
+  switch_opening_brace : Ast.location;
+  switch_activity : switch_activity;
+}
+
+type switch_case_endpoint = Switch_case_start | Switch_case_end
+
+type switch_case_preparation = {
+  switch_owner : switch_owner;
+  switch_case_index : int;
+  switch_case_predecessor : completed_switch_case option;
+  switch_case_keyword : Ast.location;
+  switch_case_endpoint : switch_case_endpoint;
+  switch_case_expression : Ast.expression;
+  switch_case_endpoint_predecessor : switch_case_preparation option;
+  switch_case_activity : switch_activity;
+}
+
+and completed_switch_case = {
+  completed_case_owner : switch_owner;
+  completed_case_index : int;
+  completed_case_predecessor : completed_switch_case option;
+  switch_case_start_preparation : switch_case_preparation option;
+  switch_case_end_preparation : switch_case_preparation option;
+  switch_case_ast : Ast.switch_case_label;
+  completed_case_activity : switch_activity;
+}
+
+type completed_switch = {
+  switch_owner : switch_owner;
+  switch_cases : completed_switch_case list;
+  switch_ast : Ast.switch_statement;
+  switch_activity : switch_activity;
+}
+
+let switch_owner_is_current (owner : switch_owner) =
+  owner.switch_activity.switch_active
+  && owner.switch_command.command_context.context_active
+
+let switch_case_preparation_is_current (preparation : switch_case_preparation) =
+  preparation.switch_case_activity.switch_case_preparation_active
+  && switch_owner_is_current preparation.switch_owner
+
+let switch_case_completion_is_current (receipt : completed_switch_case) =
+  receipt.completed_case_activity.switch_case_completion_active
+  && switch_owner_is_current receipt.completed_case_owner
+
+let switch_completion_is_current (receipt : completed_switch) =
+  receipt.switch_activity.switch_completion_active
+  && switch_owner_is_current receipt.switch_owner
+
 type aggregate_activity = {
   mutable aggregate_active : bool;
   mutable aggregate_last_phase : aggregate_phase option;
@@ -624,6 +695,9 @@ type declaration_event =
   | Aggregate_completed of completed_aggregate
   | Array_dimension_preparing of array_dimension_preparation
   | Array_dimension_completed of completed_array_dimension
+  | Switch_case_preparing of switch_case_preparation
+  | Switch_case_completed of completed_switch_case
+  | Switch_completed of completed_switch
   | Global_declared of global_publication
   | Global_initializer_started of global_initializer_start
   | Global_initializer_leaf_completed of completed_initializer_leaf
@@ -853,6 +927,12 @@ type parsed_switch_region = {
   region_tokens : Token.t list;
   region_end : switch_region_end;
   region_had_error : bool;
+}
+
+type switch_case_cursor = {
+  mutable switch_next_case : int;
+  mutable switch_case_predecessor : completed_switch_case option;
+  mutable switch_cases_rev : completed_switch_case list;
 }
 
 type statement_boundary =
@@ -8415,7 +8495,7 @@ and parse_switch_statement cursor ~boundary ~block_depth ~conditional_depth
         | None ->
             recover_switch_tail cursor ~boundary;
             None
-        | Some (expression : parsed_expression) -> (
+        | Some (expression : parsed_expression) ->
             let closing_item = peek cursor in
             if closing_item.token.kind <> closing_kind then (
               report cursor closing_item ~code:"HCPARSE0086"
@@ -8442,49 +8522,110 @@ and parse_switch_statement cursor ~boundary ~block_depth ~conditional_depth
                 None)
               else
                 let opening_brace_item = take cursor in
-                match
-                  parse_switch_region cursor ~expect_end:false
-                    ~subswitch_depth:0 ~block_depth ~conditional_depth
-                    ~loop_depth ~lock_depth ~try_depth
-                    ~switch_depth:(switch_depth + 1)
-                with
-                | None -> None
-                | Some region -> (
-                    match region.region_end with
-                    | Switch_region_end_label _ ->
-                        invalid_arg
-                          "switch body ended with a sub-switch terminator"
-                    | Switch_region_brace closing_brace_item ->
-                        if region.region_had_error then None
-                        else
-                          let tokens =
-                            keyword_item.token :: opening_item.token
-                            :: expression.tokens
-                            @ closing_item.token :: opening_brace_item.token
-                              :: region.region_tokens
-                          in
-                          let statement =
-                            Ast.make_switch_statement
-                              ~keyword:(token_location keyword_item.token)
-                              ~mode
-                              ~opening_delimiter:
-                                (token_location opening_item.token)
-                              ~expression:expression.node
-                              ~closing_delimiter:
-                                (token_location closing_item.token)
-                              ~opening_brace:
-                                (token_location opening_brace_item.token)
-                              ~elements:region.region_elements
-                              ~closing_brace:
-                                (token_location closing_brace_item.token)
-                              ~location:(location_from_expression_tokens tokens)
-                          in
-                          Some { node = Ast.Switch_statement statement; tokens }
-                    )))
+                let switch_owner =
+                  Option.map
+                    (fun _ ->
+                      {
+                        switch_command = Option.get cursor.current_command;
+                        switch_environment = cursor.symbols;
+                        switch_mode = mode;
+                        switch_keyword = token_location keyword_item.token;
+                        switch_expression = expression.node;
+                        switch_opening_brace =
+                          token_location opening_brace_item.token;
+                        switch_activity = make_switch_activity ~owner:true ();
+                      })
+                    cursor.declaration
+                in
+                let switch_cases =
+                  {
+                    switch_next_case = 0;
+                    switch_case_predecessor = None;
+                    switch_cases_rev = [];
+                  }
+                in
+                Fun.protect
+                  ~finally:(fun () ->
+                    Option.iter
+                      (fun (owner : switch_owner) ->
+                        owner.switch_activity.switch_active <- false)
+                      switch_owner)
+                  (fun () ->
+                    match
+                      parse_switch_region cursor ~expect_end:false
+                        ~subswitch_depth:0 ~block_depth ~conditional_depth
+                        ~loop_depth ~lock_depth ~try_depth
+                        ~switch_depth:(switch_depth + 1) ~switch_owner
+                        ~switch_cases
+                    with
+                    | None -> None
+                    | Some region -> (
+                        match region.region_end with
+                        | Switch_region_end_label _ ->
+                            invalid_arg
+                              "switch body ended with a sub-switch terminator"
+                        | Switch_region_brace closing_brace_item ->
+                            if region.region_had_error then None
+                            else
+                              let tokens =
+                                keyword_item.token :: opening_item.token
+                                :: expression.tokens
+                                @ closing_item.token :: opening_brace_item.token
+                                  :: region.region_tokens
+                              in
+                              let statement =
+                                Ast.make_switch_statement
+                                  ~keyword:(token_location keyword_item.token)
+                                  ~mode
+                                  ~opening_delimiter:
+                                    (token_location opening_item.token)
+                                  ~expression:expression.node
+                                  ~closing_delimiter:
+                                    (token_location closing_item.token)
+                                  ~opening_brace:
+                                    (token_location opening_brace_item.token)
+                                  ~elements:region.region_elements
+                                  ~closing_brace:
+                                    (token_location closing_brace_item.token)
+                                  ~location:
+                                    (location_from_expression_tokens tokens)
+                              in
+                              Option.iter
+                                (fun owner ->
+                                  ignore (peek cursor);
+                                  let switch_activity =
+                                    make_switch_activity ()
+                                  in
+                                  let receipt =
+                                    {
+                                      switch_owner = owner;
+                                      switch_cases =
+                                        List.rev switch_cases.switch_cases_rev;
+                                      switch_ast = statement;
+                                      switch_activity;
+                                    }
+                                  in
+                                  switch_activity.switch_completion_active <-
+                                    true;
+                                  Fun.protect
+                                    ~finally:(fun () ->
+                                      switch_activity.switch_completion_active <-
+                                        false)
+                                    (fun () ->
+                                      publish_declaration cursor
+                                        closing_brace_item
+                                        (Switch_completed receipt)))
+                                switch_owner;
+                              Some
+                                ({
+                                   node = Ast.Switch_statement statement;
+                                   tokens;
+                                 }
+                                  : parsed_statement))))
 
 and parse_switch_region cursor ~expect_end ~subswitch_depth ~block_depth
-    ~conditional_depth ~loop_depth ~lock_depth ~try_depth ~switch_depth :
-    parsed_switch_region option =
+    ~conditional_depth ~loop_depth ~lock_depth ~try_depth ~switch_depth
+    ~switch_owner ~switch_cases : parsed_switch_region option =
   let finish elements_rev tokens_rev end_ ending_tokens had_error =
     Some
       {
@@ -8540,7 +8681,7 @@ and parse_switch_region cursor ~expect_end ~subswitch_depth ~block_depth
         in
         collect elements_rev (List.rev_append consumed tokens_rev) true
     | Token_kind.Keyword Keyword.Case -> (
-        match parse_switch_case_element cursor with
+        match parse_switch_case_element cursor ~switch_owner ~switch_cases with
         | Some element ->
             collect
               (element.node :: elements_rev)
@@ -8559,6 +8700,7 @@ and parse_switch_region cursor ~expect_end ~subswitch_depth ~block_depth
         match
           parse_switch_subswitch_element cursor ~subswitch_depth ~block_depth
             ~conditional_depth ~loop_depth ~lock_depth ~try_depth ~switch_depth
+            ~switch_owner ~switch_cases
         with
         | Some element ->
             collect
@@ -8580,12 +8722,41 @@ and parse_switch_region cursor ~expect_end ~subswitch_depth ~block_depth
   in
   collect [] [] false
 
-and parse_switch_case_element cursor : parsed_switch_element option =
+and parse_switch_case_element cursor ~switch_owner ~switch_cases :
+    parsed_switch_element option =
   let keyword_item = take cursor in
+  let case_index = switch_cases.switch_next_case in
+  let case_predecessor = switch_cases.switch_case_predecessor in
+  let prepare endpoint ?endpoint_predecessor expression =
+    Option.map
+      (fun owner ->
+        let switch_case_activity = make_switch_activity () in
+        let preparation =
+          {
+            switch_owner = owner;
+            switch_case_index = case_index;
+            switch_case_predecessor = case_predecessor;
+            switch_case_keyword = token_location keyword_item.token;
+            switch_case_endpoint = endpoint;
+            switch_case_expression = expression;
+            switch_case_endpoint_predecessor = endpoint_predecessor;
+            switch_case_activity;
+          }
+        in
+        switch_case_activity.switch_case_preparation_active <- true;
+        Fun.protect
+          ~finally:(fun () ->
+            switch_case_activity.switch_case_preparation_active <- false)
+          (fun () ->
+            publish_declaration cursor keyword_item
+              (Switch_case_preparing preparation));
+        preparation)
+      switch_owner
+  in
   let first_item = peek cursor in
   let parsed_pattern =
     if first_item.token.kind = Token_kind.Punctuation ':' then
-      Some (Ast.Implicit_case, [])
+      Some (Ast.Implicit_case, [], None, None)
     else
       match
         parse_expression cursor ~context:Switch_case_expression ~depth:0
@@ -8593,10 +8764,17 @@ and parse_switch_case_element cursor : parsed_switch_element option =
       with
       | None -> None
       | Some (start_expression : parsed_expression) -> (
+          let start_preparation =
+            prepare Switch_case_start start_expression.node
+          in
           let ellipsis_item = peek cursor in
           if ellipsis_item.token.kind <> Token_kind.Operator Operator.Ellipsis
           then
-            Some (Ast.Single_case start_expression.node, start_expression.tokens)
+            Some
+              ( Ast.Single_case start_expression.node,
+                start_expression.tokens,
+                start_preparation,
+                None )
           else
             let ellipsis_item = take cursor in
             let end_item = peek cursor in
@@ -8620,6 +8798,11 @@ and parse_switch_case_element cursor : parsed_switch_element option =
               with
               | None -> None
               | Some (end_expression : parsed_expression) ->
+                  let end_preparation =
+                    prepare Switch_case_end
+                      ?endpoint_predecessor:start_preparation
+                      end_expression.node
+                  in
                   let range_tokens =
                     start_expression.tokens
                     @ (ellipsis_item.token :: end_expression.tokens)
@@ -8630,13 +8813,17 @@ and parse_switch_case_element cursor : parsed_switch_element option =
                       ~end_:end_expression.node
                       ~location:(location_from_expression_tokens range_tokens)
                   in
-                  Some (Ast.Ranged_case range, range_tokens))
+                  Some
+                    ( Ast.Ranged_case range,
+                      range_tokens,
+                      start_preparation,
+                      end_preparation ))
   in
   match parsed_pattern with
   | None ->
       recover_statement cursor ~boundary:Switch_boundary;
       None
-  | Some (pattern, pattern_tokens) ->
+  | Some (pattern, pattern_tokens, start_preparation, end_preparation) ->
       let colon_item = peek cursor in
       if colon_item.token.kind <> Token_kind.Punctuation ':' then (
         report cursor colon_item ~code:"HCPARSE0091"
@@ -8657,6 +8844,33 @@ and parse_switch_case_element cursor : parsed_switch_element option =
             ~colon:(token_location colon_item.token)
             ~location:(location_from_expression_tokens tokens)
         in
+        Option.iter
+          (fun owner ->
+            ignore (peek cursor);
+            let switch_case_activity = make_switch_activity () in
+            let receipt =
+              {
+                completed_case_owner = owner;
+                completed_case_index = case_index;
+                completed_case_predecessor = case_predecessor;
+                switch_case_start_preparation = start_preparation;
+                switch_case_end_preparation = end_preparation;
+                switch_case_ast = label;
+                completed_case_activity = switch_case_activity;
+              }
+            in
+            switch_case_activity.switch_case_completion_active <- true;
+            Fun.protect
+              ~finally:(fun () ->
+                switch_case_activity.switch_case_completion_active <- false)
+              (fun () ->
+                publish_declaration cursor colon_item
+                  (Switch_case_completed receipt));
+            switch_cases.switch_case_predecessor <- Some receipt;
+            switch_cases.switch_cases_rev <-
+              receipt :: switch_cases.switch_cases_rev;
+            switch_cases.switch_next_case <- case_index + 1)
+          switch_owner;
         Some { node = Ast.Switch_case_element label; tokens }
 
 and parse_switch_default_element cursor : parsed_switch_element option =
@@ -8681,8 +8895,8 @@ and parse_switch_default_element cursor : parsed_switch_element option =
     Some { node = Ast.Switch_default_element label; tokens }
 
 and parse_switch_subswitch_element cursor ~subswitch_depth ~block_depth
-    ~conditional_depth ~loop_depth ~lock_depth ~try_depth ~switch_depth :
-    parsed_switch_element option =
+    ~conditional_depth ~loop_depth ~lock_depth ~try_depth ~switch_depth
+    ~switch_owner ~switch_cases : parsed_switch_element option =
   let start_item = peek cursor in
   if subswitch_depth >= max_switch_depth then (
     report cursor start_item ~code:"HCPARSE0097"
@@ -8723,7 +8937,8 @@ and parse_switch_subswitch_element cursor ~subswitch_depth ~block_depth
       match
         parse_switch_region cursor ~expect_end:true
           ~subswitch_depth:(subswitch_depth + 1) ~block_depth ~conditional_depth
-          ~loop_depth ~lock_depth ~try_depth ~switch_depth
+          ~loop_depth ~lock_depth ~try_depth ~switch_depth ~switch_owner
+          ~switch_cases
       with
       | None -> None
       | Some region -> (

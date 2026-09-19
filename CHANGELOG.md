@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Connected ordinary bounded integer switches to original parser-time closed
+  case preparation, checked block graphs, interpreter dispatch and own-encoder
+  native execution. Inclusive reversed ranges, implicit values, defaults,
+  source fallthrough and nested breaks preserve their source order. Separate
+  preparation-work and cumulative table-storage bounds retain progress on
+  failure; unsupported case effects and no-bound/sub-switch regions reject.
+
 - Connected function-local language labels and direct gotos to shared checked
   source execution in the interpreter and native target. Original owner and
   occurrence identities select reserved blocks; labels are structural boundaries,

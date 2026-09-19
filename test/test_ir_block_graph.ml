@@ -119,14 +119,19 @@ let checked_control_flow_graph () =
             description ~result:(result 3) ~target_type:i64
               ~payload:(Sequence.Integer 0L) 3 Opcode.Ic_imm_i64;
             description ~result:(result 4) ~target_type:i64
-              ~payload:(Sequence.Integer 2L) 4 Opcode.Ic_imm_i64;
+              ~payload:(Sequence.Integer 0L) 4 Opcode.Ic_imm_i64;
             description
               ~operands:[ value_id 3; value_id 4 ]
+              ~result:(result 5) ~target_type:i64 5 Opcode.Ic_sub;
+            description ~result:(result 6) ~target_type:i64
+              ~payload:(Sequence.Integer 2L) 6 Opcode.Ic_imm_i64;
+            description
+              ~operands:[ value_id 5; value_id 6 ]
               ~payload:
                 (Sequence.Block_targets [ block_id 20; block_id 3; block_id 20 ])
-              5 Opcode.Ic_switch;
+              7 Opcode.Ic_switch;
           ];
-        block 20 [ description 6 Opcode.Ic_ret ];
+        block 20 [ description 8 Opcode.Ic_ret ];
       ]
   in
   Alcotest.(check (list int))
@@ -149,7 +154,7 @@ let checked_control_flow_graph () =
   let dump_lines = String.split_on_char '\n' (Graph.human graph) in
   Alcotest.(check bool)
     "switch payload remains ordered" true
-    (List.mem "!i5 IC_SWITCH %v3 %v4 blocks:[^b20,^b3,^b20] flags=0x000000000"
+    (List.mem "!i7 IC_SWITCH %v5 %v6 blocks:[^b20,^b3,^b20] flags=0x000000000"
        dump_lines)
 
 let ordinary_fallthrough_and_dump () =

@@ -17,6 +17,7 @@ module Value_map = Map.Make (Sequence.Value_id)
 module Value_set = Set.Make (Sequence.Value_id)
 module Instruction_set = Set.Make (Sequence.Instruction_id)
 module Block_map = Map.Make (Sequence.Block_id)
+module Block_set = Set.Make (Sequence.Block_id)
 module Int_map = Map.Make (Int)
 
 type word_type = I64 | U64
@@ -208,6 +209,7 @@ type operation =
   | Jump_to of Sequence.Block_id.t
   | Branch_zero of value * Sequence.Block_id.t
   | Branch_not_zero of value * Sequence.Block_id.t
+  | Switch_to of value * value * Sequence.Block_id.t list
   | End_stream
 
 type prepared_instruction = {
@@ -1776,6 +1778,44 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
                 | _ -> assert false)
                 (target_label target);
               release_through position)
+      | Switch_to (adjusted, range, targets) -> (
+          match mode with
+          | Expression_control _ ->
+              reject ?span:instruction.span "HCBACK0003"
+                "native expression contains program switch"
+          | Program_control _ | Callable_control _ -> (
+              let inputs, _ =
+                ensure_inputs instruction.span [ adjusted; range ]
+              in
+              let adjusted_register = List.nth inputs 0 in
+              let range_register = List.nth inputs 1 in
+              let adjusted_register = registers.(adjusted_register) in
+              let range_register = registers.(range_register) in
+              match targets with
+              | default_target :: (_ :: _ as entries) ->
+                  (* Match the pinned bounded switch: compare the already-adjusted
+                     selector as an unsigned word, then dispatch only in-range
+                     values. Reuse the dead range register for the bounds bit. *)
+                  emit (Encoder.Cmp (adjusted_register, range_register));
+                  emit (Encoder.Setcc (Encoder.AE, range_register));
+                  emit (Encoder.Movzx8 (range_register, range_register));
+                  emit (Encoder.Test range_register);
+                  emit_branch Not_equal (target_label default_target);
+                  let rec emit_entries = function
+                    | [] -> assert false
+                    | [ target ] ->
+                        emit_branch Unconditional (target_label target)
+                    | target :: rest ->
+                        emit (Encoder.Test adjusted_register);
+                        emit_branch Equal (target_label target);
+                        emit (Encoder.Dec adjusted_register);
+                        emit_entries rest
+                  in
+                  emit_entries entries;
+                  release_through position
+              | [] | [ _ ] ->
+                  reject ?span:instruction.span "HCBACK0003"
+                    "native IC_SWITCH has no bounded target table"))
       | End_stream -> (
           match mode with
           | Program_control { epilogue_label; _ } ->
@@ -1925,6 +1965,16 @@ let same_block_ids left right =
   List.length left = List.length right
   && List.for_all2 Sequence.Block_id.equal left right
 
+let ordered_unique_block_ids targets =
+  let _, reversed =
+    List.fold_left
+      (fun (seen, result) target ->
+        if Block_set.mem target seen then (seen, result)
+        else (Block_set.add target seen, target :: result))
+      (Block_set.empty, []) targets
+  in
+  List.rev reversed
+
 let target_from_description (description : Sequence.description) =
   match description.payload with
   | Some (Sequence.Block target) -> target
@@ -1935,6 +1985,19 @@ let checked_target graph description =
   if Option.is_none (Graph.find_block graph target) then
     malformed description "control instruction targets an unknown block";
   target
+
+let checked_switch_shape graph description =
+  let shape =
+    match Sequence.bounded_switch_shape description with
+    | Ok shape -> shape
+    | Error message -> malformed description message
+  in
+  List.iter
+    (fun target ->
+      if Option.is_none (Graph.find_block graph target) then
+        malformed description "IC_SWITCH targets an unknown block")
+    shape.targets;
+  shape
 
 let preflight_program graph =
   let blocks = Graph.blocks graph in
@@ -2026,6 +2089,22 @@ let preflight_program graph =
                     | _ ->
                         malformed description
                           "invalid operands, result, target type, or payload")
+                | Opcode.Ic_switch ->
+                    let shape = checked_switch_shape graph description in
+                    let adjusted =
+                      operand values description position shape.adjusted_index
+                    in
+                    let range =
+                      operand values description position shape.range_value
+                    in
+                    if checked_word description adjusted.declared_type <> I64
+                    then
+                      malformed description
+                        "IC_SWITCH adjusted index must be internal I64";
+                    if checked_word description range.declared_type <> I64 then
+                      malformed description
+                        "IC_SWITCH range must be internal I64";
+                    (Switch_to (adjusted, range, shape.targets), None)
                 | Opcode.Ic_end -> (
                     if description.flags <> 0L then
                       malformed description
@@ -2094,19 +2173,28 @@ let preflight_program graph =
               | Branch_not_zero (_, target) ) -> Some target
           | Some End_stream | Some _ | None -> None
         in
+        let switch_targets =
+          match final_operation with
+          | Some (Switch_to (_, _, targets)) ->
+              Some (ordered_unique_block_ids targets)
+          | _ -> None
+        in
         let fallthrough =
           match final_operation with
-          | Some (Jump_to _ | End_stream) -> None
+          | Some (Jump_to _ | Switch_to _ | End_stream) -> None
           | Some (Branch_zero _ | Branch_not_zero _) | Some _ | None -> next
         in
         let expected_successors =
-          match (explicit_target, fallthrough) with
-          | None, None -> []
-          | Some target, None -> [ target ]
-          | None, Some target -> [ target ]
-          | Some target, Some next when Sequence.Block_id.equal target next ->
-              [ target ]
-          | Some target, Some next -> [ target; next ]
+          match switch_targets with
+          | Some targets -> targets
+          | None -> (
+              match (explicit_target, fallthrough) with
+              | None, None -> []
+              | Some target, None -> [ target ]
+              | None, Some target -> [ target ]
+              | Some target, Some next when Sequence.Block_id.equal target next
+                -> [ target ]
+              | Some target, Some next -> [ target; next ])
         in
         if not (same_block_ids (Graph.successors block) expected_successors)
         then
@@ -3118,6 +3206,20 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                      else Branch_not_zero (input, target)),
                     None )
               | _ -> malformed description "invalid native branch shape")
+          | Opcode.Ic_switch ->
+              let shape = checked_switch_shape graph description in
+              let adjusted =
+                operand values description position shape.adjusted_index
+              in
+              let range =
+                operand values description position shape.range_value
+              in
+              if checked_word description adjusted.declared_type <> I64 then
+                malformed description
+                  "IC_SWITCH adjusted index must be internal I64";
+              if checked_word description range.declared_type <> I64 then
+                malformed description "IC_SWITCH range must be internal I64";
+              (Switch_to (adjusted, range, shape.targets), None)
           | Opcode.Ic_return_val when not is_entry -> (
               if
                 description.flags <> 0L
@@ -3331,18 +3433,27 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
           | Branch_not_zero (_, target) ) -> Some target
       | _ -> None
     in
+    let switch_targets =
+      match final_operation with
+      | Some (Switch_to (_, _, targets)) ->
+          Some (ordered_unique_block_ids targets)
+      | _ -> None
+    in
     let fallthrough =
       match final_operation with
-      | Some (Jump_to _ | End_stream | Return) -> None
+      | Some (Jump_to _ | Switch_to _ | End_stream | Return) -> None
       | _ -> next
     in
     let expected_successors =
-      match (explicit_target, fallthrough) with
-      | None, None -> []
-      | Some target, None | None, Some target -> [ target ]
-      | Some target, Some next when Sequence.Block_id.equal target next ->
-          [ target ]
-      | Some target, Some next -> [ target; next ]
+      match switch_targets with
+      | Some targets -> targets
+      | None -> (
+          match (explicit_target, fallthrough) with
+          | None, None -> []
+          | Some target, None | None, Some target -> [ target ]
+          | Some target, Some next when Sequence.Block_id.equal target next ->
+              [ target ]
+          | Some target, Some next -> [ target; next ])
     in
     if not (same_block_ids (Graph.successors block) expected_successors) then
       reject "HCBACK0003"
@@ -3442,6 +3553,37 @@ let bounded_callable_counts ~max_ir_instructions ~max_blocks graphs =
     graphs;
   (!block_count, !ir_count)
 
+let validate_switch_code_floor ~max_code_bytes ~label block_groups =
+  let used = ref 0 in
+  let charge targets =
+    let entries = List.length targets - 1 in
+    if entries <= 0 then
+      reject "HCBACK0003" "native IC_SWITCH has no bounded target table";
+    (* The generated bounded dispatch necessarily contains one out-of-range
+       conditional branch, one final target jump, and one conditional branch
+       for every table entry except the last. This intentionally ignores the
+       compare/test/decrement instructions, so it is a strict lower bound that
+       can reject an impossible code quota before allocating the linear plan. *)
+    let minimum = 11 + (6 * (entries - 1)) in
+    if minimum > max_code_bytes - !used then
+      reject "HCBACK0005"
+        (Printf.sprintf
+           "%s switch dispatch exceeds max_code_bytes before allocation" label);
+    used := !used + minimum
+  in
+  List.iter
+    (fun blocks ->
+      List.iter
+        (fun block ->
+          List.iter
+            (fun instruction ->
+              match instruction.operation with
+              | Switch_to (_, _, targets) -> charge targets
+              | _ -> ())
+            block.program_instructions)
+        blocks)
+    block_groups
+
 let plan_label_offsets plan =
   let labels = Hashtbl.create (List.length plan) in
   let offset = ref 0 in
@@ -3533,6 +3675,8 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                 if preflight_ir_count <> ir_count then
                   reject "HCBACK0003"
                     "native program preflight instruction count is inconsistent";
+                validate_switch_code_floor ~max_code_bytes
+                  ~label:"native program" [ prepared_blocks ];
                 let abi =
                   Option.value status_abi ~default:(default_status_abi ())
                 in
@@ -3842,6 +3986,13 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                   then
                     reject "HCBACK0003"
                       "native callable preflight counts are inconsistent";
+                  validate_switch_code_floor ~max_code_bytes
+                    ~label:"native callable program"
+                    (entry_prepared.callable_blocks
+                    :: Array.to_list
+                         (Array.map
+                            (fun body -> body.callable_blocks)
+                            function_prepared));
                   let sites =
                     entry_prepared.callable_sites
                     @ (Array.to_list function_prepared

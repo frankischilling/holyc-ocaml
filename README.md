@@ -85,7 +85,14 @@ target return I64 42 through function-local forward/backward gotos and labels.
 They share the existing checked label identities and structured block builder,
 including jumps in `for` updates, recursive frames, narrow defaults and U0
 procedures. [Goto execution](docs/integer-goto.md) describes source ownership,
-skipped-initialization faults and the remaining switch/assembly/exception limits.
+skipped-initialization faults and the remaining assembly/exception limits.
+
+`holyc run --target=host-jit examples/integer-switch.hc` and the ordinary `ir`
+target execute bounded integer switches with original case preparation, inclusive
+ranges, implicit values, defaults, fallthrough and nested breaks. Case preparation
+has its own positive `--switch-work-limit`; dispatch tables share a bounded
+invocation allowance. [Switch execution](docs/integer-switch.md) records the
+original parser phases, checked dispatch contract and unsupported neighbors.
 
 `holyc run --format=json examples/integer-narrow.hc` executes I8/I16/U16/I32/U32
 storage and signatures, captures `42`, and returns I64 42 in both modes.

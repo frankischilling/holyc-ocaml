@@ -38,7 +38,10 @@ automatic scalar integer declarations, local assignment and updates, and
 value-return statements. U0 procedures also admit bare returns and fallthrough.
 Function-local language labels and direct gotos use the same checked block
 lowering as the interpreter; [goto execution](integer-goto.md) records their
-source identity, empty-block fallthrough and initialization behavior. Switch,
+source identity, empty-block fallthrough and initialization behavior. Ordinary
+bounded integer switches add original closed case preparation, ranges, defaults,
+fallthrough and nearest breaks; [switch execution](integer-switch.md) defines
+their separate preparation and dispatch bounds. No-bound/sub-switch,
 assembly-label and protected-region control flow remain outside this gate.
 Direct calls bind to checked definitions in the same compilation unit, including
 self-recursion. Function locals persist across the function's control transfers

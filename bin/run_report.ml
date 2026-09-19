@@ -10,6 +10,7 @@ type limits = {
   literal_bytes : int;
   initializer_steps : int;
   dimension_work : int;
+  switch_work : int;
   output_bytes : int;
   output_work : int;
 }
@@ -89,6 +90,10 @@ let render ~human ~session ~limits ?command_error ?report () =
     Option.fold ~none:0 ~some:Holyc_lib.integer_program_report_dimension_work
       report
   in
+  let switch_work =
+    Option.fold ~none:0 ~some:Holyc_lib.integer_program_report_switch_work
+      report
+  in
   (if human then (
      Printf.printf
        "holyc-integer-program-v2 implementation=%s reference=%s\n\
@@ -106,6 +111,7 @@ let render ~human ~session ~limits ?command_error ?report () =
          ("literal-byte-limit", limits.literal_bytes);
          ("initializer-step-limit", limits.initializer_steps);
          ("dimension-work-limit", limits.dimension_work);
+         ("switch-work-limit", limits.switch_work);
          ("output-byte-limit", limits.output_bytes);
          ("output-work-limit", limits.output_work);
        ];
@@ -116,6 +122,7 @@ let render ~human ~session ~limits ?command_error ?report () =
      optional_int "steps" executed_steps;
      optional_int "compiled-initializer-steps" preparation;
      Printf.printf "dimension-preparation-work=%d\n" dimension_work;
+     Printf.printf "switch-preparation-work=%d\n" switch_work;
      Printf.printf "termination=%s\n" (Option.value termination ~default:"none");
      (match final_value with
      | None -> print_endline "final-value=none"
@@ -156,6 +163,8 @@ let render ~human ~session ~limits ?command_error ?report () =
          ("initializer_step_limit", `Int limits.initializer_steps);
          ("dimension_work_limit", `Int limits.dimension_work);
          ("dimension_preparation_work", `Int dimension_work);
+         ("switch_work_limit", `Int limits.switch_work);
+         ("switch_preparation_work", `Int switch_work);
          ("compiled_initializer_steps", optional (fun n -> `Int n) preparation);
          ("output_byte_limit", `Int limits.output_bytes);
          ("output_work_limit", `Int limits.output_work);
@@ -231,6 +240,9 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
   let preparation_steps =
     Option.fold ~none:0 ~some:Holyc_lib.Native_program.preparation_steps report
   in
+  let switch_work =
+    Option.fold ~none:0 ~some:Holyc_lib.Native_program.switch_work report
+  in
   let default_bytes =
     Option.fold ~none:0 ~some:Holyc_lib.Native_program.default_bytes report
   in
@@ -261,6 +273,7 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
          ("literal-byte-limit", limits.literal_bytes);
          ("initializer-step-limit", limits.initializer_steps);
          ("dimension-work-limit", limits.dimension_work);
+         ("switch-work-limit", limits.switch_work);
          ("output-byte-limit", limits.output_bytes);
          ("output-work-limit", limits.output_work);
        ];
@@ -269,6 +282,7 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
      Printf.printf "compiled-initializer-steps=%d\n" preparation_steps;
      Printf.printf "prepared-default-bytes=%d\n" default_bytes;
      print_endline "dimension-preparation-work=0";
+     Printf.printf "switch-preparation-work=%d\n" switch_work;
      Printf.printf "termination=%s\n"
        (if Option.is_some result then "stream-end" else "none");
      (match final_value with
@@ -382,6 +396,8 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
          ("initializer_step_limit", `Int limits.initializer_steps);
          ("dimension_work_limit", `Int limits.dimension_work);
          ("dimension_preparation_work", `Int 0);
+         ("switch_work_limit", `Int limits.switch_work);
+         ("switch_preparation_work", `Int switch_work);
          ("compiled_initializer_steps", `Int preparation_steps);
          ("prepared_default_bytes", `Int default_bytes);
          ("output_byte_limit", `Int limits.output_bytes);

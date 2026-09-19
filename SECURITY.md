@@ -86,7 +86,20 @@ statement and resolved occurrence identities. Every occurrence is consumed once;
 targets come from the checked label mapping. Empty label blocks only fall through,
 while every goto cycle reaches a metered jump. Jumps preserve invocation-local
 initialization flags, so skipping a store cannot expose uninitialized host stack
-data. Unsupported assembly, switch, lock and exception regions remain rejected.
+data. Unsupported assembly, no-bound/sub-switch, lock and exception regions remain rejected.
+
+Ordinary bounded switches retain original parser-time case preparation and
+exact sealed command/table/AST ownership. Lowering cannot substitute a later
+evaluation or borrow equal source text as preparation evidence. A positive
+100,000-node default allowance bounds reached case preparation; nested source
+tasks share it. Dispatch tables additionally share a hard 65,536-slot invocation
+cap, checked before expansion, including defaults and unused definitions. This
+prevents small endpoint expressions from producing unbounded dense tables.
+Checked graphs require immediate I64 bounds, a canonical adjusted selector,
+matching table cardinality and valid targets. Native dispatch performs the
+unsigned bounds check before its bounded machine branches and charges one IR
+site. Existing code-size and stack limits still apply. The closed evaluator and
+these limits do not provide a sandbox for arbitrary HolyC code.
 
 Generated code checks and consumes a positive budget before each reached IR
 instruction. R10 owns the remaining count and R11 a fresh private context;

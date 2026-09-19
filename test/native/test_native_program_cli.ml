@@ -101,6 +101,8 @@ let native_json ?(status = 0) ?(mode = "jit") ?(options = []) source =
       "initializer_step_limit";
       "dimension_work_limit";
       "dimension_preparation_work";
+      "switch_work_limit";
+      "switch_preparation_work";
       "compiled_initializer_steps";
       "prepared_default_bytes";
       "output_byte_limit";

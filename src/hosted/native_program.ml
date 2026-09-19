@@ -18,6 +18,7 @@ type report = {
   platform_ : Native.platform;
   executed_steps_ : int option;
   preparation_steps_ : int;
+  switch_work_ : int;
   default_bytes_ : int;
 }
 
@@ -349,6 +350,30 @@ let ast_errors (ast : Ast.module_) =
                   Gate_statement (in_function, loop.for_initializer)
                   :: Gate_expression (in_function, loop.for_condition)
                   :: rest
+            | Ast.Switch_statement switch ->
+                if switch.switch_mode <> Ast.Bounded_switch then
+                  reject
+                    (source_error switch.switch_location.span
+                       "native programs do not admit no-bound switches")
+                else
+                  let body =
+                    List.filter_map
+                      (function
+                        | Ast.Switch_statement_element statement ->
+                            Some statement
+                        | Ast.Switch_case_element _
+                        | Ast.Switch_default_element _ -> None
+                        | Ast.Switch_subswitch_element subswitch ->
+                            reject
+                              (source_error subswitch.subswitch_location.span
+                                 "native programs do not admit sub-switch \
+                                  regions");
+                            None)
+                      switch.switch_elements
+                  in
+                  work :=
+                    Gate_expression (in_function, switch.switch_expression)
+                    :: prepend_statements in_function body !work
             | Ast.Implicit_output_statement statement ->
                 reject
                   (source_error statement.location.span
@@ -394,7 +419,6 @@ let ast_errors (ast : Ast.module_) =
               | Ast.Label_statement _
               | Ast.Lock_statement _
               | Ast.No_warn_statement _
-              | Ast.Switch_statement _
               | Ast.Try_catch_statement _ ) as statement ->
                 reject
                   (source_error (Ast.statement_location statement).span
@@ -432,17 +456,18 @@ let program_storage_errors compiled span =
 let compile_with_preparation ?(max_ir_instructions = 4096)
     ?(max_code_bytes = 65536) ?(max_stack_bytes = Image.hard_max_stack_bytes)
     ?(max_blocks = 4096) ?(max_initializer_steps = 100_000)
-    ?(max_default_bytes = 65_536) ?status_abi ~preparation_steps ~default_bytes
-    session ~config ~source =
+    ?(max_switch_work = 100_000) ?(max_default_bytes = 65_536) ?status_abi
+    ~preparation_steps ~switch_work ~default_bytes session ~config ~source =
   let span = Integer_source.source_span source in
   let* () =
-    if max_initializer_steps > 0 && max_default_bytes > 0 then Ok ()
+    if max_initializer_steps > 0 && max_default_bytes > 0 && max_switch_work > 0
+    then Ok ()
     else
       Error
         [
           diagnostic ~span "HCIRVM0001"
-            "max_initializer_steps and max_default_bytes must be greater than \
-             zero";
+            "max_initializer_steps, max_switch_work and max_default_bytes must \
+             be greater than zero";
         ]
   in
   let* () =
@@ -451,7 +476,7 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
   in
   let* ledger =
     Task_declarations.create_source ~max_offset_work:max_initializer_steps
-      session ~source
+      ~max_switch_work session ~source
     |> Result.map_error (fun message ->
         [ diagnostic ~span "HCRUN0004" message ])
   in
@@ -535,6 +560,7 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
       ~symbols:(Session.symbols session) ~config source
   in
   preparation_steps := Native_default_preparation.work preparation;
+  switch_work := Task_declarations.switch_work ledger;
   default_bytes := Native_default_preparation.bytes preparation;
   match parsed.ast with
   | None -> Error parsed.diagnostics
@@ -605,11 +631,12 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
                       diagnostics @ image_errors ~fallback:span errors))))
 
 let compile ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
-    ?max_initializer_steps ?max_default_bytes ?status_abi session ~config
-    ~source =
+    ?max_initializer_steps ?max_switch_work ?max_default_bytes ?status_abi
+    session ~config ~source =
   compile_with_preparation ?max_ir_instructions ?max_code_bytes ?max_stack_bytes
-    ?max_blocks ?max_initializer_steps ?max_default_bytes ?status_abi
-    ~preparation_steps:(ref 0) ~default_bytes:(ref 0) session ~config ~source
+    ?max_blocks ?max_initializer_steps ?max_switch_work ?max_default_bytes
+    ?status_abi ~preparation_steps:(ref 0) ~switch_work:(ref 0)
+    ~default_bytes:(ref 0) session ~config ~source
 
 let fault_diagnostic ~fallback (fault : Image.fault) =
   let code, message =
@@ -665,14 +692,15 @@ let host_diagnostic ~span platform message =
 
 let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
     ?(max_initializer_steps = 100_000) ?(max_default_bytes = 65_536)
-    ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
+    ?(max_switch_work = 100_000) ?(max_frame_bytes = 1_048_576)
+    ?(max_call_depth = 128)
     ?(max_active_stack_bytes = Native.hard_max_active_stack_bytes) ?status_abi
     session ~config ~source ~max_steps =
   let span = Integer_source.source_span source in
   let platform = Native.platform () in
   if
     max_steps <= 0 || max_initializer_steps <= 0 || max_default_bytes <= 0
-    || max_frame_bytes <= 0 || max_call_depth <= 0
+    || max_switch_work <= 0 || max_frame_bytes <= 0 || max_call_depth <= 0
     || max_active_stack_bytes <= 0
     || max_active_stack_bytes > Native.hard_max_active_stack_bytes
   then
@@ -682,9 +710,10 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
           [
             diagnostic ~span "HCIRVM0001"
               (Printf.sprintf
-                 "max_steps, max_initializer_steps, max_default_bytes, \
-                  max_frame_bytes and max_call_depth must be greater than \
-                  zero; max_active_stack_bytes must be between 1 and %d"
+                 "max_steps, max_initializer_steps, max_switch_work, \
+                  max_default_bytes, max_frame_bytes and max_call_depth must \
+                  be greater than zero; max_active_stack_bytes must be between \
+                  1 and %d"
                  Native.hard_max_active_stack_bytes);
           ];
       image_ = None;
@@ -692,15 +721,18 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
       platform_ = platform;
       executed_steps_ = None;
       preparation_steps_ = 0;
+      switch_work_ = 0;
       default_bytes_ = 0;
     }
   else
     let preparation_steps = ref 0 in
+    let switch_work = ref 0 in
     let default_bytes = ref 0 in
     match
       compile_with_preparation ?max_ir_instructions ?max_code_bytes
-        ?max_stack_bytes ?max_blocks ~max_initializer_steps ~max_default_bytes
-        ?status_abi ~preparation_steps ~default_bytes session ~config ~source
+        ?max_stack_bytes ?max_blocks ~max_initializer_steps ~max_switch_work
+        ~max_default_bytes ?status_abi ~preparation_steps ~switch_work
+        ~default_bytes session ~config ~source
     with
     | Error diagnostics ->
         {
@@ -710,6 +742,7 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
           platform_ = platform;
           executed_steps_ = None;
           preparation_steps_ = !preparation_steps;
+          switch_work_ = !switch_work;
           default_bytes_ = !default_bytes;
         }
     | Ok checked -> (
@@ -728,6 +761,7 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
               platform_ = platform;
               executed_steps_ = None;
               preparation_steps_ = !preparation_steps;
+              switch_work_ = !switch_work;
               default_bytes_ = !default_bytes;
             }
         | Ok (Image.Completed execution as native_outcome) ->
@@ -743,6 +777,7 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
               platform_ = platform;
               executed_steps_ = Some execution.executed_steps;
               preparation_steps_ = !preparation_steps;
+              switch_work_ = !switch_work;
               default_bytes_ = !default_bytes;
             }
         | Ok (Image.Fault fault as native_outcome) ->
@@ -756,6 +791,7 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
               platform_ = platform;
               executed_steps_ = Some fault.executed_steps;
               preparation_steps_ = !preparation_steps;
+              switch_work_ = !switch_work;
               default_bytes_ = !default_bytes;
             })
 
@@ -765,4 +801,5 @@ let native_outcome report = report.native_outcome_
 let platform report = report.platform_
 let executed_steps report = report.executed_steps_
 let preparation_steps report = report.preparation_steps_
+let switch_work report = report.switch_work_
 let default_bytes report = report.default_bytes_
