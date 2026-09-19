@@ -4,6 +4,7 @@ module VM = Ir_integer_interpreter
 module Runtime_calls = Ir_runtime_call_context
 module Graph = Ir_block_graph
 module Sequence = Ir_instruction_sequence
+module Type = Semantic_type
 module Opcode = Ir_opcode
 module Prepared_default = Holyc_lib__Ir.Prepared_parameter_default
 module Unit = Holyc_lib__Driver.Integer_unit
@@ -273,7 +274,7 @@ let unsupported_neighbors_stay_outside_native_gate () =
       "Bool F(Bool n){return n;} F(1);";
       "I0 F(I0 n){return n;} F(1);";
       "F64 F(F64 n){return n;} F(1.0);";
-      "I64 F(I64 *p){return *p;} 42;";
+      "I64 F(I64 **p){return **p;} 42;";
       "I64 F(){I8 a[2];a[0]=42;return a[0];} F();";
       "I8 G=1<<2; I64 F(){return G;} F();";
       "I64 F(){static I8 n={42};return n;} F();";
@@ -351,8 +352,161 @@ let scalar_frame_call_and_default_authority_are_exact () =
       |> reject_backend "narrow prepared default without native authority proof")
     modes
 
+let pointer_source_and_authority () =
+  let source =
+    "I64 Add(I64 *p){*p+=2;return *p;}I64 F(){I64 x=40;I64 *p=&x;return \
+     Add(p);}F();"
+  in
+  List.iter
+    (fun mode ->
+      let unit = integer_unit ~mode source in
+      let other = integer_unit ~mode source in
+      List.iter
+        (fun abi ->
+          let compile ?(entry = integer_program_entry unit)
+              ?(functions = integer_program_functions unit)
+              ?(calls = integer_program_runtime_calls unit) () =
+            Program.compile_callable ~status_abi:abi ~max_stack_bytes:4088
+              ~max_blocks:4096 ~max_ir_instructions:4096 ~max_code_bytes:65536
+              ~runtime_calls:calls
+              ~initialization:(integer_program_initialization unit)
+              ~entry ~functions ()
+          in
+          ignore (compile () |> require_ok program_errors);
+          compile ~calls:(integer_program_runtime_calls other) ()
+          |> reject_backend "foreign pointer call context";
+          compile ~entry:(integer_program_entry other) ()
+          |> reject_backend "foreign pointer entry";
+          compile ~functions:(integer_program_functions other) ()
+          |> reject_backend "foreign pointer functions";
+          let functions = integer_program_functions unit in
+          let first = List.hd functions in
+          compile
+            ~functions:
+              ({ first with frame = Obj.obj (Obj.dup (Obj.repr first.frame)) }
+              :: List.tl functions)
+            ()
+          |> reject_backend "reconstructed pointer frame")
+        [ Program.Windows_x64; Program.System_v_x64 ];
+      let sample = image ~mode source in
+      let stack = Program.frame_bytes sample in
+      ignore (image ~mode ~max_stack_bytes:stack source);
+      compile_source ~mode ~max_stack_bytes:(stack - 1) source
+      |> reject_compile ~code:"HCBACK0004" "reference bookkeeping stack quota";
+      List.iter
+        (fun source ->
+          compile_source ~mode source
+          |> reject_gate "unsupported reference escape or fabrication")
+        [
+          "I64 *F(){I64 x;return &x;}42;";
+          "I64 *G;42;";
+          "I64 F(){static I64 *p;return 42;}42;";
+          "I64 F(I64 **p){return **p;}42;";
+          "I64 F(I64 *p=0){return *p;}42;";
+          "I64 F(){I64 *p=0;return *p;}42;";
+          "I64 F(){I64 x=42;I64 *p=&x;return p;}F();";
+          "I64 F(){I64 x=42;I64 *p=&x;return p(I64);}F();";
+          "I64 F(){I64 x=42;I64 *p=&x;p++;return *p;}F();";
+          "I64 F(){I64 x=42;I64 *p=&x;return *(p+1);}F();";
+          "I64 F(){U64 x=42;I64 *p=&x;return *p;}F();";
+          "I64 F(I64 *p){return *p;}F(42);";
+          "I64 F(){I64 x=42;I64 *p=&x;I64 **q=&p;return **q;}F();";
+        ];
+      List.iter
+        (fun (label, select, mutate) ->
+          let unit = integer_unit ~mode source in
+          ignore (compile_callable unit |> require_ok program_errors);
+          let function_ = List.nth (integer_program_functions unit) 1 in
+          let graph =
+            Ir_function_body.x87 function_.body |> Ir_x87_stack.graph
+          in
+          let rec find = function
+            | [] -> None
+            | instruction :: rest as cell ->
+                let d = Sequence.description instruction in
+                if select d then Some (cell, d) else find rest
+          in
+          let cell, d =
+            Graph.blocks graph
+            |> List.find_map (fun b ->
+                find (Graph.instructions b |> Sequence.instructions))
+            |> Option.get
+          in
+          Obj.set_field (Obj.repr cell) 0 (Obj.repr (mutate d));
+          compile_callable unit |> reject_backend label)
+        [
+          ( "address flags",
+            (fun d -> d.Sequence.opcode = Opcode.Ic_addr),
+            fun d -> { d with flags = 1L } );
+          ( "raw integer address",
+            (fun d -> d.Sequence.opcode = Opcode.Ic_addr),
+            fun d ->
+              {
+                d with
+                opcode = Opcode.Ic_imm_i64;
+                operands = [];
+                payload = Some (Sequence.Integer 1L);
+              } );
+          ( "address payload",
+            (fun d -> d.Sequence.opcode = Opcode.Ic_addr),
+            fun d -> { d with payload = Some (Sequence.Integer 0L) } );
+          ( "missing address operand",
+            (fun d -> d.Sequence.opcode = Opcode.Ic_addr),
+            fun d -> { d with operands = [] } );
+          ( "outside exact frame",
+            (fun d ->
+              d.Sequence.opcode = Opcode.Ic_imm_i64
+              && Option.fold ~none:false
+                   ~some:(fun t -> Type.pointer_depth t > 0)
+                   d.target_type),
+            fun d -> { d with payload = Some (Sequence.Integer (-4096L)) } );
+        ])
+    modes
+
+let borrowed_static_reference_does_not_grant_symbol_authority () =
+  List.iter
+    (fun mode ->
+      let unit =
+        integer_unit ~mode
+          "I64 Add(I64 *p){static I64 private;private=0;return *p+=2;}I64 \
+           F(){static I64 shared;shared=40;return Add(&shared);}F();"
+      in
+      ignore (compile_callable unit |> require_ok program_errors);
+      let first = List.hd (integer_program_functions unit) in
+      let statics = Ir_integer_globals.statics (integer_program_globals unit) in
+      let foreign =
+        List.nth statics 1 |> Ir_integer_globals.static_storage
+        |> Ir_integer_globals.storage_symbol
+      in
+      let graph = Ir_function_body.x87 first.body |> Ir_x87_stack.graph in
+      let rec find = function
+        | [] -> None
+        | instruction :: rest as cell -> (
+            let d = Sequence.description instruction in
+            match d.payload with
+            | Some (Sequence.Symbol _) -> Some (cell, d)
+            | _ -> find rest)
+      in
+      let cell, d =
+        Graph.blocks graph
+        |> List.find_map (fun b ->
+            find (Graph.instructions b |> Sequence.instructions))
+        |> Option.get
+      in
+      Obj.set_field (Obj.repr cell) 0
+        (Obj.repr { d with payload = Some (Sequence.Symbol foreign) });
+      compile_callable unit
+      |> reject_backend
+           "borrowed reference cannot synthesize caller static symbol")
+    modes
+
 let tests =
   [
+    Alcotest.test_case
+      "borrowed static reference does not grant symbol ownership" `Quick
+      borrowed_static_reference_does_not_grant_symbol_authority;
+    Alcotest.test_case "native pointer source and exact authority boundaries"
+      `Quick pointer_source_and_authority;
     Alcotest.test_case
       "all scalar signatures and U0 bodies pass source preflight" `Quick
       scalar_source_gate_both_modes;

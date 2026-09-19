@@ -33,6 +33,13 @@ type instruction =
   | Load_arena_narrow of
       register * arena_slot * narrow_frame_width * frame_extension
   | Store_arena_narrow of arena_slot * narrow_frame_width * register
+  | Address_frame of register * frame_slot
+  | Address_arena of register * arena_slot
+  | Load_indirect of register * register * int
+  | Store_indirect of register * register
+  | Load_indirect_narrow of
+      register * register * narrow_frame_width * frame_extension
+  | Store_indirect_narrow of register * narrow_frame_width * register
   | Alloc_call_frame of call_frame
   | Free_call_frame of call_frame
   | Call of int64
@@ -141,6 +148,7 @@ let source_form spelling source_line =
       instruction.source_line = source_line)
     opcode.instructions
 
+let load_address = source_form "LEA" 833
 let mov_immediate = source_form "MOV" 276
 let mov_register = source_form "MOV" 265
 let mov_load = source_form "MOV" 261
@@ -246,6 +254,12 @@ let form = function
   | Load_arena_narrow (_, _, width, extension) ->
       narrow_load_form width extension
   | Store_arena_narrow (_, width, _) -> narrow_store_form width
+  | Address_frame _ | Address_arena _ -> load_address
+  | Load_indirect _ -> mov_load
+  | Store_indirect _ -> mov_store
+  | Load_indirect_narrow (_, _, width, extension) ->
+      narrow_load_form width extension
+  | Store_indirect_narrow (_, width, _) -> narrow_store_form width
   | Alloc_call_frame _ -> subtract_immediate
   | Free_call_frame _ -> add_immediate
   | Call _ -> call_relative
@@ -296,6 +310,8 @@ let valid_context_write_offset offset =
   offset >= 0 && offset <= 64 && offset mod 8 = 0
 
 let validate = function
+  | Load_indirect (_, _, offset) when offset <> 0 && offset <> 8 ->
+      invalid_arg "reference descriptor offset must be zero or eight"
   | (Load_frame (_, slot) | Store_frame (slot, _))
     when slot.frame_offset mod 8 <> 0 ->
       invalid_arg "qword frame access requires an aligned frame slot"
@@ -333,6 +349,11 @@ let size instruction =
   | Alloc_stack _ | Free_stack _ -> 7
   | Push_rbp | Pop_rbp -> 1
   | Mov_rbp_rsp -> 3
+  | Address_frame _ | Address_arena _ | Load_indirect _ | Store_indirect _ -> 7
+  | Load_indirect_narrow (_, _, (Frame8 | Frame16), _) -> 8
+  | Load_indirect_narrow (_, _, Frame32, _) -> 7
+  | Store_indirect_narrow (_, Frame16, _) -> 8
+  | Store_indirect_narrow (_, (Frame8 | Frame32), _) -> 7
   | Load_frame _ | Store_frame _ -> 7
   | Load_frame_narrow (_, _, (Frame8 | Frame16), _) -> 8
   | Load_frame_narrow (_, _, Frame32, _) -> 7
@@ -434,7 +455,7 @@ let write buffer position instruction =
       byte 0x48;
       opcodes ();
       byte 0xe5
-  | Load_frame (destination, slot) ->
+  | Address_frame (destination, slot) | Load_frame (destination, slot) ->
       let destination = register_number destination in
       (* Fixed disp32 RBP form. RBP as a ModR/M base requires an explicit
          displacement; using disp32 keeps every accepted slot one exact shape. *)
@@ -472,7 +493,7 @@ let write buffer position instruction =
       opcodes ();
       byte (0x85 lor ((source land 7) lsl 3));
       imm32 slot.frame_offset
-  | Load_arena (destination, slot) ->
+  | Address_arena (destination, slot) | Load_arena (destination, slot) ->
       let destination = register_number destination in
       (* R9 is the sealed private arena base. Mod=10 with RM=001 selects
          [R9+disp32]; REX.B is therefore always set while REX.R extends the
@@ -506,6 +527,38 @@ let write buffer position instruction =
       opcodes ();
       byte (0x81 lor ((source land 7) lsl 3));
       imm32 slot.arena_offset
+  | Load_indirect (destination, base, offset) ->
+      let destination = register_number destination in
+      let base = register_number base in
+      byte (0x48 lor ((destination land 8) lsr 1) lor ((base land 8) lsr 3));
+      opcodes ();
+      byte (0x80 lor ((destination land 7) lsl 3) lor (base land 7));
+      imm32 offset
+  | Store_indirect (base, source) ->
+      let source = register_number source in
+      let base = register_number base in
+      byte (0x48 lor ((source land 8) lsr 1) lor ((base land 8) lsr 3));
+      opcodes ();
+      byte (0x80 lor ((source land 7) lsl 3) lor (base land 7));
+      imm32 0
+  | Load_indirect_narrow (destination, base, width, extension) ->
+      let destination = register_number destination in
+      let base = register_number base in
+      byte
+        ((if width = Frame32 && extension = Zero_extend then 0x40 else 0x48)
+        lor ((destination land 8) lsr 1)
+        lor ((base land 8) lsr 3));
+      opcodes ();
+      byte (0x80 lor ((destination land 7) lsl 3) lor (base land 7));
+      imm32 0
+  | Store_indirect_narrow (base, width, source) ->
+      let source = register_number source in
+      let base = register_number base in
+      if width = Frame16 then byte 0x66;
+      byte (0x40 lor ((source land 8) lsr 1) lor ((base land 8) lsr 3));
+      opcodes ();
+      byte (0x80 lor ((source land 7) lsl 3) lor (base land 7));
+      imm32 0
   | Alloc_call_frame frame | Free_call_frame frame ->
       byte 0x48;
       opcodes ();

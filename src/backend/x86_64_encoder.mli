@@ -59,6 +59,20 @@ type instruction =
           as the corresponding RBP-relative scalar load. *)
   | Store_arena_narrow of arena_slot * narrow_frame_width * register
       (** Store only the selected low 8/16/32 bits to the private data arena. *)
+  | Address_frame of register * frame_slot
+      (** Materialize the address of a checked RBP-relative object or private
+          descriptor. *)
+  | Address_arena of register * arena_slot
+      (** Materialize an address relative to the private R9 arena base. *)
+  | Load_indirect of register * register * int
+      (** Qword reference field load. The displacement is zero or eight; the
+          callable preflight owns the base's reference provenance. *)
+  | Store_indirect of register * register
+  | Load_indirect_narrow of
+      register * register * narrow_frame_width * frame_extension
+  | Store_indirect_narrow of register * narrow_frame_width * register
+      (** Indirect object accesses use zero displacement and exact scalar width.
+          The encoder checks instruction shape, not source object authority. *)
   | Alloc_call_frame of call_frame
   | Free_call_frame of call_frame
       (** Allocate/free a fixed 16-byte-aligned callable frame while keeping RSP

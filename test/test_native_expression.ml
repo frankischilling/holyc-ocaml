@@ -1667,6 +1667,53 @@ let encoder_narrow_frame_bytes () =
             (Encoder.R11, edge, Encoder.Frame8, Encoder.Sign_extend))
       |> hex))
 
+let encoder_reference_bytes () =
+  let frame offset = Encoder.scalar_frame_slot ~offset |> require_ok Fun.id in
+  let arena offset = Encoder.arena_slot ~offset |> require_ok Fun.id in
+  let cases =
+    let open Encoder in
+    [
+      (Address_frame (Rax, frame (-1)), "488d85ffffffff");
+      (Address_frame (R8, frame (-32)), "4c8d85e0ffffff");
+      (Address_arena (Rdx, arena 3), "498d9103000000");
+      (Load_indirect (Rax, Rdx, 8), "488b8208000000");
+      (Load_indirect (R10, R11, 0), "4d8b9300000000");
+      (Store_indirect (Rcx, Rax), "48898100000000");
+      (Store_indirect (R9, R8), "4d898100000000");
+      (Load_indirect_narrow (Rax, Rdx, Frame8, Sign_extend), "480fbe8200000000");
+      (Load_indirect_narrow (R8, R11, Frame8, Zero_extend), "4d0fb68300000000");
+      (Load_indirect_narrow (Rdx, Rcx, Frame16, Sign_extend), "480fbf9100000000");
+      (Load_indirect_narrow (R11, R8, Frame16, Zero_extend), "4d0fb79800000000");
+      (Load_indirect_narrow (Rax, Rdx, Frame32, Sign_extend), "48638200000000");
+      (Load_indirect_narrow (R8, R11, Frame32, Zero_extend), "458b8300000000");
+      (Store_indirect_narrow (Rcx, Frame8, Rdx), "40889100000000");
+      (Store_indirect_narrow (R8, Frame16, R11), "6645899800000000");
+      (Store_indirect_narrow (Rcx, Frame32, R8), "44898100000000");
+    ]
+  in
+  List.iter
+    (fun (instruction, expected) ->
+      Alcotest.(check string)
+        "reference encoder bytes" expected
+        (hex (Encoder.encode instruction));
+      Alcotest.(check int)
+        "reference encoder size"
+        (String.length expected / 2)
+        (Encoder.size instruction))
+    cases;
+  List.iter
+    (fun offset ->
+      let rejected =
+        try
+          ignore
+            (Encoder.encode
+               (Encoder.Load_indirect (Encoder.Rax, Encoder.Rcx, offset)));
+          false
+        with Invalid_argument _ -> true
+      in
+      Alcotest.(check bool) "invalid descriptor field" true rejected)
+    [ -8; 1; 16; max_int ]
+
 let encoder_arena_bytes () =
   (* Literal bytes come from the same pinned MOV/MOVSX/MOVZX/MOVSXD forms as the
      frame tests, with R9 fixed as the ModR/M base. REX.B is therefore always
@@ -4464,6 +4511,8 @@ let logical_source_boundaries () =
 
 let tests =
   [
+    Alcotest.test_case "reference materialization and indirect byte goldens"
+      `Quick encoder_reference_bytes;
     Alcotest.test_case "extended REX and ModRM orientations have exact bytes"
       `Quick encoder_extended_register_bytes;
     Alcotest.test_case "CL shift encoder bytes cover all volatile registers"

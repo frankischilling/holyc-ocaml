@@ -89,8 +89,10 @@ val compile_callable :
   (program_image, error list) result
 (** Compile one checked ordinary-source entry plus its exact fixed scalar source
     functions as one callable native bundle. Source parameters, automatic
-    locals, and word returns admit the checked 8/16/32/64-bit integer family; U0
-    functions complete without producing a numeric value. All entry and
+    locals, and word returns admit the checked 8/16/32/64-bit integer family.
+    One-level scalar pointer locals/parameters preserve owned references in
+    private frame descriptors; pointer returns and persistent pointers reject.
+    U0 functions complete without producing a numeric value. All entry and
     named-function graphs, including unreachable definitions, pass preflight
     before machine allocation. Direct calls are resolved only through the
     supplied sealed runtime-call context and exact function/frame ownership.

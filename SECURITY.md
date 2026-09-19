@@ -62,7 +62,7 @@ checkout credentials. See [native expressions](docs/native-expressions.md).
 `holyc run --target=host-jit` and `Native_program.evaluate` additionally execute
 structured control flow, fixed direct scalar integer functions and U0 procedures with automatic
 storage. Their source gate rejects statics, prototypes/externs,
-pointer or indirect calls, non-integer parameters/locals, explicit register/function flags,
+persistent/deeper pointers or indirect calls, non-integer parameters/locals, explicit register/function flags,
 implicit output and unsupported statements; parsing supplies no command or
 stream executor. Bounded scalar defaults prepare through their original source
 callbacks before entry compilation. Only checked constant preparation is admitted;
@@ -128,8 +128,8 @@ storage before boxing program status, including exhausted-loop/call exits, and
 keeps the OCaml runtime lock while generated code runs. This bounds checked IR
 loops and call chains but supplies no CPU deadline or recovery from an encoder
 defect or arbitrary host-stack exhaustion outside the controlled call chain.
-There is no interpreter fallback, source pointer access, external call or
-arbitrary-byte constructor in this gate. See
+There is no interpreter fallback, external call or arbitrary-byte constructor
+in this gate. Checked scalar reference access is described below. See
 [native programs](docs/native-programs.md) for exact source and reporting limits.
 
 Native scalar globals and statics allocate a separate RW,
@@ -149,6 +149,17 @@ successful declaration completion. Saved bits alone cannot authorize an image.
 Their work shares the global/default preparation budget; their payload occupies
 the padded static allocation. Calls reuse that value, and each image execution
 restores it.
+
+Native scalar references originate only from exact checked objects. Private
+16-byte descriptors carry their data and initialization-flag addresses, count
+against physical-stack limits, and cannot become integer results. The admitted
+local/parameter-only reference flow cannot outlive its owning activation:
+pointer returns, persistent pointer storage, deeper indirection and address
+arithmetic reject before entry. Recursive frames remain distinct, and indirect
+accesses use the original object's width. Passing a static reference does not
+authorize materializing another owner's static symbol. Any future escape path
+must add a lifetime mechanism before admission. See
+[native pointers](docs/native-pointers.md).
 
 ## Supported versions
 

@@ -7,8 +7,14 @@ both preprocessing modes. Closed scalar declaration initializers also prepare
 at their original source boundary; `examples/native-scalar-initializers.hc`
 combines them with a saved default.
 `examples/native-static-initializers.hc` adds a persistent function-local static
-counter prepared at its declaration. Effectful initializers and pointer storage
-remain unsupported by this native increment.
+counter prepared at its declaration. Effectful initializers and persistent
+pointer storage remain unsupported by this native increment.
+
+`holyc run --target=host-jit examples/native-scalar-pointers.hc` executes checked
+one-level scalar pointer aliases in both JIT and AOT source modes. Local and
+fixed-parameter references preserve object width, initialization and ownership;
+pointer returns and persistent pointer storage remain outside native admission.
+See [native pointers](docs/native-pointers.md).
 
 [Retained named types](docs/retained-named-types.md) preserve an aggregate
 selected before a nested `#exe` shadows its name. The original function header

@@ -82,15 +82,17 @@ val compile_callable :
 (** Compile a checked entry and its exact fixed scalar integer functions and U0
     procedures as one native callable bundle. Parameters and automatic objects
     use their declared integer widths; word returns retain full register bits.
-    Every named definition is preflighted, including definitions unreachable
-    from the entry. Calls are emitted only from exact sealed runtime-call
-    metadata and preserve the shared native status context. The exact
-    initialization context must be supplied even when empty. Ordinary scalar
-    globals and scalar static locals use a private arena. Global initial values
-    require [global_initializers] from their exact source preparation. Static
-    initializers, arrays, retained storage and scheduled initialization regions
-    are rejected. Declaration-time parameter defaults require
-    [parameter_defaults] from the exact source preparation; omitting it
+    One-level scalar reference locals and fixed parameters retain exact object
+    provenance in private descriptors charged to physical frame limits. Pointer
+    returns and persistent pointer storage remain rejected. Every named
+    definition is preflighted, including definitions unreachable from the entry.
+    Calls are emitted only from exact sealed runtime-call metadata and preserve
+    the shared native status context. The exact initialization context must be
+    supplied even when empty. Ordinary scalar globals and scalar static locals
+    use a private arena. Their initial values require [global_initializers] from
+    their exact source preparation. Arrays, retained storage and scheduled
+    initialization regions are rejected. Declaration-time parameter defaults
+    require [parameter_defaults] from the exact source preparation; omitting it
     preserves the low-level rejection. *)
 
 val code : t -> string

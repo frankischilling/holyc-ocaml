@@ -127,8 +127,8 @@ let check_vm_word label expected_type expected_bits result =
         (label ^ " VM type") expected_type (vm_type_name word.type_);
       Alcotest.(check int64) (label ^ " VM bits") expected_bits word.bits
 
-let compare_source ?(max_steps = 10_000) ~mode ~label ~expected_type
-    ~expected_bits contents =
+let compare_source ?(initializer_steps = 0) ?(max_steps = 10_000) ~mode ~label
+    ~expected_type ~expected_bits contents =
   (* Fresh public source execution is the independent semantic oracle. In JIT,
      defaults can activate a stateful command stream whose bookkeeping is not
      part of the native batch image, so its runtime meter is intentionally not a
@@ -145,7 +145,7 @@ let compare_source ?(max_steps = 10_000) ~mode ~label ~expected_type
     (VM.executed_steps batch) native.execution.executed_steps;
   Alcotest.(check int)
     (label ^ " native preparation matches its isolated batch preparation")
-    fixture.preparation_steps
+    (fixture.preparation_steps + initializer_steps)
     (Native_program.preparation_steps report);
   Alcotest.(check int)
     (label ^ " native saved defaults match its isolated batch preparation")
@@ -675,6 +675,191 @@ let budgets_faults_and_recovery () =
            ~expected_type:"I64" ~expected_bits:42L healthy))
     modes
 
+let pointer_alias_semantics () =
+  let cases =
+    [
+      ( "unknown object can be addressed and initialized",
+        "I64 Set(I64 *p){*p=42;return *p;}I64 F(){I64 x;I64 *p=&x;return \
+         Set(p);}F();",
+        42L );
+      ( "copy rebinding and address cancellation",
+        "I64 F(){I64 a=20;I64 b=40;I64 *p=&a;I64 \
+         *q=p;p=&b;*q+=2;*(&*p)+=*q;return b-a+2;}F();",
+        42L );
+      ( "pointer parameter rebind stays local",
+        "U0 Set(I64 *p,I64 *q){p=q;*p+=2;}I64 F(){I64 a=9;I64 b=31;I64 \
+         *p=&a;Set(p,&b);return *p+b;}F();",
+        42L );
+      ( "address of parameter retains its own storage",
+        "I64 F(I64 x){I64 *p=&x;*p+=2;return x;}F(40);",
+        42L );
+      ( "compound load follows RHS alias effect",
+        "I64 Set(I64 *p){*p=40;return 2;}I64 F(){I64 x=1;I64 \
+         *p=&x;*p+=Set(p);return x;}F();",
+        42L );
+      ( "destination survives RHS pointer rebind",
+        "I64 F(){I64 x=40;I64 y=2;I64 *p=&x;*p+=*(p=&y);return x;}F();",
+        42L );
+      ( "recursive activation addresses stay distinct",
+        "I64 R(I64 n,I64 *p){I64 x=n;if(n){R(n-1,&x);*p+=x;}else *p+=1;return \
+         0;}I64 F(){I64 x=35;R(3,&x);return x;}F();",
+        42L );
+      ( "global and static aliases cross function ownership",
+        "I64 G=20;U0 Add(I64 *p){*p+=2;}I64 F(){static I64 \
+         x=18;Add(&x);Add(&G);return x+G;}F();",
+        42L );
+      ( "entry global address uses private descriptor frame",
+        "I64 G=40;I64 Add(I64 *p){return *p+=2;}Add(&G);",
+        42L );
+      ( "pointer plus scalar default",
+        "I64 Add(I64 *p,I64 n=2){return *p+=n;}I64 F(){I64 x=40;return \
+         Add(&x);}F();",
+        42L );
+      ( "loop goto switch preserve reference slots",
+        "I64 F(){I64 x=40;I64 *p=&x;I64 n=0;again:switch(n){case \
+         0:++*p;break;case 1:++*p;break;default:return x;}n++;goto again;}F();",
+        42L );
+      ( "all indirect compound families",
+        "I64 F(){I64 x=100;I64 \
+         *p=&x;*p/=4;*p%=20;*p*=8;*p-=2;*p|=8;*p&=63;*p^=4;*p<<=1;*p>>=1;return \
+         x;}F();",
+        42L );
+      ( "postfix and prefix results",
+        "I64 F(){I64 x=39;I64 *p=&x;I64 a=(*p)++;I64 b=++*p;--*p;(*p)--;return \
+         a+b-x+1;}F();",
+        42L );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, source, bits) ->
+          ignore
+            (compare_source ~mode ~label ~expected_type:"I64"
+               ~expected_bits:bits
+               ~initializer_steps:
+                 (if
+                    label = "global and static aliases cross function ownership"
+                  then 6
+                  else if
+                    label = "entry global address uses private descriptor frame"
+                  then 3
+                  else 0)
+               source))
+        cases;
+      List.iter
+        (fun (type_name, initial, expected_type, expected_bits) ->
+          let source =
+            Printf.sprintf
+              "%s Read(%s *p){return *p;}%s F(){%s left=13;%s x;%s right=29;%s \
+               *p=&x;*p=%s;return Read(&*p)+left+right-42;}F();"
+              type_name type_name type_name type_name type_name type_name
+              type_name initial
+          in
+          ignore
+            (compare_source ~mode
+               ~label:(type_name ^ " reference width")
+               ~expected_type ~expected_bits source))
+        parameter_rows;
+      List.iter
+        (fun type_name ->
+          let source =
+            Printf.sprintf
+              "I64 F(){%s x=255;%s *p=&x;I64 old=(*p)++;return ++*p+old;}F();"
+              type_name type_name
+          in
+          let expected_bits = if type_name = "I8" then 0L else 256L in
+          ignore
+            (compare_source ~mode
+               ~label:(type_name ^ " wrapped indirect prefix")
+               ~expected_type:"I64" ~expected_bits source))
+        [ "I8"; "U8" ])
+    modes
+
+let pointer_faults_and_limits () =
+  let recursive =
+    "I64 R(I64 n,I64 *p){I64 x=1;if(n)R(n-1,&x);*p+=x;return 0;}I64 F(){I64 \
+     x=38;R(3,&x);return x;}F();"
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source ->
+          let _, batch = batch_failure ~mode ~max_steps:10000 source in
+          let _, fault, diagnostics =
+            native_fault ~mode ~max_steps:10000 source
+          in
+          let fault = Option.get fault in
+          Alcotest.(check string)
+            "pointer fault matches VM" batch.code (List.hd diagnostics).code;
+          Alcotest.(check int)
+            "pointer fault exact work" batch.executed_steps fault.executed_steps)
+        [
+          "I64 F(){I64 *p;return *p;}F();";
+          "I64 F(){I64 x;I64 *p=&x;return *p;}F();";
+          "I64 F(){I64 x;I64 *p=&x;return (*p)++;}F();";
+          "I64 F(){I64 *p;I64 *q=p;return 42;}F();";
+          "I64 F(){I64 x=42;I64 *p=&x;return *p/=0;}F();";
+          "I64 F(){I64 x=-9223372036854775808;I64 *p=&x;return *p%=-1;}F();";
+        ];
+      let image = native_image ~mode recursive in
+      let costs = named_physical_costs image in
+      let physical =
+        Program.entry_stack_bytes image + (4 * List.hd costs) + List.nth costs 1
+      in
+      let _, batch = batch_success ~mode ~max_steps:10000 recursive in
+      let steps = VM.executed_steps batch in
+      let _, exact =
+        native_success_report ~mode ~max_steps:steps ~max_call_depth:5
+          ~max_frame_bytes:104 ~max_active_stack_bytes:physical recursive
+      in
+      check_native_word "exact reference recursion quotas" "I64" 42L
+        exact.execution.final_value;
+      List.iter
+        (fun (label, get_fault, expected_code) ->
+          let _, fault, diagnostics = get_fault () in
+          ignore (Option.get fault);
+          Alcotest.(check string)
+            label expected_code (List.hd diagnostics : Diagnostic.t).code)
+        [
+          ( "pointer step quota",
+            (fun () -> native_fault ~mode ~max_steps:(steps - 1) recursive),
+            "HCIRVM0007" );
+          ( "pointer frame quota",
+            (fun () ->
+              native_fault ~mode ~max_steps:steps ~max_frame_bytes:103 recursive),
+            "HCIRVM0011" );
+          ( "pointer depth quota",
+            (fun () ->
+              native_fault ~mode ~max_steps:steps ~max_call_depth:4 recursive),
+            "HCIRVM0015" );
+          ( "pointer physical quota",
+            (fun () ->
+              native_fault ~mode ~max_steps:steps
+                ~max_active_stack_bytes:(physical - 1) recursive),
+            "HCNATIVE0006" );
+        ];
+      for _ = 1 to 3 do
+        match Runtime.execute ~max_steps:steps image |> require_ok Fun.id with
+        | Program.Completed completed ->
+            check_native_word "fresh reference image" "I64" 42L
+              completed.final_value
+        | Program.Fault _ -> Alcotest.fail "fresh reference image faulted"
+      done;
+      let persistent =
+        native_image ~mode "I64 G=40;I64 Add(I64 *p){return *p+=2;}Add(&G);"
+      in
+      for _ = 1 to 3 do
+        match
+          Runtime.execute ~max_steps:1000 persistent |> require_ok Fun.id
+        with
+        | Program.Completed completed ->
+            check_native_word "fresh arena references" "I64" 42L
+              completed.final_value
+        | Program.Fault _ -> Alcotest.fail "fresh arena reference faulted"
+      done)
+    modes
+
 let () =
   match Runtime.platform () with
   | Runtime.Unsupported ->
@@ -685,6 +870,12 @@ let () =
         [
           ( "native scalar functions",
             [
+              Alcotest.test_case
+                "typed pointer aliases preserve source semantics" `Quick
+                pointer_alias_semantics;
+              Alcotest.test_case
+                "pointer initialization recursion quotas and recovery" `Quick
+                pointer_faults_and_limits;
               Alcotest.test_case
                 "all widths normalize parameters/locals and preserve return \
                  bits"

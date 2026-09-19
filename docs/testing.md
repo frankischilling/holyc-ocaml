@@ -999,3 +999,10 @@ The source group remains `"source integer expression"`, and `dune runtest`
 includes every CLI fixture. These are hosted tests; the native transformation
 and fault-phase audit remains pending in issue #585. Source evidence and exact
 semantics are recorded in [the division audit](integer-division.md).
+
+Native pointer tests cover exact descriptor/indirect encoding bytes and ABI
+admission without executing code. `@native-tests` adds all-width aliases,
+parameter rebinding, RHS effects, recursive ownership, initialization faults,
+exact budgets and repeated images. The CLI fixture combines pointers with
+closed static/global initialization and a scalar default. See
+[native pointers](native-pointers.md).

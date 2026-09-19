@@ -111,9 +111,11 @@ let function_source_error (definition : Ast.function_definition) =
           reject
             "native function parameters require nonzero scalar integer types"
         else if
-          parameter.pointer_layers <> []
+          List.length parameter.pointer_layers > 1
           || Option.is_some parameter.function_pointer
-        then reject "native functions do not admit pointer parameters"
+        then
+          reject
+            "native functions admit only one-level scalar pointer parameters"
         else if parameter.register_qualifiers <> [] then
           reject "native functions do not admit explicit parameter registers"
         else if Option.is_none parameter.name then
@@ -144,9 +146,11 @@ let local_source_error (declaration : Ast.local_declaration) =
           Some (source_error local.local_declarator_location.span message)
         in
         if
-          local.local_pointer_layers <> []
+          (if is_static then local.local_pointer_layers <> []
+           else List.length local.local_pointer_layers > 1)
           || Option.is_some local.local_function_pointer
-        then reject "native locals do not admit pointers"
+        then
+          reject "native locals admit only automatic one-level scalar pointers"
         else if local.local_array_dimensions <> [] then
           reject "native locals do not admit arrays"
         else if local.local_register_qualifiers <> [] then
@@ -251,15 +255,12 @@ let ast_errors (ast : Ast.module_) =
                 | Ast.Logical_not
                 | Ast.Bitwise_not
                 | Ast.Pre_increment
-                | Ast.Pre_decrement ->
+                | Ast.Pre_decrement
+                | Ast.Dereference
+                | Ast.Address_of ->
                     work :=
                       Gate_expression (in_function, prefix.prefix_operand)
-                      :: !work
-                | Ast.Dereference | Ast.Address_of ->
-                    reject
-                      (source_error prefix.prefix_location.span
-                         "native programs do not admit pointer prefix \
-                          expressions"))
+                      :: !work)
             | Ast.Postfix_cast_expression cast ->
                 work :=
                   Gate_expression (in_function, cast.cast_operand) :: !work

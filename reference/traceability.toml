@@ -12224,3 +12224,18 @@ authority = "Exact original allocation, function, initializer AST and completed 
 resources = "Static expressions share the global/default preparation budget and retain reached work on failure. Saved bytes occupy eight-byte-padded static storage with one initialized flag per object. Runtime steps and activation frames remain independent."
 excluded = ["value references and calls", "strings and floating values", "unresolved shift optimizer behavior", "arrays and pointers", "explicit registers and data-heap options", "initializers after executable top-level statements", "retained tasks", "full ABI and object/BIN loading"]
 native_oracle_status = "Pinned source plus hosted interpreter/native execution; no new TempleOS oracle capture."
+
+[[feature]]
+id = "HC-NATIVE-SCALAR-POINTERS"
+description = "One-level scalar pointer locals and fixed parameters retain checked object ownership through native address, copy, call and indirect access."
+sources = ["Compiler/PrsExp.HC:151-161", "Compiler/BackLib.HC:693-707", "Compiler/BackC.HC:159-204", "Compiler/OpCodes.DD:830-833"]
+implementation = ["src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_encoder.ml", "src/hosted/native_program.ml"]
+tests = ["test/test_native_expression.ml", "test/test_native_scalar_functions.ml", "test/test_native_program.ml", "test/native/test_native_scalar_function_execution.ml", "test/native/test_native_pointer_cli.ml", "examples/native-scalar-pointers.hc"]
+documentation = ["docs/native-pointers.md", "docs/reference-source-map.md", "docs/testing.md", "SECURITY.md"]
+status = "implemented"
+issue = 679
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+resources = "Private 16-byte descriptors count against fixed and active physical stack bounds; semantic object, instruction, global, preparation and depth budgets retain their original meanings."
+identity = "Only exact checked scalar frame/global/static objects materialize references. Pointer copies/calls retain exact pointee type; static symbol materialization retains original function ownership. Local/parameter-only downward flow prevents reference escape across returns."
+excluded = ["pointer returns and persistent pointer storage", "integer/null casts and pointer comparisons", "arithmetic and deeper indirection", "arrays and aggregates", "foreign calls and complete ABI", "object/BIN output, loader acceptance and bootstrap"]
+verification_boundary = "Pinned source, independent expectations, checked interpreter comparison, literal encoder bytes and explicit native API/CLI execution; descriptors and checked lifetime/initialization policies are hosted safeguards, not new TempleOS oracle captures."

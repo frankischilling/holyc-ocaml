@@ -26,25 +26,27 @@ val compile :
   (Backend.X86_64_program.t checked, Common.Diagnostic.t list) Stdlib.result
 (** Parse ordinary source without command or [#exe] executors. Compile the exact
     checked entry and its fixed direct scalar integer or U0 source functions,
-    with width-correct automatic/global/static integer storage and
-    function-local language goto/labels and bounded integer switches, through
-    the shared native word backend. Closed case endpoints prepare at their
-    original parser callbacks under an independent 100,000-node work limit.
-    Supported scalar parameter defaults are prepared once at their original
-    declaration callbacks through the checked constant-preparation engine.
-    Closed scalar global initializers prepare at their original leaf callbacks
-    under that same work budget. Closed scalar static initializers prepare after
-    expression lookahead and require their completed original declarations.
-    Their exact receipts authorize the native initial image, which restores
-    declared-width values on each execution. Effectful initializers, pointers,
-    arrays and other unsupported declarations/defaults reject before native
-    entry. This never interprets ordinary commands or allocates executable
-    memory. Parser warnings retain their original source identities. Defaults
-    are 4096 total IR instructions, 65536 code bytes, 4088 private frame bytes,
-    4096 total blocks, 100,000 declaration-preparation steps and 65,536 bytes of
-    saved default payloads (eight bytes per prepared value). Global/static
-    storage defaults to 1,048,576 bytes, with statics rounded to eight; its
-    separate host cap is 16,777,216 bytes. *)
+    with width-correct automatic/global/static integer storage, one-level scalar
+    pointer locals and fixed parameters, and function-local language goto/labels
+    and bounded integer switches, through the shared native word backend. Closed
+    case endpoints prepare at their original parser callbacks under an
+    independent 100,000-node work limit. Supported scalar parameter defaults are
+    prepared once at their original declaration callbacks through the checked
+    constant-preparation engine. Closed scalar global initializers prepare at
+    their original leaf callbacks under that same work budget. Closed scalar
+    static initializers prepare after expression lookahead and require their
+    completed original declarations. Their exact receipts authorize the native
+    initial image, which restores declared-width values on each execution.
+    Reference descriptors retain exact object ownership and initialization state
+    within the physical frame budget. Effectful initializers, escaping/deeper
+    pointers, arrays and other unsupported declarations/defaults reject before
+    native entry. This never interprets ordinary commands or allocates
+    executable memory. Parser warnings retain their original source identities.
+    Defaults are 4096 total IR instructions, 65536 code bytes, 4088 private
+    frame bytes, 4096 total blocks, 100,000 declaration-preparation steps and
+    65,536 bytes of saved default payloads (eight bytes per prepared value).
+    Global/static storage defaults to 1,048,576 bytes, with statics rounded to
+    eight; its separate host cap is 16,777,216 bytes. *)
 
 val evaluate :
   ?max_ir_instructions:int ->
