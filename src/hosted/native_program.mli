@@ -35,14 +35,15 @@ val compile :
     initializers prepare at their original leaf callbacks under that same work
     budget. Their exact receipts authorize the native initial image, which
     restores declared-width values on each execution. Effectful initializers,
-    statics, pointers, arrays and other unsupported declarations/defaults reject
-    before native entry. This never interprets ordinary commands or allocates
-    executable memory. Parser warnings retain their original source identities.
-    Defaults are 4096 total IR instructions, 65536 code bytes, 4088 private
-    frame bytes, 4096 total blocks, 100,000 declaration-preparation steps and
-    65,536 bytes of saved default payloads (eight bytes per prepared value).
-    Global storage defaults to 1,048,576 declared bytes; its separate host cap
-    is 16,777,216 bytes. *)
+    static initializers, pointers, arrays and other unsupported
+    declarations/defaults reject before native entry. This never interprets
+    ordinary commands or allocates executable memory. Parser warnings retain
+    their original source identities. Defaults are 4096 total IR instructions,
+    65536 code bytes, 4088 private frame bytes, 4096 total blocks, 100,000
+    declaration-preparation steps and 65,536 bytes of saved default payloads
+    (eight bytes per prepared value). Global/static storage defaults to
+    1,048,576 bytes, with statics rounded to eight; its separate host cap is
+    16,777,216 bytes. *)
 
 val evaluate :
   ?max_ir_instructions:int ->
@@ -70,9 +71,9 @@ val evaluate :
     bytes default to 1,048,576 and active named calls to 128. The separate
     physical native stack limit defaults to its hard maximum of 65,536 bytes and
     includes compiler-private storage, return addresses and saved frame
-    pointers. Each execution owns fresh global data and initialization flags,
-    shared by entry and generated calls. Uninitialized AOT globals start at
-    zero; reached JIT reads before assignment retain the hosted
+    pointers. Each execution owns fresh global/static data and initialization
+    flags, shared by entry and generated calls. Uninitialized AOT objects start
+    at zero; reached JIT reads before assignment retain the hosted
     uninitialized-object fault. Prepared globals restore their initial values in
     both modes. *)
 

@@ -247,7 +247,12 @@ let with_native_source_defaults globals defaults =
     Option.is_some globals.task_view
     || globals.source_defaults <> []
     || Option.is_some globals.fragment_kind_
-    || globals.statics_ <> []
+    || List.exists
+         (fun slot ->
+           Integer_statics.initializers slot <> []
+           || Shape.dimensions (Integer_statics.shape slot) <> []
+           || Integer_statics.preparation_steps slot <> 0)
+         globals.statics_
     || List.exists
          (fun slot ->
            Option.is_some slot.declared_owner

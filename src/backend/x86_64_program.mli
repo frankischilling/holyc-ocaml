@@ -86,11 +86,12 @@ val compile_callable :
     from the entry. Calls are emitted only from exact sealed runtime-call
     metadata and preserve the shared native status context. The exact
     initialization context must be supplied even when empty. Ordinary scalar
-    globals use a private arena. Initial values require [global_initializers]
-    from their exact source preparation. Statics, arrays, retained storage and
-    scheduled initialization regions are rejected. Declaration-time parameter
-    defaults require [parameter_defaults] from the exact source preparation;
-    omitting it preserves the low-level rejection. *)
+    globals and scalar static locals use a private arena. Global initial values
+    require [global_initializers] from their exact source preparation. Static
+    initializers, arrays, retained storage and scheduled initialization regions
+    are rejected. Declaration-time parameter defaults require
+    [parameter_defaults] from the exact source preparation; omitting it
+    preserves the low-level rejection. *)
 
 val code : t -> string
 

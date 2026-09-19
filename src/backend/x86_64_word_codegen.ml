@@ -3202,10 +3202,11 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                               "global address slot has no checked pointer type"
                       in
                       if
-                        Ir.Integer_globals.slot_symbol source_slot != symbol
-                        || Ir.Integer_globals.slot_opcode source_slot
+                        Ir.Integer_globals.storage_symbol source_slot != symbol
+                        || Ir.Integer_globals.storage_opcode source_slot
                            <> description.opcode
-                        || not (Type.equal expected_type target_type)
+                        || (not (Type.equal expected_type target_type))
+                        || not (Global_storage.owns_address slot runtime_owner)
                       then
                         malformed description
                           "global address opcode, type or exact slot owner is \
@@ -3216,6 +3217,12 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | _ ->
                   malformed description "invalid native global address producer"
               )
+          | Opcode.Ic_abs_addr
+            when Option.fold ~none:false
+                   ~some:(fun type_ -> Type.pointer_depth type_ = 1)
+                   description.target_type ->
+              malformed description
+                "native absolute address requires an exact storage symbol"
           | Opcode.Ic_imm_i64
             when Option.fold ~none:false
                    ~some:(fun type_ -> Type.pointer_depth type_ = 1)
@@ -4189,10 +4196,12 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
   in
   let* global_storage =
     (match global_initializers with
-      | None -> Global_storage.create ~max_global_bytes ~initialization ~entry
+      | None ->
+          Global_storage.create ~functions ~max_global_bytes ~initialization
+            ~entry
       | Some initializers ->
-          Global_storage.create_prepared ~initializers ~max_global_bytes
-            ~initialization ~entry)
+          Global_storage.create_prepared ~functions ~initializers
+            ~max_global_bytes ~initialization ~entry)
     |> Result.map_error
          (List.map (fun (error : Global_storage.error) ->
               { code = error.code; message = error.message; span = error.span }))
