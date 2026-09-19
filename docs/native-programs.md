@@ -229,7 +229,13 @@ Programs use the existing integer-program v2 report with `target=host-jit` and
 termination and the full-width typed value as decimal and hexadecimal strings.
 The `native` object records the platform, requested compilation/live-stack limits
 and successful image metrics, including named-function count and entry stack
-bytes. Failed JSON reports retain diagnostics and, for checked arithmetic, budget,
+bytes. `native.image.code_bytes` is the exact encoded code length; human reports
+use `native-code-bytes`. `native.limits.code_bytes` remains the requested quota.
+The measured length includes generated prologues, meters, guards, fault blocks
+and epilogues. It excludes unwind metadata, stack/global storage and host mapping
+alignment. `X86_64_program.code_bytes` reads this length without copying the code
+image, including images retained by the API after a runtime fault.
+Failed JSON reports retain diagnostics and, for checked arithmetic, budget,
 storage or call-resource faults, actual native steps. They expose no final value or
 successful image; host bridge and cleanup failures expose no trusted step count.
 The private context is never serialized. The existing IR v2 renderer is

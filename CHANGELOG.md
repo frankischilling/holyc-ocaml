@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Added the actual encoded code-byte count to successful native program reports
+  and an API accessor that reads the count without copying the image.
+
 - Compacted consecutive equal switch destinations in native dispatch. Maximum
   single-case ranges now fit the default code limit while alternating targets
   retain code-quota checks. IR table storage and runtime work stay separately

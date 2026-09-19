@@ -97,6 +97,7 @@ val compile_callable :
     exact original declaration-time preparation for this bundle. *)
 
 val program_code : program_image -> string
+val program_code_bytes : program_image -> int
 val program_windows_unwind_info : program_image -> string
 
 val program_windows_unwind_functions :
