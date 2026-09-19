@@ -90,6 +90,16 @@ let modes = [ Preprocessor.Jit; Preprocessor.Aot ]
 let successful_differentials () =
   let cases =
     [
+      ( "global selector, updates and saved defaults",
+        "U8 Flag;I64 Total;I64 Bump(I64 n=1){switch(Flag++){case \
+         0:Total+=n;break;case 1...2:Total+=20;break;default:Total+=1;}return \
+         Total;}Flag=0;Total=1;Bump();Bump();Bump();Total;" );
+      ( "switch recursion shares global storage",
+        "I64 Total;I64 Sum(I64 n){switch(n){case 0:return \
+         Total;default:Total+=n;return Sum(n-1);}}Total=21;Sum(6);" );
+      ( "top-level switch updates shared global",
+        "I64 Total;Total=40;switch(Total){case \
+         40:Total+=2;break;default:Total=0;}Total;" );
       ( "dft function label",
         "I64 F(){goto dft;switch(0){case 0:return 0;dft:return 42;}return \
          -1;}F();" );

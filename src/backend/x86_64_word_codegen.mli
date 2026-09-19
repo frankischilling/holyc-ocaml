@@ -76,6 +76,7 @@ val compile_callable :
   ?status_abi:status_abi ->
   ?max_stack_bytes:int ->
   ?max_blocks:int ->
+  ?max_global_bytes:int ->
   ?parameter_defaults:Driver.Native_parameter_defaults.t ->
   max_ir_instructions:int ->
   max_code_bytes:int ->
@@ -113,3 +114,7 @@ val program_block_count : program_image -> int
 val program_function_count : program_image -> int
 val program_entry_stack_bytes : program_image -> int
 val program_sites : program_image -> program_site list
+val validate_global_limit : max_global_bytes:int -> (unit, error list) result
+val program_global_bytes : program_image -> int
+val program_global_image : program_image -> string
+val hard_max_global_bytes : int

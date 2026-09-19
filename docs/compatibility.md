@@ -8,6 +8,11 @@ reversed inclusive ranges, holes, defaults, fallthrough and nested breaks are
 admitted under separate preparation and cumulative table bounds. No-bound,
 sub-switch, multiple-default and effectful-case execution remain explicit gates.
 
+[Native scalar globals](native-globals.md) add ordinary uninitialized integer
+declarations to the hosted native target. AOT storage starts at zero; reached
+JIT unknown reads use the existing hosted fault policy. Initializers, statics,
+arrays, pointers and general persistent task storage remain outside this gate.
+
 [Function-local goto execution](integer-goto.md) connects #664's original
 resolved label occurrences to the shared interpreter/native block builder.
 Forward and backward transfers, consecutive/trailing labels and reordered `for`

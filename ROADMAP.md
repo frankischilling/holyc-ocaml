@@ -56,6 +56,11 @@ fallthrough, nested breaks and source ownership. Preparation nodes and cumulativ
 table slots have independent bounds; native dispatch uses the existing encoder
 and retains one metered IC site. No-bound/sub-switch regions and effectful case
 evaluation remain separate gates. See [switch execution](docs/integer-switch.md).
+
+Issue #667 adds [native scalar globals](docs/native-globals.md), shared by entry
+and generated calls with exact declared widths, AOT zero/JIT unknown state and
+fresh private arenas. Global declaration initializers and broader persistent
+storage remain open.
 The complete HolyC ABI, persistent and pointer memory operations, F64/x87 and
 conversions, runtime output, and general declaration/`#exe` native integration
 remain open. Optimizer parity, assembler and object/BIN output, actual TempleOS

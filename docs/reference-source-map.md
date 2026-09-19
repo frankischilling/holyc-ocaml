@@ -13,6 +13,11 @@ branches with one IC meter/site. Sealed receipt ownership, finite conversion
 guards, cumulative numeric work and table-slot caps are hosted policy. See
 [switch execution](integer-switch.md).
 
+[Native globals](native-globals.md) connects `PrsExp.HC:867-902`,
+`PrsStmt.HC:285-435`, `BackLib.HC:281-309,453-572` and
+`BackC.HC:159-204` to checked arena layout, generated scalar accesses and the
+host bridge. `reference/traceability.toml` records the implementation and tests.
+
 Issue #664 connects function-local goto and label fragments to executable source
 graphs. `PrsStmt.HC:1121-1131,1182-1199` supplies direct transfers, label
 definitions, duplicate checks and the no-global-label boundary;

@@ -11,6 +11,12 @@ separate from runtime instruction limits. The fixture is
 `examples/integer-switch.hc`; native instruction comparisons use the matching
 isolated checked unit. See [switch execution](integer-switch.md).
 
+Native global tests cover declared widths, adjacent objects, shared/recursive
+calls, defaults, gotos, compound RHS effects, fresh arena state and nested fault
+unwind in both modes. Compile-only tests verify exact storage identities and
+reject mutated address producers; API/CLI tests verify values and quotas through
+`examples/native-scalar-globals.hc`. See [native globals](native-globals.md).
+
 Goto execution tests connect original function-local label resolution to public
 interpreter, native API and CLI runs in both preprocessing modes. They cover
 forward/backward jumps, equal names in separate functions, consecutive/trailing

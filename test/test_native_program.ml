@@ -1152,8 +1152,118 @@ let compiled_control_rel32_bytes () =
   Alcotest.(check string)
     "adjacent branch fallthrough keeps JMP rel32=0" "e900000000" (slice 89 5)
 
+let native_global_admission () =
+  let module Globals = Ir_integer_globals in
+  let module Layout = Holyc_lib__Backend.X86_64_global_storage in
+  let source = "I8 G;G=42;G;" in
+  List.iter
+    (fun mode ->
+      let unit = integer_unit ~mode source in
+      let other = integer_unit ~mode source in
+      let image = compile_callable unit |> require_ok program_errors in
+      Alcotest.(check int) "logical scalar width" 1 (Program.global_bytes image);
+      let exported = Program.global_image image in
+      let original = Bytes.to_string (Bytes.of_string exported) in
+      Bytes.fill
+        (Bytes.unsafe_of_string exported)
+        0 (String.length exported) '\255';
+      Alcotest.(check string)
+        "exported arena cannot mutate image" original
+        (Program.global_image image);
+      ignore
+        (reject ~code:"HCBACK0003" "foreign initialization"
+           (Program.compile_callable ~max_ir_instructions:4096
+              ~max_code_bytes:65536
+              ~runtime_calls:(integer_program_runtime_calls unit)
+              ~initialization:(integer_program_initialization other)
+              ~entry:(integer_program_entry unit)
+              ~functions:[] ()));
+      ignore
+        (reject ~code:"HCBACK0003" "foreign calls"
+           (Program.compile_callable ~max_ir_instructions:4096
+              ~max_code_bytes:65536
+              ~runtime_calls:(integer_program_runtime_calls other)
+              ~initialization:(integer_program_initialization unit)
+              ~entry:(integer_program_entry unit)
+              ~functions:[] ()));
+      let layout =
+        Layout.create ~max_global_bytes:1
+          ~initialization:(integer_program_initialization unit)
+          ~entry:(integer_program_entry unit)
+        |> require_ok (fun es ->
+            String.concat "; "
+              (List.map (fun (e : Layout.error) -> e.message) es))
+      in
+      let own =
+        Globals.slots (integer_program_globals unit)
+        |> List.hd |> Globals.slot_symbol
+      in
+      let foreign =
+        Globals.slots (integer_program_globals other)
+        |> List.hd |> Globals.slot_symbol
+      in
+      Alcotest.(check bool)
+        "owned symbol lookup" true
+        (Option.is_some (Layout.find_symbol layout own));
+      Alcotest.(check bool)
+        "equal-spelling foreign symbol" true
+        (Option.is_none (Layout.find_symbol layout foreign));
+      let mutations =
+        [
+          ( "wrong address opcode",
+            fun (d : Sequence.description) ->
+              {
+                d with
+                opcode =
+                  (if mode = Preprocessor.Jit then Opcode.Ic_abs_addr
+                   else Opcode.Ic_imm_i64);
+              } );
+          ( "foreign symbol",
+            fun d -> { d with payload = Some (Sequence.Symbol foreign) } );
+          ( "wrong address type",
+            fun d ->
+              {
+                d with
+                target_type = Some (Type.pointer_to u64 |> require_ok Fun.id);
+              } );
+        ]
+      in
+      List.iter
+        (fun (label, mutate) ->
+          let unit = integer_unit ~mode source in
+          ignore (compile_callable unit |> require_ok program_errors);
+          let graph = integer_program_entry unit |> X87.graph in
+          let rec producer = function
+            | [] -> None
+            | first :: rest as cell -> (
+                let d = Sequence.description first in
+                match d.payload with
+                | Some (Sequence.Symbol _) -> Some (cell, d)
+                | _ -> producer rest)
+          in
+          let cell, d =
+            Graph.blocks graph
+            |> List.find_map (fun b ->
+                producer (Graph.instructions b |> Sequence.instructions))
+            |> Option.get
+          in
+          (* Preserve the sealed graph owner while corrupting one producer, so the
+         backend guard itself must reject the malformed storage instruction. *)
+          Obj.set_field (Obj.repr cell) 0 (Obj.repr (mutate d));
+          ignore (reject ~code:"HCBACK0003" label (compile_callable unit)))
+        mutations)
+    [ Preprocessor.Jit; Preprocessor.Aot ];
+  List.iter
+    (fun source ->
+      let unit = integer_unit ~mode:Preprocessor.Aot source in
+      ignore
+        (reject ~code:"HCBACK0002" "unsupported storage" (compile_callable unit)))
+    [ "I64 G=42;G;"; "I64 G[1];42;"; "I64 F(){static I64 G;return 42;}F();" ]
+
 let tests =
   [
+    Alcotest.test_case "native global storage authority" `Quick
+      native_global_admission;
     Alcotest.test_case "decoder preserves completion and exact step count"
       `Quick decoder_completion;
     Alcotest.test_case "budget and empty-stream status semantics" `Quick

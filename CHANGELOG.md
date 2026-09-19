@@ -9,6 +9,12 @@
   preparation-work and cumulative table-storage bounds retain progress on
   failure; unsupported case effects and no-bound/sub-switch regions reject.
 
+- Added native scalar globals shared by entry code and direct/recursive calls.
+  Generated accesses preserve declared widths and full expression results;
+  fresh arenas retain AOT zero initialization and hosted JIT unknown-read faults.
+  Exact storage ownership, separate logical/private byte limits and immutable
+  image exports are covered by compile-only, native API and CLI tests.
+
 - Connected function-local language labels and direct gotos to shared checked
   source execution in the interpreter and native target. Original owner and
   occurrence identities select reserved blocks; labels are structural boundaries,

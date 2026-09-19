@@ -79,7 +79,9 @@ Case and default labels begin structural blocks in source order. Ordinary
 fallthrough, a default in the middle of the body, the nearest `break`, nested
 switches/loops and function-local gotos retain their normal continuations.
 Calls, saved defaults, initialization faults, U0 completion and native
-word-return completeness retain the existing shared execution contracts.
+word-return completeness retain the existing shared execution contracts. Native
+scalar globals compose with switch selectors, updates, saved defaults and
+recursive calls; these combinations have checked-IR/native regression coverage.
 
 ## Work, storage and exclusions
 

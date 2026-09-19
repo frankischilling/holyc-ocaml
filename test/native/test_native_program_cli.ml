@@ -199,6 +199,8 @@ let check_success ?(preparation = 0) ?(default_bytes = 0) report =
       "frame_bytes";
       "block_count";
       "function_count";
+      "global_bytes";
+      "global_arena_bytes";
       "entry_stack_bytes";
     ]
     image;

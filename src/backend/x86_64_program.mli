@@ -68,6 +68,7 @@ val compile_callable :
   ?status_abi:status_abi ->
   ?max_stack_bytes:int ->
   ?max_blocks:int ->
+  ?max_global_bytes:int ->
   ?parameter_defaults:Driver.Native_parameter_defaults.t ->
   max_ir_instructions:int ->
   max_code_bytes:int ->
@@ -83,11 +84,11 @@ val compile_callable :
     Every named definition is preflighted, including definitions unreachable
     from the entry. Calls are emitted only from exact sealed runtime-call
     metadata and preserve the shared native status context. The exact
-    initialization context must be supplied even when empty; persistent storage,
-    initialization regions, publications and their preparation work are not
-    admitted. Declaration-time parameter defaults require [parameter_defaults]
-    from the exact source preparation; omitting it preserves the low-level
-    rejection. *)
+    initialization context must be supplied even when empty. Ordinary scalar
+    globals without initializers use a private arena; statics, arrays, retained
+    storage, initialization regions and their preparation work are rejected.
+    Declaration-time parameter defaults require [parameter_defaults] from the
+    exact source preparation; omitting it preserves the low-level rejection. *)
 
 val code : t -> string
 val windows_unwind_info : t -> string
@@ -97,8 +98,9 @@ val ir_instructions : t -> int
 val machine_instructions : t -> int
 
 val register_peak : t -> int
-(** Peak allocator-visible register pressure. Callable images reserve R10/R11
-    for the shared runtime context/budget; dedicated RBP/RSP frame bases are not
+(** Peak allocator-visible register pressure. Storage-bearing callable images
+    also reserve R9 for the arena. Callable images reserve R10/R11 for the
+    shared runtime context/budget; dedicated RBP/RSP frame bases are not
     allocator-visible and are excluded from this metric. *)
 
 val frame_bytes : t -> int
@@ -130,3 +132,11 @@ val decode_runtime_status :
     equal to [max_steps]; arithmetic, call-quota and uninitialized-read faults
     must name a matching checked dense site. The native bridge validates the
     three restored callable quota words before invoking this decoder. *)
+
+val validate_global_limit : max_global_bytes:int -> (unit, error list) result
+val global_bytes : t -> int
+
+val global_image : t -> string
+(** Fresh copy of the private initial data and per-object initialization flags.
+    Each native invocation allocates its own non-executable arena from this
+    image. *)

@@ -12161,3 +12161,18 @@ resources = "positive max_switch_work defaults100000 and counts reached numeric 
 reporting = "source/native report getters preserve reached switch work on failure; v2 switch_work_limit and switch_preparation_work are additive fields; each reached dispatch retains one IC instruction meter and original source/fault site despite machine expansion"
 excluded = ["no-bound bracket dispatch", "sub-switch front porch/start/end execution", "multiple-default execution", "effectful case evaluation and unsupported reference/query forms", "floating selectors and general conversion/optimizer parity", "native declaration/#exe execution and full HolyC ABI", "object/BIN writing, actual loader acceptance, whole-tree compilation and bootstrap"]
 verification_boundary = "source-derived expected values, private ownership/phase checks, canonical graph validation and explicit own-encoder native API/CLI tests; finite numeric conversion guards, preparation meters, table limits and checked faults are hosted policy, not new TempleOS oracle captures"
+
+[[feature]]
+id = "HC-NATIVE-SCALAR-GLOBALS"
+description = "Ordinary scalar globals execute through checked symbolic addresses and fresh private native arenas shared by entry and direct functions."
+sources = ["Compiler/PrsExp.HC:867-902", "Compiler/PrsStmt.HC:285-435", "Compiler/BackLib.HC:281-309,453-572", "Compiler/BackC.HC:159-204"]
+implementation = ["src/backend/x86_64_global_storage.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_encoder.ml", "src/backend/x86_64_program.ml", "src/hosted/native_program.ml", "src/ir/integer_globals.ml", "src/runtime/native_program_execution.ml", "src/native_execution_stubs.c", "bin/run_report.ml"]
+tests = ["test/test_native_expression.ml", "test/test_native_program.ml", "test/native/test_native_global_execution.ml", "test/native/test_native_global_cli.ml", "examples/native-scalar-globals.hc"]
+documentation = ["docs/native-globals.md", "docs/native-programs.md", "SECURITY.md", "docs/testing.md"]
+status = "implemented"
+issue = 667
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+resources = "Declared widths count against the positive global-byte limit (16 MiB hard cap); one initialization byte per object has a separate 32 MiB arena cap. Native images without named functions still use the arena bridge when storage is present."
+identity = "Exact initialization/entry/call/default bundles and original symbol objects select checked scalar slots, address opcodes and pointer types. Exported image bytes are copies."
+excluded = ["declaration initializers", "static locals", "arrays and pointers", "aggregates", "aliases and extern/import/data-heap storage", "retained task storage", "full ABI and runtime", "object/BIN output and loader acceptance"]
+native_oracle_status = "Pinned source plus checked interpreter and generated host execution; no new TempleOS oracle capture. JIT unknown reads and quotas are hosted policies."

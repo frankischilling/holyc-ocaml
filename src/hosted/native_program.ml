@@ -37,7 +37,7 @@ let image_errors ~fallback errors =
     errors
 
 let validate_limits ~span ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
-    ~max_blocks =
+    ~max_blocks ~max_global_bytes =
   let errors = image_errors ~fallback:span in
   let* () =
     Image.validate_limits ~max_ir_instructions ~max_code_bytes
@@ -46,7 +46,8 @@ let validate_limits ~span ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
   let* () =
     Image.validate_stack_limit ~max_stack_bytes |> Result.map_error errors
   in
-  Image.validate_block_limit ~max_blocks |> Result.map_error errors
+  let* () = Image.validate_block_limit ~max_blocks |> Result.map_error errors in
+  Image.validate_global_limit ~max_global_bytes |> Result.map_error errors
 
 let source_error span message = diagnostic ~span "HCRUN0001" message
 
@@ -153,21 +154,22 @@ let local_source_error (declaration : Ast.local_declaration) =
               reject "native automatic locals require scalar initializers")
       declaration.local_declarators
 
-let storage_binary (operator : Frontend.Operator.binary_operator) =
-  List.mem operator.ic_name
-    [
-      "IC_ASSIGN";
-      "IC_SHL_EQU";
-      "IC_SHR_EQU";
-      "IC_MUL_EQU";
-      "IC_DIV_EQU";
-      "IC_MOD_EQU";
-      "IC_AND_EQU";
-      "IC_OR_EQU";
-      "IC_XOR_EQU";
-      "IC_ADD_EQU";
-      "IC_SUB_EQU";
-    ]
+let global_source_error ~span ~modifiers ~binding ~type_specifier
+    ~pointer_layers ~function_pointer ~array_dimensions ~has_initializer =
+  let reject message = Some (source_error span message) in
+  if modifiers <> [] || Option.is_some binding then
+    reject
+      "native globals require ordinary declarations without modifiers or \
+       aliases"
+  else if not (scalar_word_type type_specifier) then
+    reject "native globals require nonzero scalar integer types"
+  else if pointer_layers <> [] || Option.is_some function_pointer then
+    reject "native globals do not admit pointer or callback storage"
+  else if array_dimensions <> [] then
+    reject "native globals do not admit arrays"
+  else if has_initializer then
+    reject "native globals do not admit declaration initializers"
+  else None
 
 let ast_errors (ast : Ast.module_) =
   let first_error = ref None in
@@ -194,12 +196,33 @@ let ast_errors (ast : Ast.module_) =
                 Option.iter
                   (fun body -> work := Gate_statement (true, body) :: !work)
                   definition.body)
+        | Gate_item (Ast.Global_variable variable) ->
+            Option.iter reject
+              (global_source_error ~span:variable.location.span
+                 ~modifiers:variable.modifiers ~binding:variable.binding
+                 ~type_specifier:variable.type_specifier
+                 ~pointer_layers:variable.pointer_layers ~function_pointer:None
+                 ~array_dimensions:variable.array_dimensions
+                 ~has_initializer:false)
+        | Gate_item (Ast.Global_declaration declaration) ->
+            List.find_map
+              (fun (variable : Ast.global_declarator) ->
+                global_source_error ~span:variable.location.span
+                  ~modifiers:declaration.modifiers ~binding:declaration.binding
+                  ~type_specifier:declaration.type_specifier
+                  ~pointer_layers:variable.pointer_layers
+                  ~function_pointer:variable.function_pointer
+                  ~array_dimensions:variable.array_dimensions
+                  ~has_initializer:
+                    (Option.is_some variable.global_initial_value))
+              declaration.declarators
+            |> Option.iter reject
         | Gate_item item ->
             reject
               (source_error (item_span item)
-                 "native programs admit only source function definitions and \
-                  executable statements; other declarations require a later \
-                  source gate")
+                 "native programs admit only scalar globals, source function \
+                  definitions and executable statements; other declarations \
+                  require a later source gate")
         | Gate_expression (in_function, expression) -> (
             match expression with
             | Ast.Integer_literal _
@@ -213,12 +236,7 @@ let ast_errors (ast : Ast.module_) =
                 reject
                   (source_error literal.literal_location.span
                      "native programs do not admit string-literal storage")
-            | Ast.Identifier_expression identifier ->
-                if not in_function then
-                  reject
-                    (source_error identifier.location.span
-                       "native entry expressions do not admit identifier \
-                        storage")
+            | Ast.Identifier_expression _ -> ()
             | Ast.Parenthesized_expression grouped ->
                 work :=
                   Gate_expression (in_function, grouped.grouped_expression)
@@ -228,44 +246,29 @@ let ast_errors (ast : Ast.module_) =
                 | Ast.Unary_plus
                 | Ast.Unary_minus
                 | Ast.Logical_not
-                | Ast.Bitwise_not ->
+                | Ast.Bitwise_not
+                | Ast.Pre_increment
+                | Ast.Pre_decrement ->
                     work :=
                       Gate_expression (in_function, prefix.prefix_operand)
                       :: !work
-                | (Ast.Pre_increment | Ast.Pre_decrement) when in_function ->
-                    work :=
-                      Gate_expression (true, prefix.prefix_operand) :: !work
-                | Ast.Dereference
-                | Ast.Address_of
-                | Ast.Pre_increment
-                | Ast.Pre_decrement ->
+                | Ast.Dereference | Ast.Address_of ->
                     reject
                       (source_error prefix.prefix_location.span
-                         "native programs do not admit pointer or storage \
-                          prefix expressions"))
+                         "native programs do not admit pointer prefix \
+                          expressions"))
             | Ast.Postfix_cast_expression cast ->
                 work :=
                   Gate_expression (in_function, cast.cast_operand) :: !work
             | Ast.Binary_expression binary ->
-                if storage_binary binary.binary_operator_spec && not in_function
-                then
-                  reject
-                    (source_error binary.binary_location.span
-                       "native programs do not admit assignment or compound \
-                        storage expressions")
-                else
-                  work :=
-                    Gate_expression (in_function, binary.binary_left)
-                    :: Gate_expression (in_function, binary.binary_right)
-                    :: !work
+                work :=
+                  Gate_expression (in_function, binary.binary_left)
+                  :: Gate_expression (in_function, binary.binary_right)
+                  :: !work
             | Ast.Postfix_expression postfix ->
-                if in_function then
-                  work :=
-                    Gate_expression (true, postfix.postfix_operand) :: !work
-                else
-                  reject
-                    (source_error postfix.postfix_location.span
-                       "native entry expressions do not admit storage updates")
+                work :=
+                  Gate_expression (in_function, postfix.postfix_operand)
+                  :: !work
             | Ast.Call_expression call -> (
                 match call.call_callee with
                 | Ast.Identifier_expression _ ->
@@ -431,8 +434,8 @@ let program_storage_errors compiled span =
   let errors = ref [] in
   let add message = errors := source_error span message :: !errors in
   let globals = Integer_unit.globals compiled in
-  if Ir.Integer_globals.byte_size globals <> 0 then
-    add "native programs require an entry with no global or static storage";
+  if Ir.Integer_globals.statics globals <> [] then
+    add "native programs do not admit static local storage";
   if Ir.Integer_globals.has_initializers globals then
     add
       "native programs require an entry with no global initializer preparation";
@@ -456,8 +459,9 @@ let program_storage_errors compiled span =
 let compile_with_preparation ?(max_ir_instructions = 4096)
     ?(max_code_bytes = 65536) ?(max_stack_bytes = Image.hard_max_stack_bytes)
     ?(max_blocks = 4096) ?(max_initializer_steps = 100_000)
-    ?(max_switch_work = 100_000) ?(max_default_bytes = 65_536) ?status_abi
-    ~preparation_steps ~switch_work ~default_bytes session ~config ~source =
+    ?(max_switch_work = 100_000) ?(max_default_bytes = 65_536)
+    ?(max_global_bytes = 1_048_576) ?status_abi ~preparation_steps ~switch_work
+    ~default_bytes session ~config ~source =
   let span = Integer_source.source_span source in
   let* () =
     if max_initializer_steps > 0 && max_default_bytes > 0 && max_switch_work > 0
@@ -472,7 +476,7 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
   in
   let* () =
     validate_limits ~span ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
-      ~max_blocks
+      ~max_blocks ~max_global_bytes
   in
   let* ledger =
     Task_declarations.create_source ~max_offset_work:max_initializer_steps
@@ -531,13 +535,31 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
                       diagnostic ~span:receipt.dimension_opening.span
                         "HCRUN0001" "native source does not admit array storage";
                     ]
-              | Frontend.Parser.Aggregate_declared _
-              | Frontend.Parser.Global_declared _ ->
+              | Frontend.Parser.Global_declared publication -> (
+                  match
+                    global_source_error
+                      ~span:publication.global_name.location.span
+                      ~modifiers:publication.global_header.modifiers
+                      ~binding:publication.global_header.binding
+                      ~type_specifier:publication.global_header.type_specifier
+                      ~pointer_layers:publication.global_pointer_layers
+                      ~function_pointer:publication.global_function_pointer
+                      ~array_dimensions:publication.global_dimensions
+                      ~has_initializer:false
+                  with
+                  | None -> Ok ()
+                  | Some error -> Error [ error ])
+              | Frontend.Parser.Global_initializer_started receipt ->
+                  Error
+                    [
+                      source_error receipt.initializer_equals.span
+                        "native globals do not admit declaration initializers";
+                    ]
+              | Frontend.Parser.Aggregate_declared _ ->
                   Error
                     [
                       diagnostic ~span "HCRUN0001"
-                        "native source does not admit aggregate or global \
-                         declarations";
+                        "native source does not admit aggregate declarations";
                     ]
               | _ -> Ok ()
             in
@@ -590,7 +612,10 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
               | _ :: _ as errors -> Error (diagnostics @ errors)
               | [] ->
                   (match Integer_unit.functions checked.value with
-                    | [] ->
+                    | []
+                      when Ir.Integer_globals.byte_size
+                             (Integer_unit.globals checked.value)
+                           = 0 ->
                         Image.compile ?status_abi ~max_stack_bytes ~max_blocks
                           ~max_ir_instructions ~max_code_bytes
                           (Integer_unit.entry checked.value)
@@ -619,7 +644,7 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
                         in
                         Image.compile_callable ~parameter_defaults ?status_abi
                           ~max_stack_bytes ~max_blocks ~max_ir_instructions
-                          ~max_code_bytes
+                          ~max_code_bytes ~max_global_bytes
                           ~runtime_calls:
                             (Integer_unit.runtime_calls checked.value)
                           ~initialization:
@@ -631,12 +656,12 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
                       diagnostics @ image_errors ~fallback:span errors))))
 
 let compile ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
-    ?max_initializer_steps ?max_switch_work ?max_default_bytes ?status_abi
-    session ~config ~source =
+    ?max_initializer_steps ?max_switch_work ?max_default_bytes ?max_global_bytes
+    ?status_abi session ~config ~source =
   compile_with_preparation ?max_ir_instructions ?max_code_bytes ?max_stack_bytes
     ?max_blocks ?max_initializer_steps ?max_switch_work ?max_default_bytes
-    ?status_abi ~preparation_steps:(ref 0) ~switch_work:(ref 0)
-    ~default_bytes:(ref 0) session ~config ~source
+    ?max_global_bytes ?status_abi ~preparation_steps:(ref 0)
+    ~switch_work:(ref 0) ~default_bytes:(ref 0) session ~config ~source
 
 let fault_diagnostic ~fallback (fault : Image.fault) =
   let code, message =
@@ -668,7 +693,7 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
         ( "HCNATIVE0006",
           "the simultaneous native stack byte limit was exhausted" )
     | Image.Uninitialized_read ->
-        ("HCIRVM0012", "native execution read an uninitialized automatic local")
+        ("HCIRVM0012", "native execution read an uninitialized scalar object")
   in
   Common.Diagnostic.make ~code ~severity:Common.Diagnostic.Error ~message
     ~primary:(Option.value fault.span ~default:fallback)
@@ -692,8 +717,8 @@ let host_diagnostic ~span platform message =
 
 let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
     ?(max_initializer_steps = 100_000) ?(max_default_bytes = 65_536)
-    ?(max_switch_work = 100_000) ?(max_frame_bytes = 1_048_576)
-    ?(max_call_depth = 128)
+    ?(max_switch_work = 100_000) ?(max_global_bytes = 1_048_576)
+    ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
     ?(max_active_stack_bytes = Native.hard_max_active_stack_bytes) ?status_abi
     session ~config ~source ~max_steps =
   let span = Integer_source.source_span source in
@@ -731,8 +756,8 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
     match
       compile_with_preparation ?max_ir_instructions ?max_code_bytes
         ?max_stack_bytes ?max_blocks ~max_initializer_steps ~max_switch_work
-        ~max_default_bytes ?status_abi ~preparation_steps ~switch_work
-        ~default_bytes session ~config ~source
+        ~max_default_bytes ~max_global_bytes ?status_abi ~preparation_steps
+        ~switch_work ~default_bytes session ~config ~source
     with
     | Error diagnostics ->
         {
@@ -748,7 +773,7 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
     | Ok checked -> (
         match
           Native.execute ~max_steps ~max_frame_bytes ~max_call_depth
-            ~max_active_stack_bytes checked.value
+            ~max_active_stack_bytes ~max_global_bytes checked.value
         with
         | Error message ->
             {

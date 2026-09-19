@@ -66,12 +66,12 @@ let compile ?status_abi ?max_stack_bytes ?max_blocks ~max_ir_instructions
   |> Result.map_error project_errors
   |> Result.map (fun image -> { image })
 
-let compile_callable ?status_abi ?max_stack_bytes ?max_blocks
+let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
     ?parameter_defaults ~max_ir_instructions ~max_code_bytes ~runtime_calls
     ~initialization ~entry ~functions () =
   Codegen.compile_callable ?status_abi ?max_stack_bytes ?max_blocks
-    ?parameter_defaults ~max_ir_instructions ~max_code_bytes ~runtime_calls
-    ~initialization ~entry ~functions ()
+    ?max_global_bytes ?parameter_defaults ~max_ir_instructions ~max_code_bytes
+    ~runtime_calls ~initialization ~entry ~functions ()
   |> Result.map_error project_errors
   |> Result.map (fun image -> { image })
 
@@ -264,3 +264,10 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                        instruction"
                   else make_fault Uninitialized_read None
                 else Error "native program status has an unknown fault kind")
+
+let validate_global_limit ~max_global_bytes =
+  Codegen.validate_global_limit ~max_global_bytes
+  |> Result.map_error project_errors
+
+let global_bytes compiled = Codegen.program_global_bytes compiled.image
+let global_image compiled = Codegen.program_global_image compiled.image

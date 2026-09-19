@@ -1,5 +1,11 @@
 # holyc-ocaml
 
+[Native scalar globals](docs/native-globals.md) share declared-width integer storage
+between generated entry code and direct functions.
+`holyc run --target=host-jit examples/native-scalar-globals.hc` returns 42 in
+both preprocessing modes. Declaration initializers and pointer storage remain
+unsupported by this native increment.
+
 [Retained named types](docs/retained-named-types.md) preserve an aggregate
 selected before a nested `#exe` shadows its name. The original function header
 and parameter keep that identity through completion.

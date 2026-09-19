@@ -818,7 +818,11 @@ let native_program_file ~max_dimension_work ~max_switch_work
           Result.bind
             (Holyc_lib.X86_64_program.validate_stack_limit ~max_stack_bytes)
             (fun () ->
-              Holyc_lib.X86_64_program.validate_block_limit ~max_blocks))
+              Result.bind
+                (Holyc_lib.X86_64_program.validate_block_limit ~max_blocks)
+                (fun () ->
+                  Holyc_lib.X86_64_program.validate_global_limit
+                    ~max_global_bytes)))
     in
     match native_limit_result with
     | Error (error :: _) -> fail error.code error.message
@@ -845,8 +849,8 @@ let native_program_file ~max_dimension_work ~max_switch_work
                        ~max_code_bytes ~max_stack_bytes ~max_blocks
                        ~max_initializer_steps ~max_default_bytes
                        ~max_switch_work ~max_frame_bytes ~max_call_depth
-                       ~max_active_stack_bytes session ~config ~source
-                       ~max_steps)
+                       ~max_active_stack_bytes ~max_global_bytes session ~config
+                       ~source ~max_steps)
                   ()))
 
 let run_target_argument =

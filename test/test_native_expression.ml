@@ -1662,6 +1662,112 @@ let encoder_narrow_frame_bytes () =
             (Encoder.R11, edge, Encoder.Frame8, Encoder.Sign_extend))
       |> hex))
 
+let encoder_arena_bytes () =
+  (* Literal bytes come from the same pinned MOV/MOVSX/MOVZX/MOVSXD forms as the
+     frame tests, with R9 fixed as the ModR/M base. REX.B is therefore always
+     present; REX.R varies only with the value register. *)
+  let slot offset = Encoder.arena_slot ~offset |> require_ok Fun.id in
+  let cases =
+    let open Encoder in
+    [
+      ("qword arena load into RAX", Load_arena (Rax, slot 0), "498b8100000000");
+      ( "unaligned qword arena store from RCX",
+        Store_arena (slot 1, Rcx),
+        "49898901000000" );
+      ( "extended qword arena load into R8",
+        Load_arena (R8, slot 0x12345678),
+        "4d8b8178563412" );
+      ( "extended qword arena store from R10",
+        Store_arena (slot 3, R10),
+        "4d899103000000" );
+      ( "signed arena byte into RAX",
+        Load_arena_narrow (Rax, slot 1, Frame8, Sign_extend),
+        "490fbe8101000000" );
+      ( "unsigned arena byte into RDX",
+        Load_arena_narrow (Rdx, slot 1, Frame8, Zero_extend),
+        "490fb69101000000" );
+      ( "signed arena word into R8",
+        Load_arena_narrow (R8, slot 2, Frame16, Sign_extend),
+        "4d0fbf8102000000" );
+      ( "unsigned arena word into R11",
+        Load_arena_narrow (R11, slot 3, Frame16, Zero_extend),
+        "4d0fb79903000000" );
+      ( "signed arena dword into RCX",
+        Load_arena_narrow (Rcx, slot 4, Frame32, Sign_extend),
+        "49638904000000" );
+      ( "unsigned arena dword into R8",
+        Load_arena_narrow (R8, slot 4, Frame32, Zero_extend),
+        "458b8104000000" );
+      ( "store arena byte from RCX",
+        Store_arena_narrow (slot 1, Frame8, Rcx),
+        "41888901000000" );
+      ( "store arena byte from R10",
+        Store_arena_narrow (slot 1, Frame8, R10),
+        "45889101000000" );
+      ( "store arena word from RAX",
+        Store_arena_narrow (slot 2, Frame16, Rax),
+        "6641898102000000" );
+      ( "store arena word from R11",
+        Store_arena_narrow (slot 2, Frame16, R11),
+        "6645899902000000" );
+      ( "store arena dword from RCX",
+        Store_arena_narrow (slot 4, Frame32, Rcx),
+        "41898904000000" );
+      ( "store arena dword from R8",
+        Store_arena_narrow (slot 4, Frame32, R8),
+        "45898104000000" );
+      ( "load immutable arena pointer from context",
+        Load_context (R9, 72),
+        "4d8b4b48" );
+    ]
+  in
+  List.iter
+    (fun (label, instruction, expected) ->
+      Alcotest.(check string) label expected (hex (Encoder.encode instruction));
+      Alcotest.(check int)
+        (label ^ " exact byte count")
+        (String.length expected / 2)
+        (Encoder.size instruction))
+    cases;
+  let instructions = List.map (fun (_, instruction, _) -> instruction) cases in
+  let expected =
+    String.concat "" (List.map (fun (_, _, bytes) -> bytes) cases)
+  in
+  let bytes = String.length expected / 2 in
+  Alcotest.(check string)
+    "arena forms fit their exact aggregate code quota" expected
+    (Encoder.encode_all ~max_code_bytes:bytes instructions
+    |> require_ok Fun.id |> hex);
+  Alcotest.(check bool)
+    "arena forms reject one byte below their code quota" true
+    (Encoder.encode_all ~max_code_bytes:(bytes - 1) instructions
+    |> Result.is_error);
+  Alcotest.(check bool)
+    "negative arena displacement rejects" true
+    (Encoder.arena_slot ~offset:(-1) |> Result.is_error);
+  let invalid_write =
+    try
+      ignore (Encoder.size (Encoder.Store_context (72, Encoder.Rax)));
+      false
+    with Invalid_argument _ -> true
+  in
+  Alcotest.(check bool)
+    "arena pointer context word is not writable by generated code" true
+    invalid_write;
+  if Sys.int_size > 32 then (
+    Alcotest.(check bool)
+      "arena displacement above signed disp32 rejects" true
+      (Encoder.arena_slot ~offset:(Int64.to_int 2147483648L) |> Result.is_error);
+    let edge =
+      Encoder.arena_slot ~offset:(Int64.to_int 2147483647L) |> require_ok Fun.id
+    in
+    Alcotest.(check string)
+      "maximum arena displacement retains every bit" "490fbe81ffffff7f"
+      (Encoder.encode
+         (Encoder.Load_arena_narrow
+            (Encoder.Rax, edge, Encoder.Frame8, Encoder.Sign_extend))
+      |> hex))
+
 let predicate_bytes () =
   let comparisons =
     [
@@ -4361,6 +4467,8 @@ let tests =
       encoder_divmod_status_bytes;
     Alcotest.test_case "narrow RBP memory forms preserve width and extension"
       `Quick encoder_narrow_frame_bytes;
+    Alcotest.test_case "private R9 arena forms have exact independent bytes"
+      `Quick encoder_arena_bytes;
     Alcotest.test_case
       "high-register sharing preserves subtraction and duplicates" `Quick
       high_register_shared_bytes;
