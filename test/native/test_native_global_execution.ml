@@ -102,6 +102,7 @@ let prepared_initializers () =
       ("declarator list", "I64 A=20,B=22;A+B;", "I64", 42L);
       ("primitive size", "I64 G=sizeof(I64)+34;G;", "I64", 42L);
       ("calls", "I64 G=40;I64 Add(I64 n=2){G+=n;return G;}Add();", "I64", 42L);
+      ("earlier default", "I64 F(I64 n=2){return n;}I64 G=40;G+F();", "I64", 42L);
       ( "recursion",
         "I64 G=21;I64 F(I64 n){if(n){G+=n;return F(n-1);}return G;}F(6);",
         "I64",

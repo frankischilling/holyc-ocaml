@@ -214,6 +214,8 @@ let failed_preparation () =
             (Native_program.preparation_steps report > 0))
         [
           ("I64 A=40;I64 B=1/0;42;", "HCIRVM0009");
+          ("I64 F(I64 n=40){return n;}I64 B=1/0;42;", "HCIRVM0009");
+          ("I64 A=40;I64 F(I64 n=1/0){return n;}42;", "HCIRVM0009");
           ("I64 A=40;I64 B=0&&(1/0);42;", "HCIRVM0009");
           ("I64 A=40;I64 B=1/0;I64 C=1<<2;42;", "HCIRVM0009");
           ("I64 A=40;I64 B=A;42;", "HCRUN0006");
