@@ -646,6 +646,7 @@ let source_gate_is_compile_only () =
       "I64 NeverCalled(){return 1/0;}\n\
        I64 Add(I64 a,I64 b){I64 sum=a+b;return sum;}\n\
        Add(20,22);";
+      "I64 G=42; I64 F(){return G;} F();";
     ]
   in
   List.iter
@@ -681,10 +682,10 @@ let source_gate_is_compile_only () =
                      || String.starts_with ~prefix:"HCNATIVE" error.code)
                    diagnostics))
         [
-          "I64 x=1/0; 42;";
+          "I64 x[1]={1/0}; 42;";
           "I64 Bad(){F64 x=1.0;return 0;} 42;";
           "F64 Bad(){return 1.0;} 42;";
-          "I64 G=42; I64 F(){return G;} F();";
+          "I64 F(){return 42;} I64 G=F(); G;";
           "I64 F(){static I64 n=0;return ++n;} F();";
           "I64 F(I64 *p){return *p;} 42;";
           "I64 F(I64 n,...){return n;} F(42);";

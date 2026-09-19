@@ -22,8 +22,9 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 3)
-    "usage: test_native_global_cli.exe <holyc.exe> <native-scalar-globals.hc>"
+    (Array.length Sys.argv = 4)
+    "usage: test_native_global_cli.exe <holyc.exe> <globals.hc> \
+     <initializers.hc>"
 
 let compiler = Sys.argv.(1)
 let global_fixture = Sys.argv.(2)
@@ -126,6 +127,36 @@ let check_word report type_ value bits =
 let () =
   List.iter
     (fun mode ->
+      let prepared = host_json ~mode Sys.argv.(3) in
+      check_success prepared;
+      check_word prepared "i64" "42" "0x000000000000002a";
+      check_word (ir_json ~mode Sys.argv.(3)) "i64" "42" "0x000000000000002a";
+      require
+        (prepared |> member "compiled_initializer_steps" |> to_int = 13)
+        "combined initializer/default work";
+      require
+        (prepared |> member "prepared_default_bytes" |> to_int = 8)
+        "only defaults count toward saved payloads";
+      check_success
+        (host_json ~mode
+           ~options:
+             [
+               "--initializer-step-limit=13";
+               "--default-byte-limit=8";
+               "--global-byte-limit=9";
+             ]
+           Sys.argv.(3));
+      let limited =
+        host_json ~status:1 ~mode
+          ~options:[ "--initializer-step-limit=12" ]
+          Sys.argv.(3)
+      in
+      require
+        (member "executed_steps" limited = `Null)
+        "preparation failure reached native entry";
+      require
+        (first_diagnostic limited |> member "code" |> to_string = "HCIRVM0007")
+        "shared preparation quota diagnostic";
       let native = host_json ~mode global_fixture in
       check_success native;
       check_word native "i64" "42" "0x000000000000002a";
@@ -165,7 +196,7 @@ let () =
                 (diagnostics report <> [])
                 "unsupported storage has no diagnostics"))
         [
-          "I64 G=42;G;";
+          "I64 F(){return 42;}I64 G=F();G;";
           "I64 G[1];42;";
           "I64 *G;42;";
           "extern I64 G;42;";

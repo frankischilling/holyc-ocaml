@@ -564,7 +564,7 @@ let source_rejection_has_no_native_outcome () =
             && diagnostics report <> [])
             (contents ^ " rejects before native entry")))
     [
-      "I64 x=42;";
+      "I64 x=1<<2;";
       "I64 Bad(){F64 x=1.0;return 0;} 42;";
       "1/0; I64 F(I64 n=42){return n;} F();";
       "I64 F(I64 n=1<<3){return n;} F();";

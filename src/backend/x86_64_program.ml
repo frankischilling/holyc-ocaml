@@ -67,11 +67,12 @@ let compile ?status_abi ?max_stack_bytes ?max_blocks ~max_ir_instructions
   |> Result.map (fun image -> { image })
 
 let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
-    ?parameter_defaults ~max_ir_instructions ~max_code_bytes ~runtime_calls
-    ~initialization ~entry ~functions () =
+    ?parameter_defaults ?global_initializers ~max_ir_instructions
+    ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions () =
   Codegen.compile_callable ?status_abi ?max_stack_bytes ?max_blocks
-    ?max_global_bytes ?parameter_defaults ~max_ir_instructions ~max_code_bytes
-    ~runtime_calls ~initialization ~entry ~functions ()
+    ?max_global_bytes ?parameter_defaults ?global_initializers
+    ~max_ir_instructions ~max_code_bytes ~runtime_calls ~initialization ~entry
+    ~functions ()
   |> Result.map_error project_errors
   |> Result.map (fun image -> { image })
 

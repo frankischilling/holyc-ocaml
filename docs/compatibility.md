@@ -8,10 +8,12 @@ reversed inclusive ranges, holes, defaults, fallthrough and nested breaks are
 admitted under separate preparation and cumulative table bounds. No-bound,
 sub-switch, multiple-default and effectful-case execution remain explicit gates.
 
-[Native scalar globals](native-globals.md) add ordinary uninitialized integer
-declarations to the hosted native target. AOT storage starts at zero; reached
-JIT unknown reads use the existing hosted fault policy. Initializers, statics,
-arrays, pointers and general persistent task storage remain outside this gate.
+[Native scalar globals](native-globals.md) support ordinary integer declarations
+and closed scalar initializers in the hosted native target. Initializers prepare
+at their original source callbacks and restore their values on every execution.
+Without an initializer, AOT storage starts at zero and reached JIT unknown reads
+use the existing hosted fault policy. Effectful initializers, statics, arrays,
+pointers and general persistent task storage remain outside this gate.
 
 [Function-local goto execution](integer-goto.md) connects #664's original
 resolved label occurrences to the shared interpreter/native block builder.
@@ -29,7 +31,7 @@ interpreter or directive executor. Issue #660 adds source-owned scalar defaults
 prepared at their original header callbacks, with separate work/payload limits
 and saved reuse by native calls. [Native defaults](native-defaults.md) lists the
 closed-expression and definitions-before-entry boundary. Effectful defaults,
-persistent/pointer storage, the full ABI, runtime output and general
+general persistent/pointer storage, the full ABI, runtime output and general
 declaration execution remain open; existing interpreter support is unchanged.
 
 Issue #663 adds [native scalar functions and U0 procedures](native-scalars.md).

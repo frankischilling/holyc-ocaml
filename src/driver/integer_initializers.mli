@@ -23,6 +23,26 @@ val prepare_dimension :
 type item
 type static_item
 type t
+type native_preparation
+
+val prepare_native :
+  authority:Sema.Initializer_fragment.authority ->
+  typed:Sema.Function_call_expression_result.top_level_t ->
+  on_progress:(int -> unit) ->
+  max_steps:int ->
+  (native_preparation, Common.Diagnostic.t list) result
+(** Execute an original closed scalar initializer only during its current parser
+    callback. The receipt retains the exact leaf, checked type, result and work.
+*)
+
+val native_leaf : native_preparation -> Sema.Initializer_source.leaf
+val native_steps : native_preparation -> int
+val native_evidence : t -> native_preparation list
+
+val native_complete : span:Common.Span.t -> t -> bool
+(** Every scalar initial value has its original successful native preparation.
+    Caller-supplied image bits cannot satisfy this check. *)
+
 type fragment_preparation
 
 val prepare_fragment :
@@ -49,6 +69,7 @@ val fragment_payload :
 val fragment_steps : fragment_preparation -> int
 
 val prepare :
+  ?native_preparations:native_preparation list ->
   ?function_calls:Sema.Function_call_target_classification.t list ->
   ?allow_zero_budget:bool ->
   ?retained_function_source:

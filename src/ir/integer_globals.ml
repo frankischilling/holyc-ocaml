@@ -225,6 +225,23 @@ let with_source_defaults globals defaults =
   then Error "source defaults require their isolated AOT output context"
   else Ok { globals with source_defaults = defaults }
 
+let native_initializer_context fragment =
+  if Sema.Initializer_fragment.references fragment <> [] then
+    Error "native initializer context requires a closed original expression"
+  else
+    let mode =
+      match
+        Sema.Outer_environment.compilation_mode
+          (Sema.Initializer_fragment.environment fragment)
+      with
+      | Sema.Outer_environment.Jit -> Resolution.Jit
+      | Sema.Outer_environment.Aot -> Resolution.Aot
+    in
+    Result.map
+      (fun context ->
+        { context with fragment_kind_ = Some Initializer_context })
+      (isolated_default_context mode)
+
 let with_native_source_defaults globals defaults =
   if
     Option.is_some globals.task_view
@@ -235,15 +252,11 @@ let with_native_source_defaults globals defaults =
          (fun slot ->
            Option.is_some slot.declared_owner
            || Shape.dimensions slot.shape <> []
-           || Option.is_some slot.initializer_root
            || Option.is_some slot.array_initializers
            || slot.initializer_preparation_steps <> 0)
          globals.slots_
     || globals.declared_slots_ <> []
-  then
-    Error
-      "native source defaults require isolated scalar storage without \
-       initializers"
+  then Error "native source defaults require isolated scalar storage"
   else if
     List.exists
       (fun value ->

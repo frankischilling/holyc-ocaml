@@ -1,5 +1,14 @@
 # Reference source map
 
+Issue #673 connects closed scalar native global initializers to their original
+source callbacks. At `c26482bb6ad3f80106d28504ec5db3c6a360732c`,
+`Compiler/PrsVar.HC:1-115,206-212` prepares constant expressions, converts their
+results and copies the destination width; nonconstant AOT scheduling is a
+separate branch. The hosted implementation reuses checked constant preparation,
+retains each original leaf and loads its normalized bytes into fresh native
+storage. Receipt ownership and work limits are hosted checks. This adds no
+TempleOS oracle capture or loader claim. See [native globals](native-globals.md).
+
 Issue #668 connects bounded switch source execution through original case
 preparation. `PrsStmt.HC:578-789` supplies the endpoint/colon/brace phase order,
 implicit sentinel, descending inclusive ranges, small-positive lower-bound

@@ -12177,5 +12177,20 @@ issue = 667
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
 resources = "Declared widths count against the positive global-byte limit (16 MiB hard cap); one initialization byte per object has a separate 32 MiB arena cap. Native images without named functions still use the arena bridge when storage is present."
 identity = "Exact initialization/entry/call/default bundles and original symbol objects select checked scalar slots, address opcodes and pointer types. Exported image bytes are copies."
-excluded = ["declaration initializers", "static locals", "arrays and pointers", "aggregates", "aliases and extern/import/data-heap storage", "retained task storage", "full ABI and runtime", "object/BIN output and loader acceptance"]
+excluded = ["effectful declaration initializers", "static locals", "arrays and pointers", "aggregates", "aliases and extern/import/data-heap storage", "retained task storage", "full ABI and runtime", "object/BIN output and loader acceptance"]
 native_oracle_status = "Pinned source plus checked interpreter and generated host execution; no new TempleOS oracle capture. JIT unknown reads and quotas are hosted policies."
+
+[[feature]]
+id = "HC-NATIVE-SCALAR-INITIALIZERS"
+description = "Closed scalar globals prepare once at their original leaf callbacks and restore their declared-width initial values on every native execution."
+sources = ["Compiler/PrsVar.HC:1-115,206-212", "Compiler/PrsStmt.HC:285-435"]
+implementation = ["src/driver/task_declarations.ml", "src/driver/native_default_preparation.ml", "src/driver/integer_initializers.ml", "src/driver/integer_unit.ml", "src/driver/native_global_initializers.ml", "src/sema/initializer_fragment.ml", "src/backend/x86_64_global_storage.ml", "src/hosted/native_program.ml"]
+tests = ["test/native_initializer_authority/test_native_initializer_authority.ml", "test/native/test_native_global_execution.ml", "test/native/test_native_global_cli.ml", "examples/native-scalar-initializers.hc"]
+documentation = ["docs/native-globals.md", "docs/native-programs.md", "docs/reference-source-map.md", "docs/testing.md", "SECURITY.md"]
+status = "implemented"
+issue = 673
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+identity = "Original ordered leaves, source symbols, declared types and successful opaque preparation must match the exact storage, initialization, entry and runtime-call bundle."
+resources = "Defaults and global initializers share the declaration-work budget. Global payloads use declared-byte and private-arena quotas. Reached preparation survives later faults and does not consume native runtime steps."
+excluded = ["initializers after executable top-level statements", "effectful or call-dependent initializers", "unresolved shift optimizer behavior", "strings and floating values", "arrays, statics, pointers and data-heap storage", "object/BIN loading and bootstrap"]
+native_oracle_status = "Pinned source and hosted interpreter/native tests; no new TempleOS oracle capture."

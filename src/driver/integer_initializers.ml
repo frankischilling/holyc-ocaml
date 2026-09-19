@@ -27,7 +27,14 @@ type item = Typed.top_level_root_result prepared_item
 type static_item =
   (Globals.static_slot * Typed.initializer_result) prepared_item
 
+type native_preparation = {
+  native_fragment : Sema.Initializer_fragment.t;
+  native_bits : int64;
+  native_steps : int;
+}
+
 type owner =
+  | Native_global of Sema.Initializer_fragment.t * Typed.top_level_root_result
   | Global of Globals.slot * Typed.top_level_root_result
   | Static of Globals.static_slot * Typed.initializer_result
   | Fragment of Destination.t
@@ -44,6 +51,8 @@ type t = {
   default_items_ : Default.t prepared_item list;
   dimension_items_ : Dimension.t prepared_item list;
   offset_items_ : Offset.t prepared_item list;
+  native_items_ : owner prepared_item list;
+  native_evidence_ : native_preparation list;
   steps : int;
 }
 
@@ -75,8 +84,8 @@ let value_instructions graph =
       | Ir.Opcode.Ic_end_exp | Ic_end -> false
       | _ -> true)
 
-let prepare_internal ?fragment ?default ?dimension ?offset
-    ?(function_calls = []) ?(allow_zero_budget = false)
+let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
+    ?(already_prepared = []) ?(function_calls = []) ?(allow_zero_budget = false)
     ?(retained_function_source = fun _ -> None) ?(on_progress = fun _ -> ())
     ~max_steps ~span ~globals ~top_calls ~functions () =
   let invalid ?(notes = []) ?(at = span) code message =
@@ -90,47 +99,56 @@ let prepare_internal ?fragment ?default ?dimension ?offset
     invalid "HCIRVM0001" "max_initializer_steps must be greater than zero"
   else
     let work =
-      match offset with
-      | Some destination
-        when Option.is_none dimension && Option.is_none fragment
-             && Option.is_none default -> [ Offset destination ]
-      | Some _ -> invalid_arg "conflicting offset preparation owners"
+      match native_global with
+      | Some (fragment, root) -> [ Native_global (fragment, root) ]
       | None -> (
-          match (dimension, fragment, default) with
-          | Some destination, None, None -> [ Dimension destination ]
-          | Some _, _, _ ->
-              invalid_arg "conflicting dimension preparation owners"
-          | None, Some destination, None -> [ Fragment destination ]
-          | None, None, Some destination -> [ Default destination ]
-          | None, Some _, Some _ ->
-              invalid_arg "conflicting fragment preparation owners"
-          | None, None, None ->
-              (Globals.slots globals
-              |> List.concat_map (fun slot ->
-                  List.map
-                    (fun root -> Global (slot, root))
-                    (Globals.slot_initializers slot
-                    |> List.filter (fun root ->
-                        not (Globals.slot_root_executed slot root)))))
-              @ (Globals.statics globals
-                |> List.concat_map (fun slot ->
-                    List.map
-                      (fun root -> Static (slot, root))
-                      (Globals.static_initializers slot)))
-              |> List.stable_sort (fun left right ->
-                  let index = function
-                    | Fragment _ | Default _ | Dimension _ | Offset _ -> 0
-                    | Global (slot, _) ->
-                        Globals.slot_record slot
-                        |> Sema.Global_record_classification
-                           .classified_record_source
-                        |> Sema.Global_resolution.global_record_global
-                        |> Sema.Global_type_resolution.global_item_index
-                    | Static (slot, _) ->
-                        Globals.static_frame slot
-                        |> Sema.Function_frame_layout.function_item_index
-                  in
-                  Int.compare (index left) (index right)))
+          match offset with
+          | Some destination
+            when Option.is_none dimension && Option.is_none fragment
+                 && Option.is_none default -> [ Offset destination ]
+          | Some _ -> invalid_arg "conflicting offset preparation owners"
+          | None -> (
+              match (dimension, fragment, default) with
+              | Some destination, None, None -> [ Dimension destination ]
+              | Some _, _, _ ->
+                  invalid_arg "conflicting dimension preparation owners"
+              | None, Some destination, None -> [ Fragment destination ]
+              | None, None, Some destination -> [ Default destination ]
+              | None, Some _, Some _ ->
+                  invalid_arg "conflicting fragment preparation owners"
+              | None, None, None ->
+                  (Globals.slots globals
+                  |> List.concat_map (fun slot ->
+                      List.map
+                        (fun root -> Global (slot, root))
+                        (Globals.slot_initializers slot
+                        |> List.filter (fun root ->
+                            (not (Globals.slot_root_executed slot root))
+                            && not (List.exists (( == ) root) already_prepared))
+                        )))
+                  @ (Globals.statics globals
+                    |> List.concat_map (fun slot ->
+                        List.map
+                          (fun root -> Static (slot, root))
+                          (Globals.static_initializers slot)))
+                  |> List.stable_sort (fun left right ->
+                      let index = function
+                        | Native_global _
+                        | Fragment _
+                        | Default _
+                        | Dimension _
+                        | Offset _ -> 0
+                        | Global (slot, _) ->
+                            Globals.slot_record slot
+                            |> Sema.Global_record_classification
+                               .classified_record_source
+                            |> Sema.Global_resolution.global_record_global
+                            |> Sema.Global_type_resolution.global_item_index
+                        | Static (slot, _) ->
+                            Globals.static_frame slot
+                            |> Sema.Function_frame_layout.function_item_index
+                      in
+                      Int.compare (index left) (index right))))
     in
     let rec collect total updates reversed work =
       on_progress total;
@@ -157,6 +175,7 @@ let prepare_internal ?fragment ?default ?dimension ?offset
             if
               Option.is_some fragment || Option.is_some default
               || Option.is_some dimension || Option.is_some offset
+              || Option.is_some native_global
             then Ok globals
             else Globals.with_initial_values ~span globals scalar_values
           in
@@ -184,6 +203,7 @@ let prepare_internal ?fragment ?default ?dimension ?offset
             if
               Option.is_some fragment || Option.is_some default
               || Option.is_some dimension || Option.is_some offset
+              || Option.is_some native_global
             then Ok globals_
             else
               Globals.with_array_initial_values ~span globals_ ~global_values
@@ -195,8 +215,12 @@ let prepare_internal ?fragment ?default ?dimension ?offset
               (fun item ->
                 match item.root_ with
                 | Global (_, root_) -> Some { item with root_ }
-                | Static _ | Fragment _ | Default _ | Dimension _ | Offset _ ->
-                    None)
+                | Native_global _
+                | Static _
+                | Fragment _
+                | Default _
+                | Dimension _
+                | Offset _ -> None)
               prepared
           in
           let static_items_ =
@@ -212,8 +236,12 @@ let prepare_internal ?fragment ?default ?dimension ?offset
                       Option.get (Globals.find_static globals_ symbol)
                     in
                     Some { item with root_ = (slot, root) }
-                | Global _ | Fragment _ | Default _ | Dimension _ | Offset _ ->
-                    None)
+                | Native_global _
+                | Global _
+                | Fragment _
+                | Default _
+                | Dimension _
+                | Offset _ -> None)
               prepared
           in
           let copies_ =
@@ -239,6 +267,14 @@ let prepare_internal ?fragment ?default ?dimension ?offset
               static_items_;
               copies_;
               fragment_items_;
+              native_items_ =
+                List.filter
+                  (fun item ->
+                    match item.root_ with
+                    | Native_global _ -> true
+                    | _ -> false)
+                  prepared;
+              native_evidence_ = [];
               offset_items_ =
                 List.filter_map
                   (fun item ->
@@ -265,6 +301,12 @@ let prepare_internal ?fragment ?default ?dimension ?offset
       | root_ :: rest -> (
           let symbol, value, frame =
             match root_ with
+            | Native_global (fragment, root) ->
+                ( Some
+                    (fragment |> Sema.Initializer_fragment.declaration
+                   |> Sema.Compiler_record.declared_global_symbol),
+                  Typed.top_level_root_value root,
+                  None )
             | Offset destination ->
                 ( None,
                   Typed.top_level_root_value (Offset.root destination),
@@ -312,7 +354,7 @@ let prepare_internal ?fragment ?default ?dimension ?offset
           in
           let operation =
             match root_ with
-            | Default _ | Dimension _ | Offset _ -> None
+            | Native_global _ | Default _ | Dimension _ | Offset _ -> None
             | Fragment destination ->
                 Some (Layout.operation (Destination.layout destination))
             | Global (slot, root) ->
@@ -351,8 +393,12 @@ let prepare_internal ?fragment ?default ?dimension ?offset
                   [ Ir.Integer_program_lowering.Expression value ]
                 |> Result.map_error (fun errors ->
                     match root_ with
-                    | Global _ | Fragment _ | Default _ | Dimension _ | Offset _
-                      -> errors
+                    | Native_global _
+                    | Global _
+                    | Fragment _
+                    | Default _
+                    | Dimension _
+                    | Offset _ -> errors
                     | Static _ ->
                         List.map
                           (fun (error : Common.Diagnostic.t) ->
@@ -449,6 +495,11 @@ let prepare_internal ?fragment ?default ?dimension ?offset
               in
               let destination_type, compiler_options =
                 match root_ with
+                | Native_global (fragment, _) ->
+                    ( fragment |> Sema.Initializer_fragment.declaration
+                      |> Sema.Compiler_record.declared_global_type
+                      |> Sema.Type_reference.resolved_type,
+                      0L )
                 | Offset destination -> (Offset.type_ destination, 0L)
                 | Dimension destination -> (Dimension.type_ destination, 0L)
                 | Default destination -> (Default.type_ destination, 0L)
@@ -528,7 +579,11 @@ let prepare_internal ?fragment ?default ?dimension ?offset
                            |> Sema.Function_frame_layout.function_item_index)
                       (* The source callers pass no local definitions. Their source
                          inspection callback exposes only admitted task bodies. *)
-                      | Fragment _ | Default _ | Dimension _ | Offset _ -> None
+                      | Native_global _
+                      | Fragment _
+                      | Default _
+                      | Dimension _
+                      | Offset _ -> None
                     in
                     let find source_globals source_functions =
                       List.find_opt
@@ -697,8 +752,12 @@ let prepare_internal ?fragment ?default ?dimension ?offset
                     && Sema.Compiler_option.is_enabled
                          ~mask:(Globals.static_compiler_options slot)
                          Sema.Compiler_option.Globals_on_data_heap
-                | Global _ | Fragment _ | Default _ | Dimension _ | Offset _ ->
-                    false
+                | Native_global _
+                | Global _
+                | Fragment _
+                | Default _
+                | Dimension _
+                | Offset _ -> false
               then
                 invalid ~at ~notes "HCRUN0006"
                   "nonconstant AOT static initialization with \
@@ -767,10 +826,190 @@ let prepare_internal ?fragment ?default ?dimension ?offset
     in
     collect 0 [] [] work
 
-let prepare ?function_calls ?allow_zero_budget ?retained_function_source
-    ?on_progress ~max_steps ~span ~globals ~top_calls ~functions () =
-  prepare_internal ?function_calls ?allow_zero_budget ?retained_function_source
-    ?on_progress ~max_steps ~span ~globals ~top_calls ~functions ()
+let native_leaf value = Sema.Initializer_fragment.leaf value.native_fragment
+let native_steps value = value.native_steps
+let native_evidence value = value.native_evidence_
+
+let prepare_native ~authority ~typed ~on_progress ~max_steps =
+  let fragment = Sema.Initializer_fragment.authorized_fragment authority in
+  let leaf = Sema.Initializer_fragment.leaf fragment in
+  let span =
+    (Frontend.Ast.expression_location
+       (Sema.Initializer_source.leaf_expression_ast leaf))
+      .span
+  in
+  let invalid message =
+    Error
+      [
+        Common.Diagnostic.make ~code:"HCRUN0006"
+          ~severity:Common.Diagnostic.Error ~message ~primary:span ();
+      ]
+  in
+  let* () =
+    match Sema.Initializer_source.leaf_parser_receipt leaf with
+    | Some receipt when Frontend.Parser.initializer_leaf_is_current receipt ->
+        Ok ()
+    | _ ->
+        invalid
+          "native initializer preparation is outside its original callback"
+  in
+  let* root =
+    match
+      Typed.top_level_statements typed
+      |> List.concat_map Typed.top_level_statement_roots
+    with
+    | [ root ]
+      when match
+             Typed.top_level_root_source root
+             |> Sema.Top_level_expression_tree.root_role
+           with
+           | Sema.Top_level_expression_tree.Initializer_fragment original ->
+               original == fragment
+           | _ -> false -> Ok root
+    | _ -> invalid "native initializer preparation has another typed expression"
+  in
+  let value = Typed.top_level_root_value root in
+  let scalar type_ = Option.is_some (Ir.Integer_scalar_storage.of_type type_) in
+  let* () =
+    if
+      scalar
+        (fragment |> Sema.Initializer_fragment.declaration
+       |> Sema.Compiler_record.declared_global_type
+       |> Sema.Type_reference.resolved_type)
+      && Typed.result_array_rank value = 0
+      && Option.fold ~none:false ~some:scalar (Typed.result_type value)
+      && Sema.Initializer_source.leaf_identifier_nodes leaf = []
+    then Ok ()
+    else
+      invalid
+        "native initializer preparation requires a closed scalar integer value"
+  in
+  let* globals =
+    Globals.native_initializer_context fragment
+    |> Result.map_error (fun message ->
+        [
+          Common.Diagnostic.make ~code:"HCRUN0004"
+            ~severity:Common.Diagnostic.Error ~message ~primary:span ();
+        ])
+  in
+  let* prepared =
+    prepare_internal ~native_global:(fragment, root) ~allow_zero_budget:true
+      ~on_progress ~max_steps ~span ~globals ~top_calls:[] ~functions:[] ()
+  in
+  match prepared.native_items_ with
+  | [
+   { classification_ = Prepared_constant native_bits; steps = native_steps; _ };
+  ] -> Ok { native_fragment = fragment; native_bits; native_steps }
+  | _ -> invalid "native initializer requires checked constant preparation"
+
+let native_values ~span globals evidence =
+  let invalid message =
+    Error
+      [
+        Common.Diagnostic.make ~code:"HCRUN0004"
+          ~severity:Common.Diagnostic.Error ~message ~primary:span ();
+      ]
+  in
+  let slots =
+    Globals.slots globals
+    |> List.filter (fun slot -> Option.is_some (Globals.slot_initializer slot))
+  in
+  let rec collect roots values slots evidence =
+    match (slots, evidence) with
+    | [], [] -> Ok (List.rev roots, List.rev values)
+    | slot :: rest, proof :: tail ->
+        let root = Option.get (Globals.slot_initializer slot) in
+        let declaration =
+          Sema.Initializer_fragment.declaration proof.native_fragment
+        in
+        if
+          Globals.slot_symbol slot
+          != Sema.Compiler_record.declared_global_symbol declaration
+          || (not
+                (Sema.Type.equal (Globals.slot_type slot)
+                   (declaration |> Sema.Compiler_record.declared_global_type
+                  |> Sema.Type_reference.resolved_type)))
+          || (not
+                (Option.fold ~none:false
+                   ~some:(( == ) (native_leaf proof))
+                   (Typed.top_level_root_source root
+                   |> Sema.Top_level_expression_tree.root_initializer_leaf)))
+          || Globals.slot_array_initializers slot <> None
+          || Globals.slot_reuses_declared_storage slot
+        then
+          invalid
+            "native initializer evidence is foreign, substituted or out of \
+             order"
+        else
+          collect (root :: roots)
+            ((Globals.slot_symbol slot, proof.native_bits, proof.native_steps)
+            :: values)
+            rest tail
+    | _ ->
+        invalid "native initializer evidence is missing, duplicated or unused"
+  in
+  collect [] [] slots evidence
+
+let native_complete ~span prepared =
+  match native_values ~span prepared.globals_ prepared.native_evidence_ with
+  | Error _ -> false
+  | Ok (_, values) ->
+      List.for_all
+        (fun (symbol, bits, steps) ->
+          match Globals.find prepared.globals_ symbol with
+          | Some slot ->
+              Globals.slot_initializer_materialized slot
+              && Globals.slot_initializer_preparation_steps slot = steps
+              && Globals.slot_initial_bits slot
+                 = Some
+                     (Ir.Integer_scalar_storage.narrow_bits
+                        (Globals.slot_type slot) bits)
+          | None -> false)
+        values
+
+let prepare ?native_preparations ?function_calls ?allow_zero_budget
+    ?retained_function_source ?on_progress ~max_steps ~span ~globals ~top_calls
+    ~functions () =
+  let evidence = Option.value native_preparations ~default:[] in
+  let* imported_steps =
+    List.fold_left
+      (fun result proof ->
+        let* total = result in
+        if proof.native_steps > max_steps - total then
+          Error
+            [
+              Common.Diagnostic.make ~code:"HCIRVM0007"
+                ~severity:Common.Diagnostic.Error
+                ~message:
+                  "native initializer preparation exceeds max_initializer_steps"
+                ~primary:span ();
+            ]
+        else Ok (total + proof.native_steps))
+      (Ok 0) evidence
+  in
+  let* already_prepared, globals =
+    match native_preparations with
+    | None -> Ok ([], globals)
+    | Some evidence ->
+        let* roots, values = native_values ~span globals evidence in
+        let* globals = Globals.with_initial_values ~span globals values in
+        Ok (roots, globals)
+  in
+  let allow_zero_budget =
+    Option.value allow_zero_budget ~default:false || imported_steps > 0
+  in
+  let* prepared =
+    prepare_internal ~already_prepared ?function_calls ~allow_zero_budget
+      ?retained_function_source ?on_progress
+      ~max_steps:(max_steps - imported_steps)
+      ~span ~globals ~top_calls ~functions ()
+  in
+  Ok
+    {
+      prepared with
+      native_evidence_ = evidence;
+      steps = prepared.steps + imported_steps;
+    }
 
 type fragment_preparation = {
   fragment_destination_ : Destination.t;
@@ -917,7 +1156,7 @@ let human prepared =
              (fun (owner, bytes, steps) ->
                let symbol =
                  match owner with
-                 | Dimension _ | Offset _ ->
+                 | Native_global _ | Dimension _ | Offset _ ->
                      invalid_arg "dimension cannot own copied bytes"
                  | Default destination -> Default.symbol destination
                  | Fragment destination ->

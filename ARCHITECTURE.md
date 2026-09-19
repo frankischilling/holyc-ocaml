@@ -4,6 +4,9 @@ Native scalar globals use `Backend.X86_64_global_storage` to seal the exact
 initialization/entry bundle and original symbolic address producers. Callable
 code reserves a private arena base, with fresh non-executable storage per native
 invocation. Saved numeric defaults still prepare in isolated empty fragments.
+Closed global initializers use the same preparation engine and shared declaration
+budget. `Driver.Native_global_initializers` seals original leaf receipts and
+prepared values to the exact compiled storage, entry and call bundle.
 See [native globals](docs/native-globals.md) for ownership and resource contracts.
 
 The compiler is split into explicit stages. Each stage consumes immutable inputs and returns either a value or structured diagnostics. Sessions own source IDs and configuration; compiler modules do not rely on hidden global state.

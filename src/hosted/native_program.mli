@@ -31,16 +31,18 @@ val compile :
     word backend. Closed case endpoints prepare at their original parser
     callbacks under an independent 100,000-node work limit. Supported scalar
     parameter defaults are prepared once at their original declaration callbacks
-    through the checked constant-preparation engine. Ordinary scalar globals
-    without declaration initializers retain their exact source declarations and
-    checked address metadata. Global initializers, statics, pointers, arrays and
-    other unsupported declarations/defaults reject before native entry. This
-    never interprets ordinary commands or allocates executable memory. Parser
-    warnings retain their original source identities. Defaults are 4096 total IR
-    instructions, 65536 code bytes, 4088 private frame bytes, 4096 total blocks,
-    100,000 declaration-preparation steps and 65,536 bytes of saved default
-    payloads (eight bytes per prepared value). Global storage defaults to
-    1,048,576 declared bytes; its separate host cap is 16,777,216 bytes. *)
+    through the checked constant-preparation engine. Closed scalar global
+    initializers prepare at their original leaf callbacks under that same work
+    budget. Their exact receipts authorize the native initial image, which
+    restores declared-width values on each execution. Effectful initializers,
+    statics, pointers, arrays and other unsupported declarations/defaults reject
+    before native entry. This never interprets ordinary commands or allocates
+    executable memory. Parser warnings retain their original source identities.
+    Defaults are 4096 total IR instructions, 65536 code bytes, 4088 private
+    frame bytes, 4096 total blocks, 100,000 declaration-preparation steps and
+    65,536 bytes of saved default payloads (eight bytes per prepared value).
+    Global storage defaults to 1,048,576 declared bytes; its separate host cap
+    is 16,777,216 bytes. *)
 
 val evaluate :
   ?max_ir_instructions:int ->
@@ -69,8 +71,10 @@ val evaluate :
     physical native stack limit defaults to its hard maximum of 65,536 bytes and
     includes compiler-private storage, return addresses and saved frame
     pointers. Each execution owns fresh global data and initialization flags,
-    shared by entry and generated calls. AOT globals start at zero; reached JIT
-    reads before assignment retain the hosted uninitialized-object fault. *)
+    shared by entry and generated calls. Uninitialized AOT globals start at
+    zero; reached JIT reads before assignment retain the hosted
+    uninitialized-object fault. Prepared globals restore their initial values in
+    both modes. *)
 
 val outcome : report -> (result checked, Common.Diagnostic.t list) Stdlib.result
 val image : report -> Backend.X86_64_program.t option

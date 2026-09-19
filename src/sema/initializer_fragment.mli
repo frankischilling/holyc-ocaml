@@ -24,6 +24,17 @@ val create :
     This evidence grants neither storage admission nor execution authority. *)
 
 val owns_table : t -> Symbol_table.t -> bool
+
+val create_native_closed :
+  table:Symbol_table.t ->
+  declaration:Compiler_record.declared_global ->
+  leaf:Initializer_source.leaf ->
+  environment:Outer_environment.t ->
+  queries:Query_selection.t list ->
+  (t, string) result
+(** Original closed initializer source in either compilation mode. This carries
+    no retained storage or execution authority. *)
+
 val declaration : t -> Compiler_record.declared_global
 val leaf : t -> Initializer_source.leaf
 val environment : t -> Outer_environment.t

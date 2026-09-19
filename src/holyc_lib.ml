@@ -33,6 +33,7 @@ module Ir_initializer_fragment_program = Ir.Initializer_fragment_program
 module Ir_integer_interpreter = Ir.Integer_interpreter
 module Ir_runtime_call_context = Ir.Runtime_call_context
 module Native_parameter_defaults = Driver.Native_parameter_defaults
+module Native_global_initializers = Driver.Native_global_initializers
 module Ir_integer_program_lowering = Ir.Integer_program_lowering
 module Ir_global_initialization = Ir.Global_initialization
 module Integer_initializer_preparation = Driver.Integer_initializers

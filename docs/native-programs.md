@@ -58,18 +58,20 @@ eager logical values, comparisons, masked shifts, guarded division/remainder
 and payload-zero internal word views.
 
 The source driver parses without a command or stream executor. Original
-declaration callbacks prepare bounded scalar defaults in both modes; an
-iterative source gate admits ordinary scalar globals without initializers and rejects statics, prototypes/externs,
+declaration callbacks prepare bounded scalar defaults and closed scalar global
+initializers in both modes; an iterative source gate admits ordinary scalar
+globals and rejects statics, prototypes/externs,
 explicit register/declaration modifiers, non-integer parameters or locals,
 arrays, source pointer operations, indirect calls, implicit output and unsupported
-statements. Arrays, global initializers and aggregates reject before their preparation.
+statements. Arrays and aggregates reject before their preparation.
 Entry statements cannot declare storage.
 It reports the first source-domain violation while retaining parser diagnostics.
 A directive needing
 `#exe` execution receives the parser's explicit missing-capability diagnostic;
 it cannot route the ordinary program into the interpreter. Compilation also
-checks that the resulting unit has no global/static initialization or storage
-preparation work before invoking the backend. Every admitted default prepares
+checks that the resulting unit has no scheduled global/static initialization
+before invoking the backend. Prepared global images require their original
+native preparation certificate. Every admitted default prepares
 once, even when all arguments are supplied or its function is unused. Calls reuse
 the saved value. Default-bearing definitions must precede executable top-level
 statements; effectful/interleaved defaults and broader default types remain

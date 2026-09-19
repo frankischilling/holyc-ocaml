@@ -176,9 +176,12 @@
 
 (rule
  (alias native-tests)
- (deps ../../examples/native-scalar-globals.hc)
+ (deps
+  ../../examples/native-scalar-globals.hc
+  ../../examples/native-scalar-initializers.hc)
  (action
   (run
    %{exe:test_native_global_cli.exe}
    %{exe:../../bin/holyc.exe}
-   %{dep:../../examples/native-scalar-globals.hc})))
+   %{dep:../../examples/native-scalar-globals.hc}
+   %{dep:../../examples/native-scalar-initializers.hc})))

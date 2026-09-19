@@ -155,7 +155,7 @@ let local_source_error (declaration : Ast.local_declaration) =
       declaration.local_declarators
 
 let global_source_error ~span ~modifiers ~binding ~type_specifier
-    ~pointer_layers ~function_pointer ~array_dimensions ~has_initializer =
+    ~pointer_layers ~function_pointer ~array_dimensions ~has_initializer:_ =
   let reject message = Some (source_error span message) in
   if modifiers <> [] || Option.is_some binding then
     reject
@@ -167,8 +167,6 @@ let global_source_error ~span ~modifiers ~binding ~type_specifier
     reject "native globals do not admit pointer or callback storage"
   else if array_dimensions <> [] then
     reject "native globals do not admit arrays"
-  else if has_initializer then
-    reject "native globals do not admit declaration initializers"
   else None
 
 let ast_errors (ast : Ast.module_) =
@@ -436,22 +434,12 @@ let program_storage_errors compiled span =
   let globals = Integer_unit.globals compiled in
   if Ir.Integer_globals.statics globals <> [] then
     add "native programs do not admit static local storage";
-  if Ir.Integer_globals.has_initializers globals then
-    add
-      "native programs require an entry with no global initializer preparation";
   let initialization = Integer_unit.initialization compiled in
   if
     Ir.Global_initialization.regions initialization <> []
     || Ir.Global_initialization.static_regions initialization <> []
     || Ir.Global_initialization.publications initialization <> []
   then add "native programs require an entry with no runtime initialization";
-  if Ir.Global_initialization.prepared_steps initialization <> 0 then
-    add "native programs require zero prepared initializer steps";
-  if
-    Integer_initializers.executed_steps
-      (Integer_unit.initializer_preparation compiled)
-    <> 0
-  then add "native programs require zero initializer preparation work";
   if Integer_unit.dimension_preparation_work compiled <> 0 then
     add "native programs require zero dimension preparation work";
   List.rev !errors
@@ -549,11 +537,13 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
                   with
                   | None -> Ok ()
                   | Some error -> Error [ error ])
-              | Frontend.Parser.Global_initializer_started receipt ->
+              | Frontend.Parser.Global_initializer_started receipt
+                when !entry_statement_seen ->
                   Error
                     [
                       source_error receipt.initializer_equals.span
-                        "native globals do not admit declaration initializers";
+                        "native initializers must precede executable top-level \
+                         statements";
                     ]
               | Frontend.Parser.Aggregate_declared _ ->
                   Error
@@ -568,6 +558,9 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
             | Frontend.Parser.Parameter_default_completed receipt ->
                 Native_default_preparation.prepare preparation ~session ~ledger
                   receipt
+            | Frontend.Parser.Global_initializer_leaf_completed receipt ->
+                Native_default_preparation.prepare_initializer preparation
+                  ~session ~ledger receipt
             | Frontend.Parser.Function_header_completed header ->
                 Task_declarations.complete_source_defaults ledger header
             | _ -> Ok ());
@@ -602,6 +595,8 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
           in
           match
             Integer_unit.compile_source_output ~source_command
+              ~native_initializers:
+                (Native_default_preparation.initializers preparation)
               ~max_initializer_steps session ~config
               { parsed with diagnostics = [] }
           with
@@ -642,9 +637,34 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
                                   };
                               ])
                         in
-                        Image.compile_callable ~parameter_defaults ?status_abi
-                          ~max_stack_bytes ~max_blocks ~max_ir_instructions
-                          ~max_code_bytes ~max_global_bytes
+                        let* global_initializers =
+                          Native_global_initializers.create ~span
+                            ~completions:
+                              (Native_default_preparation
+                               .initializer_completions preparation)
+                            ~preparation:
+                              (Integer_unit.initializer_preparation
+                                 checked.value)
+                            ~runtime_calls:
+                              (Integer_unit.runtime_calls checked.value)
+                            ~initialization:
+                              (Integer_unit.initialization checked.value)
+                            ~entry:(Integer_unit.entry checked.value)
+                            ~functions
+                          |> Result.map_error (fun message ->
+                              [
+                                Backend.X86_64_program.
+                                  {
+                                    code = "HCBACK0003";
+                                    message;
+                                    span = Some span;
+                                  };
+                              ])
+                        in
+                        Image.compile_callable ~parameter_defaults
+                          ~global_initializers ?status_abi ~max_stack_bytes
+                          ~max_blocks ~max_ir_instructions ~max_code_bytes
+                          ~max_global_bytes
                           ~runtime_calls:
                             (Integer_unit.runtime_calls checked.value)
                           ~initialization:

@@ -42,7 +42,7 @@ let span_of_symbol symbol =
   | Symbol.Source_location location -> Some location.span
   | Symbol.Pinned_source _ | Symbol.Synthesized _ -> None
 
-let create ~max_global_bytes ~initialization ~entry =
+let create_internal ?initializers ~max_global_bytes ~initialization ~entry () =
   let ( let* ) = Result.bind in
   let* () = validate_global_limit ~max_global_bytes in
   let globals = Initialization.globals initialization in
@@ -60,7 +60,7 @@ let create ~max_global_bytes ~initialization ~entry =
       unsupported "native globals do not admit retained task storage"
     else if Globals.statics globals <> [] then
       unsupported "native globals do not admit static local storage"
-    else if Globals.has_initializers globals then
+    else if Globals.has_initializers globals && Option.is_none initializers then
       unsupported "native globals do not admit declaration initializers"
     else if
       Initialization.regions initialization <> []
@@ -68,11 +68,21 @@ let create ~max_global_bytes ~initialization ~entry =
       || Initialization.publications initialization <> []
       || Option.is_some (Initialization.publication_evidence initialization)
       || Initialization.prepared_steps initialization <> 0
+         && Option.is_none initializers
     then
       unsupported
         "native globals require an initialization context without initializer \
          regions or preparation"
     else Ok ()
+  in
+  let* () =
+    match initializers with
+    | Some proof
+      when not
+             (Driver.Native_global_initializers.matches_storage proof
+                ~initialization ~entry) ->
+        invalid "native global preparation belongs to another storage bundle"
+    | _ -> Ok ()
   in
   let declared_bytes = Globals.byte_size globals in
   let* () =
@@ -156,22 +166,42 @@ let create ~max_global_bytes ~initialization ~entry =
           else Ok ()
         in
         let* initially_initialized =
-          match
-            ( Globals.slot_opcode source_slot,
-              Globals.slot_initial_bits source_slot )
-          with
-          | Opcode.Ic_imm_i64, None -> Ok false
-          | Opcode.Ic_abs_addr, Some bits when Int64.equal bits 0L -> Ok true
-          | Opcode.Ic_imm_i64, Some _ | Opcode.Ic_abs_addr, None ->
-              invalid ?span
-                "native global initial state disagrees with its checked \
-                 address mode"
-          | Opcode.Ic_abs_addr, Some _ ->
-              unsupported ?span
-                "native globals do not admit prepared declaration values"
-          | _ ->
-              unsupported ?span
-                "native global uses an unsupported checked address opcode"
+          if
+            Option.is_some (Globals.slot_initializer source_slot)
+            && Option.is_some initializers
+          then
+            match Globals.slot_initial_bits source_slot with
+            | Some bits
+              when Globals.slot_initializer_materialized source_slot
+                   && (Globals.slot_opcode source_slot = Opcode.Ic_imm_i64
+                      || Globals.slot_opcode source_slot = Opcode.Ic_abs_addr)
+              ->
+                for byte = 0 to width - 1 do
+                  Bytes.set image (byte_offset + byte)
+                    (Char.chr
+                       (Int64.to_int
+                          (Int64.logand 255L
+                             (Int64.shift_right_logical bits (byte * 8)))))
+                done;
+                Ok true
+            | _ -> invalid ?span "native global has no prepared scalar image"
+          else
+            match
+              ( Globals.slot_opcode source_slot,
+                Globals.slot_initial_bits source_slot )
+            with
+            | Opcode.Ic_imm_i64, None -> Ok false
+            | Opcode.Ic_abs_addr, Some bits when Int64.equal bits 0L -> Ok true
+            | Opcode.Ic_imm_i64, Some _ | Opcode.Ic_abs_addr, None ->
+                invalid ?span
+                  "native global initial state disagrees with its checked \
+                   address mode"
+            | Opcode.Ic_abs_addr, Some _ ->
+                unsupported ?span
+                  "native globals do not admit prepared declaration values"
+            | _ ->
+                unsupported ?span
+                  "native global uses an unsupported checked address opcode"
         in
         let flag_offset = declared_bytes + ordinal in
         if initially_initialized then Bytes.set image flag_offset '\001';
@@ -195,6 +225,12 @@ let create ~max_global_bytes ~initialization ~entry =
             rest
   in
   collect 0 0 Symbol_map.empty source_slots
+
+let create ~max_global_bytes ~initialization ~entry =
+  create_internal ~max_global_bytes ~initialization ~entry ()
+
+let create_prepared ~initializers ~max_global_bytes ~initialization ~entry =
+  create_internal ~initializers ~max_global_bytes ~initialization ~entry ()
 
 let globals layout = layout.globals
 let entry layout = layout.entry

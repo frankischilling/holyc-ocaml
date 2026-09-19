@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Prepared closed scalar native global initializers at their original source
+  callbacks in both modes. Native images reuse checked values, normalize their
+  declared widths and restore fresh initialized storage on every execution.
+  Initializers share declaration work limits with defaults and retain reached
+  work when later preparation fails.
+
 - Added the actual encoded code-byte count to successful native program reports
   and an API accessor that reads the count without copying the image.
 

@@ -1,5 +1,9 @@
 type t
 
+val native_initializer_context :
+  Sema.Initializer_fragment.t -> (t, string) result
+(** Empty storage for original closed native initializer preparation. *)
+
 val source_default_context : Sema.Default_fragment.t -> (t, string) result
 
 val native_source_default_context :
@@ -12,11 +16,10 @@ val with_source_defaults :
 
 val with_native_source_defaults :
   t -> Prepared_parameter_default.t list -> (t, string) result
-(** Attach same-mode saved values to isolated ordinary scalar storage without
-    initializers. Default evaluation still uses its separate empty fragment.
-    Native executable admission separately requires their complete source and
-    preparation certificate. Ordinary AOT and retained-task contracts are
-    unchanged. *)
+(** Attach same-mode saved values to isolated ordinary scalar storage. Default
+    evaluation still uses its separate empty fragment. Native executable
+    admission separately requires their complete source and preparation
+    certificate. Ordinary AOT and retained-task contracts are unchanged. *)
 
 type slot
 type static_slot

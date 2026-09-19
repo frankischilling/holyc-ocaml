@@ -11,9 +11,16 @@ val create :
   initialization:Ir.Global_initialization.t ->
   entry:Ir.X87_stack.t ->
   (t, error list) result
-(** Seal ordinary source-defined scalar globals for one exact compiled bundle.
-    Declaration initializers, statics, arrays, retained task storage and foreign
-    initialization/entry owners are rejected. *)
+(** Seal ordinary scalar globals for one exact compiled bundle. Initial values
+    require their original native preparation proof. Statics, arrays, retained
+    task storage and foreign initialization/entry owners are rejected. *)
+
+val create_prepared :
+  initializers:Driver.Native_global_initializers.t ->
+  max_global_bytes:int ->
+  initialization:Ir.Global_initialization.t ->
+  entry:Ir.X87_stack.t ->
+  (t, error list) result
 
 val globals : t -> Ir.Integer_globals.t
 val entry : t -> Ir.X87_stack.t

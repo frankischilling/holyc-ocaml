@@ -38,7 +38,8 @@ let authorize ?activation ~namespace fragment =
 
 let authorized_fragment authority = authority.authorized_fragment
 
-let create ~table ~declaration ~leaf ~environment ~references ~queries =
+let create_with_mode ~native ~table ~declaration ~leaf ~environment ~references
+    ~queries =
   let ( let* ) = Result.bind in
   let* () =
     if
@@ -46,7 +47,8 @@ let create ~table ~declaration ~leaf ~environment ~references ~queries =
       || not (Outer_environment.owns_table environment table)
     then Error "initializer fragment belongs to another semantic table"
     else if
-      Outer_environment.compilation_mode environment <> Outer_environment.Jit
+      (not native)
+      && Outer_environment.compilation_mode environment <> Outer_environment.Jit
     then Error "initializer fragment requires a retained JIT environment"
     else
       match Initializer_source.leaf_parser_receipt leaf with
@@ -99,6 +101,17 @@ let create ~table ~declaration ~leaf ~environment ~references ~queries =
       references_ = references;
       queries_ = queries;
     }
+
+let create = create_with_mode ~native:false
+
+let create_native_closed ~table ~declaration ~leaf ~environment ~queries =
+  if Initializer_source.leaf_identifier_nodes leaf <> [] then
+    Error
+      "HCRUN0006: native initializers require closed expressions without value \
+       or function references"
+  else
+    create_with_mode ~native:true ~table ~declaration ~leaf ~environment
+      ~references:[] ~queries
 
 let reference_for fragment identifier =
   match
