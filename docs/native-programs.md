@@ -62,7 +62,7 @@ declaration callbacks prepare bounded scalar defaults and closed scalar global
 initializers in both modes; an iterative source gate admits ordinary scalar
 globals and rejects statics, prototypes/externs,
 explicit register/declaration modifiers, non-integer parameters or locals,
-arrays, source pointer operations, indirect calls, implicit output and unsupported
+arrays, broader pointer operations, indirect calls, implicit output and unsupported
 statements. Arrays and aggregates reject before their preparation.
 Entry statements cannot declare storage.
 It reports the first source-domain violation while retaining parser diagnostics.
@@ -312,10 +312,13 @@ TempleOS language rules.
 
 This gate does not complete general native source execution. Effectful defaults,
 interleaved source execution, owned string/`lastclass` defaults,
-global/static storage, pointer memory, arrays, indirect calls, variadics,
+broader persistent/pointer storage, arrays, indirect calls, variadics,
 explicit register and function flags, the complete HolyC ABI, floating operations,
 runtime output and native `#exe` remain required. Optimizer parity, the integrated
 assembler, object/BIN writing, loader acceptance and bootstrap retain their own
 gates. Issues #574, #585 and #593 continue
 to track their distinct shift, division-optimization and comparison-reduction
 requirements.
+
+One-level scalar pointer aliases now use the checked callable path; see
+[native pointers](native-pointers.md) for ownership, lifetime and resource limits.

@@ -157,7 +157,9 @@ Instruction forms come from the pinned `OpCodes.DD` and assembler REX/ModRM
 consumers. These source audits and hosted executions are not new TempleOS oracle
 captures.
 
-Global/static, pointer and array memory, aggregate values, Bool/I0/F64 storage,
+Ordinary scalar globals/statics and one-level scalar pointer aliases are covered
+by [native globals](native-globals.md) and [native pointers](native-pointers.md).
+Broader pointer storage, arrays, aggregate values, Bool/I0/F64 storage,
 variadic/indirect/external calls, prototypes, explicit register/function flags,
 runtime output and general declaration/`#exe` execution remain outside this gate.
 Optimizer parity, complete HolyC ABI, assembly/object/BIN output, actual loader

@@ -1231,3 +1231,14 @@ The existing runtime shift, comparison, and logical evidence in this map applies
 to the same VM after source lowering. Issue #574 still tracks constant-form
 shift questions, and issue #396 still tracks the broader IR work. No TempleOS
 execution oracle was run for this hosted integration.
+
+## Native scalar pointer aliases
+
+At the pinned reference, `Compiler/PrsExp.HC:151-161` changes pointer depth and
+cancels address-of/dereference pairs. `Compiler/BackLib.HC:693-707` selects the
+pointed-to load width; `Compiler/BackC.HC:159-204` stores through the computed
+address and preserves assignment results. `Compiler/OpCodes.DD:830-833` supplies
+LEA alongside the previously audited scalar move forms. Native descriptors,
+initialization checks and the nonescaping local/parameter lifetime restriction
+are hosted policy; see [native pointers](native-pointers.md). No new TempleOS
+execution capture is claimed.

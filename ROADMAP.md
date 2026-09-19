@@ -1,5 +1,12 @@
 # holyc-ocaml roadmap
 
+Issue #679 adds native one-level scalar pointer aliases in automatic locals and
+fixed parameters, with checked object ownership, private descriptor storage and
+existing initialization/resource faults. Pointer returns, persistent pointer
+storage, arithmetic, arrays and the full ABI remain separate compiler work.
+See [native pointers](docs/native-pointers.md).
+
+
 GitHub milestones M0 through M10 hold measurable exit criteria. Current work spans M5 (IR and interpreter) and the bounded M6 hosted x86-64 backend. Earlier milestone gaps, including compile-time execution, remain tracked in their original issues.
 
 M0 covers the build, source model, diagnostics, pinned reference, first lexer slice, tests, and CI. Later milestones cover the source audit, integrated preprocessor, parser, semantic model, verified IR, interpreter, hosted x86-64 backend, TempleOS assembler, `.BIN` and JIT support, whole-tree compatibility, bootstrap work, and the 1.0 release.

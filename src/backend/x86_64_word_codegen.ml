@@ -148,6 +148,26 @@ let checked_scalar ?(allow_public = false) description type_ =
            "native callable programs require nonzero scalar integer values"
          else "native expressions require internal I64 or U64 values")
 
+(* Runtime references never share the integer producer path. The descriptor's
+   pointee class is fixed by the original checked object and cannot be cast. *)
+let checked_reference description type_ =
+  if Type.pointer_depth type_ <> 1 then
+    unsupported description "native references require one scalar indirection";
+  match Type.dereference type_ with
+  | Ok pointee ->
+      (pointee, checked_scalar ~allow_public:true description pointee)
+  | Error message -> malformed description message
+
+let checked_copy description target source =
+  if Type.pointer_depth target = 0 then (
+    ignore (checked_scalar ~allow_public:true description target);
+    ignore (checked_scalar ~allow_public:true description source))
+  else (
+    ignore (checked_reference description target);
+    if not (Type.equal target source) then
+      malformed description
+        "native reference copy requires its exact pointer type")
+
 let checked_word ?(allow_public = false) description type_ =
   let scalar = checked_scalar ~allow_public description type_ in
   if scalar.byte_size <> 8 then
@@ -178,6 +198,12 @@ type arena_access = {
   initialized_flag_offset : int;
 }
 
+type reference_access = { reference : value; scalar : scalar_value }
+
+type reference_origin =
+  | Frame_reference of frame_access
+  | Arena_reference of arena_access
+
 type direct_call = {
   callee_index : int;
   activation_bytes : int;
@@ -202,6 +228,17 @@ type operation =
   | Apply_logical of Encoder.binary * value * value * value
   | Apply_word_view of value * value
   | Frame_tick
+  | Materialize_reference of reference_origin * int * value
+  | Load_reference_value of reference_access * value
+  | Store_reference_value of reference_access * value * value
+  | Update_reference_value of
+      reference_access
+      * frame_update
+      * value option
+      * bool
+      * value
+      * word_type
+      * fault_site option
   | Load_frame_value of frame_access * value
   | Store_frame_value of frame_access * value * value
   | Update_frame_value of
@@ -918,6 +955,22 @@ let store_arena_flag span source access =
       Encoder.Frame8,
       source )
 
+let load_reference_scalar span destination base scalar =
+  if scalar.byte_size = 8 then Encoder.Load_indirect (destination, base, 0)
+  else
+    Encoder.Load_indirect_narrow
+      ( destination,
+        base,
+        narrow_frame_width ?span scalar.byte_size,
+        if scalar.word_type = I64 then Encoder.Sign_extend
+        else Encoder.Zero_extend )
+
+let store_reference_scalar span base scalar source =
+  if scalar.byte_size = 8 then Encoder.Store_indirect (base, source)
+  else
+    Encoder.Store_indirect_narrow
+      (base, narrow_frame_width ?span scalar.byte_size, source)
+
 let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
     ~mode prepared =
   let registers = Array.of_list Encoder.registers in
@@ -1340,6 +1393,45 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
     | Expression_control _ ->
         reject "HCBACK0003" "native expression contains program control"
   in
+  let emit_update span update word (arithmetic_site : fault_site option) =
+    let emit = emit span in
+    match update with
+    | Update_binary binary ->
+        emit (Encoder.Binary (binary, Encoder.Rax, Encoder.Rcx));
+        rax
+    | Update_shift shift ->
+        emit (Encoder.Shift_cl (shift, Encoder.Rax));
+        rax
+    | Update_division arithmetic_operation -> (
+        let site = Option.get arithmetic_site in
+        let zero_label = fresh_label supply in
+        fault_blocks :=
+          { label = zero_label; kind_value = 1; site_value = site.site }
+          :: !fault_blocks;
+        emit (Encoder.Test Encoder.Rcx);
+        emit_branch Equal zero_label;
+        (match word with
+        | U64 ->
+            emit Encoder.Zero_edx;
+            emit Encoder.Div_rcx
+        | I64 ->
+            let overflow_label = fresh_label supply in
+            let safe_label = fresh_label supply in
+            fault_blocks :=
+              { label = overflow_label; kind_value = 2; site_value = site.site }
+              :: !fault_blocks;
+            emit (Encoder.Mov_imm64 (Encoder.Rdx, Int64.min_int));
+            emit (Encoder.Cmp (Encoder.Rax, Encoder.Rdx));
+            emit_branch Not_equal safe_label;
+            emit (Encoder.Cmp_imm8 (Encoder.Rcx, -1));
+            emit_branch Equal overflow_label;
+            mark safe_label;
+            emit Encoder.Cqo;
+            emit Encoder.Idiv_rcx);
+        match arithmetic_operation with
+        | Divide -> rax
+        | Remainder -> rdx)
+  in
   List.iteri
     (fun position (instruction : prepared_instruction) ->
       release_before position;
@@ -1563,6 +1655,86 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
             emit (Encoder.Mov (registers.(destination), registers.(source)));
           assign position destination result
       | Frame_tick -> release_through position
+      | Materialize_reference (origin, offset, result) ->
+          spill_all_registers instruction.span;
+          let slot = encoder_frame_slot instruction.span offset in
+          let flag_slot = encoder_frame_slot instruction.span (offset + 8) in
+          (match origin with
+          | Frame_reference access -> (
+              emit
+                (Encoder.Address_frame
+                   ( Encoder.Rax,
+                     encoder_scalar_frame_slot instruction.span
+                       access.frame_offset ));
+              emit (Encoder.Store_frame (slot, Encoder.Rax));
+              match access.initialized_flag_offset with
+              | Some flag ->
+                  emit
+                    (Encoder.Address_frame
+                       (Encoder.Rax, encoder_frame_slot instruction.span flag))
+              | None -> emit (Encoder.Mov_imm64 (Encoder.Rax, 0L)))
+          | Arena_reference access ->
+              emit
+                (Encoder.Address_arena
+                   ( Encoder.Rax,
+                     encoder_arena_slot instruction.span access.arena_offset ));
+              emit (Encoder.Store_frame (slot, Encoder.Rax));
+              emit
+                (Encoder.Address_arena
+                   ( Encoder.Rax,
+                     encoder_arena_slot instruction.span
+                       access.initialized_flag_offset )));
+          emit (Encoder.Store_frame (flag_slot, Encoder.Rax));
+          emit (Encoder.Address_frame (Encoder.Rax, slot));
+          note_peak ~temporaries:[ rax ] ();
+          assign position rax result
+      | Load_reference_value (access, result) ->
+          spill_all_registers instruction.span;
+          copy_value_to instruction.span access.reference rdx;
+          let initialized = fresh_label supply in
+          let uninitialized = fresh_label supply in
+          fault_blocks :=
+            {
+              label = uninitialized;
+              kind_value = 7;
+              site_value = Option.get instruction.site;
+            }
+            :: !fault_blocks;
+          emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 8));
+          emit (Encoder.Test Encoder.Rax);
+          emit_branch Equal initialized;
+          emit
+            (Encoder.Load_indirect_narrow
+               (Encoder.Rax, Encoder.Rax, Encoder.Frame8, Encoder.Zero_extend));
+          emit (Encoder.Test Encoder.Rax);
+          emit_branch Equal uninitialized;
+          mark initialized;
+          emit (Encoder.Load_indirect (Encoder.Rdx, Encoder.Rdx, 0));
+          emit
+            (load_reference_scalar instruction.span Encoder.Rax Encoder.Rdx
+               access.scalar);
+          note_peak ~temporaries:[ rax; rdx ] ();
+          assign position rax result
+      | Store_reference_value (access, input, result) ->
+          spill_all_registers instruction.span;
+          copy_value_to instruction.span input rax;
+          copy_value_to instruction.span access.reference rcx;
+          emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rcx, 0));
+          emit
+            (store_reference_scalar instruction.span Encoder.Rcx access.scalar
+               Encoder.Rax);
+          copy_value_to instruction.span access.reference rcx;
+          emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rcx, 8));
+          let initialized = fresh_label supply in
+          emit (Encoder.Test Encoder.Rcx);
+          emit_branch Equal initialized;
+          emit (Encoder.Mov_imm64 (Encoder.Rdx, 1L));
+          emit
+            (Encoder.Store_indirect_narrow
+               (Encoder.Rcx, Encoder.Frame8, Encoder.Rdx));
+          mark initialized;
+          note_peak ~temporaries:[ rax; rcx; rdx ] ();
+          assign position rax result
       | Load_frame_value (access, result) ->
           let destination =
             acquire_destination instruction.span position ~protected:[]
@@ -1666,46 +1838,7 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
           | Some input -> copy_value_to instruction.span input rcx
           | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
           let computed_index =
-            match update with
-            | Update_binary binary ->
-                emit (Encoder.Binary (binary, Encoder.Rax, Encoder.Rcx));
-                rax
-            | Update_shift shift ->
-                emit (Encoder.Shift_cl (shift, Encoder.Rax));
-                rax
-            | Update_division arithmetic_operation -> (
-                let site = Option.get arithmetic_site in
-                let zero_label = fresh_label supply in
-                fault_blocks :=
-                  { label = zero_label; kind_value = 1; site_value = site.site }
-                  :: !fault_blocks;
-                emit (Encoder.Test Encoder.Rcx);
-                emit_branch Equal zero_label;
-                (match word with
-                | U64 ->
-                    emit Encoder.Zero_edx;
-                    emit Encoder.Div_rcx
-                | I64 ->
-                    let overflow_label = fresh_label supply in
-                    let safe_label = fresh_label supply in
-                    fault_blocks :=
-                      {
-                        label = overflow_label;
-                        kind_value = 2;
-                        site_value = site.site;
-                      }
-                      :: !fault_blocks;
-                    emit (Encoder.Mov_imm64 (Encoder.Rdx, Int64.min_int));
-                    emit (Encoder.Cmp (Encoder.Rax, Encoder.Rdx));
-                    emit_branch Not_equal safe_label;
-                    emit (Encoder.Cmp_imm8 (Encoder.Rcx, -1));
-                    emit_branch Equal overflow_label;
-                    mark safe_label;
-                    emit Encoder.Cqo;
-                    emit Encoder.Idiv_rcx);
-                match arithmetic_operation with
-                | Divide -> rax
-                | Remainder -> rdx)
+            emit_update instruction.span update word arithmetic_site
           in
           emit
             (store_frame_scalar instruction.span access
@@ -1737,46 +1870,7 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
           | Some input -> copy_value_to instruction.span input rcx
           | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
           let computed_index =
-            match update with
-            | Update_binary binary ->
-                emit (Encoder.Binary (binary, Encoder.Rax, Encoder.Rcx));
-                rax
-            | Update_shift shift ->
-                emit (Encoder.Shift_cl (shift, Encoder.Rax));
-                rax
-            | Update_division arithmetic_operation -> (
-                let site = Option.get arithmetic_site in
-                let zero_label = fresh_label supply in
-                fault_blocks :=
-                  { label = zero_label; kind_value = 1; site_value = site.site }
-                  :: !fault_blocks;
-                emit (Encoder.Test Encoder.Rcx);
-                emit_branch Equal zero_label;
-                (match word with
-                | U64 ->
-                    emit Encoder.Zero_edx;
-                    emit Encoder.Div_rcx
-                | I64 ->
-                    let overflow_label = fresh_label supply in
-                    let safe_label = fresh_label supply in
-                    fault_blocks :=
-                      {
-                        label = overflow_label;
-                        kind_value = 2;
-                        site_value = site.site;
-                      }
-                      :: !fault_blocks;
-                    emit (Encoder.Mov_imm64 (Encoder.Rdx, Int64.min_int));
-                    emit (Encoder.Cmp (Encoder.Rax, Encoder.Rdx));
-                    emit_branch Not_equal safe_label;
-                    emit (Encoder.Cmp_imm8 (Encoder.Rcx, -1));
-                    emit_branch Equal overflow_label;
-                    mark safe_label;
-                    emit Encoder.Cqo;
-                    emit Encoder.Idiv_rcx);
-                match arithmetic_operation with
-                | Divide -> rax
-                | Remainder -> rdx)
+            emit_update instruction.span update word arithmetic_site
           in
           emit
             (store_arena_scalar instruction.span access
@@ -1786,6 +1880,56 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
             emit
               (load_arena_scalar instruction.span registers.(computed_index)
                  access);
+          note_peak
+            ~temporaries:
+              (if old_result then [ rax; rcx; rdx; r8 ] else [ rax; rcx; rdx ])
+            ();
+          assign position (if old_result then r8 else computed_index) result
+      | Update_reference_value
+          (access, update, input, old_result, result, word, arithmetic_site) ->
+          spill_all_registers instruction.span;
+          copy_value_to instruction.span access.reference rdx;
+          let initialized = fresh_label supply in
+          let uninitialized = fresh_label supply in
+          fault_blocks :=
+            {
+              label = uninitialized;
+              kind_value = 7;
+              site_value = Option.get instruction.site;
+            }
+            :: !fault_blocks;
+          emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 8));
+          emit (Encoder.Test Encoder.Rax);
+          emit_branch Equal initialized;
+          emit
+            (Encoder.Load_indirect_narrow
+               (Encoder.Rax, Encoder.Rax, Encoder.Frame8, Encoder.Zero_extend));
+          emit (Encoder.Test Encoder.Rax);
+          emit_branch Equal uninitialized;
+          mark initialized;
+          emit (Encoder.Load_indirect (Encoder.Rdx, Encoder.Rdx, 0));
+          emit
+            (load_reference_scalar instruction.span Encoder.Rax Encoder.Rdx
+               access.scalar);
+          if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
+          (match input with
+          | Some input -> copy_value_to instruction.span input rcx
+          | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
+          let computed_index =
+            emit_update instruction.span update word arithmetic_site
+          in
+          copy_value_to instruction.span access.reference rcx;
+          emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rcx, 0));
+          emit
+            (store_reference_scalar instruction.span Encoder.Rcx access.scalar
+               registers.(computed_index));
+          if
+            (not old_result) && Option.is_none input
+            && access.scalar.byte_size < 8
+          then
+            emit
+              (load_reference_scalar instruction.span registers.(computed_index)
+                 Encoder.Rcx access.scalar);
           note_peak
             ~temporaries:
               (if old_result then [ rax; rcx; rdx; r8 ] else [ rax; rcx; rdx ])
@@ -2433,6 +2577,7 @@ type frame_term =
   | Frame_offset of Type.t * int
   | Frame_address of callable_slot
   | Global_address of Global_storage.slot
+  | Reference_address of reference_access * Type.t
 
 type callable_call_phase = Collecting | Needs_cleanup | Needs_end
 
@@ -2454,6 +2599,7 @@ type prepared_callable_body = {
   callable_block_count : int;
   callable_home_slots : int;
   callable_stage_slots : int;
+  callable_reference_bytes : int;
 }
 
 type allocated_callable_body = {
@@ -2488,6 +2634,18 @@ let source_scalar ?span label type_ =
       }
   | None ->
       reject ?span "HCBACK0002" (label ^ " must be a nonzero scalar integer")
+
+let source_slot_scalar ?span label type_ =
+  if Type.pointer_depth type_ = 0 then source_scalar ?span label type_
+  else if Type.pointer_depth type_ = 1 then
+    match Type.dereference type_ with
+    | Ok pointee ->
+        ignore (source_scalar ?span label pointee);
+        { word_type = U64; byte_size = 8 }
+    | Error message -> reject ?span "HCBACK0002" message
+  else
+    reject ?span "HCBACK0002"
+      "native slots require at most one scalar indirection"
 
 let arena_access slot =
   let scalar = Global_storage.scalar slot in
@@ -2594,7 +2752,7 @@ let prepare_callable_function ~max_stack_bytes
           "native source function parameter positions are inconsistent";
       let type_ = Function.member_type member in
       let scalar =
-        source_scalar ?span:(Function.member_span member) "parameter" type_
+        source_slot_scalar ?span:(Function.member_span member) "parameter" type_
       in
       let location =
         match Frame.find_location frame (Function.member_symbol member) with
@@ -2665,7 +2823,7 @@ let prepare_callable_function ~max_stack_bytes
     (fun index member ->
       let type_ = Function.member_type member in
       let scalar =
-        source_scalar
+        source_slot_scalar
           ?span:(Function.member_span member)
           "automatic local" type_
       in
@@ -2864,7 +3022,8 @@ let validate_callable_returns graph return_kind =
 
 let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
     ~global_storage ~runtime_owner ~owner ~frame_slots ~expected_return
-    ~is_entry ~next_site graph =
+    ~is_entry ~rbp_bytes ~next_site graph =
+  let reference_bytes = ref 0 in
   let blocks = Graph.blocks graph in
   let instruction_ids = ref Instruction_set.empty in
   let sites_rev = ref [] in
@@ -2889,6 +3048,16 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
         malformed description
           (Printf.sprintf "frame value %%%d has no earlier definition"
              (Sequence.Value_id.to_int id))
+  in
+  let address_operand frame_values values description position id =
+    match Value_map.find_opt id !frame_values with
+    | Some value -> value
+    | None ->
+        let reference = operand values description position id in
+        let pointee, scalar =
+          checked_reference description reference.declared_type
+        in
+        Reference_address ({ reference; scalar }, pointee)
   in
   let visit_block block next =
     let block_id = Graph.block_id block in
@@ -3165,7 +3334,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               then malformed description "invalid IC_RBP shape";
               match (description.result, description.target_type) with
               | Some result, Some target_type
-                when Type.pointer_depth target_type = 1 ->
+                when Type.pointer_depth target_type >= 1
+                     && Type.pointer_depth target_type <= 2 ->
                   define_frame frame_values values void_values description
                     result (Frame_base target_type);
                   (Frame_tick, None)
@@ -3225,7 +3395,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                 "native absolute address requires an exact storage symbol"
           | Opcode.Ic_imm_i64
             when Option.fold ~none:false
-                   ~some:(fun type_ -> Type.pointer_depth type_ = 1)
+                   ~some:(fun type_ ->
+                     Type.pointer_depth type_ = 1
+                     || Type.pointer_depth type_ = 2)
                    description.target_type -> (
               if description.flags <> 0L || description.operands <> [] then
                 malformed description "invalid frame displacement immediate";
@@ -3246,7 +3418,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   malformed description "invalid frame displacement immediate")
           | Opcode.Ic_add
             when Option.fold ~none:false
-                   ~some:(fun type_ -> Type.pointer_depth type_ = 1)
+                   ~some:(fun type_ ->
+                     Type.pointer_depth type_ = 1
+                     || Type.pointer_depth type_ = 2)
                    description.target_type -> (
               if description.flags <> 0L || Option.is_some description.payload
               then malformed description "invalid frame address addition";
@@ -3280,6 +3454,44 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       malformed description
                         "frame address operands are inconsistent")
               | _ -> malformed description "invalid frame address addition")
+          | Opcode.Ic_addr -> (
+              if description.flags <> 0L || Option.is_some description.payload
+              then malformed description "invalid native reference producer";
+              match
+                ( description.operands,
+                  description.result,
+                  description.target_type )
+              with
+              | [ address_id ], Some result, Some target_type -> (
+                  let pointee, _ = checked_reference description target_type in
+                  let address =
+                    address_operand frame_values values description position
+                      address_id
+                  in
+                  let value =
+                    define values description position result target_type
+                      (Computation.forward target_type)
+                  in
+                  let materialize origin =
+                    reference_bytes := !reference_bytes + 16;
+                    ( Materialize_reference
+                        (origin, -(rbp_bytes + !reference_bytes), value),
+                      None )
+                  in
+                  match address with
+                  | Frame_address slot when Type.equal pointee slot.slot_type ->
+                      materialize (Frame_reference slot.access)
+                  | Global_address slot
+                    when Type.equal pointee (Global_storage.type_ slot) ->
+                      materialize (Arena_reference (arena_access slot))
+                  | Reference_address (access, actual)
+                    when Type.equal pointee actual ->
+                      (Apply_word_view (access.reference, value), None)
+                  | _ ->
+                      malformed description
+                        "reference producer does not name its exact scalar \
+                         object")
+              | _ -> malformed description "invalid native reference producer")
           | Opcode.Ic_deref -> (
               if description.flags <> 0L || Option.is_some description.payload
               then malformed description "invalid scalar frame load";
@@ -3289,12 +3501,13 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   description.target_type )
               with
               | [ address_id ], Some result, Some target_type -> (
-                  match frame_operand frame_values description address_id with
+                  match
+                    address_operand frame_values values description position
+                      address_id
+                  with
                   | Frame_address slot
                     when Type.equal target_type slot.slot_type ->
-                      ignore
-                        (checked_scalar ~allow_public:true description
-                           target_type);
+                      checked_copy description target_type target_type;
                       let value =
                         define values description position result target_type
                           (Computation.forward target_type)
@@ -3310,6 +3523,13 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                           (Computation.forward target_type)
                       in
                       (Load_arena_value (arena_access slot, value), None)
+                  | Reference_address (access, pointee)
+                    when Type.equal target_type pointee ->
+                      let value =
+                        define values description position result target_type
+                          (Computation.forward target_type)
+                      in
+                      (Load_reference_value (access, value), None)
                   | _ ->
                       malformed description
                         "scalar load does not name its exact checked slot")
@@ -3323,15 +3543,16 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   description.target_type )
               with
               | [ address_id; input_id ], Some result, Some target_type -> (
-                  match frame_operand frame_values description address_id with
+                  match
+                    address_operand frame_values values description position
+                      address_id
+                  with
                   | Frame_address slot
                     when Type.equal target_type slot.slot_type ->
                       let input =
                         operand values description position input_id
                       in
-                      ignore
-                        (checked_scalar ~allow_public:true description
-                           input.declared_type);
+                      checked_copy description target_type input.declared_type;
                       let value =
                         define values description position result target_type
                           (Computation.forward target_type)
@@ -3342,14 +3563,23 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       let input =
                         operand values description position input_id
                       in
-                      ignore
-                        (checked_scalar ~allow_public:true description
-                           input.declared_type);
+                      checked_copy description target_type input.declared_type;
                       let value =
                         define values description position result target_type
                           (Computation.forward target_type)
                       in
                       (Store_arena_value (arena_access slot, input, value), None)
+                  | Reference_address (access, pointee)
+                    when Type.equal target_type pointee ->
+                      let input =
+                        operand values description position input_id
+                      in
+                      checked_copy description target_type input.declared_type;
+                      let value =
+                        define values description position result target_type
+                          (Computation.forward target_type)
+                      in
+                      (Store_reference_value (access, input, value), None)
                   | _ ->
                       malformed description
                         "scalar assignment does not name its exact slot")
@@ -3376,9 +3606,15 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   description.target_type )
               with
               | address_id :: operands, Some result, Some target_type -> (
-                  match frame_operand frame_values description address_id with
+                  match
+                    address_operand frame_values values description position
+                      address_id
+                  with
                   | Frame_address slot
                     when Type.equal target_type slot.slot_type ->
+                      ignore
+                        (checked_scalar ~allow_public:true description
+                           target_type);
                       let update, old_result, expects_operand =
                         Option.get
                           (callable_frame_update description.opcode
@@ -3486,6 +3722,60 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                             access.arena_word,
                             arithmetic_site ),
                         None )
+                  | Reference_address (access, pointee)
+                    when Type.equal target_type pointee ->
+                      let update, old_result, expects_operand =
+                        Option.get
+                          (callable_frame_update description.opcode
+                             access.scalar.word_type)
+                      in
+                      let input =
+                        match (expects_operand, operands) with
+                        | true, [ input_id ] ->
+                            let input =
+                              operand values description position input_id
+                            in
+                            ignore
+                              (checked_scalar ~allow_public:true description
+                                 input.declared_type);
+                            Some input
+                        | false, [] -> None
+                        | _ ->
+                            malformed description
+                              "invalid scalar update operands"
+                      in
+                      let value =
+                        define values description position result target_type
+                          (Computation.forward target_type)
+                      in
+                      let arithmetic_site =
+                        match update with
+                        | Update_division arithmetic_operation ->
+                            let fault_site =
+                              {
+                                site;
+                                operation = arithmetic_operation;
+                                instruction_id =
+                                  Sequence.Instruction_id.to_int
+                                    description.instruction_id;
+                                position;
+                                span = description.span;
+                                signed = access.scalar.word_type = I64;
+                              }
+                            in
+                            arithmetic_sites := fault_site :: !arithmetic_sites;
+                            Some fault_site
+                        | Update_binary _ | Update_shift _ -> None
+                      in
+                      ( Update_reference_value
+                          ( access,
+                            update,
+                            input,
+                            old_result,
+                            value,
+                            access.scalar.word_type,
+                            arithmetic_site ),
+                        None )
                   | _ ->
                       malformed description
                         "scalar update does not name its exact slot")
@@ -3506,13 +3796,17 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                     let input =
                       operand values description position operand_id
                     in
-                    let word =
-                      (checked_scalar ~allow_public:true description
-                         input.declared_type)
-                        .word_type
-                    in
-                    ( Discard_value (input, word),
-                      if is_entry then Some word else None )
+                    if Type.pointer_depth input.declared_type <> 0 then (
+                      ignore (checked_reference description input.declared_type);
+                      (Discard_void, None))
+                    else
+                      let word =
+                        (checked_scalar ~allow_public:true description
+                           input.declared_type)
+                          .word_type
+                      in
+                      ( Discard_value (input, word),
+                        if is_entry then Some word else None )
               | _ -> malformed description "invalid IC_END_EXP shape")
           | Opcode.Ic_jmp ->
               if
@@ -3694,12 +3988,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                         | _ ->
                             malformed raw
                               "pushed argument source type is inconsistent");
-                        ignore
-                          (checked_scalar ~allow_public:true raw
-                             (Runtime.argument_target_type argument));
-                        ignore
-                          (checked_scalar ~allow_public:true raw
-                             value.declared_type);
+                        checked_copy raw
+                          (Runtime.argument_target_type argument)
+                          value.declared_type;
                         scope.pushed.(index) <- true;
                         value.last_use <- max value.last_use position;
                         Some (value, scope.argument_stages.(index))
@@ -3718,6 +4009,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
           | Update_frame_value
               (_, Update_division arithmetic_operation, _, _, _, word, _) ->
               Some (arithmetic_operation, word = I64)
+          | Update_reference_value
+              (_, Update_division arithmetic_operation, _, _, _, word, _)
           | Update_arena_value
               (_, Update_division arithmetic_operation, _, _, _, word, _) ->
               Some (arithmetic_operation, word = I64)
@@ -3745,7 +4038,10 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | Update_frame_value
                   ({ initialized_flag_offset = Some _; _ }, _, _, _, _, _, _) ->
                   true
-              | Load_arena_value _ | Update_arena_value _ -> true
+              | Load_arena_value _
+              | Update_arena_value _
+              | Load_reference_value _
+              | Update_reference_value _ -> true
               | _ -> false);
           }
           :: !sites_rev;
@@ -3839,6 +4135,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
     callable_block_count = List.length blocks;
     callable_home_slots = !home_slots;
     callable_stage_slots = !stage_high_water;
+    callable_reference_bytes = !reference_bytes;
   }
 
 let bounded_program_counts ~max_ir_instructions ~max_blocks graph =
@@ -4306,7 +4603,7 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                       ~functions:function_infos ~global_storage
                       ~runtime_owner:Runtime.Entry ~owner:Entry_owner
                       ~frame_slots:Int_map.empty ~expected_return:None
-                      ~is_entry:true ~next_site entry_graph
+                      ~is_entry:true ~rbp_bytes:0 ~next_site entry_graph
                   in
                   let function_prepared =
                     Array.map
@@ -4317,7 +4614,7 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                           ~global_storage ~runtime_owner:(Runtime.Function body)
                           ~owner:info.owner ~frame_slots:info.frame_slots
                           ~expected_return:(Some (Function.return_type body))
-                          ~is_entry:false ~next_site
+                          ~is_entry:false ~rbp_bytes:info.rbp_bytes ~next_site
                           (Ir.X87_stack.graph (Function.x87 body)))
                       function_infos
                   in
@@ -4364,6 +4661,9 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                   in
                   let allocate_graph ~graph ~prepared ~rbp_bytes
                       ~init_flag_offsets ~is_entry ~start_label =
+                    let rbp_bytes =
+                      rbp_bytes + prepared.callable_reference_bytes
+                    in
                     let fixed_stack_slots =
                       prepared.callable_home_slots
                       + prepared.callable_stage_slots

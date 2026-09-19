@@ -692,7 +692,7 @@ let source_gate_is_compile_only () =
           "I64 Bad(){static I64 *n;return 0;}42;";
           "I64 Bad(){static I64 n[2];return 0;}42;";
           "I64 Bad(){static I64 reg n;return 0;}42;";
-          "I64 F(I64 *p){return *p;} 42;";
+          "I64 F(I64 **p){return **p;} 42;";
           "I64 F(I64 n,...){return n;} F(42);";
           "extern I64 F(I64 n); 42;";
           "I64 F(I64 n=1<<3){return n;} F(1);";
