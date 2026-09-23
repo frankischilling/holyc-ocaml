@@ -328,10 +328,12 @@
  (alias native-tests)
  (deps
   ../../examples/integer-persistent-arrays.hc
-  ../../examples/integer-formatting.hc)
+  ../../examples/integer-formatting.hc
+  ../../examples/quoted-formatting.hc)
  (action
   (run
    %{exe:test_native_print_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/integer-persistent-arrays.hc}
-   %{dep:../../examples/integer-formatting.hc})))
+   %{dep:../../examples/integer-formatting.hc}
+   %{dep:../../examples/quoted-formatting.hc})))

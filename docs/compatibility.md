@@ -4,6 +4,8 @@
 binary, owned-string and packed-character formatting with the checked widths,
 grouping and truncation described in [formatting rules](integer-formatting.md).
 The shared StreamPrint formatter also uses these rules for generated source.
+Quoted byte escaping/decoding and ASCII-uppercase packed output follow
+[their own checked conversion rules](quoted-formatting.md).
 Failed drafts retain work and earlier output. Remaining conversions, native
 StreamPrint and retained native provider/body publication remain explicit gaps.
 

@@ -102,6 +102,7 @@
     {"path": "Compiler/OptPass789A.HC", "sha256": "7cae9bc11a863d2066df27894449dbb28afb0d550b6b3fae1eeb6bb1362addcc"},
     {"path": "Compiler/BackFA.HC", "sha256": "600aff7a73711571ac764f02bbbd6d8cb41e5651867e59dd496182866d93e924"},
     {"path": "Compiler/BackLib.HC", "sha256": "1bb302eec16d8231e08ea77a83a3e05d253c45202521510d4450c23a22518e7d"},
+    {"path": "Compiler/BackB.HC", "sha256": "1f7bedaca6845779bfe07142fc6a3c632e7e762a2a7fdb2c9172a981e45aef69"},
     {"path": "Compiler/BackC.HC", "sha256": "207ca307204ffa8a29870dae38f9663bd3b2021d78caf35ece0f68380feb6139"},
     {"path": "Compiler/OpCodes.DD", "sha256": "b814c439af73b080e7584dd32734241724d95f072b6ca7c805759fbd870f635d"},
     {"path": "Kernel/KernelA.HH", "sha256": "1b4b6d8b6aeeaedfd2b11536b84557d9d2efc05ff38200020cd7a4a94dcd7d41"},

@@ -204,6 +204,12 @@ it cannot suppress an unknown or out-of-bounds byte. Work and capacity checks
 bound padding independently of field width. See
 [integer and byte formatting](docs/integer-formatting.md).
 
+Quoted conversions keep at most four transformed bytes at a time. The complete
+first input scan still runs after a decoded NUL, and every decoder lookahead or
+hexadecimal candidate read uses the same ownership, bounds and work checks.
+Prefix truncation cannot authorize a shorter source object or hide a later
+unknown byte. ASCII uppercase output has no host-locale dependency.
+
 The host validates immutable context pointers, output counters and restored
 callable quotas before projecting capture. Status decoding accepts output faults
 only at sealed provider sites and accepts format-specific status kinds only at an

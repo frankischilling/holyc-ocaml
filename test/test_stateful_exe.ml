@@ -27,6 +27,13 @@ let gates =
     ( "formatted unsigned maximum reenters the lexer",
       {|#exe {StreamPrint("U64 Value=%u;",-1);}if(Value!=0xFFFFFFFFFFFFFFFF)1/0;42;|}
     );
+    ( "quoted bytes generate a source string",
+      {|#exe {StreamPrint("U8 Text[5]=\"%$$Q\";","a\"$$\n");}if(Text[0]!=97||Text[1]!=34||Text[2]!=36||Text[3]!=10||Text[4])1/0;42;|}
+    );
+    ( "decoded hexadecimal bytes generate a declaration",
+      {|#exe {StreamPrint("%q","I64 Value=\\x34\\x32;");}Value;|} );
+    ( "uppercase packed output generates a character constant",
+      {|#exe {StreamPrint("U8 Drive='%C';",'c');}if(Drive!='C')1/0;42;|} );
   ]
 
 let expect ?(modes = G.modes) value source () =

@@ -40,6 +40,11 @@ complete output; a failed draft preserves earlier output and charged work.
 See [formatting rules](docs/integer-formatting.md) and
 [native Print](docs/native-print.md).
 
+Quoted byte formatting supports source-compatible `Q` escaping, `q` decoding
+and ASCII-uppercase packed `C`. StreamPrint can use those conversions to build
+source strings and character constants. See [quoted formatting](docs/quoted-formatting.md)
+and `examples/quoted-formatting.hc`.
+
 [Retained named types](docs/retained-named-types.md) preserve an aggregate
 selected before a nested `#exe` shadows its name. The original function header
 and parameter keep that identity through completion.

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added quoted byte escaping and decoding (`Q`/`q`) and ASCII-uppercase packed
+  output (`C`) to shared and native Print formatting. StreamPrint uses the same
+  conversions for generated strings and character constants. Fixed chunks bound
+  temporary storage, and decoded NUL cannot suppress later source-read faults.
+
 - Extended shared and native Print formatting with unsigned decimal, hexadecimal
   and binary conversion, literal/dynamic widths, precision-argument consumption,
   source-specific grouping and truncation, and string/packed-byte padding.

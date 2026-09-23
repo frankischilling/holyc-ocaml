@@ -22,13 +22,15 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 4)
+    (Array.length Sys.argv = 5)
     "usage: test_native_print_cli.exe <holyc.exe> \
-     <integer-persistent-arrays.hc> <integer-formatting.hc>"
+     <integer-persistent-arrays.hc> <integer-formatting.hc> \
+     <quoted-formatting.hc>"
 
 let compiler = Sys.argv.(1)
 let maintained_fixture = Sys.argv.(2)
 let formatting_fixture = Sys.argv.(3)
+let quoted_fixture = Sys.argv.(4)
 
 let invoke arguments =
   with_file ".stdout" "" (fun stdout ->
@@ -299,7 +301,7 @@ let exact_and_one_below_limits () =
 let atomic_failure_prefixes () =
   let invalid =
     "extern U0 Print(U8 *fmt,...);extern U0 PutChars(U64 \
-     ch);Print(\"A\");PutChars('B');Print(\"C%q\");42;"
+     ch);Print(\"A\");PutChars('B');Print(\"C%j\");42;"
   in
   let capacity =
     "extern U0 Print(U8 *fmt,...);Print(\"A\");Print(\"BC\");42;"
@@ -384,8 +386,17 @@ let expanded_format_reports () =
                  "star overrides literal precision";
                  "binary format and string padding";
                  "full packed word truncation";
+                 "quoted dollar and percent modifiers";
+                 "decoded invalid hex is left for the next token";
+                 "decoded NUL still scans later input";
+                 "decoded NUL padding preserves the next argument";
+                 "decoded high byte";
+                 "quoted truncation splits an escape";
+                 "uppercase full packed word";
+                 "uppercase packed high bytes stay unchanged";
+                 "quoted high bytes stay unchanged";
                ])
-           Integer_format_fixture.all);
+           (Integer_format_fixture.all @ Quoted_format_fixture.all));
       let expected = "0000002A|OK   |-0042|18446744073709551615\n" in
       List.iter
         (fun report ->
@@ -421,7 +432,61 @@ let expanded_format_reports () =
           in
           require (first_code report = code) (label ^ " diagnostic");
           check_output label report ~hex:"" ~bytes:0 ~work)
-        Integer_format_fixture.invalid_fields)
+        (Integer_format_fixture.invalid_fields
+       @ Quoted_format_fixture.invalid_fields))
+    [ "jit"; "aot" ]
+
+let quoted_fixture_reports () =
+  let expected = "a\\\"\\d\\n|42|OK\n" in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun report ->
+          check_success "maintained quoted fixture" report;
+          check_word "maintained quoted fixture" report;
+          check_output "maintained quoted fixture" report ~hex:(hex expected)
+            ~bytes:14 ~work:54)
+        [
+          host_json_path ~mode quoted_fixture; ir_json_path ~mode quoted_fixture;
+        ];
+      let exact =
+        host_json_path ~mode
+          ~options:[ "--output-byte-limit=14"; "--output-work-limit=54" ]
+          quoted_fixture
+      in
+      check_success "quoted fixture exact bounds" exact;
+      List.iter
+        (fun (options, code) ->
+          let report = host_json_path ~status:1 ~mode ~options quoted_fixture in
+          require
+            (first_code report = code)
+            "quoted fixture one-below diagnostic";
+          check_output "quoted fixture one-below atomic draft" report ~hex:""
+            ~bytes:0 ~work:53)
+        [
+          ([ "--output-byte-limit=13" ], "HCIRVM0022");
+          ([ "--output-work-limit=53" ], "HCIRVM0023");
+        ];
+      let stdout, stderr = host_path ~format:"human" ~mode quoted_fixture in
+      require (stderr = "") "quoted human report stderr";
+      let lines = stdout |> String.split_on_char '\n' |> List.map String.trim in
+      List.iter
+        (fun expected ->
+          require (List.mem expected lines)
+            ("quoted human report missing: " ^ expected))
+        [
+          "output-byte-length=14";
+          "output-work=54";
+          "output-hex=" ^ hex expected;
+        ];
+      List.iter
+        (fun (label, body, code, work) ->
+          let report =
+            host_json ~status:1 ~mode ("extern U0 Print(U8 *fmt,...);" ^ body)
+          in
+          require (first_code report = code) (label ^ " CLI diagnostic");
+          check_output label report ~hex:"7c" ~bytes:1 ~work:(work + 3))
+        Quoted_format_fixture.memory_failures)
     [ "jit"; "aot" ]
 
 let human_fixture_reports () =
@@ -455,4 +520,5 @@ let () =
   implicit_and_source_defined_paths ();
   binary_capture ();
   expanded_format_reports ();
+  quoted_fixture_reports ();
   human_fixture_reports ()

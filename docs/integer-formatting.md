@@ -31,8 +31,9 @@ introduces precision with the same digits-and-star grammar. Precision is parsed
 and its argument is consumed, but it does not change these conversions.
 
 The parser then accepts repeated `,`, `t`, `l`, `$` and `/` modifiers before the
-conversion. The supported conversions are `%`, `d`, `u`, `x`, `X`, `b`, `B`, `s`
-and `c`. `l`, `$` and `/` have no effect in this domain. Modifier order follows
+conversion. The supported conversions are `%`, `d`, `u`, `x`, `X`, `b`, `B`, `s`,
+`c`, `C`, `q` and `Q`. `l` is ignored; `$` and `/` affect only the quoted byte
+conversions described in [quoted formatting](quoted-formatting.md). Modifier order follows
 the pinned parser: `%0-5d` is invalid, while `%-05d` is accepted.
 
 Literal width and precision must fit a nonnegative signed I64. An overflowing
@@ -83,7 +84,10 @@ work limit.
 
 `s` scans a checked U8 object through its first NUL. `c` visits up to eight
 low-to-high bytes in a word, stopping at the first zero. Bytes above 127 are
-preserved. PutChars retains its separate rule of skipping interior zero bytes.
+preserved. `C` follows the same path with ASCII-only uppercase conversion.
+`q` and `Q` decode or escape owned byte strings before field layout; their
+complete scan, lookahead and fixed-chunk rules are documented separately.
+PutChars retains its separate rule of skipping interior zero bytes.
 
 For strings and packed characters, width is a minimum, `-` moves padding to the
 right, and `t` retains the left prefix that fits. Padding uses spaces even with
@@ -137,8 +141,8 @@ checked-batch, native, CLI and task tests. The implementations do not call a hos
 formatter. The checked object model, explicit unsupported-format errors and work
 quotas are hosted policies; no new TempleOS execution capture is claimed.
 
-Full formatting remains under #694. Uppercase packed characters, auxiliary
-formats such as `h`, quoted strings, floating-point, date, symbol, pointer and
+Full formatting remains under #694. Auxiliary formats such as `h`,
+floating-point, date, symbol, pointer and
 other runtime-dependent conversions still require their own source consumers
 and tests. The full compiler, ABI, artifact, loader and bootstrap gates remain
 required.

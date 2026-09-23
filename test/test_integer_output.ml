@@ -102,7 +102,7 @@ let expanded_integer_formats () =
           Alcotest.(check int)
             case.label case.work
             (integer_program_report_output_work report))
-        Integer_format_fixture.all;
+        (Integer_format_fixture.all @ Quoted_format_fixture.all);
       List.iter
         (fun (label, source, bytes, work) ->
           let report = run ~mode source in
@@ -137,7 +137,7 @@ let expanded_format_quotas () =
               (case.label ^ " byte one below")
               (case.work - 1)
               (integer_program_report_output_work below)))
-        Integer_format_fixture.quota_cases;
+        (Integer_format_fixture.quota_cases @ Quoted_format_fixture.quota_cases);
       List.iter
         (fun (body, work) ->
           let source = print_header ^ body ^ "42;" in
@@ -181,7 +181,8 @@ let expanded_format_failures () =
             (integer_program_report_output_work report);
           ignore
             (run ~mode ~max_output_work:(work - 1) source |> fault "HCIRVM0023"))
-        Integer_format_fixture.invalid_fields;
+        (Integer_format_fixture.invalid_fields
+       @ Quoted_format_fixture.invalid_fields);
       List.iter
         (fun (source, code, work) ->
           let report = run ~mode (print_header ^ source) in
@@ -219,7 +220,36 @@ let interleaved_format_faults () =
             (label ^ " work precedes capacity")
             (work - 1)
             (integer_program_report_output_work report))
-        Integer_format_fixture.interleaved_faults)
+        (Integer_format_fixture.interleaved_faults
+       @ Quoted_format_fixture.interleaved_faults))
+    G.modes
+
+let quoted_memory_failures () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, body, code, work) ->
+          let source = print_header ^ body in
+          let report = run ~mode source in
+          ignore (fault ~output:"|" code report);
+          Alcotest.(check int)
+            label (work + 3)
+            (integer_program_report_output_work report);
+          let report = run ~mode ~max_output_work:(work + 2) source in
+          ignore (fault ~output:"|" "HCIRVM0023" report))
+        Quoted_format_fixture.memory_failures;
+      List.iter
+        (fun (format, work) ->
+          let source =
+            print_header ^ "Print(\"" ^ format
+            ^ "\",9223372036854775807,\"A\");42;"
+          in
+          let report = run ~mode ~max_output_bytes:1 source in
+          ignore (fault "HCIRVM0022" report);
+          Alcotest.(check int)
+            "quoted huge width uses bounded appends" work
+            (integer_program_report_output_work report))
+        [ ("%*Q", 7); ("%*q", 8) ])
     G.modes
 
 let function_contexts_and_arguments () =
@@ -319,7 +349,7 @@ let initializer_output_and_fresh_reports () =
             |> expect ")*"))
         [ (); () ];
       let text =
-        print_header ^ "I64 Seed(){Print(\"%q\");return 42;}I64 G=Seed();42;"
+        print_header ^ "I64 Seed(){Print(\"%j\");return 42;}I64 G=Seed();42;"
       in
       ignore (G.compile ~mode text);
       let error = run ~mode text |> fault "HCIRVM0024" in
@@ -353,7 +383,7 @@ let faults_preserve_prior_capture () =
           ( print_header
             ^ "I64 F(){U64 n=42;Print(\"ok\");Print(\"%s\",&n);return 42;}F();",
             "HCIRVM0018" );
-          (print_header ^ "Print(\"ok\");Print(\"prefix%q\");42;", "HCIRVM0024");
+          (print_header ^ "Print(\"ok\");Print(\"prefix%j\");42;", "HCIRVM0024");
           ( print_header ^ "Print(\"ok\");Print(\"prefix%+d\",42);42;",
             "HCIRVM0024" );
           (print_header ^ "Print(\"ok\");Print(\"prefix%\");42;", "HCIRVM0024");
@@ -454,7 +484,7 @@ let output_and_work_limits () =
         "zero packed word needs no inspection" 0
         (integer_program_report_output_work report);
       let report =
-        run ~mode (print_header ^ "Print(\"A\");Print(\"B%q\");42;")
+        run ~mode (print_header ^ "Print(\"A\");Print(\"B%j\");42;")
       in
       ignore (fault ~output:"A" "HCIRVM0024" report);
       Alcotest.(check int)
@@ -473,7 +503,7 @@ let reached_formatting_and_failed_read_work () =
             "unreached formatting charges no work" 0
             (integer_program_report_output_work report))
         [
-          print_header ^ "U0 Never(){Print(\"%q\");}42;";
+          print_header ^ "U0 Never(){Print(\"%j\");}42;";
           print_header ^ "if(0)Print(\"%d\");42;";
           print_header ^ "if(0)Print(\"%s\",42);42;";
         ];
@@ -1124,6 +1154,8 @@ let tests =
         `Quick expanded_format_failures;
       Alcotest.test_case "unmeasured fields preserve interleaved fault work"
         `Quick interleaved_format_faults;
+      Alcotest.test_case "quoted scans preserve late memory faults and bounds"
+        `Quick quoted_memory_failures;
       Alcotest.test_case "function output loops and right-to-left arguments"
         `Quick function_contexts_and_arguments;
       Alcotest.test_case "statement origins and source-defined output functions"

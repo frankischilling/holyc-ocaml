@@ -1373,3 +1373,26 @@ Shared independent fixtures exercise source, checked batch, native API/CLI and
 task generation, including source reentry through `#exe`. See
 [integer formatting](integer-formatting.md) for examples, fault order and the
 remaining conversions under #694. This work adds no TempleOS execution capture.
+
+Issue #694 also connects quoted byte strings and uppercase packed output.
+`Kernel/StrPrint.HC:56-110` defines the `Q` escapes; lines 113-197 define `q`
+decoding, its lookahead reads and the rejected hexadecimal candidate that stays
+available for the next iteration. Lines 337-360 convert the complete input before
+applying `OutStr`. A decoded NUL therefore ends the visible prefix while the
+remaining encoded input still requires valid storage. Truncation applies after
+conversion and can split an escape.
+
+`Kernel/KernelA.HH:3456` sets the raw-byte threshold to `0x1f`;
+`Kernel/StrA.HC:353-354` supplies the hexadecimal bitmap. Packed `C` at
+`StrPrint.HC:396-411` uses the ASCII-only conversion encoded by
+`Compiler/BackB.HC:266-275`. The manifest now checks that backend source without
+changing the reference pin. `Compiler/Lex.HC:93-104` consumes the escaped bytes
+when StreamPrint generates a quoted source string.
+
+The hosted formatter replaces temporary kernel strings with two bounded passes
+and chunks of at most four bytes. Both execution paths preserve the documented
+byte results and charge source reads, lookahead and appends separately. Public
+source, native API/CLI and task tests cover decoded NULs followed by bounds or
+initialization faults, partial escapes and exact resource limits. See
+[quoted formatting](quoted-formatting.md) for the supported domain and remaining
+runtime dependencies. These tests add no TempleOS execution capture.
