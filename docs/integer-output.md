@@ -70,10 +70,12 @@ expression. This is the hosted report policy, not a native return-value claim.
 ## Formatting and byte ownership
 
 Print supports ordinary bytes, `%%`, signed `%d`, unsigned `%u`, hexadecimal
-`%x`/`%X`, binary `%b`/`%B`, `%s` and `%c`, with checked field widths, integer
+`%x`/`%X`, binary `%b`/`%B`, `%s`, `%c`/`%C` and `%q`/`%Q`, with checked field widths, integer
 grouping and truncation. Precision arguments are consumed but do not change
 these conversions. [Integer and byte formatting](integer-formatting.md) describes
 the source-specific modifier order, padding and exact work contract.
+[Quoted byte formatting](quoted-formatting.md) describes escaping, decoding,
+ASCII uppercase output and the complete input scans required before publication.
 Format and `%s` scans stop at zero and
 retain the VM's exact U8 pointee, storage lifetime, initialization and original
 object extent checks. Mutable formats are read at the reached call.

@@ -304,7 +304,7 @@ let formatter_failures () =
         "failed formatter retains reached work" true
         (Task.output_work task > 0))
     [
-      ("HCIRVM0024", {|StreamPrint("prefix%q");|});
+      ("HCIRVM0024", {|StreamPrint("prefix%j");|});
       ("HCIRVM0025", {|StreamPrint("%s",42);|});
       ("HCIRVM0012", {|U8 A[1];StreamPrint("%s",A);|});
       ("HCIRVM0019", {|U8 A[1]={'A'};StreamPrint("%s",A);|});
@@ -346,7 +346,7 @@ let invalid_headers () =
 
 let inactive_format_fault_priority () =
   let session, task = create () in
-  T.fault "HCIRVM0024" (T.run session task {|StreamPrint("%q");|});
+  T.fault "HCIRVM0024" (T.run session task {|StreamPrint("%j");|});
   Alcotest.(check int)
     "format fault precedes inactive context" 2 (Task.output_work task);
   Alcotest.(check int)
@@ -377,7 +377,7 @@ let expanded_formatting () =
       Alcotest.(check string)
         (case.label ^ " ordinary capture")
         "" (Task.output_bytes task))
-    Integer_format_fixture.all
+    (Integer_format_fixture.all @ Quoted_format_fixture.all)
 
 let expanded_format_limits () =
   List.iter
@@ -439,7 +439,44 @@ let interleaved_format_faults () =
             "" (finish task stream);
           Alcotest.(check int) label expected_work (Task.output_work task))
         [ (work, "HCIRVM0028", work); (work - 1, "HCIRVM0023", work - 1) ])
-    Integer_format_fixture.interleaved_faults
+    (Integer_format_fixture.interleaved_faults
+   @ Quoted_format_fixture.interleaved_faults)
+
+let quoted_format_limits () =
+  List.iter
+    (fun (case : Integer_format_fixture.t) ->
+      let byte_count = String.length case.bytes in
+      let session, task =
+        create ~max_generated_bytes:byte_count ~max_output_work:case.work ()
+      in
+      let stream = begin_ task in
+      run session task (Integer_format_fixture.call "StreamPrint" case);
+      Alcotest.(check string) case.label case.bytes (finish task stream);
+      Alcotest.(check int)
+        (case.label ^ " generation work")
+        case.work (Task.output_work task);
+      if byte_count > 0 then (
+        let session, task = create ~max_generated_bytes:(byte_count - 1) () in
+        let stream = begin_ task in
+        T.fault "HCIRVM0028"
+          (T.run session task (Integer_format_fixture.call "StreamPrint" case));
+        Alcotest.(check string)
+          (case.label ^ " failed generation is atomic")
+          "" (finish task stream);
+        Alcotest.(check int)
+          (case.label ^ " generation one below")
+          (case.work - 1) (Task.output_work task)))
+    Quoted_format_fixture.quota_cases;
+  let session, task = create () in
+  let stream = begin_ task in
+  run session task {|StreamPrint("|");|};
+  T.fault "HCIRVM0019"
+    (T.run session task {|U8 Text[3]={92,48,65};StreamPrint("%q",Text);|});
+  Alcotest.(check string)
+    "decoded NUL does not publish a failed draft" "|" (finish task stream);
+  Alcotest.(check int)
+    "late generation fault keeps complete reached work" 9
+    (Task.output_work task)
 
 let tests =
   [
@@ -449,6 +486,8 @@ let tests =
       expanded_format_limits;
     Alcotest.test_case "unmeasured fields preserve interleaved fault work"
       `Quick interleaved_format_faults;
+    Alcotest.test_case "quoted generation respects transformed byte limits"
+      `Quick quoted_format_limits;
     Alcotest.test_case "inactive formatting fault order" `Quick
       inactive_format_fault_priority;
     Alcotest.test_case "nested buffers and ordinary output" `Quick

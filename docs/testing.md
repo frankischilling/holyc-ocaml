@@ -31,6 +31,13 @@ Generated-source tests feed formatted hexadecimal, unsigned, string and packed
 fragments through `#exe`. The maintained fixture is
 `examples/integer-formatting.hc`; see [formatting rules](integer-formatting.md).
 
+`quoted_format_fixture.ml` adds independent bytes and work for escaping,
+decoding, ASCII uppercase, source lookahead and truncation within an escape.
+The same public/native/task routes cover those cases. Decoded NUL followed by
+an invalid source read must fail without publishing a draft. The maintained
+`examples/quoted-formatting.hc` runs through native and interpreted CLI reports
+with exact and one-below byte/work limits.
+
 Native persistent storage tests cover global/static integer array images and
 source-owned mutable literals. Compile-only tests check original owners, widths,
 padding, sparse initialized cells, image-copy isolation and bounded metadata.

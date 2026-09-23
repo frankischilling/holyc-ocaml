@@ -1058,7 +1058,7 @@ let () =
                 "v2 retains the actual runtime diagnostic"))
         [
           ("1/0;", [], "HCIRVM0009", "41", 1, 3);
-          ("\"B%q\";42;", [], "HCIRVM0024", "41", 1, 7);
+          ("\"B%j\";42;", [], "HCIRVM0024", "41", 1, 7);
           ("\"BC\";42;", [ "--output-byte-limit=2" ], "HCIRVM0022", "41", 1, 7);
           ("\"B\";42;", [ "--output-work-limit=5" ], "HCIRVM0023", "41", 1, 5);
         ];

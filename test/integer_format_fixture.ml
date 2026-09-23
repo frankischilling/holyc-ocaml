@@ -167,11 +167,11 @@ let invalid_fields =
     ("word supplied to bare string", "Print(\"%s\",42);", 2, "HCIRVM0025");
     ("pointer supplied to bare packed", "Print(\"%c\",\"AB\");", 2, "HCIRVM0025");
     ( "missing width precedes unknown directive",
-      "Print(\"%*q\");",
+      "Print(\"%*j\");",
       2,
       "HCIRVM0025" );
     ( "pointer width precedes unknown directive",
-      "Print(\"%*q\",\"x\");",
+      "Print(\"%*j\",\"x\");",
       2,
       "HCIRVM0025" );
     ( "literal width followed by pointer override",
@@ -184,7 +184,7 @@ let invalid_fields =
       4,
       "HCIRVM0025" );
     ( "pointer precision precedes unknown directive",
-      "Print(\"%.*q\",\"x\");",
+      "Print(\"%.*j\",\"x\");",
       3,
       "HCIRVM0025" );
     ("width followed by end of format", "Print(\"%5\");", 3, "HCIRVM0024");

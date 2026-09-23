@@ -11,10 +11,15 @@ holyc run --target=host-jit --mode=aot --format=json examples/integer-persistent
 ```
 
 The formatter supports ordinary bytes, `%%`, `%d`, `%u`, `%x`, `%X`, `%b`, `%B`,
-`%s` and `%c`. Checked field widths, grouping, truncation and byte padding match
+`%s`, `%c`, `%C`, `%q` and `%Q`. Checked field widths, grouping, truncation and byte padding match
 the shared interpreter. Precision arguments are consumed but do not affect
 these conversions. [Integer and byte formatting](integer-formatting.md) gives
 the grammar, source-specific examples and remaining conversions.
+
+[Quoted byte formatting](quoted-formatting.md) escapes or decodes owned strings
+through fixed four-byte chunks. Its first pass checks the complete input even
+after a decoded NUL; its second pass reconstructs only the selected prefix.
+`C` uppercases ASCII letters in the existing packed-character path.
 
 `%d` formats signed 64-bit word bits, including the minimum signed value and
 high-bit U64 arguments. Loads extend narrow stored values; argument staging

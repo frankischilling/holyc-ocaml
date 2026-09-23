@@ -17,6 +17,8 @@ type format_options = {
   width : int64;
   comma : bool;
   truncate : bool;
+  dollar : bool;
+  slash : bool;
 }
 
 let create ~max_output_bytes ~max_output_work =
@@ -166,7 +168,151 @@ let format_draft state ~read_byte ~format arguments =
         let* () = emit_repeat ' ' padding in
         string_prefix pointer output_length
   in
-  let packed_plain bits =
+  let ascii_upper byte =
+    if byte >= 'a' && byte <= 'z' then Char.chr (Char.code byte - 32) else byte
+  in
+  let quoted_next pointer ~decode options offset =
+    let single byte next = Ok (Some (Int64.of_int (Char.code byte), 1, next)) in
+    let pair first second next =
+      Ok
+        (Some
+           ( Int64.logor
+               (Int64.of_int (Char.code first))
+               (Int64.shift_left (Int64.of_int (Char.code second)) 8),
+             2,
+             next ))
+    in
+    let* byte = read pointer offset in
+    if byte = '\000' then Ok None
+    else
+      let* next = next_offset offset in
+      if not decode then
+        match byte with
+        | '$' ->
+            if options.dollar then pair '\\' 'd' next else pair '$' '$' next
+        | '%' when options.slash -> pair '%' '%' next
+        | '\n' -> pair '\\' 'n' next
+        | '\r' -> pair '\\' 'r' next
+        | '\t' -> pair '\\' 't' next
+        | '"' | '\\' -> pair '\\' byte next
+        | byte when Char.code byte >= 0x1f && byte <> '\127' -> single byte next
+        | byte ->
+            let hex digit = if digit < 10 then 48 + digit else 55 + digit in
+            let value = Char.code byte in
+            let bits =
+              Int64.logor 0x785cL
+                (Int64.logor
+                   (Int64.shift_left (Int64.of_int (hex (value lsr 4))) 16)
+                   (Int64.shift_left (Int64.of_int (hex (value land 15))) 24))
+            in
+            Ok (Some (bits, 4, next))
+      else
+        (* MPrintq peeks after every nonzero current byte, even when the byte
+           is copied unchanged. Hex candidates have their own checked reads. *)
+        let* lookahead = read pointer next in
+        let consume byte =
+          let* next = next_offset next in
+          single byte next
+        in
+        match byte with
+        | '\\' -> (
+            match lookahead with
+            | '0' -> consume '\000'
+            | '\'' | '`' | '"' | '\\' -> consume lookahead
+            | 'd' -> consume '$'
+            | 'n' -> consume '\n'
+            | 'r' -> consume '\r'
+            | 't' -> consume '\t'
+            | 'x' | 'X' ->
+                let* next = next_offset next in
+                let rec digits offset remaining value =
+                  if remaining = 0 then single (Char.chr value) offset
+                  else
+                    let* byte = read pointer offset in
+                    let byte = ascii_upper byte in
+                    let digit =
+                      if byte >= '0' && byte <= '9' then
+                        Some (Char.code byte - 48)
+                      else if byte >= 'A' && byte <= 'F' then
+                        Some (Char.code byte - 55)
+                      else None
+                    in
+                    match digit with
+                    | None -> single (Char.chr value) offset
+                    | Some digit ->
+                        let* offset = next_offset offset in
+                        digits offset (remaining - 1) ((value lsl 4) + digit)
+                in
+                digits next 2 0
+            | _ -> single byte next)
+        | '$' when lookahead = '$' -> consume '$'
+        | '%' when options.slash && lookahead = '%' -> consume '%'
+        | _ -> single byte next
+  in
+  let chunk_byte bits index =
+    Int64.shift_right_logical bits (index * 8)
+    |> Int64.logand 255L |> Int64.to_int |> Char.chr
+  in
+  let quoted_length pointer ~decode options =
+    let offset = ref 0L in
+    let length = ref 0L in
+    let visible = ref true in
+    let complete = ref false in
+    let failed = ref None in
+    while (not !complete) && Option.is_none !failed do
+      match quoted_next pointer ~decode options !offset with
+      | Error error -> failed := Some error
+      | Ok None -> complete := true
+      | Ok (Some (bits, count, next)) ->
+          offset := next;
+          for index = 0 to count - 1 do
+            if !visible && Option.is_none !failed then
+              if chunk_byte bits index = '\000' then visible := false
+              else
+                match next_offset !length with
+                | Ok next -> length := next
+                | Error error -> failed := Some error
+          done
+    done;
+    match !failed with
+    | None -> Ok !length
+    | Some error -> Error error
+  in
+  let quoted_prefix pointer ~decode options length =
+    let offset = ref 0L in
+    let remaining = ref length in
+    let failed = ref None in
+    while Int64.compare !remaining 0L > 0 && Option.is_none !failed do
+      match quoted_next pointer ~decode options !offset with
+      | Error error -> failed := Some error
+      | Ok None -> remaining := 0L
+      | Ok (Some (bits, count, next)) ->
+          offset := next;
+          for index = 0 to count - 1 do
+            if Int64.compare !remaining 0L > 0 && Option.is_none !failed then
+              let byte = chunk_byte bits index in
+              if byte = '\000' then remaining := 0L
+              else
+                match emit byte with
+                | Ok () -> remaining := Int64.pred !remaining
+                | Error error -> failed := Some error
+          done
+    done;
+    match !failed with
+    | None -> Ok ()
+    | Some error -> Error error
+  in
+  let quoted_field pointer ~decode options =
+    let* length = quoted_length pointer ~decode options in
+    let output_length, padding = field_counts options length in
+    if options.left_justify then
+      let* () = quoted_prefix pointer ~decode options output_length in
+      emit_repeat ' ' padding
+    else
+      let* () = emit_repeat ' ' padding in
+      quoted_prefix pointer ~decode options output_length
+  in
+  let packed_plain bits ~uppercase =
     let shifted = ref bits in
     let remaining = ref 8 in
     let complete = ref false in
@@ -178,7 +324,8 @@ let format_draft state ~read_byte ~format arguments =
           let byte = Int64.to_int (Int64.logand !shifted 255L) in
           if byte = 0 then complete := true
           else
-            match emit (Char.chr byte) with
+            let byte = Char.chr byte in
+            match emit (if uppercase then ascii_upper byte else byte) with
             | Error error -> failed := Some error
             | Ok () ->
                 decr remaining;
@@ -209,7 +356,7 @@ let format_draft state ~read_byte ~format arguments =
     | None -> Ok !length
     | Some error -> Error error
   in
-  let packed_prefix bits count =
+  let packed_prefix bits count ~uppercase =
     let index = ref 0 in
     let failed = ref None in
     while !index < count && Option.is_none !failed do
@@ -217,7 +364,7 @@ let format_draft state ~read_byte ~format arguments =
         Int64.shift_right_logical bits (8 * !index)
         |> Int64.logand 255L |> Int64.to_int |> Char.chr
       in
-      match emit byte with
+      match emit (if uppercase then ascii_upper byte else byte) with
       | Ok () -> incr index
       | Error error -> failed := Some error
     done;
@@ -225,9 +372,9 @@ let format_draft state ~read_byte ~format arguments =
     | None -> Ok ()
     | Some error -> Error error
   in
-  let packed_field bits options =
+  let packed_field bits ~uppercase options =
     if Int64.compare options.width 0L <= 0 && not options.truncate then
-      packed_plain bits
+      packed_plain bits ~uppercase
     else
       let* length = packed_length bits in
       let width = nonnegative options.width in
@@ -245,11 +392,11 @@ let format_draft state ~read_byte ~format arguments =
         else 0L
       in
       if options.left_justify then
-        let* () = packed_prefix bits output_length in
+        let* () = packed_prefix bits output_length ~uppercase in
         emit_repeat ' ' padding
       else
         let* () = emit_repeat ' ' padding in
-        packed_prefix bits output_length
+        packed_prefix bits output_length ~uppercase
   in
   let digit byte = byte >= '0' && byte <= '9' in
   let digit_value byte = Char.code byte - Char.code '0' in
@@ -417,6 +564,8 @@ let format_draft state ~read_byte ~format arguments =
     let cursor = ref offset in
     let comma = ref false in
     let truncate = ref false in
+    let dollar = ref false in
+    let slash = ref false in
     let complete = ref false in
     let failed = ref None in
     while (not !complete) && Option.is_none !failed do
@@ -424,6 +573,8 @@ let format_draft state ~read_byte ~format arguments =
       | (',' | 't' | 'l' | '$' | '/') as modifier -> (
           if modifier = ',' then comma := true;
           if modifier = 't' then truncate := true;
+          if modifier = '$' then dollar := true;
+          if modifier = '/' then slash := true;
           match format_required !cursor with
           | Ok (byte, offset) ->
               current := byte;
@@ -433,7 +584,7 @@ let format_draft state ~read_byte ~format arguments =
     done;
     match !failed with
     | Some error -> Error error
-    | None -> Ok (!comma, !truncate, !current, !cursor)
+    | None -> Ok (!comma, !truncate, !dollar, !slash, !current, !cursor)
   in
   let render directive options position =
     let directive_name = String.make 1 directive in
@@ -466,14 +617,27 @@ let format_draft state ~read_byte ~format arguments =
             Ok (position + 1)
         | Word _ ->
             Error (Invalid_argument "Print %s requires an owned U8 pointer"))
-    | 'c' -> (
-        let* value = argument position "c" in
+    | 'q' | 'Q' -> (
+        let* value = argument position directive_name in
+        match value with
+        | Pointer pointer ->
+            let* () = quoted_field pointer ~decode:(directive = 'q') options in
+            Ok (position + 1)
+        | Word _ ->
+            Error
+              (Invalid_argument
+                 ("Print %" ^ directive_name ^ " requires an owned U8 pointer"))
+        )
+    | 'c' | 'C' -> (
+        let* value = argument position directive_name in
         match value with
         | Word bits ->
-            let* () = packed_field bits options in
+            let* () = packed_field bits ~uppercase:(directive = 'C') options in
             Ok (position + 1)
         | Pointer _ ->
-            Error (Invalid_argument "Print %c requires an integer word"))
+            Error
+              (Invalid_argument
+                 ("Print %" ^ directive_name ^ " requires an integer word")))
     | _ -> Error (Invalid_format "Print format directive is not supported")
   in
   let format_spec offset position =
@@ -523,8 +687,12 @@ let format_draft state ~read_byte ~format arguments =
         else Ok (precision, offset, position)
       else Ok (byte, offset, position)
     in
-    let* comma, truncate, directive, offset = modifiers byte offset in
-    let options = { left_justify; pad_zero; width; comma; truncate } in
+    let* comma, truncate, dollar, slash, directive, offset =
+      modifiers byte offset
+    in
+    let options =
+      { left_justify; pad_zero; width; comma; truncate; dollar; slash }
+    in
     let* position = render directive options position in
     Ok (offset, position)
   in

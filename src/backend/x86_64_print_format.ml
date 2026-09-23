@@ -50,11 +50,24 @@ let number_signed = 21
 let number_buffer = 22
 let number_buffer_bytes = 80
 let number_buffer_slots = number_buffer_bytes / 8
-let fixed_scratch_slots = number_buffer + number_buffer_slots
+let quote_phase = number_buffer + number_buffer_slots
+let quote_chunk0 = quote_phase + 1
+let quote_chunk1 = quote_chunk0 + 1
+let quote_chunk2 = quote_chunk1 + 1
+let quote_chunk3 = quote_chunk2 + 1
+let quote_chunk_length = quote_chunk3 + 1
+let quote_frozen = quote_chunk_length + 1
+let quote_peek = quote_frozen + 1
+let quote_hex_value = quote_peek + 1
+let quote_hex_digits = quote_hex_value + 1
+let fixed_scratch_slots = quote_hex_digits + 1
 let flag_left = 1L
 let flag_zero = 2L
 let flag_comma = 4L
 let flag_truncate = 8L
+let flag_dollar = 16L
+let flag_slash = 32L
+let flag_uppercase = 64L
 
 let scratch_slots count =
   if count < 0 || count > max_int - fixed_scratch_slots then
@@ -235,6 +248,27 @@ let emit emitter call =
     out (E.Binary (E.And, E.Rax, E.Rcx));
     out (E.Test E.Rax)
   in
+  let uppercase_packed_byte () =
+    let done_ = fresh () in
+    let raw = fresh () in
+    let convert = fresh () in
+    store current_byte E.Rax;
+    test_flag flag_uppercase;
+    jump Equal raw;
+    load E.Rax current_byte;
+    out (E.Cmp_imm8 (E.Rax, Char.code 'a'));
+    jump Below done_;
+    out (E.Cmp_imm8 (E.Rax, Char.code '{'));
+    jump Below convert;
+    jump Always done_;
+    mark convert;
+    out (E.Mov_imm64 (E.Rcx, 32L));
+    out (E.Binary (E.Sub, E.Rax, E.Rcx));
+    jump Always done_;
+    mark raw;
+    load E.Rax current_byte;
+    mark done_
+  in
   let emit_repeat counter byte =
     let loop = fresh () in
     let done_ = fresh () in
@@ -352,6 +386,7 @@ let emit emitter call =
     load E.Rax temporary_word;
     out (E.Mov_imm64 (E.Rcx, 255L));
     out (E.Binary (E.And, E.Rax, E.Rcx));
+    uppercase_packed_byte ();
     append ();
     load E.Rax temporary_word;
     out (E.Mov_imm64 (E.Rcx, 8L));
@@ -435,6 +470,7 @@ let emit emitter call =
     out (E.Binary (E.And, E.Rax, E.R8));
     out (E.Test E.Rax);
     jump Equal done_label;
+    uppercase_packed_byte ();
     append ();
     increment visit_count;
     load E.Rax visit_count;
@@ -486,6 +522,334 @@ let emit emitter call =
     jump Always loop;
     mark measured;
     emit_outstr_layout emit_packed_copy;
+    jump Always done_label
+  in
+  let store_quote_chunk slot register = store slot register in
+  let quote_single register =
+    store_quote_chunk quote_chunk0 register;
+    constant quote_chunk_length 1L
+  in
+  let quote_pair first second =
+    constant quote_chunk0 (Int64.of_int first);
+    constant quote_chunk1 (Int64.of_int second);
+    constant quote_chunk_length 2L
+  in
+  let store_upper_hex_digit slot =
+    let numeric = fresh () in
+    let done_ = fresh () in
+    out (E.Cmp_imm8 (E.Rax, 10));
+    jump Below numeric;
+    out (E.Mov_imm64 (E.Rcx, 55L));
+    out (E.Binary (E.Add, E.Rax, E.Rcx));
+    store slot E.Rax;
+    jump Always done_;
+    mark numeric;
+    out (E.Mov_imm64 (E.Rcx, 48L));
+    out (E.Binary (E.Add, E.Rax, E.Rcx));
+    store slot E.Rax;
+    mark done_
+  in
+  let emit_quoted done_label ~decode =
+    take_argument ~pointer:true;
+    zero current_offset;
+    zero payload_length;
+    zero quote_phase;
+    zero quote_frozen;
+    let scan = fresh () in
+    let source_done = fresh () in
+    let chunk_ready = fresh () in
+    let chunk_loop = fresh () in
+    let chunk_first = fresh () in
+    let chunk_next = fresh () in
+    let chunk_done = fresh () in
+    let copy_done = fresh () in
+    mark scan;
+    read_byte ();
+    store current_byte E.Rax;
+    out (E.Test E.Rax);
+    jump Equal source_done;
+    increment current_offset;
+    (if decode then (
+       (* MPrintq reads the next source byte for every nonzero current byte. *)
+       read_byte ();
+       store quote_peek E.Rax;
+       let slash = fresh () in
+       let dollar = fresh () in
+       let percent = fresh () in
+       let raw = fresh () in
+       let simple = fresh () in
+       let hex = fresh () in
+       let consume_dollar = fresh () in
+       let percent_raw = fresh () in
+       load E.Rax current_byte;
+       out (E.Cmp_imm8 (E.Rax, Char.code '\\'));
+       jump Equal slash;
+       out (E.Cmp_imm8 (E.Rax, Char.code '$'));
+       jump Equal dollar;
+       out (E.Cmp_imm8 (E.Rax, Char.code '%'));
+       jump Equal percent;
+       jump Always raw;
+       mark slash;
+       load E.Rax quote_peek;
+       List.iter
+         (fun (byte, decoded) ->
+           let next = fresh () in
+           out (E.Cmp_imm8 (E.Rax, byte));
+           jump Not_equal next;
+           constant quote_chunk0 (Int64.of_int decoded);
+           increment current_offset;
+           jump Always simple;
+           mark next)
+         [
+           (Char.code '0', 0);
+           (Char.code '\'', Char.code '\'');
+           (Char.code '`', Char.code '`');
+           (Char.code '"', Char.code '"');
+           (Char.code '\\', Char.code '\\');
+           (Char.code 'd', Char.code '$');
+           (Char.code 'n', Char.code '\n');
+           (Char.code 'r', Char.code '\r');
+           (Char.code 't', Char.code '\t');
+         ];
+       out (E.Cmp_imm8 (E.Rax, Char.code 'x'));
+       jump Equal hex;
+       out (E.Cmp_imm8 (E.Rax, Char.code 'X'));
+       jump Equal hex;
+       load E.Rax current_byte;
+       quote_single E.Rax;
+       jump Always chunk_ready;
+       mark simple;
+       constant quote_chunk_length 1L;
+       jump Always chunk_ready;
+       mark hex;
+       increment current_offset;
+       zero quote_hex_value;
+       zero quote_hex_digits;
+       let hex_loop = fresh () in
+       let hex_numeric = fresh () in
+       let hex_upper = fresh () in
+       let hex_lower = fresh () in
+       let hex_valid = fresh () in
+       let hex_finish = fresh () in
+       mark hex_loop;
+       read_byte ();
+       store quote_peek E.Rax;
+       out (E.Cmp_imm8 (E.Rax, Char.code '0'));
+       jump Below hex_finish;
+       out (E.Cmp_imm8 (E.Rax, Char.code ':'));
+       jump Below hex_numeric;
+       out (E.Cmp_imm8 (E.Rax, Char.code 'A'));
+       jump Below hex_finish;
+       out (E.Cmp_imm8 (E.Rax, Char.code 'G'));
+       jump Below hex_upper;
+       out (E.Cmp_imm8 (E.Rax, Char.code 'a'));
+       jump Below hex_finish;
+       out (E.Cmp_imm8 (E.Rax, Char.code 'g'));
+       jump Below hex_lower;
+       jump Always hex_finish;
+       mark hex_numeric;
+       out (E.Mov_imm64 (E.Rcx, 48L));
+       out (E.Binary (E.Sub, E.Rax, E.Rcx));
+       jump Always hex_valid;
+       mark hex_upper;
+       out (E.Mov_imm64 (E.Rcx, 55L));
+       out (E.Binary (E.Sub, E.Rax, E.Rcx));
+       jump Always hex_valid;
+       mark hex_lower;
+       out (E.Mov_imm64 (E.Rcx, 87L));
+       out (E.Binary (E.Sub, E.Rax, E.Rcx));
+       mark hex_valid;
+       load E.Rcx quote_hex_value;
+       out (E.Mov_imm64 (E.R8, 16L));
+       out (E.Binary (E.Imul, E.Rcx, E.R8));
+       out (E.Binary (E.Add, E.Rcx, E.Rax));
+       store quote_hex_value E.Rcx;
+       increment current_offset;
+       increment quote_hex_digits;
+       load E.Rax quote_hex_digits;
+       out (E.Cmp_imm8 (E.Rax, 2));
+       jump Not_equal hex_loop;
+       mark hex_finish;
+       load E.Rax quote_hex_value;
+       quote_single E.Rax;
+       jump Always chunk_ready;
+       mark dollar;
+       load E.Rax quote_peek;
+       out (E.Cmp_imm8 (E.Rax, Char.code '$'));
+       jump Equal consume_dollar;
+       out (E.Mov_imm64 (E.Rax, Int64.of_int (Char.code '$')));
+       quote_single E.Rax;
+       jump Always chunk_ready;
+       mark consume_dollar;
+       increment current_offset;
+       out (E.Mov_imm64 (E.Rax, Int64.of_int (Char.code '$')));
+       quote_single E.Rax;
+       jump Always chunk_ready;
+       mark percent;
+       test_flag flag_slash;
+       jump Equal percent_raw;
+       load E.Rax quote_peek;
+       out (E.Cmp_imm8 (E.Rax, Char.code '%'));
+       jump Not_equal percent_raw;
+       increment current_offset;
+       mark percent_raw;
+       out (E.Mov_imm64 (E.Rax, Int64.of_int (Char.code '%')));
+       quote_single E.Rax;
+       jump Always chunk_ready;
+       mark raw;
+       load E.Rax current_byte;
+       quote_single E.Rax;
+       jump Always chunk_ready)
+     else
+       let dollar = fresh () in
+       let percent = fresh () in
+       let line_feed = fresh () in
+       let carriage_return = fresh () in
+       let tab = fresh () in
+       let quoted = fresh () in
+       let raw = fresh () in
+       let control = fresh () in
+       let dollar_plain = fresh () in
+       let percent_plain = fresh () in
+       load E.Rax current_byte;
+       out (E.Cmp_imm8 (E.Rax, Char.code '$'));
+       jump Equal dollar;
+       out (E.Cmp_imm8 (E.Rax, Char.code '%'));
+       jump Equal percent;
+       out (E.Cmp_imm8 (E.Rax, Char.code '\n'));
+       jump Equal line_feed;
+       out (E.Cmp_imm8 (E.Rax, Char.code '\r'));
+       jump Equal carriage_return;
+       out (E.Cmp_imm8 (E.Rax, Char.code '\t'));
+       jump Equal tab;
+       out (E.Cmp_imm8 (E.Rax, Char.code '"'));
+       jump Equal quoted;
+       out (E.Cmp_imm8 (E.Rax, Char.code '\\'));
+       jump Equal quoted;
+       out (E.Cmp_imm8 (E.Rax, 0x1f));
+       jump Below control;
+       out (E.Cmp_imm8 (E.Rax, 0x7f));
+       jump Equal control;
+       jump Always raw;
+       mark dollar;
+       test_flag flag_dollar;
+       jump Equal dollar_plain;
+       quote_pair (Char.code '\\') (Char.code 'd');
+       jump Always chunk_ready;
+       mark dollar_plain;
+       quote_pair (Char.code '$') (Char.code '$');
+       jump Always chunk_ready;
+       mark percent;
+       test_flag flag_slash;
+       jump Equal percent_plain;
+       quote_pair (Char.code '%') (Char.code '%');
+       jump Always chunk_ready;
+       mark percent_plain;
+       out (E.Mov_imm64 (E.Rax, Int64.of_int (Char.code '%')));
+       quote_single E.Rax;
+       jump Always chunk_ready;
+       mark line_feed;
+       quote_pair (Char.code '\\') (Char.code 'n');
+       jump Always chunk_ready;
+       mark carriage_return;
+       quote_pair (Char.code '\\') (Char.code 'r');
+       jump Always chunk_ready;
+       mark tab;
+       quote_pair (Char.code '\\') (Char.code 't');
+       jump Always chunk_ready;
+       mark quoted;
+       constant quote_chunk0 (Int64.of_int (Char.code '\\'));
+       load E.Rax current_byte;
+       store quote_chunk1 E.Rax;
+       constant quote_chunk_length 2L;
+       jump Always chunk_ready;
+       mark raw;
+       load E.Rax current_byte;
+       quote_single E.Rax;
+       jump Always chunk_ready;
+       mark control;
+       constant quote_chunk0 (Int64.of_int (Char.code '\\'));
+       constant quote_chunk1 (Int64.of_int (Char.code 'x'));
+       load E.Rax current_byte;
+       out (E.Mov_imm64 (E.Rcx, 4L));
+       out (E.Shift_cl (E.Shr, E.Rax));
+       out (E.Mov_imm64 (E.Rcx, 15L));
+       out (E.Binary (E.And, E.Rax, E.Rcx));
+       store_upper_hex_digit quote_chunk2;
+       load E.Rax current_byte;
+       out (E.Mov_imm64 (E.Rcx, 15L));
+       out (E.Binary (E.And, E.Rax, E.Rcx));
+       store_upper_hex_digit quote_chunk3;
+       constant quote_chunk_length 4L;
+       jump Always chunk_ready);
+    mark chunk_ready;
+    zero visit_count;
+    mark chunk_loop;
+    load E.Rax visit_count;
+    load E.Rcx quote_chunk_length;
+    out (E.Cmp (E.Rax, E.Rcx));
+    jump Equal chunk_done;
+    out (E.Mov (E.Rcx, E.Rax));
+    for _ = 1 to 3 do
+      out (E.Binary (E.Add, E.Rcx, E.Rcx))
+    done;
+    out (E.Address_stack (E.Rdx, stage quote_chunk0));
+    out (E.Binary (E.Add, E.Rdx, E.Rcx));
+    out (E.Load_indirect (E.Rax, E.Rdx, 0));
+    load E.Rcx quote_phase;
+    out (E.Test E.Rcx);
+    jump Equal chunk_first;
+    load E.Rcx copy_remaining;
+    out (E.Test E.Rcx);
+    jump Equal copy_done;
+    out (E.Test E.Rax);
+    jump Equal copy_done;
+    append ();
+    load E.Rax copy_remaining;
+    out (E.Dec E.Rax);
+    store copy_remaining E.Rax;
+    out (E.Test E.Rax);
+    jump Equal copy_done;
+    jump Always chunk_next;
+    mark chunk_first;
+    load E.Rcx quote_frozen;
+    out (E.Test E.Rcx);
+    jump Not_equal chunk_next;
+    out (E.Test E.Rax);
+    let visible = fresh () in
+    jump Not_equal visible;
+    constant quote_frozen 1L;
+    jump Always chunk_next;
+    mark visible;
+    increment payload_length;
+    mark chunk_next;
+    increment visit_count;
+    jump Always chunk_loop;
+    mark chunk_done;
+    jump Always scan;
+    mark source_done;
+    load E.Rax quote_phase;
+    out (E.Test E.Rax);
+    jump Not_equal copy_done;
+    emit_outstr_counts ();
+    test_flag flag_left;
+    let left = fresh () in
+    jump Not_equal left;
+    emit_repeat pad_remaining 32;
+    mark left;
+    load E.Rax copy_remaining;
+    out (E.Test E.Rax);
+    jump Equal copy_done;
+    constant quote_phase 1L;
+    zero current_offset;
+    zero quote_frozen;
+    jump Always scan;
+    mark copy_done;
+    test_flag flag_left;
+    let complete = fresh () in
+    jump Equal complete;
+    emit_repeat pad_remaining 32;
+    mark complete;
     jump Always done_label
   in
   let emit_grouped_zero_padding () =
@@ -692,6 +1056,8 @@ let emit emitter call =
     let loop = fresh () in
     let comma = fresh () in
     let truncate = fresh () in
+    let dollar = fresh () in
+    let slash = fresh () in
     let ignored = fresh () in
     let done_ = fresh () in
     mark loop;
@@ -699,11 +1065,12 @@ let emit emitter call =
     jump Equal comma;
     out (E.Cmp_imm8 (E.Rax, 116));
     jump Equal truncate;
-    List.iter
-      (fun byte ->
-        out (E.Cmp_imm8 (E.Rax, byte));
-        jump Equal ignored)
-      [ 108; 36; 47 ];
+    out (E.Cmp_imm8 (E.Rax, Char.code '$'));
+    jump Equal dollar;
+    out (E.Cmp_imm8 (E.Rax, Char.code '/'));
+    jump Equal slash;
+    out (E.Cmp_imm8 (E.Rax, Char.code 'l'));
+    jump Equal ignored;
     jump Always done_;
     mark comma;
     set_flag flag_comma;
@@ -711,6 +1078,14 @@ let emit emitter call =
     jump Always loop;
     mark truncate;
     set_flag flag_truncate;
+    read_format ();
+    jump Always loop;
+    mark dollar;
+    set_flag flag_dollar;
+    read_format ();
+    jump Always loop;
+    mark slash;
+    set_flag flag_slash;
     read_format ();
     jump Always loop;
     mark ignored;
@@ -752,6 +1127,9 @@ let emit emitter call =
   let number_body = fresh () in
   let formatted_string = fresh () in
   let formatted_packed = fresh () in
+  let formatted_upper_packed = fresh () in
+  let quoted_Q = fresh () in
+  let quoted_q = fresh () in
   let complete = fresh () in
   mark format_loop;
   read_format ();
@@ -785,6 +1163,7 @@ let emit emitter call =
   mark bare_string;
   emit_bare_string format_loop;
   mark bare_packed;
+  constant format_flags 0L;
   emit_bare_packed format_loop;
   mark bare_decimal;
   constant field_width 0L;
@@ -858,6 +1237,9 @@ let emit emitter call =
       ('B', number_B);
       ('s', formatted_string);
       ('c', formatted_packed);
+      ('C', formatted_upper_packed);
+      ('Q', quoted_Q);
+      ('q', quoted_q);
     ];
   jump Always format_fault;
   let emit_number_setup label ~base ~group ~alpha ~signed =
@@ -884,6 +1266,13 @@ let emit emitter call =
   emit_formatted_string format_loop;
   mark formatted_packed;
   emit_formatted_packed format_loop;
+  mark formatted_upper_packed;
+  set_flag flag_uppercase;
+  emit_formatted_packed format_loop;
+  mark quoted_Q;
+  emit_quoted format_loop ~decode:false;
+  mark quoted_q;
+  emit_quoted format_loop ~decode:true;
   mark complete;
   load E.Rax draft_length;
   out (E.Load_context (E.Rcx, 88));

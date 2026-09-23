@@ -249,7 +249,7 @@ let expanded_format_values () =
             (compare_success mode ~label:case.label
                ~contents:(Integer_format_fixture.source case)
                ~bytes:case.bytes ~work:case.work ~value:(Some 42L) ()))
-        Integer_format_fixture.all;
+        (Integer_format_fixture.all @ Quoted_format_fixture.all);
       List.iter
         (fun (label, contents, bytes, work) ->
           ignore
@@ -285,7 +285,7 @@ let expanded_format_quotas () =
                  ~contents ~code:"HCIRVM0022"
                  ~kind:Program.Output_limit_exceeded ~bytes:""
                  ~work:(case.work - 1) ()))
-        Integer_format_fixture.quota_cases;
+        (Integer_format_fixture.quota_cases @ Quoted_format_fixture.quota_cases);
       List.iter
         (fun (body, work) ->
           let contents = print ^ body ^ "42;" in
@@ -335,7 +335,8 @@ let expanded_format_failures () =
                ~label:(label ^ " work first") ~contents ~code:"HCIRVM0023"
                ~kind:Program.Output_work_limit_exceeded ~bytes:""
                ~work:(work - 1) ()))
-        Integer_format_fixture.invalid_fields;
+        (Integer_format_fixture.invalid_fields
+       @ Quoted_format_fixture.invalid_fields);
       List.iter
         (fun (body, code, kind, work) ->
           ignore
@@ -373,7 +374,45 @@ let interleaved_format_faults () =
                ~contents ~code:"HCIRVM0023"
                ~kind:Program.Output_work_limit_exceeded ~bytes:""
                ~work:(work - 1) ()))
-        Integer_format_fixture.interleaved_faults)
+        (Integer_format_fixture.interleaved_faults
+       @ Quoted_format_fixture.interleaved_faults))
+    modes
+
+let quoted_memory_failures () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, body, code, work) ->
+          let kind =
+            match code with
+            | "HCIRVM0019" -> Program.Address_out_of_bounds
+            | "HCIRVM0012" -> Program.Uninitialized_read
+            | "HCIRVM0018" -> Program.Output_invalid_pointer
+            | "HCIRVM0008" -> Program.Output_invalid_byte
+            | _ -> Alcotest.fail "unknown quoted-memory fixture diagnostic"
+          in
+          let contents = print ^ body in
+          ignore
+            (compare_reached_fault mode ~label ~contents ~code ~kind ~bytes:"|"
+               ~work:(work + 3) ());
+          ignore
+            (compare_reached_fault ~max_output_work:(work + 2) mode
+               ~label:(label ^ " work precedes failed read")
+               ~contents ~code:"HCIRVM0023"
+               ~kind:Program.Output_work_limit_exceeded ~bytes:"|"
+               ~work:(work + 2) ()))
+        Quoted_format_fixture.memory_failures;
+      List.iter
+        (fun (format, work) ->
+          let contents =
+            print ^ "Print(\"" ^ format ^ "\",9223372036854775807,\"A\");42;"
+          in
+          ignore
+            (compare_reached_fault ~max_output_bytes:1 mode
+               ~label:"quoted huge width uses bounded appends" ~contents
+               ~code:"HCIRVM0022" ~kind:Program.Output_limit_exceeded ~bytes:""
+               ~work ()))
+        [ ("%*Q", 7); ("%*q", 8) ])
     modes
 
 let dynamic_formats_and_pointer_offsets () =
@@ -535,7 +574,7 @@ let format_and_argument_faults () =
   let cases =
     [
       ( "unsupported directive",
-        print ^ "Print(\"%q\");42;",
+        print ^ "Print(\"%j\");42;",
         "HCIRVM0024",
         Program.Output_invalid_format,
         2 );
@@ -610,7 +649,7 @@ let pointer_class_faults_match_interpreter () =
 
 let atomic_drafts_keep_only_prior_output () =
   let invalid =
-    print ^ putchars ^ "Print(\"A\");PutChars('B');Print(\"C%q\");42;"
+    print ^ putchars ^ "Print(\"A\");PutChars('B');Print(\"C%j\");42;"
   in
   let capacity =
     print ^ putchars ^ "Print(\"A\");PutChars('B');Print(\"CD\");42;"
@@ -641,11 +680,11 @@ let skipped_and_reached_faults () =
     (fun mode ->
       ignore
         (compare_success mode ~label:"skipped invalid format"
-           ~contents:(print ^ "if(0)Print(\"%q\");42;")
+           ~contents:(print ^ "if(0)Print(\"%j\");42;")
            ~bytes:"" ~work:0 ~value:(Some 42L) ());
       let reached =
         compare_reached_fault mode ~label:"reached invalid format"
-          ~contents:(print ^ "if(1)Print(\"%q\");42;")
+          ~contents:(print ^ "if(1)Print(\"%j\");42;")
           ~code:"HCIRVM0024" ~kind:Program.Output_invalid_format ~bytes:""
           ~work:2 ()
       in
@@ -906,6 +945,9 @@ let () =
             `Quick expanded_format_failures;
           Alcotest.test_case "unmeasured fields preserve interleaved fault work"
             `Quick interleaved_format_faults;
+          Alcotest.test_case
+            "quoted scans preserve late memory faults and bounds" `Quick
+            quoted_memory_failures;
           Alcotest.test_case "dynamic formats and interior pointers" `Quick
             dynamic_formats_and_pointer_offsets;
           Alcotest.test_case "narrow words and full returned bits" `Quick
