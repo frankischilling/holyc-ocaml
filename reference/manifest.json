@@ -3,6 +3,29 @@
   "upstream": "https://github.com/cia-foundation/TempleOS",
   "commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
   "checksum_basis": "git-blob-bytes",
+  "release_contract": {
+    "schema": "holyc-release-contract-v1",
+    "documentation": "docs/release-contract.md",
+    "required_hosts": ["linux-x86_64", "windows-x86_64"],
+    "required_source_modes": ["jit", "aot"],
+    "project_roots": ["Compiler/Compiler.PRJ", "Kernel/Kernel.PRJ"],
+    "extensions": [".HC", ".HH", ".PRJ"],
+    "selection": "case-sensitive Git blob path prefix and exact extension at the manifest commit",
+    "members_hash_format": "SHA-256 of UTF-8 path, NUL, lowercase Git blob id, LF for every member, sorted by ordinal path",
+    "dependency_inputs": {
+      "root_tree": "02b508a8ff9739e628f7eca19b0521f76632d325",
+      "selection": "all Git blobs recursively reachable from root_tree, without extension filtering",
+      "scope": "canonical available source and asset inputs; actual ordered consumption is required run evidence",
+      "consumption_trace_owners": [722, 723, 725]
+    },
+    "source_sets": [
+      {"id": "whole-tree", "path_prefix": "", "files": 528, "canonical_bytes": 4190323, "members_sha256": "28d1b4588dae9fa5b3296a2fb3e4e701bac53ea9fd38a9b42e927f077385cc8d"},
+      {"id": "compiler", "path_prefix": "Compiler/", "files": 34, "canonical_bytes": 498764, "members_sha256": "5b9d45d8a019a6ffe3d55a44f175f515c500f2b2b37ee9203dc022405b511755"},
+      {"id": "kernel", "path_prefix": "Kernel/", "files": 77, "canonical_bytes": 592446, "members_sha256": "38fba961b9b5c279378d59dc502c12c6be1b8b36c12b16046a982b4426781402"},
+      {"id": "adam", "path_prefix": "Adam/", "files": 132, "canonical_bytes": 966715, "members_sha256": "4651097fc0f7daf883465fd5f69972fc64f8ddf5381e8d1a3d149d5f07eceb17"},
+      {"id": "demo", "path_prefix": "Demo/", "files": 203, "canonical_bytes": 1610781, "members_sha256": "3acb134a35fcea638b0fcdbe36dac412c8e1a24185a2a33614a07cec51b6c284"}
+    ]
+  },
   "lexer_corpus": {
     "root_tree": "02b508a8ff9739e628f7eca19b0521f76632d325",
     "extensions": [".HC", ".HH", ".PRJ"],
