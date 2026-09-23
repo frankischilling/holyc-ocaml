@@ -170,6 +170,10 @@ let kind_name = function
   | Program.Address_out_of_bounds -> "address-out-of-bounds"
   | Program.Output_limit_exceeded -> "output-limit"
   | Program.Output_work_limit_exceeded -> "output-work-limit"
+  | Program.Output_invalid_format -> "output-format"
+  | Program.Output_invalid_argument -> "output-argument"
+  | Program.Output_invalid_pointer -> "output-pointer"
+  | Program.Output_invalid_byte -> "output-byte"
 
 let operation_name = function
   | None -> "none"
@@ -1013,6 +1017,22 @@ let hex text =
 let private_context_encoder_bytes () =
   let cases =
     [
+      ( "address private stack start",
+        Encoder.Address_stack
+          (Encoder.Rax, Encoder.stack_slot ~offset:0 |> require_ok Fun.id),
+        "488d842400000000" );
+      ( "address private stack argument",
+        Encoder.Address_stack
+          (Encoder.Rcx, Encoder.stack_slot ~offset:8 |> require_ok Fun.id),
+        "488d8c2408000000" );
+      ( "address private stack with extended destination",
+        Encoder.Address_stack
+          (Encoder.R8, Encoder.stack_slot ~offset:16 |> require_ok Fun.id),
+        "4c8d842410000000" );
+      ( "address last private stack slot",
+        Encoder.Address_stack
+          (Encoder.R10, Encoder.stack_slot ~offset:4080 |> require_ok Fun.id),
+        "4c8d9424f00f0000" );
       ( "load max-steps into R10",
         Encoder.Load_context (Encoder.R10, 16),
         "4d8b5310" );
@@ -1693,8 +1713,153 @@ let native_output_authority () =
         (Program.has_output ordinary))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let native_print_authority () =
+  let source =
+    "extern U0 Print(U8 *fmt,...);Print(\"%d:%s:%c\",42,\"ok\",'A');42;"
+  in
+  List.iter
+    (fun mode ->
+      let unit_ = integer_unit ~mode source in
+      let entry = integer_program_entry unit_ in
+      let runtime_calls = integer_program_runtime_calls unit_ in
+      let initialization = integer_program_initialization unit_ in
+      let functions = integer_program_functions unit_ in
+      let instructions =
+        X87.graph entry |> Graph.blocks
+        |> List.concat_map (fun block ->
+            Graph.instructions block |> Sequence.instructions)
+      in
+      let call =
+        List.find_map
+          (fun instruction ->
+            let d = Sequence.description instruction in
+            Runtime.find_start runtime_calls ~owner:Runtime.Entry
+              d.instruction_id)
+          instructions
+        |> Option.get
+      in
+      Alcotest.(check bool)
+        "Print retains original provider" true
+        (Runtime.provider call = Some Runtime.Print);
+      Alcotest.(check (option int64))
+        "Print retains captured tail count" (Some 3L)
+        (Runtime.variadic_count call);
+      let site =
+        List.mapi
+          (fun index instruction ->
+            (index + 1, Sequence.description instruction))
+          instructions
+        |> List.find (fun (_, (d : Sequence.description)) ->
+            Sequence.Instruction_id.equal d.instruction_id
+              (Runtime.call_instruction call))
+        |> fst |> Int64.of_int
+      in
+      List.iter
+        (fun status_abi ->
+          let image =
+            compile_callable ~status_abi unit_ |> require_ok program_errors
+          in
+          Alcotest.(check bool)
+            "Print requires the capture bridge" true (Program.has_output image);
+          let compile ?(max_code_bytes = Program.code_bytes image)
+              ?(max_stack_bytes = Program.frame_bytes image) () =
+            Program.compile_callable ~status_abi
+              ~max_ir_instructions:(Program.ir_instructions image)
+              ~max_blocks:(Program.block_count image)
+              ~max_code_bytes ~max_stack_bytes ~runtime_calls ~initialization
+              ~entry ~functions ()
+          in
+          let exact = compile () |> require_ok program_errors in
+          Alcotest.(check string)
+            "exact Print quotas preserve image" (Program.code image)
+            (Program.code exact);
+          ignore
+            (compile ~max_code_bytes:(Program.code_bytes image - 1) ()
+            |> reject ~code:"HCBACK0005" "Print code one below");
+          ignore
+            (compile ~max_stack_bytes:(Program.frame_bytes image - 1) ()
+            |> reject ~code:"HCBACK0004" "Print frame one below");
+          let decode kind site executed_steps =
+            Program.decode_runtime_status image ~max_steps:100 ~kind ~site
+              ~executed_steps ~value_site:0L ~bits:0L
+          in
+          List.iter
+            (fun (kind, expected) ->
+              (match decode kind site site |> require_ok Fun.id with
+              | Program.Fault fault ->
+                  Alcotest.(check bool)
+                    "Print fault kind" true (fault.kind = expected);
+                  Alcotest.(check bool)
+                    "atomic ownership comes from the image" true
+                    fault.atomic_output
+              | Program.Completed _ -> Alcotest.fail "Print fault completed");
+              Alcotest.(check bool)
+                "Print status rejects unrelated instruction" true
+                (decode kind 1L site |> Result.is_error);
+              Alcotest.(check bool)
+                "Print status consumes its instruction" true
+                (decode kind site 0L |> Result.is_error))
+            [
+              (13L, Program.Output_invalid_format);
+              (14L, Program.Output_invalid_argument);
+              (15L, Program.Output_invalid_pointer);
+              (16L, Program.Output_invalid_byte);
+              (11L, Program.Output_limit_exceeded);
+              (12L, Program.Output_work_limit_exceeded);
+              (7L, Program.Uninitialized_read);
+              (9L, Program.Index_addition_overflow);
+              (10L, Program.Address_out_of_bounds);
+            ];
+          let putchars =
+            integer_unit ~mode "extern U0 PutChars(U64 ch);PutChars('A');42;"
+            |> compile_callable ~status_abi
+            |> require_ok program_errors
+          in
+          List.iter
+            (fun kind ->
+              Alcotest.(check bool)
+                "Print format fault cannot name PutChars" true
+                (Program.decode_runtime_status putchars ~max_steps:100 ~kind
+                   ~site:3L ~executed_steps:3L ~value_site:0L ~bits:0L
+                |> Result.is_error))
+            [ 13L; 14L; 15L; 16L ])
+        [ Program.Windows_x64; Program.System_v_x64 ];
+      let foreign = integer_unit ~mode source in
+      ignore
+        (Program.compile_callable ~max_ir_instructions:4096
+           ~max_code_bytes:65536
+           ~runtime_calls:(integer_program_runtime_calls foreign)
+           ~initialization ~entry ~functions ()
+        |> reject ~code:"HCBACK0003" "Print foreign equal-text authority");
+      let count_argument =
+        Runtime.arguments call
+        |> List.find (fun argument ->
+            Runtime.argument_role argument = Runtime.Variadic_count)
+      in
+      let rec change = function
+        | [] -> Alcotest.fail "Print count producer not found"
+        | instruction :: rest as cell ->
+            let d = Sequence.description instruction in
+            if
+              Sequence.Instruction_id.equal d.instruction_id
+                (Runtime.argument_producer count_argument)
+            then
+              Obj.set_field (Obj.repr cell) 0
+                (Obj.repr { d with payload = Some (Sequence.Integer 2L) })
+            else change rest
+      in
+      change
+        (X87.graph entry |> Graph.entry |> Graph.instructions
+       |> Sequence.instructions);
+      ignore
+        (compile_callable unit_
+        |> reject ~code:"HCBACK0003" "Print substituted hidden count"))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let tests =
   [
+    Alcotest.test_case "native Print retains argument and format authority"
+      `Quick native_print_authority;
     Alcotest.test_case "native output retains original provider authority"
       `Quick native_output_authority;
     Alcotest.test_case "native static storage authority" `Quick

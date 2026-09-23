@@ -189,13 +189,19 @@ before host allocation. Every execution receives a fresh image. Literal records
 are arena-owned; array reference records still consume their owning activation's
 physical-frame quota. See [persistent storage](docs/native-persistent-storage.md).
 
-Native PutChars output requires the exact sealed provider call. Its separate
-capture buffer is bounded before allocation, and generated code cannot write
-the buffer pointer. Output work is charged before each visited byte and append;
-capacity is checked before every write. The host validates immutable pointers,
-counter bounds and restored callable quotas after teardown, and the decoder
-requires output faults to name an actual provider site. Integrity failures
-expose no successful capture. See [native output](docs/native-output.md).
+Native PutChars and Print output require exact sealed provider calls. Their
+capture buffer is bounded before allocation, and generated code cannot replace
+its pointer. PutChars commits each accepted byte. Print scans only checked owned
+byte references and writes a draft into the unused capture tail; the committed
+count changes only after the whole format succeeds, so teardown exposes no
+partial bytes from a failed Print call. Output work is charged before each
+visited byte and append, including reads and appends that later fault.
+
+The host validates immutable context pointers, output counters and restored
+callable quotas before projecting capture. Status decoding accepts output faults
+only at sealed provider sites and accepts format-specific status kinds only at an
+original Print site. Integrity failures expose no successful capture. See
+[native output](docs/native-output.md) and [native Print](docs/native-print.md).
 
 ## Supported versions
 

@@ -19,6 +19,7 @@ type instruction =
   | Mov of register * register
   | Load_stack of register * stack_slot
   | Store_stack of stack_slot * register
+  | Address_stack of register * stack_slot
   | Alloc_stack of stack_frame
   | Free_stack of stack_frame
   | Push_rbp
@@ -245,6 +246,7 @@ let form = function
   | Mov _ -> mov_register
   | Load_stack _ -> mov_load
   | Store_stack _ -> mov_store
+  | Address_stack _ -> load_address
   | Alloc_stack _ -> subtract_immediate
   | Free_stack _ -> add_immediate
   | Push_rbp -> push_register
@@ -369,7 +371,7 @@ let size instruction =
   let opcode_bytes = List.length (form instruction).opcode_bytes in
   match instruction with
   | Mov_imm64 _ -> opcode_bytes + 1 + 8
-  | Load_stack _ | Store_stack _ -> 8
+  | Load_stack _ | Store_stack _ | Address_stack _ -> 8
   | Alloc_stack _ | Free_stack _ -> 7
   | Push_rbp | Pop_rbp -> 1
   | Mov_rbp_rsp -> 3
@@ -458,7 +460,7 @@ let write buffer position instruction =
       done
   | Mov (destination, source) ->
       modrm ~reg:(register_number source) ~rm:(register_number destination)
-  | Load_stack (destination, slot) ->
+  | Load_stack (destination, slot) | Address_stack (destination, slot) ->
       let destination = register_number destination in
       (* Fixed disp32 SIB form: RSP cannot be the ModR/M base without a SIB.
          REX.R carries the high destination bit; REX.B/X remain clear. *)

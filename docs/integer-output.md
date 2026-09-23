@@ -156,10 +156,11 @@ unsupported/malformed formatting, and HCIRVM0025 missing or wrongly typed
 consumed arguments. Existing call-preflight, reference and resource diagnostics
 retain their codes and source/function/instruction evidence.
 
-The native target also executes the checked PutChars provider and implicit
-character statements. It retains the same packed-byte, output-work and partial
-publication rules. See [native output](native-output.md) for its source boundary,
-capture reports and machine-code tests.
+The native target also executes checked Print and PutChars calls and their
+implicit statement forms. [Native Print](native-print.md) emits the bounded
+formatter with the same atomic publication and work accounting. [Native
+PutChars](native-output.md) retains its packed-byte and partial publication
+rules. Both paths expose captured bytes through the shared reports.
 
 Full HolyC formatting, arbitrary runtime linking and device behavior remain
 unfinished. [Stateful compilation/#exe](integer-task.md) now supports bounded

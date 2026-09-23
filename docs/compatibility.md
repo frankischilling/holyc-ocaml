@@ -1,10 +1,15 @@
 # holyc-ocaml compatibility status
 
+[Native Print](native-print.md) executes the bounded `%%`/`%d`/`%s`/`%c`
+formatter with live owned strings and original typed variadic arguments.
+Failed drafts retain work and earlier output. Flags, widths, other conversions,
+StreamPrint and retained provider/body publication remain explicit gaps.
+
 [Native PutChars output](native-output.md) captures packed bytes in both source
 modes through the original checked provider. Explicit and implicit calls preserve
 their distinct result-latch behavior. Independent byte/work limits retain the
-output prefix on reached faults. Print, other providers and mixed retained
-extern/body publication remain open native work.
+output prefix on reached faults. Other providers and mixed retained extern/body
+publication remain open native work.
 
 [Native integer arrays](native-arrays.md) execute indexed reads,
 assignments, compound updates and prefix/postfix updates in both source modes.

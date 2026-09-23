@@ -1,5 +1,8 @@
 # Native character output
 
+The native Print provider uses the same capture bridge with atomic formatting
+drafts; see [native Print](native-print.md). This page describes PutChars.
+
 `run --target=host-jit` captures bytes from the checked `PutChars` provider in
 both source modes. The declared provider is `extern U0 PutChars(U64 ch);`.
 Explicit calls and implicit character statements use the original selected
@@ -45,9 +48,9 @@ extern declaration exists.
 
 The native source path rejects a provider call combined with a source definition
 of that name. Such a program needs the retained extern/body publication phases
-tracked by #704. Print, StreamPrint and other providers remain separate work
-under #705. Keyboard/display hooks and TempleOS device behavior are outside
-captured hosted output.
+tracked by #704. [Native Print](native-print.md) uses the same capture bridge.
+StreamPrint and other providers remain work under #705. Keyboard/display hooks
+and TempleOS device behavior are outside captured hosted output.
 
 `--output-byte-limit` and `--output-work-limit` default to 1,048,576 and must be
 positive. Output capacity is additionally capped at 16 MiB. Each provider needs

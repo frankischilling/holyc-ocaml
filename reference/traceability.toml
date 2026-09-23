@@ -12287,8 +12287,27 @@ identity = "Original provider declaration, fixed U64 argument, JIT/AOT call opco
 resources = "Separate positive output byte/work limits apply before allocation and every emitted byte. A 16 MiB capture cap bounds host storage. The inline provider checks one semantic call depth and eight ABI bytes without allocating a native callee frame. Output pointer fields are immutable; status and counter checks precede public capture projection."
 faults = "HCIRVM0022 and HCIRVM0023 retain preceding output and charged work at the original call instruction. Each packed-byte visit and attempted append consumes output work; byte iteration adds no IR steps. Invalid configuration and integrity failures expose no successful capture."
 source_gate = "examples/integer-putchars.hc returns I64 42, captures 34320a and uses nine runtime instructions and six output-work units in both modes."
-excluded = ["native Print and StreamPrint formatting", "retained extern/body publication", "general runtime linking and callbacks", "TempleOS keyboard and display hooks", "complete ABI, object/BIN output, actual loader acceptance and bootstrap"]
+excluded = ["StreamPrint formatting", "retained extern/body publication", "general runtime linking and callbacks", "TempleOS keyboard and display hooks", "complete ABI, object/BIN output, actual loader acceptance and bootstrap"]
 verification_boundary = "Pinned source, independent packed-byte expectations, checked interpreter comparison, literal encoder bytes, original-call mutation controls and explicit native API/CLI/bridge execution; no new TempleOS capture."
+extended_by = ["HC-NATIVE-PRINT (#705): checked Print calls and implicit string statements share the bounded capture bridge with atomic formatted publication"]
+
+[[feature]]
+id = "HC-NATIVE-PRINT"
+description = "Exact checked Print calls and implicit string statements execute a bounded inline formatter with atomic output publication."
+status = "implemented"
+issue = 705
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Kernel/KExts.HC:83", "Compiler/PrsExp.HC:383-413,430-511,530-588", "Kernel/StrPrint.HC:208-873,890-895"]
+implementation = ["src/ir/runtime_call_context.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_print_format.ml", "src/backend/x86_64_encoder.ml", "src/backend/x86_64_program.ml", "src/runtime/native_program_execution.ml", "src/native_execution_stubs.c", "src/hosted/native_program.ml", "bin/run_report.ml"]
+tests = ["test/test_native_program.ml", "test/native/test_native_print_execution.ml", "test/native/test_native_print_cli.ml", "test/native/test_native_output_bridge.ml", "test/native/test_native_index_faults.ml", "examples/integer-persistent-arrays.hc"]
+documentation = ["docs/native-print.md", "docs/native-output.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "docs/native-programs.md", "docs/integer-output.md", "README.md", "CHANGELOG.md", "SECURITY.md"]
+identity = "Original provider declaration, format producer, hidden variadic count, ordered argument producers/types/roles, JIT/AOT call opcode and sealed entry/initialization/function context control emission. The exact implicit discard preserves its prior result latch. Same-name source definitions execute ordinary source bodies; mixed provider/body publication remains excluded."
+formatting = "Owned dynamic formats and strings support ordinary bytes plus bare %%, %d, %s and %c. Narrow stored values arrive through their checked loads, while source-function returns preserve full register bits. Percent-c stops at the first packed zero; extra supplied arguments are evaluated even when the format does not consume them."
+resources = "Positive output byte/work limits are independent. Every format or string byte read, packed-byte visit and attempted append charges work at its defined point. The inline provider checks one semantic call depth and eight frame bytes for the format, hidden count and each variadic slot; formatter scratch storage is bounded by the native private-frame/code quotas. The shared capture allocation remains capped at 16 MiB."
+faults = "Print drafts become visible only after the complete call succeeds. Format, argument, pointer, byte, initialization, bounds, address-addition, capacity and work failures retain earlier committed output and reached work at the original call instruction. The image seals atomic Print sites separately from PutChars, and malformed runtime status or counter data exposes no successful capture."
+source_gate = "examples/integer-persistent-arrays.hc returns I64 42 and captures 3432 in both modes with 101 runtime instructions, 21 native initializer steps, 4 dimension-work units, 43 global bytes, 3 literal bytes, 24 semantic frame bytes, depth 2, 2 output bytes and 8 output-work units."
+excluded = ["full HolyC formatting flags, widths, precision and additional directives", "StreamPrint", "retained extern/body publication", "general runtime linking and callbacks", "TempleOS keyboard/display hooks", "complete ABI, object/BIN output, actual loader acceptance and bootstrap"]
+verification_boundary = "Pinned source audit, independent byte/work expectations, checked interpreter and batch comparisons, original-call mutation controls, both ABI images and explicit native API/CLI execution; no new TempleOS oracle capture."
 
 [[feature]]
 id = "HC-RELEASE-CONTRACT"

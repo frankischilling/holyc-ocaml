@@ -31,6 +31,10 @@ type instruction =
   | Mov of register * register
   | Load_stack of register * stack_slot
   | Store_stack of stack_slot * register
+  | Address_stack of register * stack_slot
+      (** Materialize an address in the bounded fixed RSP-relative private
+          frame. This uses the same checked slot and disp32 SIB shape as stack
+          loads. *)
   | Alloc_stack of stack_frame
   | Free_stack of stack_frame
   | Push_rbp

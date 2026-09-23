@@ -48,21 +48,24 @@ val compile :
     original extents, strides and per-element state. Mutable string literals
     retain their exact producer and terminated byte image; their canonical
     reference tables occupy private arena bytes. Prepared JIT publications must
-    precede entry. The ordinary fixed [extern U0 PutChars(U64)] provider header
-    may authorize explicit calls and implicit PutChars source statements through
-    their sealed runtime-call metadata. A source-defined [PutChars] remains an
-    ordinary direct source call. Effectful initializers, escaping/deeper
-    pointers, automatic array initializers and other unsupported
-    declarations/defaults reject before native entry. This never interprets
-    ordinary commands or allocates executable memory. Parser warnings retain
-    their original source identities. Defaults are 4096 total IR instructions,
-    65536 code bytes, 4088 private frame bytes, 4096 total blocks, 100,000
-    declaration-preparation steps and 65,536 bytes of saved default payloads
-    (eight bytes per prepared value). Global/static storage defaults to
-    1,048,576 bytes, with statics rounded to eight; its separate host cap is
-    16,777,216 bytes. Literal bytes have the same default and hard bound,
-    independently. The combined arena, including private flags and reference
-    tables, is limited to 33,554,432 bytes. *)
+    precede entry. The ordinary [extern U0 PutChars(U64)] and
+    [extern U0 Print(U8 *fmt,...)] provider headers may authorize explicit calls
+    and their corresponding implicit output statements through sealed runtime
+    call metadata. Native Print retains the bounded interpreter format domain:
+    ordinary bytes plus [%%], [%d], [%s] and [%c], with dynamic owned format and
+    string pointers. A source-defined [Print] or [PutChars] remains an ordinary
+    direct source call. Effectful initializers, escaping/deeper pointers,
+    automatic array initializers and other unsupported declarations/defaults
+    reject before native entry. This never interprets ordinary commands or
+    allocates executable memory. Parser warnings retain their original source
+    identities. Defaults are 4096 total IR instructions, 65536 code bytes, 4088
+    private frame bytes, 4096 total blocks, 100,000 declaration-preparation
+    steps and 65,536 bytes of saved default payloads (eight bytes per prepared
+    value). Global/static storage defaults to 1,048,576 bytes, with statics
+    rounded to eight; its separate host cap is 16,777,216 bytes. Literal bytes
+    have the same default and hard bound, independently. The combined arena,
+    including private flags and reference tables, is limited to 33,554,432
+    bytes. *)
 
 val evaluate :
   ?max_ir_instructions:int ->
@@ -94,15 +97,16 @@ val evaluate :
     bytes default to 1,048,576 and active named calls to 128. The separate
     physical native stack limit defaults to its hard maximum of 65,536 bytes and
     includes compiler-private storage, return addresses and saved frame
-    pointers. PutChars output bytes and scan work are independently bounded;
-    both default to 1,048,576, and the byte limit may not exceed 16 MiB. Reached
-    output and work are retained on success and checked execution faults. Each
-    execution owns fresh global/static data and initialization flags, shared by
-    entry and generated calls. Persistent AOT objects without initializers start
-    at zero; reached JIT reads before assignment retain the hosted
-    uninitialized-object fault. Automatic scalar and array elements start
-    uninitialized in both modes. Prepared globals restore their initial values
-    in both modes. *)
+    pointers. Native output bytes and formatting/scan work are independently
+    bounded; both default to 1,048,576, and the byte limit may not exceed 16
+    MiB. Reached output and work are retained on success and checked execution
+    faults. PutChars commits each emitted byte, while Print publishes its draft
+    only after the complete dynamic format succeeds. Each execution owns fresh
+    global/static data and initialization flags, shared by entry and generated
+    calls. Persistent AOT objects without initializers start at zero; reached
+    JIT reads before assignment retain the hosted uninitialized-object fault.
+    Automatic scalar and array elements start uninitialized in both modes.
+    Prepared globals restore their initial values in both modes. *)
 
 val outcome : report -> (result checked, Common.Diagnostic.t list) Stdlib.result
 val image : report -> Backend.X86_64_program.t option
@@ -131,9 +135,10 @@ val dimension_work : report -> int
 *)
 
 val output_bytes : report -> string
-(** Bytes committed by reached native PutChars providers. Reports that fail
-    before native execution return the empty string. *)
+(** Bytes committed by reached native output providers. A failed Print call does
+    not expose bytes from its current atomic draft. Reports that fail before
+    native execution return the empty string. *)
 
 val output_work : report -> int
-(** Reached PutChars byte-scan work. Reports that fail before native execution
-    return zero. *)
+(** Reached native output formatting and byte-scan work. Reports that fail
+    before native execution return zero. *)
