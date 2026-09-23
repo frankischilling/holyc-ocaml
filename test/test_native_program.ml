@@ -168,6 +168,8 @@ let kind_name = function
   | Program.Index_scale_overflow -> "index-scale-overflow"
   | Program.Index_addition_overflow -> "index-addition-overflow"
   | Program.Address_out_of_bounds -> "address-out-of-bounds"
+  | Program.Output_limit_exceeded -> "output-limit"
+  | Program.Output_work_limit_exceeded -> "output-work-limit"
 
 let operation_name = function
   | None -> "none"
@@ -1038,6 +1040,33 @@ let private_context_encoder_bytes () =
       ( "store physical-stack quota",
         Encoder.Store_context (64, Encoder.Rax),
         "49894340" );
+      ( "load immutable output pointer",
+        Encoder.Load_context (Encoder.R8, 80),
+        "4d8b4350" );
+      ( "load remaining output bytes",
+        Encoder.Load_context (Encoder.Rcx, 88),
+        "498b4b58" );
+      ( "store remaining output bytes",
+        Encoder.Store_context (88, Encoder.Rcx),
+        "49894b58" );
+      ( "load remaining output work",
+        Encoder.Load_context (Encoder.Rcx, 96),
+        "498b4b60" );
+      ( "store remaining output work",
+        Encoder.Store_context (96, Encoder.Rcx),
+        "49894b60" );
+      ( "load written byte count",
+        Encoder.Load_context (Encoder.Rcx, 104),
+        "498b4b68" );
+      ( "store written byte count",
+        Encoder.Store_context (104, Encoder.Rcx),
+        "49894b68" );
+      ( "reset written byte count",
+        Encoder.Store_context_imm (104, 0),
+        "49c7436800000000" );
+      ( "append one packed byte",
+        Encoder.Store_indirect_narrow (Encoder.R8, Encoder.Frame8, Encoder.Rdx),
+        "41889000000000" );
       ("decrement private meter", Encoder.Dec Encoder.R10, "49ffca");
     ]
   in
@@ -1058,7 +1087,13 @@ let private_context_encoder_bytes () =
       | Ok _ -> Alcotest.fail "invalid private context access encoded")
     [
       Encoder.Load_context (Encoder.Rax, 7);
+      Encoder.Load_context (Encoder.Rax, 112);
       Encoder.Store_context (72, Encoder.Rax);
+      Encoder.Store_context_imm (72, 0);
+      Encoder.Store_context (80, Encoder.Rax);
+      Encoder.Store_context_imm (80, 0);
+      Encoder.Store_context (81, Encoder.Rax);
+      Encoder.Store_context (112, Encoder.Rax);
     ]
 
 let callable_frame_encoder_bytes () =
@@ -1520,8 +1555,148 @@ let native_array_compilation_limits () =
                diagnostics))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let native_output_authority () =
+  let source = "extern U0 PutChars(U64 ch);PutChars('42');42;" in
+  List.iter
+    (fun mode ->
+      let unit_ = integer_unit ~mode source in
+      let entry = integer_program_entry unit_ in
+      let runtime_calls = integer_program_runtime_calls unit_ in
+      let initialization = integer_program_initialization unit_ in
+      let functions = integer_program_functions unit_ in
+      let call =
+        X87.graph entry |> Graph.entry |> Graph.instructions
+        |> Sequence.instructions
+        |> List.find_map (fun instruction ->
+            let d = Sequence.description instruction in
+            Runtime.find_start runtime_calls ~owner:Runtime.Entry
+              d.instruction_id)
+        |> Option.get
+      in
+      Alcotest.(check bool)
+        "source selects the exact checked provider" true
+        (Runtime.provider call = Some Runtime.Put_chars);
+      List.iter
+        (fun status_abi ->
+          let image =
+            compile_callable ~status_abi unit_ |> require_ok program_errors
+          in
+          Alcotest.(check bool)
+            "entry-only provider uses a capture image" true
+            (Program.has_output image);
+          Alcotest.(check int)
+            "provider has no fabricated source function" 0
+            (Program.function_count image);
+          Alcotest.(check bool)
+            "provider image keeps its requested ABI" true
+            (Program.status_abi image = status_abi);
+          let blocks = X87.graph entry |> Graph.blocks in
+          let call_site =
+            List.concat_map
+              (fun block -> Graph.instructions block |> Sequence.instructions)
+              blocks
+            |> List.mapi (fun index instruction ->
+                (index + 1, Sequence.description instruction))
+            |> List.find (fun (_, (d : Sequence.description)) ->
+                Sequence.Instruction_id.equal d.instruction_id
+                  (Runtime.call_instruction call))
+            |> fst |> Int64.of_int
+          in
+          let decode kind site steps =
+            Program.decode_runtime_status image ~max_steps:100 ~kind ~site
+              ~executed_steps:steps ~value_site:0L ~bits:0L
+          in
+          List.iter
+            (fun (kind, expected) ->
+              (match decode kind call_site 3L |> require_ok Fun.id with
+              | Program.Fault fault ->
+                  Alcotest.(check bool)
+                    "output fault kind is retained" true (fault.kind = expected);
+                  Alcotest.(check int)
+                    "output fault names its original call"
+                    (Sequence.Instruction_id.to_int
+                       (Runtime.call_instruction call))
+                    fault.instruction_id
+              | Program.Completed _ -> Alcotest.fail "output fault completed");
+              Alcotest.(check bool)
+                "output fault requires a reached instruction" true
+                (decode kind call_site 0L |> Result.is_error);
+              Alcotest.(check bool)
+                "output fault rejects a non-provider site" true
+                (decode kind 1L 3L |> Result.is_error))
+            [
+              (11L, Program.Output_limit_exceeded);
+              (12L, Program.Output_work_limit_exceeded);
+            ];
+          Alcotest.(check bool)
+            "inlined provider cannot claim a physical callee stack fault" true
+            (decode 6L call_site 3L |> Result.is_error);
+          List.iter
+            (fun kind -> ignore (decode kind call_site 3L |> require_ok Fun.id))
+            [ 4L; 5L ];
+          let exact () =
+            Program.compile_callable ~status_abi
+              ~max_ir_instructions:(Program.ir_instructions image)
+              ~max_code_bytes:(Program.code_bytes image)
+              ~max_stack_bytes:(Program.frame_bytes image)
+              ~max_blocks:(Program.block_count image)
+              ~runtime_calls ~initialization ~entry ~functions ()
+            |> require_ok program_errors
+          in
+          Alcotest.(check string)
+            "exact output compilation quotas preserve all bytes"
+            (Program.code image)
+            (Program.code (exact ())))
+        [ Program.Windows_x64; Program.System_v_x64 ];
+      let foreign = integer_unit ~mode source in
+      ignore
+        (Program.compile_callable ~max_ir_instructions:4096
+           ~max_code_bytes:65536
+           ~runtime_calls:(integer_program_runtime_calls foreign)
+           ~initialization ~entry ~functions ()
+        |> reject ~code:"HCBACK0003" "equal-text foreign provider context");
+      List.iter
+        (fun (opcode, mutation) ->
+          let unit_ = integer_unit ~mode source in
+          let instructions =
+            integer_program_entry unit_
+            |> X87.graph |> Graph.entry |> Graph.instructions
+            |> Sequence.instructions
+          in
+          let rec change = function
+            | [] -> Alcotest.fail "missing provider mutation instruction"
+            | instruction :: rest as cell ->
+                let d = Sequence.description instruction in
+                if d.opcode = opcode then
+                  Obj.set_field (Obj.repr cell) 0 (Obj.repr (mutation d))
+                else change rest
+          in
+          change instructions;
+          ignore
+            (compile_callable unit_
+            |> reject ~code:"HCBACK0003" "mutated original provider call"))
+        [
+          (Opcode.Ic_call_start, fun d -> { d with payload = None });
+          ( (if mode = Preprocessor.Jit then Opcode.Ic_call_indirect2
+             else Opcode.Ic_call_extern),
+            fun d -> { d with opcode = Opcode.Ic_call } );
+          ( Opcode.Ic_add_rsp1,
+            fun d -> { d with payload = Some (Sequence.Integer 0L) } );
+          (Opcode.Ic_call_end, fun d -> { d with payload = None });
+        ];
+      let ordinary =
+        integer_unit ~mode "I64 PutChars(U64 ch){return ch;}PutChars(42);"
+        |> compile_callable |> require_ok program_errors
+      in
+      Alcotest.(check bool)
+        "same-name source function does not select host output" false
+        (Program.has_output ordinary))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let tests =
   [
+    Alcotest.test_case "native output retains original provider authority"
+      `Quick native_output_authority;
     Alcotest.test_case "native static storage authority" `Quick
       native_static_admission;
     Alcotest.test_case "native global storage authority" `Quick

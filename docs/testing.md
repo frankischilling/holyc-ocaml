@@ -1,5 +1,14 @@
 # Testing holyc-ocaml
 
+Native output tests cover original PutChars provider calls, literal encoder bytes
+for the private capture fields, both ABI images, malformed call metadata and
+fault-site decoding. The explicit native suite compares independent packed-byte
+results with the checked interpreter, including interior zero bytes, source
+calls, recursion, implicit result retention and repeated images. Capacity/work
+failures retain their output prefix and exact call work. CLI tests exercise the
+maintained PutChars fixture in both modes; raw bridge tests reject malformed
+limits/storage and protect immutable pointer fields. See [native output](native-output.md).
+
 Native persistent storage tests cover global/static integer array images and
 source-owned mutable literals. Compile-only tests check original owners, widths,
 padding, sparse initialized cells, image-copy isolation and bounded metadata.
@@ -472,7 +481,7 @@ Unit tests cover source positions, spans, token construction, literal decoding, 
 CLI and ownership suites. The explicit `@native-tests` alias executes generated
 machine code and native CLI fixtures. These checks cover the implemented slices
 listed below; their passing counts do not measure whole-compiler compatibility.
-The reference verifier checks 82 individually audited Git blobs, and both corpus
+The reference verifier checks 83 individually audited Git blobs, and both corpus
 phases account for all 528 relevant blobs from the pinned Git tree.
 
 The runtime-frame tests cover once-only array bounds, native downward alignment,

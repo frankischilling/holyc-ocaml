@@ -307,6 +307,7 @@ type operation =
       * fault_site option
   | Call_start
   | Direct_call of direct_call
+  | Put_chars of int
   | Call_cleanup
   | Call_end of int * value
   | Call_end_void
@@ -2217,6 +2218,65 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position (if old_result then r8 else computed_index) result
       | Call_start | Call_cleanup -> release_through position
+      | Put_chars stage ->
+          spill_all_registers instruction.span;
+          let site = Option.get instruction.site in
+          let depth_fault = fault_label 4 site in
+          let frame_fault = fault_label 5 site in
+          let output_fault = fault_label 11 site in
+          let work_fault = fault_label 12 site in
+          (* The inlined provider holds one U64 ABI slot and one semantic call
+             depth for this instruction. No other guest call can run inside it. *)
+          emit (Encoder.Load_context (Encoder.Rcx, 56));
+          emit (Encoder.Test Encoder.Rcx);
+          emit_branch Equal depth_fault;
+          emit (Encoder.Load_context (Encoder.Rcx, 48));
+          emit (Encoder.Cmp_imm8 (Encoder.Rcx, 8));
+          emit_branch Below frame_fault;
+          emit
+            (Encoder.Load_stack
+               (Encoder.Rax, staged_stack_slot instruction.span stage));
+          let loop = fresh_label supply in
+          let shift = fresh_label supply in
+          let complete = fresh_label supply in
+          let charge () =
+            emit (Encoder.Load_context (Encoder.Rcx, 96));
+            emit (Encoder.Test Encoder.Rcx);
+            emit_branch Equal work_fault;
+            emit (Encoder.Dec Encoder.Rcx);
+            emit (Encoder.Store_context (96, Encoder.Rcx))
+          in
+          mark loop;
+          emit (Encoder.Test Encoder.Rax);
+          emit_branch Equal complete;
+          charge ();
+          emit (Encoder.Mov (Encoder.Rdx, Encoder.Rax));
+          emit (Encoder.Mov_imm64 (Encoder.R8, 255L));
+          emit (Encoder.Binary (Encoder.And, Encoder.Rdx, Encoder.R8));
+          emit (Encoder.Test Encoder.Rdx);
+          emit_branch Equal shift;
+          charge ();
+          emit (Encoder.Load_context (Encoder.Rcx, 88));
+          emit (Encoder.Test Encoder.Rcx);
+          emit_branch Equal output_fault;
+          emit (Encoder.Dec Encoder.Rcx);
+          emit (Encoder.Store_context (88, Encoder.Rcx));
+          emit (Encoder.Load_context (Encoder.R8, 80));
+          emit (Encoder.Load_context (Encoder.Rcx, 104));
+          emit (Encoder.Binary (Encoder.Add, Encoder.R8, Encoder.Rcx));
+          emit
+            (Encoder.Store_indirect_narrow
+               (Encoder.R8, Encoder.Frame8, Encoder.Rdx));
+          emit (Encoder.Mov_imm64 (Encoder.Rdx, 1L));
+          emit (Encoder.Binary (Encoder.Add, Encoder.Rcx, Encoder.Rdx));
+          emit (Encoder.Store_context (104, Encoder.Rcx));
+          mark shift;
+          emit (Encoder.Mov_imm64 (Encoder.Rcx, 8L));
+          emit (Encoder.Shift_cl (Encoder.Shr, Encoder.Rax));
+          emit_branch Unconditional loop;
+          mark complete;
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          release_through position
       | Direct_call call ->
           let site = Option.get instruction.site in
           let epilogue =
@@ -2556,6 +2616,7 @@ type program_site = {
   index_scale_site : bool;
   index_addition_site : bool;
   address_bounds_site : bool;
+  output_site : bool;
 }
 
 type program_image = {
@@ -2574,6 +2635,7 @@ type program_image = {
   literal_bytes : int;
   arena_metadata_bytes : int;
   global_image : string;
+  has_output : bool;
   sites : program_site list;
 }
 
@@ -2768,6 +2830,7 @@ let preflight_program graph =
                 index_scale_site = false;
                 index_addition_site = false;
                 address_bounds_site = false;
+                output_site = false;
               }
               :: !sites_rev;
             prepared_rev :=
@@ -2855,7 +2918,6 @@ type callable_return_kind =
 type callable_function_info = {
   definition : Ir.Integer_interpreter.function_definition;
   owner : program_owner;
-  parameter_count : int;
   parameter_types : Type.t array;
   return_kind : callable_return_kind;
   rbp_bytes : int;
@@ -2897,10 +2959,12 @@ type frame_term =
   | Indexed_address of indexed_address_term
 
 type callable_call_phase = Collecting | Needs_cleanup | Needs_end
+type callable_target = Source_function of int | Put_chars_provider
 
 type callable_call_scope = {
   call : Runtime.call;
-  callee_index : int;
+  target : callable_target;
+  return_kind : callable_return_kind;
   activation_bytes : int;
   stage_base : int;
   result_stage : int option;
@@ -3279,7 +3343,6 @@ let prepare_callable_function ~max_stack_bytes
     owner =
       Function_owner
         { function_id; function_name = Symbol.name (Function.symbol body) };
-    parameter_count = List.length parameters;
     parameter_types =
       Array.of_list
         (List.map (fun member -> Function.member_type member) parameters);
@@ -3547,47 +3610,113 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                     malformed description
                       "IC_CALL_START has no sealed runtime-call site"
               in
-              if
-                Option.is_some (Runtime.provider call)
-                || Option.is_some (Runtime.retained_function call)
-                || Runtime.call_opcode call <> Opcode.Ic_call
-              then
+              (match description.payload with
+              | Some (Sequence.Symbol symbol) when symbol == Runtime.symbol call
+                -> ()
+              | _ ->
+                  malformed description
+                    "IC_CALL_START has another selected function symbol");
+              if Option.is_some (Runtime.retained_function call) then
                 unsupported description
-                  "native callable programs require fixed direct source calls";
-              let callee_index =
-                match callable_callee_index functions call with
-                | Some index -> index
+                  "native calls do not admit retained source functions";
+              let target, parameter_types, return_kind, activation_bytes =
+                match Runtime.provider call with
+                | Some Runtime.Put_chars ->
+                    if
+                      Runtime.call_opcode call <> Opcode.Ic_call_indirect2
+                      && Runtime.call_opcode call <> Opcode.Ic_call_extern
+                      || Option.is_some (Runtime.variadic_count call)
+                    then
+                      malformed description
+                        "native PutChars requires its original fixed extern \
+                         call";
+                    if
+                      Array.exists
+                        (fun info ->
+                          Symbol.name
+                            (Function.callable_symbol info.definition.body)
+                          = Symbol.name (Runtime.symbol call))
+                        functions
+                    then
+                      unsupported description
+                        "native PutChars provider calls cannot coexist with a \
+                         source body for that name; joined extern publication \
+                         requires retained source execution";
+                    let argument =
+                      match Runtime.arguments call with
+                      | [ argument ]
+                        when Runtime.argument_role argument = Runtime.Fixed 0 ->
+                          argument
+                      | _ ->
+                          malformed description
+                            "native PutChars requires its one original argument"
+                    in
+                    let parameter_type =
+                      Runtime.argument_target_type argument
+                    in
+                    let scalar =
+                      checked_scalar ~allow_public:true description
+                        parameter_type
+                    in
+                    if scalar.byte_size <> 8 || scalar.word_type <> U64 then
+                      malformed description
+                        "native PutChars argument must retain its U64 slot";
+                    let return_kind =
+                      source_return_kind ?span:description.span
+                        (Runtime.return_type call)
+                    in
+                    if return_kind <> Callable_void_return then
+                      malformed description "native PutChars must complete U0";
+                    (Put_chars_provider, [| parameter_type |], return_kind, 8)
+                | Some _ ->
+                    unsupported description
+                      "native calls do not admit this runtime provider"
                 | None ->
-                    malformed description
-                      "direct call has no exact callable source definition"
+                    if Runtime.call_opcode call <> Opcode.Ic_call then
+                      unsupported description
+                        "native callable programs require fixed direct source \
+                         calls or the checked PutChars provider";
+                    let callee_index =
+                      match callable_callee_index functions call with
+                      | Some index -> index
+                      | None ->
+                          malformed description
+                            "direct call has no exact callable source \
+                             definition"
+                    in
+                    let callee = functions.(callee_index) in
+                    if
+                      not
+                        (Type.equal (Runtime.return_type call)
+                           (Function.return_type callee.definition.body))
+                    then
+                      malformed description
+                        "direct call return type disagrees with its source \
+                         definition";
+                    ( Source_function callee_index,
+                      callee.parameter_types,
+                      callee.return_kind,
+                      callee.activation_bytes )
               in
-              let callee = functions.(callee_index) in
-              if
-                not
-                  (Type.equal (Runtime.return_type call)
-                     (Function.return_type callee.definition.body))
-              then
-                malformed description
-                  "direct call return type disagrees with its source definition";
+              let parameter_count = Array.length parameter_types in
               let arguments = Runtime.arguments call in
-              if List.length arguments <> callee.parameter_count then
+              if List.length arguments <> parameter_count then
                 malformed description
                   "direct call fixed argument count disagrees with its source \
                    definition";
-              let seen = Array.make callee.parameter_count false in
+              let seen = Array.make parameter_count false in
               List.iter
                 (fun argument ->
                   match Runtime.argument_role argument with
                   | Runtime.Fixed index
-                    when index >= 0
-                         && index < callee.parameter_count
+                    when index >= 0 && index < parameter_count
                          && not seen.(index) ->
                       seen.(index) <- true;
                       if
                         not
                           (Type.equal
                              (Runtime.argument_target_type argument)
-                             callee.parameter_types.(index))
+                             parameter_types.(index))
                       then
                         malformed description
                           "direct call argument target type disagrees with its \
@@ -3604,37 +3733,38 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   "direct call does not cover every fixed parameter";
               let stage_base = !stage_cursor in
               let result_stage =
-                match callee.return_kind with
-                | Callable_word_return _ ->
-                    Some (stage_base + callee.parameter_count)
+                match return_kind with
+                | Callable_word_return _ -> Some (stage_base + parameter_count)
                 | Callable_void_return -> None
               in
               stage_cursor :=
-                stage_base + callee.parameter_count
+                stage_base + parameter_count
                 + if Option.is_some result_stage then 1 else 0;
               stage_high_water := max !stage_high_water !stage_cursor;
-              home_slots := max !home_slots callee.parameter_count;
+              home_slots := max !home_slots parameter_count;
               let scope =
                 {
                   call;
-                  callee_index;
-                  activation_bytes = callee.activation_bytes;
+                  target;
+                  return_kind;
+                  activation_bytes;
                   stage_base;
                   result_stage;
                   argument_stages =
-                    Array.init callee.parameter_count (fun index ->
-                        stage_base + index);
-                  pushed = Array.make callee.parameter_count false;
+                    Array.init parameter_count (fun index -> stage_base + index);
+                  pushed = Array.make parameter_count false;
                   phase = Collecting;
                 }
               in
               calls := scope :: !calls;
               (Call_start, None)
-          | Opcode.Ic_call -> (
+          | Opcode.Ic_call | Opcode.Ic_call_indirect2 | Opcode.Ic_call_extern
+            -> (
               match !calls with
               | scope :: _ when scope.phase = Collecting ->
                   if
                     description.flags <> 0L || description.operands <> []
+                    || description.opcode <> Runtime.call_opcode scope.call
                     || Option.is_some description.result
                     || (not
                           (Sequence.Instruction_id.equal
@@ -3656,13 +3786,17 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       malformed description
                         "IC_CALL target type is inconsistent");
                   scope.phase <- Needs_cleanup;
-                  ( Direct_call
-                      {
-                        callee_index = scope.callee_index;
-                        activation_bytes = scope.activation_bytes;
-                        argument_stage_slots = Array.copy scope.argument_stages;
-                        result_stage_slot = scope.result_stage;
-                      },
+                  ( (match scope.target with
+                    | Source_function callee_index ->
+                        Direct_call
+                          {
+                            callee_index;
+                            activation_bytes = scope.activation_bytes;
+                            argument_stage_slots =
+                              Array.copy scope.argument_stages;
+                            result_stage_slot = scope.result_stage;
+                          }
+                    | Put_chars_provider -> Put_chars scope.argument_stages.(0)),
                     None )
               | _ ->
                   malformed description
@@ -3725,8 +3859,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   in
                   calls := remaining;
                   stage_cursor := scope.stage_base;
-                  let callee = functions.(scope.callee_index) in
-                  match callee.return_kind with
+                  match scope.return_kind with
                   | Callable_word_return scalar ->
                       let actual =
                         checked_scalar ~allow_public:true description
@@ -4622,23 +4755,31 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   description.payload )
               with
               | [ operand_id ], None, None, None ->
-                  if Value_set.mem operand_id !void_values then
-                    (Discard_void, None)
-                  else
-                    let input =
-                      operand values description position operand_id
-                    in
-                    if Type.pointer_depth input.declared_type <> 0 then (
-                      ignore (checked_reference description input.declared_type);
-                      (Discard_void, None))
+                  let operation, value_type =
+                    if Value_set.mem operand_id !void_values then
+                      (Discard_void, None)
                     else
-                      let word =
-                        (checked_scalar ~allow_public:true description
-                           input.declared_type)
-                          .word_type
+                      let input =
+                        operand values description position operand_id
                       in
-                      ( Discard_value (input, word),
-                        if is_entry then Some word else None )
+                      if Type.pointer_depth input.declared_type <> 0 then (
+                        ignore
+                          (checked_reference description input.declared_type);
+                        (Discard_void, None))
+                      else
+                        let word =
+                          (checked_scalar ~allow_public:true description
+                             input.declared_type)
+                            .word_type
+                        in
+                        ( Discard_value (input, word),
+                          if is_entry then Some word else None )
+                  in
+                  if
+                    Runtime.is_implicit_discard runtime_calls
+                      ~owner:runtime_owner description.instruction_id
+                  then (Frame_tick, None)
+                  else (operation, value_type)
               | _ -> malformed description "invalid IC_END_EXP shape")
           | Opcode.Ic_jmp ->
               if
@@ -4863,7 +5004,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
             value_type;
             call_site =
               (match operation with
-              | Direct_call _ -> true
+              | Direct_call _ | Put_chars _ -> true
               | _ -> false);
             uninitialized_read_site =
               (match operation with
@@ -4899,6 +5040,10 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | Update_indexed_object_value _ -> true
               | Materialize_reference (_, _, None, _)
               | Materialize_existing_reference ({ offset = None; _ }, _)
+              | _ -> false);
+            output_site =
+              (match operation with
+              | Put_chars _ -> true
               | _ -> false);
           }
           :: !sites_rev;
@@ -5323,6 +5468,7 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                         literal_bytes = 0;
                         arena_metadata_bytes = 0;
                         global_image = "";
+                        has_output = false;
                         sites;
                       }
               with Rejected error -> Error [ error ])))
@@ -5397,7 +5543,14 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
     (not (Global_storage.is_empty global_storage))
     || not (Literal_storage.is_empty literal_storage)
   in
-  if functions = [] && not has_storage then
+  let entry_has_calls =
+    Graph.blocks entry_graph
+    |> List.exists (fun block ->
+        Graph.instructions block |> Sequence.instructions
+        |> List.exists (fun instruction ->
+            (Sequence.description instruction).opcode = Opcode.Ic_call_start))
+  in
+  if functions = [] && (not has_storage) && not entry_has_calls then
     if
       Runtime.matches runtime_calls ~entry ~initialization:(Some initialization)
         ~functions:[]
@@ -5783,6 +5936,7 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                 + Literal_storage.metadata_bytes literal_storage;
               global_image =
                 global_image ^ Literal_storage.image literal_storage;
+              has_output = List.exists (fun site -> site.output_site) sites;
               sites;
             }
     with Rejected error -> Error [ error ]
@@ -5833,6 +5987,7 @@ let program_entry_stack_bytes (compiled : program_image) =
   compiled.entry_stack_bytes
 
 let program_sites (compiled : program_image) = compiled.sites
+let program_has_output (compiled : program_image) = compiled.has_output
 let program_global_bytes (compiled : program_image) = compiled.global_bytes
 let program_literal_bytes (compiled : program_image) = compiled.literal_bytes
 

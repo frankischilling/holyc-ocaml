@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+[Native PutChars output](native-output.md) captures packed bytes in both source
+modes through the original checked provider. Explicit and implicit calls preserve
+their distinct result-latch behavior. Independent byte/work limits retain the
+output prefix on reached faults. Print, other providers and mixed retained
+extern/body publication remain open native work.
+
 [Native integer arrays](native-arrays.md) execute indexed reads,
 assignments, compound updates and prefix/postfix updates in both source modes.
 Original dimensions and storage objects control stride, extent and initialization

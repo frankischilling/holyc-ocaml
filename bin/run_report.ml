@@ -249,6 +249,13 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
   let default_bytes =
     Option.fold ~none:0 ~some:Holyc_lib.Native_program.default_bytes report
   in
+  let bytes =
+    Option.fold ~none:"" ~some:Holyc_lib.Native_program.output_bytes report
+  in
+  let work =
+    Option.fold ~none:0 ~some:Holyc_lib.Native_program.output_work report
+  in
+  let output_hex = hex bytes in
   let final_value =
     Option.bind result (fun (value : Holyc_lib.Native_program.result) ->
         value.execution.final_value)
@@ -293,9 +300,8 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
      | Some word ->
          Printf.printf "final-value=%s type=%s bits=0x%016Lx\n"
            (native_decimal word) (native_word_type word) word.bits);
-     print_endline "output-byte-length=0";
-     print_endline "output-work=0";
-     print_endline "output-hex=";
+     Printf.printf "output-byte-length=%d\noutput-work=%d\noutput-hex=%s\n"
+       (String.length bytes) work output_hex;
      Printf.printf "native-platform=%s\n"
        (Holyc_lib.Native_program_execution.platform_name platform);
      Printf.printf
@@ -426,9 +432,9 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
          ("prepared_default_bytes", `Int default_bytes);
          ("output_byte_limit", `Int limits.output_bytes);
          ("output_work_limit", `Int limits.output_work);
-         ("output_byte_length", `Int 0);
-         ("output_work", `Int 0);
-         ("output_hex", `String "");
+         ("output_byte_length", `Int (String.length bytes));
+         ("output_work", `Int work);
+         ("output_hex", `String output_hex);
          ("final_value", final_value);
          ("diagnostics", diagnostics);
          ( "command_error",

@@ -20,6 +20,8 @@ type fault_kind =
   | Index_scale_overflow
   | Index_addition_overflow
   | Address_out_of_bounds
+  | Output_limit_exceeded
+  | Output_work_limit_exceeded
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
   | Divide
@@ -94,15 +96,17 @@ val compile_callable :
     and persistent pointer storage remain rejected. Every named definition is
     preflighted, including definitions unreachable from the entry. Calls are
     emitted only from exact sealed runtime-call metadata and preserve the shared
-    native status context. The exact initialization context must be supplied
-    even when empty. Integer global/static arrays and owned mutable strings use
-    a private arena with independent logical data and metadata counts. Initial
-    global/static values require [global_initializers] from their exact source
-    preparation; JIT publication markers must precede the first entry
-    instruction. Retained task storage and scheduled initialization regions are
-    rejected. Declaration-time parameter defaults require [parameter_defaults]
-    from the exact source preparation; omitting it preserves the low-level
-    rejection. *)
+    native status context. The checked PutChars provider uses bounded
+    packed-byte capture; [has_output] identifies images needing that context.
+    Other providers and retained extern/body publication remain unsupported. The
+    exact initialization context must be supplied even when empty. Integer
+    global/static arrays and owned mutable strings use a private arena with
+    independent logical data and metadata counts. Initial global/static values
+    require [global_initializers] from their exact source preparation; JIT
+    publication markers must precede the first entry instruction. Retained task
+    storage and scheduled initialization regions are rejected. Declaration-time
+    parameter defaults require [parameter_defaults] from the exact source
+    preparation; omitting it preserves the low-level rejection. *)
 
 val code : t -> string
 
@@ -130,6 +134,10 @@ val function_count : t -> int
 (** Number of emitted named source functions. Closed native programs return 0.
 *)
 
+val has_output : t -> bool
+(** Whether the image contains an authenticated PutChars provider call and
+    requires the native capture context. Unreachable calls still count. *)
+
 val entry_stack_bytes : t -> int
 (** Exact root stack footprint charged by the host bridge before entry: the host
     CALL return slot plus the entry's generated saved-RBP/allocation footprint.
@@ -150,10 +158,11 @@ val decode_runtime_status :
     requires zero bits. Clean completion is kind/site zero with at least one
     executed IR instruction. Step-limit faults require an executed count exactly
     equal to [max_steps]; arithmetic, call-quota, uninitialized-read,
-    index-scale, index-addition and address-bounds faults must name a matching
-    checked dense site and consume their faulting instruction. The native bridge
-    validates the three restored callable quota words before invoking this
-    decoder. *)
+    index-scale, index-addition, address-bounds and output faults must name a
+    matching checked dense site and consume their faulting instruction. Output
+    calls cannot report a physical callee-stack fault because they are inlined.
+    The native bridge validates the three restored callable quota words before
+    invoking this decoder. *)
 
 val validate_global_limit : max_global_bytes:int -> (unit, error list) result
 val validate_literal_limit : max_literal_bytes:int -> (unit, error list) result

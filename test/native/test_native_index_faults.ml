@@ -52,6 +52,8 @@ let status_kind = function
   | Program.Index_scale_overflow -> 8L
   | Program.Index_addition_overflow -> 9L
   | Program.Address_out_of_bounds -> 10L
+  | Program.Output_limit_exceeded -> 11L
+  | Program.Output_work_limit_exceeded -> 12L
 
 let check_fault_site label (expected : Program.fault) (actual : Program.fault) =
   Alcotest.(check int64)

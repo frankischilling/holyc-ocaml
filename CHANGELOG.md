@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Connected native PutChars calls and implicit character statements to bounded
+  byte capture. Original provider metadata controls admission, source-defined
+  functions retain their behavior, and output/work faults preserve the reached
+  prefix and call instruction. Native API and CLI reports expose capture on
+  success and reached execution failure; repeated images start with empty output.
+
 - Added native global and static integer arrays with closed numeric and byte-copy
   initializer images. Static leaves prepare at their original parser boundaries;
   failures retain earlier work, and prepared JIT publications must precede entry.

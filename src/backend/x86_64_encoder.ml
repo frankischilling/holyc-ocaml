@@ -311,10 +311,11 @@ let signed_int32 value =
   && Int64.compare value 0x7fffffffL <= 0
 
 let valid_context_read_offset offset =
-  offset >= 0 && offset <= 72 && offset mod 8 = 0
+  offset >= 0 && offset <= 104 && offset mod 8 = 0
 
 let valid_context_write_offset offset =
-  offset >= 0 && offset <= 64 && offset mod 8 = 0
+  (offset >= 0 && offset <= 64 && offset mod 8 = 0)
+  || offset = 88 || offset = 96 || offset = 104
 
 let valid_reference_offset offset =
   offset = 0 || offset = 8 || offset = 16 || offset = 24
@@ -349,12 +350,16 @@ let validate = function
       invalid_arg "status site must be between 1 and 100000"
   | Load_context (_, offset) when not (valid_context_read_offset offset) ->
       invalid_arg
-        "private context read offset must be aligned from 0 through 72"
+        "private context read offset must be aligned from 0 through 104"
   | Store_context (offset, _) when not (valid_context_write_offset offset) ->
       invalid_arg
-        "private context write offset must be aligned from 0 through 64"
+        "private context write offset must be aligned from 0 through 64, or \
+         88, 96 or 104"
   | Store_context_imm (offset, _) when not (valid_context_write_offset offset)
-    -> invalid_arg "private context offset must be aligned from 0 through 64"
+    ->
+      invalid_arg
+        "private context write offset must be aligned from 0 through 64, or \
+         88, 96 or 104"
   | Store_context_imm (_, immediate) when not (signed_int32 immediate) ->
       invalid_arg "private context immediate must fit signed 32 bits"
   | _ -> ()
@@ -667,7 +672,7 @@ let write buffer position instruction =
   | Load_context (destination, displacement) ->
       let destination = register_number destination in
       (* MOV r64,[R11+disp8]. R11 requires REX.B; REX.R carries the high
-         destination bit. The bounded six-word context always fits disp8. *)
+         destination bit. Every admitted context field fits signed disp8. *)
       byte (0x49 lor ((destination land 8) lsr 1));
       opcodes ();
       byte (0x43 lor ((destination land 7) lsl 3));

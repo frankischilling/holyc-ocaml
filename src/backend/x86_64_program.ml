@@ -22,6 +22,8 @@ type fault_kind =
   | Index_scale_overflow
   | Index_addition_overflow
   | Address_out_of_bounds
+  | Output_limit_exceeded
+  | Output_work_limit_exceeded
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
   | Divide
@@ -99,6 +101,7 @@ let register_peak compiled = Codegen.program_register_peak compiled.image
 let frame_bytes compiled = Codegen.program_frame_bytes compiled.image
 let block_count compiled = Codegen.program_block_count compiled.image
 let function_count compiled = Codegen.program_function_count compiled.image
+let has_output compiled = Codegen.program_has_output compiled.image
 
 let entry_stack_bytes compiled =
   Codegen.program_entry_stack_bytes compiled.image
@@ -251,7 +254,7 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                        IC_CALL"
                   else make_fault Frame_limit_exceeded None
                 else if Int64.equal kind 6L then
-                  if not candidate.call_site then
+                  if (not candidate.call_site) || candidate.output_site then
                     Error
                       "native program native-stack status names a non-call site"
                   else if executed_steps_int < 1 then
@@ -299,6 +302,18 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                       "native program address bounds fault did not consume its \
                        instruction"
                   else make_fault Address_out_of_bounds None
+                else if Int64.equal kind 11L || Int64.equal kind 12L then
+                  if not candidate.output_site then
+                    Error "native program output status names a non-output site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native program output fault did not consume its call \
+                       instruction"
+                  else
+                    make_fault
+                      (if Int64.equal kind 11L then Output_limit_exceeded
+                       else Output_work_limit_exceeded)
+                      None
                 else Error "native program status has an unknown fault kind")
 
 let validate_global_limit ~max_global_bytes =
