@@ -37,6 +37,7 @@ type instruction =
   | Address_arena of register * arena_slot
   | Load_indirect of register * register * int
   | Store_indirect of register * register
+  | Store_indirect_offset of register * int * register
   | Load_indirect_narrow of
       register * register * narrow_frame_width * frame_extension
   | Store_indirect_narrow of register * narrow_frame_width * register
@@ -57,6 +58,8 @@ type instruction =
   | Jump_equal of int64
   | Jump_not_equal of int64
   | Jump_below of int64
+  | Jump_less of int64
+  | Jump_overflow of int64
   | Store_status_kind of int
   | Store_status_site of int
   | Load_context of register * int
@@ -187,6 +190,8 @@ let jump = source_form "JMP" 584
 let jump_equal = source_form "JE" 608
 let jump_not_equal = source_form "JNE" 612
 let jump_below = source_form "JB" 600
+let jump_less = source_form "JL" 640
+let jump_overflow = source_form "JO" 592
 let store_immediate = source_form "MOV" 284
 let decrement = source_form "DEC" 670
 let compare = source_form "CMP" 376
@@ -256,7 +261,7 @@ let form = function
   | Store_arena_narrow (_, width, _) -> narrow_store_form width
   | Address_frame _ | Address_arena _ -> load_address
   | Load_indirect _ -> mov_load
-  | Store_indirect _ -> mov_store
+  | Store_indirect _ | Store_indirect_offset _ -> mov_store
   | Load_indirect_narrow (_, _, width, extension) ->
       narrow_load_form width extension
   | Store_indirect_narrow (_, width, _) -> narrow_store_form width
@@ -283,6 +288,8 @@ let form = function
   | Jump_equal _ -> jump_equal
   | Jump_not_equal _ -> jump_not_equal
   | Jump_below _ -> jump_below
+  | Jump_less _ -> jump_less
+  | Jump_overflow _ -> jump_overflow
   | Store_status_kind _ | Store_status_site _ -> store_immediate
   | Load_context _ -> mov_load
   | Store_context _ -> mov_store
@@ -309,9 +316,19 @@ let valid_context_read_offset offset =
 let valid_context_write_offset offset =
   offset >= 0 && offset <= 64 && offset mod 8 = 0
 
+let valid_reference_offset offset =
+  offset = 0 || offset = 8 || offset = 16 || offset = 24
+
 let validate = function
-  | Load_indirect (_, _, offset) when offset <> 0 && offset <> 8 ->
-      invalid_arg "reference descriptor offset must be zero or eight"
+  | Load_indirect (_, _, offset) when not (valid_reference_offset offset) ->
+      invalid_arg
+        "reference descriptor offset must be zero, eight, sixteen or \
+         twenty-four"
+  | Store_indirect_offset (_, offset, _)
+    when not (valid_reference_offset offset) ->
+      invalid_arg
+        "reference descriptor offset must be zero, eight, sixteen or \
+         twenty-four"
   | (Load_frame (_, slot) | Store_frame (slot, _))
     when slot.frame_offset mod 8 <> 0 ->
       invalid_arg "qword frame access requires an aligned frame slot"
@@ -321,6 +338,8 @@ let validate = function
   | Jump_equal displacement
   | Jump_not_equal displacement
   | Jump_below displacement
+  | Jump_less displacement
+  | Jump_overflow displacement
   | Call displacement
     when not (signed_rel32 displacement) ->
       invalid_arg "relative branch displacement must fit signed 32 bits"
@@ -349,7 +368,11 @@ let size instruction =
   | Alloc_stack _ | Free_stack _ -> 7
   | Push_rbp | Pop_rbp -> 1
   | Mov_rbp_rsp -> 3
-  | Address_frame _ | Address_arena _ | Load_indirect _ | Store_indirect _ -> 7
+  | Address_frame _
+  | Address_arena _
+  | Load_indirect _
+  | Store_indirect _
+  | Store_indirect_offset _ -> 7
   | Load_indirect_narrow (_, _, (Frame8 | Frame16), _) -> 8
   | Load_indirect_narrow (_, _, Frame32, _) -> 7
   | Store_indirect_narrow (_, Frame16, _) -> 8
@@ -370,7 +393,11 @@ let size instruction =
   | Zero_edx | Cqo -> 2
   | Cmp_imm8 _ -> 4
   | Jump _ -> 5
-  | Jump_equal _ | Jump_not_equal _ | Jump_below _ -> 6
+  | Jump_equal _
+  | Jump_not_equal _
+  | Jump_below _
+  | Jump_less _
+  | Jump_overflow _ -> 6
   | Store_status_kind _ | Store_status_site _ -> 8
   | Load_context _ | Store_context _ -> 4
   | Store_context_imm _ -> 8
@@ -541,6 +568,13 @@ let write buffer position instruction =
       opcodes ();
       byte (0x80 lor ((source land 7) lsl 3) lor (base land 7));
       imm32 0
+  | Store_indirect_offset (base, offset, source) ->
+      let source = register_number source in
+      let base = register_number base in
+      byte (0x48 lor ((source land 8) lsr 1) lor ((base land 8) lsr 3));
+      opcodes ();
+      byte (0x80 lor ((source land 7) lsl 3) lor (base land 7));
+      imm32 offset
   | Load_indirect_narrow (destination, base, width, extension) ->
       let destination = register_number destination in
       let base = register_number base in
@@ -610,7 +644,9 @@ let write buffer position instruction =
   | Jump displacement
   | Jump_equal displacement
   | Jump_not_equal displacement
-  | Jump_below displacement ->
+  | Jump_below displacement
+  | Jump_less displacement
+  | Jump_overflow displacement ->
       opcodes ();
       imm32_int64 displacement
   | Store_status_kind _ | Store_status_site _ ->

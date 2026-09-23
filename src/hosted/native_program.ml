@@ -302,9 +302,10 @@ let ast_errors (ast : Ast.module_) =
                          "native programs require direct calls to checked \
                           source-defined functions"))
             | Ast.Index_expression index ->
-                reject
-                  (source_error index.index_location.span
-                     "native programs do not admit indexed storage")
+                work :=
+                  Gate_expression (in_function, index.index_base)
+                  :: Gate_expression (in_function, index.index_value)
+                  :: !work
             | Ast.Member_expression member ->
                 reject
                   (source_error member.member_location.span
@@ -740,6 +741,14 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
           "the simultaneous native stack byte limit was exhausted" )
     | Image.Uninitialized_read ->
         ("HCIRVM0012", "native execution read an uninitialized scalar object")
+    | Image.Index_scale_overflow ->
+        ( "HCIRVM0020",
+          "index byte scaling exceeds the hosted signed address range" )
+    | Image.Index_addition_overflow ->
+        ( "HCIRVM0020",
+          "index address addition exceeds the hosted signed address range" )
+    | Image.Address_out_of_bounds ->
+        ("HCIRVM0019", "indexed address is outside its declared object extent")
   in
   Common.Diagnostic.make ~code ~severity:Common.Diagnostic.Error ~message
     ~primary:(Option.value fault.span ~default:fallback)

@@ -2,9 +2,13 @@
 
 ## Unreleased
 
-- Connected native automatic array dimension preparation, sizeof and checked
-  frame allocation. API/CLI reports retain original dimension work on failure.
-  Element addressing and array aliases remain unfinished in #681.
+- Connected native automatic arrays of all eight integer types through dimension
+  preparation, frame allocation, indexed reads and updates, pointer locals and
+  fixed calls. Saved aliases retain their original element across repeated
+  indexing and later pointer assignments. Flat multidimensional offsets preserve
+  the full object extent; bounds, arithmetic overflow and uninitialized reads
+  report their original instruction and consumed work. API/CLI reports retain
+  dimension preparation work on failure.
 
 - Prepared closed scalar native global initializers at their original source
   callbacks in both modes. Native images reuse checked values, normalize their

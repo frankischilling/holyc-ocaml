@@ -312,7 +312,7 @@ TempleOS language rules.
 
 This gate does not complete general native source execution. Effectful defaults,
 interleaved source execution, owned string/`lastclass` defaults,
-broader persistent/pointer storage, arrays, indirect calls, variadics,
+broader persistent/pointer storage, persistent and initialized arrays, indirect calls, variadics,
 explicit register and function flags, the complete HolyC ABI, floating operations,
 runtime output and native `#exe` remain required. Optimizer parity, the integrated
 assembler, object/BIN writing, loader acceptance and bootstrap retain their own
@@ -322,3 +322,5 @@ requirements.
 
 One-level scalar pointer aliases now use the checked callable path; see
 [native pointers](native-pointers.md) for ownership, lifetime and resource limits.
+Automatic integer arrays use that same path for indexed access and stable
+element references; see [native arrays](native-arrays.md).

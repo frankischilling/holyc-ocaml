@@ -33,18 +33,21 @@ val compile :
     case endpoints prepare at their original parser callbacks under an
     independent 100,000-node work limit. Closed automatic scalar array
     dimensions prepare at their original callbacks under [max_dimension_work].
-    Their full aligned frames and per-element flags are bounded before
-    expansion; sizeof can consume the checked extent. Element access remains
-    unsupported. Supported scalar parameter defaults are prepared once at their
-    original declaration callbacks through the checked constant-preparation
-    engine. Closed scalar global initializers prepare at their original leaf
-    callbacks under that same work budget. Closed scalar static initializers
-    prepare after expression lookahead and require their completed original
-    declarations. Their exact receipts authorize the native initial image, which
-    restores declared-width values on each execution. Reference descriptors
-    retain exact object ownership and initialization state within the physical
-    frame budget. Effectful initializers, escaping/deeper pointers, array
-    element addresses and other unsupported declarations/defaults reject before
+    Their full aligned frames, per-element flags and reference records are
+    bounded before expansion. Indexed reads, assignments and updates retain the
+    original object extent and declared element width. Intermediate flat offsets
+    are checked for signed overflow; materialization permits aligned one-past
+    references, while reads and writes require an actual element. Supported
+    scalar parameter defaults are prepared once at their original declaration
+    callbacks through the checked constant-preparation engine. Closed scalar
+    global initializers prepare at their original leaf callbacks under that same
+    work budget. Closed scalar static initializers prepare after expression
+    lookahead and require their completed original declarations. Their exact
+    receipts authorize the native initial image, which restores declared-width
+    values on each execution. Reference descriptors retain exact object
+    ownership and initialization state within the physical frame budget.
+    Effectful initializers, escaping/deeper pointers, persistent arrays, array
+    initializers and other unsupported declarations/defaults reject before
     native entry. This never interprets ordinary commands or allocates
     executable memory. Parser warnings retain their original source identities.
     Defaults are 4096 total IR instructions, 65536 code bytes, 4088 private
@@ -81,10 +84,11 @@ val evaluate :
     physical native stack limit defaults to its hard maximum of 65,536 bytes and
     includes compiler-private storage, return addresses and saved frame
     pointers. Each execution owns fresh global/static data and initialization
-    flags, shared by entry and generated calls. Uninitialized AOT objects start
-    at zero; reached JIT reads before assignment retain the hosted
-    uninitialized-object fault. Prepared globals restore their initial values in
-    both modes. *)
+    flags, shared by entry and generated calls. Persistent AOT objects without
+    initializers start at zero; reached JIT reads before assignment retain the
+    hosted uninitialized-object fault. Automatic scalar and array elements start
+    uninitialized in both modes. Prepared globals restore their initial values
+    in both modes. *)
 
 val outcome : report -> (result checked, Common.Diagnostic.t list) Stdlib.result
 val image : report -> Backend.X86_64_program.t option

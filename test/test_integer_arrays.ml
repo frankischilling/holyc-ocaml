@@ -43,6 +43,29 @@ let grouping_and_decay () =
          "I64 F(){I64 a[2][3];*a=42;return (*a);}F();";
        ])
 
+let all_integer_width_call_decay () =
+  List.iter
+    (fun type_name ->
+      let sources =
+        [
+          Printf.sprintf
+            "I64 Set(%s *p){p[1]=42;return 0;}I64 F(){%s \
+             a[2];a[0]=7;Set(a);return a[1]+a[0]-7;}F();"
+            type_name type_name;
+          Printf.sprintf
+            "I64 Set(%s *p){p[5]=42;return 0;}I64 F(){%s \
+             a[2][3];Set((a));return a[1][2];}F();"
+            type_name type_name;
+          Printf.sprintf
+            "I64 Set(%s *p){p[-1]=40;p[2]=2;return 0;}I64 F(){%s \
+             a[2][3];Set(a[1]);return a[0][2]+a[1][2];}F();"
+            type_name type_name;
+        ]
+      in
+      Test_integer_statics.cases
+        (List.map (fun source -> (source, 42L)) sources))
+    [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32"; "I64"; "U64" ]
+
 let evaluation_order () =
   Test_integer_statics.cases
     (List.map
@@ -313,6 +336,8 @@ let tests =
     gates
   @ [
       Alcotest.test_case "grouping and array decay" `Quick grouping_and_decay;
+      Alcotest.test_case "all integer widths retain call-decay ownership" `Quick
+        all_integer_width_call_decay;
       Alcotest.test_case "index and destination evaluation order" `Quick
         evaluation_order;
       Alcotest.test_case "object extents and recursive calls" `Quick

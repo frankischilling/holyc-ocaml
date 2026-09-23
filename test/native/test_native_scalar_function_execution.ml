@@ -700,6 +700,37 @@ let pointer_alias_semantics () =
       ( "destination survives RHS pointer rebind",
         "I64 F(){I64 x=40;I64 y=2;I64 *p=&x;*p+=*(p=&y);return x;}F();",
         42L );
+      ( "right-to-left arguments observe the right argument's rebind",
+        "I64 Both(I64 *first,I64 *second){*first=40;*second=2;return \
+         *first+*second;}I64 F(){I64 a=0;I64 b=0;I64 *p=&a;return \
+         Both(p,p=&b);}F();",
+        4L );
+      ( "captured right argument survives left argument rebinding",
+        "I64 Both(I64 *first,I64 *second){*first=40;*second=2;return \
+         *first+*second;}I64 F(){I64 a=0;I64 b=0;I64 *p=&a;return \
+         Both(p=&b,p);}F();",
+        42L );
+      ( "pointer assignment results retain their own values",
+        "I64 Both(I64 *first,I64 *second){*first=40;*second=2;return \
+         *first+*second;}I64 F(){I64 a=0;I64 b=0;I64 *p;return \
+         Both(p=&a,p=&b);}F();",
+        42L );
+      ( "pointer parameter values survive nested argument rebinding",
+        "I64 Both(I64 *first,I64 *second){*first=40;*second=2;return \
+         *first+*second;}I64 Pass(I64 *p,I64 *q){return Both(p=q,p);}I64 \
+         F(){I64 a=0;I64 b=0;return Pass(&a,&b);}F();",
+        42L );
+      ( "indexed base survives pointer rebinding in its index",
+        "I64 Zero(I64 *p){return 0;}I64 F(){I64 a[2];a[0]=40;a[1]=2;I64 \
+         *p=&a[0];return p[Zero(p=&a[1])]+*p;}F();",
+        42L );
+      ( "interior base survives index rebinding and staged RHS arguments",
+        "I64 Sum(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 h){return \
+         a+b+c+d+e+f+g+h;}I64 Zero(I64 *p){return 0;}I64 F(){I64 \
+         a[2];a[0]=1;a[1]=100;I64 \
+         *p=&a[1];p[Zero(p=&a[0])-1]+=Sum(2,3,4,5,6,7,8,6);return \
+         a[0]+a[1]-100;}F();",
+        42L );
       ( "recursive activation addresses stay distinct",
         "I64 R(I64 n,I64 *p){I64 x=n;if(n){R(n-1,&x);*p+=x;}else *p+=1;return \
          0;}I64 F(){I64 x=35;R(3,&x);return x;}F();",
@@ -774,6 +805,64 @@ let pointer_alias_semantics () =
                ~label:(type_name ^ " wrapped indirect prefix")
                ~expected_type:"I64" ~expected_bits source))
         [ "I8"; "U8" ])
+    modes
+
+let array_update_wrap_results () =
+  let rows =
+    [
+      ("I8", "-128", "127");
+      ("U8", "0", "255");
+      ("I16", "-32768", "32767");
+      ("U16", "0", "65535");
+      ("I32", "-2147483648", "2147483647");
+      ("U32", "0", "4294967295");
+      ("I64", "-9223372036854775808", "9223372036854775807");
+      ("U64", "0", "0xffffffffffffffff");
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (type_name, minimum, maximum) ->
+          List.iter
+            (fun target ->
+              List.iter
+                (fun (label, initial, expression, returned, stored) ->
+                  let source =
+                    Printf.sprintf
+                      "I64 F(){%s a[3];a[0]=13;a[2]=29;a[1]=%s;%s *p=&a[2];I64 \
+                       n=%s;if(n!=%s||a[1]!=%s||a[0]!=13||a[2]!=29)return \
+                       0;return 42;}F();"
+                      type_name initial type_name expression returned stored
+                  in
+                  ignore
+                    (compare_source ~mode
+                       ~label:(type_name ^ " " ^ target ^ " " ^ label)
+                       ~expected_type:"I64" ~expected_bits:42L source))
+                [
+                  ( "wrapping prefix increment",
+                    maximum,
+                    "++" ^ target,
+                    minimum,
+                    minimum );
+                  ( "wrapping prefix decrement",
+                    minimum,
+                    "--" ^ target,
+                    maximum,
+                    maximum );
+                  ( "wrapping postfix increment",
+                    maximum,
+                    target ^ "++",
+                    maximum,
+                    minimum );
+                  ( "wrapping postfix decrement",
+                    minimum,
+                    target ^ "--",
+                    minimum,
+                    maximum );
+                ])
+            [ "a[1]"; "p[-1]" ])
+        rows)
     modes
 
 let pointer_faults_and_limits () =
@@ -970,6 +1059,9 @@ let () =
               Alcotest.test_case
                 "typed pointer aliases preserve source semantics" `Quick
                 pointer_alias_semantics;
+              Alcotest.test_case
+                "array updates normalize wrapping results at every width" `Quick
+                array_update_wrap_results;
               Alcotest.test_case
                 "pointer initialization recursion quotas and recovery" `Quick
                 pointer_faults_and_limits;

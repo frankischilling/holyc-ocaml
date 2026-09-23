@@ -65,9 +65,13 @@ type instruction =
   | Address_arena of register * arena_slot
       (** Materialize an address relative to the private R9 arena base. *)
   | Load_indirect of register * register * int
-      (** Qword reference field load. The displacement is zero or eight; the
-          callable preflight owns the base's reference provenance. *)
+      (** Qword reference field load at displacement zero, eight, sixteen or
+          twenty-four. Callable preflight owns the base's reference provenance.
+      *)
   | Store_indirect of register * register
+  | Store_indirect_offset of register * int * register
+      (** Store one qword to a checked private reference descriptor field. The
+          displacement is one of zero, eight, sixteen or twenty-four. *)
   | Load_indirect_narrow of
       register * register * narrow_frame_width * frame_extension
   | Store_indirect_narrow of register * narrow_frame_width * register
@@ -108,6 +112,12 @@ type instruction =
   | Jump_below of int64
       (** Unsigned below (carry set), with a signed rel32 displacement from the
           instruction end. Uses the pinned JB form in OpCodes.DD:600. *)
+  | Jump_less of int64
+      (** Signed less-than with a rel32 displacement. Uses the pinned JL form in
+          OpCodes.DD:640. *)
+  | Jump_overflow of int64
+      (** Signed overflow with a rel32 displacement. Uses the pinned JO form in
+          OpCodes.DD:592. *)
   | Store_status_kind of int
   | Store_status_site of int
       (** Private stores through R11 only. Kinds are 1..2 and sites 1..100000;

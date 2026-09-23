@@ -151,22 +151,28 @@ the padded static allocation. Calls reuse that value, and each image execution
 restores it.
 
 Native scalar references originate only from exact checked objects. Private
-16-byte descriptors carry their data and initialization-flag addresses, count
-against physical-stack limits, and cannot become integer results. The admitted
+32-byte canonical records carry the root data and initialization-flag addresses,
+logical offset and original extent. Each record always identifies the same
+object element or one-past address, so later pointer rebinding cannot change a
+captured value. Complete tables count against physical-stack limits before
+allocation, and reference values cannot become integer results. The admitted
 local/parameter-only reference flow cannot outlive its owning activation:
-pointer returns, persistent pointer storage, deeper indirection and address
-arithmetic reject before entry. Recursive frames remain distinct, and indirect
+pointer returns, persistent pointer storage, deeper indirection and general
+pointer arithmetic reject before entry. Recursive frames remain distinct, and indirect
 accesses use the original object's width. Passing a static reference does not
 authorize materializing another owner's static symbol. Any future escape path
 must add a lifetime mechanism before admission. See
 [native pointers](docs/native-pointers.md).
 
+Native automatic arrays validate original closed dimensions and the full owned
+frame range. They charge per-element initialization flags and reference tables
+against the physical-frame bound before expanding metadata. Signed scale/add
+overflow faults precede host address calculation. Final materialization permits
+aligned one-past references; element reads and writes reject one-past or other
+out-of-range offsets before inspecting flags or object bytes. Runtime-dependent
+extents, array initializers, persistent arrays and pointer/aggregate elements
+remain excluded. See [native arrays](docs/native-arrays.md).
+
 ## Supported versions
 
 The project is pre-release. Security fixes apply to the current default branch until the first versioned support policy is published.
-
-Native automatic array layout validates original closed dimensions and the full
-owned frame range. It charges per-element initialization flags against the
-physical frame bound before expanding metadata. Runtime-dependent extents and
-all array element addresses still reject before native entry. See the current
-[array implementation boundary](docs/native-arrays.md).

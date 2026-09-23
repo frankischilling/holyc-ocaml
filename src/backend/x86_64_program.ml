@@ -19,6 +19,9 @@ type fault_kind =
   | Frame_limit_exceeded
   | Native_stack_limit_exceeded
   | Uninitialized_read
+  | Index_scale_overflow
+  | Index_addition_overflow
+  | Address_out_of_bounds
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
   | Divide
@@ -265,6 +268,36 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                       "native program uninitialized read did not consume its \
                        instruction"
                   else make_fault Uninitialized_read None
+                else if Int64.equal kind 8L then
+                  if not candidate.index_scale_site then
+                    Error
+                      "native program index-scale status names a non-scaling \
+                       site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native program index scaling fault did not consume its \
+                       instruction"
+                  else make_fault Index_scale_overflow None
+                else if Int64.equal kind 9L then
+                  if not candidate.index_addition_site then
+                    Error
+                      "native program index-addition status names a \
+                       non-index-addition site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native program index addition fault did not consume its \
+                       instruction"
+                  else make_fault Index_addition_overflow None
+                else if Int64.equal kind 10L then
+                  if not candidate.address_bounds_site then
+                    Error
+                      "native program address-bounds status names a site \
+                       without a bounds check"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native program address bounds fault did not consume its \
+                       instruction"
+                  else make_fault Address_out_of_bounds None
                 else Error "native program status has an unknown fault kind")
 
 let validate_global_limit ~max_global_bytes =

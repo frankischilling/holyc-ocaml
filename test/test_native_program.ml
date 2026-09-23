@@ -165,6 +165,9 @@ let kind_name = function
   | Program.Frame_limit_exceeded -> "frame-limit"
   | Program.Native_stack_limit_exceeded -> "native-stack-limit"
   | Program.Uninitialized_read -> "uninitialized-read"
+  | Program.Index_scale_overflow -> "index-scale-overflow"
+  | Program.Index_addition_overflow -> "index-addition-overflow"
+  | Program.Address_out_of_bounds -> "address-out-of-bounds"
 
 let operation_name = function
   | None -> "none"
@@ -448,7 +451,7 @@ let malformed_status_rejected () =
   in
   reject_status "unknown kind"
     ~expected:"native program status has an unknown fault kind" ~max_steps:5
-    ~kind:9L ~site:1L ~executed_steps:0L ~value_site:0L ~bits:0L;
+    ~kind:255L ~site:1L ~executed_steps:0L ~value_site:0L ~bits:0L;
   reject_status "zero execution budget" ~max_steps:0 ~kind:3L ~site:1L
     ~executed_steps:0L ~value_site:0L ~bits:0L;
   reject_status "negative execution budget" ~max_steps:(-1) ~kind:3L ~site:1L
@@ -469,6 +472,23 @@ let malformed_status_rejected () =
     ~executed_steps:5L ~value_site:0L ~bits:1L;
   reject_status "arithmetic kind on non-arithmetic site" ~max_steps:5 ~kind:1L
     ~site:3L ~executed_steps:3L ~value_site:0L ~bits:0L;
+  List.iter
+    (fun (kind, label, expected) ->
+      reject_status label ~expected ~max_steps:5 ~kind ~site:3L
+        ~executed_steps:3L ~value_site:0L ~bits:0L)
+    [
+      ( 8L,
+        "index scale fault on ordinary multiplication",
+        "native program index-scale status names a non-scaling site" );
+      ( 9L,
+        "index addition fault on ordinary multiplication",
+        "native program index-addition status names a non-index-addition site"
+      );
+      ( 10L,
+        "address bounds fault on ordinary multiplication",
+        "native program address-bounds status names a site without a bounds \
+         check" );
+    ];
   List.iter
     (fun opcode ->
       let compiled =
@@ -1401,6 +1421,98 @@ let native_static_admission () =
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let native_array_compilation_limits () =
+  let source =
+    "I64 Add(I64 *p){p[-1]+=2;return p[-1];}I64 F(){I64 \
+     a[2];a[0]=40;a[1]=7;I64 *p=&a[1];if(a[1])return Add(p);return 0;}F();"
+  in
+  let diagnostics_text diagnostics =
+    diagnostics
+    |> List.map (fun (diagnostic : Diagnostic.t) ->
+        diagnostic.code ^ ": " ^ diagnostic.message)
+    |> String.concat "; "
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun status_abi ->
+          let unit = integer_unit ~mode source in
+          let compile ?(max_ir_instructions = 4096) ?(max_blocks = 4096)
+              ?(max_code_bytes = 65536) ?(max_stack_bytes = 4088) () =
+            Program.compile_callable ~status_abi ~max_ir_instructions
+              ~max_blocks ~max_code_bytes ~max_stack_bytes ~max_global_bytes:1
+              ~runtime_calls:(integer_program_runtime_calls unit)
+              ~initialization:(integer_program_initialization unit)
+              ~entry:(integer_program_entry unit)
+              ~functions:(integer_program_functions unit)
+              ()
+          in
+          let baseline = compile () |> require_ok program_errors in
+          let ir = Program.ir_instructions baseline in
+          let blocks = Program.block_count baseline in
+          let code = Program.code_bytes baseline in
+          let stack = Program.frame_bytes baseline in
+          Alcotest.(check int)
+            "automatic array reference storage is not a global arena" 0
+            (Program.global_bytes baseline);
+          let exact =
+            compile ~max_ir_instructions:ir ~max_blocks:blocks
+              ~max_code_bytes:code ~max_stack_bytes:stack ()
+            |> require_ok program_errors
+          in
+          Alcotest.(check string)
+            "exact array quotas preserve the complete encoded image"
+            (Program.code baseline) (Program.code exact);
+          List.iter
+            (fun (label, code, result) -> ignore (reject ~code label result))
+            [
+              ( "array IR one below",
+                "HCBACK0001",
+                compile ~max_ir_instructions:(ir - 1) () );
+              ( "array blocks one below",
+                "HCBACK0001",
+                compile ~max_blocks:(blocks - 1) () );
+              ( "array code one below",
+                "HCBACK0005",
+                compile ~max_code_bytes:(code - 1) () );
+              ( "array private frame one below",
+                "HCBACK0004",
+                compile ~max_stack_bytes:(stack - 1) () );
+            ];
+          let loop trip_count =
+            integer_unit ~mode
+              (Printf.sprintf
+                 "I64 F(){I64 a[2];I64 *p;I64 \
+                  i=0;while(i<%d){p=&a[i%%2];*p=42;i++;}return 42;}F();"
+                 trip_count)
+            |> compile_callable ~status_abi
+            |> require_ok program_errors
+          in
+          let twice = loop 2 in
+          let many = loop 2000 in
+          Alcotest.(check int)
+            "reference tables do not grow with the loop trip count"
+            (Program.frame_bytes twice)
+            (Program.frame_bytes many))
+        [ Program.Windows_x64; Program.System_v_x64 ];
+      ignore
+        (source_program_compile ~mode
+           "I64 F(){I64 a[100];return sizeof(a);}F();"
+        |> require_ok diagnostics_text);
+      match
+        source_program_compile ~mode
+          "I64 F(){I64 a[100];I64 *p=a;return 42;}F();"
+      with
+      | Ok _ -> Alcotest.fail "unbounded canonical reference table was accepted"
+      | Error diagnostics ->
+          Alcotest.(check bool)
+            "descriptor expansion is charged before allocation" true
+            (List.exists
+               (fun (diagnostic : Diagnostic.t) ->
+                 diagnostic.code = "HCBACK0004")
+               diagnostics))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
 let tests =
   [
     Alcotest.test_case "native static storage authority" `Quick
@@ -1423,6 +1535,8 @@ let tests =
     Alcotest.test_case "unreachable unsupported producers fail preflight" `Quick
       unreachable_preflight;
     Alcotest.test_case "IR block and code limits are exact" `Quick exact_limits;
+    Alcotest.test_case "indexed arrays retain exact compile resource limits"
+      `Quick native_array_compilation_limits;
     Alcotest.test_case "five-register spill frame has exact one-below boundary"
       `Quick spill_limits;
     Alcotest.test_case "maximum 4088-byte frame has exact boundary" `Slow

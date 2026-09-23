@@ -1352,6 +1352,12 @@ let encoder_divmod_status_bytes () =
       ("JB rel32 zero", Jump_below 0L, "0f8200000000");
       ("JB rel32 minimum", Jump_below (-0x80000000L), "0f8200000080");
       ("JB rel32 maximum", Jump_below 0x7fffffffL, "0f82ffffff7f");
+      ("JL rel32 zero", Jump_less 0L, "0f8c00000000");
+      ("JL rel32 minimum", Jump_less (-0x80000000L), "0f8c00000080");
+      ("JL rel32 maximum", Jump_less 0x7fffffffL, "0f8cffffff7f");
+      ("JO rel32 zero", Jump_overflow 0L, "0f8000000000");
+      ("JO rel32 minimum", Jump_overflow (-0x80000000L), "0f8000000080");
+      ("JO rel32 maximum", Jump_overflow 0x7fffffffL, "0f80ffffff7f");
       ("store zero-divide kind", Store_status_kind 1, "49c7430001000000");
       ("store overflow kind", Store_status_kind 2, "49c7430002000000");
       ("store first site", Store_status_site 1, "49c7430801000000");
@@ -1396,6 +1402,10 @@ let encoder_divmod_status_bytes () =
   invalid "jump above rel32" (Jump 0x80000000L);
   invalid "JB below rel32" (Jump_below (-0x80000001L));
   invalid "JB above rel32" (Jump_below 0x80000000L);
+  invalid "JL below rel32" (Jump_less (-0x80000001L));
+  invalid "JL above rel32" (Jump_less 0x80000000L);
+  invalid "JO below rel32" (Jump_overflow (-0x80000001L));
+  invalid "JO above rel32" (Jump_overflow 0x80000000L);
   invalid "status kind zero" (Store_status_kind 0);
   invalid "status kind three" (Store_status_kind 3);
   invalid "status site zero" (Store_status_site 0);
@@ -1678,8 +1688,14 @@ let encoder_reference_bytes () =
       (Address_arena (Rdx, arena 3), "498d9103000000");
       (Load_indirect (Rax, Rdx, 8), "488b8208000000");
       (Load_indirect (R10, R11, 0), "4d8b9300000000");
+      (Load_indirect (R8, R11, 16), "4d8b8310000000");
+      (Load_indirect (Rax, Rdx, 24), "488b8218000000");
       (Store_indirect (Rcx, Rax), "48898100000000");
       (Store_indirect (R9, R8), "4d898100000000");
+      (Store_indirect_offset (Rax, 0, Rax), "48898000000000");
+      (Store_indirect_offset (Rcx, 8, Rax), "48898108000000");
+      (Store_indirect_offset (R9, 16, R8), "4d898110000000");
+      (Store_indirect_offset (R11, 24, R10), "4d899318000000");
       (Load_indirect_narrow (Rax, Rdx, Frame8, Sign_extend), "480fbe8200000000");
       (Load_indirect_narrow (R8, R11, Frame8, Zero_extend), "4d0fb68300000000");
       (Load_indirect_narrow (Rdx, Rcx, Frame16, Sign_extend), "480fbf9100000000");
@@ -1703,16 +1719,20 @@ let encoder_reference_bytes () =
     cases;
   List.iter
     (fun offset ->
-      let rejected =
-        try
-          ignore
-            (Encoder.encode
-               (Encoder.Load_indirect (Encoder.Rax, Encoder.Rcx, offset)));
-          false
-        with Invalid_argument _ -> true
-      in
-      Alcotest.(check bool) "invalid descriptor field" true rejected)
-    [ -8; 1; 16; max_int ]
+      List.iter
+        (fun instruction ->
+          let rejected =
+            try
+              ignore (Encoder.encode instruction);
+              false
+            with Invalid_argument _ -> true
+          in
+          Alcotest.(check bool) "invalid descriptor field" true rejected)
+        [
+          Encoder.Load_indirect (Encoder.Rax, Encoder.Rcx, offset);
+          Encoder.Store_indirect_offset (Encoder.Rcx, offset, Encoder.Rax);
+        ])
+    [ -8; 1; 7; 15; 17; 23; 25; 32; max_int ]
 
 let encoder_arena_bytes () =
   (* Literal bytes come from the same pinned MOV/MOVSX/MOVZX/MOVSXD forms as the

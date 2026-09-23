@@ -22,11 +22,14 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 3)
-    "usage: test_native_array_cli.exe <holyc.exe> <arrays.hc>"
+    (Array.length Sys.argv = 5)
+    "usage: test_native_array_cli.exe <holyc.exe> <layout.hc> \
+     <integer-arrays.hc> <aliases.hc>"
 
 let compiler = Sys.argv.(1)
-let array_fixture = Sys.argv.(2)
+let layout_fixture = Sys.argv.(2)
+let integer_array_fixture = Sys.argv.(3)
+let alias_fixture = Sys.argv.(4)
 
 let invoke arguments =
   with_file ".stdout" "" (fun stdout ->
@@ -102,6 +105,13 @@ let ir_json ?(status = 0) ?(options = []) ~mode source =
 
 let diagnostics report = report |> member "diagnostics" |> to_list
 
+let first_diagnostic report =
+  match diagnostics report with
+  | first :: _ -> first
+  | [] -> failwith "expected an array diagnostic"
+
+let first_code report = first_diagnostic report |> member "code" |> to_string
+
 let check_success report =
   require
     (report |> member "outcome" |> to_string = "success"
@@ -118,24 +128,45 @@ let check_word report type_ value bits =
     && word |> member "bits" |> to_string = bits)
     ("unexpected array final word: " ^ Yojson.Safe.to_string word)
 
+let check_native_ir_success ~mode ~label source =
+  let native = host_json ~mode source in
+  let interpreted = ir_json ~mode source in
+  check_success native;
+  check_success interpreted;
+  check_word native "i64" "42" "0x000000000000002a";
+  check_word interpreted "i64" "42" "0x000000000000002a";
+  require
+    (member "executed_steps" native = member "executed_steps" interpreted)
+    (label ^ " native work differs from checked IR");
+  require
+    (member "dimension_preparation_work" native
+    = member "dimension_preparation_work" interpreted)
+    (label ^ " dimension work differs from checked IR");
+  native
+
+let width_source type_name =
+  Printf.sprintf
+    "I64 F(){%s a[3];a[0]=13;a[2]=29;a[1]=42;return a[0]+a[1]+a[2]-42;}F();"
+    type_name
+
 let () =
   List.iter
     (fun mode ->
-      let report = host_json ~mode array_fixture in
+      let report = host_json ~mode layout_fixture in
       check_success report;
       check_word report "i64" "42" "0x000000000000002a";
-      check_word (ir_json ~mode array_fixture) "i64" "42" "0x000000000000002a";
+      check_word (ir_json ~mode layout_fixture) "i64" "42" "0x000000000000002a";
       let work = report |> member "dimension_preparation_work" |> to_int in
       require (work = 2) "two original dimension expressions";
       require
         (report |> member "compiled_initializer_steps" |> to_int = 0)
         "dimension work stays separate from initializers";
       check_success
-        (host_json ~mode ~options:[ "--dimension-work-limit=2" ] array_fixture);
+        (host_json ~mode ~options:[ "--dimension-work-limit=2" ] layout_fixture);
       let failed =
         host_json ~status:1 ~mode
           ~options:[ "--dimension-work-limit=1" ]
-          array_fixture
+          layout_fixture
       in
       require
         (failed |> member "dimension_preparation_work" |> to_int = 1)
@@ -144,7 +175,7 @@ let () =
         (member "executed_steps" failed = `Null)
         "dimension exhaustion precedes native entry";
       let status, stdout, stderr =
-        invoke [ "run"; "--target=host-jit"; "--mode=" ^ mode; array_fixture ]
+        invoke [ "run"; "--target=host-jit"; "--mode=" ^ mode; layout_fixture ]
       in
       require (status = Unix.WEXITED 0 && stderr = "") "human array report";
       require
@@ -159,5 +190,70 @@ let () =
             "closing bracket failure retains original preparation";
           require
             (member "executed_steps" failed = `Null)
-            "parse failure has no entry"))
+            "parse failure has no entry");
+      List.iter
+        (fun (label, source) ->
+          ignore (check_native_ir_success ~mode ~label source))
+        [
+          ("maintained integer arrays", integer_array_fixture);
+          ("same-producer alias loop", alias_fixture);
+        ];
+      List.iter
+        (fun type_name ->
+          with_file ".hc" (width_source type_name) (fun path ->
+              ignore
+                (check_native_ir_success ~mode
+                   ~label:(type_name ^ " automatic array")
+                   path)))
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32"; "I64"; "U64" ];
+      let maintained =
+        check_native_ir_success ~mode ~label:"array runtime quota"
+          integer_array_fixture
+      in
+      let steps = maintained |> member "executed_steps" |> to_int in
+      check_success
+        (host_json ~mode
+           ~options:[ "--step-limit=" ^ string_of_int steps ]
+           integer_array_fixture);
+      let one_below =
+        host_json ~status:1 ~mode
+          ~options:[ "--step-limit=" ^ string_of_int (steps - 1) ]
+          integer_array_fixture
+      in
+      require
+        (first_code one_below = "HCIRVM0007"
+        && one_below |> member "executed_steps" |> to_int = steps - 1)
+        "array step quota one below";
+      with_file ".hc" "I64 F(){I64 a[2];a[1]=42;I64 *p=&a[2];return p[-1];}F();"
+        (fun path ->
+          ignore
+            (check_native_ir_success ~mode ~label:"one-past materialization"
+               path));
+      List.iter
+        (fun (label, expected, source) ->
+          with_file ".hc" source (fun path ->
+              let native = host_json ~status:1 ~mode path in
+              let interpreted = ir_json ~status:1 ~mode path in
+              require
+                (first_code native = expected
+                && first_code interpreted = expected)
+                (label ^ " diagnostic code");
+              require
+                (member "executed_steps" native
+                = member "executed_steps" interpreted)
+                (label ^ " executed work")))
+        [
+          ( "per-element unknown state",
+            "HCIRVM0012",
+            "I64 F(){I64 a[2];a[0]=42;return a[1];}F();" );
+          ( "unsigned index overflow",
+            "HCIRVM0020",
+            "I64 F(){I64 a[2];U64 i=-1;return a[i];}F();" );
+          ( "past-one-past materialization",
+            "HCIRVM0019",
+            "I64 F(){I64 a[2];I64 *p=&a[3];return 42;}F();" );
+          ( "RHS fault precedes final bounds",
+            "HCIRVM0009",
+            "I64 F(){I64 a[2];a[2]=1/0;return 42;}F();" );
+        ])
     [ "jit"; "aot" ]
