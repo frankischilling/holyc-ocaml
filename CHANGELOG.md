@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Connected native automatic arrays of all eight integer types through dimension
+  preparation, frame allocation, indexed reads and updates, pointer locals and
+  fixed calls. Saved aliases retain their original element across repeated
+  indexing and later pointer assignments. Flat multidimensional offsets preserve
+  the full object extent; bounds, arithmetic overflow and uninitialized reads
+  report their original instruction and consumed work. API/CLI reports retain
+  dimension preparation work on failure.
+
 - Prepared closed scalar native global initializers at their original source
   callbacks in both modes. Native images reuse checked values, normalize their
   declared widths and restore fresh initialized storage on every execution.

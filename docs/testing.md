@@ -451,12 +451,12 @@ baseline comparison remain required.
 
 Unit tests cover source positions, spans, token construction, literal decoding, comments, diagnostic rendering, include and generated-value frames, predefined values, primitive, internal, and named declaration types, declaration modifiers and bindings, comma-separated groups, pointer layers, strict extraction of the complete opcode database, operator tables, primitive type metadata, compiler options, function flags, member-list flags, global record flags, the complete intermediate-code table, and the TempleOS BIN specification. The generated-table tests reject malformed statements, duplicate records, missing or reordered entries, changed aliases, unknown opcode arguments, excess instruction bytes or forms, unknown operator tokens or ICs, precedence drift, unavailable-type drift, option default drift, function-flag expression or transition drift, member-list flag or consumer drift, global-record flag or consumer drift, BIN record or loader-formula drift, API contract drift, and source checksum mismatches. The option, function-flag, member-list flag, global-record flag, and BIN scanners also prove that comments and literals do not create false consumers; the option tests separately confirm that `_BEQU` retains its previous-state result.
 
-The current test binary runs 2,843 cases, including registered property tests.
-Separate CLI and ownership suites and 239 rules in `test/dune` cover additional
-boundaries. A passing count describes only the implemented slices listed below;
-it is not a whole-compiler compatibility percentage. The reference verifier checks
-82 individually audited Git blobs, and both corpus phases account for all 528
-relevant blobs from the pinned Git tree.
+`dune runtest` runs the main test suite, registered property tests and separate
+CLI and ownership suites. The explicit `@native-tests` alias executes generated
+machine code and native CLI fixtures. These checks cover the implemented slices
+listed below; their passing counts do not measure whole-compiler compatibility.
+The reference verifier checks 82 individually audited Git blobs, and both corpus
+phases account for all 528 relevant blobs from the pinned Git tree.
 
 The runtime-frame tests cover once-only array bounds, native downward alignment,
 lookahead writes, derived layout dependencies and rejection of unexecuted size
@@ -1006,3 +1006,16 @@ parameter rebinding, RHS effects, recursive ownership, initialization faults,
 exact budgets and repeated images. The CLI fixture combines pointers with
 closed static/global initialization and a scalar default. See
 [native pointers](native-pointers.md).
+
+Native array tests cover all integer widths and both ABI images, original
+dimension-work limits, full frame bounds, recursive/repeated calls, unused
+declarations and delimiter failures. `test_native_array_execution.ml` adds
+indexed reads and updates, stable loop aliases, flat multidimensional offsets,
+one-past references, overflow and per-element initialization. The scalar pointer
+suite also checks values captured before a later argument or index expression
+rebinds the source pointer. Expected values are independent of the backend;
+fresh source and checked-batch interpreter runs verify results and fault work.
+The native CLI suite exercises maintained array examples in both modes and
+checks human/JSON reports. `test_native_index_faults.ml` separately fixes fault
+precedence, exact instruction sites, decoder validation, repeated images and
+exact/one-below step budgets. See [native arrays](native-arrays.md).

@@ -203,3 +203,42 @@
    %{exe:test_native_pointer_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/native-scalar-pointers.hc})))
+
+(executable
+ (name test_native_array_execution)
+ (modules test_native_array_execution)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_array_execution.exe})))
+
+(executable
+ (name test_native_index_faults)
+ (modules test_native_index_faults)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_index_faults.exe})))
+
+(executable
+ (name test_native_array_cli)
+ (modules test_native_array_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps
+  ../../examples/native-array-layout.hc
+  ../../examples/integer-arrays.hc
+  ../../examples/native-array-aliases.hc)
+ (action
+  (run
+   %{exe:test_native_array_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/native-array-layout.hc}
+   %{dep:../../examples/integer-arrays.hc}
+   %{dep:../../examples/native-array-aliases.hc})))

@@ -728,10 +728,7 @@ let rec producer_type ~globals result =
       && Typed.result_category result = Typed.Array_value
       && Typed.result_class result = Typed.Integer_result
       && Type.pointer_depth type_ = 0
-      &&
-      match Type.base type_ with
-      | Type.Primitive (_, (Sema.Primitive_type.U8 | I64 | U64)) -> true
-      | _ -> false)
+      && Option.is_some (Integer_scalar_storage.of_type type_))
       "materialized call argument has no supported checked array element class";
     (match
        Typed.result_source result |> Resolution.argument_expression_kind

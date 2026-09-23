@@ -1242,3 +1242,24 @@ LEA alongside the previously audited scalar move forms. Native descriptors,
 initialization checks and the nonescaping local/parameter lifetime restriction
 are hosted policy; see [native pointers](native-pointers.md). No new TempleOS
 execution capture is claimed.
+
+## Native automatic integer arrays (#681)
+
+`Compiler/PrsVar.HC:247-281,590-606` at the pinned revision supplies dimension
+preparation, products and automatic allocation/alignment.
+`PrsExp.HC:1055-1098` advances the dimension chain and emits scaled index
+multiplication and addition before the final dereference. Address cancellation
+and assignment lvalues follow `PrsExp.HC:151-161,201-208`; compound destination
+reads follow RHS evaluation in `BackA.HC:555-566`.
+The overflow and signed-bound branches use the `JO` and `JL` rel32 forms in
+`OpCodes.DD:589-592,637-640`, with independent literal-byte tests.
+
+The native source path consumes original `Task_declarations` receipts and
+`Function_frame_layout` objects. `x86_64_word_codegen.ml` retains full object
+ranges, checks index overflow and bounds, and reserves per-element flags and
+canonical reference records before expansion. The records preserve saved
+aliases when an address instruction repeats. Tests cover original metadata,
+all integer widths, both ABI images, source/API/CLI execution, exact work and
+resource limits. See [native arrays](native-arrays.md). Canonical records,
+initialization faults and bounded addresses are hosted safeguards; no new
+TempleOS execution capture is claimed.

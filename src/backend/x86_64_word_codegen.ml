@@ -198,11 +198,24 @@ type arena_access = {
   initialized_flag_offset : int;
 }
 
-type reference_access = { reference : value; scalar : scalar_value }
+type reference_access = {
+  reference : value;
+  scalar : scalar_value;
+  offset : value option;
+}
+
+type frame_reference_origin = { access : frame_access; extent_bytes : int }
 
 type reference_origin =
-  | Frame_reference of frame_access
+  | Frame_reference of frame_reference_origin
   | Arena_reference of arena_access
+
+type indexed_frame_access = { origin : frame_reference_origin; offset : value }
+
+type index_add_base =
+  | Index_zero
+  | Index_value of value
+  | Index_reference of value
 
 type direct_call = {
   callee_index : int;
@@ -228,11 +241,24 @@ type operation =
   | Apply_logical of Encoder.binary * value * value * value
   | Apply_word_view of value * value
   | Frame_tick
-  | Materialize_reference of reference_origin * int * value
+  | Scale_index of word_type * int64 * value * value
+  | Add_index of index_add_base * value * value
+  | Materialize_reference of reference_origin * int * value option * value
+  | Materialize_existing_reference of reference_access * value
   | Load_reference_value of reference_access * value
   | Store_reference_value of reference_access * value * value
   | Update_reference_value of
       reference_access
+      * frame_update
+      * value option
+      * bool
+      * value
+      * word_type
+      * fault_site option
+  | Load_indexed_frame_value of indexed_frame_access * value
+  | Store_indexed_frame_value of indexed_frame_access * value * value
+  | Update_indexed_frame_value of
+      indexed_frame_access
       * frame_update
       * value option
       * bool
@@ -667,7 +693,7 @@ type allocation = {
   unwind_info : bytes;
 }
 
-type branch_kind = Unconditional | Equal | Not_equal | Below
+type branch_kind = Unconditional | Equal | Not_equal | Below | Less | Overflow
 
 let fold_switch_runs f initial targets =
   let rec visit acc target count = function
@@ -696,6 +722,8 @@ let branch_instruction kind displacement =
   | Equal -> Encoder.Jump_equal displacement
   | Not_equal -> Encoder.Jump_not_equal displacement
   | Below -> Encoder.Jump_below displacement
+  | Less -> Encoder.Jump_less displacement
+  | Overflow -> Encoder.Jump_overflow displacement
 
 let planned_size = function
   | Planned_instruction instruction -> Encoder.size instruction
@@ -1172,7 +1200,8 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
   let acquire_empty span ~protected ~excluded:extra =
     let rec find index =
       if index = Array.length owners then None
-      else if excluded index extra then find (index + 1)
+      else if excluded index extra || List.mem index protected then
+        find (index + 1)
       else if Option.is_none owners.(index) then Some index
       else find (index + 1)
     in
@@ -1432,6 +1461,70 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
         | Divide -> rax
         | Remainder -> rdx)
   in
+  let fault_label kind site =
+    let label = fresh_label supply in
+    fault_blocks :=
+      { label; kind_value = kind; site_value = site } :: !fault_blocks;
+    label
+  in
+  let emit_doubles span register count =
+    for _ = 1 to count do
+      emit span (Encoder.Binary (Encoder.Add, register, register))
+    done
+  in
+  let flag_scale_doubles scalar =
+    match scalar.byte_size with
+    | 1 -> 3
+    | 2 -> 2
+    | 4 -> 1
+    | 8 -> 0
+    | _ -> reject "HCBACK0003" "native reference scalar width is invalid"
+  in
+  let descriptor_scale_doubles scalar =
+    match scalar.byte_size with
+    | 1 -> 5
+    | 2 -> 4
+    | 4 -> 3
+    | 8 -> 2
+    | _ -> reject "HCBACK0003" "native reference scalar width is invalid"
+  in
+  let emit_bounds span site ~one_past ~scalar ~offset ~extent =
+    let bounds_fault = fault_label 10 site in
+    emit span (Encoder.Test offset);
+    emit_branch Less bounds_fault;
+    if not one_past then (
+      emit span (Encoder.Mov_imm64 (Encoder.Rax, Int64.of_int scalar.byte_size));
+      emit span (Encoder.Binary (Encoder.Sub, extent, Encoder.Rax)));
+    emit span (Encoder.Cmp (extent, offset));
+    emit_branch Below bounds_fault
+  in
+  let emit_flag_check span site scalar ~flag_base ~offset =
+    let initialized = fresh_label supply in
+    let uninitialized = fault_label 7 site in
+    emit span (Encoder.Test flag_base);
+    emit_branch Equal initialized;
+    emit span (Encoder.Mov (Encoder.Rax, offset));
+    emit_doubles span Encoder.Rax (flag_scale_doubles scalar);
+    emit span (Encoder.Binary (Encoder.Sub, flag_base, Encoder.Rax));
+    emit span
+      (Encoder.Load_indirect_narrow
+         (Encoder.Rax, flag_base, Encoder.Frame8, Encoder.Zero_extend));
+    emit span (Encoder.Test Encoder.Rax);
+    emit_branch Equal uninitialized;
+    mark initialized
+  in
+  let emit_flag_store span scalar ~flag_base ~offset =
+    let no_flag = fresh_label supply in
+    emit span (Encoder.Test flag_base);
+    emit_branch Equal no_flag;
+    emit span (Encoder.Mov (Encoder.Rax, offset));
+    emit_doubles span Encoder.Rax (flag_scale_doubles scalar);
+    emit span (Encoder.Binary (Encoder.Sub, flag_base, Encoder.Rax));
+    emit span (Encoder.Mov_imm64 (Encoder.Rax, 1L));
+    emit span
+      (Encoder.Store_indirect_narrow (flag_base, Encoder.Frame8, Encoder.Rax));
+    mark no_flag
+  in
   List.iteri
     (fun position (instruction : prepared_instruction) ->
       release_before position;
@@ -1655,18 +1748,75 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
             emit (Encoder.Mov (registers.(destination), registers.(source)));
           assign position destination result
       | Frame_tick -> release_through position
-      | Materialize_reference (origin, offset, result) ->
+      | Scale_index (word, stride, index, result) ->
           spill_all_registers instruction.span;
-          let slot = encoder_frame_slot instruction.span offset in
-          let flag_slot = encoder_frame_slot instruction.span (offset + 8) in
+          let overflow = fault_label 8 (Option.get instruction.site) in
+          copy_value_to instruction.span index rax;
+          (match word with
+          | U64 ->
+              emit (Encoder.Test Encoder.Rax);
+              emit_branch Less overflow
+          | I64 -> ());
+          emit (Encoder.Mov_imm64 (Encoder.Rcx, stride));
+          emit (Encoder.Binary (Encoder.Imul, Encoder.Rax, Encoder.Rcx));
+          emit_branch Overflow overflow;
+          note_peak ~temporaries:[ rax; rcx ] ();
+          assign position rax result
+      | Add_index (base, delta, result) ->
+          spill_all_registers instruction.span;
+          let overflow = fault_label 9 (Option.get instruction.site) in
+          (match base with
+          | Index_zero -> emit (Encoder.Mov_imm64 (Encoder.Rax, 0L))
+          | Index_value offset -> copy_value_to instruction.span offset rax
+          | Index_reference reference ->
+              copy_value_to instruction.span reference rdx;
+              emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 16)));
+          copy_value_to instruction.span delta rcx;
+          emit (Encoder.Binary (Encoder.Add, Encoder.Rax, Encoder.Rcx));
+          emit_branch Overflow overflow;
+          note_peak ~temporaries:[ rax; rcx; rdx ] ();
+          assign position rax result
+      | Materialize_reference (origin, table_offset, target_offset, result) ->
+          spill_all_registers instruction.span;
+          let scalar, extent_bytes =
+            match origin with
+            | Frame_reference origin ->
+                ( {
+                    word_type = origin.access.frame_word;
+                    byte_size = origin.access.frame_bytes;
+                  },
+                  origin.extent_bytes )
+            | Arena_reference access ->
+                ( {
+                    word_type = access.arena_word;
+                    byte_size = access.arena_bytes;
+                  },
+                  access.arena_bytes )
+          in
+          (match target_offset with
+          | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 0L))
+          | Some offset ->
+              copy_value_to instruction.span offset rcx;
+              emit (Encoder.Mov_imm64 (Encoder.R8, Int64.of_int extent_bytes));
+              emit_bounds instruction.span
+                (Option.get instruction.site)
+                ~one_past:true ~scalar ~offset:Encoder.Rcx ~extent:Encoder.R8);
+          emit
+            (Encoder.Address_frame
+               (Encoder.Rdx, encoder_frame_slot instruction.span table_offset));
+          emit (Encoder.Mov (Encoder.Rax, Encoder.Rcx));
+          emit_doubles instruction.span Encoder.Rax
+            (descriptor_scale_doubles scalar);
+          emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.Rax));
           (match origin with
-          | Frame_reference access -> (
+          | Frame_reference origin -> (
+              let access = origin.access in
               emit
                 (Encoder.Address_frame
                    ( Encoder.Rax,
                      encoder_scalar_frame_slot instruction.span
                        access.frame_offset ));
-              emit (Encoder.Store_frame (slot, Encoder.Rax));
+              emit (Encoder.Store_indirect_offset (Encoder.Rdx, 0, Encoder.Rax));
               match access.initialized_flag_offset with
               | Some flag ->
                   emit
@@ -1678,62 +1828,162 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
                 (Encoder.Address_arena
                    ( Encoder.Rax,
                      encoder_arena_slot instruction.span access.arena_offset ));
-              emit (Encoder.Store_frame (slot, Encoder.Rax));
+              emit (Encoder.Store_indirect_offset (Encoder.Rdx, 0, Encoder.Rax));
               emit
                 (Encoder.Address_arena
                    ( Encoder.Rax,
                      encoder_arena_slot instruction.span
                        access.initialized_flag_offset )));
-          emit (Encoder.Store_frame (flag_slot, Encoder.Rax));
-          emit (Encoder.Address_frame (Encoder.Rax, slot));
-          note_peak ~temporaries:[ rax ] ();
-          assign position rax result
+          emit (Encoder.Store_indirect_offset (Encoder.Rdx, 8, Encoder.Rax));
+          emit (Encoder.Store_indirect_offset (Encoder.Rdx, 16, Encoder.Rcx));
+          emit (Encoder.Mov_imm64 (Encoder.Rax, Int64.of_int extent_bytes));
+          emit (Encoder.Store_indirect_offset (Encoder.Rdx, 24, Encoder.Rax));
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          assign position rdx result
+      | Materialize_existing_reference (access, result) ->
+          spill_all_registers instruction.span;
+          copy_value_to instruction.span access.reference rdx;
+          (match access.offset with
+          | None -> ()
+          | Some offset ->
+              copy_value_to instruction.span offset rcx;
+              emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
+              emit_bounds instruction.span
+                (Option.get instruction.site)
+                ~one_past:true ~scalar:access.scalar ~offset:Encoder.Rcx
+                ~extent:Encoder.R8;
+              emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 16));
+              emit (Encoder.Mov (Encoder.Rax, Encoder.Rcx));
+              emit (Encoder.Binary (Encoder.Sub, Encoder.Rax, Encoder.R8));
+              emit_doubles instruction.span Encoder.Rax
+                (descriptor_scale_doubles access.scalar);
+              emit (Encoder.Binary (Encoder.Add, Encoder.Rax, Encoder.Rdx));
+              emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 0));
+              emit (Encoder.Store_indirect_offset (Encoder.Rax, 0, Encoder.R8));
+              emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 8));
+              emit (Encoder.Store_indirect_offset (Encoder.Rax, 8, Encoder.R8));
+              emit
+                (Encoder.Store_indirect_offset (Encoder.Rax, 16, Encoder.Rcx));
+              emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
+              emit (Encoder.Store_indirect_offset (Encoder.Rax, 24, Encoder.R8));
+              emit (Encoder.Mov (Encoder.Rdx, Encoder.Rax)));
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          assign position rdx result
       | Load_reference_value (access, result) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span access.reference rdx;
-          let initialized = fresh_label supply in
-          let uninitialized = fresh_label supply in
-          fault_blocks :=
-            {
-              label = uninitialized;
-              kind_value = 7;
-              site_value = Option.get instruction.site;
-            }
-            :: !fault_blocks;
-          emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 8));
-          emit (Encoder.Test Encoder.Rax);
-          emit_branch Equal initialized;
-          emit
-            (Encoder.Load_indirect_narrow
-               (Encoder.Rax, Encoder.Rax, Encoder.Frame8, Encoder.Zero_extend));
-          emit (Encoder.Test Encoder.Rax);
-          emit_branch Equal uninitialized;
-          mark initialized;
+          (match access.offset with
+          | None -> emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16))
+          | Some offset -> copy_value_to instruction.span offset rcx);
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
+          emit_bounds instruction.span
+            (Option.get instruction.site)
+            ~one_past:false ~scalar:access.scalar ~offset:Encoder.Rcx
+            ~extent:Encoder.R8;
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 8));
           emit (Encoder.Load_indirect (Encoder.Rdx, Encoder.Rdx, 0));
+          emit_flag_check instruction.span
+            (Option.get instruction.site)
+            access.scalar ~flag_base:Encoder.R8 ~offset:Encoder.Rcx;
+          emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.Rcx));
           emit
             (load_reference_scalar instruction.span Encoder.Rax Encoder.Rdx
                access.scalar);
-          note_peak ~temporaries:[ rax; rdx ] ();
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position rax result
       | Store_reference_value (access, input, result) ->
           spill_all_registers instruction.span;
+          copy_value_to instruction.span access.reference rdx;
+          (match access.offset with
+          | None -> emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16))
+          | Some offset -> copy_value_to instruction.span offset rcx);
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
+          emit_bounds instruction.span
+            (Option.get instruction.site)
+            ~one_past:false ~scalar:access.scalar ~offset:Encoder.Rcx
+            ~extent:Encoder.R8;
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 8));
+          emit (Encoder.Load_indirect (Encoder.Rdx, Encoder.Rdx, 0));
+          emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.Rcx));
           copy_value_to instruction.span input rax;
-          copy_value_to instruction.span access.reference rcx;
-          emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rcx, 0));
           emit
-            (store_reference_scalar instruction.span Encoder.Rcx access.scalar
+            (store_reference_scalar instruction.span Encoder.Rdx access.scalar
                Encoder.Rax);
-          copy_value_to instruction.span access.reference rcx;
-          emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rcx, 8));
-          let initialized = fresh_label supply in
-          emit (Encoder.Test Encoder.Rcx);
-          emit_branch Equal initialized;
-          emit (Encoder.Mov_imm64 (Encoder.Rdx, 1L));
+          emit_flag_store instruction.span access.scalar ~flag_base:Encoder.R8
+            ~offset:Encoder.Rcx;
+          copy_value_to instruction.span input rax;
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          assign position rax result
+      | Load_indexed_frame_value (access, result) ->
+          spill_all_registers instruction.span;
+          let scalar =
+            {
+              word_type = access.origin.access.frame_word;
+              byte_size = access.origin.access.frame_bytes;
+            }
+          in
+          copy_value_to instruction.span access.offset rcx;
           emit
-            (Encoder.Store_indirect_narrow
-               (Encoder.Rcx, Encoder.Frame8, Encoder.Rdx));
-          mark initialized;
-          note_peak ~temporaries:[ rax; rcx; rdx ] ();
+            (Encoder.Mov_imm64
+               (Encoder.R8, Int64.of_int access.origin.extent_bytes));
+          emit_bounds instruction.span
+            (Option.get instruction.site)
+            ~one_past:false ~scalar ~offset:Encoder.Rcx ~extent:Encoder.R8;
+          (match access.origin.access.initialized_flag_offset with
+          | Some flag ->
+              emit
+                (Encoder.Address_frame
+                   (Encoder.R8, encoder_frame_slot instruction.span flag))
+          | None -> emit (Encoder.Mov_imm64 (Encoder.R8, 0L)));
+          emit
+            (Encoder.Address_frame
+               ( Encoder.Rdx,
+                 encoder_scalar_frame_slot instruction.span
+                   access.origin.access.frame_offset ));
+          emit_flag_check instruction.span
+            (Option.get instruction.site)
+            scalar ~flag_base:Encoder.R8 ~offset:Encoder.Rcx;
+          emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.Rcx));
+          emit
+            (load_reference_scalar instruction.span Encoder.Rax Encoder.Rdx
+               scalar);
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          assign position rax result
+      | Store_indexed_frame_value (access, input, result) ->
+          spill_all_registers instruction.span;
+          let scalar =
+            {
+              word_type = access.origin.access.frame_word;
+              byte_size = access.origin.access.frame_bytes;
+            }
+          in
+          copy_value_to instruction.span access.offset rcx;
+          emit
+            (Encoder.Mov_imm64
+               (Encoder.R8, Int64.of_int access.origin.extent_bytes));
+          emit_bounds instruction.span
+            (Option.get instruction.site)
+            ~one_past:false ~scalar ~offset:Encoder.Rcx ~extent:Encoder.R8;
+          (match access.origin.access.initialized_flag_offset with
+          | Some flag ->
+              emit
+                (Encoder.Address_frame
+                   (Encoder.R8, encoder_frame_slot instruction.span flag))
+          | None -> emit (Encoder.Mov_imm64 (Encoder.R8, 0L)));
+          emit
+            (Encoder.Address_frame
+               ( Encoder.Rdx,
+                 encoder_scalar_frame_slot instruction.span
+                   access.origin.access.frame_offset ));
+          emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.Rcx));
+          copy_value_to instruction.span input rax;
+          emit
+            (store_reference_scalar instruction.span Encoder.Rdx scalar
+               Encoder.Rax);
+          emit_flag_store instruction.span scalar ~flag_base:Encoder.R8
+            ~offset:Encoder.Rcx;
+          copy_value_to instruction.span input rax;
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position rax result
       | Load_frame_value (access, result) ->
           let destination =
@@ -1885,29 +2135,82 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
               (if old_result then [ rax; rcx; rdx; r8 ] else [ rax; rcx; rdx ])
             ();
           assign position (if old_result then r8 else computed_index) result
+      | Update_indexed_frame_value
+          (access, update, input, old_result, result, word, arithmetic_site) ->
+          spill_all_registers instruction.span;
+          let scalar =
+            {
+              word_type = access.origin.access.frame_word;
+              byte_size = access.origin.access.frame_bytes;
+            }
+          in
+          copy_value_to instruction.span access.offset rcx;
+          emit
+            (Encoder.Mov_imm64
+               (Encoder.R8, Int64.of_int access.origin.extent_bytes));
+          emit_bounds instruction.span
+            (Option.get instruction.site)
+            ~one_past:false ~scalar ~offset:Encoder.Rcx ~extent:Encoder.R8;
+          (match access.origin.access.initialized_flag_offset with
+          | Some flag ->
+              emit
+                (Encoder.Address_frame
+                   (Encoder.R8, encoder_frame_slot instruction.span flag))
+          | None -> emit (Encoder.Mov_imm64 (Encoder.R8, 0L)));
+          emit
+            (Encoder.Address_frame
+               ( Encoder.Rdx,
+                 encoder_scalar_frame_slot instruction.span
+                   access.origin.access.frame_offset ));
+          emit_flag_check instruction.span
+            (Option.get instruction.site)
+            scalar ~flag_base:Encoder.R8 ~offset:Encoder.Rcx;
+          emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.Rcx));
+          emit
+            (load_reference_scalar instruction.span Encoder.Rax Encoder.Rdx
+               scalar);
+          if old_result then emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
+          (match input with
+          | Some input -> copy_value_to instruction.span input rcx
+          | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
+          let target =
+            match update with
+            | Update_division _ ->
+                emit (Encoder.Mov (Encoder.R8, Encoder.Rdx));
+                Encoder.R8
+            | Update_binary _ | Update_shift _ -> Encoder.Rdx
+          in
+          let computed_index =
+            emit_update instruction.span update word arithmetic_site
+          in
+          emit
+            (store_reference_scalar instruction.span target scalar
+               registers.(computed_index));
+          if (not old_result) && Option.is_none input && scalar.byte_size < 8
+          then
+            emit
+              (load_reference_scalar instruction.span registers.(computed_index)
+                 target scalar);
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          assign position (if old_result then r8 else computed_index) result
       | Update_reference_value
           (access, update, input, old_result, result, word, arithmetic_site) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span access.reference rdx;
-          let initialized = fresh_label supply in
-          let uninitialized = fresh_label supply in
-          fault_blocks :=
-            {
-              label = uninitialized;
-              kind_value = 7;
-              site_value = Option.get instruction.site;
-            }
-            :: !fault_blocks;
-          emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 8));
-          emit (Encoder.Test Encoder.Rax);
-          emit_branch Equal initialized;
-          emit
-            (Encoder.Load_indirect_narrow
-               (Encoder.Rax, Encoder.Rax, Encoder.Frame8, Encoder.Zero_extend));
-          emit (Encoder.Test Encoder.Rax);
-          emit_branch Equal uninitialized;
-          mark initialized;
+          (match access.offset with
+          | None -> emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16))
+          | Some offset -> copy_value_to instruction.span offset rcx);
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
+          emit_bounds instruction.span
+            (Option.get instruction.site)
+            ~one_past:false ~scalar:access.scalar ~offset:Encoder.Rcx
+            ~extent:Encoder.R8;
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 8));
           emit (Encoder.Load_indirect (Encoder.Rdx, Encoder.Rdx, 0));
+          emit_flag_check instruction.span
+            (Option.get instruction.site)
+            access.scalar ~flag_base:Encoder.R8 ~offset:Encoder.Rcx;
+          emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.Rcx));
           emit
             (load_reference_scalar instruction.span Encoder.Rax Encoder.Rdx
                access.scalar);
@@ -1915,13 +2218,18 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
           (match input with
           | Some input -> copy_value_to instruction.span input rcx
           | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 1L)));
+          let target =
+            match update with
+            | Update_division _ ->
+                emit (Encoder.Mov (Encoder.R8, Encoder.Rdx));
+                Encoder.R8
+            | Update_binary _ | Update_shift _ -> Encoder.Rdx
+          in
           let computed_index =
             emit_update instruction.span update word arithmetic_site
           in
-          copy_value_to instruction.span access.reference rcx;
-          emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rcx, 0));
           emit
-            (store_reference_scalar instruction.span Encoder.Rcx access.scalar
+            (store_reference_scalar instruction.span target access.scalar
                registers.(computed_index));
           if
             (not old_result) && Option.is_none input
@@ -1929,11 +2237,8 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
           then
             emit
               (load_reference_scalar instruction.span registers.(computed_index)
-                 Encoder.Rcx access.scalar);
-          note_peak
-            ~temporaries:
-              (if old_result then [ rax; rcx; rdx; r8 ] else [ rax; rcx; rdx ])
-            ();
+                 target access.scalar);
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position (if old_result then r8 else computed_index) result
       | Call_start | Call_cleanup -> release_through position
       | Direct_call call ->
@@ -2272,6 +2577,9 @@ type program_site = {
   value_type : word_type option;
   call_site : bool;
   uninitialized_read_site : bool;
+  index_scale_site : bool;
+  index_addition_site : bool;
+  address_bounds_site : bool;
 }
 
 type program_image = {
@@ -2479,6 +2787,9 @@ let preflight_program graph =
                 value_type;
                 call_site = false;
                 uninitialized_read_site = false;
+                index_scale_site = false;
+                index_addition_site = false;
+                address_bounds_site = false;
               }
               :: !sites_rev;
             prepared_rev :=
@@ -2553,6 +2864,9 @@ let preflight_program graph =
 type callable_slot = {
   slot_type : Type.t;
   slot_word : word_type;
+  slot_dimensions : int64 list;
+  slot_element_count : int;
+  slot_extent_bytes : int;
   access : frame_access;
 }
 
@@ -2572,12 +2886,31 @@ type callable_function_info = {
   init_flag_offsets : int list;
 }
 
+type indexed_root =
+  | Indexed_frame_root of callable_slot
+  | Indexed_reference_root of reference_access
+
+type index_offset_term = {
+  index_pointer_type : Type.t;
+  index_stride : int64;
+  index_offset : value;
+}
+
+type indexed_address_term = {
+  indexed_root : indexed_root;
+  indexed_offset : value;
+  indexed_pointer_type : Type.t;
+  indexed_remaining_strides : int64 list;
+}
+
 type frame_term =
   | Frame_base of Type.t
   | Frame_offset of Type.t * int
   | Frame_address of callable_slot
   | Global_address of Global_storage.slot
   | Reference_address of reference_access * Type.t
+  | Index_offset of index_offset_term
+  | Indexed_address of indexed_address_term
 
 type callable_call_phase = Collecting | Needs_cleanup | Needs_end
 
@@ -2808,6 +3141,9 @@ let prepare_callable_function ~max_stack_bytes
         {
           slot_type = type_;
           slot_word = scalar.word_type;
+          slot_dimensions = [];
+          slot_element_count = 1;
+          slot_extent_bytes = scalar.byte_size;
           access =
             {
               frame_offset = actual;
@@ -2819,8 +3155,9 @@ let prepare_callable_function ~max_stack_bytes
     parameters;
   let locals = Function.locals body in
   let init_flag_offsets_rev = ref [] in
-  List.iteri
-    (fun index member ->
+  let flag_count = ref 0 in
+  List.iter
+    (fun member ->
       let type_ = Function.member_type member in
       let scalar =
         source_slot_scalar
@@ -2836,6 +3173,46 @@ let prepare_callable_function ~max_stack_bytes
               "HCBACK0003"
               "native automatic local has no checked frame location"
       in
+      let dimensions = Frame.location_dimensions location in
+      let counts = List.map Frame.dimension_value dimensions in
+      let elements, object_bytes =
+        if counts = [] then (1, scalar.byte_size)
+        else (
+          if
+            Type.pointer_depth type_ <> 0
+            || (not (Frame.location_source_dimensions_checked location))
+            || List.exists
+                 (fun dimension ->
+                   Frame.dimension_kind dimension <> Frame.Source_extent
+                   || Frame.dimension_runtime_dependencies dimension <> []
+                   || Frame.dimension_offset_dependencies dimension <> [])
+                 dimensions
+          then
+            reject ?span "HCBACK0002"
+              "native automatic arrays require original closed scalar \
+               dimensions";
+          match Ir.Integer_storage_shape.create ~type_ ~dimensions:counts with
+          | Ok shape ->
+              ( Ir.Integer_storage_shape.element_count shape,
+                Ir.Integer_storage_shape.byte_size shape )
+          | Error _ ->
+              reject ?span "HCBACK0002"
+                "native automatic array extent is invalid or overflows")
+      in
+      (* Charge before constructing the per-element initialization metadata. *)
+      if
+        object_bytes > local_frame_bytes
+        || elements > ((max_stack_bytes - local_frame_bytes) / 8) - !flag_count
+      then
+        reject ?span "HCBACK0004"
+          "native frame and per-element initialization state exceed \
+           max_stack_bytes";
+      let alignment =
+        if object_bytes >= 8 then 8
+        else if object_bytes >= 4 then 4
+        else if object_bytes >= 2 then 2
+        else 1
+      in
       let register_ok =
         match Frame.location_register_selection location with
         | Sema.Register_request.Unspecified | Sema.Register_request.Disabled ->
@@ -2847,18 +3224,18 @@ let prepare_callable_function ~max_stack_bytes
         Frame.location_kind location <> Frame.Automatic_local
         || (not register_ok)
         || Frame.location_declarator_shape location <> Frame.Object
-        || Frame.location_value_shape location <> Frame.Scalar
-        || Frame.location_dimensions location <> []
+        || (Frame.location_value_shape location
+           <> if counts = [] then Frame.Scalar else Frame.Array)
         || (not (Type.equal (Frame.location_checked_type location) type_))
         || Frame.location_element_size location <> Int64.of_int scalar.byte_size
-        || Frame.location_allocated_size location
-           <> Int64.of_int scalar.byte_size
-        || Frame.location_alignment location <> scalar.byte_size
+        || Frame.location_allocated_size location <> Int64.of_int object_bytes
+        || Frame.location_alignment location <> alignment
       then
         reject
           ?span:(Function.member_span member)
           "HCBACK0002"
-          "native source locals require automatic scalar integer stack storage";
+          "native source locals require automatic scalar integer or array \
+           stack storage";
       let slot =
         match Frame.location_frame_slot location with
         | Some slot -> slot
@@ -2873,20 +3250,28 @@ let prepare_callable_function ~max_stack_bytes
           (Frame.frame_slot_displacement slot)
       in
       if
-        actual > -scalar.byte_size
+        actual > -object_bytes
         || actual < -local_frame_bytes
-        || actual mod scalar.byte_size <> 0
-        || Frame.frame_slot_size slot <> Int64.of_int scalar.byte_size
+        || actual mod alignment <> 0
+        || Frame.frame_slot_size slot <> Int64.of_int object_bytes
       then
         reject
           ?span:(Function.member_span member)
           "HCBACK0003" "native automatic local has an invalid RBP displacement";
-      let flag_offset = -(local_frame_bytes + (8 * (index + 1))) in
-      init_flag_offsets_rev := flag_offset :: !init_flag_offsets_rev;
-      add_slot actual scalar.byte_size
+      let flag_offset = -(local_frame_bytes + (8 * (!flag_count + 1))) in
+      for index = 1 to elements do
+        init_flag_offsets_rev :=
+          -(local_frame_bytes + (8 * (!flag_count + index)))
+          :: !init_flag_offsets_rev
+      done;
+      flag_count := !flag_count + elements;
+      add_slot actual object_bytes
         {
           slot_type = type_;
           slot_word = scalar.word_type;
+          slot_dimensions = counts;
+          slot_element_count = elements;
+          slot_extent_bytes = object_bytes;
           access =
             {
               frame_offset = actual;
@@ -2896,7 +3281,7 @@ let prepare_callable_function ~max_stack_bytes
             };
         })
     locals;
-  let rbp_bytes = local_frame_bytes + (8 * List.length locals) in
+  let rbp_bytes = local_frame_bytes + (8 * !flag_count) in
   if rbp_bytes > max_stack_bytes then
     reject ?span "HCBACK0004"
       (Printf.sprintf
@@ -3022,7 +3407,7 @@ let validate_callable_returns graph return_kind =
 
 let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
     ~global_storage ~runtime_owner ~owner ~frame_slots ~expected_return
-    ~is_entry ~rbp_bytes ~next_site graph =
+    ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
   let reference_bytes = ref 0 in
   let blocks = Graph.blocks graph in
   let instruction_ids = ref Instruction_set.empty in
@@ -3041,6 +3426,62 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
            (Sequence.Value_id.to_int result.Sequence.value_id));
     frame_values := Value_map.add result.Sequence.value_id term !frame_values
   in
+  let internal_frame_value frame_values values void_values description position
+      result target_type make_term =
+    let value =
+      {
+        value_id = result.Sequence.value_id;
+        declared_type = target_type;
+        computation_type = target_type;
+        last_use = position;
+      }
+    in
+    define_frame frame_values values void_values description result
+      (make_term value);
+    value
+  in
+  let reserve_reference_table (description : Sequence.description) element_count
+      =
+    let descriptor_bytes = 32 in
+    let available = max_stack_bytes - rbp_bytes - !reference_bytes in
+    if
+      element_count < 1
+      || available < descriptor_bytes * 2
+      || element_count > (available / descriptor_bytes) - 1
+    then
+      reject ?span:description.span "HCBACK0004"
+        (Printf.sprintf
+           "native reference descriptor table exceeds max_stack_bytes (%d)"
+           max_stack_bytes);
+    let bytes = (element_count + 1) * descriptor_bytes in
+    let table_offset = -(rbp_bytes + !reference_bytes + bytes) in
+    reference_bytes := !reference_bytes + bytes;
+    table_offset
+  in
+  let frame_reference_origin slot =
+    { access = slot.access; extent_bytes = slot.slot_extent_bytes }
+  in
+  let slot_strides slot =
+    let rec layout = function
+      | [] -> (Int64.of_int slot.access.frame_bytes, [])
+      | count :: rest ->
+          let bytes, strides = layout rest in
+          (Int64.mul count bytes, bytes :: strides)
+    in
+    let bytes, strides = layout slot.slot_dimensions in
+    if bytes <> Int64.of_int slot.slot_extent_bytes then
+      reject "HCBACK0003"
+        "native array strides disagree with checked frame extent";
+    strides
+  in
+  let touch position value = value.last_use <- max value.last_use position in
+  let touch_reference position access = touch position access.reference in
+  let touch_indexed position indexed =
+    touch position indexed.indexed_offset;
+    match indexed.indexed_root with
+    | Indexed_frame_root _ -> ()
+    | Indexed_reference_root access -> touch_reference position access
+  in
   let frame_operand frame_values description id =
     match Value_map.find_opt id !frame_values with
     | Some value -> value
@@ -3051,13 +3492,22 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
   in
   let address_operand frame_values values description position id =
     match Value_map.find_opt id !frame_values with
+    | Some (Index_offset _) ->
+        malformed description
+          "scaled index offset cannot be used as a canonical address"
+    | Some (Indexed_address indexed as value) ->
+        touch_indexed position indexed;
+        value
+    | Some (Reference_address (access, _) as value) ->
+        touch_reference position access;
+        value
     | Some value -> value
     | None ->
         let reference = operand values description position id in
         let pointee, scalar =
           checked_reference description reference.declared_type
         in
-        Reference_address ({ reference; scalar }, pointee)
+        Reference_address ({ reference; scalar; offset = None }, pointee)
   in
   let visit_block block next =
     let block_id = Graph.block_id block in
@@ -3416,6 +3866,49 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   (Frame_tick, None)
               | _ ->
                   malformed description "invalid frame displacement immediate")
+          | Opcode.Ic_mul
+            when Option.fold ~none:false
+                   ~some:(fun type_ -> Type.pointer_depth type_ = 1)
+                   description.target_type -> (
+              if description.flags <> 0L || Option.is_some description.payload
+              then malformed description "invalid native index scaling";
+              match
+                ( description.operands,
+                  description.result,
+                  description.target_type )
+              with
+              | [ stride_id; index_id ], Some result, Some target_type ->
+                  let _, _ = checked_reference description target_type in
+                  let stride_type, stride =
+                    match frame_operand frame_values description stride_id with
+                    | Frame_offset (stride_type, stride) -> (stride_type, stride)
+                    | _ ->
+                        malformed description
+                          "index scale requires its checked constant stride"
+                  in
+                  if stride <= 0 || not (Type.equal stride_type target_type)
+                  then
+                    malformed description
+                      "index scale stride or pointer type is inconsistent";
+                  let index = operand values description position index_id in
+                  let index_word =
+                    (checked_scalar ~allow_public:true description
+                       index.computation_type)
+                      .word_type
+                  in
+                  let scaled =
+                    internal_frame_value frame_values values void_values
+                      description position result target_type (fun offset ->
+                        Index_offset
+                          {
+                            index_pointer_type = target_type;
+                            index_stride = Int64.of_int stride;
+                            index_offset = offset;
+                          })
+                  in
+                  ( Scale_index (index_word, Int64.of_int stride, index, scaled),
+                    None )
+              | _ -> malformed description "invalid native index scaling")
           | Opcode.Ic_add
             when Option.fold ~none:false
                    ~some:(fun type_ ->
@@ -3430,29 +3923,117 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   description.target_type )
               with
               | [ base_id; offset_id ], Some result, Some target_type -> (
-                  match
-                    ( frame_operand frame_values description base_id,
-                      frame_operand frame_values description offset_id )
-                  with
-                  | Frame_base base_type, Frame_offset (offset_type, offset)
-                    when Type.equal base_type target_type
-                         && Type.equal offset_type target_type -> (
-                      match Int_map.find_opt offset frame_slots with
-                      | Some slot -> (
-                          match Type.pointer_to slot.slot_type with
-                          | Ok expected when Type.equal expected target_type ->
-                              define_frame frame_values values void_values
-                                description result (Frame_address slot);
-                              (Frame_tick, None)
-                          | _ ->
+                  match Value_map.find_opt offset_id !frame_values with
+                  | Some (Frame_offset (offset_type, offset)) -> (
+                      match Value_map.find_opt base_id !frame_values with
+                      | Some (Frame_base base_type)
+                        when Type.equal base_type target_type
+                             && Type.equal offset_type target_type -> (
+                          match Int_map.find_opt offset frame_slots with
+                          | Some slot -> (
+                              match Type.pointer_to slot.slot_type with
+                              | Ok expected when Type.equal expected target_type
+                                ->
+                                  define_frame frame_values values void_values
+                                    description result (Frame_address slot);
+                                  (Frame_tick, None)
+                              | _ ->
+                                  malformed description
+                                    "frame address pointee type is inconsistent"
+                              )
+                          | None ->
                               malformed description
-                                "frame address pointee type is inconsistent")
-                      | None ->
+                                "frame address displacement names no checked \
+                                 slot")
+                      | _ ->
                           malformed description
-                            "frame address displacement names no checked slot")
+                            "frame address operands are inconsistent")
+                  | Some (Index_offset scaled) ->
+                      if not (Type.equal scaled.index_pointer_type target_type)
+                      then
+                        malformed description
+                          "indexed address changes its checked pointer type";
+                      touch position scaled.index_offset;
+                      let root, base, strides =
+                        match Value_map.find_opt base_id !frame_values with
+                        | Some (Frame_address slot) ->
+                            if slot.slot_dimensions = [] then
+                              malformed description
+                                "indexed frame base has no checked array \
+                                 dimensions";
+                            let expected =
+                              match Type.pointer_to slot.slot_type with
+                              | Ok expected -> expected
+                              | Error message -> malformed description message
+                            in
+                            if not (Type.equal expected target_type) then
+                              malformed description
+                                "indexed frame base changes its checked \
+                                 pointer type";
+                            ( Indexed_frame_root slot,
+                              Index_zero,
+                              slot_strides slot )
+                        | Some (Indexed_address indexed) ->
+                            if
+                              not
+                                (Type.equal indexed.indexed_pointer_type
+                                   target_type)
+                            then
+                              malformed description
+                                "indexed base changes its checked pointer type";
+                            touch_indexed position indexed;
+                            ( indexed.indexed_root,
+                              Index_value indexed.indexed_offset,
+                              indexed.indexed_remaining_strides )
+                        | Some _ ->
+                            malformed description
+                              "indexed base is not a checked array address"
+                        | None ->
+                            let reference =
+                              operand values description position base_id
+                            in
+                            if
+                              not
+                                (Type.equal reference.declared_type target_type)
+                            then
+                              malformed description
+                                "indexed pointer base changes its checked type";
+                            let _, scalar =
+                              checked_reference description
+                                reference.declared_type
+                            in
+                            let access = { reference; scalar; offset = None } in
+                            ( Indexed_reference_root access,
+                              Index_reference reference,
+                              [ Int64.of_int scalar.byte_size ] )
+                      in
+                      let remaining =
+                        match strides with
+                        | stride :: remaining
+                          when Int64.equal stride scaled.index_stride ->
+                            remaining
+                        | _ ->
+                            malformed description
+                              "index stride disagrees with the original object \
+                               dimensions"
+                      in
+                      let indexed_offset =
+                        internal_frame_value frame_values values void_values
+                          description position result target_type (fun offset ->
+                            Indexed_address
+                              {
+                                indexed_root = root;
+                                indexed_offset = offset;
+                                indexed_pointer_type = target_type;
+                                indexed_remaining_strides = remaining;
+                              })
+                      in
+                      ( Add_index (base, scaled.index_offset, indexed_offset),
+                        None )
                   | _ ->
                       malformed description
-                        "frame address operands are inconsistent")
+                        "frame address addition has no checked displacement or \
+                         index")
               | _ -> malformed description "invalid frame address addition")
           | Opcode.Ic_addr -> (
               if description.flags <> 0L || Option.is_some description.payload
@@ -3472,21 +4053,46 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                     define values description position result target_type
                       (Computation.forward target_type)
                   in
-                  let materialize origin =
-                    reference_bytes := !reference_bytes + 16;
-                    ( Materialize_reference
-                        (origin, -(rbp_bytes + !reference_bytes), value),
+                  let materialize origin element_count offset =
+                    let table_offset =
+                      reserve_reference_table description element_count
+                    in
+                    ( Materialize_reference (origin, table_offset, offset, value),
                       None )
                   in
                   match address with
                   | Frame_address slot when Type.equal pointee slot.slot_type ->
-                      materialize (Frame_reference slot.access)
+                      materialize
+                        (Frame_reference (frame_reference_origin slot))
+                        slot.slot_element_count None
                   | Global_address slot
                     when Type.equal pointee (Global_storage.type_ slot) ->
-                      materialize (Arena_reference (arena_access slot))
+                      materialize (Arena_reference (arena_access slot)) 1 None
                   | Reference_address (access, actual)
                     when Type.equal pointee actual ->
-                      (Apply_word_view (access.reference, value), None)
+                      (Materialize_existing_reference (access, value), None)
+                  | Indexed_address indexed -> (
+                      match Type.dereference indexed.indexed_pointer_type with
+                      | Error message -> malformed description message
+                      | Ok actual when Type.equal pointee actual -> (
+                          match indexed.indexed_root with
+                          | Indexed_frame_root slot ->
+                              materialize
+                                (Frame_reference (frame_reference_origin slot))
+                                slot.slot_element_count
+                                (Some indexed.indexed_offset)
+                          | Indexed_reference_root access ->
+                              ( Materialize_existing_reference
+                                  ( {
+                                      access with
+                                      offset = Some indexed.indexed_offset;
+                                    },
+                                    value ),
+                                None ))
+                      | Ok _ ->
+                          malformed description
+                            "indexed reference changes its checked pointee type"
+                      )
                   | _ ->
                       malformed description
                         "reference producer does not name its exact scalar \
@@ -3506,7 +4112,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       address_id
                   with
                   | Frame_address slot
-                    when Type.equal target_type slot.slot_type ->
+                    when slot.slot_dimensions = []
+                         && Type.equal target_type slot.slot_type ->
                       checked_copy description target_type target_type;
                       let value =
                         define values description position result target_type
@@ -3530,6 +4137,48 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                           (Computation.forward target_type)
                       in
                       (Load_reference_value (access, value), None)
+                  | Indexed_address indexed
+                    when indexed.indexed_remaining_strides = [] -> (
+                      match indexed.indexed_root with
+                      | Indexed_frame_root slot
+                        when Type.equal target_type slot.slot_type ->
+                          let value =
+                            define values description position result
+                              target_type
+                              (Computation.forward target_type)
+                          in
+                          ( Load_indexed_frame_value
+                              ( {
+                                  origin = frame_reference_origin slot;
+                                  offset = indexed.indexed_offset;
+                                },
+                                value ),
+                            None )
+                      | Indexed_reference_root access -> (
+                          match
+                            Type.dereference indexed.indexed_pointer_type
+                          with
+                          | Ok pointee when Type.equal target_type pointee ->
+                              let value =
+                                define values description position result
+                                  target_type
+                                  (Computation.forward target_type)
+                              in
+                              ( Load_reference_value
+                                  ( {
+                                      access with
+                                      offset = Some indexed.indexed_offset;
+                                    },
+                                    value ),
+                                None )
+                          | _ ->
+                              malformed description
+                                "indexed scalar load changes its checked \
+                                 pointee type")
+                      | _ ->
+                          malformed description
+                            "indexed scalar load changes its checked frame type"
+                      )
                   | _ ->
                       malformed description
                         "scalar load does not name its exact checked slot")
@@ -3548,7 +4197,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       address_id
                   with
                   | Frame_address slot
-                    when Type.equal target_type slot.slot_type ->
+                    when slot.slot_dimensions = []
+                         && Type.equal target_type slot.slot_type ->
                       let input =
                         operand values description position input_id
                       in
@@ -3580,6 +4230,47 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                           (Computation.forward target_type)
                       in
                       (Store_reference_value (access, input, value), None)
+                  | Indexed_address indexed
+                    when indexed.indexed_remaining_strides = [] -> (
+                      let input =
+                        operand values description position input_id
+                      in
+                      checked_copy description target_type input.declared_type;
+                      let value =
+                        define values description position result target_type
+                          (Computation.forward target_type)
+                      in
+                      match indexed.indexed_root with
+                      | Indexed_frame_root slot
+                        when Type.equal target_type slot.slot_type ->
+                          ( Store_indexed_frame_value
+                              ( {
+                                  origin = frame_reference_origin slot;
+                                  offset = indexed.indexed_offset;
+                                },
+                                input,
+                                value ),
+                            None )
+                      | Indexed_reference_root access -> (
+                          match
+                            Type.dereference indexed.indexed_pointer_type
+                          with
+                          | Ok pointee when Type.equal target_type pointee ->
+                              ( Store_reference_value
+                                  ( {
+                                      access with
+                                      offset = Some indexed.indexed_offset;
+                                    },
+                                    input,
+                                    value ),
+                                None )
+                          | _ ->
+                              malformed description
+                                "indexed assignment changes its checked \
+                                 pointee type")
+                      | _ ->
+                          malformed description
+                            "indexed assignment changes its checked frame type")
                   | _ ->
                       malformed description
                         "scalar assignment does not name its exact slot")
@@ -3611,7 +4302,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       address_id
                   with
                   | Frame_address slot
-                    when Type.equal target_type slot.slot_type ->
+                    when slot.slot_dimensions = []
+                         && Type.equal target_type slot.slot_type ->
                       ignore
                         (checked_scalar ~allow_public:true description
                            target_type);
@@ -3776,6 +4468,96 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                             access.scalar.word_type,
                             arithmetic_site ),
                         None )
+                  | Indexed_address indexed
+                    when indexed.indexed_remaining_strides = [] -> (
+                      let word, operation =
+                        match indexed.indexed_root with
+                        | Indexed_frame_root slot
+                          when Type.equal target_type slot.slot_type ->
+                            (slot.slot_word, `Frame slot)
+                        | Indexed_reference_root access -> (
+                            match
+                              Type.dereference indexed.indexed_pointer_type
+                            with
+                            | Ok pointee when Type.equal target_type pointee ->
+                                (access.scalar.word_type, `Reference access)
+                            | _ ->
+                                malformed description
+                                  "indexed update changes its checked pointee \
+                                   type")
+                        | _ ->
+                            malformed description
+                              "indexed update changes its checked frame type"
+                      in
+                      let update, old_result, expects_operand =
+                        Option.get
+                          (callable_frame_update description.opcode word)
+                      in
+                      let input =
+                        match (expects_operand, operands) with
+                        | true, [ input_id ] ->
+                            let input =
+                              operand values description position input_id
+                            in
+                            ignore
+                              (checked_scalar ~allow_public:true description
+                                 input.declared_type);
+                            Some input
+                        | false, [] -> None
+                        | _ ->
+                            malformed description
+                              "invalid scalar update operands"
+                      in
+                      let value =
+                        define values description position result target_type
+                          (Computation.forward target_type)
+                      in
+                      let arithmetic_site =
+                        match update with
+                        | Update_division arithmetic_operation ->
+                            let fault_site =
+                              {
+                                site;
+                                operation = arithmetic_operation;
+                                instruction_id =
+                                  Sequence.Instruction_id.to_int
+                                    description.instruction_id;
+                                position;
+                                span = description.span;
+                                signed = word = I64;
+                              }
+                            in
+                            arithmetic_sites := fault_site :: !arithmetic_sites;
+                            Some fault_site
+                        | Update_binary _ | Update_shift _ -> None
+                      in
+                      match operation with
+                      | `Frame slot ->
+                          ( Update_indexed_frame_value
+                              ( {
+                                  origin = frame_reference_origin slot;
+                                  offset = indexed.indexed_offset;
+                                },
+                                update,
+                                input,
+                                old_result,
+                                value,
+                                word,
+                                arithmetic_site ),
+                            None )
+                      | `Reference access ->
+                          ( Update_reference_value
+                              ( {
+                                  access with
+                                  offset = Some indexed.indexed_offset;
+                                },
+                                update,
+                                input,
+                                old_result,
+                                value,
+                                word,
+                                arithmetic_site ),
+                            None ))
                   | _ ->
                       malformed description
                         "scalar update does not name its exact slot")
@@ -4011,6 +4793,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               Some (arithmetic_operation, word = I64)
           | Update_reference_value
               (_, Update_division arithmetic_operation, _, _, _, word, _)
+          | Update_indexed_frame_value
+              (_, Update_division arithmetic_operation, _, _, _, word, _)
           | Update_arena_value
               (_, Update_division arithmetic_operation, _, _, _, word, _) ->
               Some (arithmetic_operation, word = I64)
@@ -4040,8 +4824,31 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   true
               | Load_arena_value _
               | Update_arena_value _
+              | Load_indexed_frame_value _
+              | Update_indexed_frame_value _
               | Load_reference_value _
               | Update_reference_value _ -> true
+              | _ -> false);
+            index_scale_site =
+              (match operation with
+              | Scale_index _ -> true
+              | _ -> false);
+            index_addition_site =
+              (match operation with
+              | Add_index _ -> true
+              | _ -> false);
+            address_bounds_site =
+              (match operation with
+              | Materialize_reference (_, _, Some _, _)
+              | Materialize_existing_reference ({ offset = Some _; _ }, _)
+              | Load_reference_value _
+              | Store_reference_value _
+              | Update_reference_value _
+              | Load_indexed_frame_value _
+              | Store_indexed_frame_value _
+              | Update_indexed_frame_value _ -> true
+              | Materialize_reference (_, _, None, _)
+              | Materialize_existing_reference ({ offset = None; _ }, _)
               | _ -> false);
           }
           :: !sites_rev;
@@ -4603,7 +5410,8 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                       ~functions:function_infos ~global_storage
                       ~runtime_owner:Runtime.Entry ~owner:Entry_owner
                       ~frame_slots:Int_map.empty ~expected_return:None
-                      ~is_entry:true ~rbp_bytes:0 ~next_site entry_graph
+                      ~is_entry:true ~rbp_bytes:0 ~max_stack_bytes ~next_site
+                      entry_graph
                   in
                   let function_prepared =
                     Array.map
@@ -4614,7 +5422,8 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                           ~global_storage ~runtime_owner:(Runtime.Function body)
                           ~owner:info.owner ~frame_slots:info.frame_slots
                           ~expected_return:(Some (Function.return_type body))
-                          ~is_entry:false ~rbp_bytes:info.rbp_bytes ~next_site
+                          ~is_entry:false ~rbp_bytes:info.rbp_bytes
+                          ~max_stack_bytes ~next_site
                           (Ir.X87_stack.graph (Function.x87 body)))
                       function_infos
                   in

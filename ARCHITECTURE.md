@@ -90,7 +90,7 @@ Semantic literal nodes use the payload shape consumed by the pinned expression p
 
 TempleOS source at `c26482bb6ad3f80106d28504ec5db3c6a360732c` is authoritative when prose and implementation disagree. `reference/traceability.toml` links each claimed behavior to the pinned function or table, implementation files, and tests.
 
-+## Internal U64 unary minus
+## Internal U64 unary minus
 
 Integer and character payload words with a negative signed `int64` representation use internal `U64` in the checked expression tree. Unary minus over that exact zero-depth type produces internal `I64` while retaining the checked `U64` operand. Other unary-minus types and the logical-not and complement rules are unchanged.
 
@@ -99,3 +99,14 @@ Integer and character payload words with a negative signed `int64` representatio
 ## Determinism
 
 Byte offsets and source order are preserved. Reports sort data only when source order has no meaning. Version output always names the pinned reference commit. Tests override data that could depend on clocks, locale, process IDs, or temporary directories.
+
+Native automatic arrays reuse original source dimension receipts and checked
+function-frame layouts. The backend validates complete object ranges and source
+alignment, then bounds per-element initialization metadata before expansion.
+Dimension work has an independent public limit and survives failure in reports.
+Indexed addresses retain the original root extent and dimension strides.
+Scaling and addition check signed overflow before final bounds checks at
+materialization or element access. Canonical reference records keep saved
+aliases stable across loop iterations and later argument effects. The image
+records which IR sites can raise scale, addition and bounds faults, and the
+public decoder validates those sites. See [native arrays](docs/native-arrays.md).

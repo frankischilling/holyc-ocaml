@@ -30,6 +30,9 @@ type program_site = {
   value_type : word_type option;
   call_site : bool;
   uninitialized_read_site : bool;
+  index_scale_site : bool;
+  index_addition_site : bool;
+  address_bounds_site : bool;
 }
 
 type program_image

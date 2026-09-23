@@ -17,6 +17,9 @@ type fault_kind =
   | Frame_limit_exceeded
   | Native_stack_limit_exceeded
   | Uninitialized_read
+  | Index_scale_overflow
+  | Index_addition_overflow
+  | Address_out_of_bounds
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
   | Divide
@@ -82,15 +85,18 @@ val compile_callable :
 (** Compile a checked entry and its exact fixed scalar integer functions and U0
     procedures as one native callable bundle. Parameters and automatic objects
     use their declared integer widths; word returns retain full register bits.
-    One-level scalar reference locals and fixed parameters retain exact object
-    provenance in private descriptors charged to physical frame limits. Pointer
-    returns and persistent pointer storage remain rejected. Every named
-    definition is preflighted, including definitions unreachable from the entry.
-    Calls are emitted only from exact sealed runtime-call metadata and preserve
-    the shared native status context. The exact initialization context must be
-    supplied even when empty. Ordinary scalar globals and scalar static locals
-    use a private arena. Their initial values require [global_initializers] from
-    their exact source preparation. Arrays, retained storage and scheduled
+    Closed automatic scalar arrays retain their original dimensions, full object
+    extent and per-element initialization state. One-level scalar reference
+    locals and fixed parameters retain exact object provenance in bounded
+    canonical records charged to physical frame limits. Indexed references keep
+    their original extent when copied or passed to a function. Pointer returns
+    and persistent pointer storage remain rejected. Every named definition is
+    preflighted, including definitions unreachable from the entry. Calls are
+    emitted only from exact sealed runtime-call metadata and preserve the shared
+    native status context. The exact initialization context must be supplied
+    even when empty. Ordinary scalar globals and scalar static locals use a
+    private arena. Their initial values require [global_initializers] from their
+    exact source preparation. Persistent arrays, retained storage and scheduled
     initialization regions are rejected. Declaration-time parameter defaults
     require [parameter_defaults] from the exact source preparation; omitting it
     preserves the low-level rejection. *)
@@ -140,9 +146,11 @@ val decode_runtime_status :
     IC_END_EXP; its checked metadata supplies the result type. Zero value-site
     requires zero bits. Clean completion is kind/site zero with at least one
     executed IR instruction. Step-limit faults require an executed count exactly
-    equal to [max_steps]; arithmetic, call-quota and uninitialized-read faults
-    must name a matching checked dense site. The native bridge validates the
-    three restored callable quota words before invoking this decoder. *)
+    equal to [max_steps]; arithmetic, call-quota, uninitialized-read,
+    index-scale, index-addition and address-bounds faults must name a matching
+    checked dense site and consume their faulting instruction. The native bridge
+    validates the three restored callable quota words before invoking this
+    decoder. *)
 
 val validate_global_limit : max_global_bytes:int -> (unit, error list) result
 val global_bytes : t -> int

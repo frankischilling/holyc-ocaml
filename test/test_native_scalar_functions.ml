@@ -79,6 +79,15 @@ let reject_backend label = function
   | Error [] -> Alcotest.failf "%s returned no backend diagnostic" label
   | Error _ -> ()
 
+let reject_backend_code code label = function
+  | Ok _ -> Alcotest.failf "%s unexpectedly compiled" label
+  | Error [] -> Alcotest.failf "%s returned no backend diagnostic" label
+  | Error errors ->
+      Alcotest.(check bool)
+        (label ^ " contains " ^ code)
+        true
+        (List.exists (fun (error : Program.error) -> error.code = code) errors)
+
 let integer_unit ~mode contents =
   let session, config, source =
     source_inputs ~mode ~path:"native-scalar-authority.hc" contents
@@ -275,7 +284,6 @@ let unsupported_neighbors_stay_outside_native_gate () =
       "I0 F(I0 n){return n;} F(1);";
       "F64 F(F64 n){return n;} F(1.0);";
       "I64 F(I64 **p){return **p;} 42;";
-      "I64 F(){I8 a[2];a[0]=42;return a[0];} F();";
       "I8 G=1<<2; I64 F(){return G;} F();";
       "I64 F(){static I8 n={42};return n;} F();";
       "I64 F(I64 n,...){return n;} F(42);";
@@ -500,8 +508,99 @@ let borrowed_static_reference_does_not_grant_symbol_authority () =
            "borrowed reference cannot synthesize caller static symbol")
     modes
 
+let automatic_array_layout () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun type_ ->
+          List.iter
+            (fun status_abi ->
+              let session, config, source =
+                source_inputs ~mode ~path:"array-layout.hc"
+                  (Printf.sprintf
+                     "%s F(){%s a[2][3];a[0][0]=40;a[1][2]=2;return \
+                      a[0][0]+a[1][2];}F();"
+                     "I64" type_)
+              in
+              ignore
+                (Native_program.compile ~status_abi session ~config ~source
+                |> require_ok diagnostics_text))
+            [ Program.Windows_x64; Program.System_v_x64 ])
+        [ "I8"; "U8"; "I16"; "U16"; "I32"; "U32"; "I64"; "U64" ];
+      let indexed = "I64 F(){I16 a[3][7];a[1][2]=42;return a[1][2];}F();" in
+      let unit = integer_unit ~mode indexed in
+      let other = integer_unit ~mode indexed in
+      let original = List.hd (integer_program_functions unit) in
+      let compile functions =
+        Program.compile_callable ~max_ir_instructions:4096 ~max_code_bytes:65536
+          ~runtime_calls:(integer_program_runtime_calls unit)
+          ~initialization:(integer_program_initialization unit)
+          ~entry:(integer_program_entry unit)
+          ~functions ()
+      in
+      ignore (compile [ original ] |> require_ok program_errors);
+      compile
+        [
+          {
+            original with
+            frame = (List.hd (integer_program_functions other)).frame;
+          };
+        ]
+      |> reject_backend "array body joined to foreign frame";
+      compile
+        [
+          { original with frame = Obj.obj (Obj.dup (Obj.repr original.frame)) };
+        ]
+      |> reject_backend "array body joined to reconstructed frame";
+      let graph = Ir_function_body.x87 original.body |> Ir_x87_stack.graph in
+      let rec find_stride = function
+        | [] -> None
+        | instruction :: rest as cell ->
+            let d = Sequence.description instruction in
+            if
+              d.opcode = Opcode.Ic_imm_i64
+              && d.payload = Some (Sequence.Integer 14L)
+            then Some (cell, d)
+            else find_stride rest
+      in
+      let cell, stride =
+        Graph.blocks graph
+        |> List.find_map (fun block ->
+            find_stride (Graph.instructions block |> Sequence.instructions))
+        |> Option.get
+      in
+      Obj.set_field (Obj.repr cell) 0
+        (Obj.repr { stride with payload = Some (Sequence.Integer 12L) });
+      compile [ original ]
+      |> reject_backend_code "HCBACK0003"
+           "array stride must match its original dimension metadata";
+      let contents = indexed in
+      let compiled = image ~mode contents in
+      let bytes = Program.frame_bytes compiled in
+      ignore (image ~mode ~max_stack_bytes:bytes contents);
+      compile_source ~mode ~max_stack_bytes:(bytes - 1) contents
+      |> reject_compile ~code:"HCBACK0004" "array private frame one below";
+      List.iter
+        (fun contents ->
+          compile_source ~mode contents
+          |> reject_compile "array unsupported storage or addressing")
+        [
+          "I64 F(){I8 a[2]={1,2};return 42;}F();";
+          "I64 F(){static I8 a[2];return 42;}F();";
+          "I8 G[2];42;";
+          "I64 F(){I8 *a[2];return 42;}F();";
+          "I8 *F(){I8 a[2];return a;}42;";
+          "I64 F(){I8 a[0];return 42;}F();";
+          "I64 F(){I8 a[1000000000];return 42;}F();";
+          "I64 F(){I8 a[9223372036854775807][2];return 42;}F();";
+          "I64 Count(){return 2;}I64 F(){I8 a[Count()];return 42;}F();";
+        ])
+    modes
+
 let tests =
   [
+    Alcotest.test_case "original automatic array dimensions and bounded layout"
+      `Quick automatic_array_layout;
     Alcotest.test_case
       "borrowed static reference does not grant symbol ownership" `Quick
       borrowed_static_reference_does_not_grant_symbol_authority;

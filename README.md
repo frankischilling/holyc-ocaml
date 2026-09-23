@@ -16,6 +16,12 @@ fixed-parameter references preserve object width, initialization and ownership;
 pointer returns and persistent pointer storage remain outside native admission.
 See [native pointers](docs/native-pointers.md).
 
+`holyc run --target=host-jit examples/integer-arrays.hc` returns 42 using
+automatic integer arrays, indexed updates and element aliases. Both source
+modes preserve the original array extent, per-element initialization and saved
+pointer values across loop iterations and later argument effects. See
+[native arrays](docs/native-arrays.md) for bounds, preparation and resource limits.
+
 [Retained named types](docs/retained-named-types.md) preserve an aggregate
 selected before a nested `#exe` shadows its name. The original function header
 and parameter keep that identity through completion.
@@ -509,7 +515,7 @@ dune exec holyc -- corpus parse --mode=aot --require-all --reference-root=third_
 
 `lex`, `preprocess`, `parse`, `dump-ast`, `dump-symbols`, `dump-layout`, and `corpus lex` exit with status 1 when they report an error. `dump-symbols` still writes the state accumulated before a parser failure, which makes partial corpus failures inspectable without turning them into successful parses. Its default output includes the 576 pinned compiler entries; `--source-only` keeps declarations published from the input stream. `dump-layout` behaves differently: it writes no layout to stdout until parsing, type resolution, closed layout, and duplicate validation all succeed. Its JSON success schema is `holyc-aggregate-layout-v1`; semantic failures use `holyc-command-error-v1` on stderr. `corpus parse` normally succeeds after a complete comparison because known incompatibilities are its output; `--require-all` returns status 1 unless every file parses with the project prelude. A failed constant `#assert` is a warning, so later input remains available and the command succeeds when no error follows. JIT preprocessing is the default for single files. The parser corpus defaults to AOT, and `--mode=jit` selects its other branch. All columns and offsets are byte positions.
 
-`holyc run --target=ir examples/integer-arrays.hc` executes the documented array program through semantic checking, verified IR and the bounded interpreter. The earlier integer function, control-flow, global, static and pointer examples use the same path. `eval-native` separately compiles and executes the supported integer-expression subset, while `run --target=host-jit` adds structured control flow, fixed direct scalar integer functions, width-correct automatic locals and U0 procedures. Ordinary scalar globals and uninitialized scalar static locals use fresh native arenas; `examples/native-scalar-statics.hc` returns 42 in both modes. General native declarations, broader persistent and pointer storage, the full ABI and complete HolyC execution remain unfinished.
+`holyc run --target=ir examples/integer-arrays.hc` executes the documented array program through semantic checking, verified IR and the bounded interpreter. The earlier integer function, control-flow, global, static and pointer examples use the same path. `eval-native` separately compiles and executes the supported integer-expression subset, while `run --target=host-jit` adds structured control flow, fixed direct scalar integer functions, width-correct automatic locals and arrays, and U0 procedures. Indexed array references retain their full object extent and stable aliases. Ordinary scalar globals and scalar static locals use fresh native arenas; `examples/native-scalar-statics.hc` returns 42 in both modes. General native declarations, persistent arrays, broader pointer storage, the full ABI and complete HolyC execution remain unfinished.
 
 ## TempleOS modules
 
@@ -533,8 +539,10 @@ storage and execute initializer leaves and integer parameter defaults at parser
 boundaries. `run --mode=jit` shares that task with the original outer source;
 [stateful-exe-jit.hc](examples/stateful-exe-jit.hc) returns 42 and captures `AB`
 using a saved default prepared before its source global changes. Inputs without
-an active directive retain their isolated execution path. General defaults,
-partial function headers and the remaining #635 requirements are still open.
+an active directive retain their isolated execution path. The bounded #635
+connection is merged. Broader compiler-state queries and stream services remain
+under #684; general defaults, omitted arguments and declaration-time bounds
+remain under #685.
 
 ## License and attribution
 

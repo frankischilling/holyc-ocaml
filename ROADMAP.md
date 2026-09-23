@@ -1,9 +1,16 @@
 # holyc-ocaml roadmap
 
+Issue #681 connects closed automatic integer arrays to native indexed reads,
+assignments, updates and stable element aliases. Original dimension and object
+metadata control scaling, bounds and per-element initialization; private
+reference records remain bounded before allocation.
+See [native automatic arrays](docs/native-arrays.md).
+
 Issue #679 adds native one-level scalar pointer aliases in automatic locals and
 fixed parameters, with checked object ownership, private descriptor storage and
 existing initialization/resource faults. Pointer returns, persistent pointer
-storage, arithmetic, arrays and the full ABI remain separate compiler work.
+storage, general pointer arithmetic, persistent arrays and the full ABI remain
+separate compiler work.
 See [native pointers](docs/native-pointers.md).
 
 

@@ -1,5 +1,14 @@
 # holyc-ocaml compatibility status
 
+[Native automatic integer arrays](native-arrays.md) execute indexed reads,
+assignments, compound updates and prefix/postfix updates in both source modes.
+Original dimensions and frame objects control stride, extent and initialization
+checks. Canonical reference records preserve saved aliases across loops and
+later argument effects. Final materialization allows aligned one-past
+references; reads and writes require an actual element. Persistent arrays,
+array initializers, pointer/aggregate elements and general pointer escapes
+remain separate compiler work.
+
 [Bounded integer switch execution](integer-switch.md) connects #668's original
 closed case preparation to canonical `IC_SWITCH`, checked tables and both
 execution targets. Endpoint values prepare at their original parser callbacks;
@@ -12,8 +21,10 @@ sub-switch, multiple-default and effectful-case execution remain explicit gates.
 and closed scalar initializers in the hosted native target. Initializers prepare
 at their original source callbacks and restore their values on every execution.
 Without an initializer, AOT storage starts at zero and reached JIT unknown reads
-use the existing hosted fault policy. Effectful initializers, statics, arrays,
-pointers and general persistent task storage remain outside this gate.
+use the existing hosted fault policy. Scalar static locals and closed static
+initializers use the same arena with exact function ownership. Effectful
+initializers, persistent arrays and pointers, and general persistent task
+storage remain outside this gate.
 
 [Function-local goto execution](integer-goto.md) connects #664's original
 resolved label occurrences to the shared interpreter/native block builder.

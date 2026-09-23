@@ -700,6 +700,37 @@ let pointer_alias_semantics () =
       ( "destination survives RHS pointer rebind",
         "I64 F(){I64 x=40;I64 y=2;I64 *p=&x;*p+=*(p=&y);return x;}F();",
         42L );
+      ( "right-to-left arguments observe the right argument's rebind",
+        "I64 Both(I64 *first,I64 *second){*first=40;*second=2;return \
+         *first+*second;}I64 F(){I64 a=0;I64 b=0;I64 *p=&a;return \
+         Both(p,p=&b);}F();",
+        4L );
+      ( "captured right argument survives left argument rebinding",
+        "I64 Both(I64 *first,I64 *second){*first=40;*second=2;return \
+         *first+*second;}I64 F(){I64 a=0;I64 b=0;I64 *p=&a;return \
+         Both(p=&b,p);}F();",
+        42L );
+      ( "pointer assignment results retain their own values",
+        "I64 Both(I64 *first,I64 *second){*first=40;*second=2;return \
+         *first+*second;}I64 F(){I64 a=0;I64 b=0;I64 *p;return \
+         Both(p=&a,p=&b);}F();",
+        42L );
+      ( "pointer parameter values survive nested argument rebinding",
+        "I64 Both(I64 *first,I64 *second){*first=40;*second=2;return \
+         *first+*second;}I64 Pass(I64 *p,I64 *q){return Both(p=q,p);}I64 \
+         F(){I64 a=0;I64 b=0;return Pass(&a,&b);}F();",
+        42L );
+      ( "indexed base survives pointer rebinding in its index",
+        "I64 Zero(I64 *p){return 0;}I64 F(){I64 a[2];a[0]=40;a[1]=2;I64 \
+         *p=&a[0];return p[Zero(p=&a[1])]+*p;}F();",
+        42L );
+      ( "interior base survives index rebinding and staged RHS arguments",
+        "I64 Sum(I64 a,I64 b,I64 c,I64 d,I64 e,I64 f,I64 g,I64 h){return \
+         a+b+c+d+e+f+g+h;}I64 Zero(I64 *p){return 0;}I64 F(){I64 \
+         a[2];a[0]=1;a[1]=100;I64 \
+         *p=&a[1];p[Zero(p=&a[0])-1]+=Sum(2,3,4,5,6,7,8,6);return \
+         a[0]+a[1]-100;}F();",
+        42L );
       ( "recursive activation addresses stay distinct",
         "I64 R(I64 n,I64 *p){I64 x=n;if(n){R(n-1,&x);*p+=x;}else *p+=1;return \
          0;}I64 F(){I64 x=35;R(3,&x);return x;}F();",
@@ -774,6 +805,64 @@ let pointer_alias_semantics () =
                ~label:(type_name ^ " wrapped indirect prefix")
                ~expected_type:"I64" ~expected_bits source))
         [ "I8"; "U8" ])
+    modes
+
+let array_update_wrap_results () =
+  let rows =
+    [
+      ("I8", "-128", "127");
+      ("U8", "0", "255");
+      ("I16", "-32768", "32767");
+      ("U16", "0", "65535");
+      ("I32", "-2147483648", "2147483647");
+      ("U32", "0", "4294967295");
+      ("I64", "-9223372036854775808", "9223372036854775807");
+      ("U64", "0", "0xffffffffffffffff");
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (type_name, minimum, maximum) ->
+          List.iter
+            (fun target ->
+              List.iter
+                (fun (label, initial, expression, returned, stored) ->
+                  let source =
+                    Printf.sprintf
+                      "I64 F(){%s a[3];a[0]=13;a[2]=29;a[1]=%s;%s *p=&a[2];I64 \
+                       n=%s;if(n!=%s||a[1]!=%s||a[0]!=13||a[2]!=29)return \
+                       0;return 42;}F();"
+                      type_name initial type_name expression returned stored
+                  in
+                  ignore
+                    (compare_source ~mode
+                       ~label:(type_name ^ " " ^ target ^ " " ^ label)
+                       ~expected_type:"I64" ~expected_bits:42L source))
+                [
+                  ( "wrapping prefix increment",
+                    maximum,
+                    "++" ^ target,
+                    minimum,
+                    minimum );
+                  ( "wrapping prefix decrement",
+                    minimum,
+                    "--" ^ target,
+                    maximum,
+                    maximum );
+                  ( "wrapping postfix increment",
+                    maximum,
+                    target ^ "++",
+                    maximum,
+                    minimum );
+                  ( "wrapping postfix decrement",
+                    minimum,
+                    target ^ "--",
+                    minimum,
+                    maximum );
+                ])
+            [ "a[1]"; "p[-1]" ])
+        rows)
     modes
 
 let pointer_faults_and_limits () =
@@ -860,6 +949,101 @@ let pointer_faults_and_limits () =
       done)
     modes
 
+let automatic_array_preparation_and_layout () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (type_, bytes) ->
+          ignore
+            (compare_source ~mode ~label:("array layout " ^ type_)
+               ~expected_type:"I64"
+               ~expected_bits:(Int64.of_int ((6 * bytes) + 42))
+               (Printf.sprintf
+                  "I64 F(){%s a[2][3];I8 marker=42;return \
+                   sizeof(a)+marker;}F();"
+                  type_)))
+        [
+          ("I8", 1);
+          ("U8", 1);
+          ("I16", 2);
+          ("U16", 2);
+          ("I32", 4);
+          ("U32", 4);
+          ("I64", 8);
+          ("U64", 8);
+        ];
+      let contents = "I64 F(){I16 a[1+2][7];return sizeof(a);}F();" in
+      let run ?max_dimension_work ?max_frame_bytes contents =
+        let session, config, source = source_inputs ~mode contents in
+        Native_program.evaluate ?max_dimension_work ?max_frame_bytes session
+          ~config ~source ~max_steps:1000
+      in
+      let report = run contents in
+      let value =
+        Native_program.outcome report |> require_ok diagnostics_text
+      in
+      check_native_word "array sizeof" "I64" 42L
+        value.value.execution.final_value;
+      let work = Native_program.dimension_work report in
+      Alcotest.(check bool) "nonzero original dimension work" true (work > 1);
+      ignore
+        (Native_program.outcome (run ~max_dimension_work:work contents)
+        |> require_ok diagnostics_text);
+      let failed = run ~max_dimension_work:(work - 1) contents in
+      Alcotest.(check bool)
+        "dimension one below rejects" true
+        (Result.is_error (Native_program.outcome failed));
+      Alcotest.(check int)
+        "dimension failure retains reached work" (work - 1)
+        (Native_program.dimension_work failed);
+      Alcotest.(check bool)
+        "dimension failure prevents entry" true
+        (Option.is_none (Native_program.image failed));
+      let invalid = run ~max_dimension_work:0 contents in
+      Alcotest.(check int)
+        "invalid dimension limit prevents parsing" 0
+        (Native_program.dimension_work invalid);
+      Alcotest.(check bool)
+        "invalid dimension limit rejects" true
+        (Result.is_error (Native_program.outcome invalid));
+      let twice = run (contents ^ "F();") in
+      Alcotest.(check int)
+        "calls reuse dimensions" work
+        (Native_program.dimension_work twice);
+      let unused = run "I64 F(){I16 a[1+2][7];return sizeof(a);}42;" in
+      Alcotest.(check int)
+        "unused function prepares dimensions" work
+        (Native_program.dimension_work unused);
+      let malformed = run "I64 F(){I16 a[1+2][7;return 42;}F();" in
+      Alcotest.(check bool)
+        "closing bracket failure" true
+        (Result.is_error (Native_program.outcome malformed));
+      Alcotest.(check int)
+        "lookahead failure retains preparation" work
+        (Native_program.dimension_work malformed);
+      ignore
+        (Native_program.outcome (run ~max_frame_bytes:48 contents)
+        |> require_ok diagnostics_text);
+      let failed = run ~max_frame_bytes:47 contents in
+      (match Native_program.native_outcome failed with
+      | Some (Program.Fault { kind = Program.Frame_limit_exceeded; _ }) -> ()
+      | _ -> Alcotest.fail "array semantic frame one below did not fault");
+      let recursive =
+        "I64 F(I64 n){I16 a[3][7];if(n)return F(n-1);return sizeof(a);}F(2);"
+      in
+      ignore
+        (compare_source ~mode ~label:"recursive array layout"
+           ~expected_type:"I64" ~expected_bits:42L recursive);
+      let image = value.value.image in
+      for _ = 1 to 3 do
+        match Runtime.execute ~max_steps:1000 image |> require_ok Fun.id with
+        | Program.Completed execution ->
+            check_native_word "repeated array layout" "I64" 42L
+              execution.final_value
+        | Program.Fault _ -> Alcotest.fail "repeated array layout faulted"
+      done)
+    modes
+
 let () =
   match Runtime.platform () with
   | Runtime.Unsupported ->
@@ -870,9 +1054,14 @@ let () =
         [
           ( "native scalar functions",
             [
+              Alcotest.test_case "automatic array preparation and frame bounds"
+                `Quick automatic_array_preparation_and_layout;
               Alcotest.test_case
                 "typed pointer aliases preserve source semantics" `Quick
                 pointer_alias_semantics;
+              Alcotest.test_case
+                "array updates normalize wrapping results at every width" `Quick
+                array_update_wrap_results;
               Alcotest.test_case
                 "pointer initialization recursion quotas and recovery" `Quick
                 pointer_faults_and_limits;
