@@ -27,9 +27,13 @@ val print :
   format:'pointer ->
   'pointer argument array ->
   (unit, 'error failure) result
-(** Format ordinary bytes, percent, signed decimal, strings and packed chars.
-    Publish the complete draft only on success. Reads include the terminating
-    zero and are charged before the callback, including failed read attempts. *)
+(** Format ordinary bytes, percent, signed/unsigned decimal, hexadecimal,
+    binary, strings and packed chars. The checked subset accepts source
+    justification/zero flags, bounded literal or dynamic widths, ignored
+    literal/dynamic precision, and comma/truncate/harmless integer modifiers.
+    Dynamic fields consume their integer variadic slots. Publish the complete
+    draft only on success. Reads include terminating zero bytes and are charged
+    before the callback, including failed read attempts. *)
 
 val put_chars : t -> int64 -> (unit, 'error failure) result
 (** Visit low-to-high packed bytes, skipping interior zeros. Each successful

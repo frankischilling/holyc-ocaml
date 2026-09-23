@@ -19,6 +19,18 @@ code/frame quotas and repeated image execution are separate cases. CLI tests
 exercise the maintained persistent-array fixture, binary capture, atomic failure
 prefixes and human report fields. See [native Print](native-print.md).
 
+`integer_format_fixture.ml` supplies independent expected source inputs, bytes
+and work for integer bases, signed extremes, source-specific comma padding,
+truncation, ignored numeric alignment and precision, dynamic fields, owned strings
+and packed bytes. Public interpreter, checked batch, native API, CLI and task
+tests consume that data through their real entry points. Exact/one-below limits
+cover atomic drafts and zero-output scans; huge widths must reach bounded append
+faults without proportional allocation. Field errors retain argument-consumption
+order, and truncated strings must still finish their owned NUL scan.
+Generated-source tests feed formatted hexadecimal, unsigned, string and packed
+fragments through `#exe`. The maintained fixture is
+`examples/integer-formatting.hc`; see [formatting rules](integer-formatting.md).
+
 Native persistent storage tests cover global/static integer array images and
 source-owned mutable literals. Compile-only tests check original owners, widths,
 padding, sparse initialized cells, image-copy isolation and bounded metadata.

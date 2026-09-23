@@ -433,6 +433,13 @@ committed. This follows the ordering in `CMisc.HC:68-80`; native code logs the
 missing-block error and returns, while this hosted service returns a diagnostic.
 Argument effects that already ran remain reached.
 
+The shared [integer and byte formatter](integer-formatting.md) handles unsigned,
+hexadecimal and binary words, literal or supplied widths, precision argument
+consumption, grouping, truncation and byte padding. Generated expressions such
+as `0x%08tX` return to the ordinary lexer with exact bytes. String truncation still
+scans the complete owned object before copying its selected prefix, and all
+formatting shares the task's output-work allowance.
+
 Nested buffers are separate. Finishing returns only that buffer's text and
 resumes its parent; aborting returns no text. Foreign, consumed and suspended
 tokens cannot finish or abort another buffer. Retained functions use the current

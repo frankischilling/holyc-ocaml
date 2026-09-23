@@ -10,10 +10,11 @@ holyc run --target=host-jit --mode=jit --format=json examples/integer-persistent
 holyc run --target=host-jit --mode=aot --format=json examples/integer-persistent-arrays.hc
 ```
 
-The formatter supports ordinary bytes, `%%`, `%d`, `%s` and `%c`, matching the
-existing bounded interpreter. Flags, field widths, precision and other
-conversions remain explicit `HCIRVM0024` faults. Those forms exist in TempleOS;
-this diagnostic describes the hosted subset.
+The formatter supports ordinary bytes, `%%`, `%d`, `%u`, `%x`, `%X`, `%b`, `%B`,
+`%s` and `%c`. Checked field widths, grouping, truncation and byte padding match
+the shared interpreter. Precision arguments are consumed but do not affect
+these conversions. [Integer and byte formatting](integer-formatting.md) gives
+the grammar, source-specific examples and remaining conversions.
 
 `%d` formats signed 64-bit word bits, including the minimum signed value and
 high-bit U64 arguments. Loads extend narrow stored values; argument staging
@@ -56,7 +57,10 @@ Repeated execution of an image starts with empty capture and fresh data arenas.
 One output-work unit precedes every format or `%s` byte read, including its NUL
 and a read that later faults. Every attempted append consumes another unit
 before its capacity check. `%c` charges each visited packed byte and each
-attempted append. Decimal conversion charges emitted characters without adding
+attempted append. Positive-width or truncated strings first scan through NUL,
+then reread their selected output prefix. Measured packed fields charge their
+visits once and append from the saved word. Plain fields retain their existing
+interleaved read/visit and append order. Numeric conversion charges emitted characters without adding
 artificial scan work. The formatter remains one reached IR call instruction;
 its internal loops do not consume extra runtime steps.
 
@@ -78,7 +82,7 @@ that existing distinction, including bounds and unknown-read precedence.
 
 The provider checks one semantic call depth and eight frame bytes for each
 format, hidden-count and supplied variadic slot before formatting. Its typed
-argument table, counters and bounded decimal buffer occupy the ordinary private
+argument table, counters and bounded numeric buffer occupy the ordinary private
 native frame and must fit the physical-frame quota before emission. Indexed
 argument lookup checks the count before forming a private stack address.
 

@@ -1,9 +1,11 @@
 # holyc-ocaml compatibility status
 
-[Native Print](native-print.md) executes the bounded `%%`/`%d`/`%s`/`%c`
-formatter with live owned strings and original typed variadic arguments.
-Failed drafts retain work and earlier output. Flags, widths, other conversions,
-StreamPrint and retained provider/body publication remain explicit gaps.
+[Native Print](native-print.md) executes signed/unsigned decimal, hexadecimal,
+binary, owned-string and packed-character formatting with the checked widths,
+grouping and truncation described in [formatting rules](integer-formatting.md).
+The shared StreamPrint formatter also uses these rules for generated source.
+Failed drafts retain work and earlier output. Remaining conversions, native
+StreamPrint and retained native provider/body publication remain explicit gaps.
 
 [Native PutChars output](native-output.md) captures packed bytes in both source
 modes through the original checked provider. Explicit and implicit calls preserve

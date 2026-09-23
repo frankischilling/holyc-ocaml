@@ -17,6 +17,16 @@ let gates =
       {|#exe {StreamPrint("I64 Values[2]={40,2};");} Values[0]+Values[1];|} );
     ("task loop", {|#exe {I64 N=0;while(N<42)++N;StreamPrint("%d;",N);}|});
     ("expression fragment", {|#exe {StreamPrint("40+");} 2;|});
+    ( "formatted hexadecimal expression",
+      {|I64 N=#exe {StreamPrint("0x%08tX",0x10000002A);};N;|} );
+    ( "formatted dynamic width and precision",
+      {|I64 N=#exe {StreamPrint("0x%0*.*tX",8,2,0x10000002A);};N;|} );
+    ( "formatted string prefix",
+      {|#exe {StreamPrint("%2ts","42ignored");StreamPrint(";");}|} );
+    ("formatted packed prefix", {|#exe {StreamPrint("%*tc;",2,'42rest');}|});
+    ( "formatted unsigned maximum reenters the lexer",
+      {|#exe {StreamPrint("U64 Value=%u;",-1);}if(Value!=0xFFFFFFFFFFFFFFFF)1/0;42;|}
+    );
   ]
 
 let expect ?(modes = G.modes) value source () =

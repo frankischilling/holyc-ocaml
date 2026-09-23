@@ -24,9 +24,9 @@ type 'label emitter = {
 }
 
 val scratch_slots : int -> int
-(** Fixed counters and a 24-byte decimal buffer, followed by one kind tag for
-    each variadic argument. The caller bounds the complete frame before entry.
-*)
+(** Fixed parser/layout counters and an 80-byte reverse numeric buffer, followed
+    by one kind tag for each variadic argument. The caller bounds the complete
+    frame before entry. *)
 
 val emit : 'label emitter -> t -> unit
 (** Emit the bounded dynamic Print formatter from authenticated, staged call

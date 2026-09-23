@@ -4,6 +4,11 @@
  (modules native_scalar_fixture)
  (libraries holyc_lib))
 
+(library
+ (name integer_format_support)
+ (wrapped false)
+ (modules integer_format_fixture))
+
 (test
  (name test_stateful_exe_cli)
  (modules test_stateful_exe_cli)
@@ -271,6 +276,7 @@
   member_flag_tools
   holyc_lib
   native_scalar_support
+  integer_format_support
   intermediate_code_tools
   opcode_table_tools
   operator_table_tools

@@ -197,6 +197,13 @@ count changes only after the whole format succeeds, so teardown exposes no
 partial bytes from a failed Print call. Output work is charged before each
 visited byte and append, including reads and appends that later fault.
 
+Formatting widths use checked signed-I64 literal parsing and bounded dynamic
+padding. Numeric conversion uses a fixed buffer large enough for a grouped
+64-bit binary word. String truncation still requires the complete owned NUL scan;
+it cannot suppress an unknown or out-of-bounds byte. Work and capacity checks
+bound padding independently of field width. See
+[integer and byte formatting](docs/integer-formatting.md).
+
 The host validates immutable context pointers, output counters and restored
 callable quotas before projecting capture. Status decoding accepts output faults
 only at sealed provider sites and accepts format-specific status kinds only at an
