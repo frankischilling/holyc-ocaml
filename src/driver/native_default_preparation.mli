@@ -31,8 +31,10 @@ val prepare_initializer :
   ledger:Task_declarations.t ->
   Frontend.Parser.completed_initializer_leaf ->
   (unit, Common.Diagnostic.t list) result
-(** Prepare one original scalar global leaf under the same declaration-work
-    budget as defaults. Global payloads use the global storage quota. *)
+(** Prepare one original global initializer leaf under the same declaration-work
+    budget as defaults. The exact live layout decides scalar stores versus
+    source-owned byte copies. Copy work is charged to [max_initializer_steps].
+*)
 
 val initializers : t -> Integer_initializers.native_preparation list
 

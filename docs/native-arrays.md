@@ -1,7 +1,7 @@
-# Native automatic integer arrays
+# Native integer arrays
 
-`run --target=host-jit` executes automatic arrays of I8, U8, I16, U16, I32,
-U32, I64 and U64 in both source modes. Indexed reads, assignments, compound
+`run --target=host-jit` executes automatic, global and static arrays of I8, U8,
+I16, U16, I32, U32, I64 and U64 in both source modes. Indexed reads, assignments, compound
 assignments and prefix/postfix updates use each element's declared width.
 Array decay and addresses of elements can be saved in automatic pointer locals
 and passed to fixed pointer parameters.
@@ -13,6 +13,7 @@ still carries the full root object's extent through the call.
 holyc run --target=host-jit --mode=jit examples/integer-arrays.hc
 holyc run --target=host-jit --mode=aot examples/integer-arrays.hc
 holyc run --target=host-jit examples/native-array-aliases.hc
+holyc run --target=host-jit examples/native-persistent-arrays.hc
 ```
 
 These examples return I64 42. The separate `native-array-layout.hc` fixture
@@ -62,7 +63,7 @@ Pointer loads, assignment results and call arguments preserve the selected
 record. Arguments evaluate right to left: in `Use(p=&a[1],p)`, the right
 argument retains the earlier value of `p` after the left argument rebinds it.
 An indexed base similarly survives a pointer rebind in its index or RHS.
-Canonical tables belong to the activation that owns the materialized object
+Array reference tables belong to the activation that materializes the object
 reference. Recursive activations have separate tables; the accepted pointer
 flow cannot return or persist a pointer to an expired activation. See
 [native pointers](native-pointers.md) for the lifetime restriction.
@@ -72,6 +73,15 @@ its own initialization flag, initially clear in both source modes. A successful
 write initializes only that element. Reads and compound updates require it to
 be initialized and otherwise report `HCIRVM0012`. Every invocation gets fresh
 automatic storage and flags, including repeated execution of the same image.
+
+Global and static arrays share a separate arena across calls. Uninitialized
+persistent cells start unknown in JIT mode and zeroed in AOT mode. Source-owned
+initializers set only their covered cells. Static arrays retain their values
+through recursive calls, while same-spelled statics in other functions remain
+separate objects. Bounds use the declared extent; padding in a static allocation
+never becomes an addressable element. The arena and its initial state reset for
+each execution, including after a fault. See [persistent storage](native-persistent-storage.md)
+for initializer leaves, mutable strings and arena limits.
 
 ## Preparation and resource limits
 
@@ -100,7 +110,7 @@ instruction and adds no interpreter steps. Code, IR, block, call-depth,
 preparation and persistent-arena limits remain independent.
 
 Runtime-dependent extents, zero-sized arrays, automatic array initializers,
-persistent arrays, pointer/aggregate elements and reference escapes remain
+pointer/aggregate elements and reference escapes remain
 outside this path. General pointer arithmetic, the complete HolyC ABI,
 floating-point code generation, object/BIN output, actual loader acceptance and
 bootstrap remain separate compiler work.

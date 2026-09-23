@@ -94,9 +94,10 @@ or brace-spill rule. Braced scalar declarations such as `I64 n={42};` remain
 unsupported for globals, statics and automatic locals. Automatic array
 declaration initialization remains a separate boundary.
 
-A direct string can initialize a final-rank U8 array. The copy uses that
-dimension's declared count and must fit within the decoded source bytes plus
-their one terminator. Adjacent string tokens form one source string.
+A direct string can initialize an I8 or U8 array at the current recursive rank.
+The copy uses that dimension's declared count, as `PrsVarInit2` does at
+`PrsVar.HC:131-152`, and must fit within the decoded source bytes plus their
+one terminator. Adjacent string tokens form one source string.
 
 | Declaration | Stored bytes or boundary |
 | --- | --- |
@@ -105,12 +106,14 @@ their one terminator. Adjacent string tokens form one source string.
 | `U8 A[1]="";` | `00` |
 | `U8 A[4]="42";` | Rejected: the requested copy exceeds the owned source bytes |
 | `U8 A[2][3]={"42","ab"};` | Two separately located row copies |
+| `U8 A[2][3]="42";` | `34 32`; the other four cells retain their original state |
 
 Only the determined prefix is copied. An oversized destination does not gain
 fabricated fill bytes. Grouped or scalar-position strings such as
 `U8 A[3]=("42");` and `U8 A[3]={"42"};` do not become direct copies.
-`U8 A[2][3]="42";` remains unsupported because the pinned non-final-rank
-string branch does not establish a whole-object copy.
+The non-final-rank form copies the current count and returns without traversing
+deeper dimensions. Untouched cells are zero in AOT storage and unknown in hosted
+JIT storage; reading an unknown cell reports `HCIRVM0012`.
 
 Each direct copy remains one checked source leaf and produces independent
 mutable destination bytes. It does not retain a runtime string-literal site;

@@ -9,6 +9,10 @@ Loads, assignments, compound operations and prefix/postfix updates execute as
 machine instructions. Calls, recursion, local shadowing, constant parameter
 defaults and function-local gotos retain their existing checked semantics.
 
+Global/static arrays and mutable string objects extend this storage through
+[persistent native storage](native-persistent-storage.md). They retain the
+original array dimensions, leaf initializers and individual element state.
+
 Declared widths determine stored bytes. Loads sign- or zero-extend those bytes;
 assignment and compound expression results retain full register bits. Prefix
 updates normalize narrow results and postfix updates return the previous value,
@@ -85,7 +89,8 @@ expression already consumed preparation work.
 
 Static expressions use the same closed numeric engine and invocation budget as
 globals and defaults. They cannot read globals or locals, call functions, use
-strings or floating values, or bypass the existing shift-optimizer restriction.
+floating values, or bypass the existing shift-optimizer restriction. Fixed byte
+arrays can copy original string bytes through their checked initializer layout.
 Preparation remains separate from runtime instruction work and never runs again
 on a function call. A statically prepared neighbor does not initialize an object
 whose declaration has no initializer.
@@ -96,11 +101,14 @@ whose declaration has no initializer.
 with a positive configuration range capped at 16,777,216. Static allocations
 round each declared width up to eight bytes. Unused objects count.
 The compiler checks this bound before allocating the private image; execution
-checks it again before native entry. One initialization byte per object is
-charged separately in a private arena capped at 33,554,432 bytes. The private
+checks it again before native entry. Scalars retain one initialization byte per
+object; arrays add eight-byte per-element flag slots. Literal objects have a
+separate data quota and arena reference tables. All private metadata is charged
+in an arena capped at 33,554,432 bytes. The private
 layout does not expose static padding or raw pointers.
 
-Native v2 reports add `native.image.global_bytes` and `global_arena_bytes`.
+Native v2 reports retain `native.image.global_bytes` and `global_arena_bytes`,
+with separate `literal_bytes` and `arena_metadata_bytes` counts.
 Code, IR, block, spill, semantic frame, call-depth and active-stack limits remain
 independent. Storage bookkeeping adds machine instructions, not extra IR steps.
 Initializer work counts toward `--initializer-step-limit`, shared with defaults.
@@ -108,14 +116,15 @@ Global and static payloads count toward the global-byte quota, not `--default-by
 The native API tests compare exact runtime meters with fresh isolated checked
 interpreter execution; public source tests independently check values.
 
-Effectful or call-dependent initializers, arrays, pointers, aggregates,
+Effectful or call-dependent initializers, persistent pointers, aggregates,
 aliases, extern/import/data-heap storage and retained task storage remain
 unsupported. Defaults still prepare closed numeric expressions in a separate
 empty fragment at their original declaration boundary; admitting globals does
 not authorize a default to read them. Full memory/runtime support, object/BIN
 output, loader acceptance and bootstrap remain open.
-Initializers must precede executable top-level statements. String-backed values,
-floating values and unresolved initializer shift-optimizer behavior also reject.
+Initializers must precede executable top-level statements. Floating values,
+pointer-valued initializers and unresolved initializer shift-optimizer behavior
+also reject.
 
 ## Source evidence and verification
 

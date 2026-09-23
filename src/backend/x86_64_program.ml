@@ -70,12 +70,13 @@ let compile ?status_abi ?max_stack_bytes ?max_blocks ~max_ir_instructions
   |> Result.map (fun image -> { image })
 
 let compile_callable ?status_abi ?max_stack_bytes ?max_blocks ?max_global_bytes
-    ?parameter_defaults ?global_initializers ~max_ir_instructions
-    ~max_code_bytes ~runtime_calls ~initialization ~entry ~functions () =
-  Codegen.compile_callable ?status_abi ?max_stack_bytes ?max_blocks
-    ?max_global_bytes ?parameter_defaults ?global_initializers
+    ?max_literal_bytes ?parameter_defaults ?global_initializers
     ~max_ir_instructions ~max_code_bytes ~runtime_calls ~initialization ~entry
-    ~functions ()
+    ~functions () =
+  Codegen.compile_callable ?status_abi ?max_stack_bytes ?max_blocks
+    ?max_global_bytes ?max_literal_bytes ?parameter_defaults
+    ?global_initializers ~max_ir_instructions ~max_code_bytes ~runtime_calls
+    ~initialization ~entry ~functions ()
   |> Result.map_error project_errors
   |> Result.map (fun image -> { image })
 
@@ -304,5 +305,16 @@ let validate_global_limit ~max_global_bytes =
   Codegen.validate_global_limit ~max_global_bytes
   |> Result.map_error project_errors
 
+let validate_literal_limit ~max_literal_bytes =
+  X86_64_literal_storage.validate_limit ~max_literal_bytes
+  |> Result.map_error
+       (List.map (fun (error : X86_64_literal_storage.error) ->
+            { code = error.code; message = error.message; span = error.span }))
+
 let global_bytes compiled = Codegen.program_global_bytes compiled.image
+let literal_bytes compiled = Codegen.program_literal_bytes compiled.image
+
+let arena_metadata_bytes compiled =
+  Codegen.program_arena_metadata_bytes compiled.image
+
 let global_image compiled = Codegen.program_global_image compiled.image

@@ -695,7 +695,7 @@ let execution_commands task span ~active =
           p.static_allocation.allocation_function.function_header
             .declaration_command
       | Static_initializer_completed p ->
-          p.static_preparation.static_allocation.allocation_function
+          p.static_completed_start.static_start_allocation.allocation_function
             .function_header
             .declaration_command
       | Function_local_allocated p ->

@@ -668,6 +668,8 @@ let source_gate_is_compile_only () =
        Add(20,22);";
       "I64 G=42; I64 F(){return G;} F();";
       "I64 F(){static I64 n=0;return ++n;} F();";
+      "I64 Bad(){static I64 n[2];return n[0];}42;";
+      "I64 values[2]={40,2};values[0]+values[1];";
     ]
   in
   List.iter
@@ -703,14 +705,13 @@ let source_gate_is_compile_only () =
                      || String.starts_with ~prefix:"HCNATIVE" error.code)
                    diagnostics))
         [
-          "I64 x[1]={1/0}; 42;";
+          "I64 *x[1]; 42;";
           "I64 Bad(){F64 x=1.0;return 0;} 42;";
           "F64 Bad(){return 1.0;} 42;";
           "I64 F(){return 42;} I64 G=F(); G;";
           "I64 F(){static I64 n=1<<2;return ++n;} F();";
           "I64 Bad(){static I64 n={1/0};return 0;}42;";
           "I64 Bad(){static I64 *n;return 0;}42;";
-          "I64 Bad(){static I64 n[2];return 0;}42;";
           "I64 Bad(){static I64 reg n;return 0;}42;";
           "I64 F(I64 **p){return **p;} 42;";
           "I64 F(I64 n,...){return n;} F(42);";
@@ -1292,7 +1293,13 @@ let native_global_admission () =
       let unit = integer_unit ~mode:Preprocessor.Aot source in
       ignore
         (reject ~code:"HCBACK0002" "unsupported storage" (compile_callable unit)))
-    [ "I64 G=42;G;"; "I64 G[1];42;"; "I64 F(){static I64 G=1;return 42;}F();" ]
+    [ "I64 G=42;G;"; "I64 F(){static I64 G=1;return 42;}F();" ];
+  List.iter
+    (fun mode ->
+      ignore
+        (integer_unit ~mode "I64 G[1];42;"
+        |> compile_callable |> require_ok program_errors))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
 
 let native_static_admission () =
   let module Globals = Ir_integer_globals in

@@ -38,7 +38,7 @@ let image_errors ~fallback errors =
     errors
 
 let validate_limits ~span ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
-    ~max_blocks ~max_global_bytes =
+    ~max_blocks ~max_global_bytes ~max_literal_bytes =
   let errors = image_errors ~fallback:span in
   let* () =
     Image.validate_limits ~max_ir_instructions ~max_code_bytes
@@ -48,7 +48,10 @@ let validate_limits ~span ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
     Image.validate_stack_limit ~max_stack_bytes |> Result.map_error errors
   in
   let* () = Image.validate_block_limit ~max_blocks |> Result.map_error errors in
-  Image.validate_global_limit ~max_global_bytes |> Result.map_error errors
+  let* () =
+    Image.validate_global_limit ~max_global_bytes |> Result.map_error errors
+  in
+  Image.validate_literal_limit ~max_literal_bytes |> Result.map_error errors
 
 let source_error span message = diagnostic ~span "HCRUN0001" message
 
@@ -154,12 +157,11 @@ let local_source_error (declaration : Ast.local_declaration) =
           reject "native locals admit only automatic one-level scalar pointers"
         else if
           local.local_array_dimensions <> []
-          && (is_static
-             || local.local_pointer_layers <> []
-             || Option.is_some local.local_initializer)
+          && (local.local_pointer_layers <> []
+             || ((not is_static) && Option.is_some local.local_initializer))
         then
           reject
-            "native arrays require automatic scalar elements without \
+            "native automatic arrays require scalar elements without \
              initializers"
         else if local.local_register_qualifiers <> [] then
           reject "native locals do not admit explicit registers"
@@ -168,11 +170,12 @@ let local_source_error (declaration : Ast.local_declaration) =
           | None -> None
           | Some { local_initializer_value = Ast.Scalar_initializer _; _ } ->
               None
+          | Some _ when is_static && local.local_array_dimensions <> [] -> None
           | Some _ -> reject "native locals require scalar initializers")
       declaration.local_declarators
 
 let global_source_error ~span ~modifiers ~binding ~type_specifier
-    ~pointer_layers ~function_pointer ~array_dimensions ~has_initializer:_ =
+    ~pointer_layers ~function_pointer ~array_dimensions:_ ~has_initializer:_ =
   let reject message = Some (source_error span message) in
   if modifiers <> [] || Option.is_some binding then
     reject
@@ -182,8 +185,6 @@ let global_source_error ~span ~modifiers ~binding ~type_specifier
     reject "native globals require nonzero scalar integer types"
   else if pointer_layers <> [] || Option.is_some function_pointer then
     reject "native globals do not admit pointer or callback storage"
-  else if array_dimensions <> [] then
-    reject "native globals do not admit arrays"
   else None
 
 let ast_errors (ast : Ast.module_) =
@@ -247,10 +248,7 @@ let ast_errors (ast : Ast.module_) =
             | Ast.Sizeof_expression _
             | Ast.Offset_expression _
             | Ast.Defined_expression _ -> ()
-            | Ast.String_literal literal ->
-                reject
-                  (source_error literal.literal_location.span
-                     "native programs do not admit string-literal storage")
+            | Ast.String_literal _ -> ()
             | Ast.Identifier_expression _ -> ()
             | Ast.Parenthesized_expression grouped ->
                 work :=
@@ -450,7 +448,6 @@ let program_storage_errors compiled span =
   if
     Ir.Global_initialization.regions initialization <> []
     || Ir.Global_initialization.static_regions initialization <> []
-    || Ir.Global_initialization.publications initialization <> []
   then add "native programs require an entry with no runtime initialization";
   List.rev !errors
 
@@ -458,9 +455,9 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
     ?(max_code_bytes = 65536) ?(max_stack_bytes = Image.hard_max_stack_bytes)
     ?(max_blocks = 4096) ?(max_initializer_steps = 100_000)
     ?(max_switch_work = 100_000) ?(max_dimension_work = 100_000)
-    ?(max_default_bytes = 65_536) ?(max_global_bytes = 1_048_576) ?status_abi
-    ~preparation_steps ~switch_work ~dimension_work ~default_bytes session
-    ~config ~source =
+    ?(max_default_bytes = 65_536) ?(max_global_bytes = 1_048_576)
+    ?(max_literal_bytes = 1_048_576) ?status_abi ~preparation_steps ~switch_work
+    ~dimension_work ~default_bytes session ~config ~source =
   let span = Integer_source.source_span source in
   let* () =
     if
@@ -477,7 +474,7 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
   in
   let* () =
     validate_limits ~span ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
-      ~max_blocks ~max_global_bytes
+      ~max_blocks ~max_global_bytes ~max_literal_bytes
   in
   let* ledger =
     Task_declarations.create_source ~max_dimension_work
@@ -557,7 +554,8 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
                   Error
                     [
                       source_error
-                        receipt.static_initializer.local_initializer_location
+                        (Frontend.Parser.static_initializer_leaf_location
+                           receipt)
                           .span
                         "native static initializers must precede executable \
                          top-level statements";
@@ -633,7 +631,18 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
                     | []
                       when Ir.Integer_globals.byte_size
                              (Integer_unit.globals checked.value)
-                           = 0 ->
+                           = 0
+                           && not
+                                (Ir.X87_stack.graph
+                                   (Integer_unit.entry checked.value)
+                                |> Ir.Block_graph.blocks
+                                |> List.exists (fun block ->
+                                    Ir.Block_graph.instructions block
+                                    |> Ir.Instruction_sequence.instructions
+                                    |> List.exists (fun instruction ->
+                                        (Ir.Instruction_sequence.description
+                                           instruction)
+                                          .opcode = Ir.Opcode.Ic_str_const))) ->
                         Image.compile ?status_abi ~max_stack_bytes ~max_blocks
                           ~max_ir_instructions ~max_code_bytes
                           (Integer_unit.entry checked.value)
@@ -690,7 +699,7 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
                         Image.compile_callable ~parameter_defaults
                           ~global_initializers ?status_abi ~max_stack_bytes
                           ~max_blocks ~max_ir_instructions ~max_code_bytes
-                          ~max_global_bytes
+                          ~max_global_bytes ~max_literal_bytes
                           ~runtime_calls:
                             (Integer_unit.runtime_calls checked.value)
                           ~initialization:
@@ -703,12 +712,13 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
 
 let compile ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
     ?max_initializer_steps ?max_switch_work ?max_dimension_work
-    ?max_default_bytes ?max_global_bytes ?status_abi session ~config ~source =
+    ?max_default_bytes ?max_global_bytes ?max_literal_bytes ?status_abi session
+    ~config ~source =
   compile_with_preparation ?max_ir_instructions ?max_code_bytes ?max_stack_bytes
     ?max_blocks ?max_initializer_steps ?max_switch_work ?max_dimension_work
-    ?max_default_bytes ?max_global_bytes ?status_abi ~preparation_steps:(ref 0)
-    ~switch_work:(ref 0) ~dimension_work:(ref 0) ~default_bytes:(ref 0) session
-    ~config ~source
+    ?max_default_bytes ?max_global_bytes ?max_literal_bytes ?status_abi
+    ~preparation_steps:(ref 0) ~switch_work:(ref 0) ~dimension_work:(ref 0)
+    ~default_bytes:(ref 0) session ~config ~source
 
 let fault_diagnostic ~fallback (fault : Image.fault) =
   let code, message =
@@ -773,8 +783,8 @@ let host_diagnostic ~span platform message =
 let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
     ?(max_initializer_steps = 100_000) ?(max_default_bytes = 65_536)
     ?(max_switch_work = 100_000) ?(max_dimension_work = 100_000)
-    ?(max_global_bytes = 1_048_576) ?(max_frame_bytes = 1_048_576)
-    ?(max_call_depth = 128)
+    ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
+    ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
     ?(max_active_stack_bytes = Native.hard_max_active_stack_bytes) ?status_abi
     session ~config ~source ~max_steps =
   let span = Integer_source.source_span source in
@@ -815,9 +825,9 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
     match
       compile_with_preparation ?max_ir_instructions ?max_code_bytes
         ?max_stack_bytes ?max_blocks ~max_initializer_steps ~max_switch_work
-        ~max_dimension_work ~max_default_bytes ~max_global_bytes ?status_abi
-        ~preparation_steps ~switch_work ~dimension_work ~default_bytes session
-        ~config ~source
+        ~max_dimension_work ~max_default_bytes ~max_global_bytes
+        ~max_literal_bytes ?status_abi ~preparation_steps ~switch_work
+        ~dimension_work ~default_bytes session ~config ~source
     with
     | Error diagnostics ->
         {
@@ -834,7 +844,8 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
     | Ok checked -> (
         match
           Native.execute ~max_steps ~max_frame_bytes ~max_call_depth
-            ~max_active_stack_bytes ~max_global_bytes checked.value
+            ~max_active_stack_bytes ~max_global_bytes ~max_literal_bytes
+            checked.value
         with
         | Error message ->
             {

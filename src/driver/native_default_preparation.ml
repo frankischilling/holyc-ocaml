@@ -1,6 +1,8 @@
 module VM = Ir.Integer_interpreter
 module Ast = Frontend.Ast
 module Parser = Frontend.Parser
+module Layout = Ir.Integer_initializer_layout
+module Shape = Ir.Integer_storage_shape
 
 type completion = { execution : Ir.Default_fragment_program.execution }
 
@@ -21,6 +23,10 @@ type t = {
   mutable ledger : Task_declarations.t option;
   mutable completed_rev : completion list;
   mutable initializer_attempts : Parser.completed_initializer_leaf list;
+  mutable initializer_stream :
+    (Parser.global_initializer_start * Layout.stream) option;
+  mutable static_stream :
+    (Parser.static_initializer_start * Layout.stream) option;
   mutable statics_rev : static_completion list;
   mutable initializers_rev : initializer_completion list;
 }
@@ -54,6 +60,8 @@ let create ~compilation_mode ~max_initializer_steps
         ledger = None;
         completed_rev = [];
         initializer_attempts = [];
+        initializer_stream = None;
+        static_stream = None;
         initializers_rev = [];
         statics_rev = [];
       }
@@ -66,6 +74,83 @@ let scalar_word_type = function
   | Ast.Primitive_type_specifier primitive -> scalar_integer primitive.primitive
   | Ast.Internal_type_specifier primitive -> scalar_integer primitive.primitive
   | _ -> false
+
+let storage_shape ~type_ ~dimensions =
+  Shape.create ~type_ ~dimensions
+  |> Result.map_error (function
+    | Shape.Unsupported_type ->
+        "HCRUN0001: native initializer requires public nonzero integer storage"
+    | Shape.Invalid_extent ->
+        "HCRUN0001: native array initializer requires positive fixed dimensions"
+    | Shape.Overflow ->
+        "HCIRL0005: native persistent storage size exceeds the host integer \
+         range")
+
+let prepare_global_destination value fragment receipt =
+  let declaration = Sema.Initializer_fragment.declaration fragment in
+  let type_ =
+    declaration |> Sema.Compiler_record.declared_global_type
+    |> Sema.Type_reference.resolved_type
+  in
+  let dimensions =
+    Sema.Compiler_record.declared_global_dimensions declaration
+  in
+  let* shape = storage_shape ~type_ ~dimensions in
+  let* stream =
+    match (receipt.Parser.leaf_index, receipt.leaf_predecessor) with
+    | 0, None -> Ok (Layout.begin_stream shape)
+    | index, Some predecessor when index > 0 -> (
+        match value.initializer_stream with
+        | Some (start, stream)
+          when start == receipt.leaf_initializer
+               && List.exists (( == ) predecessor) value.initializer_attempts ->
+            Ok stream
+        | _ ->
+            Error
+              "HCRUN0004: native initializer layout is missing its original \
+               predecessor")
+    | _ ->
+        Error
+          "HCRUN0004: native initializer layout receipt is skipped or out of \
+           order"
+  in
+  let* stream, destination =
+    Layout.prepare_stream stream ~delimiters:receipt.leaf_delimiters
+      ~value:receipt.leaf_value
+  in
+  value.initializer_stream <- Some (receipt.leaf_initializer, stream);
+  Ok destination
+
+let prepare_static_destination value fragment receipt =
+  let* shape =
+    storage_shape
+      ~type_:(Sema.Static_initializer_fragment.type_ fragment)
+      ~dimensions:(Sema.Static_initializer_fragment.dimensions fragment)
+  in
+  let* stream =
+    match
+      (receipt.Parser.static_leaf_index, receipt.static_leaf_predecessor)
+    with
+    | 0, None -> Ok (Layout.begin_stream shape)
+    | index, Some _ when index > 0 -> (
+        match value.static_stream with
+        | Some (start, stream) when start == receipt.static_initializer ->
+            Ok stream
+        | _ ->
+            Error
+              "HCRUN0004: native static initializer layout is missing its \
+               original predecessor")
+    | _ ->
+        Error
+          "HCRUN0004: native static initializer layout receipt is skipped or \
+           out of order"
+  in
+  let* stream, destination =
+    Layout.prepare_stream stream ~delimiters:receipt.static_leaf_delimiters
+      ~value:receipt.static_leaf_value
+  in
+  value.static_stream <- Some (receipt.static_initializer, stream);
+  Ok destination
 
 let prepare value ~session ~ledger receipt =
   let span = receipt.Parser.default_ast.location.span in
@@ -192,19 +277,11 @@ let prepare_initializer value ~session ~ledger receipt =
       receipt
   in
   let fragment = Sema.Initializer_fragment.authorized_fragment authority in
-  let expression =
-    fragment |> Sema.Initializer_fragment.leaf
-    |> Sema.Initializer_source.leaf_expression_ast
-  in
-  let* () =
-    if Expression_facts.contains_string_literal expression then
-      diagnose
-        (Error
-           "HCRUN0006: native initializers do not admit string-backed values")
-    else Ok ()
-  in
   value.ledger <- Some ledger;
   value.initializer_attempts <- receipt :: value.initializer_attempts;
+  let* cell_offset, byte_offset, operation =
+    prepare_global_destination value fragment receipt |> diagnose
+  in
   let create_context =
     match value.compilation_mode with
     | Frontend.Preprocessor.Jit -> Initializer_fragment_typing.create_context
@@ -221,7 +298,8 @@ let prepare_initializer value ~session ~ledger receipt =
   in
   let before = work value in
   let* prepared =
-    Integer_initializers.prepare_native ~authority ~typed
+    Integer_initializers.prepare_native ~authority ~typed ~cell_offset
+      ~byte_offset ~operation
       ~on_progress:(fun steps ->
         VM.record_task_preparation value.state ~before ~steps)
       ~max_steps:(VM.task_initializer_limit value.state - before)
@@ -236,9 +314,7 @@ let static_initializers value =
   List.map static_preparation (static_completions value)
 
 let prepare_static value ~session ~ledger receipt =
-  let span =
-    receipt.Parser.static_initializer.local_initializer_location.span
-  in
+  let span = (Parser.static_initializer_leaf_location receipt).span in
   let diagnose result =
     Result.map_error
       (fun message -> [ Integer_source.message_diagnostic ~span message ])
@@ -266,18 +342,10 @@ let prepare_static value ~session ~ledger receipt =
     Task_declarations.native_static_initializer_fragment ledger
       ~runtime:value.state receipt
   in
-  let* () =
-    if
-      Expression_facts.contains_string_literal
-        (Sema.Static_initializer_fragment.expression fragment)
-    then
-      diagnose
-        (Error
-           "HCRUN0006: native static initializers do not admit string-backed \
-            values")
-    else Ok ()
-  in
   value.ledger <- Some ledger;
+  let* cell_offset, byte_offset, operation =
+    prepare_static_destination value fragment receipt |> diagnose
+  in
   let create_context =
     match value.compilation_mode with
     | Frontend.Preprocessor.Jit -> Initializer_fragment_typing.create_context
@@ -294,7 +362,8 @@ let prepare_static value ~session ~ledger receipt =
   in
   let before = work value in
   let* static_preparation =
-    Integer_initializers.prepare_native_static ~fragment ~typed
+    Integer_initializers.prepare_native_static ~fragment ~typed ~cell_offset
+      ~byte_offset ~operation
       ~on_progress:(fun steps ->
         VM.record_task_preparation value.state ~before ~steps)
       ~max_steps:(VM.task_initializer_limit value.state - before)

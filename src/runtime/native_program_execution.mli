@@ -10,7 +10,10 @@ val hard_max_active_stack_bytes : int
 (** Hard per-execution bound for generated native activations: 65,536 bytes. *)
 
 val hard_max_global_bytes : int
-(** Hard logical scalar-global byte bound: 16 MiB. *)
+(** Hard logical global and static byte bound: 16 MiB. *)
+
+val hard_max_literal_bytes : int
+(** Hard logical literal byte bound, including terminators: 16 MiB. *)
 
 val hard_max_arena_bytes : int
 (** Hard host allocation bound for data plus per-slot initialization state: 32
@@ -21,6 +24,7 @@ val execute :
   ?max_call_depth:int ->
   ?max_active_stack_bytes:int ->
   ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
   max_steps:int ->
   Backend.X86_64_program.t ->
   (Backend.X86_64_program.outcome, string) result

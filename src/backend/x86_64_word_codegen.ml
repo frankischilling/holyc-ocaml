@@ -7,6 +7,7 @@ module Computation = Sema.Integer_computation_class
 module Scalar = Ir.Integer_scalar_storage
 module Encoder = X86_64_encoder
 module Global_storage = X86_64_global_storage
+module Literal_storage = X86_64_literal_storage
 module Runtime = Ir.Runtime_call_context
 module Defaults = Driver.Native_parameter_defaults
 module Prepared_default = Ir.Prepared_parameter_default
@@ -164,7 +165,7 @@ let checked_copy description target source =
     ignore (checked_scalar ~allow_public:true description source))
   else (
     ignore (checked_reference description target);
-    if not (Type.equal target source) then
+    if not (Type.compatible_u8_pointer target source) then
       malformed description
         "native reference copy requires its exact pointer type")
 
@@ -195,6 +196,7 @@ type arena_access = {
   arena_offset : int;
   arena_bytes : int;
   arena_word : word_type;
+  arena_extent_bytes : int;
   initialized_flag_offset : int;
 }
 
@@ -209,8 +211,25 @@ type frame_reference_origin = { access : frame_access; extent_bytes : int }
 type reference_origin =
   | Frame_reference of frame_reference_origin
   | Arena_reference of arena_access
+  | Literal_reference of Literal_storage.region
 
-type indexed_frame_access = { origin : frame_reference_origin; offset : value }
+type reference_table = Frame_table of int | Arena_table of int
+type indexed_object_access = { origin : reference_origin; offset : value }
+
+let reference_scalar = function
+  | Frame_reference origin ->
+      {
+        word_type = origin.access.frame_word;
+        byte_size = origin.access.frame_bytes;
+      }
+  | Arena_reference access ->
+      { word_type = access.arena_word; byte_size = access.arena_bytes }
+  | Literal_reference _ -> { word_type = U64; byte_size = 1 }
+
+let reference_extent = function
+  | Frame_reference origin -> origin.extent_bytes
+  | Arena_reference access -> access.arena_extent_bytes
+  | Literal_reference region -> Literal_storage.byte_count region
 
 type index_add_base =
   | Index_zero
@@ -243,7 +262,8 @@ type operation =
   | Frame_tick
   | Scale_index of word_type * int64 * value * value
   | Add_index of index_add_base * value * value
-  | Materialize_reference of reference_origin * int * value option * value
+  | Materialize_reference of
+      reference_origin * reference_table * value option * value
   | Materialize_existing_reference of reference_access * value
   | Load_reference_value of reference_access * value
   | Store_reference_value of reference_access * value * value
@@ -255,10 +275,10 @@ type operation =
       * value
       * word_type
       * fault_site option
-  | Load_indexed_frame_value of indexed_frame_access * value
-  | Store_indexed_frame_value of indexed_frame_access * value * value
-  | Update_indexed_frame_value of
-      indexed_frame_access
+  | Load_indexed_object_value of indexed_object_access * value
+  | Store_indexed_object_value of indexed_object_access * value * value
+  | Update_indexed_object_value of
+      indexed_object_access
       * frame_update
       * value option
       * bool
@@ -1525,6 +1545,34 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
       (Encoder.Store_indirect_narrow (flag_base, Encoder.Frame8, Encoder.Rax));
     mark no_flag
   in
+  let emit_reference_data span target = function
+    | Frame_reference origin ->
+        emit span
+          (Encoder.Address_frame
+             (target, encoder_scalar_frame_slot span origin.access.frame_offset))
+    | Arena_reference access ->
+        emit span
+          (Encoder.Address_arena
+             (target, encoder_arena_slot span access.arena_offset))
+    | Literal_reference region ->
+        emit span
+          (Encoder.Address_arena
+             ( target,
+               encoder_arena_slot span (Literal_storage.data_offset region) ))
+  in
+  let emit_reference_flag span target = function
+    | Frame_reference origin -> (
+        match origin.access.initialized_flag_offset with
+        | Some offset ->
+            emit span
+              (Encoder.Address_frame (target, encoder_frame_slot span offset))
+        | None -> emit span (Encoder.Mov_imm64 (target, 0L)))
+    | Arena_reference access ->
+        emit span
+          (Encoder.Address_arena
+             (target, encoder_arena_slot span access.initialized_flag_offset))
+    | Literal_reference _ -> emit span (Encoder.Mov_imm64 (target, 0L))
+  in
   List.iteri
     (fun position (instruction : prepared_instruction) ->
       release_before position;
@@ -1776,23 +1824,10 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
           emit_branch Overflow overflow;
           note_peak ~temporaries:[ rax; rcx; rdx ] ();
           assign position rax result
-      | Materialize_reference (origin, table_offset, target_offset, result) ->
+      | Materialize_reference (origin, table, target_offset, result) ->
           spill_all_registers instruction.span;
-          let scalar, extent_bytes =
-            match origin with
-            | Frame_reference origin ->
-                ( {
-                    word_type = origin.access.frame_word;
-                    byte_size = origin.access.frame_bytes;
-                  },
-                  origin.extent_bytes )
-            | Arena_reference access ->
-                ( {
-                    word_type = access.arena_word;
-                    byte_size = access.arena_bytes;
-                  },
-                  access.arena_bytes )
-          in
+          let scalar = reference_scalar origin in
+          let extent_bytes = reference_extent origin in
           (match target_offset with
           | None -> emit (Encoder.Mov_imm64 (Encoder.Rcx, 0L))
           | Some offset ->
@@ -1801,39 +1836,22 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
               emit_bounds instruction.span
                 (Option.get instruction.site)
                 ~one_past:true ~scalar ~offset:Encoder.Rcx ~extent:Encoder.R8);
-          emit
-            (Encoder.Address_frame
-               (Encoder.Rdx, encoder_frame_slot instruction.span table_offset));
+          (match table with
+          | Frame_table offset ->
+              emit
+                (Encoder.Address_frame
+                   (Encoder.Rdx, encoder_frame_slot instruction.span offset))
+          | Arena_table offset ->
+              emit
+                (Encoder.Address_arena
+                   (Encoder.Rdx, encoder_arena_slot instruction.span offset)));
           emit (Encoder.Mov (Encoder.Rax, Encoder.Rcx));
           emit_doubles instruction.span Encoder.Rax
             (descriptor_scale_doubles scalar);
           emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.Rax));
-          (match origin with
-          | Frame_reference origin -> (
-              let access = origin.access in
-              emit
-                (Encoder.Address_frame
-                   ( Encoder.Rax,
-                     encoder_scalar_frame_slot instruction.span
-                       access.frame_offset ));
-              emit (Encoder.Store_indirect_offset (Encoder.Rdx, 0, Encoder.Rax));
-              match access.initialized_flag_offset with
-              | Some flag ->
-                  emit
-                    (Encoder.Address_frame
-                       (Encoder.Rax, encoder_frame_slot instruction.span flag))
-              | None -> emit (Encoder.Mov_imm64 (Encoder.Rax, 0L)))
-          | Arena_reference access ->
-              emit
-                (Encoder.Address_arena
-                   ( Encoder.Rax,
-                     encoder_arena_slot instruction.span access.arena_offset ));
-              emit (Encoder.Store_indirect_offset (Encoder.Rdx, 0, Encoder.Rax));
-              emit
-                (Encoder.Address_arena
-                   ( Encoder.Rax,
-                     encoder_arena_slot instruction.span
-                       access.initialized_flag_offset )));
+          emit_reference_data instruction.span Encoder.Rax origin;
+          emit (Encoder.Store_indirect_offset (Encoder.Rdx, 0, Encoder.Rax));
+          emit_reference_flag instruction.span Encoder.Rax origin;
           emit (Encoder.Store_indirect_offset (Encoder.Rdx, 8, Encoder.Rax));
           emit (Encoder.Store_indirect_offset (Encoder.Rdx, 16, Encoder.Rcx));
           emit (Encoder.Mov_imm64 (Encoder.Rax, Int64.of_int extent_bytes));
@@ -1914,32 +1932,18 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
           copy_value_to instruction.span input rax;
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position rax result
-      | Load_indexed_frame_value (access, result) ->
+      | Load_indexed_object_value (access, result) ->
           spill_all_registers instruction.span;
-          let scalar =
-            {
-              word_type = access.origin.access.frame_word;
-              byte_size = access.origin.access.frame_bytes;
-            }
-          in
+          let scalar = reference_scalar access.origin in
           copy_value_to instruction.span access.offset rcx;
           emit
             (Encoder.Mov_imm64
-               (Encoder.R8, Int64.of_int access.origin.extent_bytes));
+               (Encoder.R8, Int64.of_int (reference_extent access.origin)));
           emit_bounds instruction.span
             (Option.get instruction.site)
             ~one_past:false ~scalar ~offset:Encoder.Rcx ~extent:Encoder.R8;
-          (match access.origin.access.initialized_flag_offset with
-          | Some flag ->
-              emit
-                (Encoder.Address_frame
-                   (Encoder.R8, encoder_frame_slot instruction.span flag))
-          | None -> emit (Encoder.Mov_imm64 (Encoder.R8, 0L)));
-          emit
-            (Encoder.Address_frame
-               ( Encoder.Rdx,
-                 encoder_scalar_frame_slot instruction.span
-                   access.origin.access.frame_offset ));
+          emit_reference_flag instruction.span Encoder.R8 access.origin;
+          emit_reference_data instruction.span Encoder.Rdx access.origin;
           emit_flag_check instruction.span
             (Option.get instruction.site)
             scalar ~flag_base:Encoder.R8 ~offset:Encoder.Rcx;
@@ -1949,32 +1953,18 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
                scalar);
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position rax result
-      | Store_indexed_frame_value (access, input, result) ->
+      | Store_indexed_object_value (access, input, result) ->
           spill_all_registers instruction.span;
-          let scalar =
-            {
-              word_type = access.origin.access.frame_word;
-              byte_size = access.origin.access.frame_bytes;
-            }
-          in
+          let scalar = reference_scalar access.origin in
           copy_value_to instruction.span access.offset rcx;
           emit
             (Encoder.Mov_imm64
-               (Encoder.R8, Int64.of_int access.origin.extent_bytes));
+               (Encoder.R8, Int64.of_int (reference_extent access.origin)));
           emit_bounds instruction.span
             (Option.get instruction.site)
             ~one_past:false ~scalar ~offset:Encoder.Rcx ~extent:Encoder.R8;
-          (match access.origin.access.initialized_flag_offset with
-          | Some flag ->
-              emit
-                (Encoder.Address_frame
-                   (Encoder.R8, encoder_frame_slot instruction.span flag))
-          | None -> emit (Encoder.Mov_imm64 (Encoder.R8, 0L)));
-          emit
-            (Encoder.Address_frame
-               ( Encoder.Rdx,
-                 encoder_scalar_frame_slot instruction.span
-                   access.origin.access.frame_offset ));
+          emit_reference_flag instruction.span Encoder.R8 access.origin;
+          emit_reference_data instruction.span Encoder.Rdx access.origin;
           emit (Encoder.Binary (Encoder.Add, Encoder.Rdx, Encoder.Rcx));
           copy_value_to instruction.span input rax;
           emit
@@ -2135,33 +2125,19 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
               (if old_result then [ rax; rcx; rdx; r8 ] else [ rax; rcx; rdx ])
             ();
           assign position (if old_result then r8 else computed_index) result
-      | Update_indexed_frame_value
+      | Update_indexed_object_value
           (access, update, input, old_result, result, word, arithmetic_site) ->
           spill_all_registers instruction.span;
-          let scalar =
-            {
-              word_type = access.origin.access.frame_word;
-              byte_size = access.origin.access.frame_bytes;
-            }
-          in
+          let scalar = reference_scalar access.origin in
           copy_value_to instruction.span access.offset rcx;
           emit
             (Encoder.Mov_imm64
-               (Encoder.R8, Int64.of_int access.origin.extent_bytes));
+               (Encoder.R8, Int64.of_int (reference_extent access.origin)));
           emit_bounds instruction.span
             (Option.get instruction.site)
             ~one_past:false ~scalar ~offset:Encoder.Rcx ~extent:Encoder.R8;
-          (match access.origin.access.initialized_flag_offset with
-          | Some flag ->
-              emit
-                (Encoder.Address_frame
-                   (Encoder.R8, encoder_frame_slot instruction.span flag))
-          | None -> emit (Encoder.Mov_imm64 (Encoder.R8, 0L)));
-          emit
-            (Encoder.Address_frame
-               ( Encoder.Rdx,
-                 encoder_scalar_frame_slot instruction.span
-                   access.origin.access.frame_offset ));
+          emit_reference_flag instruction.span Encoder.R8 access.origin;
+          emit_reference_data instruction.span Encoder.Rdx access.origin;
           emit_flag_check instruction.span
             (Option.get instruction.site)
             scalar ~flag_base:Encoder.R8 ~offset:Encoder.Rcx;
@@ -2595,6 +2571,8 @@ type program_image = {
   function_count : int;
   entry_stack_bytes : int;
   global_bytes : int;
+  literal_bytes : int;
+  arena_metadata_bytes : int;
   global_image : string;
   sites : program_site list;
 }
@@ -2886,8 +2864,14 @@ type callable_function_info = {
   init_flag_offsets : int list;
 }
 
+type indexed_object = {
+  object_origin : reference_origin;
+  object_type : Type.t;
+  object_element_count : int;
+}
+
 type indexed_root =
-  | Indexed_frame_root of callable_slot
+  | Indexed_object_root of indexed_object
   | Indexed_reference_root of reference_access
 
 type index_offset_term = {
@@ -2986,6 +2970,7 @@ let arena_access slot =
     arena_offset = Global_storage.data_offset slot;
     arena_bytes = Scalar.byte_size scalar;
     arena_word = (if Scalar.is_unsigned scalar then U64 else I64);
+    arena_extent_bytes = Global_storage.extent_bytes slot;
     initialized_flag_offset = Global_storage.flag_offset slot;
   }
 
@@ -3406,8 +3391,8 @@ let validate_callable_returns graph return_kind =
       done
 
 let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
-    ~global_storage ~runtime_owner ~owner ~frame_slots ~expected_return
-    ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
+    ~global_storage ~literal_storage ~runtime_owner ~owner ~frame_slots
+    ~expected_return ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
   let reference_bytes = ref 0 in
   let blocks = Graph.blocks graph in
   let instruction_ids = ref Instruction_set.empty in
@@ -3479,7 +3464,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
   let touch_indexed position indexed =
     touch position indexed.indexed_offset;
     match indexed.indexed_root with
-    | Indexed_frame_root _ -> ()
+    | Indexed_object_root _ -> ()
     | Indexed_reference_root access -> touch_reference position access
   in
   let frame_operand frame_values description id =
@@ -3774,6 +3759,28 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | _ ->
                   malformed description
                     "IC_CALL_END is outside a completed call scope")
+          | Opcode.Ic_str_const -> (
+              match
+                ( description.result,
+                  description.target_type,
+                  Literal_storage.find literal_storage ~owner:runtime_owner
+                    ~graph description.instruction_id )
+              with
+              | Some result, Some target_type, Some region ->
+                  ignore (checked_reference description target_type);
+                  let value =
+                    define values description position result target_type
+                      (Computation.forward target_type)
+                  in
+                  ( Materialize_reference
+                      ( Literal_reference region,
+                        Arena_table (Literal_storage.table_offset region),
+                        None,
+                        value ),
+                    None )
+              | _ ->
+                  malformed description
+                    "literal producer has no exact owned byte region")
           | Opcode.Ic_rbp -> (
               if is_entry then
                 unsupported description
@@ -3970,9 +3977,42 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                               malformed description
                                 "indexed frame base changes its checked \
                                  pointer type";
-                            ( Indexed_frame_root slot,
+                            ( Indexed_object_root
+                                {
+                                  object_origin =
+                                    Frame_reference
+                                      (frame_reference_origin slot);
+                                  object_type = slot.slot_type;
+                                  object_element_count = slot.slot_element_count;
+                                },
                               Index_zero,
                               slot_strides slot )
+                        | Some (Global_address slot) ->
+                            if Global_storage.dimensions slot = [] then
+                              malformed description
+                                "indexed persistent base has no checked array \
+                                 dimensions";
+                            let expected =
+                              match
+                                Type.pointer_to (Global_storage.type_ slot)
+                              with
+                              | Ok expected -> expected
+                              | Error message -> malformed description message
+                            in
+                            if not (Type.equal expected target_type) then
+                              malformed description
+                                "indexed persistent base changes its checked \
+                                 pointer type";
+                            ( Indexed_object_root
+                                {
+                                  object_origin =
+                                    Arena_reference (arena_access slot);
+                                  object_type = Global_storage.type_ slot;
+                                  object_element_count =
+                                    Global_storage.element_count slot;
+                                },
+                              Index_zero,
+                              Global_storage.strides slot )
                         | Some (Indexed_address indexed) ->
                             if
                               not
@@ -4057,7 +4097,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                     let table_offset =
                       reserve_reference_table description element_count
                     in
-                    ( Materialize_reference (origin, table_offset, offset, value),
+                    ( Materialize_reference
+                        (origin, Frame_table table_offset, offset, value),
                       None )
                   in
                   match address with
@@ -4067,7 +4108,10 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                         slot.slot_element_count None
                   | Global_address slot
                     when Type.equal pointee (Global_storage.type_ slot) ->
-                      materialize (Arena_reference (arena_access slot)) 1 None
+                      materialize
+                        (Arena_reference (arena_access slot))
+                        (Global_storage.element_count slot)
+                        None
                   | Reference_address (access, actual)
                     when Type.equal pointee actual ->
                       (Materialize_existing_reference (access, value), None)
@@ -4076,10 +4120,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       | Error message -> malformed description message
                       | Ok actual when Type.equal pointee actual -> (
                           match indexed.indexed_root with
-                          | Indexed_frame_root slot ->
-                              materialize
-                                (Frame_reference (frame_reference_origin slot))
-                                slot.slot_element_count
+                          | Indexed_object_root object_ ->
+                              materialize object_.object_origin
+                                object_.object_element_count
                                 (Some indexed.indexed_offset)
                           | Indexed_reference_root access ->
                               ( Materialize_existing_reference
@@ -4121,7 +4164,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       in
                       (Load_frame_value (slot.access, value), None)
                   | Global_address slot
-                    when Type.equal target_type (Global_storage.type_ slot) ->
+                    when Global_storage.dimensions slot = []
+                         && Type.equal target_type (Global_storage.type_ slot)
+                    ->
                       ignore
                         (checked_scalar ~allow_public:true description
                            target_type);
@@ -4140,16 +4185,16 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   | Indexed_address indexed
                     when indexed.indexed_remaining_strides = [] -> (
                       match indexed.indexed_root with
-                      | Indexed_frame_root slot
-                        when Type.equal target_type slot.slot_type ->
+                      | Indexed_object_root object_
+                        when Type.equal target_type object_.object_type ->
                           let value =
                             define values description position result
                               target_type
                               (Computation.forward target_type)
                           in
-                          ( Load_indexed_frame_value
+                          ( Load_indexed_object_value
                               ( {
-                                  origin = frame_reference_origin slot;
+                                  origin = object_.object_origin;
                                   offset = indexed.indexed_offset;
                                 },
                                 value ),
@@ -4209,7 +4254,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       in
                       (Store_frame_value (slot.access, input, value), None)
                   | Global_address slot
-                    when Type.equal target_type (Global_storage.type_ slot) ->
+                    when Global_storage.dimensions slot = []
+                         && Type.equal target_type (Global_storage.type_ slot)
+                    ->
                       let input =
                         operand values description position input_id
                       in
@@ -4241,11 +4288,11 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                           (Computation.forward target_type)
                       in
                       match indexed.indexed_root with
-                      | Indexed_frame_root slot
-                        when Type.equal target_type slot.slot_type ->
-                          ( Store_indexed_frame_value
+                      | Indexed_object_root object_
+                        when Type.equal target_type object_.object_type ->
+                          ( Store_indexed_object_value
                               ( {
-                                  origin = frame_reference_origin slot;
+                                  origin = object_.object_origin;
                                   offset = indexed.indexed_offset;
                                 },
                                 input,
@@ -4360,7 +4407,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                             arithmetic_site ),
                         None )
                   | Global_address slot
-                    when Type.equal target_type (Global_storage.type_ slot) ->
+                    when Global_storage.dimensions slot = []
+                         && Type.equal target_type (Global_storage.type_ slot)
+                    ->
                       let access = arena_access slot in
                       let update, old_result, expects_operand =
                         Option.get
@@ -4472,9 +4521,10 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                     when indexed.indexed_remaining_strides = [] -> (
                       let word, operation =
                         match indexed.indexed_root with
-                        | Indexed_frame_root slot
-                          when Type.equal target_type slot.slot_type ->
-                            (slot.slot_word, `Frame slot)
+                        | Indexed_object_root object_
+                          when Type.equal target_type object_.object_type ->
+                            ( (reference_scalar object_.object_origin).word_type,
+                              `Object object_ )
                         | Indexed_reference_root access -> (
                             match
                               Type.dereference indexed.indexed_pointer_type
@@ -4532,10 +4582,10 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                         | Update_binary _ | Update_shift _ -> None
                       in
                       match operation with
-                      | `Frame slot ->
-                          ( Update_indexed_frame_value
+                      | `Object object_ ->
+                          ( Update_indexed_object_value
                               ( {
-                                  origin = frame_reference_origin slot;
+                                  origin = object_.object_origin;
                                   offset = indexed.indexed_offset;
                                 },
                                 update,
@@ -4793,7 +4843,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               Some (arithmetic_operation, word = I64)
           | Update_reference_value
               (_, Update_division arithmetic_operation, _, _, _, word, _)
-          | Update_indexed_frame_value
+          | Update_indexed_object_value
               (_, Update_division arithmetic_operation, _, _, _, word, _)
           | Update_arena_value
               (_, Update_division arithmetic_operation, _, _, _, word, _) ->
@@ -4824,8 +4874,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   true
               | Load_arena_value _
               | Update_arena_value _
-              | Load_indexed_frame_value _
-              | Update_indexed_frame_value _
+              | Load_indexed_object_value _
+              | Update_indexed_object_value _
               | Load_reference_value _
               | Update_reference_value _ -> true
               | _ -> false);
@@ -4844,9 +4894,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | Load_reference_value _
               | Store_reference_value _
               | Update_reference_value _
-              | Load_indexed_frame_value _
-              | Store_indexed_frame_value _
-              | Update_indexed_frame_value _ -> true
+              | Load_indexed_object_value _
+              | Store_indexed_object_value _
+              | Update_indexed_object_value _ -> true
               | Materialize_reference (_, _, None, _)
               | Materialize_existing_reference ({ offset = None; _ }, _)
               | _ -> false);
@@ -5270,15 +5320,18 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                         function_count = 0;
                         entry_stack_bytes = 8 + !frame_size;
                         global_bytes = 0;
+                        literal_bytes = 0;
+                        arena_metadata_bytes = 0;
                         global_image = "";
                         sites;
                       }
               with Rejected error -> Error [ error ])))
 
 let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
-    ?(max_blocks = 4096) ?(max_global_bytes = 1_048_576) ?parameter_defaults
-    ?global_initializers ~max_ir_instructions ~max_code_bytes ~runtime_calls
-    ~initialization ~entry ~functions () =
+    ?(max_blocks = 4096) ?(max_global_bytes = 1_048_576)
+    ?(max_literal_bytes = 1_048_576) ?parameter_defaults ?global_initializers
+    ~max_ir_instructions ~max_code_bytes ~runtime_calls ~initialization ~entry
+    ~functions () =
   let globals = Ir.Global_initialization.globals initialization in
   let ( let* ) = Result.bind in
   let* () =
@@ -5298,6 +5351,27 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
           ]
     | _ -> Ok ()
   in
+  let* () = validate_limits ~max_ir_instructions ~max_code_bytes in
+  let* () = validate_stack_limit ~max_stack_bytes in
+  let* () = validate_block_limit ~max_blocks in
+  let* () =
+    Literal_storage.validate_limit ~max_literal_bytes
+    |> Result.map_error
+         (List.map (fun (error : Literal_storage.error) ->
+              { code = error.code; message = error.message; span = error.span }))
+  in
+  let entry_graph = Ir.X87_stack.graph entry in
+  let function_graphs =
+    List.map
+      (fun (definition : Ir.Integer_interpreter.function_definition) ->
+        Function.body definition.body)
+      functions
+  in
+  let graphs = entry_graph :: function_graphs in
+  let* block_count, ir_count =
+    try Ok (bounded_callable_counts ~max_ir_instructions ~max_blocks graphs)
+    with Rejected error -> Error [ error ]
+  in
   let* global_storage =
     (match global_initializers with
       | None ->
@@ -5310,8 +5384,20 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
          (List.map (fun (error : Global_storage.error) ->
               { code = error.code; message = error.message; span = error.span }))
   in
-  let has_globals = not (Global_storage.is_empty global_storage) in
-  if functions = [] && not has_globals then
+  let global_image = Global_storage.image global_storage in
+  let* literal_storage =
+    Literal_storage.create ~max_literal_bytes ~max_arena_bytes:33_554_432
+      ~arena_prefix_bytes:(String.length global_image)
+      ~runtime_calls ~initialization ~entry ~functions
+    |> Result.map_error
+         (List.map (fun (error : Literal_storage.error) ->
+              { code = error.code; message = error.message; span = error.span }))
+  in
+  let has_storage =
+    (not (Global_storage.is_empty global_storage))
+    || not (Literal_storage.is_empty literal_storage)
+  in
+  if functions = [] && not has_storage then
     if
       Runtime.matches runtime_calls ~entry ~initialization:(Some initialization)
         ~functions:[]
@@ -5346,440 +5432,360 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
           };
         ]
   else
-    match validate_limits ~max_ir_instructions ~max_code_bytes with
-    | Error errors -> Error errors
-    | Ok () -> (
-        match validate_stack_limit ~max_stack_bytes with
-        | Error errors -> Error errors
-        | Ok () -> (
-            match validate_block_limit ~max_blocks with
-            | Error errors -> Error errors
-            | Ok () -> (
-                try
-                  let function_bodies =
-                    List.map
-                      (fun (definition :
-                             Ir.Integer_interpreter.function_definition) ->
-                        definition.body)
-                      functions
-                  in
-                  if
-                    not
-                      (Runtime.matches runtime_calls ~entry
-                         ~initialization:(Some initialization)
-                         ~functions:function_bodies)
-                  then
-                    reject "HCBACK0003"
-                      "native callable bundle disagrees with its sealed \
-                       runtime-call context";
-                  Option.iter
-                    (fun proof ->
-                      if
-                        not
-                          (Defaults.matches proof ~globals ~runtime_calls
-                             ~initialization ~entry ~functions)
-                      then
+    try
+      let function_bodies =
+        List.map
+          (fun (definition : Ir.Integer_interpreter.function_definition) ->
+            definition.body)
+          functions
+      in
+      if
+        not
+          (Runtime.matches runtime_calls ~entry
+             ~initialization:(Some initialization) ~functions:function_bodies)
+      then
+        reject "HCBACK0003"
+          "native callable bundle disagrees with its sealed runtime-call \
+           context";
+      Option.iter
+        (fun proof ->
+          if
+            not
+              (Defaults.matches proof ~globals ~runtime_calls ~initialization
+                 ~entry ~functions)
+          then
+            reject "HCBACK0003"
+              "native parameter-default authority belongs to another callable \
+               bundle")
+        parameter_defaults;
+      if block_count = 0 then
+        reject "HCBACK0003" "native callable bundle requires an entry block";
+      let function_infos =
+        functions
+        |> List.map (prepare_callable_function ~max_stack_bytes)
+        |> Array.of_list
+      in
+      let next_site = ref 0 in
+      let entry_prepared =
+        preflight_callable_graph ~runtime_calls ~parameter_defaults
+          ~functions:function_infos ~global_storage ~literal_storage
+          ~runtime_owner:Runtime.Entry ~owner:Entry_owner
+          ~frame_slots:Int_map.empty ~expected_return:None ~is_entry:true
+          ~rbp_bytes:0 ~max_stack_bytes ~next_site entry_graph
+      in
+      let function_prepared =
+        Array.map
+          (fun info ->
+            let body = info.definition.body in
+            preflight_callable_graph ~runtime_calls ~parameter_defaults
+              ~functions:function_infos ~global_storage ~literal_storage
+              ~runtime_owner:(Runtime.Function body) ~owner:info.owner
+              ~frame_slots:info.frame_slots
+              ~expected_return:(Some (Function.return_type body))
+              ~is_entry:false ~rbp_bytes:info.rbp_bytes ~max_stack_bytes
+              ~next_site
+              (Ir.X87_stack.graph (Function.x87 body)))
+          function_infos
+      in
+      validate_callable_parameter_defaults ~parameter_defaults function_infos;
+      let preflight_ir_count =
+        entry_prepared.callable_ir_count
+        + Array.fold_left
+            (fun total body -> total + body.callable_ir_count)
+            0 function_prepared
+      in
+      let preflight_block_count =
+        entry_prepared.callable_block_count
+        + Array.fold_left
+            (fun total body -> total + body.callable_block_count)
+            0 function_prepared
+      in
+      if
+        preflight_ir_count <> ir_count
+        || preflight_block_count <> block_count
+        || !next_site <> ir_count
+      then
+        reject "HCBACK0003" "native callable preflight counts are inconsistent";
+      validate_switch_code_floor ~max_code_bytes
+        ~label:"native callable program"
+        (entry_prepared.callable_blocks
+        :: Array.to_list
+             (Array.map (fun body -> body.callable_blocks) function_prepared));
+      let sites =
+        entry_prepared.callable_sites
+        @ (Array.to_list function_prepared
+          |> List.concat_map (fun body -> body.callable_sites))
+      in
+      let abi = Option.value status_abi ~default:(default_status_abi ()) in
+      let supply = make_label_supply () in
+      let function_labels =
+        Array.init (Array.length function_infos) (fun _ -> fresh_label supply)
+      in
+      let allocate_graph ~graph ~prepared ~rbp_bytes ~init_flag_offsets
+          ~is_entry ~start_label =
+        let rbp_bytes = rbp_bytes + prepared.callable_reference_bytes in
+        let fixed_stack_slots =
+          prepared.callable_home_slots + prepared.callable_stage_slots
+        in
+        let base_bytes = rbp_bytes + (fixed_stack_slots * 8) in
+        let base_frame = if base_bytes = 0 then 0 else align_up base_bytes 16 in
+        if base_frame > max_stack_bytes || base_frame > 4080 then
+          reject "HCBACK0004"
+            (Printf.sprintf
+               "native callable fixed frame requires %d bytes, exceeding \
+                max_stack_bytes (%d)"
+               base_frame max_stack_bytes);
+        let block_labels =
+          List.fold_left
+            (fun labels block ->
+              Block_map.add block.program_block_id (fresh_label supply) labels)
+            Block_map.empty prepared.callable_blocks
+        in
+        let epilogue = fresh_label supply in
+        let block_plan_rev = ref [] in
+        let fault_blocks_rev = ref [] in
+        let frame_size = ref base_frame in
+        let peak = ref 0 in
+        List.iter
+          (fun block ->
+            let label =
+              match Block_map.find_opt block.program_block_id block_labels with
+              | Some label -> label
+              | None ->
+                  reject "HCBACK0003"
+                    "native callable block has no machine label"
+            in
+            let allocation =
+              allocate_body
+                ~callable_frame:{ rbp_bytes; fixed_stack_slots }
+                ~max_stack_bytes
+                ~reserved_registers:
+                  (if has_storage then [ Encoder.R9; Encoder.R10; Encoder.R11 ]
+                   else [ Encoder.R10; Encoder.R11 ])
+                ~supply
+                ~mode:
+                  (Callable_control
+                     {
+                       block_labels;
+                       epilogue_label = epilogue;
+                       is_entry;
+                       home_slots = prepared.callable_home_slots;
+                     })
+                block.program_instructions
+            in
+            if allocation.frame_size > 4080 then
+              reject "HCBACK0004"
+                "native callable frame exceeds the single guard-page-safe \
+                 allocation bound";
+            frame_size := max !frame_size allocation.frame_size;
+            peak := max !peak allocation.peak;
+            fault_blocks_rev :=
+              List.rev_append allocation.fault_blocks !fault_blocks_rev;
+            let block_plan = Planned_label label :: allocation.plan in
+            let block_plan =
+              match block.program_fallthrough with
+              | None -> block_plan
+              | Some target ->
+                  let target_label =
+                    match Block_map.find_opt target block_labels with
+                    | Some target -> target
+                    | None ->
                         reject "HCBACK0003"
-                          "native parameter-default authority belongs to \
-                           another callable bundle")
-                    parameter_defaults;
-                  let entry_graph = Ir.X87_stack.graph entry in
-                  let function_graphs =
-                    List.map
-                      (fun (definition :
-                             Ir.Integer_interpreter.function_definition) ->
-                        Ir.X87_stack.graph (Function.x87 definition.body))
-                      functions
+                          "native callable fallthrough target has no machine \
+                           label"
                   in
-                  let graphs = entry_graph :: function_graphs in
-                  let block_count, ir_count =
-                    bounded_callable_counts ~max_ir_instructions ~max_blocks
-                      graphs
-                  in
-                  if block_count = 0 then
-                    reject "HCBACK0003"
-                      "native callable bundle requires an entry block";
-                  let function_infos =
-                    functions
-                    |> List.map (prepare_callable_function ~max_stack_bytes)
-                    |> Array.of_list
-                  in
-                  let next_site = ref 0 in
-                  let entry_prepared =
-                    preflight_callable_graph ~runtime_calls ~parameter_defaults
-                      ~functions:function_infos ~global_storage
-                      ~runtime_owner:Runtime.Entry ~owner:Entry_owner
-                      ~frame_slots:Int_map.empty ~expected_return:None
-                      ~is_entry:true ~rbp_bytes:0 ~max_stack_bytes ~next_site
-                      entry_graph
-                  in
-                  let function_prepared =
-                    Array.map
-                      (fun info ->
-                        let body = info.definition.body in
-                        preflight_callable_graph ~runtime_calls
-                          ~parameter_defaults ~functions:function_infos
-                          ~global_storage ~runtime_owner:(Runtime.Function body)
-                          ~owner:info.owner ~frame_slots:info.frame_slots
-                          ~expected_return:(Some (Function.return_type body))
-                          ~is_entry:false ~rbp_bytes:info.rbp_bytes
-                          ~max_stack_bytes ~next_site
-                          (Ir.X87_stack.graph (Function.x87 body)))
-                      function_infos
-                  in
-                  validate_callable_parameter_defaults ~parameter_defaults
-                    function_infos;
-                  let preflight_ir_count =
-                    entry_prepared.callable_ir_count
-                    + Array.fold_left
-                        (fun total body -> total + body.callable_ir_count)
-                        0 function_prepared
-                  in
-                  let preflight_block_count =
-                    entry_prepared.callable_block_count
-                    + Array.fold_left
-                        (fun total body -> total + body.callable_block_count)
-                        0 function_prepared
-                  in
-                  if
-                    preflight_ir_count <> ir_count
-                    || preflight_block_count <> block_count
-                    || !next_site <> ir_count
-                  then
-                    reject "HCBACK0003"
-                      "native callable preflight counts are inconsistent";
-                  validate_switch_code_floor ~max_code_bytes
-                    ~label:"native callable program"
-                    (entry_prepared.callable_blocks
-                    :: Array.to_list
-                         (Array.map
-                            (fun body -> body.callable_blocks)
-                            function_prepared));
-                  let sites =
-                    entry_prepared.callable_sites
-                    @ (Array.to_list function_prepared
-                      |> List.concat_map (fun body -> body.callable_sites))
-                  in
-                  let abi =
-                    Option.value status_abi ~default:(default_status_abi ())
-                  in
-                  let supply = make_label_supply () in
-                  let function_labels =
-                    Array.init (Array.length function_infos) (fun _ ->
-                        fresh_label supply)
-                  in
-                  let allocate_graph ~graph ~prepared ~rbp_bytes
-                      ~init_flag_offsets ~is_entry ~start_label =
-                    let rbp_bytes =
-                      rbp_bytes + prepared.callable_reference_bytes
-                    in
-                    let fixed_stack_slots =
-                      prepared.callable_home_slots
-                      + prepared.callable_stage_slots
-                    in
-                    let base_bytes = rbp_bytes + (fixed_stack_slots * 8) in
-                    let base_frame =
-                      if base_bytes = 0 then 0 else align_up base_bytes 16
-                    in
-                    if base_frame > max_stack_bytes || base_frame > 4080 then
-                      reject "HCBACK0004"
-                        (Printf.sprintf
-                           "native callable fixed frame requires %d bytes, \
-                            exceeding max_stack_bytes (%d)"
-                           base_frame max_stack_bytes);
-                    let block_labels =
-                      List.fold_left
-                        (fun labels block ->
-                          Block_map.add block.program_block_id
-                            (fresh_label supply) labels)
-                        Block_map.empty prepared.callable_blocks
-                    in
-                    let epilogue = fresh_label supply in
-                    let block_plan_rev = ref [] in
-                    let fault_blocks_rev = ref [] in
-                    let frame_size = ref base_frame in
-                    let peak = ref 0 in
-                    List.iter
-                      (fun block ->
-                        let label =
-                          match
-                            Block_map.find_opt block.program_block_id
-                              block_labels
-                          with
-                          | Some label -> label
-                          | None ->
-                              reject "HCBACK0003"
-                                "native callable block has no machine label"
-                        in
-                        let allocation =
-                          allocate_body
-                            ~callable_frame:{ rbp_bytes; fixed_stack_slots }
-                            ~max_stack_bytes
-                            ~reserved_registers:
-                              (if has_globals then
-                                 [ Encoder.R9; Encoder.R10; Encoder.R11 ]
-                               else [ Encoder.R10; Encoder.R11 ])
-                            ~supply
-                            ~mode:
-                              (Callable_control
-                                 {
-                                   block_labels;
-                                   epilogue_label = epilogue;
-                                   is_entry;
-                                   home_slots = prepared.callable_home_slots;
-                                 })
-                            block.program_instructions
-                        in
-                        if allocation.frame_size > 4080 then
-                          reject "HCBACK0004"
-                            "native callable frame exceeds the single \
-                             guard-page-safe allocation bound";
-                        frame_size := max !frame_size allocation.frame_size;
-                        peak := max !peak allocation.peak;
-                        fault_blocks_rev :=
-                          List.rev_append allocation.fault_blocks
-                            !fault_blocks_rev;
-                        let block_plan =
-                          Planned_label label :: allocation.plan
-                        in
-                        let block_plan =
-                          match block.program_fallthrough with
-                          | None -> block_plan
-                          | Some target ->
-                              let target_label =
-                                match
-                                  Block_map.find_opt target block_labels
-                                with
-                                | Some target -> target
-                                | None ->
-                                    reject "HCBACK0003"
-                                      "native callable fallthrough target has \
-                                       no machine label"
-                              in
-                              block_plan
-                              @ [ Planned_branch (Unconditional, target_label) ]
-                        in
-                        block_plan_rev :=
-                          List.rev_append block_plan !block_plan_rev)
-                      prepared.callable_blocks;
-                    let frame =
-                      if !frame_size = 0 then None
-                      else Some (encoder_call_frame None !frame_size)
-                    in
-                    let prefix =
-                      (match start_label with
-                        | None -> []
-                        | Some label -> [ Planned_label label ])
-                      @ [
-                          Planned_instruction Encoder.Push_rbp;
-                          Planned_instruction Encoder.Mov_rbp_rsp;
-                        ]
-                      @ (match frame with
-                        | None -> []
-                        | Some frame ->
-                            [
-                              Planned_instruction
-                                (Encoder.Alloc_call_frame frame);
-                            ])
-                      @ (if is_entry then
-                           [
-                             Planned_instruction (Encoder.Capture_status abi);
-                             Planned_instruction
-                               (Encoder.Load_context (Encoder.R10, 16));
-                           ]
-                         else [])
-                      @ (if is_entry && has_globals then
-                           [
-                             Planned_instruction
-                               (Encoder.Load_context (Encoder.R9, 72));
-                           ]
-                         else [])
-                      @ List.concat_map
-                          (fun flag_offset ->
-                            [
-                              Planned_instruction
-                                (Encoder.Mov_imm64 (Encoder.Rax, 0L));
-                              Planned_instruction
-                                (Encoder.Store_frame
-                                   ( encoder_frame_slot None flag_offset,
-                                     Encoder.Rax ));
-                            ])
-                          init_flag_offsets
-                    in
-                    let entry_id = Graph.entry graph |> Graph.block_id in
-                    let graph_entry_label =
-                      match Block_map.find_opt entry_id block_labels with
-                      | Some label -> label
-                      | None ->
-                          reject "HCBACK0003"
-                            "native callable graph entry has no machine label"
-                    in
-                    let prefix =
-                      prefix
-                      @ [ Planned_branch (Unconditional, graph_entry_label) ]
-                    in
-                    let fault_plan =
-                      List.rev !fault_blocks_rev
-                      |> List.concat_map (fun block ->
-                          [
-                            Planned_label block.label;
-                            Planned_instruction
-                              (Encoder.Store_context_imm (8, block.site_value));
-                            Planned_instruction
-                              (Encoder.Store_context_imm (0, block.kind_value));
-                            Planned_branch (Unconditional, epilogue);
-                          ])
-                    in
-                    let suffix =
-                      [ Planned_label epilogue ]
-                      @ (if is_entry then
-                           [
-                             Planned_instruction
-                               (Encoder.Load_context (Encoder.Rax, 16));
-                             Planned_instruction
-                               (Encoder.Binary
-                                  (Encoder.Sub, Encoder.Rax, Encoder.R10));
-                             Planned_instruction
-                               (Encoder.Store_context (24, Encoder.Rax));
-                           ]
-                         else [])
-                      @ (match frame with
-                        | None -> []
-                        | Some frame ->
-                            [
-                              Planned_instruction
-                                (Encoder.Free_call_frame frame);
-                            ])
-                      @ [
-                          Planned_instruction Encoder.Pop_rbp;
-                          Planned_instruction Encoder.Ret;
-                        ]
-                    in
-                    {
-                      body_plan =
-                        prefix @ List.rev !block_plan_rev @ fault_plan @ suffix;
-                      body_frame_size = !frame_size;
-                      body_peak = !peak;
-                      body_unwind =
-                        build_callable_windows_unwind_info !frame_size;
-                    }
-                  in
-                  let entry_allocated =
-                    allocate_graph ~graph:entry_graph ~prepared:entry_prepared
-                      ~rbp_bytes:0 ~init_flag_offsets:[] ~is_entry:true
-                      ~start_label:None
-                  in
-                  let functions_allocated =
-                    Array.mapi
-                      (fun index info ->
-                        allocate_graph
-                          ~graph:
-                            (Ir.X87_stack.graph
-                               (Function.x87 info.definition.body))
-                          ~prepared:function_prepared.(index)
-                          ~rbp_bytes:info.rbp_bytes
-                          ~init_flag_offsets:info.init_flag_offsets
-                          ~is_entry:false
-                          ~start_label:(Some function_labels.(index)))
-                      function_infos
-                  in
-                  let callee_stack_bytes =
-                    Array.map
-                      (fun body -> 16 + body.body_frame_size)
-                      functions_allocated
-                  in
-                  let plan =
-                    entry_allocated.body_plan
-                    @ (Array.to_list functions_allocated
-                      |> List.concat_map (fun body -> body.body_plan))
-                  in
-                  let label_offsets, planned_code_size =
-                    plan_label_offsets plan
-                  in
-                  let instructions, code_size, machine_count =
-                    resolve_plan ~callee_labels:function_labels
-                      ~callee_stack_bytes plan
-                  in
-                  if code_size <> planned_code_size then
-                    reject "HCBACK0003"
-                      "native callable label accounting disagrees with plan \
-                       resolution";
-                  if code_size > max_code_bytes then
-                    reject "HCBACK0005"
-                      "native callable program exceeds max_code_bytes";
-                  let function_starts =
-                    Array.map
-                      (fun label ->
-                        match Hashtbl.find_opt label_offsets label with
-                        | Some offset -> offset
-                        | None ->
-                            reject "HCBACK0003"
-                              "native callable function has no resolved start \
-                               offset")
-                      function_labels
-                  in
-                  let unwind_functions =
-                    let entry_end =
-                      if Array.length function_starts = 0 then code_size
-                      else function_starts.(0)
-                    in
-                    let entry_record =
-                      (0, entry_end, Bytes.copy entry_allocated.body_unwind)
-                    in
-                    let named =
-                      Array.to_list
-                        (Array.mapi
-                           (fun index body ->
-                             let begin_offset = function_starts.(index) in
-                             let end_offset =
-                               if index + 1 < Array.length function_starts then
-                                 function_starts.(index + 1)
-                               else code_size
-                             in
-                             ( begin_offset,
-                               end_offset,
-                               Bytes.copy body.body_unwind ))
-                           functions_allocated)
-                    in
-                    entry_record :: named
-                  in
-                  match Encoder.encode_all ~max_code_bytes instructions with
-                  | Error message -> reject "HCBACK0005" message
-                  | Ok encoded ->
-                      if String.length encoded <> code_size then
-                        reject "HCBACK0003"
-                          "encoded length does not match the native callable \
-                           plan";
-                      let peak =
-                        Array.fold_left
-                          (fun peak body -> max peak body.body_peak)
-                          entry_allocated.body_peak functions_allocated
-                      in
-                      let frame_size =
-                        Array.fold_left
-                          (fun size body -> max size body.body_frame_size)
-                          entry_allocated.body_frame_size functions_allocated
-                      in
-                      Ok
-                        {
-                          encoded = Bytes.of_string encoded;
-                          ir_count;
-                          machine_count;
-                          peak = max (if has_globals then 6 else 5) peak;
-                          frame_size;
-                          unwind_info = Bytes.copy entry_allocated.body_unwind;
-                          unwind_functions;
-                          status_abi = abi;
-                          block_count;
-                          function_count = Array.length function_infos;
-                          entry_stack_bytes =
-                            16 + entry_allocated.body_frame_size;
-                          global_bytes =
-                            Global_storage.global_bytes global_storage;
-                          global_image = Global_storage.image global_storage;
-                          sites;
-                        }
-                with Rejected error -> Error [ error ])))
+                  block_plan @ [ Planned_branch (Unconditional, target_label) ]
+            in
+            block_plan_rev := List.rev_append block_plan !block_plan_rev)
+          prepared.callable_blocks;
+        let frame =
+          if !frame_size = 0 then None
+          else Some (encoder_call_frame None !frame_size)
+        in
+        let prefix =
+          (match start_label with
+            | None -> []
+            | Some label -> [ Planned_label label ])
+          @ [
+              Planned_instruction Encoder.Push_rbp;
+              Planned_instruction Encoder.Mov_rbp_rsp;
+            ]
+          @ (match frame with
+            | None -> []
+            | Some frame ->
+                [ Planned_instruction (Encoder.Alloc_call_frame frame) ])
+          @ (if is_entry then
+               [
+                 Planned_instruction (Encoder.Capture_status abi);
+                 Planned_instruction (Encoder.Load_context (Encoder.R10, 16));
+               ]
+             else [])
+          @ (if is_entry && has_storage then
+               [ Planned_instruction (Encoder.Load_context (Encoder.R9, 72)) ]
+             else [])
+          @ List.concat_map
+              (fun flag_offset ->
+                [
+                  Planned_instruction (Encoder.Mov_imm64 (Encoder.Rax, 0L));
+                  Planned_instruction
+                    (Encoder.Store_frame
+                       (encoder_frame_slot None flag_offset, Encoder.Rax));
+                ])
+              init_flag_offsets
+        in
+        let entry_id = Graph.entry graph |> Graph.block_id in
+        let graph_entry_label =
+          match Block_map.find_opt entry_id block_labels with
+          | Some label -> label
+          | None ->
+              reject "HCBACK0003"
+                "native callable graph entry has no machine label"
+        in
+        let prefix =
+          prefix @ [ Planned_branch (Unconditional, graph_entry_label) ]
+        in
+        let fault_plan =
+          List.rev !fault_blocks_rev
+          |> List.concat_map (fun block ->
+              [
+                Planned_label block.label;
+                Planned_instruction
+                  (Encoder.Store_context_imm (8, block.site_value));
+                Planned_instruction
+                  (Encoder.Store_context_imm (0, block.kind_value));
+                Planned_branch (Unconditional, epilogue);
+              ])
+        in
+        let suffix =
+          [ Planned_label epilogue ]
+          @ (if is_entry then
+               [
+                 Planned_instruction (Encoder.Load_context (Encoder.Rax, 16));
+                 Planned_instruction
+                   (Encoder.Binary (Encoder.Sub, Encoder.Rax, Encoder.R10));
+                 Planned_instruction (Encoder.Store_context (24, Encoder.Rax));
+               ]
+             else [])
+          @ (match frame with
+            | None -> []
+            | Some frame ->
+                [ Planned_instruction (Encoder.Free_call_frame frame) ])
+          @ [
+              Planned_instruction Encoder.Pop_rbp;
+              Planned_instruction Encoder.Ret;
+            ]
+        in
+        {
+          body_plan = prefix @ List.rev !block_plan_rev @ fault_plan @ suffix;
+          body_frame_size = !frame_size;
+          body_peak = !peak;
+          body_unwind = build_callable_windows_unwind_info !frame_size;
+        }
+      in
+      let entry_allocated =
+        allocate_graph ~graph:entry_graph ~prepared:entry_prepared ~rbp_bytes:0
+          ~init_flag_offsets:[] ~is_entry:true ~start_label:None
+      in
+      let functions_allocated =
+        Array.mapi
+          (fun index info ->
+            allocate_graph
+              ~graph:(Ir.X87_stack.graph (Function.x87 info.definition.body))
+              ~prepared:function_prepared.(index) ~rbp_bytes:info.rbp_bytes
+              ~init_flag_offsets:info.init_flag_offsets ~is_entry:false
+              ~start_label:(Some function_labels.(index)))
+          function_infos
+      in
+      let callee_stack_bytes =
+        Array.map (fun body -> 16 + body.body_frame_size) functions_allocated
+      in
+      let plan =
+        entry_allocated.body_plan
+        @ (Array.to_list functions_allocated
+          |> List.concat_map (fun body -> body.body_plan))
+      in
+      let label_offsets, planned_code_size = plan_label_offsets plan in
+      let instructions, code_size, machine_count =
+        resolve_plan ~callee_labels:function_labels ~callee_stack_bytes plan
+      in
+      if code_size <> planned_code_size then
+        reject "HCBACK0003"
+          "native callable label accounting disagrees with plan resolution";
+      if code_size > max_code_bytes then
+        reject "HCBACK0005" "native callable program exceeds max_code_bytes";
+      let function_starts =
+        Array.map
+          (fun label ->
+            match Hashtbl.find_opt label_offsets label with
+            | Some offset -> offset
+            | None ->
+                reject "HCBACK0003"
+                  "native callable function has no resolved start offset")
+          function_labels
+      in
+      let unwind_functions =
+        let entry_end =
+          if Array.length function_starts = 0 then code_size
+          else function_starts.(0)
+        in
+        let entry_record =
+          (0, entry_end, Bytes.copy entry_allocated.body_unwind)
+        in
+        let named =
+          Array.to_list
+            (Array.mapi
+               (fun index body ->
+                 let begin_offset = function_starts.(index) in
+                 let end_offset =
+                   if index + 1 < Array.length function_starts then
+                     function_starts.(index + 1)
+                   else code_size
+                 in
+                 (begin_offset, end_offset, Bytes.copy body.body_unwind))
+               functions_allocated)
+        in
+        entry_record :: named
+      in
+      match Encoder.encode_all ~max_code_bytes instructions with
+      | Error message -> reject "HCBACK0005" message
+      | Ok encoded ->
+          if String.length encoded <> code_size then
+            reject "HCBACK0003"
+              "encoded length does not match the native callable plan";
+          let peak =
+            Array.fold_left
+              (fun peak body -> max peak body.body_peak)
+              entry_allocated.body_peak functions_allocated
+          in
+          let frame_size =
+            Array.fold_left
+              (fun size body -> max size body.body_frame_size)
+              entry_allocated.body_frame_size functions_allocated
+          in
+          Ok
+            {
+              encoded = Bytes.of_string encoded;
+              ir_count;
+              machine_count;
+              peak = max (if has_storage then 6 else 5) peak;
+              frame_size;
+              unwind_info = Bytes.copy entry_allocated.body_unwind;
+              unwind_functions;
+              status_abi = abi;
+              block_count;
+              function_count = Array.length function_infos;
+              entry_stack_bytes = 16 + entry_allocated.body_frame_size;
+              global_bytes = Global_storage.global_bytes global_storage;
+              literal_bytes = Literal_storage.literal_bytes literal_storage;
+              arena_metadata_bytes =
+                String.length global_image
+                - Global_storage.global_bytes global_storage
+                + Literal_storage.metadata_bytes literal_storage;
+              global_image =
+                global_image ^ Literal_storage.image literal_storage;
+              sites;
+            }
+    with Rejected error -> Error [ error ]
 
 let expression_code (compiled : expression_image) =
   Bytes.to_string compiled.encoded
@@ -5828,6 +5834,10 @@ let program_entry_stack_bytes (compiled : program_image) =
 
 let program_sites (compiled : program_image) = compiled.sites
 let program_global_bytes (compiled : program_image) = compiled.global_bytes
+let program_literal_bytes (compiled : program_image) = compiled.literal_bytes
+
+let program_arena_metadata_bytes (compiled : program_image) =
+  compiled.arena_metadata_bytes
 
 let program_global_image (compiled : program_image) =
   Bytes.to_string (Bytes.of_string compiled.global_image)

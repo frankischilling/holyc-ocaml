@@ -12,10 +12,11 @@ val create :
   initialization:Ir.Global_initialization.t ->
   entry:Ir.X87_stack.t ->
   (t, error list) result
-(** Seal ordinary scalar globals and uninitialized scalar statics for one exact
-    compiled bundle. Statics require their unique supplied function and exact
-    frame/location. Declaration initial values require [create_prepared] and
-    original native preparation proof. Arrays, retained task storage and foreign
+(** Seal ordinary integer globals and statics for one exact compiled bundle.
+    Fixed arrays retain their checked shape, full object extent and per-element
+    initialization state. Statics require their unique supplied function and
+    exact frame/location. Declaration initial values require [create_prepared]
+    and original native preparation proof. Retained task storage and foreign
     owners are rejected. *)
 
 val create_prepared :
@@ -27,13 +28,16 @@ val create_prepared :
   (t, error list) result
 
 (** Seal original prepared global/static values to the same exact bundle and
-    restore their declared-width bytes and initialization flags in each image.
-*)
+    restore their declared-width bytes and per-element initialization flags in
+    each image. *)
 
 val globals : t -> Ir.Integer_globals.t
 val entry : t -> Ir.X87_stack.t
 val global_bytes : t -> int
+
 val image : t -> string
+(** A fresh copy of the sealed initial object bytes and private flags. *)
+
 val is_empty : t -> bool
 
 val find_symbol : t -> Sema.Symbol.t -> slot option
@@ -45,6 +49,10 @@ val owns_address : slot -> Ir.Runtime_call_context.owner -> bool
 val symbol : slot -> Sema.Symbol.t
 val type_ : slot -> Sema.Type.t
 val scalar : slot -> Ir.Integer_scalar_storage.t
+val dimensions : slot -> int64 list
+val strides : slot -> int64 list
+val element_count : slot -> int
+val extent_bytes : slot -> int
 val data_offset : slot -> int
 val flag_offset : slot -> int
 val initially_initialized : slot -> bool

@@ -225,6 +225,36 @@
   (run %{exe:test_native_index_faults.exe})))
 
 (executable
+ (name test_native_persistent_execution)
+ (modules test_native_persistent_execution)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_persistent_execution.exe})))
+
+(executable
+ (name test_native_literal_execution)
+ (modules test_native_literal_execution)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_literal_execution.exe})))
+
+(executable
+ (name test_native_storage_bridge)
+ (modules test_native_storage_bridge)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_storage_bridge.exe})))
+
+(executable
  (name test_native_array_cli)
  (modules test_native_array_cli)
  (libraries holyc_lib unix yojson))
@@ -234,11 +264,13 @@
  (deps
   ../../examples/native-array-layout.hc
   ../../examples/integer-arrays.hc
-  ../../examples/native-array-aliases.hc)
+  ../../examples/native-array-aliases.hc
+  ../../examples/native-persistent-arrays.hc)
  (action
   (run
    %{exe:test_native_array_cli.exe}
    %{exe:../../bin/holyc.exe}
    %{dep:../../examples/native-array-layout.hc}
    %{dep:../../examples/integer-arrays.hc}
-   %{dep:../../examples/native-array-aliases.hc})))
+   %{dep:../../examples/native-array-aliases.hc}
+   %{dep:../../examples/native-persistent-arrays.hc})))

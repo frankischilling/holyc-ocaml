@@ -2,6 +2,20 @@ type operation = Scalar_store | Copy_bytes of string
 type entry
 type t
 type live
+type stream
+
+val begin_stream : Integer_storage_shape.t -> stream
+
+val prepare_stream :
+  stream ->
+  delimiters:Frontend.Parser.initializer_delimiter list ->
+  value:Frontend.Ast.initial_value ->
+  (stream * (int * int * operation), string) result
+(** Advance the same fixed-array recursion over one scalar leaf and the original
+    delimiters preceding it. The result describes its cell offset, byte offset
+    and operation. It grants no source or runtime authority and cannot construct
+    an [entry] or [t]; consumers must retain the original parser receipt and
+    match the completed source-owned layout before publishing an image. *)
 
 val begin_live : Sema.Compiler_record.declared_global -> (live, string) result
 

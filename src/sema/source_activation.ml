@@ -161,7 +161,7 @@ let event_context = function
             p.static_allocation.allocation_function.function_header
               .declaration_command
         | Parser.Static_initializer_completed p ->
-            p.static_preparation.static_allocation.allocation_function
+            p.static_completed_start.static_start_allocation.allocation_function
               .function_header
               .declaration_command
         | Parser.Function_local_allocated p ->

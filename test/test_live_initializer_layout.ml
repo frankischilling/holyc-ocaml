@@ -127,6 +127,7 @@ let copies () =
   expect_layout {|U8 A[2][3]={{1,2,3},"CD"};|} [ 0; 1; 2; 3 ]
     [ None; None; None; Some "CD\000" ];
   expect_layout {|U8 A[2]="ABC";|} [ 0 ] [ Some "AB" ];
+  expect_layout {|U8 A[2][3]="ABCDE";|} [ 0 ] [ Some "AB" ];
   expect_layout {|U8 A[1]={"ABC"};|} [ 0 ] [ None ]
 
 let early_failure () =
@@ -141,7 +142,7 @@ let early_failure () =
       ({|I64 A[2][2]={{1},2,3,4};|}, 1);
       ({|I64 N={42};|}, 0);
       ({|U8 A[4]="AB";|}, 0);
-      ({|U8 A[2][3]="ABCDE";|}, 0);
+      ({|U8 A[4][2]="AB";|}, 0);
     ]
 
 let delimiter_timing () =

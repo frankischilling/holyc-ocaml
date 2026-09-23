@@ -16,7 +16,7 @@ val with_source_defaults :
 
 val with_native_source_defaults :
   t -> Prepared_parameter_default.t list -> (t, string) result
-(** Attach same-mode saved values to isolated ordinary scalar globals and scalar
+(** Attach same-mode saved values to isolated ordinary integer globals and
     statics. Default evaluation still uses its separate empty fragment. Native
     executable admission separately requires their complete source and
     preparation certificate. Ordinary AOT and retained-task contracts are

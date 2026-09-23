@@ -4,6 +4,8 @@ let () =
       ("source", Test_source.tests);
       ("native expression encoding", Test_native_expression.tests);
       ("native program encoding", Test_native_program.tests);
+      ("native literal storage", Test_native_literal_storage.tests);
+      ("native persistent storage", Test_native_persistent_storage.tests);
       ("native scalar functions", Test_native_scalar_functions.tests);
       ("integer goto execution", Test_integer_goto_execution.tests);
       ("IR goto composition", Test_ir_goto_execution.tests);

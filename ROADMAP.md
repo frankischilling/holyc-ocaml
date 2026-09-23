@@ -1,5 +1,10 @@
 # holyc-ocaml roadmap
 
+Issue #698 extends native storage with global/static arrays, mutable literal
+objects and original initializer leaves. It retains declared extents, independent
+element state, static sharing, distinct literal ownership and fresh execution
+images. See [persistent native storage](docs/native-persistent-storage.md).
+
 Issue #681 connects closed automatic integer arrays to native indexed reads,
 assignments, updates and stable element aliases. Original dimension and object
 metadata control scaling, bounds and per-element initialization; private
@@ -9,7 +14,7 @@ See [native automatic arrays](docs/native-arrays.md).
 Issue #679 adds native one-level scalar pointer aliases in automatic locals and
 fixed parameters, with checked object ownership, private descriptor storage and
 existing initialization/resource faults. Pointer returns, persistent pointer
-storage, general pointer arithmetic, persistent arrays and the full ABI remain
+storage, general pointer arithmetic and the full ABI remain
 separate compiler work.
 See [native pointers](docs/native-pointers.md).
 

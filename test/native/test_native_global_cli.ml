@@ -247,7 +247,7 @@ let () =
                 "unsupported storage has no diagnostics"))
         [
           "I64 F(){return 42;}I64 G=F();G;";
-          "I64 G[1];42;";
+          "I64 *G[1];42;";
           "I64 *G;42;";
           "extern I64 G;42;";
           "I64 F(){static I64 G=1<<2;return 42;}F();";

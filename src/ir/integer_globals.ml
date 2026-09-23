@@ -265,20 +265,22 @@ let with_native_source_defaults globals defaults =
     || globals.source_defaults <> []
     || Option.is_some globals.fragment_kind_
     || List.exists
-         (fun slot ->
-           Option.is_some (Integer_statics.array_initializers slot)
-           || Shape.dimensions (Integer_statics.shape slot) <> []
-           || Integer_statics.preparation_steps slot <> 0)
+         (fun slot -> Integer_statics.preparation_steps slot <> 0)
          globals.statics_
     || List.exists
          (fun slot ->
            Option.is_some slot.declared_owner
-           || Shape.dimensions slot.shape <> []
-           || Option.is_some slot.array_initializers
-           || slot.initializer_preparation_steps <> 0)
+           || slot.initializer_preparation_steps <> 0
+           || Option.fold ~none:false
+                ~some:(fun arrays ->
+                  List.exists
+                    (fun entry -> Option.is_some (Arrays.prepared entry))
+                    (Arrays.entries arrays))
+                slot.array_initializers)
          globals.slots_
     || globals.declared_slots_ <> []
-  then Error "native source defaults require isolated scalar storage"
+  then
+    Error "native source defaults require isolated unprepared integer storage"
   else if
     List.exists
       (fun value ->
