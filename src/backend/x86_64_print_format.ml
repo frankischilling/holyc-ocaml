@@ -60,7 +60,9 @@ let quote_frozen = quote_chunk_length + 1
 let quote_peek = quote_frozen + 1
 let quote_hex_value = quote_peek + 1
 let quote_hex_digits = quote_hex_value + 1
-let fixed_scratch_slots = quote_hex_digits + 1
+let aux_value = quote_hex_digits + 1
+let packed_original = aux_value + 1
+let fixed_scratch_slots = packed_original + 1
 let flag_left = 1L
 let flag_zero = 2L
 let flag_comma = 4L
@@ -68,6 +70,9 @@ let flag_truncate = 8L
 let flag_dollar = 16L
 let flag_slash = 32L
 let flag_uppercase = 64L
+let flag_aux = 128L
+let flag_question = 256L
+let flag_negative_aux = 512L
 
 let scratch_slots count =
   if count < 0 || count > max_int - fixed_scratch_slots then
@@ -488,6 +493,21 @@ let emit emitter call =
   in
   let emit_formatted_packed done_label =
     take_argument ~pointer:false;
+    copy_slot current_word packed_original;
+    let explicit_repeat = fresh () in
+    let repeat_loop = fresh () in
+    let field_done = fresh () in
+    test_flag flag_aux;
+    jump Not_equal explicit_repeat;
+    constant aux_value 1L;
+    jump Always repeat_loop;
+    mark explicit_repeat;
+    load E.Rax aux_value;
+    out (E.Test E.Rax);
+    jump Equal done_label;
+    jump Less done_label;
+    mark repeat_loop;
+    copy_slot packed_original current_word;
     let measure = fresh () in
     let stream = fresh () in
     test_flag flag_truncate;
@@ -498,7 +518,7 @@ let emit emitter call =
     jump Less stream;
     jump Always measure;
     mark stream;
-    emit_packed_stream done_label;
+    emit_packed_stream field_done;
     mark measure;
     copy_slot current_word temporary_word;
     zero payload_length;
@@ -522,7 +542,14 @@ let emit emitter call =
     jump Always loop;
     mark measured;
     emit_outstr_layout emit_packed_copy;
-    jump Always done_label
+    jump Always field_done;
+    mark field_done;
+    load E.Rax aux_value;
+    out (E.Dec E.Rax);
+    store aux_value E.Rax;
+    out (E.Test E.Rax);
+    jump Equal done_label;
+    jump Always repeat_loop
   in
   let store_quote_chunk slot register = store slot register in
   let quote_single register =
@@ -907,6 +934,14 @@ let emit emitter call =
   in
   let emit_number done_label =
     take_argument ~pointer:false;
+    let ordinary = fresh () in
+    test_flag flag_aux;
+    jump Equal ordinary;
+    load E.Rax number_base;
+    out (E.Cmp_imm8 (E.Rax, 10));
+    jump Not_equal ordinary;
+    jump Always format_fault;
+    mark ordinary;
     zero payload_length;
     zero negative;
     copy_slot number_group comma_count;
@@ -1059,6 +1094,7 @@ let emit emitter call =
     let dollar = fresh () in
     let slash = fresh () in
     let ignored = fresh () in
+    let auxiliary = fresh () in
     let done_ = fresh () in
     mark loop;
     out (E.Cmp_imm8 (E.Rax, 44));
@@ -1071,6 +1107,8 @@ let emit emitter call =
     jump Equal slash;
     out (E.Cmp_imm8 (E.Rax, Char.code 'l'));
     jump Equal ignored;
+    out (E.Cmp_imm8 (E.Rax, Char.code 'h'));
+    jump Equal auxiliary;
     jump Always done_;
     mark comma;
     set_flag flag_comma;
@@ -1089,6 +1127,60 @@ let emit emitter call =
     read_format ();
     jump Always loop;
     mark ignored;
+    read_format ();
+    jump Always loop;
+    mark auxiliary;
+    set_flag flag_aux;
+    read_format ();
+    let aux_question = fresh () in
+    let aux_star = fresh () in
+    let aux_after_minus = fresh () in
+    let aux_digits = fresh () in
+    let aux_digit = fresh () in
+    let aux_apply_sign = fresh () in
+    out (E.Cmp_imm8 (E.Rax, Char.code '?'));
+    jump Equal aux_question;
+    out (E.Cmp_imm8 (E.Rax, Char.code '*'));
+    jump Equal aux_star;
+    out (E.Cmp_imm8 (E.Rax, Char.code '-'));
+    jump Not_equal aux_after_minus;
+    set_flag flag_negative_aux;
+    read_format ();
+    mark aux_after_minus;
+    mark aux_digits;
+    out (E.Cmp_imm8 (E.Rax, Char.code '0'));
+    jump Below aux_apply_sign;
+    out (E.Cmp_imm8 (E.Rax, Char.code ':'));
+    jump Below aux_digit;
+    jump Always aux_apply_sign;
+    mark aux_digit;
+    load E.Rax aux_value;
+    out (E.Mov_imm64 (E.Rcx, 10L));
+    out (E.Binary (E.Imul, E.Rax, E.Rcx));
+    load E.Rcx current_byte;
+    out (E.Mov_imm64 (E.R8, 48L));
+    out (E.Binary (E.Sub, E.Rcx, E.R8));
+    out (E.Binary (E.Add, E.Rax, E.Rcx));
+    store aux_value E.Rax;
+    read_format ();
+    jump Always aux_digits;
+    mark aux_apply_sign;
+    test_flag flag_negative_aux;
+    let aux_done = fresh () in
+    jump Equal aux_done;
+    load E.Rax aux_value;
+    out (E.Unary (E.Neg, E.Rax));
+    store aux_value E.Rax;
+    mark aux_done;
+    load E.Rax current_byte;
+    jump Always loop;
+    mark aux_question;
+    set_flag flag_question;
+    read_format ();
+    jump Always loop;
+    mark aux_star;
+    take_argument ~pointer:false;
+    copy_slot current_word aux_value;
     read_format ();
     jump Always loop;
     mark done_
@@ -1222,6 +1314,8 @@ let emit emitter call =
   read_format ();
   mark after_precision_star;
   mark after_precision;
+  zero aux_value;
+  load E.Rax current_byte;
   parse_modifiers ();
   List.iter
     (fun (byte, label) ->
@@ -1268,7 +1362,7 @@ let emit emitter call =
   emit_formatted_packed format_loop;
   mark formatted_upper_packed;
   set_flag flag_uppercase;
-  emit_formatted_packed format_loop;
+  jump Always formatted_packed;
   mark quoted_Q;
   emit_quoted format_loop ~decode:false;
   mark quoted_q;

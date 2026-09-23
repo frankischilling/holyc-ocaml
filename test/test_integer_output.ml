@@ -102,7 +102,8 @@ let expanded_integer_formats () =
           Alcotest.(check int)
             case.label case.work
             (integer_program_report_output_work report))
-        (Integer_format_fixture.all @ Quoted_format_fixture.all);
+        (Integer_format_fixture.all @ Quoted_format_fixture.all
+       @ Aux_format_fixture.all);
       List.iter
         (fun (label, source, bytes, work) ->
           let report = run ~mode source in
@@ -110,7 +111,8 @@ let expanded_integer_formats () =
           Alcotest.(check int)
             label work
             (integer_program_report_output_work report))
-        Integer_format_fixture.argument_effects)
+        (Integer_format_fixture.argument_effects
+       @ Aux_format_fixture.argument_effects))
     G.modes
 
 let expanded_format_quotas () =
@@ -137,7 +139,8 @@ let expanded_format_quotas () =
               (case.label ^ " byte one below")
               (case.work - 1)
               (integer_program_report_output_work below)))
-        (Integer_format_fixture.quota_cases @ Quoted_format_fixture.quota_cases);
+        (Integer_format_fixture.quota_cases @ Quoted_format_fixture.quota_cases
+       @ Aux_format_fixture.quota_cases);
       List.iter
         (fun (body, work) ->
           let source = print_header ^ body ^ "42;" in
@@ -182,7 +185,8 @@ let expanded_format_failures () =
           ignore
             (run ~mode ~max_output_work:(work - 1) source |> fault "HCIRVM0023"))
         (Integer_format_fixture.invalid_fields
-       @ Quoted_format_fixture.invalid_fields);
+       @ Quoted_format_fixture.invalid_fields
+       @ Aux_format_fixture.invalid_fields);
       List.iter
         (fun (source, code, work) ->
           let report = run ~mode (print_header ^ source) in
@@ -237,7 +241,8 @@ let quoted_memory_failures () =
             (integer_program_report_output_work report);
           let report = run ~mode ~max_output_work:(work + 2) source in
           ignore (fault ~output:"|" "HCIRVM0023" report))
-        Quoted_format_fixture.memory_failures;
+        (Quoted_format_fixture.memory_failures
+       @ Aux_format_fixture.memory_failures);
       List.iter
         (fun (format, work) ->
           let source =
@@ -250,6 +255,40 @@ let quoted_memory_failures () =
             "quoted huge width uses bounded appends" work
             (integer_program_report_output_work report))
         [ ("%*Q", 7); ("%*q", 8) ])
+    G.modes
+
+let auxiliary_repeat_limits () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, format, arguments) ->
+          let case = Integer_format_fixture.case label format arguments "" 10 in
+          let report =
+            run ~mode ~max_output_work:10 (Integer_format_fixture.source case)
+          in
+          ignore (fault "HCIRVM0023" report);
+          Alcotest.(check int)
+            label 10
+            (integer_program_report_output_work report))
+        Aux_format_fixture.empty_repeats;
+      let source = print_header ^ {|Print("|");Print("%h3c",'A');42;|} in
+      ignore
+        (run ~mode ~max_output_bytes:4 ~max_output_work:17 source
+        |> expect "|AAA");
+      List.iter
+        (fun (bytes, work_limit, code, work) ->
+          let report =
+            run ~mode ~max_output_bytes:bytes ~max_output_work:work_limit source
+          in
+          ignore (fault ~output:"|" code report);
+          Alcotest.(check int)
+            "repeated draft failure keeps reached work" work
+            (integer_program_report_output_work report))
+        [
+          (3, 17, "HCIRVM0022", 15);
+          (3, 14, "HCIRVM0023", 14);
+          (4, 16, "HCIRVM0023", 16);
+        ])
     G.modes
 
 let function_contexts_and_arguments () =
@@ -1156,6 +1195,8 @@ let tests =
         `Quick interleaved_format_faults;
       Alcotest.test_case "quoted scans preserve late memory faults and bounds"
         `Quick quoted_memory_failures;
+      Alcotest.test_case "auxiliary repeats bound empty work and atomic drafts"
+        `Quick auxiliary_repeat_limits;
       Alcotest.test_case "function output loops and right-to-left arguments"
         `Quick function_contexts_and_arguments;
       Alcotest.test_case "statement origins and source-defined output functions"

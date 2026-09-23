@@ -110,8 +110,10 @@ claimed bytes within that hosted domain. Tests cover the public interpreter,
 native API/CLI and StreamPrint source reentry; no new TempleOS execution capture
 is claimed.
 
-Auxiliary `h` formats and repetition, floating-point and other runtime-dependent
-conversions remain under #694. MStrPrint allocation, null/raw pointers,
+[Auxiliary `h` fields](auxiliary-formatting.md) consume their captured arguments
+and repeat packed `C` output; they leave Q/q conversion unchanged. Floating-point,
+engineering and other runtime-dependent conversions remain under #694.
+MStrPrint allocation, null/raw pointers,
 pointer-returning helpers, source-defined variadic forwarding and native retained
 StreamPrint need their own runtime and ABI paths. The complete compiler, artifact,
 actual-loader and bootstrap requirements remain under #682.

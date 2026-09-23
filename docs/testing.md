@@ -38,6 +38,13 @@ an invalid source read must fail without publishing a draft. The maintained
 `examples/quoted-formatting.hc` runs through native and interpreted CLI reports
 with exact and one-below byte/work limits.
 
+`aux_format_fixture.ml` covers repeated `h` accumulator/sign state, captured
+argument order, I64 wrapping, per-copy layout and engineering-format diagnostics.
+Source, checked-batch and native comparisons retain exact failure sites and work.
+Huge empty or truncated repetitions must exhaust work without publishing bytes.
+Task fixtures generate indentation and packed constants through `#exe`; CLI tests
+run `examples/auxiliary-formatting.hc` with exact and one-below limits.
+
 Native persistent storage tests cover global/static integer array images and
 source-owned mutable literals. Compile-only tests check original owners, widths,
 padding, sparse initialized cells, image-copy isolation and bounded metadata.

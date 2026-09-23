@@ -210,6 +210,12 @@ hexadecimal candidate read uses the same ownership, bounds and work checks.
 Prefix truncation cannot authorize a shorter source object or hide a later
 unknown byte. ASCII uppercase output has no host-locale dependency.
 
+Auxiliary counts use fixed I64 state and never allocate a repeated buffer. Each
+positive packed copy retains its original byte visits, including an empty word's
+NUL or a zero-width measurement. Huge counts cannot bypass the formatting-work
+limit by producing no bytes. A zero or negative count still requires a valid
+packed argument. See [auxiliary formatting](docs/auxiliary-formatting.md).
+
 The host validates immutable context pointers, output counters and restored
 callable quotas before projecting capture. Status decoding accepts output faults
 only at sealed provider sites and accepts format-specific status kinds only at an
