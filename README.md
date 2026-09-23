@@ -447,6 +447,11 @@ See [the compatibility report](docs/compatibility.md) and [the traceability regi
 
 ## Build and test
 
+The [1.0 release contract](docs/release-contract.md) defines the required host,
+target, corpus, artifact, loader and bootstrap evidence. It distinguishes current
+bounded commands from release capabilities that still have open implementation
+owners.
+
 OCaml 5.1 or newer, opam, and Dune 3.12 or newer are required.
 
 ```text

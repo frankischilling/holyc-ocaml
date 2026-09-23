@@ -47,6 +47,10 @@ jobs:
         shell: pwsh
         run: ./tools/verify-reference.ps1
 
+      - name: Verify release corpus membership guards
+        shell: pwsh
+        run: ./tools/test-release-contract.ps1
+
       - name: Verify incremental build provenance
         shell: pwsh
         run: opam exec -- pwsh -NoProfile -File ./tools/test-version-metadata.ps1
@@ -91,6 +95,9 @@ jobs:
 
       - name: Verify the pinned reference
         run: ./tools/verify-reference.ps1
+
+      - name: Verify release corpus membership guards
+        run: ./tools/test-release-contract.ps1
 
       - name: Build and package
         run: opam exec -- dune build '@all' '@install'

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Defined the required 1.0 host/target matrix, corpus phases and bootstrap
+  lineage. The reference manifest now fixes five source inventories and the
+  complete canonical dependency-input tree. Reference verification and CI reject
+  narrowed selectors, changed membership and inconsistent input identities.
+  These checks define release qualification; missing compiler and target
+  capabilities remain blocking requirements.
+
 - Connected native PutChars calls and implicit character statements to bounded
   byte capture. Original provider metadata controls admission, source-defined
   functions retain their behavior, and output/work faults preserve the reached

@@ -391,6 +391,12 @@ alone does not establish runtime compatibility.
 | TempleOS `.BIN` serialization and loading | Not implemented | M8 |
 | Bootstrap | Not attempted | M9 |
 
+The [1.0 release contract](release-contract.md) defines the required host and
+target matrix, canonical source sets, full phase gates, artifact and loader
+consumers, and bootstrap producer lineage. This table remains the detailed
+feature-compatibility record. Planned release commands become implemented only
+when their named consumers exist.
+
 The broad parsing row describes the shared declaration, expression, and statement foundation. The narrower rows record later slices and their remaining boundaries.
 
 Direct function address typing is implemented under [issue #286](https://github.com/frankischilling/holyc-ocaml/issues/286) and [issue #288](https://github.com/frankischilling/holyc-ocaml/issues/288), with symbolic IR lowering under [issue #562](https://github.com/frankischilling/holyc-ocaml/issues/562). A checked `&Function` expression retains the newest source-visible function publication, its exact resolved declaration, and its canonical joined identity. The operand is a function value; the completed expression is an integer-class address with TempleOS's internal zero-depth `RT_PTR`/`RT_I64` type. JIT unresolved externs carry extern-slot intent, JIT resolved functions carry immediate intent, and AOT resolved functions carry absolute-address intent. The IR lowerer consumes those paths directly as `IC_IMM_I64` plus `IC_DEREF`, `IC_IMM_I64`, or `IC_ABS_ADDR`, with the canonical symbol, exact address-of operator span, consecutive identities, and final-producer flags. Ordinary AOT externs and imports fail with `HCSEMA0046` at `&`; `_extern` remains resolved, and `_intern` fails instead of receiving a false noninternal path. Local or global object shadowing and function-pointer variables keep their existing object or callback address behavior. Focused semantic, expression-lowering, and direct-call tests cover replacement and recursive publications, fixed and variadic positions, both result owners and compilation modes, include and definition provenance, declaration and canonical identity, path-specific dataflow, deterministic replay, unsupported boundaries, and exhaustion. This gate does not claim numeric address resolution, runtime slot access, import or relocation records, fixups, execution, indirect calls, or machine emission.

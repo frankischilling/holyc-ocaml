@@ -12289,3 +12289,17 @@ faults = "HCIRVM0022 and HCIRVM0023 retain preceding output and charged work at 
 source_gate = "examples/integer-putchars.hc returns I64 42, captures 34320a and uses nine runtime instructions and six output-work units in both modes."
 excluded = ["native Print and StreamPrint formatting", "retained extern/body publication", "general runtime linking and callbacks", "TempleOS keyboard and display hooks", "complete ABI, object/BIN output, actual loader acceptance and bootstrap"]
 verification_boundary = "Pinned source, independent packed-byte expectations, checked interpreter comparison, literal encoder bytes, original-call mutation controls and explicit native API/CLI/bridge execution; no new TempleOS capture."
+
+[[feature]]
+id = "HC-RELEASE-CONTRACT"
+description = "The 1.0 contract defines required host/target cells, phase-specific acceptance, exact pinned source sets and explicit bootstrap producer/consumer lineage."
+status = "implemented"
+issue = 683
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/Compiler.PRJ:1-46", "Kernel/Kernel.PRJ:1-61", "reference/manifest.json"]
+implementation = ["reference/manifest.json", "tools/verify-reference.ps1"]
+tests = ["tools/test-release-contract.ps1", ".github/workflows/ci.yml"]
+documentation = ["docs/release-contract.md", "ROADMAP.md", "docs/compatibility.md"]
+identity = "The existing manifest fixes each source set by canonical Git revision, exact path prefix/extension, count, byte size and an ordinal path/blob membership digest. Inventory order does not replace project include order."
+resources = "All required language, runtime, target, actual-loader, bootstrap and release gates remain independently blocking under #682 and #736; a passing inventory check establishes source membership only."
+verification_boundary = "This feature implements the release definition and membership guards. It does not implement missing artifact, loader, corpus-phase or bootstrap consumers, qualify an untested host, or establish compiler completion."

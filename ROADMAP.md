@@ -25,6 +25,11 @@ See [native pointers](docs/native-pointers.md).
 
 GitHub milestones M0 through M10 hold measurable exit criteria. Current work spans M5 (IR and interpreter) and the bounded M6 hosted x86-64 backend. Earlier milestone gaps, including compile-time execution, remain tracked in their original issues.
 
+The [1.0 release contract](docs/release-contract.md) defines the required Linux
+and Windows x86-64 host matrix, canonical source coverage, artifact and TempleOS
+target gates, whole-tree reporting and bootstrap lineage. Completing that contract
+defines the release criteria; implementation gates remain tracked through M10.
+
 M0 covers the build, source model, diagnostics, pinned reference, first lexer slice, tests, and CI. Later milestones cover the source audit, integrated preprocessor, parser, semantic model, verified IR, interpreter, hosted x86-64 backend, TempleOS assembler, `.BIN` and JIT support, whole-tree compatibility, bootstrap work, and the 1.0 release.
 
 M6 now has a bounded source-to-native expression gate in issue #642. The own
