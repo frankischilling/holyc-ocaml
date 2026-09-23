@@ -160,7 +160,9 @@ captures.
 Ordinary scalar globals/statics and one-level scalar pointer aliases are covered
 by [native globals](native-globals.md) and [native pointers](native-pointers.md).
 Automatic integer arrays are covered by [native arrays](native-arrays.md).
-Broader pointer storage, persistent and initialized arrays, aggregate values, Bool/I0/F64 storage,
+Global/static arrays, closed initializers and strings are covered by
+[persistent storage](native-persistent-storage.md).
+Broader pointer storage, automatic initialized arrays, aggregate values, Bool/I0/F64 storage,
 variadic/indirect/external calls, prototypes, explicit register/function flags,
 runtime output and general declaration/`#exe` execution remain outside this gate.
 Optimizer parity, complete HolyC ABI, assembly/object/BIN output, actual loader

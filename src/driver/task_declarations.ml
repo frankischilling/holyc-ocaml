@@ -2415,27 +2415,55 @@ let observe ?offset_runtime ledger event =
           let publication = receipt.static_allocation.allocation_function in
           let span = publication.function_name.location.span in
           validate_command ledger publication.function_header;
+          let previous = List.nth_opt ledger.static_preparations 0 in
+          let ordered =
+            match
+              ( receipt.static_leaf_index,
+                receipt.static_leaf_predecessor,
+                previous )
+            with
+            | 0, None, _ -> true
+            | index, Some predecessor, Some previous
+              when index > 0 && predecessor == previous
+                   && predecessor.static_initializer
+                      == receipt.static_initializer
+                   && predecessor.static_leaf_index + 1 = index -> true
+            | _ -> false
+          in
           if
             (not (Parser.static_initializer_is_current receipt))
+            || (not ordered)
             || List.exists (( == ) receipt) ledger.static_preparations
           then
             fail span
-              "static preparation is outside its original callback or repeated";
+              "static preparation is outside its original callback, repeated \
+               or out of order";
           (match (find ledger publication.function_name).source with
           | Function state when state.publication == publication -> ()
           | _ -> fail span "static preparation belongs to another declaration");
           ledger.static_preparations <- receipt :: ledger.static_preparations
       | Parser.Static_initializer_completed receipt ->
-          let preparation = receipt.static_preparation in
-          let publication = preparation.static_allocation.allocation_function in
+          let publication =
+            receipt.static_completed_start.static_start_allocation
+              .allocation_function
+          in
           let span = publication.function_name.location.span in
           validate_command ledger publication.function_header;
+          let observed_last =
+            match List.nth_opt ledger.static_preparations 0 with
+            | Some preparation
+              when preparation.static_initializer
+                   == receipt.static_completed_start -> Some preparation
+            | None | Some _ -> None
+          in
           if
             (not (Parser.static_initializer_completion_is_current receipt))
             || (not
-                  (List.exists (( == ) preparation) ledger.static_preparations))
+                  (same_option ( == ) observed_last receipt.static_preparation))
             || List.exists
-                 (fun p -> p.Parser.static_preparation == preparation)
+                 (fun p ->
+                   p.Parser.static_completed_start
+                   == receipt.static_completed_start)
                  ledger.static_completions
           then
             fail span "static completion is foreign, repeated or out of order";
@@ -3251,21 +3279,34 @@ let native_initializer_fragment ledger ~runtime receipt =
         fail ~code:"HCRUN0006" span
           "native initializers require closed expressions without value or \
            function references";
-      if
-        publication.global_dimensions <> []
-        || Sema.Initializer_source.leaf_path leaf <> []
-      then
-        fail ~code:"HCRUN0001" span
-          "native initializers require scalar declarations";
       let boundary =
         Names.find ledger.storage_boundaries publication.global_name
       in
-      let assigned = find ledger publication.global_name in
       let declaration =
-        Sema.Compiler_record.declare_global ~dimensions:[] ~table:ledger.table
-          ~namespace:ledger.namespace ~predecessor:boundary.storage_predecessor
-          ~previous_global:boundary.storage_previous_global assigned.publication
-        |> checked span
+        match boundary.storage_declaration with
+        | Some declaration -> declaration
+        | None ->
+            let dimensions =
+              selected_dimensions ledger publication.global_dimensions
+            in
+            if
+              List.length dimensions
+              <> List.length publication.global_dimensions
+            then
+              fail ~code:"HCRUN0001" span
+                "native array initializer requires every original dimension to \
+                 have a checked fixed bound";
+            let assigned = find ledger publication.global_name in
+            let declaration =
+              Sema.Compiler_record.declare_global ~dimensions
+                ~table:ledger.table ~namespace:ledger.namespace
+                ~predecessor:boundary.storage_predecessor
+                ~previous_global:boundary.storage_previous_global
+                assigned.publication
+              |> checked span
+            in
+            boundary.storage_declaration <- Some declaration;
+            declaration
       in
       let module Outer = Sema.Outer_environment in
       let compilation_mode, tables =
@@ -3312,7 +3353,8 @@ let native_initializer_fragment ledger ~runtime receipt =
       ledger.source_defaults_runtime <- Some runtime;
       authority)
 
-let native_static_initializer_fragment ledger ~runtime receipt =
+let native_static_initializer_fragment ledger ~runtime
+    (receipt : Parser.static_initializer_preparation) =
   protect (fun () ->
       let publication = receipt.Parser.static_allocation.allocation_function in
       let span = publication.function_name.location.span in
@@ -3359,11 +3401,11 @@ let native_static_initializer_fragment ledger ~runtime receipt =
         |> checked span
       in
       let expression =
-        match receipt.static_initializer.local_initializer_value with
+        match receipt.static_leaf_value with
         | Ast.Scalar_initializer expression -> expression
         | _ ->
-            fail ~code:"HCRUN0001" span
-              "native static initializers require scalar expressions"
+            fail ~code:"HCRUN0004" span
+              "native static initializer receipt is not an original source leaf"
       in
       let queries =
         Sema.Query_selection.source_queries expression
@@ -3374,9 +3416,16 @@ let native_static_initializer_fragment ledger ~runtime receipt =
                 fail span "native static initializer lacks its original query")
       in
       let fragment =
+        let dimensions =
+          match receipt.static_allocation.allocation_local.local_source with
+          | Parser.Local_variable source ->
+              selected_dimensions ledger source.local_array_dimensions
+              |> List.map Sema.Compiler_record.dimension_count
+          | _ -> []
+        in
         Sema.Static_initializer_fragment.create ~table:ledger.table
           ~namespace:ledger.namespace ~publication:assigned.publication ~receipt
-          ~environment ~queries
+          ~dimensions ~environment ~queries
         |> function
         | Error message when String.starts_with ~prefix:"HCRUN0001: " message ->
             fail ~code:"HCRUN0001" span

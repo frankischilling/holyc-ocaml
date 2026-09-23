@@ -1,5 +1,22 @@
 # Testing holyc-ocaml
 
+Native persistent storage tests cover global/static integer array images and
+source-owned mutable literals. Compile-only tests check original owners, widths,
+padding, sparse initialized cells, image-copy isolation and bounded metadata.
+The initializer authority suite checks numeric and copied leaves, expired
+original callbacks, changed preparation lists and publication positions before
+native entry. Failure cases retain the exact completed and faulting leaf work.
+
+The explicit `@native-tests` suite executes all-width persistent reads and
+updates, flat aliases, literal mutation, fixed string arguments, recursive
+sharing and fresh images after success or a fault. The C bridge tests malformed
+limit/storage tuples and incorrect arena sums before entry. The maintained
+`native-persistent-arrays.hc` fixture returns 42 in 101 runtime instructions,
+with 21 native preparation steps and four dimension steps. Its ordinary
+interpreter preparation uses 23 steps because each static numeric leaf includes
+an additional frame-exit jump. Both counters have exact and one-below controls.
+See [native persistent storage](native-persistent-storage.md).
+
 Native program report tests compare JSON/human code-byte counts with encoded
 artifacts compiled from the same source in both modes. Control flow, functions
 and saved defaults have separate fixtures. Exact/one-below code quotas and the

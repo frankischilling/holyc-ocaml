@@ -417,14 +417,26 @@ val function_local_allocation_is_current : function_local_allocation -> bool
 
 type static_initializer_activity
 
+type static_initializer_start = private {
+  static_start_allocation : function_local_allocation;
+  static_equals : Ast.location;
+  static_start_activity : static_initializer_activity;
+}
+
 type static_initializer_preparation = private {
+  static_initializer : static_initializer_start;
   static_allocation : function_local_allocation;
-  static_initializer : Ast.local_initializer;
+  static_leaf_index : int;
+  static_leaf_predecessor : static_initializer_preparation option;
+  static_leaf_path : int list;
+  static_leaf_value : Ast.initial_value;
+  static_leaf_delimiters : initializer_delimiter list;
   static_activity : static_initializer_activity;
 }
 
 type completed_static_initializer = private {
-  static_preparation : static_initializer_preparation;
+  static_completed_start : static_initializer_start;
+  static_preparation : static_initializer_preparation option;
   static_declarator : Ast.local_declarator;
 }
 
@@ -435,9 +447,21 @@ val static_initializer_completion_is_current :
 
 val static_initializer_completed_declarator :
   static_initializer_preparation -> Ast.local_declarator option
-(** Scalar preparation follows expression lookahead and precedes declarator
-    delimiter validation. Completion retains the original declarator after its
-    delimiter is consumed. Callback-free parsing emits neither event. *)
+
+val static_initializer_leaf_location :
+  static_initializer_preparation -> Ast.location
+
+val static_initializer_allocation :
+  static_initializer_preparation -> function_local_allocation
+(** Each preparation is one exact original initializer leaf. It follows that
+    leaf's expression lookahead and precedes parent delimiter validation, so
+    earlier successful callbacks remain observable when a later leaf or closing
+    delimiter fails. [static_leaf_predecessor] and [static_leaf_index] retain
+    source order, while [static_leaf_path] and [static_leaf_value] bind the
+    callback to the AST later retained by the completed declarator. Completion
+    records the last leaf (or [None] for an empty initializer) only after the
+    declarator delimiter is consumed and the entire retained root is verified.
+    Callback-free parsing emits neither event. *)
 
 type function_position_write = private {
   position_function : function_publication;

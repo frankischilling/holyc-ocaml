@@ -170,8 +170,24 @@ against the physical-frame bound before expanding metadata. Signed scale/add
 overflow faults precede host address calculation. Final materialization permits
 aligned one-past references; element reads and writes reject one-past or other
 out-of-range offsets before inspecting flags or object bytes. Runtime-dependent
-extents, array initializers, persistent arrays and pointer/aggregate elements
+extents, automatic array initializers and pointer/aggregate elements
 remain excluded. See [native arrays](docs/native-arrays.md).
+
+Native persistent arrays retain exact global/static owners and full declared
+extents; static padding and neighboring objects cannot be addressed. Original
+initializer leaves must complete their declaration and match the compiled
+storage before prepared bytes enter an image. Earlier preparation work remains
+reported when a later leaf or delimiter fails. Mutable literal regions retain
+their original graph, function and producer identity, including embedded NULs
+and a trailing terminator. Equal bytes alone cannot authorize shared storage.
+
+The literal data limit is independent of the global/static data limit. The
+compiler bounds all element flags and literal reference tables before expansion.
+The executor and C bridge require the complete image length to equal the sum of
+global, literal and private metadata bytes and enforce the 32 MiB arena cap
+before host allocation. Every execution receives a fresh image. Literal records
+are arena-owned; array reference records still consume their owning activation's
+physical-frame quota. See [persistent storage](docs/native-persistent-storage.md).
 
 ## Supported versions
 

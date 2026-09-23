@@ -411,6 +411,7 @@ static uint64_t native_execute_checked_image(value code, value unwind,
 #define HOLYC_NATIVE_MAX_FUNCTIONS 100001u
 #define HOLYC_NATIVE_MAX_UNWIND_BYTES 64u
 #define HOLYC_NATIVE_MAX_GLOBAL_BYTES (16u * 1024u * 1024u)
+#define HOLYC_NATIVE_MAX_LITERAL_BYTES (16u * 1024u * 1024u)
 #define HOLYC_NATIVE_MAX_ARENA_BYTES (32u * 1024u * 1024u)
 
 static unsigned native_validate_program_unwind(value unwind)
@@ -843,7 +844,10 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
   intnat active_stack_limit;
   intnat entry_stack_bytes;
   intnat global_limit;
+  intnat literal_limit;
   intnat logical_global_bytes;
+  intnat logical_literal_bytes;
+  intnat metadata_bytes;
   uint64_t remaining_stack;
   intnat abi_code;
   value arena_image;
@@ -851,15 +855,17 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
 
   if (!Is_long(abi))
     caml_invalid_argument("native program status ABI is not integral");
-  if (!Is_block(limits) || Tag_val(limits) != 0 || Wosize_val(limits) != 6 ||
+  if (!Is_block(limits) || Tag_val(limits) != 0 || Wosize_val(limits) != 7 ||
       !Is_long(Field(limits, 0)) || !Is_long(Field(limits, 1)) ||
       !Is_long(Field(limits, 2)) || !Is_long(Field(limits, 3)) ||
-      !Is_long(Field(limits, 4)) || !Is_long(Field(limits, 5)))
+      !Is_long(Field(limits, 4)) || !Is_long(Field(limits, 5)) ||
+      !Is_long(Field(limits, 6)))
     caml_invalid_argument("native storage program limits tuple is malformed");
-  if (!Is_block(storage) || Tag_val(storage) != 0 || Wosize_val(storage) != 2 ||
-      !Is_long(Field(storage, 0)))
+  if (!Is_block(storage) || Tag_val(storage) != 0 || Wosize_val(storage) != 4 ||
+      !Is_long(Field(storage, 0)) || !Is_long(Field(storage, 1)) ||
+      !Is_long(Field(storage, 2)))
     caml_invalid_argument("native program storage tuple is malformed");
-  arena_image = Field(storage, 1);
+  arena_image = Field(storage, 3);
   if (!Is_block(arena_image) || Tag_val(arena_image) != String_tag)
     caml_invalid_argument("native program arena image is not a string");
 
@@ -870,7 +876,10 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
   active_stack_limit = Long_val(Field(limits, 3));
   entry_stack_bytes = Long_val(Field(limits, 4));
   global_limit = Long_val(Field(limits, 5));
+  literal_limit = Long_val(Field(limits, 6));
   logical_global_bytes = Long_val(Field(storage, 0));
+  logical_literal_bytes = Long_val(Field(storage, 1));
+  metadata_bytes = Long_val(Field(storage, 2));
   arena_length = caml_string_length(arena_image);
 
   if (abi_code != HOLYC_NATIVE_PLATFORM)
@@ -887,14 +896,24 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
     caml_invalid_argument("native program entry stack exceeds max_active_stack_bytes");
   if (global_limit <= 0 || (uintnat)global_limit > HOLYC_NATIVE_MAX_GLOBAL_BYTES)
     caml_invalid_argument("native program max_global_bytes is outside the host bound");
-  if (logical_global_bytes <= 0 ||
+  if (literal_limit <= 0 || (uintnat)literal_limit > HOLYC_NATIVE_MAX_LITERAL_BYTES)
+    caml_invalid_argument("native program max_literal_bytes is outside the host bound");
+  if (logical_global_bytes < 0 ||
       (uintnat)logical_global_bytes > HOLYC_NATIVE_MAX_GLOBAL_BYTES ||
       logical_global_bytes > global_limit)
     caml_invalid_argument("native program logical global bytes exceed their bound");
+  if (logical_literal_bytes < 0 ||
+      (uintnat)logical_literal_bytes > HOLYC_NATIVE_MAX_LITERAL_BYTES ||
+      logical_literal_bytes > literal_limit)
+    caml_invalid_argument("native program logical literal bytes exceed their bound");
+  if (metadata_bytes < 0 || (uintnat)metadata_bytes > HOLYC_NATIVE_MAX_ARENA_BYTES)
+    caml_invalid_argument("native program private metadata bytes exceed their bound");
+  if (logical_global_bytes == 0 && logical_literal_bytes == 0)
+    caml_invalid_argument("native storage program has no persistent data");
   if ((uintnat)arena_length > HOLYC_NATIVE_MAX_ARENA_BYTES ||
-      (uintnat)arena_length < (uintnat)logical_global_bytes ||
-      (uintnat)arena_length > 2u * (uintnat)logical_global_bytes)
-    caml_invalid_argument("native program arena image is inconsistent with logical globals");
+      (uintnat)arena_length != (uintnat)logical_global_bytes +
+                               (uintnat)logical_literal_bytes + (uintnat)metadata_bytes)
+    caml_invalid_argument("native program arena image is inconsistent with data and metadata");
 
   remaining_stack = (uint64_t)(active_stack_limit - entry_stack_bytes);
   /* The tenth word is an immutable private arena pointer installed by the

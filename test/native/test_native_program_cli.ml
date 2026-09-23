@@ -201,6 +201,8 @@ let check_success ?(preparation = 0) ?(default_bytes = 0) report =
       "block_count";
       "function_count";
       "global_bytes";
+      "literal_bytes";
+      "arena_metadata_bytes";
       "global_arena_bytes";
       "entry_stack_bytes";
     ]

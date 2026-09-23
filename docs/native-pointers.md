@@ -88,9 +88,11 @@ released. This is an in-process native executor, with the limitations documented
 in [SECURITY.md](../SECURITY.md).
 
 Automatic scalar arrays use the same references; see
-[native arrays](native-arrays.md). Persistent pointers, pointer returns and
+[native arrays](native-arrays.md). Global/static arrays and mutable byte literals
+use the [persistent storage](native-persistent-storage.md) path. Persistent pointer
+variables, pointer returns and
 comparisons, null/integer conversions, general pointer arithmetic, deeper
-indirection, persistent or pointer-valued arrays, aggregates, foreign calls and
+indirection, pointer-valued arrays, aggregates, foreign calls and
 the full HolyC ABI remain unfinished native work. This feature does not produce
 objects or BIN files, establish loader acceptance, or complete the compiler.
 

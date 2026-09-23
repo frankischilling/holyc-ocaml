@@ -5,6 +5,7 @@ type t = {
   receipt_ : Frontend.Parser.static_initializer_preparation;
   expression_ : Frontend.Ast.expression;
   type_ : Type.t;
+  dimensions_ : int64 list;
   environment_ : Outer_environment.t;
   queries_ : Query_selection.t list;
 }
@@ -15,6 +16,12 @@ let publication value = value.publication_
 let receipt value = value.receipt_
 let expression value = value.expression_
 let type_ value = value.type_
+let dimensions value = value.dimensions_
+let leaf_path value = value.receipt_.Frontend.Parser.static_leaf_path
+
+let leaf_delimiters value =
+  value.receipt_.Frontend.Parser.static_leaf_delimiters
+
 let environment value = value.environment_
 let queries value = value.queries_
 let references _ = []
@@ -35,7 +42,9 @@ let query_for value expression =
   | Some q -> Ok q
   | None -> Error "static initializer lacks its original query"
 
-let create ~table ~namespace ~publication ~receipt ~environment ~queries =
+let create ~table ~namespace ~publication
+    ~(receipt : Frontend.Parser.static_initializer_preparation) ~dimensions
+    ~environment ~queries =
   let ( let* ) = Result.bind in
   let module Parser = Frontend.Parser in
   let module Ast = Frontend.Ast in
@@ -59,34 +68,36 @@ let create ~table ~namespace ~publication ~receipt ~environment ~queries =
     else Ok ()
   in
   let* expression =
-    match receipt.static_initializer.local_initializer_value with
+    match receipt.static_leaf_value with
     | Ast.Scalar_initializer expression -> Ok expression
     | _ ->
-        Error "HCRUN0001: native static initializers require scalar expressions"
+        Error
+          "HCRUN0004: native static initializer receipt is not a source leaf"
   in
-  let* type_ =
+  let* type_, source_dimensions =
     match
       (allocation.allocation_storage, allocation.allocation_local.local_source)
     with
     | Ast.Static_local, Parser.Local_variable source
       when source.local_pointer_layers = []
-           && source.local_array_dimensions = []
            && Option.is_none source.local_function_pointer -> (
         match source.local_type_specifier with
         | Ast.Primitive_type_specifier p ->
             Type.make_primitive ~form:Type.Public_spelling
               ~primitive:p.primitive ~pointer_depth:0
+            |> Result.map (fun type_ -> (type_, source.local_array_dimensions))
         | Ast.Internal_type_specifier p ->
             Type.make_primitive ~form:Type.Internal_storage
               ~primitive:p.primitive ~pointer_depth:0
+            |> Result.map (fun type_ -> (type_, source.local_array_dimensions))
         | _ ->
             Error
-              "HCRUN0001: native static initializers require scalar integer \
+              "HCRUN0001: native static initializers require integer object \
                types")
     | _ ->
         Error
-          "HCRUN0001: native static initializers require ordinary scalar \
-           storage"
+          "HCRUN0001: native static initializers require ordinary integer \
+           object storage"
   in
   let* () =
     match Type.base type_ with
@@ -96,6 +107,20 @@ let create ~table ~namespace ~publication ~receipt ~environment ~queries =
     | _ ->
         Error
           "HCRUN0001: native static initializers require nonzero integer types"
+  in
+  let* () =
+    if source_dimensions = [] && receipt.static_leaf_path <> [] then
+      Error
+        "HCRUN0001: native static scalar initializers require a scalar \
+         expression"
+    else Ok ()
+  in
+  let* () =
+    if List.length source_dimensions = List.length dimensions then Ok ()
+    else
+      Error
+        "HCRUN0001: native static array initializer requires every original \
+         dimension to have a checked fixed bound"
   in
   let* () =
     if Initializer_source.expression_identifier_nodes expression = [] then Ok ()
@@ -113,6 +138,7 @@ let create ~table ~namespace ~publication ~receipt ~environment ~queries =
       receipt_ = receipt;
       expression_ = expression;
       type_;
+      dimensions_ = dimensions;
       environment_ = environment;
       queries_ = queries;
     }

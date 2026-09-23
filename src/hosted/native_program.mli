@@ -20,6 +20,7 @@ val compile :
   ?max_dimension_work:int ->
   ?max_default_bytes:int ->
   ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
   ?status_abi:Backend.X86_64_program.status_abi ->
   Session.t ->
   config:Frontend.Preprocessor.Config.t ->
@@ -39,22 +40,25 @@ val compile :
     are checked for signed overflow; materialization permits aligned one-past
     references, while reads and writes require an actual element. Supported
     scalar parameter defaults are prepared once at their original declaration
-    callbacks through the checked constant-preparation engine. Closed scalar
-    global initializers prepare at their original leaf callbacks under that same
-    work budget. Closed scalar static initializers prepare after expression
-    lookahead and require their completed original declarations. Their exact
-    receipts authorize the native initial image, which restores declared-width
-    values on each execution. Reference descriptors retain exact object
-    ownership and initialization state within the physical frame budget.
-    Effectful initializers, escaping/deeper pointers, persistent arrays, array
-    initializers and other unsupported declarations/defaults reject before
+    callbacks through the checked constant-preparation engine. Closed scalar and
+    array global/static initializer leaves prepare after original expression
+    lookahead under that same work budget and require completed declarations.
+    Their exact receipts authorize the native initial image, which restores
+    declared-width values on each execution. Persistent integer arrays retain
+    original extents, strides and per-element state. Mutable string literals
+    retain their exact producer and terminated byte image; their canonical
+    reference tables occupy private arena bytes. Prepared JIT publications must
+    precede entry. Effectful initializers, escaping/deeper pointers, automatic
+    array initializers and other unsupported declarations/defaults reject before
     native entry. This never interprets ordinary commands or allocates
     executable memory. Parser warnings retain their original source identities.
     Defaults are 4096 total IR instructions, 65536 code bytes, 4088 private
     frame bytes, 4096 total blocks, 100,000 declaration-preparation steps and
     65,536 bytes of saved default payloads (eight bytes per prepared value).
     Global/static storage defaults to 1,048,576 bytes, with statics rounded to
-    eight; its separate host cap is 16,777,216 bytes. *)
+    eight; its separate host cap is 16,777,216 bytes. Literal bytes have the
+    same default and hard bound, independently. The combined arena, including
+    private flags and reference tables, is limited to 33,554,432 bytes. *)
 
 val evaluate :
   ?max_ir_instructions:int ->
@@ -66,6 +70,7 @@ val evaluate :
   ?max_switch_work:int ->
   ?max_dimension_work:int ->
   ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
   ?max_frame_bytes:int ->
   ?max_call_depth:int ->
   ?max_active_stack_bytes:int ->

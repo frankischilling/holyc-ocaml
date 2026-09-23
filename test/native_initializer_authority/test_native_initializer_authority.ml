@@ -22,15 +22,17 @@ let diagnostics = function
 let reject label result =
   Alcotest.(check bool) label true (Result.is_error result)
 
-let fixture ?(statics = false) mode =
+let fixture ?contents ?(statics = false) mode =
   let session = Session.create () in
   let source =
     Session.add_source session ~path:"native-initializer-authority.hc"
       ~contents:
-        (if statics then
-           "I8 A=255;I64 F(){static I8 n=40;return ++n;}I64 G(){static I8 \
-            n=6*7;return n;}F();F();"
-         else "I8 A=255;I64 B=6*7;I64 F(){return B;}A+F();")
+        (Option.value contents
+           ~default:
+             (if statics then
+                "I8 A=255;I64 F(){static I8 n=40;return ++n;}I64 G(){static I8 \
+                 n=6*7;return n;}F();F();"
+              else "I8 A=255;I64 B=6*7;I64 F(){return B;}A+F();"))
   in
   let ledger = D.create_source session ~source |> checked in
   let preparation =
@@ -74,6 +76,7 @@ let fixture ?(statics = false) mode =
     Alcotest.(check bool) "restored static receipt" true (current ())
   in
   let receipts = ref [] in
+  let static_receipts = ref [] in
   let commands : Parser.command_sink =
     {
       checkpoint = Some (D.observe_command ledger);
@@ -105,6 +108,20 @@ let fixture ?(statics = false) mode =
                       (Preparation.prepare_initializer preparation ~session
                          ~ledger receipt)
                 | Parser.Static_initializer_preparing receipt ->
+                    List.iter
+                      (fun (earlier_event, earlier) ->
+                        let before = Preparation.work preparation in
+                        reject "expired original leaf cannot reenter the ledger"
+                          (D.observe ledger earlier_event);
+                        reject
+                          "expired original leaf cannot prepare during its \
+                           successor"
+                          (Preparation.prepare_static preparation ~session
+                             ~ledger earlier);
+                        Alcotest.(check int)
+                          "rejected replay leaves work unchanged" before
+                          (Preparation.work preparation))
+                      !static_receipts;
                     check_suspended
                       receipt.static_allocation.allocation_function
                         .function_header
@@ -123,6 +140,7 @@ let fixture ?(statics = false) mode =
                          clone);
                     Result.map
                       (fun () ->
+                        static_receipts := (event, receipt) :: !static_receipts;
                         reject "static callback cannot prepare twice"
                           (Preparation.prepare_static preparation ~session
                              ~ledger receipt))
@@ -130,7 +148,7 @@ let fixture ?(statics = false) mode =
                          receipt)
                 | Parser.Static_initializer_completed receipt ->
                     check_suspended
-                      receipt.static_preparation.static_allocation
+                      receipt.static_completed_start.static_start_allocation
                         .allocation_function
                         .function_header
                         .declaration_command
@@ -358,6 +376,117 @@ let static_ownership () =
            ~max_initializer_steps:(steps - 1) ()))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
+let array_ownership () =
+  let contents =
+    "I16 G[2][2]={{40,0},{0,2}};I64 F(){static U8 \
+     S[2][3]={\"40\",\"12\"};return G[0][0]+G[1][1]+S[0][2]+S[1][2];}F();"
+  in
+  List.iter
+    (fun mode ->
+      let make () = fixture ~contents mode in
+      let span, prepared, compile = make () in
+      let globals = Preparation.initializers prepared in
+      let statics = Preparation.static_initializers prepared in
+      Alcotest.(check int)
+        "four original numeric leaves" 4 (List.length globals);
+      Alcotest.(check int) "two original copied rows" 2 (List.length statics);
+      let unit_ =
+        compile ~native_initializers:globals ~native_static_initializers:statics
+          ()
+        |> diagnostics
+      in
+      let seal unit_ =
+        proof
+          ~static_completions:(Preparation.static_completions prepared)
+          span
+          (Preparation.initializer_completions prepared)
+          unit_
+      in
+      let sealed = seal unit_ |> checked in
+      Alcotest.(check int)
+        "array preparation is imported once"
+        (Preparation.work prepared)
+        (Initializers.executed_steps (Unit.initializer_preparation unit_));
+      List.iter
+        (fun status_abi ->
+          ignore
+            (emit ~global_initializers:sealed ~status_abi unit_
+            |> Result.map_error (fun _ -> "array ABI encoding failed")
+            |> checked))
+        [ Image.Windows_x64; Image.System_v_x64 ];
+      reject "array image requires original charged completions" (emit unit_);
+      List.iter
+        (fun mutation ->
+          let change xs =
+            match mutation with
+            | `Missing -> []
+            | `Tail -> List.tl xs
+            | `Duplicate -> List.hd xs :: xs
+            | `Reverse -> List.rev xs
+          in
+          let _, fresh, compile = make () in
+          reject "numeric array leaves are complete and ordered"
+            (compile
+               ~native_initializers:(change (Preparation.initializers fresh))
+               ~native_static_initializers:
+                 (Preparation.static_initializers fresh)
+               ());
+          let _, fresh, compile = make () in
+          reject "copied array rows are complete and ordered"
+            (compile
+               ~native_initializers:(Preparation.initializers fresh)
+               ~native_static_initializers:
+                 (change (Preparation.static_initializers fresh))
+               ()))
+        [ `Missing; `Tail; `Duplicate; `Reverse ];
+      let reconstructed =
+        compile ~native_initializers:globals
+          ~native_static_initializers:
+            (List.map (fun p -> Obj.obj (Obj.dup (Obj.repr p))) statics)
+          ()
+        |> diagnostics
+      in
+      reject "copied row proof cannot replace the charged preparation"
+        (seal reconstructed);
+      let _, fresh, compile = make () in
+      let foreign =
+        compile
+          ~native_initializers:(Preparation.initializers fresh)
+          ~native_static_initializers:(Preparation.static_initializers fresh)
+          ()
+        |> diagnostics
+      in
+      reject "equal-source array bundle cannot borrow another proof"
+        (emit ~global_initializers:sealed foreign))
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let array_publication_prefix () =
+  List.iter
+    (fun contents ->
+      let span, prepared, compile = fixture ~contents Preprocessor.Jit in
+      let unit_ =
+        compile
+          ~native_initializers:(Preparation.initializers prepared)
+          ~native_static_initializers:(Preparation.static_initializers prepared)
+          ()
+        |> diagnostics
+      in
+      Alcotest.(check bool)
+        "original interleaved publications exist" true
+        (Ir_global_initialization.publications (Unit.initialization unit_) <> []);
+      reject
+        "native image cannot move a prepared publication before prior entry \
+         work"
+        (proof
+           ~static_completions:(Preparation.static_completions prepared)
+           span
+           (Preparation.initializer_completions prepared)
+           unit_))
+    [
+      "42;I8 G[2]={40,2};G[0]+G[1];";
+      "42;I64 F(){static U8 a[2]={40,2};return a[0]+a[1];}F();";
+    ]
+
 let failed_preparation () =
   List.iter
     (fun mode ->
@@ -413,10 +542,70 @@ let failed_preparation () =
           ( "I64 A=40;I64 H(){return 2;}I64 F(){static I8 n=H();return n;}42;",
             "HCRUN0006" );
           ("I64 A=40;I64 F(){static I8 n={2};return n;}42;", "HCRUN0001");
-          ("I64 A=40;I64 F(){static I8 n[1]={2};return n[0];}42;", "HCRUN0001");
           ("I64 A=40;I64 F(){static I8 n=\"a\";return n;}42;", "HCRUN0006");
           ("I64 A=40;I64 F(){static I8 n=1<<2;return n;}42;", "HCRUN0006");
           ("I64 A=40;42;I64 F(){static I8 n=2;return n;}", "HCRUN0001");
+        ])
+    [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let array_failure_work () =
+  let copy_rows =
+    "I64 F(){static U8 s[2][3]={\"AB\",\"CD\"};return s[0][2]+s[1][2]+42;}42;"
+  in
+  List.iter
+    (fun mode ->
+      let inputs contents =
+        let session = Session.create () in
+        let source =
+          Session.add_source session ~path:"native-array-initializer-fault.hc"
+            ~contents
+        in
+        let config =
+          Preprocessor.Config.create ~compilation_mode:mode () |> checked
+        in
+        (session, config, source)
+      in
+      let session, config, source = inputs copy_rows in
+      ignore
+        (Native_program.compile ~max_initializer_steps:6 session ~config ~source
+        |> diagnostics);
+      List.iter
+        (fun (contents, limit, code, work) ->
+          let session, config, source = inputs contents in
+          let report =
+            Native_program.evaluate ~max_initializer_steps:limit session ~config
+              ~source ~max_steps:100
+          in
+          let errors =
+            match Native_program.outcome report with
+            | Error errors -> errors
+            | Ok _ -> Alcotest.fail "array preparation failure reached entry"
+          in
+          Alcotest.(check bool)
+            ("array preparation diagnostic " ^ code)
+            true
+            (List.exists (fun (d : Diagnostic.t) -> d.code = code) errors);
+          Alcotest.(check int)
+            "exact earlier and faulting leaf work" work
+            (Native_program.preparation_steps report);
+          Alcotest.(check bool)
+            "failed array preparation has no image" true
+            (Option.is_none (Native_program.image report));
+          Alcotest.(check bool)
+            "failed array preparation has no entry attempts" true
+            (Option.is_none (Native_program.executed_steps report)))
+        [
+          ( "I64 F(){static I16 a[2]={40 junk,2};return 0;}42;",
+            100,
+            "HCPARSE0139",
+            3 );
+          ( "I64 F(){static I16 a[2]={40,1/0};return 0;}42;",
+            100,
+            "HCIRVM0009",
+            6 );
+          ("I16 a[2]={40,1/0};42;", 100, "HCIRVM0009", 6);
+          ("I64 F(){static I16 a[2]={40,2};return 0;}42;", 5, "HCIRVM0007", 5);
+          (copy_rows, 5, "HCIRVM0007", 3);
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
@@ -429,7 +618,13 @@ let () =
             ownership;
           Alcotest.test_case "static original preparation and bundle ownership"
             `Quick static_ownership;
+          Alcotest.test_case "numeric and copied array leaf ownership" `Quick
+            array_ownership;
+          Alcotest.test_case "prepared arrays publish before native entry"
+            `Quick array_publication_prefix;
           Alcotest.test_case "preparation failures precede entry" `Quick
             failed_preparation;
+          Alcotest.test_case "static leaf and copy failures retain exact work"
+            `Quick array_failure_work;
         ] );
     ]

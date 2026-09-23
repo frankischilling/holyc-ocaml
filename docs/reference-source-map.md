@@ -1263,3 +1263,31 @@ all integer widths, both ABI images, source/API/CLI execution, exact work and
 resource limits. See [native arrays](native-arrays.md). Canonical records,
 initialization faults and bounded addresses are hosted safeguards; no new
 TempleOS execution capture is claimed.
+
+## Native persistent arrays and strings (#698)
+
+At pinned revision `c26482bb6ad3f80106d28504ec5db3c6a360732c`,
+`Compiler/PrsVar.HC:123-215` drives fixed-count initializer recursion and byte
+copies. Its string branch at lines 131-152 copies the current dimension count;
+the branch does not require a final array rank. Static allocation and preparation
+follow `PrsVar.HC:555-585`. The native path retains the original dimensions,
+per-leaf expressions, delimiter positions and completed declaration through
+`Parser`, `Static_initializer_fragment`, `Task_declarations` and
+`Native_default_preparation`. The completed source layout must agree with each
+prepared destination before `Native_global_initializers` seals the image.
+
+`PrsExp.HC:692-704` creates a miscellaneous string object and its `IC_STR_CONST`
+producer. `LexLib.HC:248-275` joins adjacent strings while keeping the terminating
+NUL in the recorded length. `OptPass789A.HC:1098-1106` allocates and copies each
+string's recorded bytes. `X86_64_literal_storage` binds those bytes to the exact
+compiled graph, function owner and producer. Literal arguments also require the
+original pushed argument record from the sealed runtime-call context.
+
+`X86_64_global_storage` packs checked global/static objects and their private
+initialization flags. The native reference emitter reuses the original stride
+and object bounds from #681. Prepared JIT publication metadata stays intact and
+must precede the first entry instruction. The execution bridge verifies the
+sum of logical global bytes, literal bytes and private metadata before creating
+its fresh non-executable arena. See [native persistent storage](native-persistent-storage.md)
+for the supported source domain and tests. These safeguards and execution
+results are hosted evidence, not a new TempleOS oracle capture.

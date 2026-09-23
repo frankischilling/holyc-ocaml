@@ -1,5 +1,18 @@
 # holyc-ocaml architecture
 
+Native global/static arrays reuse checked dimensions, cell offsets and original
+source owners in `Backend.X86_64_global_storage`. The same native indexed-object
+path handles automatic and persistent arrays. `Backend.X86_64_literal_storage`
+binds mutable bytes and arena reference records to each exact literal producer.
+The executor accounts separately for global data, literal data and private
+metadata before allocating a fresh non-executable arena.
+
+Static initializer callbacks now occur at each original leaf. Their preceding
+delimiters advance the same layout recursion used for completed initializers.
+Prepared payloads remain bound to that receipt chain and its final declaration;
+closed-body compilation imports them without repeating source work. See
+[persistent native storage](docs/native-persistent-storage.md).
+
 Native scalar globals use `Backend.X86_64_global_storage` to seal the exact
 initialization/entry bundle and original symbolic address producers. Callable
 code reserves a private arena base, with fresh non-executable storage per native

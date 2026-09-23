@@ -10,9 +10,10 @@ val create :
   entry:Ir.X87_stack.t ->
   functions:Ir.Integer_interpreter.function_definition list ->
   (t, string) result
-(** Seal successful original scalar preparation to its exact compiled bundle.
-    Reconstructed values, missing receipts and scheduled initialization reject.
-*)
+(** Seal successful original scalar and array-leaf preparation to its exact
+    compiled bundle. Prepared JIT publications require their original lowerer
+    receipt and must all precede the first entry instruction. Reconstructed
+    values, missing receipts and scheduled initialization reject. *)
 
 val matches :
   t ->

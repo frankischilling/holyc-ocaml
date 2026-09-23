@@ -22,14 +22,15 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 5)
+    (Array.length Sys.argv = 6)
     "usage: test_native_array_cli.exe <holyc.exe> <layout.hc> \
-     <integer-arrays.hc> <aliases.hc>"
+     <integer-arrays.hc> <aliases.hc> <persistent-arrays.hc>"
 
 let compiler = Sys.argv.(1)
 let layout_fixture = Sys.argv.(2)
 let integer_array_fixture = Sys.argv.(3)
 let alias_fixture = Sys.argv.(4)
+let persistent_fixture = Sys.argv.(5)
 
 let invoke arguments =
   with_file ".stdout" "" (fun stdout ->
@@ -255,5 +256,78 @@ let () =
           ( "RHS fault precedes final bounds",
             "HCIRVM0009",
             "I64 F(){I64 a[2];a[2]=1/0;return 42;}F();" );
+        ];
+      let persistent =
+        check_native_ir_success ~mode ~label:"persistent array source gate"
+          persistent_fixture
+      in
+      require
+        (persistent |> member "executed_steps" |> to_int = 101
+        && persistent |> member "compiled_initializer_steps" |> to_int = 21
+        && persistent |> member "dimension_preparation_work" |> to_int = 4)
+        "persistent native source work";
+      require
+        (ir_json ~mode persistent_fixture
+        |> member "compiled_initializer_steps"
+        |> to_int = 23)
+        "ordinary static preparation retains its frame-exit work";
+      let image = persistent |> member "native" |> member "image" in
+      let globals = image |> member "global_bytes" |> to_int in
+      let literals = image |> member "literal_bytes" |> to_int in
+      let metadata = image |> member "arena_metadata_bytes" |> to_int in
+      require
+        (globals = 19 && literals = 3 && metadata > 0
+        && image
+           |> member "global_arena_bytes"
+           |> to_int
+           = globals + literals + metadata)
+        "persistent data and private metadata accounting";
+      check_success
+        (host_json ~mode
+           ~options:
+             [
+               "--initializer-step-limit=21";
+               "--dimension-work-limit=4";
+               "--global-byte-limit=19";
+               "--literal-byte-limit=3";
+             ]
+           persistent_fixture);
+      List.iter
+        (fun option ->
+          let failed =
+            host_json ~status:1 ~mode ~options:[ option ] persistent_fixture
+          in
+          require
+            (member "executed_steps" failed = `Null)
+            (option ^ " must fail before native execution"))
+        [
+          "--initializer-step-limit=20";
+          "--dimension-work-limit=3";
+          "--global-byte-limit=18";
+          "--literal-byte-limit=2";
+        ];
+      with_file ".hc"
+        "I64 F(){U8 *s=\"41\";s[1]++;return (s[0]-48)*10+s[1]-48;}F();"
+        (fun path ->
+          ignore (check_native_ir_success ~mode ~label:"mutable literal" path);
+          check_success
+            (host_json ~mode ~options:[ "--literal-byte-limit=3" ] path);
+          let failed =
+            host_json ~status:1 ~mode ~options:[ "--literal-byte-limit=2" ] path
+          in
+          require
+            (member "executed_steps" failed = `Null)
+            "one-below literal bytes must reject before native entry");
+      List.iter
+        (fun (label, source) ->
+          with_file ".hc" source (fun path ->
+              ignore (check_native_ir_success ~mode ~label path)))
+        [
+          ("global initializer", "I16 a[2]={40,2};a[0]+a[1];");
+          ( "static initializer",
+            "I64 F(){static U8 a[2]={40,2};return a[0]+a[1];}F();" );
+          ( "byte initializer terminator",
+            "U8 a[3]=\"41\";a[1]++;(a[0]-48)*10+a[1]-48+a[2];" );
+          ("flat persistent extent", "I16 a[2][3];a[0][3]=42;a[1][0];");
         ])
     [ "jit"; "aot" ]

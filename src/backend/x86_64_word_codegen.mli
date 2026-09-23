@@ -80,6 +80,7 @@ val compile_callable :
   ?max_stack_bytes:int ->
   ?max_blocks:int ->
   ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
   ?parameter_defaults:Driver.Native_parameter_defaults.t ->
   ?global_initializers:Driver.Native_global_initializers.t ->
   max_ir_instructions:int ->
@@ -123,5 +124,7 @@ val program_entry_stack_bytes : program_image -> int
 val program_sites : program_image -> program_site list
 val validate_global_limit : max_global_bytes:int -> (unit, error list) result
 val program_global_bytes : program_image -> int
+val program_literal_bytes : program_image -> int
+val program_arena_metadata_bytes : program_image -> int
 val program_global_image : program_image -> string
 val hard_max_global_bytes : int

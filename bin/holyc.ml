@@ -850,7 +850,7 @@ let native_program_file ~max_dimension_work ~max_switch_work
                        ~max_initializer_steps ~max_default_bytes
                        ~max_switch_work ~max_dimension_work ~max_frame_bytes
                        ~max_call_depth ~max_active_stack_bytes ~max_global_bytes
-                       session ~config ~source ~max_steps)
+                       ~max_literal_bytes session ~config ~source ~max_steps)
                   ()))
 
 let run_target_argument =

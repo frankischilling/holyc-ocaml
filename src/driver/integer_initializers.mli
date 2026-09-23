@@ -29,12 +29,15 @@ type native_preparation
 val prepare_native :
   authority:Sema.Initializer_fragment.authority ->
   typed:Sema.Function_call_expression_result.top_level_t ->
+  cell_offset:int ->
+  byte_offset:int ->
+  operation:Ir.Integer_initializer_layout.operation ->
   on_progress:(int -> unit) ->
   max_steps:int ->
   (native_preparation, Common.Diagnostic.t list) result
-(** Execute an original closed scalar initializer only during its current parser
-    callback. The receipt retains the exact leaf, checked type, result and work.
-*)
+(** Prepare an original closed initializer leaf only during its current parser
+    callback. The receipt retains its exact live array destination, payload and
+    bounded work. *)
 
 val native_leaf : native_preparation -> Sema.Initializer_source.leaf
 val native_steps : native_preparation -> int
@@ -126,6 +129,9 @@ val prepare_offset :
 val prepare_native_static :
   fragment:Sema.Static_initializer_fragment.t ->
   typed:Sema.Function_call_expression_result.top_level_t ->
+  cell_offset:int ->
+  byte_offset:int ->
+  operation:Ir.Integer_initializer_layout.operation ->
   on_progress:(int -> unit) ->
   max_steps:int ->
   (native_static_preparation, Common.Diagnostic.t list) result

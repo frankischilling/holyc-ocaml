@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Added native global and static integer arrays with closed numeric and byte-copy
+  initializer images. Static leaves prepare at their original parser boundaries;
+  failures retain earlier work, and prepared JIT publications must precede entry.
+  Mutable string literals retain separate source-site identity, embedded NULs
+  and fresh images on each execution. References preserve full object bounds
+  through indexing and calls. Reports distinguish global bytes, literal bytes
+  and private arena metadata, with matching host-bridge checks.
+
 - Connected native automatic arrays of all eight integer types through dimension
   preparation, frame allocation, indexed reads and updates, pointer locals and
   fixed calls. Saved aliases retain their original element across repeated

@@ -27,22 +27,35 @@ type item = Typed.top_level_root_result prepared_item
 type static_item =
   (Globals.static_slot * Typed.initializer_result) prepared_item
 
+type native_destination = {
+  cell_offset : int;
+  byte_offset : int;
+  operation : Layout.operation;
+}
+
 type native_preparation = {
   native_fragment : Sema.Initializer_fragment.t;
-  native_bits : int64;
+  native_payload : Arrays.payload;
+  native_destination : native_destination;
   native_steps : int;
 }
 
 type native_static_preparation = {
   static_fragment : Sema.Static_initializer_fragment.t;
-  static_bits : int64;
+  static_payload : Arrays.payload;
+  static_destination : native_destination;
   static_steps : int;
 }
 
 type owner =
   | Native_static of
-      Sema.Static_initializer_fragment.t * Typed.top_level_root_result
-  | Native_global of Sema.Initializer_fragment.t * Typed.top_level_root_result
+      Sema.Static_initializer_fragment.t
+      * Typed.top_level_root_result
+      * native_destination
+  | Native_global of
+      Sema.Initializer_fragment.t
+      * Typed.top_level_root_result
+      * native_destination
   | Global of Globals.slot * Typed.top_level_root_result
   | Static of Globals.static_slot * Typed.initializer_result
   | Fragment of Destination.t
@@ -110,8 +123,10 @@ let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
   else
     let work =
       match (native_global, native_static) with
-      | Some (fragment, root), None -> [ Native_global (fragment, root) ]
-      | None, Some (fragment, root) -> [ Native_static (fragment, root) ]
+      | Some (fragment, root, destination), None ->
+          [ Native_global (fragment, root, destination) ]
+      | None, Some (fragment, root, destination) ->
+          [ Native_static (fragment, root, destination) ]
       | Some _, Some _ -> invalid_arg "conflicting native preparation owners"
       | None, None -> (
           match offset with
@@ -322,9 +337,9 @@ let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
       | root_ :: rest -> (
           let symbol, value, frame =
             match root_ with
-            | Native_static (_, root) ->
+            | Native_static (_, root, _) ->
                 (None, Typed.top_level_root_value root, None)
-            | Native_global (fragment, root) ->
+            | Native_global (fragment, root, _) ->
                 ( Some
                     (fragment |> Sema.Initializer_fragment.declaration
                    |> Sema.Compiler_record.declared_global_symbol),
@@ -377,11 +392,9 @@ let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
           in
           let operation =
             match root_ with
-            | Native_static _
-            | Native_global _
-            | Default _
-            | Dimension _
-            | Offset _ -> None
+            | Native_static (_, _, destination)
+            | Native_global (_, _, destination) -> Some destination.operation
+            | Default _ | Dimension _ | Offset _ -> None
             | Fragment destination ->
                 Some (Layout.operation (Destination.layout destination))
             | Global (slot, root) ->
@@ -523,9 +536,9 @@ let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
               in
               let destination_type, compiler_options =
                 match root_ with
-                | Native_static (fragment, _) ->
+                | Native_static (fragment, _, _) ->
                     (Sema.Static_initializer_fragment.type_ fragment, 0L)
-                | Native_global (fragment, _) ->
+                | Native_global (fragment, _, _) ->
                     ( fragment |> Sema.Initializer_fragment.declaration
                       |> Sema.Compiler_record.declared_global_type
                       |> Sema.Type_reference.resolved_type,
@@ -862,9 +875,16 @@ let native_leaf value = Sema.Initializer_fragment.leaf value.native_fragment
 let native_steps value = value.native_steps
 let native_evidence value = value.native_evidence_
 
-let prepare_native ~authority ~typed ~on_progress ~max_steps =
+let same_destination destination entry =
+  destination.cell_offset = Layout.cell_offset entry
+  && destination.byte_offset = Layout.byte_offset entry
+  && destination.operation = Layout.operation entry
+
+let prepare_native ~authority ~typed ~cell_offset ~byte_offset ~operation
+    ~on_progress ~max_steps =
   let fragment = Sema.Initializer_fragment.authorized_fragment authority in
   let leaf = Sema.Initializer_fragment.leaf fragment in
+  let destination = { cell_offset; byte_offset; operation } in
   let span =
     (Frontend.Ast.expression_location
        (Sema.Initializer_source.leaf_expression_ast leaf))
@@ -903,18 +923,26 @@ let prepare_native ~authority ~typed ~on_progress ~max_steps =
   let value = Typed.top_level_root_value root in
   let scalar type_ = Option.is_some (Ir.Integer_scalar_storage.of_type type_) in
   let* () =
-    if
-      scalar
-        (fragment |> Sema.Initializer_fragment.declaration
-       |> Sema.Compiler_record.declared_global_type
-       |> Sema.Type_reference.resolved_type)
-      && Typed.result_array_rank value = 0
-      && Option.fold ~none:false ~some:scalar (Typed.result_type value)
-      && Sema.Initializer_source.leaf_identifier_nodes leaf = []
-    then Ok ()
+    if Sema.Initializer_source.leaf_identifier_nodes leaf <> [] then
+      invalid "native initializer preparation requires a closed source leaf"
     else
-      invalid
-        "native initializer preparation requires a closed scalar integer value"
+      match operation with
+      | Layout.Scalar_store ->
+          if
+            scalar
+              (fragment |> Sema.Initializer_fragment.declaration
+             |> Sema.Compiler_record.declared_global_type
+             |> Sema.Type_reference.resolved_type)
+            && Typed.result_array_rank value = 0
+            && Option.fold ~none:false ~some:scalar (Typed.result_type value)
+          then Ok ()
+          else
+            invalid
+              "native initializer preparation requires a scalar integer leaf"
+      | Layout.Copy_bytes _ -> (
+          match Sema.Initializer_source.leaf_expression_ast leaf with
+          | Frontend.Ast.String_literal _ -> Ok ()
+          | _ -> invalid "native initializer copy has no original string leaf")
   in
   let* globals =
     Globals.native_initializer_context fragment
@@ -925,13 +953,36 @@ let prepare_native ~authority ~typed ~on_progress ~max_steps =
         ])
   in
   let* prepared =
-    prepare_internal ~native_global:(fragment, root) ~allow_zero_budget:true
-      ~on_progress ~max_steps ~span ~globals ~top_calls:[] ~functions:[] ()
+    prepare_internal
+      ~native_global:(fragment, root, destination)
+      ~allow_zero_budget:true ~on_progress ~max_steps ~span ~globals
+      ~top_calls:[] ~functions:[] ()
   in
-  match prepared.native_items_ with
-  | [
-   { classification_ = Prepared_constant native_bits; steps = native_steps; _ };
-  ] -> Ok { native_fragment = fragment; native_bits; native_steps }
+  match (prepared.native_items_, prepared.copies_) with
+  | ( [
+        {
+          classification_ = Prepared_constant native_bits;
+          steps = native_steps;
+          _;
+        };
+      ],
+      [] ) ->
+      Ok
+        {
+          native_fragment = fragment;
+          native_payload = Arrays.Word native_bits;
+          native_destination = destination;
+          native_steps;
+        }
+  | [], [ (Native_global (original, source_root, saved), bytes, native_steps) ]
+    when original == fragment && source_root == root && saved = destination ->
+      Ok
+        {
+          native_fragment = fragment;
+          native_payload = Arrays.Bytes bytes;
+          native_destination = destination;
+          native_steps;
+        }
   | _ -> invalid "native initializer requires checked constant preparation"
 
 let native_static_evidence value = value.static_evidence_
@@ -939,9 +990,11 @@ let native_static_evidence value = value.static_evidence_
 let native_static_receipt value =
   Sema.Static_initializer_fragment.receipt value.static_fragment
 
-let prepare_native_static ~fragment ~typed ~on_progress ~max_steps =
+let prepare_native_static ~fragment ~typed ~cell_offset ~byte_offset ~operation
+    ~on_progress ~max_steps =
   let module Fragment = Sema.Static_initializer_fragment in
   let expression = Fragment.expression fragment in
+  let destination = { cell_offset; byte_offset; operation } in
   let span = (Frontend.Ast.expression_location expression).span in
   let invalid message =
     Error
@@ -973,14 +1026,22 @@ let prepare_native_static ~fragment ~typed ~on_progress ~max_steps =
   let value = Typed.top_level_root_value root in
   let scalar type_ = Option.is_some (Ir.Integer_scalar_storage.of_type type_) in
   let* () =
-    if
-      scalar (Fragment.type_ fragment)
-      && Typed.result_array_rank value = 0
-      && Option.fold ~none:false ~some:scalar (Typed.result_type value)
-      && Sema.Initializer_source.expression_identifier_nodes expression = []
-    then Ok ()
+    if Sema.Initializer_source.expression_identifier_nodes expression <> [] then
+      invalid "native static preparation requires a closed source leaf"
     else
-      invalid "native static preparation requires a closed scalar integer value"
+      match operation with
+      | Layout.Scalar_store ->
+          if
+            scalar (Fragment.type_ fragment)
+            && Typed.result_array_rank value = 0
+            && Option.fold ~none:false ~some:scalar (Typed.result_type value)
+          then Ok ()
+          else
+            invalid "native static preparation requires a scalar integer leaf"
+      | Layout.Copy_bytes _ -> (
+          match expression with
+          | Frontend.Ast.String_literal _ -> Ok ()
+          | _ -> invalid "native static copy has no original string leaf")
   in
   let* globals =
     Globals.native_static_initializer_context fragment
@@ -991,13 +1052,36 @@ let prepare_native_static ~fragment ~typed ~on_progress ~max_steps =
         ])
   in
   let* prepared =
-    prepare_internal ~native_static:(fragment, root) ~allow_zero_budget:true
-      ~on_progress ~max_steps ~span ~globals ~top_calls:[] ~functions:[] ()
+    prepare_internal
+      ~native_static:(fragment, root, destination)
+      ~allow_zero_budget:true ~on_progress ~max_steps ~span ~globals
+      ~top_calls:[] ~functions:[] ()
   in
-  match prepared.native_items_ with
-  | [
-   { classification_ = Prepared_constant static_bits; steps = static_steps; _ };
-  ] -> Ok { static_fragment = fragment; static_bits; static_steps }
+  match (prepared.native_items_, prepared.copies_) with
+  | ( [
+        {
+          classification_ = Prepared_constant static_bits;
+          steps = static_steps;
+          _;
+        };
+      ],
+      [] ) ->
+      Ok
+        {
+          static_fragment = fragment;
+          static_payload = Arrays.Word static_bits;
+          static_destination = destination;
+          static_steps;
+        }
+  | [], [ (Native_static (original, source_root, saved), bytes, static_steps) ]
+    when original == fragment && source_root == root && saved = destination ->
+      Ok
+        {
+          static_fragment = fragment;
+          static_payload = Arrays.Bytes bytes;
+          static_destination = destination;
+          static_steps;
+        }
   | _ ->
       invalid "native static initializer requires checked constant preparation"
 
@@ -1015,17 +1099,19 @@ let native_static_values ~span globals evidence =
     Globals.statics globals
     |> List.filter (fun slot -> Globals.static_initializers slot <> [])
   in
-  let rec collect roots values slots evidence =
-    match (slots, evidence) with
-    | [], [] -> Ok (List.rev roots, List.rev values)
-    | slot :: rest, proof :: tail ->
+  let expected =
+    List.concat_map
+      (fun slot ->
+        List.map (fun root -> (slot, root)) (Globals.static_initializers slot))
+      slots
+  in
+  let rec collect roots scalar_values array_values expected evidence =
+    match (expected, evidence) with
+    | [], [] ->
+        Ok (List.rev roots, List.rev scalar_values, List.rev array_values)
+    | (slot, root) :: rest, proof :: tail -> (
         let fragment = proof.static_fragment in
         let receipt = Fragment.receipt fragment in
-        let* root =
-          match Globals.static_initializers slot with
-          | [ root ] -> Ok root
-          | _ -> invalid "native static initializer must have one scalar root"
-        in
         let source = Typed.initializer_source root in
         let leaf = Sema.Function_call_resolution.initializer_leaf source in
         let storage = Globals.static_storage slot in
@@ -1036,15 +1122,12 @@ let native_static_values ~span globals evidence =
           (not
              (Option.fold ~none:false
                 ~some:(fun local ->
-                  (match
-                     receipt.static_allocation.allocation_local.local_source
-                   with
-                    | Parser.Local_variable source ->
-                        local.Frontend.Ast.local_name == source.local_name
-                    | _ -> false)
-                  && Option.fold ~none:false
-                       ~some:(( == ) receipt.static_initializer)
-                       local.local_initializer)
+                  match
+                    receipt.static_allocation.allocation_local.local_source
+                  with
+                  | Parser.Local_variable source ->
+                      local.Frontend.Ast.local_name == source.local_name
+                  | _ -> false)
                 completed))
           || Globals.static_frame slot
              |> Sema.Function_frame_layout.function_symbol
@@ -1054,50 +1137,95 @@ let native_static_values ~span globals evidence =
                 (Sema.Type.equal
                    (Globals.storage_type storage)
                    (Fragment.type_ fragment)))
-          || (not
-                (Option.fold ~none:false
-                   ~some:(fun leaf ->
-                     Sema.Initializer_source.leaf_expression_ast leaf
-                     == Fragment.expression fragment)
-                   leaf))
-          || Option.is_some (Globals.static_array_initializers slot)
+          || not
+               (Option.fold ~none:false
+                  ~some:(fun leaf ->
+                    Sema.Initializer_source.leaf_expression_ast leaf
+                    == Fragment.expression fragment
+                    && Sema.Initializer_source.leaf_path leaf
+                       = receipt.static_leaf_path)
+                  leaf)
         then
           invalid
             "native static evidence is incomplete, foreign, substituted or out \
              of order"
         else
-          collect (root :: roots)
-            (( Globals.storage_symbol storage,
-               proof.static_bits,
-               proof.static_steps )
-            :: values)
-            rest tail
+          match Globals.static_array_initializers slot with
+          | Some arrays -> (
+              match Arrays.find arrays root with
+              | Some entry
+                when same_destination proof.static_destination
+                       (Arrays.destination entry) ->
+                  collect (root :: roots) scalar_values
+                    ((root, proof.static_payload, proof.static_steps)
+                    :: array_values)
+                    rest tail
+              | None | Some _ ->
+                  invalid
+                    "native static evidence has another completed array \
+                     destination")
+          | None -> (
+              match
+                (proof.static_payload, proof.static_destination.operation)
+              with
+              | Arrays.Word bits, Layout.Scalar_store
+                when proof.static_destination.cell_offset = 0
+                     && proof.static_destination.byte_offset = 0 ->
+                  collect (root :: roots)
+                    ((Globals.storage_symbol storage, bits, proof.static_steps)
+                    :: scalar_values)
+                    array_values rest tail
+              | _ ->
+                  invalid
+                    "native static scalar evidence carries an array payload"))
     | _ -> invalid "native static evidence is missing, duplicated or unused"
   in
-  collect [] [] slots evidence
+  collect [] [] [] expected evidence
 
 let native_statics_complete ~span prepared =
   match
     native_static_values ~span prepared.globals_ prepared.static_evidence_
   with
   | Error _ -> false
-  | Ok (_, values) ->
-      List.for_all
-        (fun (symbol, bits, steps) ->
-          match Globals.find_static prepared.globals_ symbol with
-          | None -> false
-          | Some slot ->
-              let storage = Globals.static_storage slot in
-              List.for_all
-                (Globals.static_root_materialized slot)
-                (Globals.static_initializers slot)
-              && Globals.storage_preparation_steps storage = steps
-              && Globals.storage_initial_bits storage
-                 = Some
-                     (Ir.Integer_scalar_storage.narrow_bits
-                        (Globals.storage_type storage)
-                        bits))
-        values
+  | Ok (_, scalar_values, array_values) ->
+      let scalars =
+        List.for_all
+          (fun (symbol, bits, steps) ->
+            match Globals.find_static prepared.globals_ symbol with
+            | None -> false
+            | Some slot ->
+                let storage = Globals.static_storage slot in
+                List.for_all
+                  (Globals.static_root_materialized slot)
+                  (Globals.static_initializers slot)
+                && Globals.storage_preparation_steps storage = steps
+                && Globals.storage_initial_bits storage
+                   = Some
+                       (Ir.Integer_scalar_storage.narrow_bits
+                          (Globals.storage_type storage)
+                          bits))
+          scalar_values
+      in
+      let arrays =
+        List.for_all
+          (fun (root, _, steps) ->
+            List.exists
+              (fun slot ->
+                Globals.static_root_materialized slot root
+                && Option.fold ~none:false
+                     ~some:(fun arrays ->
+                       Option.fold ~none:false
+                         ~some:(fun entry ->
+                           Option.fold ~none:false
+                             ~some:(fun (_, actual_steps) ->
+                               actual_steps = steps)
+                             (Arrays.prepared entry))
+                         (Arrays.find arrays root))
+                     (Globals.static_array_initializers slot))
+              (Globals.statics prepared.globals_))
+          array_values
+      in
+      scalars && arrays
 
 let native_values ~span globals evidence =
   let invalid message =
@@ -1109,13 +1237,19 @@ let native_values ~span globals evidence =
   in
   let slots =
     Globals.slots globals
-    |> List.filter (fun slot -> Option.is_some (Globals.slot_initializer slot))
+    |> List.filter (fun slot -> Globals.slot_initializers slot <> [])
   in
-  let rec collect roots values slots evidence =
-    match (slots, evidence) with
-    | [], [] -> Ok (List.rev roots, List.rev values)
-    | slot :: rest, proof :: tail ->
-        let root = Option.get (Globals.slot_initializer slot) in
+  let expected =
+    List.concat_map
+      (fun slot ->
+        List.map (fun root -> (slot, root)) (Globals.slot_initializers slot))
+      slots
+  in
+  let rec collect roots scalar_values array_values expected evidence =
+    match (expected, evidence) with
+    | [], [] ->
+        Ok (List.rev roots, List.rev scalar_values, List.rev array_values)
+    | (slot, root) :: rest, proof :: tail -> (
         let declaration =
           Sema.Initializer_fragment.declaration proof.native_fragment
         in
@@ -1131,38 +1265,84 @@ let native_values ~span globals evidence =
                    ~some:(( == ) (native_leaf proof))
                    (Typed.top_level_root_source root
                    |> Sema.Top_level_expression_tree.root_initializer_leaf)))
-          || Globals.slot_array_initializers slot <> None
           || Globals.slot_reuses_declared_storage slot
         then
           invalid
             "native initializer evidence is foreign, substituted or out of \
              order"
         else
-          collect (root :: roots)
-            ((Globals.slot_symbol slot, proof.native_bits, proof.native_steps)
-            :: values)
-            rest tail
+          match Globals.slot_array_initializers slot with
+          | Some arrays -> (
+              match Arrays.find arrays root with
+              | Some entry
+                when same_destination proof.native_destination
+                       (Arrays.destination entry) ->
+                  collect (root :: roots) scalar_values
+                    ((root, proof.native_payload, proof.native_steps)
+                    :: array_values)
+                    rest tail
+              | None | Some _ ->
+                  invalid
+                    "native initializer evidence has another completed array \
+                     destination")
+          | None -> (
+              match
+                (proof.native_payload, proof.native_destination.operation)
+              with
+              | Arrays.Word bits, Layout.Scalar_store
+                when proof.native_destination.cell_offset = 0
+                     && proof.native_destination.byte_offset = 0 ->
+                  collect (root :: roots)
+                    ((Globals.slot_symbol slot, bits, proof.native_steps)
+                    :: scalar_values)
+                    array_values rest tail
+              | _ ->
+                  invalid
+                    "native scalar initializer evidence carries an array \
+                     payload"))
     | _ ->
         invalid "native initializer evidence is missing, duplicated or unused"
   in
-  collect [] [] slots evidence
+  collect [] [] [] expected evidence
 
 let native_complete ~span prepared =
   match native_values ~span prepared.globals_ prepared.native_evidence_ with
   | Error _ -> false
-  | Ok (_, values) ->
-      List.for_all
-        (fun (symbol, bits, steps) ->
-          match Globals.find prepared.globals_ symbol with
-          | Some slot ->
-              Globals.slot_initializer_materialized slot
-              && Globals.slot_initializer_preparation_steps slot = steps
-              && Globals.slot_initial_bits slot
-                 = Some
-                     (Ir.Integer_scalar_storage.narrow_bits
-                        (Globals.slot_type slot) bits)
-          | None -> false)
-        values
+  | Ok (_, scalar_values, array_values) ->
+      let scalars =
+        List.for_all
+          (fun (symbol, bits, steps) ->
+            match Globals.find prepared.globals_ symbol with
+            | Some slot ->
+                Globals.slot_initializer_materialized slot
+                && Globals.slot_initializer_preparation_steps slot = steps
+                && Globals.slot_initial_bits slot
+                   = Some
+                       (Ir.Integer_scalar_storage.narrow_bits
+                          (Globals.slot_type slot) bits)
+            | None -> false)
+          scalar_values
+      in
+      let arrays =
+        List.for_all
+          (fun (root, _, steps) ->
+            List.exists
+              (fun slot ->
+                Globals.slot_root_materialized slot root
+                && Option.fold ~none:false
+                     ~some:(fun arrays ->
+                       Option.fold ~none:false
+                         ~some:(fun entry ->
+                           Option.fold ~none:false
+                             ~some:(fun (_, actual_steps) ->
+                               actual_steps = steps)
+                             (Arrays.prepared entry))
+                         (Arrays.find arrays root))
+                     (Globals.slot_array_initializers slot))
+              (Globals.slots prepared.globals_))
+          array_values
+      in
+      scalars && arrays
 
 let prepare ?native_preparations ?native_static_preparations ?function_calls
     ?allow_zero_budget ?retained_function_source ?on_progress ~max_steps ~span
@@ -1191,16 +1371,32 @@ let prepare ?native_preparations ?native_static_preparations ?function_calls
     match native_preparations with
     | None -> Ok ([], globals)
     | Some evidence ->
-        let* roots, values = native_values ~span globals evidence in
-        let* globals = Globals.with_initial_values ~span globals values in
+        let* roots, scalar_values, array_values =
+          native_values ~span globals evidence
+        in
+        let* globals =
+          Globals.with_initial_values ~span globals scalar_values
+        in
+        let* globals =
+          Globals.with_array_initial_values ~span globals
+            ~global_values:array_values ~static_values:[]
+        in
         Ok (roots, globals)
   in
   let* statics_prepared, globals =
     match native_static_preparations with
     | None -> Ok ([], globals)
     | Some evidence ->
-        let* roots, values = native_static_values ~span globals evidence in
-        let* globals = Globals.with_initial_values ~span globals values in
+        let* roots, scalar_values, array_values =
+          native_static_values ~span globals evidence
+        in
+        let* globals =
+          Globals.with_initial_values ~span globals scalar_values
+        in
+        let* globals =
+          Globals.with_array_initial_values ~span globals ~global_values:[]
+            ~static_values:array_values
+        in
         Ok (roots, globals)
   in
   let allow_zero_budget =

@@ -23,6 +23,33 @@ let matches proof ~runtime_calls ~initialization ~entry ~functions =
   && List.length proof.functions = List.length functions
   && List.for_all2 ( == ) proof.functions (bodies functions)
 
+let publications_precede_entry ~globals ~initialization ~entry =
+  let module Initialization = Ir.Global_initialization in
+  let publications = Initialization.publications initialization in
+  let descriptions =
+    List.map Initialization.describe_publication publications
+  in
+  let original =
+    match Initialization.publication_evidence initialization with
+    | None -> publications = []
+    | Some evidence ->
+        Ir.Initializer_publication.matches evidence ~globals ~entry descriptions
+  in
+  original
+  &&
+  match
+    Ir.X87_stack.graph entry |> Ir.Block_graph.entry
+    |> Ir.Block_graph.instructions |> Ir.Instruction_sequence.instructions
+  with
+  | [] -> false
+  | first :: _ ->
+      let first = (Ir.Instruction_sequence.description first).instruction_id in
+      List.for_all
+        (fun publication ->
+          Ir.Instruction_sequence.Instruction_id.equal first
+            (Initialization.publication_before publication))
+        publications
+
 let create ~span ~static_completions ~completions ~preparation ~runtime_calls
     ~initialization ~entry ~functions =
   let globals = Integer_initializers.globals preparation in
@@ -53,9 +80,7 @@ let create ~span ~static_completions ~completions ~preparation ~runtime_calls
              ~initialization:(Some initialization) ~functions))
     || Ir.Global_initialization.regions initialization <> []
     || Ir.Global_initialization.static_regions initialization <> []
-    || Ir.Global_initialization.publications initialization <> []
-    || Option.is_some
-         (Ir.Global_initialization.publication_evidence initialization)
+    || (not (publications_precede_entry ~globals ~initialization ~entry))
     || Ir.Integer_globals.is_task_command globals
     || Ir.Global_initialization.prepared_steps initialization
        <> Integer_initializers.executed_steps preparation

@@ -72,6 +72,7 @@ val compile_callable :
   ?max_stack_bytes:int ->
   ?max_blocks:int ->
   ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
   ?parameter_defaults:Driver.Native_parameter_defaults.t ->
   ?global_initializers:Driver.Native_global_initializers.t ->
   max_ir_instructions:int ->
@@ -94,12 +95,14 @@ val compile_callable :
     preflighted, including definitions unreachable from the entry. Calls are
     emitted only from exact sealed runtime-call metadata and preserve the shared
     native status context. The exact initialization context must be supplied
-    even when empty. Ordinary scalar globals and scalar static locals use a
-    private arena. Their initial values require [global_initializers] from their
-    exact source preparation. Persistent arrays, retained storage and scheduled
-    initialization regions are rejected. Declaration-time parameter defaults
-    require [parameter_defaults] from the exact source preparation; omitting it
-    preserves the low-level rejection. *)
+    even when empty. Integer global/static arrays and owned mutable strings use
+    a private arena with independent logical data and metadata counts. Initial
+    global/static values require [global_initializers] from their exact source
+    preparation; JIT publication markers must precede the first entry
+    instruction. Retained task storage and scheduled initialization regions are
+    rejected. Declaration-time parameter defaults require [parameter_defaults]
+    from the exact source preparation; omitting it preserves the low-level
+    rejection. *)
 
 val code : t -> string
 
@@ -153,7 +156,10 @@ val decode_runtime_status :
     decoder. *)
 
 val validate_global_limit : max_global_bytes:int -> (unit, error list) result
+val validate_literal_limit : max_literal_bytes:int -> (unit, error list) result
 val global_bytes : t -> int
+val literal_bytes : t -> int
+val arena_metadata_bytes : t -> int
 
 val global_image : t -> string
 (** Fresh copy of the private initial data and per-object initialization flags.

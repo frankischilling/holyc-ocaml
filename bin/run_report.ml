@@ -320,6 +320,8 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
             native-functions=%d\n\
             native-entry-stack-bytes=%d\n\
             native-global-bytes=%d\n\
+            native-literal-bytes=%d\n\
+            native-arena-metadata-bytes=%d\n\
             native-global-arena-bytes=%d\n"
            (Holyc_lib.X86_64_program.ir_instructions image)
            (Holyc_lib.X86_64_program.machine_instructions image)
@@ -330,6 +332,8 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
            (Holyc_lib.X86_64_program.function_count image)
            (Holyc_lib.X86_64_program.entry_stack_bytes image)
            (Holyc_lib.X86_64_program.global_bytes image)
+           (Holyc_lib.X86_64_program.literal_bytes image)
+           (Holyc_lib.X86_64_program.arena_metadata_bytes image)
            (String.length (Holyc_lib.X86_64_program.global_image image)))
        image;
      List.iter
@@ -378,6 +382,10 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
                  `Int (Holyc_lib.X86_64_program.entry_stack_bytes image) );
                ( "global_bytes",
                  `Int (Holyc_lib.X86_64_program.global_bytes image) );
+               ( "literal_bytes",
+                 `Int (Holyc_lib.X86_64_program.literal_bytes image) );
+               ( "arena_metadata_bytes",
+                 `Int (Holyc_lib.X86_64_program.arena_metadata_bytes image) );
                ( "global_arena_bytes",
                  `Int
                    (String.length (Holyc_lib.X86_64_program.global_image image))

@@ -582,12 +582,14 @@ let automatic_array_layout () =
       |> reject_compile ~code:"HCBACK0004" "array private frame one below";
       List.iter
         (fun contents ->
+          ignore (compile_source ~mode contents |> require_ok diagnostics_text))
+        [ "I64 F(){static I8 a[2];return 42;}F();"; "I8 G[2];42;" ];
+      List.iter
+        (fun contents ->
           compile_source ~mode contents
           |> reject_compile "array unsupported storage or addressing")
         [
           "I64 F(){I8 a[2]={1,2};return 42;}F();";
-          "I64 F(){static I8 a[2];return 42;}F();";
-          "I8 G[2];42;";
           "I64 F(){I8 *a[2];return 42;}F();";
           "I8 *F(){I8 a[2];return a;}42;";
           "I64 F(){I8 a[0];return 42;}F();";

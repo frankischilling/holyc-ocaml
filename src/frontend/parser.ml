@@ -424,14 +424,26 @@ let function_local_allocation_is_current receipt =
        .command_context
        .context_active
 
-type static_initializer_preparation = {
+type static_initializer_start = {
+  static_start_allocation : function_local_allocation;
+  static_equals : Ast.location;
+  static_start_activity : static_initializer_activity;
+}
+
+and static_initializer_preparation = {
+  static_initializer : static_initializer_start;
   static_allocation : function_local_allocation;
-  static_initializer : Ast.local_initializer;
+  static_leaf_index : int;
+  static_leaf_predecessor : static_initializer_preparation option;
+  static_leaf_path : int list;
+  static_leaf_value : Ast.initial_value;
+  static_leaf_delimiters : initializer_delimiter list;
   static_activity : static_initializer_activity;
 }
 
 and completed_static_initializer = {
-  static_preparation : static_initializer_preparation;
+  static_completed_start : static_initializer_start;
+  static_preparation : static_initializer_preparation option;
   static_declarator : Ast.local_declarator;
 }
 
@@ -441,10 +453,9 @@ and static_initializer_activity = {
   mutable static_completed : Ast.local_declarator option;
 }
 
-let static_initializer_context_is_current receipt =
+let static_initializer_allocation_context_is_current allocation =
   let context =
-    receipt.static_allocation.allocation_function.function_header
-      .declaration_command
+    allocation.allocation_function.function_header.declaration_command
       .command_context
   in
   context.context_active
@@ -453,18 +464,76 @@ let static_initializer_context_is_current receipt =
   | Some position, active :: _ -> position == active
   | _ -> false
 
-let static_initializer_is_current receipt =
+let static_initializer_context_is_current
+    (receipt : static_initializer_preparation) =
+  static_initializer_allocation_context_is_current receipt.static_allocation
+
+let static_initializer_is_current (receipt : static_initializer_preparation) =
   Option.fold ~none:false ~some:(( == ) receipt)
     receipt.static_activity.static_current
   && static_initializer_context_is_current receipt
 
 let static_initializer_completion_is_current receipt =
   Option.fold ~none:false ~some:(( == ) receipt)
-    receipt.static_preparation.static_activity.static_completion_current
-  && static_initializer_context_is_current receipt.static_preparation
+    receipt.static_completed_start.static_start_activity
+      .static_completion_current
+  && static_initializer_allocation_context_is_current
+       receipt.static_completed_start.static_start_allocation
 
 let static_initializer_completed_declarator receipt =
   receipt.static_activity.static_completed
+
+let static_initializer_leaf_location receipt =
+  Ast.initial_value_location receipt.static_leaf_value
+
+let static_initializer_allocation receipt = receipt.static_allocation
+
+let static_initializer_completion_matches start last
+    (declarator : Ast.local_declarator) =
+  let rec preparations reversed = function
+    | None -> reversed
+    | Some preparation ->
+        preparations (preparation :: reversed)
+          preparation.static_leaf_predecessor
+  in
+  let rec value path index preparations = function
+    | Ast.Scalar_initializer _ as leaf -> (
+        match preparations with
+        | preparation :: rest
+          when preparation.static_initializer == start
+               && preparation.static_allocation == start.static_start_allocation
+               && preparation.static_activity == start.static_start_activity
+               && preparation.static_leaf_index = index
+               && preparation.static_leaf_path = path
+               && preparation.static_leaf_value == leaf -> Some (index + 1, rest)
+        | _ -> None)
+    | Ast.Braced_initializer group ->
+        elements path index preparations group.initializer_elements
+    | Ast.Unbraced_array_initializer group ->
+        elements path index preparations group.unbraced_initializer_elements
+  and elements path index preparations values =
+    let rec loop child_index index preparations = function
+      | [] -> Some (index, preparations)
+      | (element : Ast.initializer_element) :: rest -> (
+          match
+            value (path @ [ child_index ]) index preparations
+              element.initializer_element_value
+          with
+          | None -> None
+          | Some (index, preparations) ->
+              loop (child_index + 1) index preparations rest)
+    in
+    loop 0 index preparations values
+  in
+  match declarator.local_initializer with
+  | Some initial when initial.local_initializer_equals == start.static_equals
+    -> (
+      match
+        value [] 0 (preparations [] last) initial.local_initializer_value
+      with
+      | Some (_, []) -> true
+      | None | Some (_, _ :: _) -> false)
+  | None | Some _ -> false
 
 type function_position_write = {
   position_function : function_publication;
@@ -4090,6 +4159,12 @@ type live_initializer = {
   mutable previous_delimiter : completed_initializer_delimiter option;
 }
 
+type live_static_initializer = {
+  static_start : static_initializer_start;
+  mutable static_previous : static_initializer_preparation option;
+  mutable static_delimiters_rev : initializer_delimiter list;
+}
+
 let publish_initializer_phase cursor at start phase event =
   start.initializer_activity.initializer_phase <- Some phase;
   Fun.protect
@@ -4148,8 +4223,48 @@ let publish_initializer_leaf cursor live node =
 let initializer_child live index =
   Option.map (fun (state, path_rev) -> (state, index :: path_rev)) live
 
-let rec parse_initializer_value ?live cursor ~declarator_context ~depth :
-    parsed_initializer option =
+let publish_static_initializer_leaf cursor live node =
+  Option.iter
+    (fun (state, path_rev) ->
+      let static_leaf_index =
+        Option.fold ~none:0
+          ~some:(fun previous -> previous.static_leaf_index + 1)
+          state.static_previous
+      in
+      let start = state.static_start in
+      let preparation =
+        {
+          static_initializer = start;
+          static_allocation = start.static_start_allocation;
+          static_leaf_index;
+          static_leaf_predecessor = state.static_previous;
+          static_leaf_path = List.rev path_rev;
+          static_leaf_value = node;
+          static_leaf_delimiters = List.rev state.static_delimiters_rev;
+          static_activity = start.static_start_activity;
+        }
+      in
+      start.static_start_activity.static_current <- Some preparation;
+      Fun.protect
+        ~finally:(fun () -> start.static_start_activity.static_current <- None)
+        (fun () ->
+          publish_declaration cursor (peek cursor)
+            (Static_initializer_preparing preparation));
+      state.static_previous <- Some preparation;
+      state.static_delimiters_rev <- [])
+    live
+
+let static_initializer_child live index =
+  Option.map (fun (state, path_rev) -> (state, index :: path_rev)) live
+
+let record_static_initializer_delimiter live delimiter =
+  Option.iter
+    (fun (state, _) ->
+      state.static_delimiters_rev <- delimiter :: state.static_delimiters_rev)
+    live
+
+let rec parse_initializer_value ?live ?static_live cursor ~declarator_context
+    ~depth : parsed_initializer option =
   let item = peek cursor in
   if depth >= max_initializer_depth then
     initializer_failure cursor ~declarator_context item ~local_open_braces:depth
@@ -4165,7 +4280,8 @@ let rec parse_initializer_value ?live cursor ~declarator_context ~depth :
   else
     match item.token.kind with
     | Token_kind.Punctuation '{' ->
-        parse_braced_initializer ?live cursor ~declarator_context ~depth
+        parse_braced_initializer ?live ?static_live cursor ~declarator_context
+          ~depth
     | Token_kind.Punctuation (';' | ',' | '}') | Token_kind.Eof ->
         initializer_failure cursor ~declarator_context item
           ~local_open_braces:depth ~global_code:"HCPARSE0127"
@@ -4192,13 +4308,16 @@ let rec parse_initializer_value ?live cursor ~declarator_context ~depth :
         | Some expression ->
             let node = Ast.Scalar_initializer expression.node in
             publish_initializer_leaf cursor live node;
+            publish_static_initializer_leaf cursor static_live node;
             Some { node; tokens = expression.tokens })
 
-and parse_braced_initializer ?live cursor ~declarator_context ~depth :
-    parsed_initializer option =
+and parse_braced_initializer ?live ?static_live cursor ~declarator_context
+    ~depth : parsed_initializer option =
   let opening_item = take cursor in
   let opening_brace = token_location opening_item.token in
   publish_initializer_delimiter cursor opening_item live
+    (Initializer_open opening_brace);
+  record_static_initializer_delimiter static_live
     (Initializer_open opening_brace);
   let rec parse_elements index elements_rev token_groups_rev :
       parsed_initializer option =
@@ -4208,6 +4327,8 @@ and parse_braced_initializer ?live cursor ~declarator_context ~depth :
         let closing_item = take cursor in
         let closing_brace = token_location closing_item.token in
         publish_initializer_delimiter cursor closing_item live
+          (Initializer_close closing_brace);
+        record_static_initializer_delimiter static_live
           (Initializer_close closing_brace);
         let tokens =
           (opening_item.token :: (List.rev token_groups_rev |> List.concat))
@@ -4239,6 +4360,7 @@ and parse_braced_initializer ?live cursor ~declarator_context ~depth :
         match
           parse_initializer_value
             ?live:(initializer_child live index)
+            ?static_live:(static_initializer_child static_live index)
             cursor ~declarator_context ~depth:(depth + 1)
         with
         | None -> None
@@ -4250,6 +4372,8 @@ and parse_braced_initializer ?live cursor ~declarator_context ~depth :
                   let comma_item = take cursor in
                   let comma = token_location comma_item.token in
                   publish_initializer_delimiter cursor comma_item live
+                    (Initializer_comma comma);
+                  record_static_initializer_delimiter static_live
                     (Initializer_comma comma);
                   (Some comma, value.tokens @ [ comma_item.token ])
               | Token_kind.Punctuation '}' -> (None, value.tokens)
@@ -4279,8 +4403,9 @@ and parse_braced_initializer ?live cursor ~declarator_context ~depth :
   in
   parse_elements 0 [] []
 
-and parse_unbraced_array_initializer ?live cursor ~declarator_context ~depth
-    ~allow_closing_brace ~dimensions : parsed_initializer option =
+and parse_unbraced_array_initializer ?live ?static_live cursor
+    ~declarator_context ~depth ~allow_closing_brace ~dimensions :
+    parsed_initializer option =
   let item = peek cursor in
   let count =
     match dimensions with
@@ -4338,6 +4463,8 @@ and parse_unbraced_array_initializer ?live cursor ~declarator_context ~depth
               let closing = token_location closing_item.token in
               publish_initializer_delimiter cursor closing_item live
                 (Initializer_close closing);
+              record_static_initializer_delimiter static_live
+                (Initializer_close closing);
               (Some closing, [ closing_item.token ]))
             else (None, [])
           in
@@ -4353,17 +4480,18 @@ and parse_unbraced_array_initializer ?live cursor ~declarator_context ~depth
         else
           let parsed_value =
             let live = initializer_child live index in
+            let static_live = static_initializer_child static_live index in
             match remaining_dimensions with
             | [] ->
-                parse_initializer_value ?live cursor ~declarator_context
-                  ~depth:(depth + 1)
+                parse_initializer_value ?live ?static_live cursor
+                  ~declarator_context ~depth:(depth + 1)
             | dimensions ->
                 let next_item = peek cursor in
                 if next_item.token.kind = Token_kind.Punctuation '{' then
-                  parse_braced_initializer ?live cursor ~declarator_context
-                    ~depth:(depth + 1)
+                  parse_braced_initializer ?live ?static_live cursor
+                    ~declarator_context ~depth:(depth + 1)
                 else
-                  parse_unbraced_array_initializer ?live cursor
+                  parse_unbraced_array_initializer ?live ?static_live cursor
                     ~declarator_context ~depth:(depth + 1)
                     ~allow_closing_brace:false ~dimensions
           in
@@ -4378,6 +4506,8 @@ and parse_unbraced_array_initializer ?live cursor ~declarator_context ~depth
                     let comma_item = take cursor in
                     let comma = token_location comma_item.token in
                     publish_initializer_delimiter cursor comma_item live
+                      (Initializer_comma comma);
+                    record_static_initializer_delimiter static_live
                       (Initializer_comma comma);
                     (Some comma, value.tokens @ [ comma_item.token ]))
                   else (None, [])
@@ -7122,42 +7252,47 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                 else if storage = Ast.Static_local then
                   let allocation = List.nth_opt cursor.local_allocations 0 in
                   let equals_item = take cursor in
+                  let equals = token_location equals_item.token in
+                  let static_live =
+                    match (cursor.declaration, allocation) with
+                    | Some _, Some static_allocation ->
+                        let static_activity =
+                          {
+                            static_current = None;
+                            static_completion_current = None;
+                            static_completed = None;
+                          }
+                        in
+                        let static_start =
+                          {
+                            static_start_allocation = static_allocation;
+                            static_equals = equals;
+                            static_start_activity = static_activity;
+                          }
+                        in
+                        Some
+                          ( {
+                              static_start;
+                              static_previous = None;
+                              static_delimiters_rev = [];
+                            },
+                            [] )
+                    | _ -> None
+                  in
                   Option.map
                     (fun (value : parsed_initializer) ->
                       let tokens = equals_item.token :: value.tokens in
                       let initial_value =
-                        Ast.make_local_initializer
-                          ~equals:(token_location equals_item.token)
-                          ~value:value.node
+                        Ast.make_local_initializer ~equals ~value:value.node
                           ~location:(location_from_expression_tokens tokens)
                       in
-                      (match (cursor.declaration, allocation) with
-                      | Some _, Some static_allocation ->
-                          let static_activity =
-                            {
-                              static_current = None;
-                              static_completion_current = None;
-                              static_completed = None;
-                            }
-                          in
-                          let receipt =
-                            {
-                              static_allocation;
-                              static_initializer = initial_value;
-                              static_activity;
-                            }
-                          in
-                          static_activity.static_current <- Some receipt;
-                          Fun.protect
-                            ~finally:(fun () ->
-                              static_activity.static_current <- None)
-                            (fun () ->
-                              publish_declaration cursor (peek cursor)
-                                (Static_initializer_preparing receipt));
-                          pending_static := Some receipt
-                      | _ -> ());
+                      Option.iter
+                        (fun (state, _) ->
+                          pending_static :=
+                            Some (state.static_start, state.static_previous))
+                        static_live;
                       (Some initial_value, tokens))
-                    (parse_initializer_value cursor
+                    (parse_initializer_value ?static_live cursor
                        ~declarator_context:
                          (Static_local_initializer_declarator boundary) ~depth:0)
                 else
@@ -7230,11 +7365,25 @@ let parse_local_declarator cursor ~boundary ~storage ~base_spelling
                           ~location:(location_from_expression_tokens tokens)
                       in
                       Option.iter
-                        (fun static_preparation ->
+                        (fun (static_initializer, static_preparation) ->
+                          if
+                            not
+                              (static_initializer_completion_matches
+                                 static_initializer static_preparation node)
+                          then
+                            invalid_arg
+                              "static initializer completion lost its original \
+                               leaf transcript";
                           let receipt =
-                            { static_preparation; static_declarator = node }
+                            {
+                              static_completed_start = static_initializer;
+                              static_preparation;
+                              static_declarator = node;
+                            }
                           in
-                          let activity = static_preparation.static_activity in
+                          let activity =
+                            static_initializer.static_start_activity
+                          in
                           activity.static_completion_current <- Some receipt;
                           Fun.protect
                             ~finally:(fun () ->
