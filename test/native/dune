@@ -308,3 +308,27 @@
  (alias native-tests)
  (action
   (run %{exe:test_native_output_bridge.exe})))
+
+(executable
+ (name test_native_print_execution)
+ (modules test_native_print_execution)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_print_execution.exe})))
+
+(executable
+ (name test_native_print_cli)
+ (modules test_native_print_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/integer-persistent-arrays.hc)
+ (action
+  (run
+   %{exe:test_native_print_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/integer-persistent-arrays.hc})))

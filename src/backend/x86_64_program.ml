@@ -24,6 +24,10 @@ type fault_kind =
   | Address_out_of_bounds
   | Output_limit_exceeded
   | Output_work_limit_exceeded
+  | Output_invalid_format
+  | Output_invalid_argument
+  | Output_invalid_pointer
+  | Output_invalid_byte
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
   | Divide
@@ -40,6 +44,7 @@ type fault = {
   executed_steps : int;
   function_id : int option;
   function_name : string option;
+  atomic_output : bool;
 }
 
 type execution = { executed_steps : int; final_value : word option }
@@ -195,6 +200,7 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                          executed_steps = executed_steps_int;
                          function_id;
                          function_name;
+                         atomic_output = candidate.atomic_output_site;
                        })
                 in
                 if Int64.equal kind 1L then
@@ -313,6 +319,20 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                     make_fault
                       (if Int64.equal kind 11L then Output_limit_exceeded
                        else Output_work_limit_exceeded)
+                      None
+                else if kind >= 13L && kind <= 16L then
+                  if not candidate.atomic_output_site then
+                    Error "native program format status names a non-Print site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native program format fault did not consume its call \
+                       instruction"
+                  else
+                    make_fault
+                      (if Int64.equal kind 13L then Output_invalid_format
+                       else if Int64.equal kind 14L then Output_invalid_argument
+                       else if Int64.equal kind 15L then Output_invalid_pointer
+                       else Output_invalid_byte)
                       None
                 else Error "native program status has an unknown fault kind")
 

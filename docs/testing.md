@@ -1,13 +1,23 @@
 # Testing holyc-ocaml
 
-Native output tests cover original PutChars provider calls, literal encoder bytes
-for the private capture fields, both ABI images, malformed call metadata and
-fault-site decoding. The explicit native suite compares independent packed-byte
-results with the checked interpreter, including interior zero bytes, source
-calls, recursion, implicit result retention and repeated images. Capacity/work
-failures retain their output prefix and exact call work. CLI tests exercise the
-maintained PutChars fixture in both modes; raw bridge tests reject malformed
-limits/storage and protect immutable pointer fields. See [native output](native-output.md).
+Native output tests cover original PutChars and Print provider calls, both ABI
+images, malformed call metadata and fault-site decoding. PutChars regressions
+compare independent packed-byte results with the checked interpreter, including
+interior zero bytes, source calls, recursion, implicit result retention and
+repeated images. Capacity and work failures retain their reached prefix and exact
+call work. Raw bridge tests reject malformed limits and storage, then verify the
+immutable capture and arena fields. See [native output](native-output.md).
+
+Print execution tests compare native reports with the public interpreter and
+checked batch path in both source modes. They cover mutable and interior format
+and string pointers, argument snapshots across later assignments, nested output
+during argument evaluation, narrow storage values and full returned word bits.
+Binary bytes, empty output, failed scans, unsupported formats and atomic capacity
+failures have independent byte and work expectations. Source-defined Print,
+implicit and explicit result latches, provider frame/depth limits, exact private
+code/frame quotas and repeated image execution are separate cases. CLI tests
+exercise the maintained persistent-array fixture, binary capture, atomic failure
+prefixes and human report fields. See [native Print](native-print.md).
 
 Native persistent storage tests cover global/static integer array images and
 source-owned mutable literals. Compile-only tests check original owners, widths,

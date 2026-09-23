@@ -115,6 +115,25 @@ let put_chars_provider_prototype (prototype : Ast.function_prototype) =
       && public_primitive U64 parameter.type_specifier
   | _ -> false
 
+let print_provider_prototype (prototype : Ast.function_prototype) =
+  prototype.modifiers = []
+  && prototype.binding.kind = Ast.Extern
+  && prototype.binding.target = Ast.No_binding_target
+  && prototype.return_pointer_layers = []
+  && public_primitive U0 prototype.return_type
+  && prototype.name.spelling = "Print"
+  && Option.is_some prototype.closing_parenthesis
+  &&
+  match (prototype.parameters, prototype.variadic) with
+  | [ parameter ], Some variadic ->
+      parameter.register_qualifiers = []
+      && List.length parameter.pointer_layers = 1
+      && Option.is_none parameter.function_pointer
+      && Option.is_none parameter.default
+      && public_primitive U8 parameter.type_specifier
+      && variadic.register_qualifiers = []
+  | _ -> false
+
 let implicit_output_expressions (statement : Ast.implicit_output_statement) =
   let arguments =
     List.map (fun argument -> argument.Ast.value) statement.arguments
@@ -247,7 +266,8 @@ let ast_errors (ast : Ast.module_) =
                   (fun body -> work := Gate_statement (true, body) :: !work)
                   definition.body)
         | Gate_item (Ast.Function_prototype prototype)
-          when put_chars_provider_prototype prototype -> ()
+          when put_chars_provider_prototype prototype
+               || print_provider_prototype prototype -> ()
         | Gate_item (Ast.Global_variable variable) ->
             Option.iter reject
               (global_source_error ~span:variable.location.span
@@ -426,19 +446,14 @@ let ast_errors (ast : Ast.module_) =
                     :: prepend_statements in_function body !work
             | Ast.Implicit_output_statement statement -> (
                 match statement.target with
-                | Ast.Put_chars_target ->
+                | Ast.Put_chars_target | Ast.Print_target ->
                     work :=
                       List.rev_append
                         (List.rev_map
                            (fun expression ->
                              Gate_expression (in_function, expression))
                            (implicit_output_expressions statement))
-                        !work
-                | Ast.Print_target ->
-                    reject
-                      (source_error statement.location.span
-                         "native programs admit only checked PutChars implicit \
-                          output"))
+                        !work)
             | Ast.Local_declaration_statement declaration when in_function -> (
                 match local_source_error declaration with
                 | Some error -> reject error
@@ -815,6 +830,14 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
         ("HCIRVM0022", "runtime output exceeds the output byte limit")
     | Image.Output_work_limit_exceeded ->
         ("HCIRVM0023", "runtime output work limit was exhausted")
+    | Image.Output_invalid_format ->
+        ("HCIRVM0024", "native Print format is unsupported or incomplete")
+    | Image.Output_invalid_argument ->
+        ("HCIRVM0025", "native Print format argument is missing or invalid")
+    | Image.Output_invalid_pointer ->
+        ("HCIRVM0018", "native Print requires a live byte pointer")
+    | Image.Output_invalid_byte ->
+        ("HCIRVM0008", "native Print byte cell has an invalid runtime value")
   in
   Common.Diagnostic.make ~code ~severity:Common.Diagnostic.Error ~message
     ~primary:(Option.value fault.span ~default:fallback)

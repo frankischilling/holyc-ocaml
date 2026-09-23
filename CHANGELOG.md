@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added native Print formatting for ordinary bytes and bare `%%`, `%d`, `%s`
+  and `%c`. Original typed arguments and live byte objects feed the emitted
+  formatter; failed drafts retain charged work and earlier output without
+  publishing partial bytes from that call. Source/API/CLI tests cover atomic
+  capture, argument effects, narrow values, owned scans and resource limits.
+
 - Defined the required 1.0 host/target matrix, corpus phases and bootstrap
   lineage. The reference manifest now fixes five source inventories and the
   complete canonical dependency-input tree. Reference verification and CI reject

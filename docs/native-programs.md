@@ -328,3 +328,5 @@ and stable element references; see [native arrays](native-arrays.md).
 leaves, mutable literal objects and separate logical/metadata byte accounting.
 The checked PutChars provider captures native packed bytes with independent
 output and work limits; see [native output](native-output.md).
+[Native Print](native-print.md) formats owned strings and captured integer
+arguments with those same limits, publishing each complete call on success.

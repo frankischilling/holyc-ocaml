@@ -1309,3 +1309,37 @@ Compile-only, explicit native and CLI regressions cover both source modes and
 ABI images, original ownership, resource boundaries and fresh executions.
 See [native output](native-output.md). The quotas and capture model are hosted
 policy; this increment does not reproduce TempleOS device hooks.
+
+## Native captured Print (#705)
+
+`Kernel/KExts.HC:83` declares `Print(U8 *fmt,...)`.
+`Compiler/PrsExp.HC:383-413` selects Print for an implicit string statement,
+and lines 430-511 retain the fixed format expression and variadic tail before
+the call fragment at 530-588. `Kernel/StrPrint.HC:208-873` supplies the
+`StrPrintJoin` traversal used as the pinned formatting source; Print at
+890-895 formats into its buffer before publishing it.
+
+`Runtime_call_context` keeps the selected provider declaration, hidden
+variadic count, argument producers and source types with the original JIT/AOT
+call opcode. A source-defined Print keeps its ordinary source body. Native
+provider admission rejects a later same-name body publication because retained
+extern/body execution is a separate feature.
+
+`X86_64_word_codegen` stages the captured arguments and emits
+`X86_64_print_format` at the original call site. The hosted formatter supports
+ordinary bytes plus bare `%%`, `%d`, `%s` and `%c`. Format and string
+reads use canonical owned references, including interior offsets. A Print call
+writes into an uncommitted draft; only successful completion advances the
+committed capture count. Work spent before a format, pointer, initialization,
+capacity or work fault remains charged while bytes from that failed draft stay
+private.
+
+`Native_program_execution` and the C bridge return only the committed prefix
+after validating immutable context fields and output counters. The image marks
+Print sites separately so format-only status kinds and atomic capacity faults
+must name the original checked call. API and CLI regressions compare the native
+result with the checked interpreter in both source modes and cover mutable
+formats, pointer snapshots, nested output arguments, binary bytes, result
+latches, fault sites and exact resource limits. See
+[native Print](native-print.md). The bounded capture and diagnostics are hosted
+policy; this increment adds no TempleOS oracle capture.

@@ -8,6 +8,7 @@ module Scalar = Ir.Integer_scalar_storage
 module Encoder = X86_64_encoder
 module Global_storage = X86_64_global_storage
 module Literal_storage = X86_64_literal_storage
+module Print_codegen = X86_64_print_format
 module Runtime = Ir.Runtime_call_context
 module Defaults = Driver.Native_parameter_defaults
 module Prepared_default = Ir.Prepared_parameter_default
@@ -308,6 +309,7 @@ type operation =
   | Call_start
   | Direct_call of direct_call
   | Put_chars of int
+  | Print_output of Print_codegen.t
   | Call_cleanup
   | Call_end of int * value
   | Call_end_void
@@ -2218,6 +2220,31 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position (if old_result then r8 else computed_index) result
       | Call_start | Call_cleanup -> release_through position
+      | Print_output call ->
+          spill_all_registers instruction.span;
+          Print_codegen.emit
+            {
+              instruction = emit;
+              fresh = (fun () -> fresh_label supply);
+              mark;
+              branch =
+                (fun branch target ->
+                  emit_branch
+                    (match branch with
+                    | Print_codegen.Always -> Unconditional
+                    | Print_codegen.Equal -> Equal
+                    | Print_codegen.Not_equal -> Not_equal
+                    | Print_codegen.Below -> Below
+                    | Print_codegen.Less -> Less
+                    | Print_codegen.Overflow -> Overflow)
+                    target);
+              fault =
+                (fun kind -> fault_label kind (Option.get instruction.site));
+              slot = staged_stack_slot instruction.span;
+            }
+            call;
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          release_through position
       | Put_chars stage ->
           spill_all_registers instruction.span;
           let site = Option.get instruction.site in
@@ -2617,6 +2644,7 @@ type program_site = {
   index_addition_site : bool;
   address_bounds_site : bool;
   output_site : bool;
+  atomic_output_site : bool;
 }
 
 type program_image = {
@@ -2831,6 +2859,7 @@ let preflight_program graph =
                 index_addition_site = false;
                 address_bounds_site = false;
                 output_site = false;
+                atomic_output_site = false;
               }
               :: !sites_rev;
             prepared_rev :=
@@ -2959,7 +2988,11 @@ type frame_term =
   | Indexed_address of indexed_address_term
 
 type callable_call_phase = Collecting | Needs_cleanup | Needs_end
-type callable_target = Source_function of int | Put_chars_provider
+
+type callable_target =
+  | Source_function of int
+  | Put_chars_provider
+  | Print_provider
 
 type callable_call_scope = {
   call : Runtime.call;
@@ -2969,9 +3002,19 @@ type callable_call_scope = {
   stage_base : int;
   result_stage : int option;
   argument_stages : int array;
+  argument_types : Type.t array;
+  scratch_stage : int;
   pushed : bool array;
   mutable phase : callable_call_phase;
 }
+
+let call_argument_index target = function
+  | Runtime.Fixed index ->
+      if target = Print_provider && index <> 0 then None else Some index
+  | Runtime.Variadic_count when target = Print_provider -> Some 1
+  | Runtime.Variadic index when target = Print_provider && index >= 0 ->
+      Some (index + 2)
+  | Runtime.Variadic_count | Runtime.Variadic _ -> None
 
 type prepared_callable_body = {
   callable_blocks : prepared_program_block list;
@@ -3668,6 +3711,100 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                     if return_kind <> Callable_void_return then
                       malformed description "native PutChars must complete U0";
                     (Put_chars_provider, [| parameter_type |], return_kind, 8)
+                | Some Runtime.Print ->
+                    let count =
+                      match Runtime.variadic_count call with
+                      | Some count
+                        when count >= 0L
+                             && count <= Int64.of_int ((max_stack_bytes / 8) - 2)
+                        -> Int64.to_int count
+                      | Some _ ->
+                          reject ?span:description.span "HCBACK0004"
+                            "native Print argument staging exceeds the private \
+                             frame limit"
+                      | None ->
+                          malformed description
+                            "native Print requires its original variadic count"
+                    in
+                    if
+                      Runtime.call_opcode call <> Opcode.Ic_call_indirect2
+                      && Runtime.call_opcode call <> Opcode.Ic_call_extern
+                    then
+                      malformed description
+                        "native Print requires its original extern call opcode";
+                    if
+                      Array.exists
+                        (fun info ->
+                          Symbol.name
+                            (Function.callable_symbol info.definition.body)
+                          = Symbol.name (Runtime.symbol call))
+                        functions
+                    then
+                      unsupported description
+                        "native Print provider calls cannot coexist with a \
+                         source body for that name; joined extern publication \
+                         requires retained source execution";
+                    let arguments = Runtime.arguments call in
+                    if List.length arguments <> count + 2 then
+                      malformed description
+                        "native Print argument count is inconsistent";
+                    let parameter_types =
+                      Array.make (count + 2) (Runtime.return_type call)
+                    in
+                    let present = Array.make (count + 2) false in
+                    List.iter
+                      (fun argument ->
+                        match
+                          call_argument_index Print_provider
+                            (Runtime.argument_role argument)
+                        with
+                        | Some index
+                          when index >= 0
+                               && index < count + 2
+                               && not present.(index) ->
+                            let type_ = Runtime.argument_target_type argument in
+                            present.(index) <- true;
+                            parameter_types.(index) <- type_;
+                            if index = 0 then
+                              let pointee, _ =
+                                checked_reference description type_
+                              in
+                              match Type.base pointee with
+                              | Type.Primitive (_, Primitive.U8) -> ()
+                              | _ ->
+                                  malformed description
+                                    "native Print format must retain its U8 \
+                                     pointer type"
+                            else if index = 1 then (
+                              let scalar = checked_scalar description type_ in
+                              if
+                                scalar.byte_size <> 8 || scalar.word_type <> I64
+                              then
+                                malformed description
+                                  "native Print count must retain internal I64")
+                            else if Type.pointer_depth type_ = 0 then
+                              ignore
+                                (checked_scalar ~allow_public:true description
+                                   type_)
+                            else ignore (checked_reference description type_)
+                        | _ ->
+                            malformed description
+                              "native Print argument role is duplicated or \
+                               outside its captured tail")
+                      arguments;
+                    if not (Array.for_all Fun.id present) then
+                      malformed description
+                        "native Print is missing an argument slot";
+                    let return_kind =
+                      source_return_kind ?span:description.span
+                        (Runtime.return_type call)
+                    in
+                    if return_kind <> Callable_void_return then
+                      malformed description "native Print must complete U0";
+                    ( Print_provider,
+                      parameter_types,
+                      return_kind,
+                      (count + 2) * 8 )
                 | Some _ ->
                     unsupported description
                       "native calls do not admit this runtime provider"
@@ -3707,8 +3844,10 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               let seen = Array.make parameter_count false in
               List.iter
                 (fun argument ->
-                  match Runtime.argument_role argument with
-                  | Runtime.Fixed index
+                  match
+                    call_argument_index target (Runtime.argument_role argument)
+                  with
+                  | Some index
                     when index >= 0 && index < parameter_count
                          && not seen.(index) ->
                       seen.(index) <- true;
@@ -3721,9 +3860,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                         malformed description
                           "direct call argument target type disagrees with its \
                            parameter"
-                  | Runtime.Fixed _
-                  | Runtime.Variadic_count
-                  | Runtime.Variadic _ ->
+                  | Some _ | None ->
                       unsupported description
                         "native callable programs require non-variadic fixed \
                          arguments")
@@ -3737,11 +3874,23 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                 | Callable_word_return _ -> Some (stage_base + parameter_count)
                 | Callable_void_return -> None
               in
-              stage_cursor :=
+              let scratch_stage =
                 stage_base + parameter_count
-                + if Option.is_some result_stage then 1 else 0;
+                + if Option.is_some result_stage then 1 else 0
+              in
+              let scratch_count =
+                if target = Print_provider then
+                  Print_codegen.scratch_slots (parameter_count - 2)
+                else 0
+              in
+              if scratch_count > (max_stack_bytes / 8) - scratch_stage then
+                reject ?span:description.span "HCBACK0004"
+                  "native call arguments and formatter scratch exceed the \
+                   private frame limit";
+              stage_cursor := scratch_stage + scratch_count;
               stage_high_water := max !stage_high_water !stage_cursor;
-              home_slots := max !home_slots parameter_count;
+              if target <> Print_provider then
+                home_slots := max !home_slots parameter_count;
               let scope =
                 {
                   call;
@@ -3752,6 +3901,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   result_stage;
                   argument_stages =
                     Array.init parameter_count (fun index -> stage_base + index);
+                  argument_types = parameter_types;
+                  scratch_stage;
                   pushed = Array.make parameter_count false;
                   phase = Collecting;
                 }
@@ -3796,7 +3947,35 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                               Array.copy scope.argument_stages;
                             result_stage_slot = scope.result_stage;
                           }
-                    | Put_chars_provider -> Put_chars scope.argument_stages.(0)),
+                    | Put_chars_provider -> Put_chars scope.argument_stages.(0)
+                    | Print_provider ->
+                        let tail_types =
+                          Array.sub scope.argument_types 2
+                            (Array.length scope.argument_types - 2)
+                        in
+                        let kinds =
+                          Array.map
+                            (fun type_ ->
+                              if Type.pointer_depth type_ = 0 then
+                                Print_codegen.Word
+                              else
+                                match Type.base type_ with
+                                | Type.Primitive (_, Primitive.U8) ->
+                                    Print_codegen.Unsigned_byte_pointer
+                                | Type.Primitive (_, Primitive.I8) ->
+                                    Print_codegen.Signed_byte_pointer
+                                | _ -> Print_codegen.Other_pointer)
+                            tail_types
+                        in
+                        Print_output
+                          {
+                            Print_codegen.format_stage =
+                              scope.argument_stages.(0);
+                            arguments_stage = scope.stage_base + 2;
+                            argument_kinds = kinds;
+                            scratch_stage = scope.scratch_stage;
+                            activation_bytes = scope.activation_bytes;
+                          }),
                     None )
               | _ ->
                   malformed description
@@ -4906,8 +5085,11 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   when Sequence.Value_id.equal
                          (Runtime.argument_value argument)
                          result.value_id -> (
-                    match Runtime.argument_role argument with
-                    | Runtime.Fixed index
+                    match
+                      call_argument_index scope.target
+                        (Runtime.argument_role argument)
+                    with
+                    | Some index
                       when index >= 0
                            && index < Array.length scope.pushed
                            && not scope.pushed.(index) ->
@@ -4964,12 +5146,24 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                         checked_copy raw
                           (Runtime.argument_target_type argument)
                           value.declared_type;
+                        (match Runtime.argument_role argument with
+                        | Runtime.Variadic_count ->
+                            if
+                              raw.opcode <> Opcode.Ic_imm_i64
+                              || raw.operands <> [] || raw.flags <> 0x2000L
+                              || raw.payload
+                                 <> Option.map
+                                      (fun count -> Sequence.Integer count)
+                                      (Runtime.variadic_count scope.call)
+                            then
+                              malformed raw
+                                "native Print count producer lost its original \
+                                 captured argument count"
+                        | Runtime.Fixed _ | Runtime.Variadic _ -> ());
                         scope.pushed.(index) <- true;
                         value.last_use <- max value.last_use position;
                         Some (value, scope.argument_stages.(index))
-                    | Runtime.Fixed _
-                    | Runtime.Variadic_count
-                    | Runtime.Variadic _ ->
+                    | Some _ | None ->
                         malformed raw "pushed argument role is inconsistent")
                 | _ ->
                     malformed raw "pushed result has no exact runtime argument")
@@ -5004,7 +5198,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
             value_type;
             call_site =
               (match operation with
-              | Direct_call _ | Put_chars _ -> true
+              | Direct_call _ | Put_chars _ | Print_output _ -> true
               | _ -> false);
             uninitialized_read_site =
               (match operation with
@@ -5018,7 +5212,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | Load_indexed_object_value _
               | Update_indexed_object_value _
               | Load_reference_value _
-              | Update_reference_value _ -> true
+              | Update_reference_value _
+              | Print_output _ -> true
               | _ -> false);
             index_scale_site =
               (match operation with
@@ -5026,7 +5221,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | _ -> false);
             index_addition_site =
               (match operation with
-              | Add_index _ -> true
+              | Add_index _ | Print_output _ -> true
               | _ -> false);
             address_bounds_site =
               (match operation with
@@ -5037,13 +5232,18 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | Update_reference_value _
               | Load_indexed_object_value _
               | Store_indexed_object_value _
-              | Update_indexed_object_value _ -> true
+              | Update_indexed_object_value _
+              | Print_output _ -> true
               | Materialize_reference (_, _, None, _)
               | Materialize_existing_reference ({ offset = None; _ }, _)
               | _ -> false);
             output_site =
               (match operation with
-              | Put_chars _ -> true
+              | Put_chars _ | Print_output _ -> true
+              | _ -> false);
+            atomic_output_site =
+              (match operation with
+              | Print_output _ -> true
               | _ -> false);
           }
           :: !sites_rev;

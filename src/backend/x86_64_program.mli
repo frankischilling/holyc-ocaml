@@ -22,6 +22,10 @@ type fault_kind =
   | Address_out_of_bounds
   | Output_limit_exceeded
   | Output_work_limit_exceeded
+  | Output_invalid_format
+  | Output_invalid_argument
+  | Output_invalid_pointer
+  | Output_invalid_byte
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
   | Divide
@@ -38,6 +42,9 @@ type fault = private {
   executed_steps : int;
   function_id : int option;
   function_name : string option;
+  atomic_output : bool;
+      (** The original fault site formats an atomic Print draft. The flag is
+          derived from the sealed image, not from runtime status fields. *)
 }
 
 type execution = private { executed_steps : int; final_value : word option }
@@ -96,17 +103,20 @@ val compile_callable :
     and persistent pointer storage remain rejected. Every named definition is
     preflighted, including definitions unreachable from the entry. Calls are
     emitted only from exact sealed runtime-call metadata and preserve the shared
-    native status context. The checked PutChars provider uses bounded
-    packed-byte capture; [has_output] identifies images needing that context.
-    Other providers and retained extern/body publication remain unsupported. The
-    exact initialization context must be supplied even when empty. Integer
-    global/static arrays and owned mutable strings use a private arena with
-    independent logical data and metadata counts. Initial global/static values
-    require [global_initializers] from their exact source preparation; JIT
-    publication markers must precede the first entry instruction. Retained task
-    storage and scheduled initialization regions are rejected. Declaration-time
-    parameter defaults require [parameter_defaults] from the exact source
-    preparation; omitting it preserves the low-level rejection. *)
+    native status context. Checked Print and PutChars providers use bounded byte
+    capture; [has_output] identifies images needing that context. Print emits
+    ordinary bytes and [%%], [%d], [%s] and [%c] through a dynamic formatter,
+    publishing its complete draft on success. PutChars publishes packed bytes
+    incrementally. Other providers and retained extern/body publication remain
+    unsupported. The exact initialization context must be supplied even when
+    empty. Integer global/static arrays and owned mutable strings use a private
+    arena with independent logical data and metadata counts. Initial
+    global/static values require [global_initializers] from their exact source
+    preparation; JIT publication markers must precede the first entry
+    instruction. Retained task storage and scheduled initialization regions are
+    rejected. Declaration-time parameter defaults require [parameter_defaults]
+    from the exact source preparation; omitting it preserves the low-level
+    rejection. *)
 
 val code : t -> string
 

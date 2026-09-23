@@ -215,6 +215,15 @@ let execute_report ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
                     (status, "", 0)
                 in
                 let kind, site, executed_steps, value_site, bits = status in
+                let decoded =
+                  Image.decode_runtime_status image ~max_steps ~kind ~site
+                    ~executed_steps ~value_site ~bits
+                in
+                let atomic_fault =
+                  match decoded with
+                  | Ok (Image.Fault fault) -> fault.atomic_output
+                  | Ok (Image.Completed _) | Error _ -> false
+                in
                 let captured_length = String.length captured in
                 let output_status_valid =
                   captured_length <= max_output_bytes
@@ -224,7 +233,7 @@ let execute_report ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
                      || (captured_length = 0 && work = 0))
                   &&
                   if Int64.equal kind 11L then
-                    captured_length = max_output_bytes
+                    atomic_fault || captured_length = max_output_bytes
                   else if Int64.equal kind 12L then work = max_output_work
                   else true
                 in
@@ -233,10 +242,7 @@ let execute_report ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
                     "native program status integrity failure: output counters \
                      disagree with the returned fault status"
                 else
-                  match
-                    Image.decode_runtime_status image ~max_steps ~kind ~site
-                      ~executed_steps ~value_site ~bits
-                  with
+                  match decoded with
                   | Ok outcome_ ->
                       {
                         outcome_ = Ok outcome_;
