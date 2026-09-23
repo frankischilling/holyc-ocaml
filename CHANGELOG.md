@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Extended shared and native Print formatting with unsigned decimal, hexadecimal
+  and binary conversion, literal/dynamic widths, precision-argument consumption,
+  source-specific grouping and truncation, and string/packed-byte padding.
+  StreamPrint uses the same rules to generate source through `#exe`. Huge fields
+  remain bounded by byte/work limits, and failed drafts keep earlier output.
+
 - Added native Print formatting for ordinary bytes and bare `%%`, `%d`, `%s`
   and `%c`. Original typed arguments and live byte objects feed the emitted
   formatter; failed drafts retain charged work and earlier output without

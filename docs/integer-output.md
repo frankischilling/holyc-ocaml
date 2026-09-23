@@ -69,8 +69,12 @@ expression. This is the hosted report policy, not a native return-value claim.
 
 ## Formatting and byte ownership
 
-Print supports ordinary bytes, `%%`, `%d`, `%s` and `%c`. `%d` interprets the
-word's bits as signed 64-bit decimal. Format and `%s` scans stop at zero and
+Print supports ordinary bytes, `%%`, signed `%d`, unsigned `%u`, hexadecimal
+`%x`/`%X`, binary `%b`/`%B`, `%s` and `%c`, with checked field widths, integer
+grouping and truncation. Precision arguments are consumed but do not change
+these conversions. [Integer and byte formatting](integer-formatting.md) describes
+the source-specific modifier order, padding and exact work contract.
+Format and `%s` scans stop at zero and
 retain the VM's exact U8 pointee, storage lifetime, initialization and original
 object extent checks. Mutable formats are read at the reached call.
 
@@ -113,7 +117,10 @@ retains its existing layout path; checked legacy extent retention remains pendin
 `--output-byte-limit` and `--output-work-limit` are independent positive bounds,
 each defaulting to 1,048,576. Work charges one unit before each format or `%s`
 byte fetch, including terminators and failed fetches; one per packed-byte
-inspection; and one per candidate output byte. Append work precedes the
+inspection; and one per candidate output byte. Positive-width or truncated
+strings first charge a complete scan, then reads of their selected output prefix.
+Packed fields measure at most eight bytes before padding and copying; bare
+forms retain their interleaved visit/append behavior. Append work precedes the
 capacity check. A failed charge leaves the count at its limit. Failed Print
 drafts keep their charged work even though their bytes are unpublished.
 

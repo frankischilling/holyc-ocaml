@@ -32,10 +32,13 @@ captures `42` followed by a newline and returns I64 42. Native character output
 retains checked provider ownership, separate output-byte/work limits and the
 prefix produced before a later fault. See [native output](docs/native-output.md).
 
-The checked native Print provider formats bare `%%`, `%d`, `%s` and `%c`
-from live owned bytes and typed arguments. Each successful call publishes its
+The checked Print formatter handles signed/unsigned decimal, hexadecimal,
+binary, owned strings and packed characters with field widths, grouping and
+truncation. `examples/integer-formatting.hc` captures 42 bytes and returns I64 42
+through the interpreter and native target. Each successful call publishes its
 complete output; a failed draft preserves earlier output and charged work.
-See [native Print](docs/native-print.md).
+See [formatting rules](docs/integer-formatting.md) and
+[native Print](docs/native-print.md).
 
 [Retained named types](docs/retained-named-types.md) preserve an aggregate
 selected before a nested `#exe` shadows its name. The original function header

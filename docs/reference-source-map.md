@@ -1327,7 +1327,7 @@ extern/body execution is a separate feature.
 
 `X86_64_word_codegen` stages the captured arguments and emits
 `X86_64_print_format` at the original call site. The hosted formatter supports
-ordinary bytes plus bare `%%`, `%d`, `%s` and `%c`. Format and string
+ordinary bytes, integer fields, `%s` and `%c` as described below. Format and string
 reads use canonical owned references, including interior offsets. A Print call
 writes into an uncommitted draft; only successful completion advances the
 committed capture count. Work spent before a format, pointer, initialization,
@@ -1343,3 +1343,33 @@ formats, pointer snapshots, nested output arguments, binary bytes, result
 latches, fault sites and exact resource limits. See
 [native Print](native-print.md). The bounded capture and diagnostics are hosted
 policy; this increment adds no TempleOS oracle capture.
+
+## Integer and byte formatting (#694)
+
+`Kernel/StrPrint.HC:236-323` parses an optional minus and zero, width digits
+followed by an optional overriding star, precision, and the source modifiers.
+The integer and byte conversions ignore precision after consuming its argument.
+Lines 432-522 and 787-867 define decimal, hexadecimal, binary and percent output.
+Numeric minus does not select left alignment. Grouping uses three decimal digits
+or four hexadecimal/binary digits, with a separate group counter for zero
+padding. Truncation retains the low end of the converted payload and preserves a
+negative sign even when no digits fit.
+
+`OutStr` at lines 20-40 supplies string alignment and prefix truncation. Packed
+`c` at lines 390-411 copies one word and stops at its first NUL. The checked
+formatter retains its established interleaved byte visits and appends when width
+and truncation do not require measurement. Measured strings charge the complete
+first NUL scan and the selected prefix rereads; measured packed words charge up
+to eight visits before appending from the saved word.
+
+`Integer_output` supplies interpreted Print and the task StreamPrint consumer in
+`Compiler/CMisc.HC:68-80`. `X86_64_print_format` emits the same supported grammar
+and byte/work behavior through the project's encoder. Neither path allocates a
+width-sized buffer. The native number buffer holds the longest supported payload
+of 64 binary digits plus 15 commas. Literal field overflow, object bounds, work
+and output quotas are explicit hosted checks.
+
+Shared independent fixtures exercise source, checked batch, native API/CLI and
+task generation, including source reentry through `#exe`. See
+[integer formatting](integer-formatting.md) for examples, fault order and the
+remaining conversions under #694. This work adds no TempleOS execution capture.

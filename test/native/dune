@@ -312,7 +312,7 @@
 (executable
  (name test_native_print_execution)
  (modules test_native_print_execution)
- (libraries holyc_lib native_scalar_support alcotest))
+ (libraries holyc_lib native_scalar_support integer_format_support alcotest))
 
 (rule
  (alias native-tests)
@@ -322,13 +322,16 @@
 (executable
  (name test_native_print_cli)
  (modules test_native_print_cli)
- (libraries holyc_lib unix yojson))
+ (libraries holyc_lib integer_format_support unix yojson))
 
 (rule
  (alias native-tests)
- (deps ../../examples/integer-persistent-arrays.hc)
+ (deps
+  ../../examples/integer-persistent-arrays.hc
+  ../../examples/integer-formatting.hc)
  (action
   (run
    %{exe:test_native_print_cli.exe}
    %{exe:../../bin/holyc.exe}
-   %{dep:../../examples/integer-persistent-arrays.hc})))
+   %{dep:../../examples/integer-persistent-arrays.hc}
+   %{dep:../../examples/integer-formatting.hc})))

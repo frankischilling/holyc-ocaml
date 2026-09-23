@@ -22,12 +22,13 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 3)
+    (Array.length Sys.argv = 4)
     "usage: test_native_print_cli.exe <holyc.exe> \
-     <integer-persistent-arrays.hc>"
+     <integer-persistent-arrays.hc> <integer-formatting.hc>"
 
 let compiler = Sys.argv.(1)
 let maintained_fixture = Sys.argv.(2)
+let formatting_fixture = Sys.argv.(3)
 
 let invoke arguments =
   with_file ".stdout" "" (fun stdout ->
@@ -355,6 +356,74 @@ let binary_capture () =
         ~work:18)
     [ "jit"; "aot" ]
 
+let hex bytes =
+  bytes |> String.to_seq
+  |> Seq.map (fun byte -> Printf.sprintf "%02x" (Char.code byte))
+  |> List.of_seq |> String.concat ""
+
+let expanded_format_reports () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (case : Integer_format_fixture.t) ->
+          with_file ".hc" (Integer_format_fixture.source case) (fun source ->
+              List.iter
+                (fun report ->
+                  check_success case.label report;
+                  check_word case.label report;
+                  check_output case.label report ~hex:(hex case.bytes)
+                    ~bytes:(String.length case.bytes) ~work:case.work)
+                [ host_json_path ~mode source; ir_json_path ~mode source ]))
+        (List.filter
+           (fun (case : Integer_format_fixture.t) ->
+             List.mem case.label
+               [
+                 "unsigned maximum";
+                 "grouped zero padding starts with comma";
+                 "dynamic zero-padded hexadecimal";
+                 "star overrides literal precision";
+                 "binary format and string padding";
+                 "full packed word truncation";
+               ])
+           Integer_format_fixture.all);
+      let expected = "0000002A|OK   |-0042|18446744073709551615\n" in
+      List.iter
+        (fun report ->
+          check_success "maintained formatter fixture" report;
+          check_word "maintained formatter fixture" report;
+          check_output "maintained formatter fixture" report ~hex:(hex expected)
+            ~bytes:42 ~work:68)
+        [
+          host_json_path ~mode formatting_fixture;
+          ir_json_path ~mode formatting_fixture;
+        ];
+      let bounded =
+        host_json_path ~mode
+          ~options:[ "--output-byte-limit=42"; "--output-work-limit=68" ]
+          formatting_fixture
+      in
+      check_success "maintained formatter exact limits" bounded;
+      let below =
+        host_json_path ~status:1 ~mode
+          ~options:[ "--output-byte-limit=41" ]
+          formatting_fixture
+      in
+      require
+        (first_code below = "HCIRVM0022")
+        "maintained formatter byte limit one below";
+      check_output "maintained formatter atomic second call" below
+        ~hex:(hex "0000002A") ~bytes:8 ~work:67;
+      List.iter
+        (fun (label, body, work, code) ->
+          let report =
+            host_json ~status:1 ~mode
+              ("extern U0 Print(U8 *fmt,...);" ^ body ^ "42;")
+          in
+          require (first_code report = code) (label ^ " diagnostic");
+          check_output label report ~hex:"" ~bytes:0 ~work)
+        Integer_format_fixture.invalid_fields)
+    [ "jit"; "aot" ]
+
 let human_fixture_reports () =
   List.iter
     (fun mode ->
@@ -385,4 +454,5 @@ let () =
   atomic_failure_prefixes ();
   implicit_and_source_defined_paths ();
   binary_capture ();
+  expanded_format_reports ();
   human_fixture_reports ()

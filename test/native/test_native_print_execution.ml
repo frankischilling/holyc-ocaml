@@ -240,6 +240,142 @@ let compare_reached_fault ?max_output_bytes ?max_output_work ?max_frame_bytes
     (batch_error.span = native.span);
   native
 
+let expanded_format_values () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (case : Integer_format_fixture.t) ->
+          ignore
+            (compare_success mode ~label:case.label
+               ~contents:(Integer_format_fixture.source case)
+               ~bytes:case.bytes ~work:case.work ~value:(Some 42L) ()))
+        Integer_format_fixture.all;
+      List.iter
+        (fun (label, contents, bytes, work) ->
+          ignore
+            (compare_success mode ~label ~contents ~bytes ~work
+               ~value:(Some 42L) ()))
+        Integer_format_fixture.argument_effects)
+    modes
+
+let expanded_format_quotas () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (case : Integer_format_fixture.t) ->
+          let contents = Integer_format_fixture.source case in
+          let byte_count = String.length case.bytes in
+          ignore
+            (compare_success ~max_output_bytes:(max 1 byte_count)
+               ~max_output_work:case.work mode ~label:(case.label ^ " exact")
+               ~contents ~bytes:case.bytes ~work:case.work ~value:(Some 42L) ());
+          let reached =
+            compare_reached_fault ~max_output_work:(case.work - 1) mode
+              ~label:(case.label ^ " work one below")
+              ~contents ~code:"HCIRVM0023"
+              ~kind:Program.Output_work_limit_exceeded ~bytes:""
+              ~work:(case.work - 1) ()
+          in
+          Alcotest.(check bool)
+            "bounded expanded format is atomic" true reached.atomic_output;
+          if byte_count > 1 then
+            ignore
+              (compare_reached_fault ~max_output_bytes:(byte_count - 1) mode
+                 ~label:(case.label ^ " bytes one below")
+                 ~contents ~code:"HCIRVM0022"
+                 ~kind:Program.Output_limit_exceeded ~bytes:""
+                 ~work:(case.work - 1) ()))
+        Integer_format_fixture.quota_cases;
+      List.iter
+        (fun (body, work) ->
+          let contents = print ^ body ^ "42;" in
+          ignore
+            (compare_reached_fault ~max_output_bytes:1 mode
+               ~label:"huge width reaches bounded append" ~contents
+               ~code:"HCIRVM0022" ~kind:Program.Output_limit_exceeded ~bytes:""
+               ~work ());
+          ignore
+            (compare_reached_fault ~max_output_bytes:1
+               ~max_output_work:(work - 1) mode
+               ~label:"huge width work precedes capacity" ~contents
+               ~code:"HCIRVM0023" ~kind:Program.Output_work_limit_exceeded
+               ~bytes:"" ~work:(work - 1) ()))
+        [
+          ("Print(\"%*d\",9223372036854775807,1);", 5);
+          ("Print(\"%*s\",9223372036854775807,\"AB\");", 8);
+        ];
+      let contents = print ^ "Print(\"|\");Print(\"%5s\",\"AB\");42;" in
+      ignore
+        (compare_reached_fault ~max_output_bytes:5 mode
+           ~label:"decorated draft retains only preceding output" ~contents
+           ~code:"HCIRVM0022" ~kind:Program.Output_limit_exceeded ~bytes:"|"
+           ~work:16 ());
+      ignore
+        (compare_reached_fault ~max_output_bytes:5 ~max_output_work:15 mode
+           ~label:"decorated draft work precedes capacity" ~contents
+           ~code:"HCIRVM0023" ~kind:Program.Output_work_limit_exceeded
+           ~bytes:"|" ~work:15 ()))
+    modes
+
+let expanded_format_failures () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, body, work, code) ->
+          let kind =
+            if code = "HCIRVM0024" then Program.Output_invalid_format
+            else Program.Output_invalid_argument
+          in
+          let contents = print ^ body ^ "42;" in
+          ignore
+            (compare_reached_fault mode ~label ~contents ~code ~kind ~bytes:""
+               ~work ());
+          ignore
+            (compare_reached_fault ~max_output_work:(work - 1) mode
+               ~label:(label ^ " work first") ~contents ~code:"HCIRVM0023"
+               ~kind:Program.Output_work_limit_exceeded ~bytes:""
+               ~work:(work - 1) ()))
+        Integer_format_fixture.invalid_fields;
+      List.iter
+        (fun (body, code, kind, work) ->
+          ignore
+            (compare_reached_fault mode ~label:"truncation scans through NUL"
+               ~contents:(print ^ body) ~code ~kind ~bytes:"" ~work ()))
+        [
+          ( "U8 Text[2]={'A','B'};Print(\"%1ts\",Text);42;",
+            "HCIRVM0019",
+            Program.Address_out_of_bounds,
+            7 );
+          ( "I64 F(){U8 Text[2];Print(\"%0ts\",Text);return 42;}F();",
+            "HCIRVM0012",
+            Program.Uninitialized_read,
+            5 );
+        ])
+    modes
+
+let interleaved_format_faults () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, format, arguments, work) ->
+          let case =
+            Integer_format_fixture.case label format arguments "" work
+          in
+          let contents = Integer_format_fixture.source case in
+          ignore
+            (compare_reached_fault ~max_output_bytes:1 mode ~label ~contents
+               ~code:"HCIRVM0022" ~kind:Program.Output_limit_exceeded ~bytes:""
+               ~work ());
+          ignore
+            (compare_reached_fault ~max_output_bytes:1
+               ~max_output_work:(work - 1) mode
+               ~label:(label ^ " work precedes capacity")
+               ~contents ~code:"HCIRVM0023"
+               ~kind:Program.Output_work_limit_exceeded ~bytes:""
+               ~work:(work - 1) ()))
+        Integer_format_fixture.interleaved_faults)
+    modes
+
 let dynamic_formats_and_pointer_offsets () =
   let mutable_arrays =
     print
@@ -403,8 +539,8 @@ let format_and_argument_faults () =
         "HCIRVM0024",
         Program.Output_invalid_format,
         2 );
-      ( "unsupported width",
-        print ^ "Print(\"%08d\",42);42;",
+      ( "unsupported plus modifier",
+        print ^ "Print(\"%+d\",42);42;",
         "HCIRVM0024",
         Program.Output_invalid_format,
         2 );
@@ -762,6 +898,14 @@ let () =
     [
       ( "Print",
         [
+          Alcotest.test_case "integer bases widths flags and byte padding"
+            `Quick expanded_format_values;
+          Alcotest.test_case "expanded format exact quotas and huge widths"
+            `Quick expanded_format_quotas;
+          Alcotest.test_case "format field faults and complete truncation scans"
+            `Quick expanded_format_failures;
+          Alcotest.test_case "unmeasured fields preserve interleaved fault work"
+            `Quick interleaved_format_faults;
           Alcotest.test_case "dynamic formats and interior pointers" `Quick
             dynamic_formats_and_pointer_offsets;
           Alcotest.test_case "narrow words and full returned bits" `Quick

@@ -92,6 +92,136 @@ let formats_and_binary_bytes () =
         "\128\255" );
     ]
 
+let expanded_integer_formats () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (case : Integer_format_fixture.t) ->
+          let report = run ~mode (Integer_format_fixture.source case) in
+          ignore (expect case.bytes report);
+          Alcotest.(check int)
+            case.label case.work
+            (integer_program_report_output_work report))
+        Integer_format_fixture.all;
+      List.iter
+        (fun (label, source, bytes, work) ->
+          let report = run ~mode source in
+          ignore (expect bytes report);
+          Alcotest.(check int)
+            label work
+            (integer_program_report_output_work report))
+        Integer_format_fixture.argument_effects)
+    G.modes
+
+let expanded_format_quotas () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (case : Integer_format_fixture.t) ->
+          let source = Integer_format_fixture.source case in
+          let bytes = String.length case.bytes in
+          ignore
+            (run ~mode ~max_output_bytes:(max 1 bytes)
+               ~max_output_work:case.work source
+            |> expect case.bytes);
+          let below = run ~mode ~max_output_work:(case.work - 1) source in
+          ignore (fault "HCIRVM0023" below);
+          Alcotest.(check int)
+            (case.label ^ " work one below")
+            (case.work - 1)
+            (integer_program_report_output_work below);
+          if bytes > 1 then (
+            let below = run ~mode ~max_output_bytes:(bytes - 1) source in
+            ignore (fault "HCIRVM0022" below);
+            Alcotest.(check int)
+              (case.label ^ " byte one below")
+              (case.work - 1)
+              (integer_program_report_output_work below)))
+        Integer_format_fixture.quota_cases;
+      List.iter
+        (fun (body, work) ->
+          let source = print_header ^ body ^ "42;" in
+          let report = run ~mode ~max_output_bytes:1 source in
+          ignore (fault "HCIRVM0022" report);
+          Alcotest.(check int)
+            "huge width reaches bounded append" work
+            (integer_program_report_output_work report);
+          let report =
+            run ~mode ~max_output_bytes:1 ~max_output_work:(work - 1) source
+          in
+          ignore (fault "HCIRVM0023" report))
+        [
+          ("Print(\"%*d\",9223372036854775807,1);", 5);
+          ("Print(\"%*s\",9223372036854775807,\"AB\");", 8);
+        ];
+      let source = print_header ^ "Print(\"|\");Print(\"%5s\",\"AB\");42;" in
+      ignore
+        (run ~mode ~max_output_bytes:6 ~max_output_work:17 source
+        |> expect "|   AB");
+      let report = run ~mode ~max_output_bytes:5 source in
+      ignore (fault ~output:"|" "HCIRVM0022" report);
+      Alcotest.(check int)
+        "decorated draft capacity work" 16
+        (integer_program_report_output_work report);
+      ignore
+        (run ~mode ~max_output_bytes:5 ~max_output_work:15 source
+        |> fault ~output:"|" "HCIRVM0023"))
+    G.modes
+
+let expanded_format_failures () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, body, work, code) ->
+          let source = print_header ^ body ^ "42;" in
+          let report = run ~mode source in
+          ignore (fault code report);
+          Alcotest.(check int)
+            label work
+            (integer_program_report_output_work report);
+          ignore
+            (run ~mode ~max_output_work:(work - 1) source |> fault "HCIRVM0023"))
+        Integer_format_fixture.invalid_fields;
+      List.iter
+        (fun (source, code, work) ->
+          let report = run ~mode (print_header ^ source) in
+          ignore (fault code report);
+          Alcotest.(check int)
+            "truncation retains the complete scan" work
+            (integer_program_report_output_work report))
+        [
+          ("U8 Text[2]={'A','B'};Print(\"%1ts\",Text);42;", "HCIRVM0019", 7);
+          ( "I64 F(){U8 Text[2];Print(\"%0ts\",Text);return 42;}F();",
+            "HCIRVM0012",
+            5 );
+        ])
+    G.modes
+
+let interleaved_format_faults () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, format, arguments, work) ->
+          let case =
+            Integer_format_fixture.case label format arguments "" work
+          in
+          let source = Integer_format_fixture.source case in
+          let report = run ~mode ~max_output_bytes:1 source in
+          ignore (fault "HCIRVM0022" report);
+          Alcotest.(check int)
+            label work
+            (integer_program_report_output_work report);
+          let report =
+            run ~mode ~max_output_bytes:1 ~max_output_work:(work - 1) source
+          in
+          ignore (fault "HCIRVM0023" report);
+          Alcotest.(check int)
+            (label ^ " work precedes capacity")
+            (work - 1)
+            (integer_program_report_output_work report))
+        Integer_format_fixture.interleaved_faults)
+    G.modes
+
 let function_contexts_and_arguments () =
   cases
     [
@@ -224,7 +354,7 @@ let faults_preserve_prior_capture () =
             ^ "I64 F(){U64 n=42;Print(\"ok\");Print(\"%s\",&n);return 42;}F();",
             "HCIRVM0018" );
           (print_header ^ "Print(\"ok\");Print(\"prefix%q\");42;", "HCIRVM0024");
-          ( print_header ^ "Print(\"ok\");Print(\"prefix%08d\",42);42;",
+          ( print_header ^ "Print(\"ok\");Print(\"prefix%+d\",42);42;",
             "HCIRVM0024" );
           (print_header ^ "Print(\"ok\");Print(\"prefix%\");42;", "HCIRVM0024");
           (print_header ^ "Print(\"ok\");Print(\"prefix%d\");42;", "HCIRVM0025");
@@ -986,6 +1116,14 @@ let tests =
   @ [
       Alcotest.test_case "format grammar signed words and binary bytes" `Quick
         formats_and_binary_bytes;
+      Alcotest.test_case "integer bases width modifiers and owned byte padding"
+        `Quick expanded_integer_formats;
+      Alcotest.test_case "expanded formatting exact quotas and huge widths"
+        `Quick expanded_format_quotas;
+      Alcotest.test_case "format field consumption and complete scan failures"
+        `Quick expanded_format_failures;
+      Alcotest.test_case "unmeasured fields preserve interleaved fault work"
+        `Quick interleaved_format_faults;
       Alcotest.test_case "function output loops and right-to-left arguments"
         `Quick function_contexts_and_arguments;
       Alcotest.test_case "statement origins and source-defined output functions"
