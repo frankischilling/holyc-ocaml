@@ -21,6 +21,8 @@ type report = {
   switch_work_ : int;
   dimension_work_ : int;
   default_bytes_ : int;
+  output_bytes_ : string;
+  output_work_ : int;
 }
 
 let ( let* ) = Result.bind
@@ -89,6 +91,38 @@ let void_return_type = function
   | Ast.Primitive_type_specifier { primitive = U0; _ }
   | Ast.Internal_type_specifier { primitive = U0; _ } -> true
   | _ -> false
+
+let public_primitive expected = function
+  | Ast.Primitive_type_specifier primitive -> primitive.primitive = expected
+  | _ -> false
+
+let put_chars_provider_prototype (prototype : Ast.function_prototype) =
+  prototype.modifiers = []
+  && prototype.binding.kind = Ast.Extern
+  && prototype.binding.target = Ast.No_binding_target
+  && prototype.return_pointer_layers = []
+  && public_primitive U0 prototype.return_type
+  && prototype.name.spelling = "PutChars"
+  && Option.is_none prototype.variadic
+  && Option.is_some prototype.closing_parenthesis
+  &&
+  match prototype.parameters with
+  | [ parameter ] ->
+      parameter.register_qualifiers = []
+      && parameter.pointer_layers = []
+      && Option.is_none parameter.function_pointer
+      && Option.is_none parameter.default
+      && public_primitive U64 parameter.type_specifier
+  | _ -> false
+
+let implicit_output_expressions (statement : Ast.implicit_output_statement) =
+  let arguments =
+    List.map (fun argument -> argument.Ast.value) statement.arguments
+  in
+  match statement.fixed_argument with
+  | Ast.Marker_fixed_argument expression
+  | Ast.Expression_fixed_argument expression -> expression :: arguments
+  | Ast.Absent_fixed_argument -> arguments
 
 let function_source_error (definition : Ast.function_definition) =
   let reject message = Some (source_error definition.location.span message) in
@@ -212,6 +246,8 @@ let ast_errors (ast : Ast.module_) =
                 Option.iter
                   (fun body -> work := Gate_statement (true, body) :: !work)
                   definition.body)
+        | Gate_item (Ast.Function_prototype prototype)
+          when put_chars_provider_prototype prototype -> ()
         | Gate_item (Ast.Global_variable variable) ->
             Option.iter reject
               (global_source_error ~span:variable.location.span
@@ -298,7 +334,7 @@ let ast_errors (ast : Ast.module_) =
                     reject
                       (source_error call.call_location.span
                          "native programs require direct calls to checked \
-                          source-defined functions"))
+                          source functions or supported runtime providers"))
             | Ast.Index_expression index ->
                 work :=
                   Gate_expression (in_function, index.index_base)
@@ -388,10 +424,21 @@ let ast_errors (ast : Ast.module_) =
                   work :=
                     Gate_expression (in_function, switch.switch_expression)
                     :: prepend_statements in_function body !work
-            | Ast.Implicit_output_statement statement ->
-                reject
-                  (source_error statement.location.span
-                     "native programs do not admit implicit runtime output")
+            | Ast.Implicit_output_statement statement -> (
+                match statement.target with
+                | Ast.Put_chars_target ->
+                    work :=
+                      List.rev_append
+                        (List.rev_map
+                           (fun expression ->
+                             Gate_expression (in_function, expression))
+                           (implicit_output_expressions statement))
+                        !work
+                | Ast.Print_target ->
+                    reject
+                      (source_error statement.location.span
+                         "native programs admit only checked PutChars implicit \
+                          output"))
             | Ast.Local_declaration_statement declaration when in_function -> (
                 match local_source_error declaration with
                 | Some error -> reject error
@@ -450,6 +497,14 @@ let program_storage_errors compiled span =
     || Ir.Global_initialization.static_regions initialization <> []
   then add "native programs require an entry with no runtime initialization";
   List.rev !errors
+
+let entry_contains_opcode entry opcode =
+  Ir.X87_stack.graph entry |> Ir.Block_graph.blocks
+  |> List.exists (fun block ->
+      Ir.Block_graph.instructions block
+      |> Ir.Instruction_sequence.instructions
+      |> List.exists (fun instruction ->
+          (Ir.Instruction_sequence.description instruction).opcode = opcode))
 
 let compile_with_preparation ?(max_ir_instructions = 4096)
     ?(max_code_bytes = 65536) ?(max_stack_bytes = Image.hard_max_stack_bytes)
@@ -632,17 +687,14 @@ let compile_with_preparation ?(max_ir_instructions = 4096)
                       when Ir.Integer_globals.byte_size
                              (Integer_unit.globals checked.value)
                            = 0
+                           && (not
+                                 (entry_contains_opcode
+                                    (Integer_unit.entry checked.value)
+                                    Ir.Opcode.Ic_str_const))
                            && not
-                                (Ir.X87_stack.graph
+                                (entry_contains_opcode
                                    (Integer_unit.entry checked.value)
-                                |> Ir.Block_graph.blocks
-                                |> List.exists (fun block ->
-                                    Ir.Block_graph.instructions block
-                                    |> Ir.Instruction_sequence.instructions
-                                    |> List.exists (fun instruction ->
-                                        (Ir.Instruction_sequence.description
-                                           instruction)
-                                          .opcode = Ir.Opcode.Ic_str_const))) ->
+                                   Ir.Opcode.Ic_call_start) ->
                         Image.compile ?status_abi ~max_stack_bytes ~max_blocks
                           ~max_ir_instructions ~max_code_bytes
                           (Integer_unit.entry checked.value)
@@ -759,6 +811,10 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
           "index address addition exceeds the hosted signed address range" )
     | Image.Address_out_of_bounds ->
         ("HCIRVM0019", "indexed address is outside its declared object extent")
+    | Image.Output_limit_exceeded ->
+        ("HCIRVM0022", "runtime output exceeds the output byte limit")
+    | Image.Output_work_limit_exceeded ->
+        ("HCIRVM0023", "runtime output work limit was exhausted")
   in
   Common.Diagnostic.make ~code ~severity:Common.Diagnostic.Error ~message
     ~primary:(Option.value fault.span ~default:fallback)
@@ -785,6 +841,7 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
     ?(max_switch_work = 100_000) ?(max_dimension_work = 100_000)
     ?(max_global_bytes = 1_048_576) ?(max_literal_bytes = 1_048_576)
     ?(max_frame_bytes = 1_048_576) ?(max_call_depth = 128)
+    ?(max_output_bytes = 1_048_576) ?(max_output_work = 1_048_576)
     ?(max_active_stack_bytes = Native.hard_max_active_stack_bytes) ?status_abi
     session ~config ~source ~max_steps =
   let span = Integer_source.source_span source in
@@ -792,7 +849,8 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
   if
     max_steps <= 0 || max_initializer_steps <= 0 || max_default_bytes <= 0
     || max_switch_work <= 0 || max_dimension_work <= 0 || max_frame_bytes <= 0
-    || max_call_depth <= 0
+    || max_call_depth <= 0 || max_output_bytes <= 0 || max_output_work <= 0
+    || max_output_bytes > Native.hard_max_output_bytes
     || max_active_stack_bytes <= 0
     || max_active_stack_bytes > Native.hard_max_active_stack_bytes
   then
@@ -804,9 +862,10 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
               (Printf.sprintf
                  "max_steps, max_initializer_steps, max_switch_work, \
                   max_dimension_work, max_default_bytes, max_frame_bytes and \
-                  max_call_depth must be greater than zero; \
+                  max_call_depth and max_output_work must be greater than \
+                  zero; max_output_bytes must be between 1 and %d; \
                   max_active_stack_bytes must be between 1 and %d"
-                 Native.hard_max_active_stack_bytes);
+                 Native.hard_max_output_bytes Native.hard_max_active_stack_bytes);
           ];
       image_ = None;
       native_outcome_ = None;
@@ -816,6 +875,8 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
       switch_work_ = 0;
       dimension_work_ = 0;
       default_bytes_ = 0;
+      output_bytes_ = "";
+      output_work_ = 0;
     }
   else
     let preparation_steps = ref 0 in
@@ -840,13 +901,18 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
           switch_work_ = !switch_work;
           dimension_work_ = !dimension_work;
           default_bytes_ = !default_bytes;
+          output_bytes_ = "";
+          output_work_ = 0;
         }
     | Ok checked -> (
-        match
-          Native.execute ~max_steps ~max_frame_bytes ~max_call_depth
-            ~max_active_stack_bytes ~max_global_bytes ~max_literal_bytes
-            checked.value
-        with
+        let execution_report =
+          Native.execute_report ~max_steps ~max_frame_bytes ~max_call_depth
+            ~max_output_bytes ~max_output_work ~max_active_stack_bytes
+            ~max_global_bytes ~max_literal_bytes checked.value
+        in
+        let output_bytes = Native.output_bytes execution_report in
+        let output_work = Native.output_work execution_report in
+        match Native.outcome execution_report with
         | Error message ->
             {
               outcome_ =
@@ -861,6 +927,8 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
               switch_work_ = !switch_work;
               dimension_work_ = !dimension_work;
               default_bytes_ = !default_bytes;
+              output_bytes_ = output_bytes;
+              output_work_ = output_work;
             }
         | Ok (Image.Completed execution as native_outcome) ->
             {
@@ -878,6 +946,8 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
               switch_work_ = !switch_work;
               dimension_work_ = !dimension_work;
               default_bytes_ = !default_bytes;
+              output_bytes_ = output_bytes;
+              output_work_ = output_work;
             }
         | Ok (Image.Fault fault as native_outcome) ->
             {
@@ -893,6 +963,8 @@ let evaluate ?max_ir_instructions ?max_code_bytes ?max_stack_bytes ?max_blocks
               switch_work_ = !switch_work;
               dimension_work_ = !dimension_work;
               default_bytes_ = !default_bytes;
+              output_bytes_ = output_bytes;
+              output_work_ = output_work;
             })
 
 let outcome report = report.outcome_
@@ -904,3 +976,5 @@ let preparation_steps report = report.preparation_steps_
 let switch_work report = report.switch_work_
 let dimension_work report = report.dimension_work_
 let default_bytes report = report.default_bytes_
+let output_bytes report = report.output_bytes_
+let output_work report = report.output_work_

@@ -123,3 +123,10 @@ materialization or element access. Canonical reference records keep saved
 aliases stable across loop iterations and later argument effects. The image
 records which IR sites can raise scale, addition and bounds faults, and the
 public decoder validates those sites. See [native arrays](docs/native-arrays.md).
+
+Native PutChars calls reuse the original checked provider and argument records.
+The shared encoder emits packed-byte iteration and separate output-work/capacity
+checks; the host bridge supplies a bounded capture buffer with an immutable
+pointer. Checked reports retain earlier bytes on reached faults. Implicit output
+preserves the original result latch through its sealed discard identity.
+See [native output](docs/native-output.md).

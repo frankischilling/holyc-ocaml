@@ -1291,3 +1291,21 @@ sum of logical global bytes, literal bytes and private metadata before creating
 its fresh non-executable arena. See [native persistent storage](native-persistent-storage.md)
 for the supported source domain and tests. These safeguards and execution
 results are hosted evidence, not a new TempleOS oracle capture.
+
+## Native captured PutChars (#705)
+
+`Kernel/KExts.HC:84` declares the fixed U64 provider. `Kernel/KeyDev.HC:20-27`
+visits packed bytes from low to high until the remaining word becomes zero;
+`PutKey` at lines 1-17 ignores a zero character with zero scan code.
+`Compiler/PrsExp.HC:383-413` selects the implicit character-statement target.
+The shared `Runtime_call_context` validates the original declaration, flags,
+argument producer and selected JIT/AOT opcode before native provider admission.
+
+`X86_64_word_codegen` emits the byte loop with explicit work and capacity checks.
+`Native_program_execution` and its C bridge provide a bounded buffer and check
+status before exposing bytes. Native report projection retains prefixes on
+reached faults; the exact fault must name a checked provider instruction.
+Compile-only, explicit native and CLI regressions cover both source modes and
+ABI images, original ownership, resource boundaries and fresh executions.
+See [native output](native-output.md). The quotas and capture model are hosted
+policy; this increment does not reproduce TempleOS device hooks.

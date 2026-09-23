@@ -413,6 +413,7 @@ static uint64_t native_execute_checked_image(value code, value unwind,
 #define HOLYC_NATIVE_MAX_GLOBAL_BYTES (16u * 1024u * 1024u)
 #define HOLYC_NATIVE_MAX_LITERAL_BYTES (16u * 1024u * 1024u)
 #define HOLYC_NATIVE_MAX_ARENA_BYTES (32u * 1024u * 1024u)
+#define HOLYC_NATIVE_MAX_OUTPUT_BYTES (16u * 1024u * 1024u)
 
 static unsigned native_validate_program_unwind(value unwind)
 {
@@ -944,6 +945,190 @@ CAMLprim value holyc_native_execute_program_storage(value code, value functions,
   Store_field(result, 2, boxed_steps);
   Store_field(result, 3, boxed_value_site);
   Store_field(result, 4, boxed_bits);
+  CAMLreturn(result);
+#endif
+  CAMLreturn(Val_unit);
+}
+
+CAMLprim value holyc_native_execute_program_output(value code, value functions,
+                                                  value abi, value limits,
+                                                  value storage)
+{
+  CAMLparam5(code, functions, abi, limits, storage);
+#if HOLYC_NATIVE_PLATFORM == 0
+  caml_failwith("native execution requires Windows or Linux x86-64 with 64-bit pointers");
+#else
+  CAMLlocal5(output_buffer, captured, status, result, boxed_kind);
+  CAMLlocal5(boxed_site, boxed_steps, boxed_value_site, boxed_bits, arena_image);
+  intnat step_limit;
+  intnat frame_limit;
+  intnat depth_limit;
+  intnat active_stack_limit;
+  intnat entry_stack_bytes;
+  intnat global_limit;
+  intnat literal_limit;
+  intnat output_limit;
+  intnat output_work_limit;
+  intnat logical_global_bytes;
+  intnat logical_literal_bytes;
+  intnat metadata_bytes;
+  intnat abi_code;
+  mlsize_t arena_length;
+  mlsize_t code_length;
+  unsigned entry_allocation = 0;
+  uint64_t remaining_stack;
+  uint64_t output_address;
+  uint64_t written;
+  uint64_t work;
+
+  if (!Is_long(abi))
+    caml_invalid_argument("native program status ABI is not integral");
+  if (!Is_block(limits) || Tag_val(limits) != 0 || Wosize_val(limits) != 9 ||
+      !Is_long(Field(limits, 0)) || !Is_long(Field(limits, 1)) ||
+      !Is_long(Field(limits, 2)) || !Is_long(Field(limits, 3)) ||
+      !Is_long(Field(limits, 4)) || !Is_long(Field(limits, 5)) ||
+      !Is_long(Field(limits, 6)) || !Is_long(Field(limits, 7)) ||
+      !Is_long(Field(limits, 8)))
+    caml_invalid_argument("native output program limits tuple is malformed");
+  if (!Is_block(storage) || Tag_val(storage) != 0 || Wosize_val(storage) != 4 ||
+      !Is_long(Field(storage, 0)) || !Is_long(Field(storage, 1)) ||
+      !Is_long(Field(storage, 2)))
+    caml_invalid_argument("native output program storage tuple is malformed");
+  arena_image = Field(storage, 3);
+  if (!Is_block(arena_image) || Tag_val(arena_image) != String_tag)
+    caml_invalid_argument("native output program arena image is not a string");
+  if (!Is_block(code) || Tag_val(code) != String_tag)
+    caml_invalid_argument("native output program code is not a string");
+
+  abi_code = Long_val(abi);
+  step_limit = Long_val(Field(limits, 0));
+  frame_limit = Long_val(Field(limits, 1));
+  depth_limit = Long_val(Field(limits, 2));
+  active_stack_limit = Long_val(Field(limits, 3));
+  entry_stack_bytes = Long_val(Field(limits, 4));
+  global_limit = Long_val(Field(limits, 5));
+  literal_limit = Long_val(Field(limits, 6));
+  output_limit = Long_val(Field(limits, 7));
+  output_work_limit = Long_val(Field(limits, 8));
+  logical_global_bytes = Long_val(Field(storage, 0));
+  logical_literal_bytes = Long_val(Field(storage, 1));
+  metadata_bytes = Long_val(Field(storage, 2));
+  arena_length = caml_string_length(arena_image);
+
+  if (abi_code != HOLYC_NATIVE_PLATFORM)
+    caml_invalid_argument("native program status ABI does not match this process");
+  if (step_limit <= 0)
+    caml_invalid_argument("native program max_steps must be greater than zero");
+  if (frame_limit <= 0)
+    caml_invalid_argument("native program max_frame_bytes must be greater than zero");
+  if (depth_limit <= 0)
+    caml_invalid_argument("native program max_call_depth must be greater than zero");
+  if (active_stack_limit <= 0 || active_stack_limit > 65536)
+    caml_invalid_argument("native program max_active_stack_bytes must be between 1 and 65536");
+  if (entry_stack_bytes <= 0 || entry_stack_bytes > active_stack_limit)
+    caml_invalid_argument("native program entry stack exceeds max_active_stack_bytes");
+  if (global_limit <= 0 || (uintnat)global_limit > HOLYC_NATIVE_MAX_GLOBAL_BYTES)
+    caml_invalid_argument("native program max_global_bytes is outside the host bound");
+  if (literal_limit <= 0 || (uintnat)literal_limit > HOLYC_NATIVE_MAX_LITERAL_BYTES)
+    caml_invalid_argument("native program max_literal_bytes is outside the host bound");
+  if (output_limit <= 0 || (uintnat)output_limit > HOLYC_NATIVE_MAX_OUTPUT_BYTES)
+    caml_invalid_argument("native program max_output_bytes is outside the host bound");
+  if (output_work_limit <= 0)
+    caml_invalid_argument("native program max_output_work must be greater than zero");
+  if (logical_global_bytes < 0 ||
+      (uintnat)logical_global_bytes > HOLYC_NATIVE_MAX_GLOBAL_BYTES ||
+      logical_global_bytes > global_limit)
+    caml_invalid_argument("native program logical global bytes exceed their bound");
+  if (logical_literal_bytes < 0 ||
+      (uintnat)logical_literal_bytes > HOLYC_NATIVE_MAX_LITERAL_BYTES ||
+      logical_literal_bytes > literal_limit)
+    caml_invalid_argument("native program logical literal bytes exceed their bound");
+  if (metadata_bytes < 0 || (uintnat)metadata_bytes > HOLYC_NATIVE_MAX_ARENA_BYTES)
+    caml_invalid_argument("native program private metadata bytes exceed their bound");
+  if ((uintnat)arena_length > HOLYC_NATIVE_MAX_ARENA_BYTES ||
+      (uintnat)arena_length != (uintnat)logical_global_bytes +
+                               (uintnat)logical_literal_bytes + (uintnat)metadata_bytes)
+    caml_invalid_argument("native output program arena image is inconsistent with data and metadata");
+  if (logical_global_bytes == 0 && logical_literal_bytes == 0 &&
+      metadata_bytes != 0)
+    caml_invalid_argument("native output program private metadata has no persistent data");
+
+  /* Validate the sealed code and unwind table before reserving the capture
+     buffer. The checked execution helpers repeat these checks at entry. */
+  code_length = caml_string_length(code);
+  (void)native_validate_program_functions(functions, code_length,
+                                          &entry_allocation);
+  if ((uintnat)entry_stack_bytes != (uintnat)entry_allocation + 16u)
+    caml_invalid_argument("native program entry stack metadata does not match its unwind frame");
+  if (code_length == 0 || code_length > 16u * 1024u * 1024u)
+    caml_invalid_argument("native image length is outside the host allocation bound");
+
+  output_buffer = caml_alloc_string((mlsize_t)output_limit);
+  memset((char *)String_val(output_buffer), 0, (size_t)output_limit);
+  output_address = (uint64_t)(uintptr_t)String_val(output_buffer);
+  remaining_stack = (uint64_t)(active_stack_limit - entry_stack_bytes);
+  {
+    uint64_t context[14] = {
+      0, 0, (uint64_t)step_limit, 0, 0, 0,
+      (uint64_t)frame_limit, (uint64_t)depth_limit, remaining_stack, 0,
+      output_address, (uint64_t)output_limit, (uint64_t)output_work_limit, 0
+    };
+
+    if (arena_length == 0) {
+      (void)native_execute_checked_program_image(
+        code, functions, abi_code, (uintnat)entry_stack_bytes, context);
+      if (context[9] != 0)
+        caml_failwith("native program status integrity failure: arena pointer was modified");
+    } else {
+      (void)native_execute_checked_program_storage_image(
+        code, functions, abi_code, (uintnat)entry_stack_bytes, arena_image,
+        context);
+    }
+
+    if (context[2] != (uint64_t)step_limit)
+      caml_failwith("native program status integrity failure: budget was modified");
+    if (context[6] != (uint64_t)frame_limit)
+      caml_failwith("native program status integrity failure: frame quota was not restored");
+    if (context[7] != (uint64_t)depth_limit)
+      caml_failwith("native program status integrity failure: call-depth quota was not restored");
+    if (context[8] != remaining_stack)
+      caml_failwith("native program status integrity failure: active-stack quota was not restored");
+    if (context[10] != output_address)
+      caml_failwith("native program status integrity failure: output pointer was modified");
+    if (context[11] > (uint64_t)output_limit ||
+        context[12] > (uint64_t)output_work_limit ||
+        context[13] > (uint64_t)output_limit)
+      caml_failwith("native program status integrity failure: output counters exceed their bounds");
+
+    written = (uint64_t)output_limit - context[11];
+    work = (uint64_t)output_work_limit - context[12];
+    if (context[13] != written)
+      caml_failwith("native program status integrity failure: output byte count is inconsistent");
+
+    /* Every value above is validated before the first post-execution allocation.
+       Re-read the rooted source pointer after allocating the exact result string. */
+    captured = caml_alloc_string((mlsize_t)written);
+    if (written != 0)
+      memcpy((char *)String_val(captured), String_val(output_buffer),
+             (size_t)written);
+
+    boxed_kind = native_box_word(context[0]);
+    boxed_site = native_box_word(context[1]);
+    boxed_steps = native_box_word(context[3]);
+    boxed_value_site = native_box_word(context[4]);
+    boxed_bits = native_box_word(context[5]);
+    status = caml_alloc_tuple(5);
+    Store_field(status, 0, boxed_kind);
+    Store_field(status, 1, boxed_site);
+    Store_field(status, 2, boxed_steps);
+    Store_field(status, 3, boxed_value_site);
+    Store_field(status, 4, boxed_bits);
+  }
+
+  result = caml_alloc_tuple(3);
+  Store_field(result, 0, status);
+  Store_field(result, 1, captured);
+  Store_field(result, 2, Val_long((intnat)work));
   CAMLreturn(result);
 #endif
   CAMLreturn(Val_unit);

@@ -1,5 +1,9 @@
 # holyc-ocaml roadmap
 
+The PutChars increment under #705 captures native packed-character output through
+original provider calls and explicit byte/work limits. Print and the broader
+runtime-provider connection remain open. See [native output](docs/native-output.md).
+
 Issue #698 extends native storage with global/static arrays, mutable literal
 objects and original initializer leaves. It retains declared extents, independent
 element state, static sharing, distinct literal ownership and fresh execution

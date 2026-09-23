@@ -124,14 +124,14 @@ type instruction =
           both use the qword C7 imm32 form at displacements zero/eight. *)
   | Load_context of register * int
       (** Load one qword from the private R11 context at an aligned byte offset
-          from zero through 72. Offset 72 is the immutable arena pointer; the
-          generated instruction API cannot write that word. *)
+          from zero through 104. Offsets 72 and 80 are immutable arena and
+          output pointers. Output counters occupy offsets 88, 96 and 104. *)
   | Store_context of int * register
       (** Store one qword to the private R11 context at an aligned byte offset
-          from zero through 64. *)
+          from zero through 64, or at output counter offsets 88, 96 and 104. *)
   | Store_context_imm of int * int
       (** Store a sign-extended imm32 qword to the private R11 context at an
-          aligned byte offset from zero through 64. *)
+          aligned byte offset from zero through 64, or 88, 96 and 104. *)
   | Dec of register
       (** Decrement one full-width register with the qword FF /1 form. *)
   | Cmp of register * register
@@ -202,9 +202,10 @@ val size : instruction -> int
     uses a seven-byte imm32 RSP form. Direct CALL and branches use fixed rel32
     forms; status/context immediate stores are always eight bytes. Private
     context register loads/stores use fixed disp8 forms. Context loads admit the
-    immutable arena-pointer word at offset 72; stores remain restricted through
-    offset 64. Arena qword/narrow accesses use fixed R9+disp32 forms. Invalid
-    immediate, branch or private-context operands raise [Invalid_argument]. *)
+    immutable pointer words at offsets 72 and 80; stores admit the original
+    offsets through 64 and output counters at 88, 96 and 104. Arena qword/narrow
+    accesses use fixed R9+disp32 forms. Invalid immediate, branch or
+    private-context operands raise [Invalid_argument]. *)
 
 val encode : instruction -> string
 (** Encode one instruction into a fresh string using the pinned opcode facts. *)

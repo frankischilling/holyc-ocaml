@@ -314,7 +314,7 @@ This gate does not complete general native source execution. Effectful defaults,
 interleaved source execution, owned string/`lastclass` defaults,
 broader persistent/pointer storage, automatic initialized arrays, indirect calls, variadics,
 explicit register and function flags, the complete HolyC ABI, floating operations,
-runtime output and native `#exe` remain required. Optimizer parity, the integrated
+Print and broader runtime providers, and native `#exe` remain required. Optimizer parity, the integrated
 assembler, object/BIN writing, loader acceptance and bootstrap retain their own
 gates. Issues #574, #585 and #593 continue
 to track their distinct shift, division-optimization and comparison-reduction
@@ -326,3 +326,5 @@ Automatic and persistent integer arrays use that same path for indexed access
 and stable element references; see [native arrays](native-arrays.md).
 [Persistent storage](native-persistent-storage.md) adds original array initializer
 leaves, mutable literal objects and separate logical/metadata byte accounting.
+The checked PutChars provider captures native packed bytes with independent
+output and work limits; see [native output](native-output.md).

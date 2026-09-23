@@ -19,17 +19,53 @@ val hard_max_arena_bytes : int
 (** Hard host allocation bound for data plus per-slot initialization state: 32
     MiB. *)
 
+val hard_max_output_bytes : int
+(** Hard captured-output byte bound: 16 MiB. *)
+
+type report
+
+val execute_report :
+  ?max_frame_bytes:int ->
+  ?max_call_depth:int ->
+  ?max_active_stack_bytes:int ->
+  ?max_global_bytes:int ->
+  ?max_literal_bytes:int ->
+  ?max_output_bytes:int ->
+  ?max_output_work:int ->
+  max_steps:int ->
+  Backend.X86_64_program.t ->
+  report
+(** Execute a sealed program image and retain its checked outcome plus captured
+    native output. [max_output_bytes] defaults to 1,048,576 and must be between
+    1 and [hard_max_output_bytes]. [max_output_work] also defaults to 1,048,576
+    and must be positive. The output-work budget has no corresponding buffer.
+
+    Images without authenticated output sites retain an empty output report and
+    use the established program bridges. Images with output sites receive a
+    rooted private capture buffer and output counters in the existing status
+    context. A reached program fault retains bytes published before the fault
+    and their exact work count. Host, ABI and status-integrity failures expose
+    no captured bytes or work. *)
+
+val outcome : report -> (Backend.X86_64_program.outcome, string) result
+val output_bytes : report -> string
+val output_work : report -> int
+
 val execute :
   ?max_frame_bytes:int ->
   ?max_call_depth:int ->
   ?max_active_stack_bytes:int ->
   ?max_global_bytes:int ->
   ?max_literal_bytes:int ->
+  ?max_output_bytes:int ->
+  ?max_output_work:int ->
   max_steps:int ->
   Backend.X86_64_program.t ->
   (Backend.X86_64_program.outcome, string) result
-(** Execute a sealed program image with positive instruction, semantic-frame and
-    call-depth limits plus a bounded physical native-stack budget.
+(** Execute a sealed program image with positive instruction, semantic-frame,
+    call-depth and output-work limits plus bounded stack, storage and output
+    bytes. This is [execute_report] projected through [outcome].
+
     [max_frame_bytes] defaults to 1,048,576 and [max_call_depth] to 128,
     matching the checked interpreter. [max_active_stack_bytes] defaults to
     65,536 and may not exceed [hard_max_active_stack_bytes]. [max_global_bytes]
@@ -54,13 +90,15 @@ val execute :
     singleton images keep the established one-record bridge only when they
     contain no globals; storage-bearing entries use the callable/unwind bridge
     even with zero named functions. The callable bridge verifies that the
-    immutable instruction budget, arena pointer and all remaining quotas are
-    back at their exact supplied values before boxing status. The image
-    validates the returned site, step count and last-expression identity before
-    exposing completion or a typed fault. Unsupported hosts, ABI mismatches,
-    malformed status and OS failures return an error. Failed Windows unwind
-    removal retains its mapping and registered table so the OS cannot retain a
-    dangling reference.
+    immutable instruction budget, arena and output pointers, and callable quotas
+    retain their expected values before boxing status. Output byte and work
+    counters may only decrease within their supplied bounds, and their consumed
+    amounts must agree with the captured prefix. The image validates the
+    returned site, step count and last-expression identity before exposing
+    completion or a typed fault. Unsupported hosts, ABI mismatches, malformed
+    status and OS failures return an error. Failed Windows unwind removal
+    retains its mapping and registered table so the OS cannot retain a dangling
+    reference.
 
     This executes in the current process while retaining the OCaml runtime lock.
     The IR budget bounds checked loops; it is not a CPU timeout or recovery from

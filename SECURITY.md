@@ -189,6 +189,14 @@ before host allocation. Every execution receives a fresh image. Literal records
 are arena-owned; array reference records still consume their owning activation's
 physical-frame quota. See [persistent storage](docs/native-persistent-storage.md).
 
+Native PutChars output requires the exact sealed provider call. Its separate
+capture buffer is bounded before allocation, and generated code cannot write
+the buffer pointer. Output work is charged before each visited byte and append;
+capacity is checked before every write. The host validates immutable pointers,
+counter bounds and restored callable quotas after teardown, and the decoder
+requires output faults to name an actual provider site. Integrity failures
+expose no successful capture. See [native output](docs/native-output.md).
+
 ## Supported versions
 
 The project is pre-release. Security fixes apply to the current default branch until the first versioned support policy is published.

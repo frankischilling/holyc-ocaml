@@ -33,6 +33,7 @@ type program_site = {
   index_scale_site : bool;
   index_addition_site : bool;
   address_bounds_site : bool;
+  output_site : bool;
 }
 
 type program_image
@@ -100,8 +101,11 @@ val compile_callable :
     named-function graphs, including unreachable definitions, pass preflight
     before machine allocation. Direct calls are resolved only through the
     supplied sealed runtime-call context and exact function/frame ownership.
-    Parameter defaults remain rejected unless [parameter_defaults] seals the
-    exact original declaration-time preparation for this bundle. *)
+    Exact PutChars provider calls use an inline packed-byte loop and require the
+    extended capture context reported by [program_has_output]. Other runtime
+    providers and retained extern/body publication remain unsupported. Parameter
+    defaults remain rejected unless [parameter_defaults] seals the exact
+    original declaration-time preparation for this bundle. *)
 
 val program_code : program_image -> string
 val program_code_bytes : program_image -> int
@@ -122,6 +126,7 @@ val program_block_count : program_image -> int
 val program_function_count : program_image -> int
 val program_entry_stack_bytes : program_image -> int
 val program_sites : program_image -> program_site list
+val program_has_output : program_image -> bool
 val validate_global_limit : max_global_bytes:int -> (unit, error list) result
 val program_global_bytes : program_image -> int
 val program_literal_bytes : program_image -> int

@@ -274,3 +274,37 @@
    %{dep:../../examples/integer-arrays.hc}
    %{dep:../../examples/native-array-aliases.hc}
    %{dep:../../examples/native-persistent-arrays.hc})))
+
+(executable
+ (name test_native_output_execution)
+ (modules test_native_output_execution)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_output_execution.exe})))
+
+(executable
+ (name test_native_output_cli)
+ (modules test_native_output_cli)
+ (libraries holyc_lib unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/integer-putchars.hc)
+ (action
+  (run
+   %{exe:test_native_output_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/integer-putchars.hc})))
+
+(executable
+ (name test_native_output_bridge)
+ (modules test_native_output_bridge)
+ (libraries holyc_lib alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_native_output_bridge.exe})))
