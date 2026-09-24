@@ -78,6 +78,8 @@ the source-specific modifier order, padding and exact work contract.
 ASCII uppercase output and the complete input scans required before publication.
 [Auxiliary fields](auxiliary-formatting.md) retain literal/star parsing order and
 repeat each packed `c/C` field with its own layout and byte visits.
+[Indexed byte lists](list-formatting.md) add `%z` selection with checked alias
+scans, two captured arguments and complete selected-string measurement.
 Format and `%s` scans stop at zero and
 retain the VM's exact U8 pointee, storage lifetime, initialization and original
 object extent checks. Mutable formats are read at the reached call.

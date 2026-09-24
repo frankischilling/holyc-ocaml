@@ -11,8 +11,8 @@ holyc run --target=host-jit --mode=aot --format=json examples/integer-persistent
 ```
 
 The formatter supports ordinary bytes, `%%`, `%d`, `%u`, `%x`, `%X`, `%b`, `%B`,
-`%s`, `%c`, `%C`, `%q` and `%Q`. Checked field widths, grouping, truncation and byte padding match
-the shared interpreter. Precision arguments are consumed but do not affect
+`%s`, `%c`, `%C`, `%q`, `%Q` and `%z`. Checked field widths, grouping, truncation
+and byte padding match the shared interpreter. Precision arguments are consumed but do not affect
 these conversions. [Integer and byte formatting](integer-formatting.md) gives
 the grammar, source-specific examples and remaining conversions.
 
@@ -25,6 +25,11 @@ after a decoded NUL; its second pass reconstructs only the selected prefix.
 The native loop restores the original packed word before each copy and retains
 its existing visits and appends. Empty and truncated copies remain work-bounded.
 Engineering `h` decimal conversions still fail explicitly after argument checks.
+
+[Indexed list formatting](list-formatting.md) consumes an integer index and an
+owned byte list. One emitted checked-read block performs the selector's distinct
+probe phases; found entries share the existing measured-string layout body.
+The selector adds no scratch slots and keeps the previous code/frame limits.
 
 `%d` formats signed 64-bit word bits, including the minimum signed value and
 high-bit U64 arguments. Loads extend narrow stored values; argument staging

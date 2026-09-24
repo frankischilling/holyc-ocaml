@@ -330,7 +330,8 @@
   ../../examples/integer-persistent-arrays.hc
   ../../examples/integer-formatting.hc
   ../../examples/quoted-formatting.hc
-  ../../examples/auxiliary-formatting.hc)
+  ../../examples/auxiliary-formatting.hc
+  ../../examples/list-formatting.hc)
  (action
   (run
    %{exe:test_native_print_cli.exe}
@@ -338,4 +339,5 @@
    %{dep:../../examples/integer-persistent-arrays.hc}
    %{dep:../../examples/integer-formatting.hc}
    %{dep:../../examples/quoted-formatting.hc}
-   %{dep:../../examples/auxiliary-formatting.hc})))
+   %{dep:../../examples/auxiliary-formatting.hc}
+   %{dep:../../examples/list-formatting.hc})))

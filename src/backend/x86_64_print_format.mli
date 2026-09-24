@@ -32,7 +32,8 @@ val scratch_slots : int -> int
 val emit : 'label emitter -> t -> unit
 (** Emit the bounded dynamic Print formatter from authenticated, staged call
     values, including quoted [%Q]/[%q] strings, auxiliary [%h] parsing for the
-    supported nonfloating directives and repeated packed [%c]/[%C] fields. Only
-    RAX, RCX, RDX and R8 are clobbered. R9/R10/R11 retain their arena,
-    instruction-budget and context roles. Draft bytes are committed only after
-    the entire format succeeds; charged work survives a fault. *)
+    supported nonfloating directives, repeated packed [%c]/[%C] fields and
+    lowercase list selection [%z]. Only RAX, RCX, RDX and R8 are clobbered.
+    R9/R10/R11 retain their arena, instruction-budget and context roles. Draft
+    bytes are committed only after the entire format succeeds; charged work
+    survives a fault. *)

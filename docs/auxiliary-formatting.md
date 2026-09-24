@@ -63,7 +63,7 @@ emits `AA`; `%0th2C` emits nothing while still visiting each copy's packed bytes
 Zero copies still require the packed argument and its correct type. Auxiliary
 state and flags reset before the next field.
 
-The admitted `%`, `s`, `Q`, `q`, `x`, `X`, `b` and `B` conversions consume any
+The admitted `%`, `s`, `Q`, `q`, `x`, `X`, `b`, `B` and `z` conversions consume any
 auxiliary stars but otherwise keep their existing behavior. In particular, a
 zero auxiliary count cannot suppress a quoted input scan or hide a bounds fault.
 

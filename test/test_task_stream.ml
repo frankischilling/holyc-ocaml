@@ -378,7 +378,7 @@ let expanded_formatting () =
         (case.label ^ " ordinary capture")
         "" (Task.output_bytes task))
     (Integer_format_fixture.all @ Quoted_format_fixture.all
-   @ Aux_format_fixture.all)
+   @ Aux_format_fixture.all @ List_format_fixture.all)
 
 let expanded_format_limits () =
   List.iter
@@ -467,7 +467,8 @@ let quoted_format_limits () =
         Alcotest.(check int)
           (case.label ^ " generation one below")
           (case.work - 1) (Task.output_work task)))
-    (Quoted_format_fixture.quota_cases @ Aux_format_fixture.quota_cases);
+    (Quoted_format_fixture.quota_cases @ Aux_format_fixture.quota_cases
+   @ List_format_fixture.quota_cases);
   let session, task = create () in
   let stream = begin_ task in
   run session task {|StreamPrint("|");|};
@@ -502,6 +503,31 @@ let auxiliary_repeat_limits () =
   Alcotest.(check int)
     "generated repeated failure retains visits" 15 (Task.output_work task)
 
+let list_generation_limits () =
+  let session, task = create ~max_generated_bytes:2 () in
+  let stream = begin_ task in
+  run session task {|StreamPrint("|");|};
+  T.fault "HCIRVM0028" (T.run session task {|StreamPrint("%z",0,"AB");|});
+  Alcotest.(check string)
+    "list draft failure retains prior generation" "|" (finish task stream);
+  Alcotest.(check int)
+    "list draft failure retains selected scan work" 14 (Task.output_work task);
+  List.iter
+    (fun work_limit ->
+      let session, task =
+        create ~max_generated_bytes:0 ~max_output_work:work_limit ()
+      in
+      let stream = begin_ task in
+      let source = {|StreamPrint("%0tz",1,"A\0BB\0");|} in
+      if work_limit = 14 then run session task source
+      else T.fault "HCIRVM0023" (T.run session task source);
+      Alcotest.(check string)
+        "zero-width list generation stays empty" "" (finish task stream);
+      Alcotest.(check int)
+        "zero-width list generation charges selection and measurement"
+        work_limit (Task.output_work task))
+    [ 14; 13 ]
+
 let tests =
   [
     Alcotest.test_case "shared integer formats and byte padding" `Quick
@@ -514,6 +540,8 @@ let tests =
       `Quick quoted_format_limits;
     Alcotest.test_case "auxiliary repetition bounds empty generated output"
       `Quick auxiliary_repeat_limits;
+    Alcotest.test_case "indexed list generation keeps scan and capacity bounds"
+      `Quick list_generation_limits;
     Alcotest.test_case "inactive formatting fault order" `Quick
       inactive_format_fault_priority;
     Alcotest.test_case "nested buffers and ordinary output" `Quick

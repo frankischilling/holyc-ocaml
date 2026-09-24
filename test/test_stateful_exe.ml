@@ -39,6 +39,12 @@ let gates =
     );
     ( "repeated spaces precede a generated declaration",
       {|#exe {StreamPrint("%h*cI64 Value=42;",3,' ');}Value;|} );
+    ( "indexed list output selects a generated declaration",
+      {|#exe {StreamPrint("%z",1,"I64 Value=1;\0I64 Value=42;\0");}Value;|} );
+    ( "list aliases preserve generated initializer selection",
+      {|#exe {StreamPrint("I64 Value=%z;",1,"0\0@alias\0(42)\0");}Value;|} );
+    ( "missing list entry pads before generated source",
+      {|#exe {StreamPrint("%3zI64 Value=42;",99,"A\0");}Value;|} );
   ]
 
 let expect ?(modes = G.modes) value source () =

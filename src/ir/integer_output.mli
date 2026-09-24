@@ -28,19 +28,21 @@ val print :
   'pointer argument array ->
   (unit, 'error failure) result
 (** Format ordinary bytes, percent, signed/unsigned decimal, hexadecimal,
-    binary, strings, escaped/decoded byte strings and packed chars, including
-    ASCII uppercase packed output. The checked subset accepts source
-    justification/zero flags, bounded literal or dynamic widths, ignored
-    literal/dynamic precision, comma/truncate/harmless integer modifiers, and
-    source-style [h] auxiliary fields with wrapping I64 accumulation. Dynamic
-    fields consume their integer variadic slots. [h] repeats packed [c]/[C]
-    fields; auxiliary decimal engineering formatting is rejected explicitly.
-    Publish the complete draft only on success. Reads include terminating zero
-    bytes and are charged before the callback, including failed read attempts.
-    Quoted fields first scan and measure the complete conversion, retaining only
-    its visible prefix length, then regenerate the selected output through fixed
-    four-byte chunks. Decoded NUL does not suppress later source reads in the
-    first pass. *)
+    binary, strings, NUL-delimited list subscripts, escaped/decoded byte strings
+    and packed chars, including ASCII uppercase packed output. The checked
+    subset accepts source justification/zero flags, bounded literal or dynamic
+    widths, ignored literal/dynamic precision, comma/truncate/harmless integer
+    modifiers, and source-style [h] auxiliary fields with wrapping I64
+    accumulation. Dynamic fields consume their integer variadic slots. Lowercase
+    [z] consumes a word index and owned U8 list, preserving the pinned [LstSub]
+    alias/sentinel probe order before applying ordinary string layout. [h]
+    repeats packed [c]/[C] fields; auxiliary decimal engineering formatting is
+    rejected explicitly. Publish the complete draft only on success. Reads
+    include terminating zero bytes and are charged before the callback,
+    including failed read attempts. Quoted fields first scan and measure the
+    complete conversion, retaining only its visible prefix length, then
+    regenerate the selected output through fixed four-byte chunks. Decoded NUL
+    does not suppress later source reads in the first pass. *)
 
 val put_chars : t -> int64 -> (unit, 'error failure) result
 (** Visit low-to-high packed bytes, skipping interior zeros. Each successful
@@ -52,7 +54,7 @@ val discard_print :
   format:'pointer ->
   'pointer argument array ->
   (unit, 'error failure) result
-(** Perform bounded formatting without committing text or bytes. Native
+(** Perform bounded formatting without committing text or bytes. The pinned
     StreamPrint formats before testing for an active stream block. *)
 
 val contents : t -> string
