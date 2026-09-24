@@ -49,6 +49,10 @@ and `examples/quoted-formatting.hc`.
 per-copy layout for repeated packed `c/C` output. The maintained
 `examples/auxiliary-formatting.hc` runs through interpreted and native targets.
 
+[Indexed byte lists](docs/list-formatting.md) support `%z` selection, including
+the aliases used by the pinned runtime. `examples/list-formatting.hc` exercises
+selected names, padding and a missing entry through both execution targets.
+
 [Retained named types](docs/retained-named-types.md) preserve an aggregate
 selected before a nested `#exe` shadows its name. The original function header
 and parameter keep that identity through completion.

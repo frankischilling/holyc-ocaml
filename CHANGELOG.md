@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added lowercase `%z` indexed byte-list output to interpreted Print, task
+  StreamPrint and native Print. Selection preserves alias numbering and checked
+  read order, then measures the complete selected entry before layout or copy.
+
 - Added auxiliary `h` parsing and repeated packed `c/C` output across interpreted
   Print, task StreamPrint and native Print. Each copy retains its own layout and
   work checks, including empty output. Engineering decimal formats remain explicit

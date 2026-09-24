@@ -241,6 +241,17 @@ let emit emitter call =
       store (if pointer then current_pointer else current_word) E.Rax;
       increment argument_index)
   in
+  let require_two_arguments () =
+    if count < 2 then jump Always argument_fault
+    else (
+      load E.Rax argument_index;
+      out (E.Mov_imm64 (E.Rcx, Int64.of_int (count - 1)));
+      out (E.Cmp (E.Rax, E.Rcx));
+      let present = fresh () in
+      jump Below present;
+      jump Always argument_fault;
+      mark present)
+  in
   let set_flag mask =
     load E.Rax format_flags;
     out (E.Mov_imm64 (E.Rcx, mask));
@@ -364,7 +375,7 @@ let emit emitter call =
     mark done_
   in
   let emit_string_copy () =
-    zero current_offset;
+    copy_slot temporary_word current_offset;
     let loop = fresh () in
     let done_ = fresh () in
     mark loop;
@@ -405,17 +416,13 @@ let emit emitter call =
   in
   let emit_outstr_layout copy =
     emit_outstr_counts ();
-    let left = fresh () in
-    let done_ = fresh () in
+    let copy_label = fresh () in
     test_flag flag_left;
-    jump Not_equal left;
+    jump Not_equal copy_label;
     emit_repeat pad_remaining 32;
+    mark copy_label;
     copy ();
-    jump Always done_;
-    mark left;
-    copy ();
-    emit_repeat pad_remaining 32;
-    mark done_
+    emit_repeat pad_remaining 32
   in
   let emit_bare_string done_label =
     take_argument ~pointer:true;
@@ -429,19 +436,17 @@ let emit emitter call =
     increment current_offset;
     jump Always loop
   in
-  let emit_formatted_string done_label =
+  let emit_formatted_string done_label measured_label =
     take_argument ~pointer:true;
-    let measure = fresh () in
+    zero temporary_word;
     let stream = fresh () in
-    let scan = fresh () in
-    let scanned = fresh () in
     test_flag flag_truncate;
-    jump Not_equal measure;
+    jump Not_equal measured_label;
     load E.Rax field_width;
     out (E.Test E.Rax);
     jump Equal stream;
     jump Less stream;
-    jump Always measure;
+    jump Always measured_label;
     mark stream;
     zero current_offset;
     let stream_loop = fresh () in
@@ -451,9 +456,92 @@ let emit emitter call =
     jump Equal done_label;
     append ();
     increment current_offset;
-    jump Always stream_loop;
-    mark measure;
-    zero current_offset;
+    jump Always stream_loop
+  in
+  let emit_list_string measured_label layout_label =
+    if count < 2 then jump Always argument_fault
+    else (
+      require_two_arguments ();
+      take_argument ~pointer:false;
+      take_argument ~pointer:true;
+      zero current_offset;
+      zero visit_count;
+      let probe = fresh () in
+      let outer = fresh () in
+      let inner = fresh () in
+      let alias = fresh () in
+      let final = fresh () in
+      let entry_end = fresh () in
+      let decrement = fresh () in
+      let selected = fresh () in
+      let missing = fresh () in
+      mark probe;
+      read_byte ();
+      store current_byte E.Rax;
+      load E.Rcx visit_count;
+      out (E.Cmp_imm8 (E.Rcx, 1));
+      jump Equal inner;
+      out (E.Cmp_imm8 (E.Rcx, 2));
+      jump Equal alias;
+      out (E.Cmp_imm8 (E.Rcx, 3));
+      jump Equal final;
+      jump Always outer;
+      mark outer;
+      load E.Rax current_byte;
+      out (E.Test E.Rax);
+      jump Equal selected;
+      load E.Rax current_word;
+      out (E.Test E.Rax);
+      jump Equal selected;
+      jump Less selected;
+      constant visit_count 1L;
+      jump Always probe;
+      mark inner;
+      load E.Rax current_byte;
+      out (E.Test E.Rax);
+      jump Equal entry_end;
+      increment current_offset;
+      constant visit_count 1L;
+      jump Always probe;
+      mark entry_end;
+      increment current_offset;
+      constant visit_count 2L;
+      jump Always probe;
+      mark alias;
+      load E.Rax current_byte;
+      out (E.Cmp_imm8 (E.Rax, 64));
+      jump Not_equal decrement;
+      increment current_offset;
+      constant visit_count 0L;
+      jump Always probe;
+      mark decrement;
+      load E.Rax current_word;
+      out (E.Dec E.Rax);
+      store current_word E.Rax;
+      constant visit_count 0L;
+      jump Always probe;
+      mark selected;
+      load E.Rax current_word;
+      out (E.Test E.Rax);
+      jump Not_equal missing;
+      constant visit_count 3L;
+      jump Always probe;
+      mark final;
+      load E.Rax current_byte;
+      out (E.Test E.Rax);
+      jump Equal missing;
+      copy_slot current_offset temporary_word;
+      jump Always measured_label;
+      mark missing;
+      zero payload_length;
+      zero temporary_word;
+      jump Always layout_label)
+  in
+  let emit_measured_string done_label measured_label layout_label =
+    mark measured_label;
+    copy_slot temporary_word current_offset;
+    let scan = fresh () in
+    let scanned = fresh () in
     mark scan;
     read_byte ();
     out (E.Test E.Rax);
@@ -461,7 +549,11 @@ let emit emitter call =
     increment current_offset;
     jump Always scan;
     mark scanned;
-    copy_slot current_offset payload_length;
+    load E.Rax current_offset;
+    load E.Rcx temporary_word;
+    out (E.Binary (E.Sub, E.Rax, E.Rcx));
+    store payload_length E.Rax;
+    mark layout_label;
     emit_outstr_layout emit_string_copy;
     jump Always done_label
   in
@@ -1218,6 +1310,9 @@ let emit emitter call =
   let number_B = fresh () in
   let number_body = fresh () in
   let formatted_string = fresh () in
+  let formatted_list = fresh () in
+  let measured_string = fresh () in
+  let string_layout = fresh () in
   let formatted_packed = fresh () in
   let formatted_upper_packed = fresh () in
   let quoted_Q = fresh () in
@@ -1330,6 +1425,7 @@ let emit emitter call =
       ('b', number_b);
       ('B', number_B);
       ('s', formatted_string);
+      ('z', formatted_list);
       ('c', formatted_packed);
       ('C', formatted_upper_packed);
       ('Q', quoted_Q);
@@ -1357,7 +1453,10 @@ let emit emitter call =
   mark number_body;
   emit_number format_loop;
   mark formatted_string;
-  emit_formatted_string format_loop;
+  emit_formatted_string format_loop measured_string;
+  mark formatted_list;
+  emit_list_string measured_string string_layout;
+  emit_measured_string format_loop measured_string string_layout;
   mark formatted_packed;
   emit_formatted_packed format_loop;
   mark formatted_upper_packed;

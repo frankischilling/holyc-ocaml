@@ -1415,3 +1415,18 @@ Lines 441-445 and 518-522 redirect any auxiliary decimal field to engineering
 formatting. Those conversions remain explicit unsupported paths after their
 argument checks. [Auxiliary formatting](auxiliary-formatting.md) records exact
 parsing examples, work and fault order, public/native tests and remaining gates.
+
+Lowercase list formatting under #694 follows `Kernel/StrA.HC:397-414` and
+`Kernel/StrPrint.HC:373-386`. The format checks that both arguments exist before
+calling `LstSub`. Its outer condition reads the current list byte before testing
+whether the index is positive. Skipped entries retain the inner scan, trailing
+NUL and alias probe. A remaining zero index triggers a separate existence check.
+These reads remain distinct in the checked formatter, including negative-index
+faults and `@` aliases that do not consume a list index.
+
+Found entries then pass through the full `OutStr` measurement at lines 20-40,
+even with no width. Misses use an internal empty payload that still receives
+field padding. `Compiler/UAsm.HC:578-581,617-620` selects register names with `%z`.
+All three source files already have canonical hashes in the manifest. Public
+source, generated declarations and native API/CLI tests exercise these paths;
+[list formatting](list-formatting.md) records work and fault-order examples.

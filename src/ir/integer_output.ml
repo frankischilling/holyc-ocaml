@@ -82,8 +82,8 @@ let format_draft state ~read_byte ~format arguments =
     | None -> Ok ()
     | Some error -> Error error
   in
-  let string_plain pointer =
-    let offset = ref 0L in
+  let string_plain_from pointer start =
+    let offset = ref start in
     let complete = ref false in
     let failed = ref None in
     while (not !complete) && Option.is_none !failed do
@@ -102,8 +102,9 @@ let format_draft state ~read_byte ~format arguments =
     | None -> Ok ()
     | Some error -> Error error
   in
-  let string_length pointer =
-    let offset = ref 0L in
+  let string_length_from pointer start =
+    let offset = ref start in
+    let length = ref 0L in
     let complete = ref false in
     let failed = ref None in
     while (not !complete) && Option.is_none !failed do
@@ -111,16 +112,18 @@ let format_draft state ~read_byte ~format arguments =
       | Error error -> failed := Some error
       | Ok '\000' -> complete := true
       | Ok _ -> (
-          match next_offset !offset with
-          | Ok next -> offset := next
-          | Error error -> failed := Some error)
+          match (next_offset !offset, next_offset !length) with
+          | Ok next, Ok next_length ->
+              offset := next;
+              length := next_length
+          | Error error, _ | _, Error error -> failed := Some error)
     done;
     match !failed with
     | Some error -> Error error
-    | None -> Ok !offset
+    | None -> Ok !length
   in
-  let string_prefix pointer count =
-    let offset = ref 0L in
+  let string_prefix_from pointer start count =
+    let offset = ref start in
     let remaining = ref count in
     let failed = ref None in
     while Int64.compare !remaining 0L > 0 && Option.is_none !failed do
@@ -155,18 +158,28 @@ let format_draft state ~read_byte ~format arguments =
     in
     (output_length, padding)
   in
-  let string_field pointer options =
-    if Int64.compare options.width 0L <= 0 && not options.truncate then
-      string_plain pointer
+  let string_field_from pointer start ~force_measure options =
+    if
+      (not force_measure)
+      && Int64.compare options.width 0L <= 0
+      && not options.truncate
+    then string_plain_from pointer start
     else
-      let* length = string_length pointer in
+      let* length = string_length_from pointer start in
       let output_length, padding = field_counts options length in
       if options.left_justify then
-        let* () = string_prefix pointer output_length in
+        let* () = string_prefix_from pointer start output_length in
         emit_repeat ' ' padding
       else
         let* () = emit_repeat ' ' padding in
-        string_prefix pointer output_length
+        string_prefix_from pointer start output_length
+  in
+  let string_field pointer options =
+    string_field_from pointer 0L ~force_measure:false options
+  in
+  let empty_string_field options =
+    let _, padding = field_counts options 0L in
+    emit_repeat ' ' padding
   in
   let ascii_upper byte =
     if byte >= 'a' && byte <= 'z' then Char.chr (Char.code byte - 32) else byte
@@ -544,6 +557,19 @@ let format_draft state ~read_byte ~format arguments =
             (Invalid_argument
                ("Print format " ^ role ^ " requires an integer word"))
   in
+  let list_arguments position =
+    if
+      position >= Array.length arguments
+      || position + 1 >= Array.length arguments
+    then Error (Invalid_argument "Print format requires two arguments for %z")
+    else
+      match (arguments.(position), arguments.(position + 1)) with
+      | Word sub, Pointer pointer -> Ok (sub, pointer, position + 2)
+      | Pointer _, _ ->
+          Error (Invalid_argument "Print %z index requires an integer word")
+      | Word _, Word _ ->
+          Error (Invalid_argument "Print %z list requires an owned U8 pointer")
+  in
   let format_required offset =
     let* byte = read format offset in
     if byte = '\000' then
@@ -567,6 +593,27 @@ let format_draft state ~read_byte ~format arguments =
       let* byte, offset = format_required offset in
       aux_digits value byte offset
     else Ok (value, byte, offset)
+  in
+  let rec list_sub pointer sub offset =
+    let* outer = read pointer offset in
+    if outer <> '\000' && Int64.compare sub 0L > 0 then
+      let rec advance cursor =
+        let* byte = read pointer cursor in
+        if byte = '\000' then next_offset cursor
+        else
+          let* cursor = next_offset cursor in
+          advance cursor
+      in
+      let* next = advance offset in
+      let* marker = read pointer next in
+      if marker = '@' then
+        let* next = next_offset next in
+        list_sub pointer sub next
+      else list_sub pointer (Int64.pred sub) next
+    else if sub <> 0L then Ok None
+    else
+      let* byte = read pointer offset in
+      if byte = '\000' then Ok None else Ok (Some offset)
   in
   let modifiers byte offset position =
     let current = ref byte in
@@ -687,6 +734,16 @@ let format_draft state ~read_byte ~format arguments =
             Ok (position + 1)
         | Word _ ->
             Error (Invalid_argument "Print %s requires an owned U8 pointer"))
+    | 'z' ->
+        let* sub, pointer, position = list_arguments position in
+        let* selected = list_sub pointer sub 0L in
+        let* () =
+          match selected with
+          | None -> empty_string_field options
+          | Some offset ->
+              string_field_from pointer offset ~force_measure:true options
+        in
+        Ok position
     | 'q' | 'Q' -> (
         let* value = argument position directive_name in
         match value with

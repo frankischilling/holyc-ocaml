@@ -250,14 +250,15 @@ let expanded_format_values () =
                ~contents:(Integer_format_fixture.source case)
                ~bytes:case.bytes ~work:case.work ~value:(Some 42L) ()))
         (Integer_format_fixture.all @ Quoted_format_fixture.all
-       @ Aux_format_fixture.all);
+       @ Aux_format_fixture.all @ List_format_fixture.all);
       List.iter
         (fun (label, contents, bytes, work) ->
           ignore
             (compare_success mode ~label ~contents ~bytes ~work
                ~value:(Some 42L) ()))
         (Integer_format_fixture.argument_effects
-       @ Aux_format_fixture.argument_effects))
+       @ Aux_format_fixture.argument_effects
+       @ List_format_fixture.source_effects))
     modes
 
 let expanded_format_quotas () =
@@ -288,7 +289,7 @@ let expanded_format_quotas () =
                  ~kind:Program.Output_limit_exceeded ~bytes:""
                  ~work:(case.work - 1) ()))
         (Integer_format_fixture.quota_cases @ Quoted_format_fixture.quota_cases
-       @ Aux_format_fixture.quota_cases);
+       @ Aux_format_fixture.quota_cases @ List_format_fixture.quota_cases);
       List.iter
         (fun (body, work) ->
           let contents = print ^ body ^ "42;" in
@@ -340,7 +341,8 @@ let expanded_format_failures () =
                ~work:(work - 1) ()))
         (Integer_format_fixture.invalid_fields
        @ Quoted_format_fixture.invalid_fields
-       @ Aux_format_fixture.invalid_fields);
+       @ Aux_format_fixture.invalid_fields @ List_format_fixture.invalid_fields
+        );
       List.iter
         (fun (body, code, kind, work) ->
           ignore
@@ -407,7 +409,8 @@ let quoted_memory_failures () =
                ~kind:Program.Output_work_limit_exceeded ~bytes:"|"
                ~work:(work + 2) ()))
         (Quoted_format_fixture.memory_failures
-       @ Aux_format_fixture.memory_failures);
+       @ Aux_format_fixture.memory_failures
+       @ List_format_fixture.memory_failures);
       List.iter
         (fun (format, work) ->
           let contents =
@@ -452,6 +455,39 @@ let auxiliary_repeat_limits () =
           (3, 14, "HCIRVM0023", Program.Output_work_limit_exceeded, 14);
           (4, 16, "HCIRVM0023", Program.Output_work_limit_exceeded, 16);
         ])
+    modes
+
+let list_measurement_limits () =
+  List.iter
+    (fun mode ->
+      let contents = print ^ {|Print("|");Print("%z",0,"AB");42;|} in
+      ignore
+        (compare_success ~max_output_bytes:3 ~max_output_work:15 mode
+           ~label:"selected list exact limits" ~contents ~bytes:"|AB" ~work:15
+           ~value:(Some 42L) ());
+      List.iter
+        (fun (byte_limit, work_limit, code, kind, work) ->
+          let reached =
+            compare_reached_fault ~max_output_bytes:byte_limit
+              ~max_output_work:work_limit mode
+              ~label:"selected list atomic failure" ~contents ~code ~kind
+              ~bytes:"|" ~work ()
+          in
+          Alcotest.(check bool)
+            "selected list fault retains Print ownership" true
+            reached.atomic_output)
+        [
+          (2, 15, "HCIRVM0022", Program.Output_limit_exceeded, 14);
+          (2, 13, "HCIRVM0023", Program.Output_work_limit_exceeded, 13);
+          (3, 14, "HCIRVM0023", Program.Output_work_limit_exceeded, 14);
+        ];
+      ignore
+        (compare_reached_fault ~max_output_bytes:1 mode
+           ~label:"list measurement faults before full output capacity"
+           ~contents:
+             (print ^ {|U8 Text[2]={'A','B'};Print("|");Print("%z",0,Text);42;|})
+           ~code:"HCIRVM0019" ~kind:Program.Address_out_of_bounds ~bytes:"|"
+           ~work:10 ()))
     modes
 
 let dynamic_formats_and_pointer_offsets () =
@@ -992,6 +1028,9 @@ let () =
           Alcotest.test_case
             "auxiliary repeats bound empty work and atomic drafts" `Quick
             auxiliary_repeat_limits;
+          Alcotest.test_case
+            "list measurement precedes capacity and preserves atomic work"
+            `Quick list_measurement_limits;
           Alcotest.test_case "narrow words and full returned bits" `Quick
             narrow_words_and_full_returns;
           Alcotest.test_case "packed c first NUL versus PutChars" `Quick

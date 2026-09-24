@@ -1,8 +1,8 @@
 # Integer and byte formatting
 
 Checked Print calls support decimal, hexadecimal and binary words, field widths,
-digit grouping, truncation, owned strings and packed characters. The interpreter,
-task StreamPrint service and emitted native Print use the same supported grammar
+digit grouping, truncation, owned strings, indexed byte lists and packed
+characters. The interpreter, task StreamPrint service and emitted native Print use the same supported grammar
 and byte/work contract. Formats remain live byte objects, so argument effects can
 change their contents before the call reads them.
 
@@ -30,16 +30,21 @@ next captured integer word and replaces any literal width. An optional `.`
 introduces precision with the same digits-and-star grammar. Precision is parsed
 and its argument is consumed, but it does not change these conversions.
 
-The parser then accepts repeated `,`, `t`, `l`, `$`, `/` and `h` modifiers before the
-conversion. The supported conversions are `%`, `d`, `u`, `x`, `X`, `b`, `B`, `s`,
-`c`, `C`, `q` and `Q`. `l` is ignored; `$` and `/` affect only the quoted byte
-conversions described in [quoted formatting](quoted-formatting.md). Modifier order follows
-the pinned parser: `%0-5d` is invalid, while `%-05d` is accepted.
+The parser then accepts repeated `,`, `t`, `l`, `$`, `/` and `h` modifiers before
+the conversion. The supported conversions are `%`, `d`, `u`, `x`, `X`, `b`, `B`, `s`,
+`c`, `C`, `q`, `Q` and `z`. `l` is ignored; `$` and `/` affect only the quoted byte
+conversions described in [quoted formatting](quoted-formatting.md). Modifier
+order follows the pinned parser: `%0-5d` is invalid, while `%-05d` is accepted.
 
 The `h` auxiliary field repeats packed `c`/`C` output and consumes its own literal
 or captured count. Repeated auxiliary fields retain their accumulator and sign
 state. See [auxiliary formatting](auxiliary-formatting.md) for the exact grammar,
 per-copy layout and the engineering-decimal conversions that remain unsupported.
+
+Lowercase `%z` takes an integer index followed by an owned U8 byte list. It
+selects an entry using `LstSub`, then measures the whole selected string before
+layout. [Indexed list formatting](list-formatting.md) records alias numbering,
+sentinel and negative-index rules, field layout and the exact checked read order.
 
 Literal width and precision must fit a nonnegative signed I64. An overflowing
 literal reports `HCIRVM0024` before a later star could replace it. This checked

@@ -103,7 +103,7 @@ let expanded_integer_formats () =
             case.label case.work
             (integer_program_report_output_work report))
         (Integer_format_fixture.all @ Quoted_format_fixture.all
-       @ Aux_format_fixture.all);
+       @ Aux_format_fixture.all @ List_format_fixture.all);
       List.iter
         (fun (label, source, bytes, work) ->
           let report = run ~mode source in
@@ -112,7 +112,8 @@ let expanded_integer_formats () =
             label work
             (integer_program_report_output_work report))
         (Integer_format_fixture.argument_effects
-       @ Aux_format_fixture.argument_effects))
+       @ Aux_format_fixture.argument_effects
+       @ List_format_fixture.source_effects))
     G.modes
 
 let expanded_format_quotas () =
@@ -140,7 +141,7 @@ let expanded_format_quotas () =
               (case.work - 1)
               (integer_program_report_output_work below)))
         (Integer_format_fixture.quota_cases @ Quoted_format_fixture.quota_cases
-       @ Aux_format_fixture.quota_cases);
+       @ Aux_format_fixture.quota_cases @ List_format_fixture.quota_cases);
       List.iter
         (fun (body, work) ->
           let source = print_header ^ body ^ "42;" in
@@ -186,7 +187,8 @@ let expanded_format_failures () =
             (run ~mode ~max_output_work:(work - 1) source |> fault "HCIRVM0023"))
         (Integer_format_fixture.invalid_fields
        @ Quoted_format_fixture.invalid_fields
-       @ Aux_format_fixture.invalid_fields);
+       @ Aux_format_fixture.invalid_fields @ List_format_fixture.invalid_fields
+        );
       List.iter
         (fun (source, code, work) ->
           let report = run ~mode (print_header ^ source) in
@@ -242,7 +244,8 @@ let quoted_memory_failures () =
           let report = run ~mode ~max_output_work:(work + 2) source in
           ignore (fault ~output:"|" "HCIRVM0023" report))
         (Quoted_format_fixture.memory_failures
-       @ Aux_format_fixture.memory_failures);
+       @ Aux_format_fixture.memory_failures
+       @ List_format_fixture.memory_failures);
       List.iter
         (fun (format, work) ->
           let source =
@@ -289,6 +292,38 @@ let auxiliary_repeat_limits () =
           (3, 14, "HCIRVM0023", 14);
           (4, 16, "HCIRVM0023", 16);
         ])
+    G.modes
+
+let list_measurement_limits () =
+  List.iter
+    (fun mode ->
+      let source = print_header ^ {|Print("|");Print("%z",0,"AB");42;|} in
+      ignore
+        (run ~mode ~max_output_bytes:3 ~max_output_work:15 source
+        |> expect "|AB");
+      List.iter
+        (fun (bytes, work_limit, code, work) ->
+          let report =
+            run ~mode ~max_output_bytes:bytes ~max_output_work:work_limit source
+          in
+          ignore (fault ~output:"|" code report);
+          Alcotest.(check int)
+            "list failure keeps reached measurement and copy work" work
+            (integer_program_report_output_work report))
+        [
+          (2, 15, "HCIRVM0022", 14);
+          (2, 13, "HCIRVM0023", 13);
+          (3, 14, "HCIRVM0023", 14);
+        ];
+      let invalid =
+        print_header
+        ^ {|U8 Text[2]={'A','B'};Print("|");Print("%z",0,Text);42;|}
+      in
+      let report = run ~mode ~max_output_bytes:1 invalid in
+      ignore (fault ~output:"|" "HCIRVM0019" report);
+      Alcotest.(check int)
+        "list measurement faults before full output capacity" 10
+        (integer_program_report_output_work report))
     G.modes
 
 let function_contexts_and_arguments () =
@@ -1197,6 +1232,9 @@ let tests =
         `Quick quoted_memory_failures;
       Alcotest.test_case "auxiliary repeats bound empty work and atomic drafts"
         `Quick auxiliary_repeat_limits;
+      Alcotest.test_case
+        "list measurement precedes capacity and preserves atomic work" `Quick
+        list_measurement_limits;
       Alcotest.test_case "function output loops and right-to-left arguments"
         `Quick function_contexts_and_arguments;
       Alcotest.test_case "statement origins and source-defined output functions"

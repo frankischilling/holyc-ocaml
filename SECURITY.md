@@ -216,6 +216,12 @@ NUL or a zero-width measurement. Huge counts cannot bypass the formatting-work
 limit by producing no bytes. A zero or negative count still requires a valid
 packed argument. See [auxiliary formatting](docs/auxiliary-formatting.md).
 
+Indexed `%z` lists retain owned-pointer checks for every reached probe. Negative
+indices still perform the first list read; selected entries must terminate
+before output begins. An internal missing-entry result grants no raw-null input
+authority. Selection and copying use bounded work and fixed state, with no
+allocation proportional to an index. See [list formatting](docs/list-formatting.md).
+
 The host validates immutable context pointers, output counters and restored
 callable quotas before projecting capture. Status decoding accepts output faults
 only at sealed provider sites and accepts format-specific status kinds only at an

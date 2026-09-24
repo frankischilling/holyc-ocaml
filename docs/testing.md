@@ -45,6 +45,13 @@ Huge empty or truncated repetitions must exhaust work without publishing bytes.
 Task fixtures generate indentation and packed constants through `#exe`; CLI tests
 run `examples/auxiliary-formatting.hc` with exact and one-below limits.
 
+`list_format_fixture.ml` adds source-derived `%z` bytes and work for aliases,
+negative and exhausted indices, selected-string layout and staged arguments.
+The same source, native and task paths test each case. Bounds and initialization
+faults after selection precede output capacity checks. Generated declarations
+exercise source reentry; `examples/list-formatting.hc` runs through both CLI
+targets and source modes, including exact and one-below resource limits.
+
 Native persistent storage tests cover global/static integer array images and
 source-owned mutable literals. Compile-only tests check original owners, widths,
 padding, sparse initialized cells, image-copy isolation and bounded metadata.

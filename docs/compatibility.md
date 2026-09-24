@@ -8,6 +8,8 @@ Quoted byte escaping/decoding and ASCII-uppercase packed output follow
 [their own checked conversion rules](quoted-formatting.md).
 [Auxiliary fields](auxiliary-formatting.md) add stateful `h` parsing and repeated
 packed `c/C` output. Auxiliary decimal engineering output remains unsupported.
+Lowercase [`%z` list selection](list-formatting.md) accepts an owned U8 byte list,
+preserving aliases, checked probes and complete selected-string measurement.
 Failed drafts retain work and earlier output. Remaining conversions, native
 StreamPrint and retained native provider/body publication remain explicit gaps.
 
