@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added checked `IC_STRLEN` internal calls for owned byte strings in interpreted
+  and native execution. The original numeric binding selects the operation;
+  scans return a byte count and retain storage checks and execution limits.
+
 - Added lowercase `%z` indexed byte-list output to interpreted Print, task
   StreamPrint and native Print. Selection preserves alias numbering and checked
   read order, then measures the complete selected entry before layout or copy.

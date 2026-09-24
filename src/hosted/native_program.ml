@@ -134,6 +134,29 @@ let print_provider_prototype (prototype : Ast.function_prototype) =
       && variadic.register_qualifiers = []
   | _ -> false
 
+let internal_byte_length_prototype (prototype : Ast.function_prototype) =
+  List.for_all
+    (fun (modifier : Ast.declaration_modifier) -> modifier.kind = Ast.Public)
+    prototype.modifiers
+  && prototype.binding.kind = Ast.Intern
+  && prototype.binding.spelling = "_intern"
+  && (match prototype.binding.target with
+    | Ast.Expression_binding_target _ -> true
+    | _ -> false)
+  && prototype.return_pointer_layers = []
+  && public_primitive I64 prototype.return_type
+  && Option.is_none prototype.variadic
+  && Option.is_some prototype.closing_parenthesis
+  &&
+  match prototype.parameters with
+  | [ parameter ] ->
+      parameter.register_qualifiers = []
+      && List.length parameter.pointer_layers = 1
+      && Option.is_none parameter.function_pointer
+      && Option.is_none parameter.default
+      && public_primitive U8 parameter.type_specifier
+  | _ -> false
+
 let implicit_output_expressions (statement : Ast.implicit_output_statement) =
   let arguments =
     List.map (fun argument -> argument.Ast.value) statement.arguments
@@ -267,7 +290,8 @@ let ast_errors (ast : Ast.module_) =
                   definition.body)
         | Gate_item (Ast.Function_prototype prototype)
           when put_chars_provider_prototype prototype
-               || print_provider_prototype prototype -> ()
+               || print_provider_prototype prototype
+               || internal_byte_length_prototype prototype -> ()
         | Gate_item (Ast.Global_variable variable) ->
             Option.iter reject
               (global_source_error ~span:variable.location.span

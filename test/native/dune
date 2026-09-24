@@ -92,6 +92,30 @@
   (run %{exe:test_native_scalar_function_execution.exe})))
 
 (executable
+ (name test_internal_strlen_execution)
+ (modules test_internal_strlen_execution)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_internal_strlen_execution.exe})))
+
+(executable
+ (name test_internal_strlen_cli)
+ (modules test_internal_strlen_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/internal-strlen.hc)
+ (action
+  (run
+   %{exe:test_internal_strlen_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/internal-strlen.hc})))
+
+(executable
  (name test_native_scalar_function_cli)
  (modules test_native_scalar_function_cli)
  (libraries holyc_lib native_scalar_support unix yojson))

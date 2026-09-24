@@ -1,5 +1,15 @@
 # Reference source map
 
+Issue #748 connects the internal declaration in `Kernel/KernelB.HH:61` to the
+scalar length consumer in `Compiler/UAsm.HC:293-303`. `PrsStmt.HC:1055-1061`
+evaluates the binding target; lines 244-249 install its numeric internal identity
+and clear the extern flag after the joined header. `PrsExp.HC:544-586` emits an
+unpushed argument and internal opcode between call markers, without ordinary
+cleanup. `OptPass789A.HC:905-908` selects `Templates.HC:87-94`, which scans to
+the first zero byte and excludes it from the result. Original source ownership,
+checked byte access and per-probe execution limits are hosted requirements.
+See [internal byte-string length](internal-strlen.md).
+
 Issue #677 connects closed scalar native static initializers.
 `Compiler/PrsVar.HC:51-112,215-228,555-585` compiles and executes the expression,
 converts and copies its declared width, and writes AOT static bytes before

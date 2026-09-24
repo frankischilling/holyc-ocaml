@@ -6,6 +6,8 @@ module Policy = Sema.Function_call_conversion_policy
 module Target = Sema.Function_call_target_classification
 module Top_target = Sema.Top_level_function_call_target_classification
 module Records = Sema.Function_record_classification
+module Headers = Sema.Function_type_resolution
+module Type = Sema.Type
 
 type t = {
   sequence_ : Sequence.t;
@@ -228,17 +230,115 @@ let top_level_call_shape ?globals target =
     provided [] fixed_results parameters
 
 let description ~instruction_id ~opcode ~target_type ~payload ~span ?result
-    ?(flags = 0L) () =
+    ?(operands = []) ?(flags = 0L) () =
   {
     Sequence.instruction_id;
     opcode;
-    operands = [];
+    operands;
     result;
     target_type;
     payload;
     flags;
     span = Some span;
   }
+
+let primitive type_ depth expected =
+  Type.pointer_depth type_ = depth
+  &&
+  match Type.base type_ with
+  | Type.Primitive (_, actual) -> Sema.Primitive_type.equal actual expected
+  | _ -> false
+
+let parameter_type parameter =
+  parameter |> Headers.parameter_type_reference
+  |> Sema.Type_reference.resolved_type
+
+let strlen_shape ~header ~arguments ~variadic_count_type ~variadic_count
+    ~variadic_arguments ~result_type =
+  let parameters =
+    header |> Headers.function_signature |> Headers.signature_parameters
+  in
+  Int64.equal variadic_count 0L
+  && Option.is_none variadic_count_type
+  && variadic_arguments = []
+  && primitive result_type 0 Sema.Primitive_type.I64
+  &&
+  match (parameters, arguments) with
+  | [ parameter ], [ Provided _ ] ->
+      Headers.parameter_default parameter = None
+      && Headers.parameter_register_requests parameter = []
+      && primitive (parameter_type parameter) 1 Sema.Primitive_type.U8
+  | _ -> false
+
+let lower_intrinsic ?frame ?globals ?lower_call ~span ~instruction_id ~value_id
+    ~source ~symbol ~opcode ~argument ~result_type () =
+  let start_id = instruction_id in
+  match next_instruction_id ~span start_id with
+  | Error error -> Error [ error ]
+  | Ok argument_instruction_id -> (
+      match
+        Expression.lower_typed_result ?frame ?globals ?lower_call
+          ~instruction_id:argument_instruction_id ~value_id argument
+      with
+      | Error _ as error -> error
+      | Ok Expression.Unsupported_expression -> Ok Unsupported_call
+      | Ok (Expression.Lowered lowered) -> (
+          let argument_descriptions =
+            lowered |> Expression.sequence |> Sequence.instructions
+            |> List.map Sequence.description
+          in
+          let operation_id = Expression.next_instruction_id lowered in
+          let operation_result_value = Expression.next_value_id lowered in
+          match
+            ( next_instruction_id ~span operation_id,
+              next_value_id ~span operation_result_value )
+          with
+          | Error error, _ | _, Error error -> Error [ error ]
+          | Ok end_id, Ok next_value_id_ -> (
+              match next_instruction_id ~span end_id with
+              | Error error -> Error [ error ]
+              | Ok next_instruction_id_ -> (
+                  let symbol_payload = Some (Sequence.Symbol symbol) in
+                  let items =
+                    [
+                      description ~instruction_id:start_id
+                        ~opcode:Opcode.Ic_call_start ~target_type:None
+                        ~payload:symbol_payload ~span ();
+                    ]
+                    @ argument_descriptions
+                    @ [
+                        description ~instruction_id:operation_id ~opcode
+                          ~target_type:(Some result_type) ~payload:None ~span
+                          ~operands:[ Expression.result_value lowered ]
+                          ();
+                        description ~instruction_id:end_id
+                          ~opcode:Opcode.Ic_call_end
+                          ~target_type:(Some result_type)
+                          ~payload:symbol_payload ~span
+                          ~result:{ Sequence.value_id = operation_result_value }
+                          ();
+                      ]
+                  in
+                  match Sequence.create items with
+                  | Error errors -> Error errors
+                  | Ok sequence_ ->
+                      Ok
+                        (Lowered
+                           {
+                             sequence_;
+                             result_value_ = operation_result_value;
+                             result_type_ = result_type;
+                             next_instruction_id_;
+                             next_value_id_;
+                             runtime_call_ =
+                               Runtime_call_context.
+                                 {
+                                   source;
+                                   first = start_id;
+                                   last = end_id;
+                                   discard = None;
+                                 };
+                           })))))
 
 let push_result_flag = 0x000002000L
 
@@ -447,36 +547,54 @@ let lower ?frame ?globals ?lower_call ~instruction_id ~value_id ~target result =
               "direct-call expression and target classification disagree";
           ]
       else
-        match call_opcode (Target.call_access target) with
-        | None -> Ok Unsupported_call
-        | Some call_opcode -> (
-            match call_shape ?globals target with
-            | Unsupported_shape -> Ok Unsupported_call
-            | Inconsistent_shape message ->
-                Error [ metadata_error ~span message ]
-            | Provided_parameters
-                {
-                  arguments;
-                  variadic_count_type;
-                  variadic_count;
-                  variadic_arguments;
-                } -> (
-                match Result.result_type result with
-                | None ->
-                    Error
-                      [
-                        metadata_error ~span
-                          "direct call has no checked result type";
-                      ]
-                | Some result_type ->
-                    let direct = target_resolution target in
-                    lower_supported ?frame ?globals ?lower_call ~span
-                      ~instruction_id ~value_id
-                      ~source:(Runtime_call_context.Function_call target)
+        match call_shape ?globals target with
+        | Unsupported_shape -> Ok Unsupported_call
+        | Inconsistent_shape message -> Error [ metadata_error ~span message ]
+        | Provided_parameters
+            {
+              arguments;
+              variadic_count_type;
+              variadic_count;
+              variadic_arguments;
+            } -> (
+            match Result.result_type result with
+            | None ->
+                Error
+                  [
+                    metadata_error ~span
+                      "direct call has no checked result type";
+                  ]
+            | Some result_type -> (
+                let direct = target_resolution target in
+                let source = Runtime_call_context.Function_call target in
+                let access = Target.call_access target in
+                match
+                  ( access,
+                    Runtime_call_context.intrinsic_opcode_of_source source,
+                    arguments )
+                with
+                | ( Records.Internal_operation,
+                    Some Opcode.Ic_strlen,
+                    [ Provided argument ] )
+                  when strlen_shape
+                         ~header:(Resolution.direct_active_header direct)
+                         ~arguments ~variadic_count_type ~variadic_count
+                         ~variadic_arguments ~result_type ->
+                    lower_intrinsic ?frame ?globals ?lower_call ~span
+                      ~instruction_id ~value_id ~source
                       ~symbol:(Resolution.direct_target_symbol direct)
-                      ~record:(Target.record target) ~arguments
-                      ~variadic_count_type ~variadic_count ~variadic_arguments
-                      ~call_opcode result_type)))
+                      ~opcode:Opcode.Ic_strlen ~argument ~result_type ()
+                | Records.Internal_operation, _, _ -> Ok Unsupported_call
+                | _, _, _ -> (
+                    match call_opcode access with
+                    | None -> Ok Unsupported_call
+                    | Some call_opcode ->
+                        lower_supported ?frame ?globals ?lower_call ~span
+                          ~instruction_id ~value_id ~source
+                          ~symbol:(Resolution.direct_target_symbol direct)
+                          ~record:(Target.record target) ~arguments
+                          ~variadic_count_type ~variadic_count
+                          ~variadic_arguments ~call_opcode result_type))))
 
 let lower_top_level ?frame ?globals ?lower_call ~instruction_id ~value_id
     ~target result =
@@ -491,36 +609,54 @@ let lower_top_level ?frame ?globals ?lower_call ~instruction_id ~value_id
                disagree";
           ]
       else
-        match call_opcode (Top_target.call_access target) with
-        | None -> Ok Unsupported_call
-        | Some call_opcode -> (
-            match top_level_call_shape ?globals target with
-            | Unsupported_shape -> Ok Unsupported_call
-            | Inconsistent_shape message ->
-                Error [ metadata_error ~span message ]
-            | Provided_parameters
-                {
-                  arguments;
-                  variadic_count_type;
-                  variadic_count;
-                  variadic_arguments;
-                } -> (
-                match Result.result_type result with
-                | None ->
-                    Error
-                      [
-                        metadata_error ~span
-                          "top-level direct call has no checked result type";
-                      ]
-                | Some result_type ->
-                    let typed = Top_target.source target in
-                    lower_supported ?frame ?globals ?lower_call ~span
-                      ~instruction_id ~value_id
-                      ~source:(Runtime_call_context.Top_level_call target)
+        match top_level_call_shape ?globals target with
+        | Unsupported_shape -> Ok Unsupported_call
+        | Inconsistent_shape message -> Error [ metadata_error ~span message ]
+        | Provided_parameters
+            {
+              arguments;
+              variadic_count_type;
+              variadic_count;
+              variadic_arguments;
+            } -> (
+            match Result.result_type result with
+            | None ->
+                Error
+                  [
+                    metadata_error ~span
+                      "top-level direct call has no checked result type";
+                  ]
+            | Some result_type -> (
+                let typed = Top_target.source target in
+                let source = Runtime_call_context.Top_level_call target in
+                let access = Top_target.call_access target in
+                match
+                  ( access,
+                    Runtime_call_context.intrinsic_opcode_of_source source,
+                    arguments )
+                with
+                | ( Records.Internal_operation,
+                    Some Opcode.Ic_strlen,
+                    [ Provided argument ] )
+                  when strlen_shape
+                         ~header:(Result.top_level_direct_header typed)
+                         ~arguments ~variadic_count_type ~variadic_count
+                         ~variadic_arguments ~result_type ->
+                    lower_intrinsic ?frame ?globals ?lower_call ~span
+                      ~instruction_id ~value_id ~source
                       ~symbol:(Result.top_level_direct_target_symbol typed)
-                      ~record:(Top_target.record target) ~arguments
-                      ~variadic_count_type ~variadic_count ~variadic_arguments
-                      ~call_opcode result_type)))
+                      ~opcode:Opcode.Ic_strlen ~argument ~result_type ()
+                | Records.Internal_operation, _, _ -> Ok Unsupported_call
+                | _, _, _ -> (
+                    match call_opcode access with
+                    | None -> Ok Unsupported_call
+                    | Some call_opcode ->
+                        lower_supported ?frame ?globals ?lower_call ~span
+                          ~instruction_id ~value_id ~source
+                          ~symbol:(Result.top_level_direct_target_symbol typed)
+                          ~record:(Top_target.record target) ~arguments
+                          ~variadic_count_type ~variadic_count
+                          ~variadic_arguments ~call_opcode result_type))))
 
 let lower_output ?frame ?globals ?lower_call ?outer_binding ~records
     ~instruction_id ~value_id ~source ~origin ~header ~declaration ~symbol

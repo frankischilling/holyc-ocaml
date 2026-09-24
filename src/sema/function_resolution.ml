@@ -7,6 +7,7 @@ type declaration_site = {
   function_ : Function_type_resolution.resolved_function;
   source_kind : declaration_kind;
   kind : declaration_kind;
+  source_binding : Frontend.Ast.declaration_binding option;
   compiler_option_mask : int64;
   state : state;
   header_source : Compiler_record.declared_function option;
@@ -43,6 +44,7 @@ type declaration = {
   function_ : Function_type_resolution.resolved_function;
   source_kind : declaration_kind;
   kind : declaration_kind;
+  source_binding : Frontend.Ast.declaration_binding option;
   compiler_option_mask : int64;
   header_source : Compiler_record.declared_function option;
   pending_header : bool;
@@ -72,6 +74,9 @@ let identity_first_item_index (identity : identity) = identity.first_item_index
 let declaration_site_function (site : declaration_site) = site.function_
 let declaration_site_source_kind (site : declaration_site) = site.source_kind
 let declaration_site_kind (site : declaration_site) = site.kind
+
+let declaration_site_source_binding (site : declaration_site) =
+  site.source_binding
 
 let declaration_site_compiler_option_mask (site : declaration_site) =
   site.compiler_option_mask
@@ -159,7 +164,25 @@ let effective_kind compiler_option_mask kind =
     | Import | Intern | Definition -> kind
   else kind
 
-let make_declaration_with_options ~compiler_option_mask ~function_ ~kind =
+let source_binding_kind = function
+  | None -> Ok Definition
+  | Some binding -> (
+      match (binding.Frontend.Ast.kind, binding.spelling, binding.target) with
+      | Frontend.Ast.Extern, "extern", Frontend.Ast.No_binding_target ->
+          Ok Extern
+      | Frontend.Ast.Extern, "_extern", Frontend.Ast.Symbol_binding_target _ ->
+          Ok Bound_extern
+      | Frontend.Ast.Import, "import", Frontend.Ast.No_binding_target
+      | Frontend.Ast.Import, "_import", Frontend.Ast.Symbol_binding_target _ ->
+          Ok Import
+      | Frontend.Ast.Intern, "_intern", Frontend.Ast.Expression_binding_target _
+        -> Ok Intern
+      | _ ->
+          Error
+            "function declaration has an inconsistent retained source binding")
+
+let make_declaration_internal ~source_binding ~compiler_option_mask ~function_
+    ~kind =
   let symbol = Function_type_resolution.function_symbol function_ in
   if
     Option.is_some
@@ -169,12 +192,20 @@ let make_declaration_with_options ~compiler_option_mask ~function_ ~kind =
       "provisional call types cannot authorize an ordinary function declaration"
   else if not (Symbol.equal_kind (Symbol.kind symbol) Symbol.Function) then
     Error "semantic function identity requires a function symbol"
+  else if
+    not
+      (Option.fold ~none:true
+         ~some:(fun binding -> source_binding_kind (Some binding) = Ok kind)
+         source_binding)
+  then
+    Error "semantic function identity retained source binding has another kind"
   else
     Ok
       {
         function_;
         source_kind = kind;
         kind = effective_kind compiler_option_mask kind;
+        source_binding;
         compiler_option_mask;
         header_source = None;
         pending_header = false;
@@ -187,6 +218,10 @@ let make_declaration_with_options ~compiler_option_mask ~function_ ~kind =
         transition = None;
         callable_function = None;
       }
+
+let make_declaration_with_options ~compiler_option_mask ~function_ ~kind =
+  make_declaration_internal ~source_binding:None ~compiler_option_mask
+    ~function_ ~kind
 
 let make_declaration ~function_ ~kind =
   make_declaration_with_options
@@ -202,20 +237,7 @@ let source_origin (location : Frontend.Ast.location) =
     }
 
 let publication_kind (source : Frontend.Parser.function_publication) =
-  match source.function_header.binding with
-  | None -> Ok Definition
-  | Some binding -> (
-      match (binding.kind, binding.spelling, binding.target) with
-      | Frontend.Ast.Extern, "extern", Frontend.Ast.No_binding_target ->
-          Ok Extern
-      | Frontend.Ast.Extern, "_extern", Frontend.Ast.Symbol_binding_target _ ->
-          Ok Bound_extern
-      | Frontend.Ast.Import, "import", Frontend.Ast.No_binding_target
-      | Frontend.Ast.Import, "_import", Frontend.Ast.Symbol_binding_target _ ->
-          Ok Import
-      | Frontend.Ast.Intern, "_intern", Frontend.Ast.Expression_binding_target _
-        -> Ok Intern
-      | _ -> Error "pending function header has an inconsistent source binding")
+  source_binding_kind source.function_header.binding
 
 let source_kind (source : Frontend.Parser.completed_function_header) =
   publication_kind source.function_publication
@@ -302,6 +324,78 @@ let rec source_signature_matches ~opening ~parameters ~variadic ~closing
        parameters
        (H.signature_parameters signature)
 
+let make_source_declaration_with_options ~table ~declarations ~module_
+    ~prototype ~compiler_option_mask ~function_ ~kind () =
+  let module H = Function_type_resolution in
+  let item_index = H.function_item_index function_ in
+  let symbol = H.function_symbol function_ in
+  let scope = H.function_scope function_ in
+  let parent = Declaration_collection.scope declarations in
+  let return_type = H.function_return_type function_ in
+  let source_item = List.nth_opt module_.Frontend.Ast.items item_index in
+  let matching_entries =
+    Declaration_collection.entries declarations
+    |> List.filter (fun entry ->
+        Declaration_collection.entry_kind entry
+        = Declaration_collection.Function_prototype
+        && Declaration_collection.entry_item_index entry = item_index
+        && Declaration_collection.entry_declarator_index entry = None)
+  in
+  let binding_kind =
+    source_binding_kind (Some prototype.Frontend.Ast.binding)
+  in
+  match source_item with
+  | Some (Frontend.Ast.Function_prototype source) when source == prototype -> (
+      if binding_kind <> Ok kind then
+        Error
+          "source function declaration binding differs from its semantic kind"
+      else if
+        (not (Symbol_table.owns_scope table parent))
+        || (not (Symbol_table.owns_scope table scope))
+        || (not (Symbol_table.owns_symbol table symbol))
+        || Symbol_table.scope_kind scope <> Symbol_table.Function
+        || not
+             (Option.fold ~none:false ~some:(( == ) parent)
+                (Symbol_table.parent scope))
+      then
+        Error "source function declaration has foreign symbol-table ownership"
+      else
+        match matching_entries with
+        | [ entry ]
+          when Declaration_collection.entry_symbol entry == symbol
+               && Declaration_collection.entry_matches_function_source entry
+                    prototype
+               && String.equal (Symbol.name symbol) prototype.name.spelling
+               && Symbol.origin symbol = source_origin prototype.name.location
+               && Type_reference.spelling return_type
+                  = Frontend.Ast.type_specifier_spelling prototype.return_type
+               && Type_reference.spelling_origin return_type
+                  = source_origin
+                      (Frontend.Ast.type_specifier_location
+                         prototype.return_type)
+               && Type_reference.pointer_origins return_type
+                  = List.map
+                      (fun (layer : Frontend.Ast.pointer_layer) ->
+                        source_origin layer.location)
+                      prototype.return_pointer_layers
+               && source_signature_matches
+                    ~opening:prototype.opening_parenthesis
+                    ~parameters:prototype.parameters
+                    ~variadic:prototype.variadic
+                    ~closing:prototype.closing_parenthesis
+                    (H.function_signature function_) ->
+            make_declaration_internal ~source_binding:(Some prototype.binding)
+              ~compiler_option_mask ~function_ ~kind
+        | [ _ ] ->
+            Error
+              "source function declaration differs from its exact collected \
+               and typed source"
+        | [] | _ :: _ :: _ ->
+            Error
+              "source function declaration has no unique collected prototype")
+  | Some _ | None ->
+      Error "source function declaration requires its exact module prototype"
+
 let validate_header_source ~table ~namespace ~source ~function_ =
   let module H = Function_type_resolution in
   let header = Compiler_record.declared_function_source source in
@@ -363,8 +457,11 @@ let make_pending_declaration ~table ~namespace ~compiler_option_mask ~source
   then Error "pending function header has unknown compiler options"
   else
     let* kind = source_kind (Compiler_record.declared_function_source source) in
+    let header = Compiler_record.declared_function_source source in
     let* declaration =
-      make_declaration_with_options ~compiler_option_mask ~function_ ~kind
+      make_declaration_internal
+        ~source_binding:header.function_publication.function_header.binding
+        ~compiler_option_mask ~function_ ~kind
     in
     Ok
       {
@@ -409,6 +506,8 @@ let make_provisional_declaration ~table ~namespace ~compiler_option_mask
         function_;
         source_kind = kind;
         kind = effective_kind compiler_option_mask kind;
+        source_binding =
+          (Function_record_phase.source snapshot).function_header.binding;
         compiler_option_mask;
         header_source = None;
         pending_header = true;
@@ -564,6 +663,7 @@ let make_completion_declaration_against ~table ~namespace
             function_;
             source_kind = pending.site.source_kind;
             kind = pending.site.kind;
+            source_binding = pending.site.source_binding;
             compiler_option_mask = pending.site.compiler_option_mask;
             header_source = Some source;
             pending_header = false;
@@ -689,6 +789,7 @@ let resolve_validated ~previous compilation_mode
       function_ = declaration.function_;
       source_kind = declaration.source_kind;
       kind = declaration.kind;
+      source_binding = declaration.source_binding;
       compiler_option_mask = declaration.compiler_option_mask;
       state =
         (if declaration.pending_header then

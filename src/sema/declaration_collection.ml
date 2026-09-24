@@ -12,7 +12,12 @@ type declaration = {
   origin : Symbol.origin;
   item_index : int;
   declarator_index : int option;
+  source_prototype : Frontend.Ast.function_prototype option;
 }
+
+type function_source =
+  | Collected_prototype of Frontend.Ast.function_prototype
+  | Published_function of Frontend.Parser.function_publication
 
 type entry = {
   symbol : Symbol.t;
@@ -20,6 +25,7 @@ type entry = {
   declaration_kind : declaration_kind;
   item_index : int;
   declarator_index : int option;
+  function_source : function_source option;
 }
 
 type t = { scope : Symbol_table.scope; entries : entry list }
@@ -49,6 +55,20 @@ let entry_kind entry = entry.declaration_kind
 let entry_item_index entry = entry.item_index
 let entry_declarator_index entry = entry.declarator_index
 
+let entry_matches_function_source entry
+    (prototype : Frontend.Ast.function_prototype) =
+  match entry.function_source with
+  | Some (Collected_prototype source) -> source == prototype
+  | Some (Published_function source) ->
+      let header = source.function_header in
+      source.function_name == prototype.name
+      && header.modifiers == prototype.modifiers
+      && Option.fold ~none:false ~some:(( == ) prototype.binding) header.binding
+      && header.type_specifier == prototype.return_type
+      && source.function_pointer_layers == prototype.return_pointer_layers
+      && source.function_opening_parenthesis == prototype.opening_parenthesis
+  | None -> false
+
 let declaration_kind_name = function
   | Aggregate_forward -> "aggregate-forward"
   | Aggregate_definition -> "aggregate-definition"
@@ -57,8 +77,8 @@ let declaration_kind_name = function
   | Function_prototype -> "function-prototype"
   | Function_definition -> "function-definition"
 
-let make_declaration ~name ~declaration_kind ~origin ~item_index
-    ?declarator_index () =
+let make_declaration_internal ~name ~declaration_kind ~origin ~item_index
+    ?declarator_index ?source_prototype () =
   if String.equal name "" then Error "semantic declaration name cannot be empty"
   else if item_index < 0 then
     Error "semantic declaration item index cannot be negative"
@@ -67,7 +87,36 @@ let make_declaration ~name ~declaration_kind ~origin ~item_index
     | Some index when index < 0 ->
         Error "semantic declarator index cannot be negative"
     | None | Some _ ->
-        Ok { name; declaration_kind; origin; item_index; declarator_index }
+        Ok
+          {
+            name;
+            declaration_kind;
+            origin;
+            item_index;
+            declarator_index;
+            source_prototype;
+          }
+
+let make_declaration ~name ~declaration_kind ~origin ~item_index
+    ?declarator_index () =
+  make_declaration_internal ~name ~declaration_kind ~origin ~item_index
+    ?declarator_index ()
+
+let make_function_prototype_declaration
+    ~(prototype : Frontend.Ast.function_prototype) ~item_index =
+  let location = prototype.name.location in
+  let origin =
+    Symbol.Source_location
+      {
+        span = location.span;
+        source_segments = location.source_segments;
+        generated_from = location.generated_from;
+        defined_at = location.defined_at;
+      }
+  in
+  make_declaration_internal ~name:prototype.name.spelling
+    ~declaration_kind:Function_prototype ~origin ~item_index
+    ~source_prototype:prototype ()
 
 let symbol_kind = function
   | Aggregate_forward | Aggregate_definition -> Symbol.Aggregate_type
@@ -97,6 +146,10 @@ let add_entry table scope declaration =
           declaration_kind = declaration.declaration_kind;
           item_index = declaration.item_index;
           declarator_index = declaration.declarator_index;
+          function_source =
+            Option.map
+              (fun prototype -> Collected_prototype prototype)
+              declaration.source_prototype;
         }
 
 let collect ~table ?module_name declarations =
@@ -273,6 +326,17 @@ let view (namespace : namespace) publications =
     | ((publication : publication), (declaration : declaration)) :: rest ->
         let symbol = publication.symbol in
         let position = (declaration.item_index, declaration.declarator_index) in
+        let function_source =
+          match declaration.declaration_kind with
+          | Function_prototype | Function_definition ->
+              Option.map
+                (fun source -> Published_function source)
+                publication.source_function
+          | Aggregate_forward
+          | Aggregate_definition
+          | Aggregate_attached_global
+          | Global_variable -> None
+        in
         let aggregate_identity_valid =
           match
             (declaration.declaration_kind, publication.aggregate_identity)
@@ -344,6 +408,7 @@ let view (namespace : namespace) publications =
               declaration_kind = declaration.declaration_kind;
               item_index = declaration.item_index;
               declarator_index = declaration.declarator_index;
+              function_source;
             }
           in
           validate (Some position) (publication :: seen) (entry :: entries_rev)

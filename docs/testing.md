@@ -1,5 +1,31 @@
 # Testing holyc-ocaml
 
+Internal byte-length tests start with the source `_intern 0x84` declaration and
+independent expected lengths. They cover macro and function-name selection,
+literal and owned array bytes, captured offsets, mutation, nested calls and the
+compiler's length-bound predicate. Empty, embedded-zero and non-ASCII strings
+have explicit probe counts. Exact and one-below execution budgets accompany
+unterminated, uninitialized and one-past storage cases; ordinary call-depth
+checks remain active while the intrinsic adds no callee activation.
+
+`test_internal_strlen_authority.ml` pairs a valid original compilation with
+foreign same-text contexts and changed internal-call instructions. Both native
+preflight and interpreter preparation must reject changed operands, flags,
+operation identity, argument pushes and result markers. The explicit native
+suite compares source results and fault reports, compiles both ABIs and executes
+fresh images. See [internal byte-string length](internal-strlen.md).
+
+The CLI suite runs `examples/internal-strlen.hc` through both targets and source
+modes with an exact 32-step budget and a one-below failure. It also checks that
+scan faults preserve earlier output and formatting work, with budget exhaustion
+preceding an unreached bounds probe.
+
+Source-binding controls separately pair same-signature prototypes with the
+wrong typed function, substitute a foreign module or copied prototype, and
+check that ordinary definitions and hand-built declarations inherit no internal
+target. A reconstructed module that shares the original signature children but
+replaces the numeric binding target must also reject before resolution.
+
 Native output tests cover original PutChars and Print provider calls, both ABI
 images, malformed call metadata and fault-site decoding. PutChars regressions
 compare independent packed-byte results with the checked interpreter, including

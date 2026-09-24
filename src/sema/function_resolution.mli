@@ -69,6 +69,31 @@ val make_declaration_with_options :
     option snapshot converts extern forms to their effective import kind while
     retaining their source kind. *)
 
+val make_source_declaration_with_options :
+  table:Symbol_table.t ->
+  declarations:Declaration_collection.t ->
+  module_:Frontend.Ast.module_ ->
+  prototype:Frontend.Ast.function_prototype ->
+  compiler_option_mask:int64 ->
+  function_:Function_type_resolution.resolved_function ->
+  kind:declaration_kind ->
+  unit ->
+  (declaration, string) result
+(** Describe one checked source function prototype while retaining its exact
+    binding. The prototype must be the physical module item at the typed
+    function's source position and its unique declaration-collection entry must
+    retain authority for that source from the original collection or namespace
+    publication while owning the exact typed symbol and scope. Generic
+    declaration facts cannot supply or replace this source. Source parameters
+    and return type are rechecked against the typed header before the binding is
+    retained. *)
+
+val declaration_site_source_binding :
+  declaration_site -> Frontend.Ast.declaration_binding option
+(** Exact source binding retained by the declaration producer when available. It
+    is source evidence only; a same-name or same-kind declaration cannot
+    manufacture this association. *)
+
 val make_pending_declaration :
   table:Symbol_table.t ->
   namespace:Declaration_collection.namespace ->

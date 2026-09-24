@@ -22,6 +22,14 @@ val make_declaration :
   (declaration, string) result
 (** Build one checked declaration fact without mutating a symbol table. *)
 
+val make_function_prototype_declaration :
+  prototype:Frontend.Ast.function_prototype ->
+  item_index:int ->
+  (declaration, string) result
+(** Build a function-prototype fact that retains the exact AST prototype as
+    source authority. Generic [make_declaration] facts retain no function source
+    and cannot later acquire it through [collect]. *)
+
 val collect :
   table:Symbol_table.t ->
   ?module_name:string ->
@@ -43,6 +51,15 @@ val entry_aggregate_identity : entry -> Symbol.t option
 val entry_kind : entry -> declaration_kind
 val entry_item_index : entry -> int
 val entry_declarator_index : entry -> int option
+
+val entry_matches_function_source :
+  entry -> Frontend.Ast.function_prototype -> bool
+(** True only when this exact function entry carries source authority for the
+    supplied prototype. Batch collections require the original retained AST
+    prototype. Namespace views use the exact parser publication captured by
+    [publish_function], including its original declaration binding and header
+    children; a declaration fact cannot backfill or replace that source. *)
+
 val declaration_kind_name : declaration_kind -> string
 
 type namespace
