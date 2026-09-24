@@ -34,6 +34,11 @@ let gates =
       {|#exe {StreamPrint("%q","I64 Value=\\x34\\x32;");}Value;|} );
     ( "uppercase packed output generates a character constant",
       {|#exe {StreamPrint("U8 Drive='%C';",'c');}if(Drive!='C')1/0;42;|} );
+    ( "repeated uppercase generates a packed constant",
+      {|#exe {StreamPrint("U64 Value='%h*C';",4,'a');}if(Value!='AAAA')1/0;42;|}
+    );
+    ( "repeated spaces precede a generated declaration",
+      {|#exe {StreamPrint("%h*cI64 Value=42;",3,' ');}Value;|} );
   ]
 
 let expect ?(modes = G.modes) value source () =

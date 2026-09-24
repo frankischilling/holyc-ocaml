@@ -30,11 +30,16 @@ next captured integer word and replaces any literal width. An optional `.`
 introduces precision with the same digits-and-star grammar. Precision is parsed
 and its argument is consumed, but it does not change these conversions.
 
-The parser then accepts repeated `,`, `t`, `l`, `$` and `/` modifiers before the
+The parser then accepts repeated `,`, `t`, `l`, `$`, `/` and `h` modifiers before the
 conversion. The supported conversions are `%`, `d`, `u`, `x`, `X`, `b`, `B`, `s`,
 `c`, `C`, `q` and `Q`. `l` is ignored; `$` and `/` affect only the quoted byte
 conversions described in [quoted formatting](quoted-formatting.md). Modifier order follows
 the pinned parser: `%0-5d` is invalid, while `%-05d` is accepted.
+
+The `h` auxiliary field repeats packed `c`/`C` output and consumes its own literal
+or captured count. Repeated auxiliary fields retain their accumulator and sign
+state. See [auxiliary formatting](auxiliary-formatting.md) for the exact grammar,
+per-copy layout and the engineering-decimal conversions that remain unsupported.
 
 Literal width and precision must fit a nonnegative signed I64. An overflowing
 literal reports `HCIRVM0024` before a later star could replace it. This checked
@@ -91,9 +96,9 @@ PutChars retains its separate rule of skipping interior zero bytes.
 
 For strings and packed characters, width is a minimum, `-` moves padding to the
 right, and `t` retains the left prefix that fits. Padding uses spaces even with
-the `0` flag. Precision, comma grouping and the other admitted modifiers have no
-effect. Negative width with `t` emits an empty field; without `t`, it emits the
-whole content.
+the `0` flag. Precision and comma grouping have no effect. Auxiliary `h` applies
+the layout separately to each packed copy. Negative width with `t` emits an
+empty field; without `t`, it emits the whole content.
 
 Positive-width or truncated strings are measured through their first NUL before
 padding or copying. Truncation cannot make an unterminated or uninitialized
@@ -141,7 +146,7 @@ checked-batch, native, CLI and task tests. The implementations do not call a hos
 formatter. The checked object model, explicit unsupported-format errors and work
 quotas are hosted policies; no new TempleOS execution capture is claimed.
 
-Full formatting remains under #694. Auxiliary formats such as `h`,
+Full formatting remains under #694. Auxiliary engineering-decimal output,
 floating-point, date, symbol, pointer and
 other runtime-dependent conversions still require their own source consumers
 and tests. The full compiler, ABI, artifact, loader and bootstrap gates remain

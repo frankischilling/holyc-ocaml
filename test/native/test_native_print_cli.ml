@@ -22,15 +22,16 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 5)
+    (Array.length Sys.argv = 6)
     "usage: test_native_print_cli.exe <holyc.exe> \
      <integer-persistent-arrays.hc> <integer-formatting.hc> \
-     <quoted-formatting.hc>"
+     <quoted-formatting.hc> <auxiliary-formatting.hc>"
 
 let compiler = Sys.argv.(1)
 let maintained_fixture = Sys.argv.(2)
 let formatting_fixture = Sys.argv.(3)
 let quoted_fixture = Sys.argv.(4)
+let auxiliary_fixture = Sys.argv.(5)
 
 let invoke arguments =
   with_file ".stdout" "" (fun stdout ->
@@ -395,8 +396,14 @@ let expanded_format_reports () =
                  "uppercase full packed word";
                  "uppercase packed high bytes stay unchanged";
                  "quoted high bytes stay unchanged";
+                 "sticky minus negates after later digits";
+                 "auxiliary literal wraps to one";
+                 "width precision and auxiliary stars consume in order";
+                 "auxiliary star is consumed for literal percent";
+                 "repeated uppercase preserves high bytes";
                ])
-           (Integer_format_fixture.all @ Quoted_format_fixture.all));
+           (Integer_format_fixture.all @ Quoted_format_fixture.all
+          @ Aux_format_fixture.all));
       let expected = "0000002A|OK   |-0042|18446744073709551615\n" in
       List.iter
         (fun report ->
@@ -433,7 +440,8 @@ let expanded_format_reports () =
           require (first_code report = code) (label ^ " diagnostic");
           check_output label report ~hex:"" ~bytes:0 ~work)
         (Integer_format_fixture.invalid_fields
-       @ Quoted_format_fixture.invalid_fields))
+       @ Quoted_format_fixture.invalid_fields
+       @ Aux_format_fixture.invalid_fields))
     [ "jit"; "aot" ]
 
 let quoted_fixture_reports () =
@@ -486,7 +494,64 @@ let quoted_fixture_reports () =
           in
           require (first_code report = code) (label ^ " CLI diagnostic");
           check_output label report ~hex:"7c" ~bytes:1 ~work:(work + 3))
-        Quoted_format_fixture.memory_failures)
+        (Quoted_format_fixture.memory_failures
+       @ Aux_format_fixture.memory_failures))
+    [ "jit"; "aot" ]
+
+let auxiliary_fixture_reports () =
+  let expected = "  AB  AB|---|2A\n" in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun report ->
+          check_success "maintained auxiliary fixture" report;
+          check_word "maintained auxiliary fixture" report;
+          check_output "maintained auxiliary fixture" report ~hex:(hex expected)
+            ~bytes:16 ~work:45)
+        [
+          host_json_path ~mode auxiliary_fixture;
+          ir_json_path ~mode auxiliary_fixture;
+        ];
+      let exact =
+        host_json_path ~mode
+          ~options:[ "--output-byte-limit=16"; "--output-work-limit=45" ]
+          auxiliary_fixture
+      in
+      check_success "auxiliary exact limits" exact;
+      List.iter
+        (fun (options, code) ->
+          let report =
+            host_json_path ~status:1 ~mode ~options auxiliary_fixture
+          in
+          require (first_code report = code) "auxiliary one-below diagnostic";
+          check_output "auxiliary atomic draft" report ~hex:"" ~bytes:0 ~work:44)
+        [
+          ([ "--output-byte-limit=15" ], "HCIRVM0022");
+          ([ "--output-work-limit=44" ], "HCIRVM0023");
+        ];
+      List.iter
+        (fun (label, format, arguments) ->
+          let case = Integer_format_fixture.case label format arguments "" 10 in
+          let report =
+            host_json ~status:1 ~mode
+              ~options:[ "--output-work-limit=10" ]
+              (Integer_format_fixture.source case)
+          in
+          require (first_code report = "HCIRVM0023") label;
+          check_output label report ~hex:"" ~bytes:0 ~work:10)
+        Aux_format_fixture.empty_repeats;
+      let stdout, stderr = host_path ~format:"human" ~mode auxiliary_fixture in
+      require (stderr = "") "auxiliary human report stderr";
+      let lines = stdout |> String.split_on_char '\n' |> List.map String.trim in
+      List.iter
+        (fun line ->
+          require (List.mem line lines)
+            ("auxiliary human report missing: " ^ line))
+        [
+          "output-byte-length=16";
+          "output-work=45";
+          "output-hex=" ^ hex expected;
+        ])
     [ "jit"; "aot" ]
 
 let human_fixture_reports () =
@@ -521,4 +586,5 @@ let () =
   binary_capture ();
   expanded_format_reports ();
   quoted_fixture_reports ();
+  auxiliary_fixture_reports ();
   human_fixture_reports ()

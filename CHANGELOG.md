@@ -8,6 +8,11 @@
   program execution reports name the policy, and include, definition and
   generated-source limits remain enforced.
 
+- Added auxiliary `h` parsing and repeated packed `c/C` output across interpreted
+  Print, task StreamPrint and native Print. Each copy retains its own layout and
+  work checks, including empty output. Engineering decimal formats remain explicit
+  unsupported conversions after the required argument checks.
+
 - Added quoted byte escaping and decoding (`Q`/`q`) and ASCII-uppercase packed
   output (`C`) to shared and native Print formatting. StreamPrint uses the same
   conversions for generated strings and character constants. Fixed chunks bound

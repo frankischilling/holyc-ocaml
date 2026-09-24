@@ -21,6 +21,11 @@ through fixed four-byte chunks. Its first pass checks the complete input even
 after a decoded NUL; its second pass reconstructs only the selected prefix.
 `C` uppercases ASCII letters in the existing packed-character path.
 
+[Auxiliary fields](auxiliary-formatting.md) add captured repeat counts for `c/C`.
+The native loop restores the original packed word before each copy and retains
+its existing visits and appends. Empty and truncated copies remain work-bounded.
+Engineering `h` decimal conversions still fail explicitly after argument checks.
+
 `%d` formats signed 64-bit word bits, including the minimum signed value and
 high-bit U64 arguments. Loads extend narrow stored values; argument staging
 preserves the full computed word, including function results. `%s` reads an

@@ -6,6 +6,8 @@ grouping and truncation described in [formatting rules](integer-formatting.md).
 The shared StreamPrint formatter also uses these rules for generated source.
 Quoted byte escaping/decoding and ASCII-uppercase packed output follow
 [their own checked conversion rules](quoted-formatting.md).
+[Auxiliary fields](auxiliary-formatting.md) add stateful `h` parsing and repeated
+packed `c/C` output. Auxiliary decimal engineering output remains unsupported.
 Failed drafts retain work and earlier output. Remaining conversions, native
 StreamPrint and retained native provider/body publication remain explicit gaps.
 

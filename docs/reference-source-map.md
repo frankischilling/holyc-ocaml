@@ -1405,3 +1405,22 @@ source, native API/CLI and task tests cover decoded NULs followed by bounds or
 initialization faults, partial escapes and exact resource limits. See
 [quoted formatting](quoted-formatting.md) for the supported domain and remaining
 runtime dependencies. These tests add no TempleOS execution capture.
+
+Auxiliary formatting under #694 follows `Kernel/StrPrint.HC:236-323`. Each field
+starts with auxiliary value zero. Repeated `h` retains that accumulator and the
+literal-minus flag; immediate star replaces the value before the next format
+read, while question preserves it. Literal accumulation and negation use the
+source I64 wrapping behavior. Width and precision keep their separate checked
+overflow policy.
+
+Packed repetition at lines 390-411 calls `OutStr` for each copy, so width and
+truncation apply per copy. `Compiler/AsmLib.HC:147-165` consumes `%h*c` to indent
+assembler listings. The checked formatter keeps each packed visit and append,
+including NUL visits when output is empty. A huge repeat count therefore remains
+bounded by formatting work without a proportional allocation. Source generation
+through `Compiler/CMisc.HC:68-80` uses the same implementation.
+
+Lines 441-445 and 518-522 redirect any auxiliary decimal field to engineering
+formatting. Those conversions remain explicit unsupported paths after their
+argument checks. [Auxiliary formatting](auxiliary-formatting.md) records exact
+parsing examples, work and fault order, public/native tests and remaining gates.
