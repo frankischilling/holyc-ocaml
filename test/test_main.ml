@@ -15,6 +15,7 @@ let () =
       ("IR switch dispatch", Test_ir_switch_dispatch.tests);
       ("lexer", Test_lexer.tests);
       ("preprocessor", Test_preprocessor.tests);
+      ("conditional recovery", Test_conditional_recovery.tests);
       ("parser", Test_parser.tests);
       ("conditional expressions", Test_conditional_expression.tests);
       ("assert directives", Test_assert_directive.tests);

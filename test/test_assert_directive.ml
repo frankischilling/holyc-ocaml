@@ -79,7 +79,12 @@ let true_and_false_assertions () =
       Alcotest.(check (list string))
         "convenience tokens" [ "first"; "second" ]
         (words
-           ({ tokens; diagnostics = []; help_metadata = Help_metadata.empty }
+           ({
+              tokens;
+              diagnostics = [];
+              help_metadata = Help_metadata.empty;
+              conditional_recovery = Preprocessor.Hosted_strict;
+            }
              : Preprocessor.output))
 
 let definitions_and_symbols () =

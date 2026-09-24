@@ -2,6 +2,57 @@
 
 Every result on this page uses TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
+## Malformed conditional boundaries
+
+[`test/oracle/conditional-recovery.json`](../test/oracle/conditional-recovery.json)
+records two native runs of six inputs. The 2026-09-24 UTC capture used the
+verified final ISO with QEMU 9.2.0, one CPU, 512 MiB, no network and no persistent
+disk. Each input received a fresh `CCmpCtrl` in JIT mode. Direct calls to `Lex`
+recorded token identities and spellings, the error and warning counters, and
+the original lexer's line fields.
+
+| Input | Returned identifiers before EOF | Errors / warnings |
+| --- | --- | --- |
+| Stray `#else` ending at EOF | None | 0 / 0 |
+| Stray `#endif` followed by `value` | `value` | 0 / 0 |
+| Duplicate `#else` after the selected `#ifjit` branch | `one`, `after` | 0 / 0 |
+| Selected `#ifjit` without `#endif` | `value` | 0 / 0 |
+| Unselected `#ifaot` without `#endif` | None | 0 / 0 |
+| Stray `#else` with a matching `#endif` | `after` | 0 / 0 |
+
+The second run produced the same token IDs, spellings, counters and cursor
+values after removing only the A/B label. This establishes repeatability within
+one boot. `TK_IDENT` printed as hexadecimal `100` and `TK_EOF` as `0`.
+
+The `last` field records `CCmpCtrl.last_line_num`; `line` records the current
+include frame's `line_num` after `Lex` returns. They include lexer lookahead.
+For example, the identifier `value` on line 2 after a stray `#endif` returned
+with `last=1, line=3`. The fixture preserves these observations separately from
+the hosted diagnostic's one-based starting line and byte column.
+
+To reproduce, boot the verified ISO with the isolation described below, disable
+autocomplete and run the fixture's `helper_command`. Run `run_setup`, then each
+`command_a` in order, capturing the complete output. Repeat with `command_b`.
+Compare the labeled records exactly, excluding the shell's timing output and
+desktop status bar. The helper limits the token loop to eight iterations; all
+captured cases reached actual `TK_EOF` after at most two identifiers.
+
+The accepted input used QMP `input-send-event` with explicit key presses and
+reverse-order releases. The preflight verified arithmetic, punctuation and
+compiler-control member names. Earlier attempts with overlapping Shift events
+changed the delivered identifiers and were discarded as input failures. The
+fixture includes the accepted helper, both command sequences and SHA-256 hashes
+of the original framebuffer captures. The ISO and captures remain outside the
+tracked repository.
+
+The ordinary test suite replays each captured source under
+`templeos-permissive`, comparing tokens and diagnostic counts. It separately
+checks strict hosted tokens and diagnostic positions for the same inputs.
+Include, definition and generated-source tests cover hosted frame integration;
+those tests are not additional native captures. This evidence completes the
+malformed-boundary scope of issue #27. The policy retains the hosted input and
+resource limits described in [the preprocessor guide](preprocessor.md).
+
 ## Integer division and fault phases
 
 [`test/oracle/integer-division.json`](../test/oracle/integer-division.json)

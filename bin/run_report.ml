@@ -2,6 +2,7 @@ module VM = Holyc_lib.Ir_integer_interpreter
 
 type limits = {
   mode : string;
+  conditional_recovery : Holyc_lib.Preprocessor.conditional_recovery;
   target : string;
   steps : int;
   frame_bytes : int;
@@ -101,6 +102,9 @@ let render ~human ~session ~limits ?command_error ?report () =
         outcome=%s\n"
        Holyc_lib.Version.implementation_commit VM.reference_commit limits.mode
        limits.target outcome;
+     Printf.printf "conditional-recovery=%s\n"
+       (Holyc_lib.Preprocessor.conditional_recovery_name
+          limits.conditional_recovery);
      List.iter
        (fun (name, value) -> Printf.printf "%s=%d\n" name value)
        [
@@ -150,6 +154,10 @@ let render ~human ~session ~limits ?command_error ?report () =
            `String Holyc_lib.Version.implementation_commit );
          ("reference_commit", `String VM.reference_commit);
          ("mode", `String limits.mode);
+         ( "conditional_recovery",
+           `String
+             (Holyc_lib.Preprocessor.conditional_recovery_name
+                limits.conditional_recovery) );
          ("target", `String limits.target);
          ("arithmetic", `String "runtime-ir");
          ("outcome", `String outcome);
@@ -273,6 +281,9 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
         outcome=%s\n"
        Holyc_lib.Version.implementation_commit VM.reference_commit limits.mode
        limits.target outcome;
+     Printf.printf "conditional-recovery=%s\n"
+       (Holyc_lib.Preprocessor.conditional_recovery_name
+          limits.conditional_recovery);
      List.iter
        (fun (name, value) -> Printf.printf "%s=%d\n" name value)
        [
@@ -412,6 +423,10 @@ let render_native ~human ~session ~limits ~native_limits ?command_error ?report
            `String Holyc_lib.Version.implementation_commit );
          ("reference_commit", `String VM.reference_commit);
          ("mode", `String limits.mode);
+         ( "conditional_recovery",
+           `String
+             (Holyc_lib.Preprocessor.conditional_recovery_name
+                limits.conditional_recovery) );
          ("target", `String limits.target);
          ("arithmetic", `String "runtime-native");
          ("outcome", `String outcome);
