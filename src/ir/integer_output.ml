@@ -559,13 +559,26 @@ let format_draft state ~read_byte ~format arguments =
       literal_digits label value byte offset
     else Ok (value, byte, offset)
   in
-  let modifiers byte offset =
+  let rec aux_digits value byte offset =
+    if digit byte then
+      let value =
+        Int64.add (Int64.mul value 10L) (Int64.of_int (digit_value byte))
+      in
+      let* byte, offset = format_required offset in
+      aux_digits value byte offset
+    else Ok (value, byte, offset)
+  in
+  let modifiers byte offset position =
     let current = ref byte in
     let cursor = ref offset in
+    let position = ref position in
     let comma = ref false in
     let truncate = ref false in
     let dollar = ref false in
     let slash = ref false in
+    let aux_present = ref false in
+    let aux_value = ref 0L in
+    let negative_aux = ref false in
     let complete = ref false in
     let failed = ref None in
     while (not !complete) && Option.is_none !failed do
@@ -580,13 +593,64 @@ let format_draft state ~read_byte ~format arguments =
               current := byte;
               cursor := offset
           | Error error -> failed := Some error)
+      | 'h' -> (
+          aux_present := true;
+          match format_required !cursor with
+          | Error error -> failed := Some error
+          | Ok (byte, offset) -> (
+              if byte = '?' then
+                match format_required offset with
+                | Ok (byte, offset) ->
+                    current := byte;
+                    cursor := offset
+                | Error error -> failed := Some error
+              else if byte = '*' then
+                match star_argument !position "auxiliary format" with
+                | Error error -> failed := Some error
+                | Ok (value, next_position) -> (
+                    aux_value := value;
+                    position := next_position;
+                    match format_required offset with
+                    | Ok (byte, offset) ->
+                        current := byte;
+                        cursor := offset
+                    | Error error -> failed := Some error)
+              else
+                let byte, offset =
+                  if byte = '-' then (
+                    negative_aux := true;
+                    match format_required offset with
+                    | Ok pair -> pair
+                    | Error error ->
+                        failed := Some error;
+                        (byte, offset))
+                  else (byte, offset)
+                in
+                if Option.is_none !failed then
+                  match aux_digits !aux_value byte offset with
+                  | Error error -> failed := Some error
+                  | Ok (value, byte, offset) ->
+                      aux_value :=
+                        if !negative_aux then Int64.neg value else value;
+                      current := byte;
+                      cursor := offset))
       | _ -> complete := true
     done;
     match !failed with
     | Some error -> Error error
-    | None -> Ok (!comma, !truncate, !dollar, !slash, !current, !cursor)
+    | None ->
+        Ok
+          ( !comma,
+            !truncate,
+            !dollar,
+            !slash,
+            !aux_present,
+            !aux_value,
+            !current,
+            !cursor,
+            !position )
   in
-  let render directive options position =
+  let render directive options ~aux_present ~aux_value position =
     let directive_name = String.make 1 directive in
     match directive with
     | '%' ->
@@ -600,15 +664,21 @@ let format_draft state ~read_byte ~format arguments =
               (Invalid_argument
                  ("Print %" ^ directive_name ^ " requires an integer word"))
         | Word bits ->
-            let signed = directive = 'd' in
-            let base =
-              if directive = 'd' || directive = 'u' then 10
-              else if directive = 'x' || directive = 'X' then 16
-              else 2
-            in
-            let uppercase = directive = 'X' in
-            let* () = number_field bits ~signed ~base ~uppercase options in
-            Ok (position + 1))
+            if aux_present && (directive = 'd' || directive = 'u') then
+              Error
+                (Invalid_format
+                   ("Print %" ^ directive_name
+                  ^ " auxiliary engineering format is not supported"))
+            else
+              let signed = directive = 'd' in
+              let base =
+                if directive = 'd' || directive = 'u' then 10
+                else if directive = 'x' || directive = 'X' then 16
+                else 2
+              in
+              let uppercase = directive = 'X' in
+              let* () = number_field bits ~signed ~base ~uppercase options in
+              Ok (position + 1))
     | 's' -> (
         let* value = argument position "s" in
         match value with
@@ -632,7 +702,18 @@ let format_draft state ~read_byte ~format arguments =
         let* value = argument position directive_name in
         match value with
         | Word bits ->
-            let* () = packed_field bits ~uppercase:(directive = 'C') options in
+            let remaining = ref (if aux_present then aux_value else 1L) in
+            let failed = ref None in
+            while Int64.compare !remaining 0L > 0 && Option.is_none !failed do
+              match packed_field bits ~uppercase:(directive = 'C') options with
+              | Ok () -> remaining := Int64.pred !remaining
+              | Error error -> failed := Some error
+            done;
+            let* () =
+              match !failed with
+              | None -> Ok ()
+              | Some error -> Error error
+            in
             Ok (position + 1)
         | Pointer _ ->
             Error
@@ -687,13 +768,21 @@ let format_draft state ~read_byte ~format arguments =
         else Ok (precision, offset, position)
       else Ok (byte, offset, position)
     in
-    let* comma, truncate, dollar, slash, directive, offset =
-      modifiers byte offset
+    let* ( comma,
+           truncate,
+           dollar,
+           slash,
+           aux_present,
+           aux_value,
+           directive,
+           offset,
+           position ) =
+      modifiers byte offset position
     in
     let options =
       { left_justify; pad_zero; width; comma; truncate; dollar; slash }
     in
-    let* position = render directive options position in
+    let* position = render directive options ~aux_present ~aux_value position in
     Ok (offset, position)
   in
   let rec scan offset position =

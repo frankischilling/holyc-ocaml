@@ -249,13 +249,15 @@ let expanded_format_values () =
             (compare_success mode ~label:case.label
                ~contents:(Integer_format_fixture.source case)
                ~bytes:case.bytes ~work:case.work ~value:(Some 42L) ()))
-        (Integer_format_fixture.all @ Quoted_format_fixture.all);
+        (Integer_format_fixture.all @ Quoted_format_fixture.all
+       @ Aux_format_fixture.all);
       List.iter
         (fun (label, contents, bytes, work) ->
           ignore
             (compare_success mode ~label ~contents ~bytes ~work
                ~value:(Some 42L) ()))
-        Integer_format_fixture.argument_effects)
+        (Integer_format_fixture.argument_effects
+       @ Aux_format_fixture.argument_effects))
     modes
 
 let expanded_format_quotas () =
@@ -285,7 +287,8 @@ let expanded_format_quotas () =
                  ~contents ~code:"HCIRVM0022"
                  ~kind:Program.Output_limit_exceeded ~bytes:""
                  ~work:(case.work - 1) ()))
-        (Integer_format_fixture.quota_cases @ Quoted_format_fixture.quota_cases);
+        (Integer_format_fixture.quota_cases @ Quoted_format_fixture.quota_cases
+       @ Aux_format_fixture.quota_cases);
       List.iter
         (fun (body, work) ->
           let contents = print ^ body ^ "42;" in
@@ -336,7 +339,8 @@ let expanded_format_failures () =
                ~kind:Program.Output_work_limit_exceeded ~bytes:""
                ~work:(work - 1) ()))
         (Integer_format_fixture.invalid_fields
-       @ Quoted_format_fixture.invalid_fields);
+       @ Quoted_format_fixture.invalid_fields
+       @ Aux_format_fixture.invalid_fields);
       List.iter
         (fun (body, code, kind, work) ->
           ignore
@@ -389,6 +393,7 @@ let quoted_memory_failures () =
             | "HCIRVM0012" -> Program.Uninitialized_read
             | "HCIRVM0018" -> Program.Output_invalid_pointer
             | "HCIRVM0008" -> Program.Output_invalid_byte
+            | "HCIRVM0025" -> Program.Output_invalid_argument
             | _ -> Alcotest.fail "unknown quoted-memory fixture diagnostic"
           in
           let contents = print ^ body in
@@ -401,7 +406,8 @@ let quoted_memory_failures () =
                ~contents ~code:"HCIRVM0023"
                ~kind:Program.Output_work_limit_exceeded ~bytes:"|"
                ~work:(work + 2) ()))
-        Quoted_format_fixture.memory_failures;
+        (Quoted_format_fixture.memory_failures
+       @ Aux_format_fixture.memory_failures);
       List.iter
         (fun (format, work) ->
           let contents =
@@ -413,6 +419,39 @@ let quoted_memory_failures () =
                ~code:"HCIRVM0022" ~kind:Program.Output_limit_exceeded ~bytes:""
                ~work ()))
         [ ("%*Q", 7); ("%*q", 8) ])
+    modes
+
+let auxiliary_repeat_limits () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, format, arguments) ->
+          let case = Integer_format_fixture.case label format arguments "" 10 in
+          ignore
+            (compare_reached_fault ~max_output_work:10 mode ~label
+               ~contents:(Integer_format_fixture.source case)
+               ~code:"HCIRVM0023" ~kind:Program.Output_work_limit_exceeded
+               ~bytes:"" ~work:10 ()))
+        Aux_format_fixture.empty_repeats;
+      let contents = print ^ {|Print("|");Print("%h3c",'A');42;|} in
+      ignore
+        (compare_success ~max_output_bytes:4 ~max_output_work:17 mode
+           ~label:"repeated draft exact limits" ~contents ~bytes:"|AAA" ~work:17
+           ~value:(Some 42L) ());
+      List.iter
+        (fun (byte_limit, work_limit, code, kind, work) ->
+          let reached =
+            compare_reached_fault ~max_output_bytes:byte_limit
+              ~max_output_work:work_limit mode ~label:"repeated atomic failure"
+              ~contents ~code ~kind ~bytes:"|" ~work ()
+          in
+          Alcotest.(check bool)
+            "repeat fault belongs to atomic Print" true reached.atomic_output)
+        [
+          (3, 17, "HCIRVM0022", Program.Output_limit_exceeded, 15);
+          (3, 14, "HCIRVM0023", Program.Output_work_limit_exceeded, 14);
+          (4, 16, "HCIRVM0023", Program.Output_work_limit_exceeded, 16);
+        ])
     modes
 
 let dynamic_formats_and_pointer_offsets () =
@@ -950,6 +989,9 @@ let () =
             quoted_memory_failures;
           Alcotest.test_case "dynamic formats and interior pointers" `Quick
             dynamic_formats_and_pointer_offsets;
+          Alcotest.test_case
+            "auxiliary repeats bound empty work and atomic drafts" `Quick
+            auxiliary_repeat_limits;
           Alcotest.test_case "narrow words and full returned bits" `Quick
             narrow_words_and_full_returns;
           Alcotest.test_case "packed c first NUL versus PutChars" `Quick

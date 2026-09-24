@@ -45,6 +45,10 @@ and ASCII-uppercase packed `C`. StreamPrint can use those conversions to build
 source strings and character constants. See [quoted formatting](docs/quoted-formatting.md)
 and `examples/quoted-formatting.hc`.
 
+[Auxiliary formatting](docs/auxiliary-formatting.md) supports `h` fields and
+per-copy layout for repeated packed `c/C` output. The maintained
+`examples/auxiliary-formatting.hc` runs through interpreted and native targets.
+
 [Retained named types](docs/retained-named-types.md) preserve an aggregate
 selected before a nested `#exe` shadows its name. The original function header
 and parameter keep that identity through completion.

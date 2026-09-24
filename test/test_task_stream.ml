@@ -377,7 +377,8 @@ let expanded_formatting () =
       Alcotest.(check string)
         (case.label ^ " ordinary capture")
         "" (Task.output_bytes task))
-    (Integer_format_fixture.all @ Quoted_format_fixture.all)
+    (Integer_format_fixture.all @ Quoted_format_fixture.all
+   @ Aux_format_fixture.all)
 
 let expanded_format_limits () =
   List.iter
@@ -466,7 +467,7 @@ let quoted_format_limits () =
         Alcotest.(check int)
           (case.label ^ " generation one below")
           (case.work - 1) (Task.output_work task)))
-    Quoted_format_fixture.quota_cases;
+    (Quoted_format_fixture.quota_cases @ Aux_format_fixture.quota_cases);
   let session, task = create () in
   let stream = begin_ task in
   run session task {|StreamPrint("|");|};
@@ -478,6 +479,29 @@ let quoted_format_limits () =
     "late generation fault keeps complete reached work" 9
     (Task.output_work task)
 
+let auxiliary_repeat_limits () =
+  List.iter
+    (fun (label, format, arguments) ->
+      let session, task =
+        create ~max_generated_bytes:0 ~max_output_work:10 ()
+      in
+      let stream = begin_ task in
+      let case = Integer_format_fixture.case label format arguments "" 10 in
+      T.fault "HCIRVM0023"
+        (T.run session task (Integer_format_fixture.call "StreamPrint" case));
+      Alcotest.(check string)
+        "empty repeated generation stays atomic" "" (finish task stream);
+      Alcotest.(check int) label 10 (Task.output_work task))
+    Aux_format_fixture.empty_repeats;
+  let session, task = create ~max_generated_bytes:3 () in
+  let stream = begin_ task in
+  run session task {|StreamPrint("|");|};
+  T.fault "HCIRVM0028" (T.run session task {|StreamPrint("%h3c",'A');|});
+  Alcotest.(check string)
+    "failed repetition preserves prior generation" "|" (finish task stream);
+  Alcotest.(check int)
+    "generated repeated failure retains visits" 15 (Task.output_work task)
+
 let tests =
   [
     Alcotest.test_case "shared integer formats and byte padding" `Quick
@@ -488,6 +512,8 @@ let tests =
       `Quick interleaved_format_faults;
     Alcotest.test_case "quoted generation respects transformed byte limits"
       `Quick quoted_format_limits;
+    Alcotest.test_case "auxiliary repetition bounds empty generated output"
+      `Quick auxiliary_repeat_limits;
     Alcotest.test_case "inactive formatting fault order" `Quick
       inactive_format_fault_priority;
     Alcotest.test_case "nested buffers and ordinary output" `Quick
