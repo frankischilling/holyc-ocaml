@@ -121,6 +121,7 @@ let native_json ?(options = []) ~mode status source =
       "execution_target";
       "platform";
       "mode";
+      "conditional_recovery";
       "outcome";
       "limits";
       "image";
@@ -139,8 +140,9 @@ let native_json ?(options = []) ~mode status source =
     (string "command" report = "eval-native"
     && string "execution_target" report = "x86-64-native"
     && string "platform" report = platform
-    && string "mode" report = mode)
-    "native command, platform, target and preprocessing mode";
+    && string "mode" report = mode
+    && string "conditional_recovery" report = "hosted-strict")
+    "native command, platform, target, preprocessing mode and recovery policy";
   require
     (string "outcome" report = if status = 0 then "success" else "error")
     "native outcome must agree with the process exit status";

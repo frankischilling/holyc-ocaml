@@ -6,8 +6,8 @@ let decimal image bits =
   | Image.I64 -> Int64.to_string bits
   | Image.U64 -> Printf.sprintf "%Lu" bits
 
-let render ~human ~session ~mode ~max_ir_instructions ~max_code_bytes
-    ~max_stack_bytes ?command_error ?result () =
+let render ~human ~session ~mode ~conditional_recovery ~max_ir_instructions
+    ~max_code_bytes ~max_stack_bytes ?command_error ?result () =
   let value, diagnostics =
     match result with
     | Some (Ok (value : Holyc_lib.Native_expression.result)) -> (Some value, [])
@@ -79,6 +79,10 @@ let render ~human ~session ~mode ~max_ir_instructions ~max_code_bytes
          ("execution_target", `String "x86-64-native");
          ("platform", `String (Native.platform_name platform));
          ("mode", `String mode);
+         ( "conditional_recovery",
+           `String
+             (Holyc_lib.Preprocessor.conditional_recovery_name
+                conditional_recovery) );
          ( "outcome",
            `String (if Option.is_some value then "success" else "error") );
          ( "limits",

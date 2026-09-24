@@ -62,6 +62,17 @@ let print_help_metadata format session metadata =
       Holyc_lib.Help_metadata.json (Holyc_lib.Session.sources session) metadata
       |> print_endline
 
+let print_preprocessor_report format output =
+  match format with
+  | Human ->
+      Holyc_lib.Preprocessor.report_human
+        ~reference_commit:Holyc_lib.Version.reference_commit output
+      |> output_string stdout
+  | Json ->
+      Holyc_lib.Preprocessor.report_json
+        ~reference_commit:Holyc_lib.Version.reference_commit output
+      |> print_endline
+
 let lex_file format path =
   let session = Holyc_lib.Session.create () in
   match Holyc_lib.Session.load_source session ~path with
@@ -171,6 +182,24 @@ let compilation_mode_argument =
     & opt (enum values) Holyc_lib.Preprocessor.Jit
     & info [ "mode" ] ~docv:"MODE" ~doc:documentation)
 
+let conditional_recovery_argument =
+  let values =
+    [
+      ("hosted-strict", Holyc_lib.Preprocessor.Hosted_strict);
+      ("templeos", Holyc_lib.Preprocessor.Templeos_permissive);
+      ("templeos-permissive", Holyc_lib.Preprocessor.Templeos_permissive);
+    ]
+  in
+  Arg.(
+    value
+    & opt (enum values) Holyc_lib.Preprocessor.Hosted_strict
+    & info [ "conditional-recovery" ] ~docv:"POLICY"
+        ~doc:
+          "Select hosted-strict diagnostics or templeos-permissive recovery \
+           for unmatched conditional boundaries. The templeos alias selects \
+           the same permissive policy, which can silently discard source. \
+           Hosted resource limits apply to both policies.")
+
 let predefined_date_argument =
   let documentation =
     "Set the deterministic MM/DD/YY string returned by __DATE__."
@@ -200,46 +229,67 @@ let dump_help_metadata_argument =
   in
   Arg.(value & flag & info [ "dump-help-metadata" ] ~doc:documentation)
 
+let dump_preprocessor_report_argument =
+  Arg.(
+    value & flag
+    & info
+        [ "dump-preprocessor-report" ]
+        ~doc:
+          "Print a versioned report of the recovery policy, reference, tokens \
+           and diagnostics, including when preprocessing fails.")
+
 let make_preprocessor_config include_roots templeos_root max_include_depth
     max_source_bytes max_definition_depth max_generated_bytes
-    max_conditional_depth max_expression_nodes compilation_mode predefined_date
-    predefined_time command_line_source =
+    max_conditional_depth max_expression_nodes compilation_mode
+    conditional_recovery predefined_date predefined_time command_line_source =
   Holyc_lib.Preprocessor.Config.create ~working_directory:(Sys.getcwd ())
-    ~include_roots ?templeos_root ~compilation_mode ~max_include_depth
-    ~max_source_bytes ~max_definition_depth ~max_generated_bytes
-    ~max_conditional_depth ~max_expression_nodes ~predefined_date
-    ~predefined_time ~command_line_source ()
+    ~include_roots ?templeos_root ~compilation_mode ~conditional_recovery
+    ~max_include_depth ~max_source_bytes ~max_definition_depth
+    ~max_generated_bytes ~max_conditional_depth ~max_expression_nodes
+    ~predefined_date ~predefined_time ~command_line_source ()
 
-let preprocess_file format dump_help_metadata include_roots templeos_root
-    max_include_depth max_source_bytes max_definition_depth max_generated_bytes
-    max_conditional_depth max_expression_nodes compilation_mode predefined_date
+let preprocess_file format dump_help_metadata dump_preprocessor_report
+    include_roots templeos_root max_include_depth max_source_bytes
+    max_definition_depth max_generated_bytes max_conditional_depth
+    max_expression_nodes compilation_mode conditional_recovery predefined_date
     predefined_time command_line_source path =
-  let session = Holyc_lib.Session.create () in
-  match Holyc_lib.Session.load_source session ~path with
-  | Error message ->
-      Printf.eprintf "holyc: could not read %s: %s\n" path message;
-      1
-  | Ok source -> (
-      match
-        make_preprocessor_config include_roots templeos_root max_include_depth
-          max_source_bytes max_definition_depth max_generated_bytes
-          max_conditional_depth max_expression_nodes compilation_mode
-          predefined_date predefined_time command_line_source
-      with
-      | Error message ->
-          Printf.eprintf "holyc: invalid preprocessor configuration: %s\n"
-            message;
-          1
-      | Ok config ->
-          let output = Holyc_lib.preprocess_detailed session ~config ~source in
-          if output.diagnostics <> [] then
-            print_diagnostics format session output.diagnostics;
-          if Holyc_lib.Preprocessor.has_errors output then 1
-          else (
-            if dump_help_metadata then
-              print_help_metadata format session output.help_metadata
-            else print_tokens format session output.tokens;
-            0))
+  if dump_help_metadata && dump_preprocessor_report then (
+    Printf.eprintf
+      "holyc: choose either --dump-help-metadata or --dump-preprocessor-report\n";
+    1)
+  else
+    let session = Holyc_lib.Session.create () in
+    match Holyc_lib.Session.load_source session ~path with
+    | Error message ->
+        Printf.eprintf "holyc: could not read %s: %s\n" path message;
+        1
+    | Ok source -> (
+        match
+          make_preprocessor_config include_roots templeos_root max_include_depth
+            max_source_bytes max_definition_depth max_generated_bytes
+            max_conditional_depth max_expression_nodes compilation_mode
+            conditional_recovery predefined_date predefined_time
+            command_line_source
+        with
+        | Error message ->
+            Printf.eprintf "holyc: invalid preprocessor configuration: %s\n"
+              message;
+            1
+        | Ok config ->
+            let output =
+              Holyc_lib.preprocess_detailed session ~config ~source
+            in
+            if output.diagnostics <> [] then
+              print_diagnostics format session output.diagnostics;
+            if dump_preprocessor_report then
+              print_preprocessor_report format output;
+            if Holyc_lib.Preprocessor.has_errors output then 1
+            else (
+              if dump_help_metadata then
+                print_help_metadata format session output.help_metadata
+              else if not dump_preprocessor_report then
+                print_tokens format session output.tokens;
+              0))
 
 let preprocess_command =
   let documentation =
@@ -252,10 +302,11 @@ let preprocess_command =
   Cmd.v info
     Term.(
       const preprocess_file $ format_argument $ dump_help_metadata_argument
-      $ include_roots_argument $ templeos_root_argument $ include_depth_argument
-      $ include_bytes_argument $ definition_depth_argument
-      $ generated_bytes_argument $ conditional_depth_argument
-      $ expression_nodes_argument $ compilation_mode_argument
+      $ dump_preprocessor_report_argument $ include_roots_argument
+      $ templeos_root_argument $ include_depth_argument $ include_bytes_argument
+      $ definition_depth_argument $ generated_bytes_argument
+      $ conditional_depth_argument $ expression_nodes_argument
+      $ compilation_mode_argument $ conditional_recovery_argument
       $ predefined_date_argument $ predefined_time_argument
       $ command_line_source_argument $ file_argument)
 
@@ -315,8 +366,9 @@ let print_command_error format ~command message =
 
 let parse_file format include_roots templeos_root max_include_depth
     max_source_bytes max_definition_depth max_generated_bytes
-    max_conditional_depth max_expression_nodes compilation_mode predefined_date
-    predefined_time command_line_source path =
+    max_conditional_depth max_expression_nodes compilation_mode
+    conditional_recovery predefined_date predefined_time command_line_source
+    path =
   let session = Holyc_lib.Session.create () in
   match Holyc_lib.Session.load_source session ~path with
   | Error message ->
@@ -327,7 +379,8 @@ let parse_file format include_roots templeos_root max_include_depth
         make_preprocessor_config include_roots templeos_root max_include_depth
           max_source_bytes max_definition_depth max_generated_bytes
           max_conditional_depth max_expression_nodes compilation_mode
-          predefined_date predefined_time command_line_source
+          conditional_recovery predefined_date predefined_time
+          command_line_source
       with
       | Error message ->
           Printf.eprintf "holyc: invalid preprocessor configuration: %s\n"
@@ -349,8 +402,9 @@ let source_parser_options run =
     $ include_depth_argument $ include_bytes_argument
     $ definition_depth_argument $ generated_bytes_argument
     $ conditional_depth_argument $ expression_nodes_argument
-    $ compilation_mode_argument $ predefined_date_argument
-    $ predefined_time_argument $ command_line_source_argument $ file_argument)
+    $ compilation_mode_argument $ conditional_recovery_argument
+    $ predefined_date_argument $ predefined_time_argument
+    $ command_line_source_argument $ file_argument)
 
 let source_parser_term run = source_parser_options Term.(const run)
 
@@ -381,9 +435,9 @@ let print_integer_result format result =
         "HCEVAL0003: expression execution did not return an integer word";
       1
 
-let print_integer_program_result format mode max_steps max_frame_bytes
-    max_call_depth max_global_bytes max_literal_bytes max_initializer_steps
-    result =
+let print_integer_program_result format mode conditional_recovery max_steps
+    max_frame_bytes max_call_depth max_global_bytes max_literal_bytes
+    max_initializer_steps result =
   let module VM = Holyc_lib.Ir_integer_interpreter in
   let mode =
     match mode with
@@ -411,6 +465,8 @@ let print_integer_program_result format mode max_steps max_frame_bytes
          termination=%s\n"
         Holyc_lib.Version.implementation_commit VM.reference_commit mode
         max_steps (VM.executed_steps result) termination;
+      Printf.printf "conditional-recovery=%s\n"
+        (Holyc_lib.Preprocessor.conditional_recovery_name conditional_recovery);
       Printf.printf "frame-byte-limit=%d\ncall-depth-limit=%d\n" max_frame_bytes
         max_call_depth;
       Printf.printf "global-byte-limit=%d\n" max_global_bytes;
@@ -434,6 +490,10 @@ let print_integer_program_result format mode max_steps max_frame_bytes
             `String Holyc_lib.Version.implementation_commit );
           ("reference_commit", `String VM.reference_commit);
           ("mode", `String mode);
+          ( "conditional_recovery",
+            `String
+              (Holyc_lib.Preprocessor.conditional_recovery_name
+                 conditional_recovery) );
           ("target", `String "ir");
           ("arithmetic", `String "runtime-ir");
           ("step_limit", `Int max_steps);
@@ -472,7 +532,8 @@ let integer_expression_file ?(max_dimension_work = 100_000)
     ?(report_version = 2) program target dump max_steps format include_roots
     templeos_root max_include_depth max_source_bytes max_definition_depth
     max_generated_bytes max_conditional_depth max_expression_nodes
-    compilation_mode predefined_date predefined_time command_line_source path =
+    compilation_mode conditional_recovery predefined_date predefined_time
+    command_line_source path =
   let command = if dump then "dump-ir" else if program then "run" else "eval" in
   let session = Holyc_lib.Session.create () in
   let captured_report = program && (not dump) && report_version = 2 in
@@ -484,6 +545,7 @@ let integer_expression_file ?(max_dimension_work = 100_000)
             (match compilation_mode with
             | Holyc_lib.Preprocessor.Jit -> "jit"
             | Aot -> "aot");
+          conditional_recovery;
           target;
           steps = max_steps;
           frame_bytes = max_frame_bytes;
@@ -537,7 +599,8 @@ let integer_expression_file ?(max_dimension_work = 100_000)
           make_preprocessor_config include_roots templeos_root max_include_depth
             max_source_bytes max_definition_depth max_generated_bytes
             max_conditional_depth max_expression_nodes compilation_mode
-            predefined_date predefined_time command_line_source
+            conditional_recovery predefined_date predefined_time
+            command_line_source
         with
         | Error message ->
             fail ("invalid preprocessor configuration: " ^ message)
@@ -593,8 +656,9 @@ let integer_expression_file ?(max_dimension_work = 100_000)
                 |> Result.map program_value
                 |> Result.map
                      (print_integer_program_result format compilation_mode
-                        max_steps max_frame_bytes max_call_depth
-                        max_global_bytes max_literal_bytes max_initializer_steps)
+                        conditional_recovery max_steps max_frame_bytes
+                        max_call_depth max_global_bytes max_literal_bytes
+                        max_initializer_steps)
               else
                 Holyc_lib.evaluate_integer_expression session ~config ~source
                   ~max_steps
@@ -660,8 +724,8 @@ let eval_command =
 let native_expression_file max_ir_instructions max_code_bytes max_stack_bytes
     format include_roots templeos_root max_include_depth max_source_bytes
     max_definition_depth max_generated_bytes max_conditional_depth
-    max_expression_nodes compilation_mode predefined_date predefined_time
-    command_line_source path =
+    max_expression_nodes compilation_mode conditional_recovery predefined_date
+    predefined_time command_line_source path =
   let session = Holyc_lib.Session.create () in
   let mode =
     match compilation_mode with
@@ -670,7 +734,8 @@ let native_expression_file max_ir_instructions max_code_bytes max_stack_bytes
   in
   let render =
     Native_report.render ~human:(format = Human) ~session ~mode
-      ~max_ir_instructions ~max_code_bytes ~max_stack_bytes
+      ~conditional_recovery ~max_ir_instructions ~max_code_bytes
+      ~max_stack_bytes
   in
   let fail code message = render ~command_error:(code, message) () in
   let limits =
@@ -687,7 +752,8 @@ let native_expression_file max_ir_instructions max_code_bytes max_stack_bytes
         make_preprocessor_config include_roots templeos_root max_include_depth
           max_source_bytes max_definition_depth max_generated_bytes
           max_conditional_depth max_expression_nodes compilation_mode
-          predefined_date predefined_time command_line_source
+          conditional_recovery predefined_date predefined_time
+          command_line_source
       with
       | Error message ->
           fail "HCNATIVE0003" ("invalid preprocessor configuration: " ^ message)
@@ -746,7 +812,8 @@ let native_program_file ~max_dimension_work ~max_switch_work
     ~max_active_stack_bytes ~max_default_bytes max_steps format include_roots
     templeos_root max_include_depth max_source_bytes max_definition_depth
     max_generated_bytes max_conditional_depth max_expression_nodes
-    compilation_mode predefined_date predefined_time command_line_source path =
+    compilation_mode conditional_recovery predefined_date predefined_time
+    command_line_source path =
   let session = Holyc_lib.Session.create () in
   let mode =
     match compilation_mode with
@@ -756,6 +823,7 @@ let native_program_file ~max_dimension_work ~max_switch_work
   let limits : Run_report.limits =
     {
       mode;
+      conditional_recovery;
       target = "host-jit";
       steps = max_steps;
       frame_bytes = max_frame_bytes;
@@ -832,7 +900,8 @@ let native_program_file ~max_dimension_work ~max_switch_work
           make_preprocessor_config include_roots templeos_root max_include_depth
             max_source_bytes max_definition_depth max_generated_bytes
             max_conditional_depth max_expression_nodes compilation_mode
-            predefined_date predefined_time command_line_source
+            conditional_recovery predefined_date predefined_time
+            command_line_source
         with
         | Error message ->
             fail "HCNATIVE0003"
@@ -1062,8 +1131,9 @@ let dump_ast_command =
 
 let dump_symbols_file format source_only include_roots templeos_root
     max_include_depth max_source_bytes max_definition_depth max_generated_bytes
-    max_conditional_depth max_expression_nodes compilation_mode predefined_date
-    predefined_time command_line_source path =
+    max_conditional_depth max_expression_nodes compilation_mode
+    conditional_recovery predefined_date predefined_time command_line_source
+    path =
   let session = Holyc_lib.Session.create () in
   match Holyc_lib.Session.load_source session ~path with
   | Error message ->
@@ -1074,7 +1144,8 @@ let dump_symbols_file format source_only include_roots templeos_root
         make_preprocessor_config include_roots templeos_root max_include_depth
           max_source_bytes max_definition_depth max_generated_bytes
           max_conditional_depth max_expression_nodes compilation_mode
-          predefined_date predefined_time command_line_source
+          conditional_recovery predefined_date predefined_time
+          command_line_source
       with
       | Error message ->
           Printf.eprintf "holyc: invalid preprocessor configuration: %s\n"
@@ -1094,8 +1165,8 @@ let dump_symbols_term =
     $ include_bytes_argument $ definition_depth_argument
     $ generated_bytes_argument $ conditional_depth_argument
     $ expression_nodes_argument $ compilation_mode_argument
-    $ predefined_date_argument $ predefined_time_argument
-    $ command_line_source_argument $ file_argument)
+    $ conditional_recovery_argument $ predefined_date_argument
+    $ predefined_time_argument $ command_line_source_argument $ file_argument)
 
 let dump_symbols_command =
   let documentation =
@@ -1106,8 +1177,9 @@ let dump_symbols_command =
 
 let dump_layout_file format include_roots templeos_root max_include_depth
     max_source_bytes max_definition_depth max_generated_bytes
-    max_conditional_depth max_expression_nodes compilation_mode predefined_date
-    predefined_time command_line_source path =
+    max_conditional_depth max_expression_nodes compilation_mode
+    conditional_recovery predefined_date predefined_time command_line_source
+    path =
   let session = Holyc_lib.Session.create () in
   match Holyc_lib.Session.load_source session ~path with
   | Error message ->
@@ -1119,7 +1191,8 @@ let dump_layout_file format include_roots templeos_root max_include_depth
         make_preprocessor_config include_roots templeos_root max_include_depth
           max_source_bytes max_definition_depth max_generated_bytes
           max_conditional_depth max_expression_nodes compilation_mode
-          predefined_date predefined_time command_line_source
+          conditional_recovery predefined_date predefined_time
+          command_line_source
       with
       | Error message ->
           print_command_error format ~command:"dump-layout"

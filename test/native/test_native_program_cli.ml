@@ -88,6 +88,7 @@ let native_json ?(status = 0) ?(mode = "jit") ?(options = []) source =
       "implementation_commit";
       "reference_commit";
       "mode";
+      "conditional_recovery";
       "target";
       "arithmetic";
       "outcome";
@@ -126,6 +127,7 @@ let native_json ?(status = 0) ?(mode = "jit") ?(options = []) source =
     "host-jit preserves program v2 provenance";
   require
     (report |> member "mode" |> to_string = mode
+    && report |> member "conditional_recovery" |> to_string = "hosted-strict"
     && report |> member "target" |> to_string = "host-jit"
     && report |> member "arithmetic" |> to_string = "runtime-native")
     "host-jit must identify actual native execution";

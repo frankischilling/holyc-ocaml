@@ -20,6 +20,12 @@ OPTIONS
            Allow at most this many terms and operators in one #if or #assert
            expression.
 
+       --conditional-recovery=POLICY (absent=hosted-strict)
+           Select hosted-strict diagnostics or templeos-permissive recovery
+           for unmatched conditional boundaries. The templeos alias selects
+           the same permissive policy, which can silently discard source.
+           Hosted resource limits apply to both policies.
+
        --definition-depth-limit=COUNT (absent=64)
            Allow at most this many active definition or predefined-value
            expansions.

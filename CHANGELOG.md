@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added selectable recovery for malformed preprocessor conditionals. Ordinary
+  commands keep strict diagnostics; `--conditional-recovery=templeos-permissive`
+  follows the pinned lexer's skip and EOF rules. Preprocessing reports and
+  program execution reports name the policy, and include, definition and
+  generated-source limits remain enforced.
+
 - Added quoted byte escaping and decoding (`Q`/`q`) and ASCII-uppercase packed
   output (`C`) to shared and native Print formatting. StreamPrint uses the same
   conversions for generated strings and character constants. Fixed chunks bound

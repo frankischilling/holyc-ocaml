@@ -10,6 +10,25 @@
  (modules integer_format_fixture quoted_format_fixture))
 
 (test
+ (name test_conditional_recovery_cli)
+ (modules test_conditional_recovery_cli)
+ (libraries holyc_lib unix yojson)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/conditional-recovery.hc})))
+
+(rule
+ (alias native-tests)
+ (action
+  (run
+   %{exe:test_conditional_recovery_cli.exe}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/conditional-recovery.hc}
+   --native)))
+
+(test
  (name test_stateful_exe_cli)
  (modules test_stateful_exe_cli)
  (libraries unix yojson)
@@ -85,6 +104,7 @@
  (name test_main)
  (modules
   test_main
+  test_conditional_recovery
   test_retained_aggregates
   test_retained_named_aggregate
   test_runtime_frame_positions
@@ -359,6 +379,7 @@
   (source_tree ../third_party/TempleOS/Kernel)
   ../reference/assembly-blocks.json
   ../reference/parser-corpus-aot.json
+  oracle/conditional-recovery.json
   oracle/function-definitions.json
   oracle/integer-division.json
   oracle/local-declarations.json

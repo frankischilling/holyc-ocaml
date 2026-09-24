@@ -109,7 +109,40 @@ The nesting search recognizes `#if`, `#ifdef`, and `#ifndef` with the two mode o
 
 Conditional boundaries can cross an included file or a definition-backed frame because the state belongs to the stream rather than an individual lexer. A definition may also provide the spelling after `#`; definition recursion and generated-byte guards still apply when that happens.
 
-The hosted stream diagnoses a stray `#else`, duplicate `#else`, stray `#endif`, and EOF before `#endif`. The pinned lexer silently accepts or skips some of those malformed forms. [Issue #27](https://github.com/frankischilling/holyc-ocaml/issues/27) tracks the compatibility rendering and oracle fixtures. Normal hosted runs keep the explicit errors so a typo cannot discard the rest of a file without explanation.
+Conditional recovery is an explicit policy shared by preprocessing, parsing,
+inspection, IR execution and native execution. `hosted-strict` is the default.
+Pass `--conditional-recovery=templeos-permissive` to select the pinned lexer's
+recovery; `templeos` is an alias for that policy. The library setting is
+`~conditional_recovery:Preprocessor.Templeos_permissive`.
+
+| Malformed boundary | `hosted-strict` | `templeos-permissive` |
+| --- | --- | --- |
+| Stray `#else` | `HCPP0015`; retain the following input | Discard through the matching `#endif`, or EOF |
+| Duplicate `#else` | `HCPP0016`; discard the remaining branch | Discard the remaining branch without a diagnostic |
+| Stray `#endif` | `HCPP0017`; retain the following input | Consume the directive without a diagnostic |
+| Missing `#endif` at EOF | `HCPP0018` for each outstanding opener | End the stream without a mismatch diagnostic |
+
+The permissive scan counts all five conditional openers and ignores ordinary
+discarded text, including malformed quoted text and inactive `#include`,
+`#define` and `#exe` directives. It can cross an included file, a definition or
+a `StreamPrint` buffer and resume in the caller. A stray `#else` occupies one
+level of the hosted conditional-depth budget while its matching end is sought.
+Selecting this policy does not suppress assertion warnings, expression errors,
+NUL diagnostics or resource failures.
+
+The raw discarded-input scanner retains its existing embedded-NUL rejection.
+The `physical_nul_terminates` setting currently applies to ordinary token
+lexing; it does not relax that raw-scan guard. This recovery option changes
+malformed conditional boundaries within the hosted input model.
+
+`holyc preprocess --dump-preprocessor-report` reports the selected policy,
+pinned reference, token count including EOF and diagnostic counts even when
+strict preprocessing fails. `--format=json` selects the
+`holyc-preprocessor-report-v1` JSON object. Tokens and help metadata retain their
+separate output modes. Program execution reports also include
+`conditional_recovery` in JSON and `conditional-recovery` in human output;
+native expression JSON includes the same policy. [Issue #27](https://github.com/frankischilling/holyc-ocaml/issues/27)
+defines this compatibility boundary.
 
 ## Hosted safety rules
 

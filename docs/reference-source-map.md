@@ -455,7 +455,16 @@ The `KW_IFAOT` and `KW_IFJIT` cases in `Compiler/Lex.HC:Lex` continue into the m
 
 `LexGetChar` removes exhausted include and definition frames during the search. `Frontend.Preprocessor` therefore owns conditional state above individual `Lexer_frame` values, and `Frontend.Lexer.scan_to_directive_marker` advances through inactive bytes without ordinary tokenization. A conditional can open in an included or definition-backed frame and close after that frame returns to its caller.
 
-Outside `CCF_IN_IF`, the pinned lexer discards an unmatched `#endif`, treats an unmatched `#else` as a request to scan forward, and returns EOF without a mismatch diagnostic when a false branch is unterminated. The hosted stream reports `HCPP0015` through `HCPP0018` instead. [Issue #27](https://github.com/frankischilling/holyc-ocaml/issues/27) records that diagnostic difference and the missing oracle fixtures. The `KW_IFJIT` path also returns `TK_IFAOT` while `CCF_IN_IF` is set; that source quirk concerns later `#if` expression parsing and is not part of the mode-only state.
+Outside `CCF_IN_IF`, `Compiler/Lex.HC:807-831` sends any reached `#else` to
+`lex_else`. That loop counts the five conditional openers, consumes the matching
+`#endif` and silently returns `TK_EOF` if the input ends first. Another `#else`
+inside the scan does not end it. `KW_ENDIF` at lines 1019-1024 consumes a reached
+end marker without requiring an earlier opener. `Hosted_strict` retains the
+diagnostics `HCPP0015` through `HCPP0018`; `Templeos_permissive` uses the existing
+raw scanner and frame chain to implement the silent recovery. Both policies
+retain hosted resource limits. The `KW_IFJIT` path also returns `TK_IFAOT` while
+`CCF_IN_IF` is set; that separate expression-lookahead quirk is outside the
+malformed-boundary recovery implemented for [issue #27](https://github.com/frankischilling/holyc-ocaml/issues/27).
 
 ## Symbol-presence conditionals
 
