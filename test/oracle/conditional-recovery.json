@@ -1,0 +1,229 @@
+{
+  "fixture_version": 1,
+  "id": "preprocessor/conditional-recovery-001",
+  "status": "captured",
+  "reference": {
+    "repository": "https://github.com/cia-foundation/TempleOS",
+    "commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+    "release_tag": "final",
+    "asset": "TOS_Distro.ISO",
+    "size_bytes": 17346560,
+    "sha1": "1A1EC79990E21FA3D66AC680009DA63D3AC512B0",
+    "sha256": "3C68CA395D0B64F779F1FFA330E2685798B17862E3C36AE4E349537FD676B40B",
+    "release_url": "https://github.com/cia-foundation/TempleOS/releases/tag/final"
+  },
+  "environment": {
+    "hypervisor": "QEMU 9.2.0 (v9.2.0-12071-g3dd0aeb44b)",
+    "vcpu_count": 1,
+    "memory_mib": 512,
+    "accelerator": "tcg",
+    "network": "disabled",
+    "persistent_disk": false,
+    "boot_media": "verified ISO attached read-only",
+    "display": "none; framebuffer captures through loopback-only QMP",
+    "qmp": "tcp:127.0.0.1:45427",
+    "setup": [
+      "Declined installation.",
+      "Declined the tour.",
+      "AutoComplete(OFF);",
+      "WinMax;"
+    ],
+    "capture_date_utc": "2026-09-24",
+    "compilation_mode": "jit"
+  },
+  "source_references": [
+    "Compiler/Lex.HC:Lex, KW_ELSE, lex_else, KW_IFAOT, KW_IFJIT, KW_ENDIF",
+    "Compiler/Lex.HC:28-69 CmpCtrlNew and CmpCtrlDel",
+    "Kernel/KernelA.HH:CCmpCtrl and CLexFile"
+  ],
+  "input_delivery": {
+    "mechanism": "QMP input-send-event with explicit key/modifier down events and reverse-order key/modifier up events",
+    "hold_milliseconds": 20,
+    "inter_key_milliseconds": 20,
+    "preflight": "The prior arithmetic/punctuation preflight printed PREFLIGHT=5 and the explicit-release member preflight printed KEY_RELEASE last=0 err=0 warn=0 line=1.",
+    "discarded_attempts": "Earlier helper definitions sent with QMP send-key hold-time overlapped Shift across underscore boundaries and visibly changed member-name case. They are input-delivery failures and are not compatibility evidence."
+  },
+  "helper_command": "U0 O27D(U8 *l,U8 *s){CCmpCtrl *c=CmpCtrlNew(StrNew(s));I64 t,n=0;while ((t=Lex(c))!=TK_EOF && n<8){n++;if (t==TK_IDENT)\"%s T%d=%X:%s last=%d line=%d err=%d warn=%d\\n\",l,n,t,c->cur_str,c->last_line_num,c->lex_include_stk->line_num,c->error_cnt,c->warning_cnt;else \"%s T%d=%X last=%d line=%d err=%d warn=%d\\n\",l,n,t,c->last_line_num,c->lex_include_stk->line_num,c->error_cnt,c->warning_cnt;}\"%s EOF=%X last=%d line=%d err=%d warn=%d\\n\",l,t,c->last_line_num,c->lex_include_stk->line_num,c->error_cnt,c->warning_cnt;CmpCtrlDel(c);}",
+  "run_setup": "DocClear;",
+  "position_fields": {
+    "last": "CCmpCtrl.last_line_num as observed after each Lex call; Lex assigns it from the current include-frame line at call entry.",
+    "line": "CCmpCtrl.lex_include_stk->line_num as observed when Lex returned.",
+    "hosted_strict": "One-based byte line and column of the diagnostic primary span in the original source.",
+    "comparison": "Native cursor fields include lookahead and are retained as observations. They are not equated with hosted token or diagnostic starts."
+  },
+  "token_format": "%X; TK_IDENT was observed as 0x100 and TK_EOF as 0x0.",
+  "cases": [
+    {
+      "id": "stray-else-eof",
+      "source": "#else\nvalue\n",
+      "pass_a": [
+        "SE_A EOF=0 last=1 line=3 err=0 warn=0"
+      ],
+      "pass_b": [
+        "SE_B EOF=0 last=1 line=3 err=0 warn=0"
+      ],
+      "command_a": "O27D(\"SE_A\",\"#else\\nvalue\\n\");",
+      "command_b": "O27D(\"SE_B\",\"#else\\nvalue\\n\");",
+      "hosted_strict": {
+        "tokens_without_eof": [
+          "value"
+        ],
+        "diagnostics": [
+          {
+            "code": "HCPP0015",
+            "line": 1,
+            "column": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "stray-endif",
+      "source": "#endif\nvalue\n",
+      "pass_a": [
+        "SI_A T1=100:value last=1 line=3 err=0 warn=0",
+        "SI_A EOF=0 last=3 line=3 err=0 warn=0"
+      ],
+      "pass_b": [
+        "SI_B T1=100:value last=1 line=3 err=0 warn=0",
+        "SI_B EOF=0 last=3 line=3 err=0 warn=0"
+      ],
+      "command_a": "O27D(\"SI_A\",\"#endif\\nvalue\\n\");",
+      "command_b": "O27D(\"SI_B\",\"#endif\\nvalue\\n\");",
+      "hosted_strict": {
+        "tokens_without_eof": [
+          "value"
+        ],
+        "diagnostics": [
+          {
+            "code": "HCPP0017",
+            "line": 1,
+            "column": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "duplicate-else",
+      "source": "#ifjit\none\n#else\ntwo\n#else\nthree\n#endif\nafter\n",
+      "pass_a": [
+        "DE_A T1=100:one last=1 line=3 err=0 warn=0",
+        "DE_A T2=100:after last=7 line=9 err=0 warn=0",
+        "DE_A EOF=0 last=9 line=9 err=0 warn=0"
+      ],
+      "pass_b": [
+        "DE_B T1=100:one last=1 line=3 err=0 warn=0",
+        "DE_B T2=100:after last=7 line=9 err=0 warn=0",
+        "DE_B EOF=0 last=9 line=9 err=0 warn=0"
+      ],
+      "command_a": "O27D(\"DE_A\",\"#ifjit\\none\\n#else\\ntwo\\n#else\\nthree\\n#endif\\nafter\\n\");",
+      "command_b": "O27D(\"DE_B\",\"#ifjit\\none\\n#else\\ntwo\\n#else\\nthree\\n#endif\\nafter\\n\");",
+      "hosted_strict": {
+        "tokens_without_eof": [
+          "one",
+          "after"
+        ],
+        "diagnostics": [
+          {
+            "code": "HCPP0016",
+            "line": 5,
+            "column": 2
+          }
+        ]
+      }
+    },
+    {
+      "id": "selected-conditional-eof-before-endif",
+      "source": "#ifjit\nvalue\n",
+      "pass_a": [
+        "EU_A T1=100:value last=1 line=3 err=0 warn=0",
+        "EU_A EOF=0 last=3 line=3 err=0 warn=0"
+      ],
+      "pass_b": [
+        "EU_B T1=100:value last=1 line=3 err=0 warn=0",
+        "EU_B EOF=0 last=3 line=3 err=0 warn=0"
+      ],
+      "command_a": "O27D(\"EU_A\",\"#ifjit\\nvalue\\n\");",
+      "command_b": "O27D(\"EU_B\",\"#ifjit\\nvalue\\n\");",
+      "hosted_strict": {
+        "tokens_without_eof": [
+          "value"
+        ],
+        "diagnostics": [
+          {
+            "code": "HCPP0018",
+            "line": 1,
+            "column": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "unselected-conditional-eof-before-endif-control",
+      "source": "#ifaot\nhidden\n",
+      "pass_a": [
+        "FE_A EOF=0 last=1 line=3 err=0 warn=0"
+      ],
+      "pass_b": [
+        "FE_B EOF=0 last=1 line=3 err=0 warn=0"
+      ],
+      "command_a": "O27D(\"FE_A\",\"#ifaot\\nhidden\\n\");",
+      "command_b": "O27D(\"FE_B\",\"#ifaot\\nhidden\\n\");",
+      "hosted_strict": {
+        "tokens_without_eof": [],
+        "diagnostics": [
+          {
+            "code": "HCPP0018",
+            "line": 1,
+            "column": 1
+          }
+        ]
+      }
+    },
+    {
+      "id": "stray-else-matched-endif-resumption-control",
+      "source": "#else\nhidden\n#endif\nafter\n",
+      "pass_a": [
+        "SR_A T1=100:after last=3 line=5 err=0 warn=0",
+        "SR_A EOF=0 last=5 line=5 err=0 warn=0"
+      ],
+      "pass_b": [
+        "SR_B T1=100:after last=3 line=5 err=0 warn=0",
+        "SR_B EOF=0 last=5 line=5 err=0 warn=0"
+      ],
+      "command_a": "O27D(\"SR_A\",\"#else\\nhidden\\n#endif\\nafter\\n\");",
+      "command_b": "O27D(\"SR_B\",\"#else\\nhidden\\n#endif\\nafter\\n\");",
+      "hosted_strict": {
+        "tokens_without_eof": [
+          "hidden",
+          "after"
+        ],
+        "diagnostics": [
+          {
+            "code": "HCPP0015",
+            "line": 1,
+            "column": 2
+          },
+          {
+            "code": "HCPP0017",
+            "line": 3,
+            "column": 2
+          }
+        ]
+      }
+    }
+  ],
+  "capture_sha256": {
+    "oracle-a.ppm": "7d431723587b8141aff52c801c1dfbea9b4a681d31dd1d9de2fd7438d39e5210",
+    "oracle-b.ppm": "fd78c717e97ce03e8fa09dd00b3f3d8324ba4b17ec58c3546136978d6c854fcf",
+    "oracle-run-a.txt": "6829b9463e2218b06919dde8c59c3ddbda7b2de4d7b8eeb953cc7a7a7664d639",
+    "oracle-run-b.txt": "1f733d40a468059259205a3972bc5182412de4a96f1b69083b19e1d985775c6c",
+    "oracle-direct-helper.txt": "ccab25e03b7dd336ba57f311a25110782ae1cf4eb8ddc2df98731498a81f5c4f",
+    "qmp_control.py": "5897886d5a56ae78e4e12a0b24cb45838980ae27ddc6b5b7e6426dbb2f77e983",
+    "preflight-result.ppm": "e0f8ffb05a916e2e0d345f2eac865a353d9c658b13b372f23e0fa15b2c5a564f",
+    "key-release-probe-result.ppm": "fb5e0debac4afffbd59bb119269768b94ebd2792fd8bf34d6cd791b57b17b939"
+  },
+  "capture_retention": "The ISO, raw PPM captures, accepted input files and input driver remain in local validation storage outside tracked repository files. The raw framebuffer hashes identify the reviewed evidence.",
+  "repeatability": "Two runs in one isolated boot produced identical records after removing only the A/B label. This establishes repeatability in that environment.",
+  "hosted_projection": "The test replays the captured source through the permissive preprocessor and compares original token kinds, spellings and error/warning counts. Strict token and diagnostic projections are separate hosted expectations."
+}

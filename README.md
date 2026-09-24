@@ -462,7 +462,16 @@ Definition backings and bases resolve to semantic header types or aggregate iden
 
 Execution beyond the bounded integer program domain, optimization beyond the verified integer-unary pass, general x86-64 program emission and native execution, general hosted runtime services, the integrated assembler, and the TempleOS `.BIN` writer remain unfinished. The native expression gate already emits and executes its checked subset through the project's encoder. The opcode and BIN specification APIs alone do not provide a general assembler or loader. Unsupported parser input reports an `HCPARSE` diagnostic and prevents a successful public AST; there is no raw-token fallback.
 
-Native TempleOS can execute nonconstant directive expressions and `#exe` code. This build accepts only its bounded constant preprocessor subset and directly implements the six audited predefined values. [Issue #33](https://github.com/frankischilling/holyc-ocaml/issues/33) tracks execution through the compile-time VM. Hosted unmatched-conditional diagnostics are intentionally stricter than the pinned lexer under [issue #27](https://github.com/frankischilling/holyc-ocaml/issues/27).
+Native TempleOS can execute nonconstant directive expressions and `#exe` code.
+The standalone `preprocess` command accepts the bounded constant expression
+subset and directly implements the six audited predefined values. Source
+execution supports the documented `#exe` subset; general directive expressions
+remain tracked by [issue #33](https://github.com/frankischilling/holyc-ocaml/issues/33).
+Malformed conditional boundaries produce strict hosted diagnostics by default.
+`--conditional-recovery=templeos-permissive` selects the pinned lexer's silent
+skip and EOF recovery for [issue #27](https://github.com/frankischilling/holyc-ocaml/issues/27).
+The same option applies to parsing, inspection and execution. Preprocessor and
+program execution reports identify the selected policy.
 
 See [the compatibility report](docs/compatibility.md) and [the traceability registry](reference/traceability.toml) for evidence and exact boundaries.
 
@@ -510,6 +519,8 @@ dune exec holyc -- lex --format=json examples/lexer-tour.hc
 dune exec holyc -- preprocess examples/include-tour.hc
 dune exec holyc -- preprocess --mode=aot examples/mode-branches.hc
 dune exec holyc -- preprocess examples/constant-if.hc
+dune exec holyc -- preprocess --conditional-recovery=templeos-permissive --dump-preprocessor-report --format=json examples/conditional-recovery.hc
+dune exec holyc -- run --conditional-recovery=templeos-permissive examples/conditional-recovery.hc
 dune exec holyc -- parse test/cli/parse-globals.hc
 dune exec holyc -- parse --mode=aot test/cli/parse-bindings.hc
 dune exec holyc -- parse test/cli/parse-aggregate-forward.hc

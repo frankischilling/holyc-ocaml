@@ -6,6 +6,12 @@
   StreamPrint and native Print. Selection preserves alias numbering and checked
   read order, then measures the complete selected entry before layout or copy.
 
+- Added selectable recovery for malformed preprocessor conditionals. Ordinary
+  commands keep strict diagnostics; `--conditional-recovery=templeos-permissive`
+  follows the pinned lexer's skip and EOF rules. Preprocessing reports and
+  program execution reports name the policy, and include, definition and
+  generated-source limits remain enforced.
+
 - Added auxiliary `h` parsing and repeated packed `c/C` output across interpreted
   Print, task StreamPrint and native Print. Each copy retains its own layout and
   work checks, including empty output. Engineering decimal formats remain explicit

@@ -626,6 +626,26 @@ Predefined-value cases cover all six standard names, exact recognition of their 
 
 Mode-conditional cases run the same inputs in explicit JIT and AOT configurations. They cover each branch with and without `#else`, nested selections, unsupported openers nested inside discarded input, inactive includes and definitions, a recursive definition that must not expand in discarded text, definition-supplied directive names, boundaries that cross include and definition frames, and byte-identical JSON from repeated runs. Malformed inactive strings and comments confirm that discarded bytes use the pinned raw scan rather than ordinary tokenization. Negative cases cover embedded NULs, stray and duplicate boundaries, missing `#endif`, conditional-depth exhaustion with side-effect-free recovery, and include or definition provenance on an unterminated conditional.
 
+The `conditional recovery` group compares strict and permissive policies through
+the public preprocessor. The CLI suite checks complete human and JSON reports,
+strict default diagnostics, both option spellings, warning preservation and
+invalid option combinations. It exercises parsing, inspection and evaluation,
+then executes `examples/conditional-recovery.hc` in JIT and AOT modes. Ordinary
+tests use the IR target; `@native-tests` also executes the same program and a
+recovered expression through the native target. These hosted tests are separate
+from running the pinned TempleOS compiler.
+
+The group also replays the six native cases recorded in
+`test/oracle/conditional-recovery.json`, checking the captured token identities,
+spellings and error/warning counts. The two original capture records must agree.
+Strict token and diagnostic-position expectations remain separate from the
+original compiler's permissive output and lookahead cursor fields.
+
+```text
+dune exec --root . test/test_main.exe -- test '^conditional recovery$'
+dune exec --root . test/test_conditional_recovery_cli.exe -- _build/default/bin/holyc.exe examples/conditional-recovery.hc
+```
+
 Constant-expression cases cover true and false branches, adjacent lookahead boundaries, chained definitions, integer, character, multi-character, and floating literals, all supported unary and binary families, source precedence, right-associated power, mixed power and shifts, comparison chains, wrapping, signed and unsigned comparison, shift result types, masked shifts, division, modulo, signed integer-to-F64 promotion, raw floating truth and equality, F64 logical-not encoding, and logical XOR. `defined` is checked for visible functions, locals, shadows, excluded imports, missing symbols, keyword operands, and definition-expanded operands. Negative cases cover missing terms, assignments, postfix forms, runtime identifiers, unmatched parentheses, zero divisors, signed division overflow, and node-budget exhaustion. Logical tests prove that both operands are evaluated. Repeated token and diagnostic renders are byte identical, and expression failures inside include or definition frames retain their provenance.
 
 Assertion cases cover true and false results, definition-expanded constants, `defined` symbols, retained lookahead, expression errors, node-budget exhaustion, inactive branches, include backtraces, and definition-generated directive provenance. They distinguish warnings from errors and check both `preprocess_detailed` and the existing convenience result. Two Dune rules run the actual `holyc preprocess` executable in human and JSON modes. The reviewed stdout and stderr files prove that a failed assertion returns its following tokens, renders `HCPP0024`, and exits successfully.
