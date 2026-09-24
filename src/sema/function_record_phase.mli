@@ -167,6 +167,9 @@ val variadic_tail :
     including argc/argv and the native pad/reserved/_anon_ exemptions. A
     rejected insertion grants neither member nor argument count authority.
     Completed bodies with unmodeled member mutations make the member count
-    unavailable before a suspended header can use it. Bound/import headers
-    require separate executable installation evidence and become unavailable at
-    header completion; they cannot establish extern reuse. *)
+    unavailable before a suspended header can use it. An original
+    integer-literal [_intern] target establishes its numeric internal/non-extern
+    state at header completion without a host executable installation. Call
+    consumers must still verify that exact target and signature. Other
+    bound/import headers require separate installation evidence and become
+    unavailable at header completion; they cannot establish extern reuse. *)

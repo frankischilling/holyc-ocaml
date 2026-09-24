@@ -62,9 +62,8 @@ let declarations_for_item item_index = function
   | Frontend.Ast.Function_prototype prototype ->
       Result.map
         (fun declaration -> [ declaration ])
-        (declaration ~identifier:prototype.name
-           ~declaration_kind:Sema.Declaration_collection.Function_prototype
-           ~item_index ())
+        (Sema.Declaration_collection.make_function_prototype_declaration
+           ~prototype ~item_index)
   | Frontend.Ast.Function_definition definition ->
       Result.map
         (fun declaration -> [ declaration ])

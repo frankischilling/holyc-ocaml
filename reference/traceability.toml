@@ -12409,6 +12409,24 @@ excluded = ["Define-dependent uppercase Z and other runtime-dependent conversion
 verification_boundary = "Independent source-derived byte/work fixtures, public source and checked batches, native API/CLI, generated-source reentry, exact/one-below quotas and original argument/read fault precedence. No new TempleOS oracle execution is claimed."
 
 [[feature]]
+id = "HC-INTERNAL-STRLEN"
+description = "Original numeric IC_STRLEN declarations execute checked byte scans through interpreted and native source programs."
+status = "implemented"
+issue = 748
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Kernel/KernelB.HH:61", "Compiler/CompilerA.HH:177", "Compiler/CInit.HC:149", "Compiler/PrsStmt.HC:244-249,1055-1061", "Compiler/PrsExp.HC:544-586", "Compiler/OptPass789A.HC:905-908", "Compiler/Templates.HC:87-94", "Compiler/UAsm.HC:293-303"]
+implementation = ["src/driver/semantic_collection.ml", "src/sema/declaration_collection.ml", "src/driver/function_resolution.ml", "src/sema/function_resolution.ml", "src/sema/function_record_phase.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml"]
+tests = ["test/test_internal_strlen.ml", "test/test_internal_strlen_authority.ml", "test/test_internal_strlen_source.ml", "test/test_function_record_phase.ml", "test/native/test_internal_strlen_execution.ml", "test/native/test_internal_strlen_cli.ml", "examples/internal-strlen.hc"]
+documentation = ["docs/internal-strlen.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "CHANGELOG.md", "SECURITY.md"]
+identity = "The original expanded numeric binding target selects IC_STRLEN; a function name or unresolved opcode spelling grants no authority. The selected declaration, header, U8 pointer argument and I64 result retain source ownership. The supported completed header establishes a non-extern internal operation without installing a host function address."
+lowering = "The canonical non-template call uses IC_CALL_START, an unpushed argument producer, operand-bearing IC_STRLEN and IC_CALL_END with its scalar result. Internal records use separate owner-indexed maps; ordinary call cleanup and runtime provider contracts remain unchanged."
+execution = "The scan begins at the owned pointer's captured offset, returns the byte count before the first zero, and reads no byte after that terminator. Dynamic mutation, interior pointers and results consumed by ordinary source functions use the same path as literals."
+resources = "Each attempted byte probe consumes a runtime step, including the terminating zero. The normal intrinsic instruction tick covers the first probe; later probes charge before reading. There is no output work, callee activation, host library call or buffer proportional to the returned length. Native result staging remains within the private frame quota."
+faults = "Reached probes preserve owned byte kind, lifetime, bounds and initialization checks. Step exhaustion precedes the next probe, and failures retain the IC_STRLEN site and prior effects/output. Native descriptors retain original storage authority and do not escape their admitted lifetimes."
+excluded = ["other internal opcodes and signatures", "general internal binding-expression execution", "native pointer returns and persistent pointer storage", "complete disassembler/runtime services", "complete compiler, ABI, artifact, actual-loader and bootstrap gates"]
+verification_boundary = "Independent source-derived lengths and compiler-consumer predicates, both source modes and execution targets, both native ABIs, repeated images, exact/one-below step budgets, storage faults and changed/foreign call-authority rejection. No new TempleOS execution capture is claimed."
+
+[[feature]]
 id = "HC-RELEASE-CONTRACT"
 description = "The 1.0 contract defines required host/target cells, phase-specific acceptance, exact pinned source sets and explicit bootstrap producer/consumer lineage."
 status = "implemented"

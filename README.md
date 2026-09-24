@@ -1,5 +1,11 @@
 # holyc-ocaml
 
+[Internal byte-string length](docs/internal-strlen.md) executes the pinned
+`_intern IC_STRLEN` declaration through the interpreter and native target.
+`examples/internal-strlen.hc` connects owned byte storage to the scalar length
+result used by the compiler's disassembler. Each reached byte is checked and
+charged to the execution limit.
+
 [Native scalar globals](docs/native-globals.md) share declared-width integer storage
 between generated entry code and direct functions.
 `holyc run --target=host-jit examples/native-scalar-globals.hc` returns 42 in

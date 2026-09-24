@@ -310,6 +310,7 @@ type operation =
   | Direct_call of direct_call
   | Put_chars of int
   | Print_output of Print_codegen.t
+  | Internal_strlen of value * int
   | Call_cleanup
   | Call_end of int * value
   | Call_end_void
@@ -2220,6 +2221,52 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position (if old_result then r8 else computed_index) result
       | Call_start | Call_cleanup -> release_through position
+      | Internal_strlen (reference, result_stage) ->
+          spill_all_registers instruction.span;
+          copy_value_to instruction.span reference rdx;
+          emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
+          let site = Option.get instruction.site in
+          let bounds_fault = fault_label 10 site in
+          let step_fault = fault_label 3 site in
+          let probe = fresh_label supply in
+          let in_bounds = fresh_label supply in
+          let complete = fresh_label supply in
+          mark probe;
+          emit (Encoder.Test Encoder.Rcx);
+          emit_branch Less bounds_fault;
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
+          emit (Encoder.Cmp (Encoder.Rcx, Encoder.R8));
+          emit_branch Below in_bounds;
+          emit_branch Unconditional bounds_fault;
+          mark in_bounds;
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 8));
+          emit_flag_check instruction.span site
+            { word_type = U64; byte_size = 1 }
+            ~flag_base:Encoder.R8 ~offset:Encoder.Rcx;
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 0));
+          emit (Encoder.Binary (Encoder.Add, Encoder.R8, Encoder.Rcx));
+          emit
+            (Encoder.Load_indirect_narrow
+               (Encoder.Rax, Encoder.R8, Encoder.Frame8, Encoder.Zero_extend));
+          emit (Encoder.Test Encoder.Rax);
+          emit_branch Equal complete;
+          (* The ordinary instruction tick pays for the first probe. Each
+             further byte, including the terminator, consumes another step
+             before accessing storage. This leaves output work untouched. *)
+          emit (Encoder.Mov_imm64 (Encoder.Rax, 1L));
+          emit (Encoder.Binary (Encoder.Add, Encoder.Rcx, Encoder.Rax));
+          emit (Encoder.Test Encoder.R10);
+          emit_branch Equal step_fault;
+          emit (Encoder.Dec Encoder.R10);
+          emit_branch Unconditional probe;
+          mark complete;
+          emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 16));
+          emit (Encoder.Binary (Encoder.Sub, Encoder.Rcx, Encoder.Rax));
+          emit
+            (Encoder.Store_stack
+               (staged_stack_slot instruction.span result_stage, Encoder.Rcx));
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          release_through position
       | Print_output call ->
           spill_all_registers instruction.span;
           Print_codegen.emit
@@ -3008,6 +3055,13 @@ type callable_call_scope = {
   mutable phase : callable_call_phase;
 }
 
+type callable_intrinsic_scope = {
+  intrinsic : Runtime.intrinsic;
+  intrinsic_stage : int;
+  ordinary_depth : int;
+  mutable intrinsic_executed : bool;
+}
+
 let call_argument_index target = function
   | Runtime.Fixed index ->
       if target = Print_provider && index <> 0 then None else Some index
@@ -3608,6 +3662,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
     let arithmetic_sites = ref [] in
     let prepared_rev = ref [] in
     let calls = ref [] in
+    let intrinsics = ref [] in
     let stage_cursor = ref 0 in
     let descriptions = Graph.instructions block |> Sequence.instructions in
     let terminal_position = List.length descriptions - 1 in
@@ -3637,6 +3692,51 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
           description.result;
         let operation, value_type =
           match description.opcode with
+          | Opcode.Ic_call_start
+            when Option.is_some
+                   (Runtime.find_intrinsic_start runtime_calls
+                      ~owner:runtime_owner description.instruction_id) ->
+              let intrinsic =
+                Option.get
+                  (Runtime.find_intrinsic_start runtime_calls
+                     ~owner:runtime_owner description.instruction_id)
+              in
+              if
+                pushes || description.flags <> 0L || description.operands <> []
+                || Option.is_some description.result
+                || Option.is_some description.target_type
+              then malformed description "invalid internal call-start shape";
+              (match description.payload with
+              | Some (Sequence.Symbol symbol)
+                when symbol == Runtime.intrinsic_symbol intrinsic -> ()
+              | _ ->
+                  malformed description
+                    "internal call start changed its selected symbol");
+              if Runtime.intrinsic_opcode intrinsic <> Opcode.Ic_strlen then
+                unsupported description
+                  "native internal operation is outside the checked subset";
+              (match
+                 source_return_kind ?span:description.span
+                   (Runtime.intrinsic_return_type intrinsic)
+               with
+              | Callable_word_return { word_type = I64; byte_size = 8 } -> ()
+              | _ ->
+                  malformed description
+                    "IC_STRLEN must retain its declared I64 return type");
+              if !stage_cursor >= max_stack_bytes / 8 then
+                reject ?span:description.span "HCBACK0004"
+                  "native internal result exceeds the private frame limit";
+              intrinsics :=
+                {
+                  intrinsic;
+                  intrinsic_stage = !stage_cursor;
+                  ordinary_depth = List.length !calls;
+                  intrinsic_executed = false;
+                }
+                :: !intrinsics;
+              incr stage_cursor;
+              stage_high_water := max !stage_high_water !stage_cursor;
+              (Call_start, None)
           | Opcode.Ic_call_start ->
               if
                 description.flags <> 0L || description.operands <> []
@@ -3909,6 +4009,54 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               in
               calls := scope :: !calls;
               (Call_start, None)
+          | Opcode.Ic_strlen -> (
+              match
+                ( !intrinsics,
+                  Runtime.find_intrinsic_instruction runtime_calls
+                    ~owner:runtime_owner description.instruction_id )
+              with
+              | scope :: _, Some intrinsic
+                when scope.intrinsic == intrinsic
+                     && (not scope.intrinsic_executed)
+                     && scope.ordinary_depth = List.length !calls ->
+                  let argument = Runtime.intrinsic_argument intrinsic in
+                  if
+                    pushes || description.flags <> 0L
+                    || description.operands
+                       <> [ Runtime.argument_value argument ]
+                    || Option.is_some description.result
+                    || Option.is_some description.payload
+                    || not
+                         (Option.fold ~none:false
+                            ~some:
+                              (Type.equal
+                                 (Runtime.intrinsic_return_type intrinsic))
+                            description.target_type)
+                  then malformed description "invalid checked IC_STRLEN shape";
+                  let input =
+                    operand values description position
+                      (Runtime.argument_value argument)
+                  in
+                  if
+                    not
+                      (Type.equal input.declared_type
+                         (Runtime.argument_source_type argument))
+                  then
+                    malformed description
+                      "IC_STRLEN changed its checked argument producer type";
+                  let target = Runtime.argument_target_type argument in
+                  checked_copy description target input.declared_type;
+                  (match Type.base target with
+                  | Type.Primitive (_, Primitive.U8)
+                    when Type.pointer_depth target = 1 -> ()
+                  | _ ->
+                      malformed description
+                        "IC_STRLEN requires its declared U8 pointer parameter");
+                  scope.intrinsic_executed <- true;
+                  (Internal_strlen (input, scope.intrinsic_stage), None)
+              | _ ->
+                  malformed description
+                    "IC_STRLEN has no exact collecting internal call scope")
           | Opcode.Ic_call | Opcode.Ic_call_indirect2 | Opcode.Ic_call_extern
             -> (
               match !calls with
@@ -4009,6 +4157,50 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | _ ->
                   malformed description
                     "call cleanup is outside a reached direct call")
+          | Opcode.Ic_call_end
+            when Option.is_some
+                   (Runtime.find_intrinsic_end runtime_calls
+                      ~owner:runtime_owner description.instruction_id) -> (
+              let intrinsic =
+                Option.get
+                  (Runtime.find_intrinsic_end runtime_calls ~owner:runtime_owner
+                     description.instruction_id)
+              in
+              match !intrinsics with
+              | scope :: rest
+                when scope.intrinsic == intrinsic
+                     && scope.intrinsic_executed
+                     && scope.ordinary_depth = List.length !calls ->
+                  if description.flags <> 0L || description.operands <> [] then
+                    malformed description "invalid internal call-end shape";
+                  (match description.payload with
+                  | Some (Sequence.Symbol symbol)
+                    when symbol == Runtime.intrinsic_symbol intrinsic -> ()
+                  | _ ->
+                      malformed description
+                        "internal call end changed its selected symbol");
+                  let result, target_type =
+                    match (description.result, description.target_type) with
+                    | Some result, Some target_type
+                      when Sequence.Value_id.equal result.value_id
+                             (Runtime.intrinsic_result_value intrinsic)
+                           && Type.equal target_type
+                                (Runtime.intrinsic_return_type intrinsic) ->
+                        (result, target_type)
+                    | _ ->
+                        malformed description
+                          "internal call end changed its declared result"
+                  in
+                  let value =
+                    define values description position result target_type
+                      (Computation.declared target_type)
+                  in
+                  intrinsics := rest;
+                  stage_cursor := scope.intrinsic_stage;
+                  (Call_end (scope.intrinsic_stage, value), None)
+              | _ ->
+                  malformed description
+                    "internal call end has no completed IC_STRLEN scope")
           | Opcode.Ic_call_end -> (
               match !calls with
               | scope :: remaining when scope.phase = Needs_end -> (
@@ -5213,6 +5405,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | Update_indexed_object_value _
               | Load_reference_value _
               | Update_reference_value _
+              | Internal_strlen _
               | Print_output _ -> true
               | _ -> false);
             index_scale_site =
@@ -5233,6 +5426,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | Load_indexed_object_value _
               | Store_indexed_object_value _
               | Update_indexed_object_value _
+              | Internal_strlen _
               | Print_output _ -> true
               | Materialize_reference (_, _, None, _)
               | Materialize_existing_reference ({ offset = None; _ }, _)
@@ -5254,6 +5448,11 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
     if !calls <> [] then
       reject "HCBACK0003"
         (Printf.sprintf "native callable block ^b%d ends inside a direct call"
+           (Sequence.Block_id.to_int block_id));
+    if !intrinsics <> [] then
+      reject "HCBACK0003"
+        (Printf.sprintf
+           "native callable block ^b%d ends inside an internal call"
            (Sequence.Block_id.to_int block_id));
     let final_operation =
       match !prepared_rev with

@@ -100,6 +100,7 @@
     {"path": "Compiler/OptPass3.HC", "sha256": "64c3b74d073b2d482751b6129d99e9f4b3b563216ec70f4a17a79aa663a92eae"},
     {"path": "Compiler/OptPass6.HC", "sha256": "7d00fd544e845423da6c354cd11e0956f45bf3b7bb839b518e01a09afd676253"},
     {"path": "Compiler/OptPass789A.HC", "sha256": "7cae9bc11a863d2066df27894449dbb28afb0d550b6b3fae1eeb6bb1362addcc"},
+    {"path": "Compiler/Templates.HC", "sha256": "94653f9095b9521b3d88cf3f47b354734a120d7dad363dec8e8290212c730adf"},
     {"path": "Compiler/BackFA.HC", "sha256": "600aff7a73711571ac764f02bbbd6d8cb41e5651867e59dd496182866d93e924"},
     {"path": "Compiler/BackLib.HC", "sha256": "1bb302eec16d8231e08ea77a83a3e05d253c45202521510d4450c23a22518e7d"},
     {"path": "Compiler/BackB.HC", "sha256": "1f7bedaca6845779bfe07142fc6a3c632e7e762a2a7fdb2c9172a981e45aef69"},

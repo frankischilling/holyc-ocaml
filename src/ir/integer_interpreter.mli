@@ -610,14 +610,16 @@ val final_value : t -> word option
 
 val execute : max_steps:int -> X87_stack.t -> (t, error list) result
 (** Preflight and execute the source-audited integer subset. Every executed
-    instruction consumes one step, and all unsupported instructions are rejected
-    before execution, including instructions in unreachable blocks. Division and
-    remainder use signed truncation for two I64 operands and unsigned arithmetic
-    otherwise. Zero divisors and signed minimum divided or reduced modulo minus
-    one fail at execution, consuming the faulting instruction's step. Zero-flag
-    [IC_HOLYC_TYPECAST] accepts internal I64/U64 word views with a zero/one
-    parenthesis payload and preserves the exact bits. Other cast domains remain
-    unsupported. *)
+    instruction consumes one step. IC_STRLEN additionally charges each byte
+    probe after its first, including the terminating zero, before accessing the
+    owned object. It adds no callee activation or output work. All unsupported
+    instructions are rejected before execution, including instructions in
+    unreachable blocks. Division and remainder use signed truncation for two I64
+    operands and unsigned arithmetic otherwise. Zero divisors and signed minimum
+    divided or reduced modulo minus one fail at execution, consuming the
+    faulting instruction's step. Zero-flag [IC_HOLYC_TYPECAST] accepts internal
+    I64/U64 word views with a zero/one parenthesis payload and preserves the
+    exact bits. Other cast domains remain unsupported. *)
 
 val execute_function :
   ?max_literal_bytes:int ->

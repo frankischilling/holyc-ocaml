@@ -1,5 +1,12 @@
 # holyc-ocaml compatibility status
 
+[Internal byte-string length](internal-strlen.md) connects the retained numeric
+`IC_STRLEN` binding to checked I64 results in both execution targets and source
+modes. Calls preserve the source's unpushed argument and absence of ordinary
+call cleanup. Owned-byte probes consume runtime steps and retain bounds,
+initialization and lifetime checks. Other internal operations and general
+binding-expression execution remain open.
+
 [Native Print](native-print.md) executes signed/unsigned decimal, hexadecimal,
 binary, owned-string and packed-character formatting with the checked widths,
 grouping and truncation described in [formatting rules](integer-formatting.md).

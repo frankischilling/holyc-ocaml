@@ -7,6 +7,9 @@ let () =
       ("native literal storage", Test_native_literal_storage.tests);
       ("native persistent storage", Test_native_persistent_storage.tests);
       ("native scalar functions", Test_native_scalar_functions.tests);
+      ("internal byte length", Test_internal_strlen.tests);
+      ("internal call authority", Test_internal_strlen_authority.tests);
+      ("internal source ownership", Test_internal_strlen_source.tests);
       ("integer goto execution", Test_integer_goto_execution.tests);
       ("IR goto composition", Test_ir_goto_execution.tests);
       ("integer switch execution", Test_integer_switch_execution.tests);

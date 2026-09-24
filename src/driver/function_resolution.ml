@@ -13,6 +13,7 @@ let same_symbol left right =
 type ast_declaration = {
   declaration_kind : Sema.Declaration_collection.declaration_kind;
   identity_kind : Sema.Function_resolution.declaration_kind;
+  source_prototype : Frontend.Ast.function_prototype option;
   item_index : int;
   name : Frontend.Ast.identifier;
 }
@@ -47,6 +48,7 @@ let ast_declarations (module_ : Frontend.Ast.module_) =
                  declaration_kind =
                    Sema.Declaration_collection.Function_prototype;
                  identity_kind;
+                 source_prototype = Some prototype;
                  item_index;
                  name = prototype.name;
                }
@@ -57,6 +59,7 @@ let ast_declarations (module_ : Frontend.Ast.module_) =
           ({
              declaration_kind = Sema.Declaration_collection.Function_definition;
              identity_kind = Sema.Function_resolution.Definition;
+             source_prototype = None;
              item_index;
              name = definition.name;
            }
@@ -77,8 +80,8 @@ let function_entries declarations =
       | Sema.Declaration_collection.Aggregate_attached_global
       | Sema.Declaration_collection.Global_variable -> false)
 
-let declaration_fact ?namespace ~table ~record_heads ~compiler_option_mask entry
-    function_ ast =
+let declaration_fact ?namespace ~table ~declarations ~module_ ~record_heads
+    ~compiler_option_mask entry function_ ast =
   let entry_symbol = Sema.Declaration_collection.entry_symbol entry in
   let function_symbol =
     Sema.Function_type_resolution.function_symbol function_
@@ -124,9 +127,15 @@ let declaration_fact ?namespace ~table ~record_heads ~compiler_option_mask entry
             ~namespace ~pending ~current ~function_
     | Some _, None ->
         Error "pending header completion requires its original namespace"
-    | None, _ ->
-        Sema.Function_resolution.make_declaration_with_options
-          ~compiler_option_mask ~function_ ~kind:ast.identity_kind
+    | None, _ -> (
+        match (ast.identity_kind, ast.source_prototype) with
+        | Sema.Function_resolution.Intern, Some prototype ->
+            Sema.Function_resolution.make_source_declaration_with_options ~table
+              ~declarations ~module_ ~prototype ~compiler_option_mask ~function_
+              ~kind:ast.identity_kind ()
+        | _, _ ->
+            Sema.Function_resolution.make_declaration_with_options
+              ~compiler_option_mask ~function_ ~kind:ast.identity_kind)
 
 let declaration_facts ?namespace ~table ~record_heads ~compiler_option_mask
     declarations functions module_ =
@@ -140,8 +149,8 @@ let declaration_facts ?namespace ~table ~record_heads ~compiler_option_mask
         | [], [], [] -> Ok (List.rev facts_rev)
         | entry :: entry_rest, function_ :: function_rest, ast :: ast_rest -> (
             match
-              declaration_fact ?namespace ~table ~record_heads
-                ~compiler_option_mask entry function_ ast
+              declaration_fact ?namespace ~table ~record_heads ~declarations
+                ~module_ ~compiler_option_mask entry function_ ast
             with
             | Error _ as error -> error
             | Ok fact ->

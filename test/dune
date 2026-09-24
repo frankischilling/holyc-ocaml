@@ -127,6 +127,9 @@
   test_native_literal_storage
   test_native_persistent_storage
   test_native_scalar_functions
+  test_internal_strlen
+  test_internal_strlen_authority
+  test_internal_strlen_source
   test_integer_program
   test_integer_functions
   test_integer_nested_calls

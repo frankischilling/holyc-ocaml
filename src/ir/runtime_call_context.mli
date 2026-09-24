@@ -14,6 +14,11 @@ type description = {
 
 val original_phase : source -> Sema.Function_call_phase.t option
 
+val intrinsic_opcode_of_source : source -> Opcode.t option
+(** Decode the exact retained [_intern] target expression from its selected
+    declaration publication. Only currently supported IC identities are
+    returned; function spelling is not intrinsic authority. *)
+
 val cleanup_slot_count :
   source -> fixed_count:int -> variadic_count:int64 -> variadic:bool -> int64
 
@@ -22,6 +27,7 @@ type owner = Entry | Function of Function_body.t
 type argument_role = Fixed of int | Variadic_count | Variadic of int
 type argument
 type call
+type intrinsic
 type t
 
 val original_phases : t -> Sema.Function_call_phase.t list
@@ -52,6 +58,15 @@ val matches :
 
 val find_start :
   t -> owner:owner -> Instruction_sequence.Instruction_id.t -> call option
+
+val find_intrinsic_start :
+  t -> owner:owner -> Instruction_sequence.Instruction_id.t -> intrinsic option
+
+val find_intrinsic_instruction :
+  t -> owner:owner -> Instruction_sequence.Instruction_id.t -> intrinsic option
+
+val find_intrinsic_end :
+  t -> owner:owner -> Instruction_sequence.Instruction_id.t -> intrinsic option
 
 val is_implicit_discard :
   t -> owner:owner -> Instruction_sequence.Instruction_id.t -> bool
@@ -90,6 +105,18 @@ val variadic_count : call -> int64 option
 val declaration : call -> Sema.Function_resolution.resolved_declaration
 val header : call -> Sema.Function_type_resolution.resolved_function
 val retained_function : call -> Retained_function.t option
+val intrinsic_opcode : intrinsic -> Opcode.t
+val intrinsic_argument : intrinsic -> argument
+val intrinsic_symbol : intrinsic -> Sema.Symbol.t
+val intrinsic_return_type : intrinsic -> Sema.Type.t
+val intrinsic_first : intrinsic -> Instruction_sequence.Instruction_id.t
+val intrinsic_instruction : intrinsic -> Instruction_sequence.Instruction_id.t
+val intrinsic_last : intrinsic -> Instruction_sequence.Instruction_id.t
+val intrinsic_result_value : intrinsic -> Instruction_sequence.Value_id.t
+
+val intrinsic_declaration :
+  intrinsic -> Sema.Function_resolution.resolved_declaration
+
 val compilation_mode : t -> Sema.Function_resolution.compilation_mode
 
 val entry_item_index : t -> call -> int option

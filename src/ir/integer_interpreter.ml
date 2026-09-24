@@ -199,6 +199,7 @@ type prepared_operation =
   | Call of int
   | Retained_call of Retained_function.t
   | Extern_call of Runtime.call * stored_type array
+  | Internal_strlen of prepared_pointer
   | Call_cleanup
   | Call_end of Value_id.t * word_type
   | Call_end_void of Value_id.t
@@ -3947,6 +3948,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
         in
         let instructions_rev = ref [] in
         let calls = ref [] in
+        let intrinsics = ref [] in
         let call_error description message =
           preflight_error block_id description "HCIRVM0014" message
         in
@@ -4006,6 +4008,121 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                 }
           in
           match (description.opcode, !calls) with
+          | _, _
+            when match !intrinsics with
+                 | (intrinsic, true, _) :: _ ->
+                     description.opcode <> Opcode.Ic_call_end
+                     || not
+                          (Instruction_id.equal description.instruction_id
+                             (Runtime.intrinsic_last intrinsic))
+                 | _ -> false ->
+              Error
+                (call_error description
+                   "internal operation must be followed by its original call \
+                    end")
+          | Opcode.Ic_call_start, stack
+            when Option.is_some
+                   (Option.bind runtime_calls (fun context ->
+                        Runtime.find_intrinsic_start context
+                          ~owner:runtime_owner description.instruction_id)) ->
+              let intrinsic =
+                Option.bind runtime_calls (fun context ->
+                    Runtime.find_intrinsic_start context ~owner:runtime_owner
+                      description.instruction_id)
+                |> Option.get
+              in
+              if
+                (not no_operands)
+                || Option.is_some description.result
+                || Option.is_some description.target_type
+                || Runtime.intrinsic_opcode intrinsic <> Opcode.Ic_strlen
+                || checked_return_kind (Runtime.intrinsic_return_type intrinsic)
+                   <> Some (Word_return I64)
+                || (match description.payload with
+                  | Some (Sequence.Symbol symbol) ->
+                      symbol != Runtime.intrinsic_symbol intrinsic
+                  | _ -> true)
+                ||
+                match stack with
+                | { phase = Needs_cleanup | Needs_end; _ } :: _ -> true
+                | _ -> false
+              then Error (call_error description "invalid internal call start")
+              else (
+                intrinsics :=
+                  (intrinsic, false, List.length stack) :: !intrinsics;
+                call_instruction description (Call_start None))
+          | Opcode.Ic_strlen, stack -> (
+              match
+                ( !intrinsics,
+                  Option.bind runtime_calls (fun context ->
+                      Runtime.find_intrinsic_instruction context
+                        ~owner:runtime_owner description.instruction_id) )
+              with
+              | (original, false, ordinary_depth) :: rest, Some intrinsic
+                when original == intrinsic && ordinary_depth = List.length stack
+                -> (
+                  let argument = Runtime.intrinsic_argument intrinsic in
+                  let value = Runtime.argument_value argument in
+                  match pointer_operand_of_value types value with
+                  | Some pointer
+                    when description.flags = 0L
+                         && description.operands = [ value ]
+                         && Option.is_none description.result
+                         && Option.is_none description.payload
+                         && Option.fold ~none:false
+                              ~some:
+                                (Type.equal
+                                   (Runtime.intrinsic_return_type intrinsic))
+                              description.target_type
+                         && Type.equal pointer.pointer_type
+                              (Runtime.argument_source_type argument)
+                         && Type.compatible_u8_pointer
+                              (Runtime.argument_target_type argument)
+                              pointer.pointer_type ->
+                      intrinsics := (intrinsic, true, ordinary_depth) :: rest;
+                      call_instruction description (Internal_strlen pointer)
+                  | _ ->
+                      Error
+                        (call_error description
+                           "IC_STRLEN lost its checked U8 argument or result \
+                            type"))
+              | _ ->
+                  Error
+                    (call_error description
+                       "IC_STRLEN has no exact collecting internal call scope"))
+          | Opcode.Ic_call_end, stack
+            when Option.is_some
+                   (Option.bind runtime_calls (fun context ->
+                        Runtime.find_intrinsic_end context ~owner:runtime_owner
+                          description.instruction_id)) -> (
+              let intrinsic =
+                Option.bind runtime_calls (fun context ->
+                    Runtime.find_intrinsic_end context ~owner:runtime_owner
+                      description.instruction_id)
+                |> Option.get
+              in
+              match (!intrinsics, description.result, description.payload) with
+              | ( (original, true, ordinary_depth) :: rest,
+                  Some result,
+                  Some (Sequence.Symbol symbol) )
+                when original == intrinsic
+                     && ordinary_depth = List.length stack
+                     && no_operands
+                     && symbol == Runtime.intrinsic_symbol intrinsic
+                     && Value_id.equal result.value_id
+                          (Runtime.intrinsic_result_value intrinsic)
+                     && Option.fold ~none:false
+                          ~some:
+                            (Type.equal
+                               (Runtime.intrinsic_return_type intrinsic))
+                          description.target_type ->
+                  intrinsics := rest;
+                  call_instruction description (Call_end (result.value_id, I64))
+              | _ ->
+                  Error
+                    (call_error description
+                       "internal call end changed its selected source or result")
+              )
           | Opcode.Ic_call_start, stack
             when no_operands && description.result = None
                  && description.target_type = None -> (
@@ -4259,7 +4376,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                   | Jump _ | Branch _ | Switch _ | Return | End -> true
                   | _ -> false
                 in
-                if control_transfer && !calls <> [] then
+                if control_transfer && (!calls <> [] || !intrinsics <> []) then
                   errors_rev :=
                     call_error description
                       "call protocol cannot cross a basic-block boundary"
@@ -4361,6 +4478,11 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
           errors_rev :=
             make_error ~stage:Preflight ~executed_steps:0 ~block_id "HCIRVM0014"
               "basic block ends inside an incomplete direct call"
+            :: !errors_rev;
+        if !intrinsics <> [] then
+          errors_rev :=
+            make_error ~stage:Preflight ~executed_steps:0 ~block_id "HCIRVM0014"
+              "basic block ends inside an incomplete internal call"
             :: !errors_rev;
         {
           block_id;
@@ -4853,7 +4975,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                          (Int64.of_int address.pointer_element_bytes)) )
             else None)
   in
-  let read_output_byte block instruction address relative =
+  let read_owned_byte ~purpose block instruction address relative =
     let error code message =
       Error (runtime_error ~instruction block !steps code message)
     in
@@ -4869,23 +4991,27 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
       || address.pointer_extent_bytes <> Int64.of_int address.pointer_count
     then
       error "HCIRVM0018"
-        "output pointer does not identify a live owned U8 object"
+        (purpose ^ " pointer does not identify a live owned U8 object")
     else if address.pointer_offset < 0L || relative < 0L then
-      error "HCIRVM0019" "output scan is outside its declared object extent"
+      error "HCIRVM0019"
+        (purpose ^ " scan is outside its declared object extent")
     else if relative > Int64.sub Int64.max_int address.pointer_offset then
-      error "HCIRVM0020" "output scan offset exceeds the integer address range"
+      error "HCIRVM0020"
+        (purpose ^ " scan offset exceeds the integer address range")
     else
       let offset = Int64.add address.pointer_offset relative in
       if offset >= address.pointer_extent_bytes then
-        error "HCIRVM0019" "output scan is outside its declared object extent"
+        error "HCIRVM0019"
+          (purpose ^ " scan is outside its declared object extent")
       else
         match storage.cells.(address.pointer_base + Int64.to_int offset) with
         | Some (Runtime_word { type_ = U64; bits })
           when bits >= 0L && bits <= 255L -> Ok (Char.chr (Int64.to_int bits))
         | None -> error "HCIRVM0012" storage.unknown_message
         | Some _ ->
-            error "HCIRVM0008" "output scan reached an invalid byte cell"
+            error "HCIRVM0008" (purpose ^ " scan reached an invalid byte cell")
   in
+  let read_output_byte = read_owned_byte ~purpose:"output" in
   let invoke_output block instruction site parameter_types scope =
     let provider_name =
       match Runtime.provider site with
@@ -5060,6 +5186,47 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                 }
                 :: !calls
           | Call_cleanup -> ()
+          | Internal_strlen pointer -> (
+              match
+                ( !calls,
+                  require_pointer ~bounded:false block instruction pointer )
+              with
+              | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
+                  :: rest,
+                  Some address ) ->
+                  let relative = ref 0L in
+                  let finished = ref false in
+                  while (not !finished) && Option.is_none !failed do
+                    if !relative <> 0L && !steps >= max_steps then
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0007"
+                             "the bounded integer execution step limit was \
+                              exhausted")
+                    else (
+                      if !relative <> 0L then incr steps;
+                      match
+                        read_owned_byte ~purpose:"IC_STRLEN" block instruction
+                          address !relative
+                      with
+                      | Error error -> failed := Some error
+                      | Ok '\000' ->
+                          calls :=
+                            {
+                              scope with
+                              completion =
+                                Completed_word { type_ = I64; bits = !relative };
+                            }
+                            :: rest;
+                          finished := true
+                      | Ok _ -> relative := Int64.succ !relative)
+                  done
+              | _, None -> ()
+              | _ ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0008"
+                         "internal byte scan has no pending source call scope"))
           | (Call _ | Retained_call _ | Extern_call _) as operation -> (
               let target =
                 match operation with

@@ -570,11 +570,40 @@ let activation_replay () =
             Ok ())))
 
 let bound_lifecycle_unavailable () =
-  let _, records, _ = fixture "_intern 42 I64 F(I64 n);I64 F(I64 x);" in
+  let _, records, _ = fixture "_intern (40+2) I64 F(I64 n);I64 F(I64 x);" in
   let final = N.snapshot (snd (List.hd (List.rev records))) in
   Alcotest.(check bool)
     "unmodeled bound lifecycle cannot grant extern reuse" true
     (Result.is_error (N.call_shape final))
+
+let numeric_internal_lifecycle () =
+  let initial = ref None in
+  let inspect record = function
+    | Parser.Function_declared _ when Option.is_none !initial ->
+        initial := Some (N.snapshot record)
+    | _ -> ()
+  in
+  let _, records, _ =
+    fixture ~inspect "_intern 0x84 I64 F(U8 *s);I64 F(I64 x);"
+  in
+  match records with
+  | [ (_, internal); (_, following) ] ->
+      let before = Option.get !initial in
+      let completed = N.snapshot internal in
+      count "original early header stays immutable" 0 before;
+      count "completed numeric internal retains its argument" 1 completed;
+      Alcotest.(check (option bool))
+        "early header remains extern" (Some true) (N.is_extern before);
+      Alcotest.(check (option bool))
+        "numeric internal completion clears extern" (Some false)
+        (N.is_extern completed);
+      Alcotest.(check bool)
+        "numeric internal owns a complete argument shape" true
+        (Result.is_ok (N.call_shape completed));
+      Alcotest.(check bool)
+        "following declaration cannot reuse a completed internal" false
+        (N.same_identity completed (N.snapshot following))
+  | _ -> Alcotest.fail "expected the internal and following source publications"
 
 let duplicate_native_members () =
   List.iter
@@ -1039,6 +1068,8 @@ let tests =
       `Quick activation_replay;
     Alcotest.test_case "bound lifecycle requires separate executable evidence"
       `Quick bound_lifecycle_unavailable;
+    Alcotest.test_case "numeric internal completion preserves source phases"
+      `Quick numeric_internal_lifecycle;
     Alcotest.test_case "duplicate native members cannot grant count authority"
       `Quick duplicate_native_members;
     Alcotest.test_case "duplicate checks follow the reused native member cursor"

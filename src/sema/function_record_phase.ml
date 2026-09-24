@@ -569,6 +569,18 @@ let native_member_collides state name =
   | None | Some ("pad" | "reserved" | "_anon_") -> false
   | Some spelling -> List.mem spelling state.body_names
 
+let closed_intern_target = function
+  | {
+      Ast.kind = Ast.Intern;
+      spelling = "_intern";
+      target = Ast.Expression_binding_target target;
+      _;
+    } -> (
+      match target with
+      | Ast.Integer_literal { literal_value = Ast.Integer_value _; _ } -> true
+      | _ -> false)
+  | _ -> false
+
 let local_allocation_is_next record receipt =
   Parser.function_local_allocation_is_current receipt
   && receipt.Parser.allocation_function
@@ -731,6 +743,10 @@ let observe ?activation record event =
                       } -> true
                   | Some _ -> false
                 in
+                let internal_binding =
+                  Option.fold ~none:false ~some:closed_intern_target
+                    header.function_publication.function_header.binding
+                in
                 if bounded_binding then
                   {
                     state with
@@ -739,6 +755,18 @@ let observe ?activation record event =
                       Size_value
                         (if Option.is_some state.unavailable then None
                          else Some 0L);
+                  }
+                else if internal_binding then
+                  {
+                    state with
+                    arguments = state.members;
+                    header_size =
+                      Size_value
+                        (if Option.is_some state.unavailable then None
+                         else Some 0L);
+                    extern =
+                      (if Option.is_some state.unavailable then None
+                       else Some false);
                   }
                 else
                   {
