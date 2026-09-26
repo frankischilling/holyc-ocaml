@@ -22,7 +22,7 @@ val intrinsic_opcode_of_source : source -> Opcode.t option
 val cleanup_slot_count :
   source -> fixed_count:int -> variadic_count:int64 -> variadic:bool -> int64
 
-type provider = Print | Put_chars | Stream_print
+type provider = Print | Put_chars | Stream_print | Stream_exe_print
 type owner = Entry | Function of Function_body.t
 type argument_role = Fixed of int | Variadic_count | Variadic of int
 type argument

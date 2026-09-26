@@ -657,7 +657,7 @@ let runtime_offset_positions () =
           Alcotest.(check (option int))
             "position fixture exact preparation" (Some max_initializer_steps)
             (integer_program_report_preparation_work report))
-        [ (46, 4, true, 46); (45, 4, false, 45); (46, 3, false, 10) ])
+        [ (47, 4, true, 47); (46, 4, false, 46); (47, 3, false, 11) ])
     Test_integer_globals.modes;
   ignore
     (O.run {|I64 N=7;#exe {}class A {U8 h;$$=$$+N;I64 x;};sizeof(A)+26;|}

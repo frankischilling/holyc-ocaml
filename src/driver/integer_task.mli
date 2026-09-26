@@ -236,6 +236,7 @@ val run :
     [compile_ast] retains its separate callback-free collection path. *)
 
 val stream_executor :
+  ?allow_stream_exe_print:bool ->
   t ->
   Common.Span.t ->
   (Frontend.Parser.stream_execution, Common.Diagnostic.t list) result

@@ -35,6 +35,7 @@ type t
 type report
 type task_state
 type task_call_start
+type stream_exe_print = string -> (int64, Common.Diagnostic.t list) result
 
 val observe_task_function_selection :
   task_state ->
@@ -118,6 +119,8 @@ val task_dimension_bits :
   task_state -> Frontend.Parser.array_dimension_preparation -> int64 option
 
 val execute_task_dimension :
+  ?use_active_stream:bool ->
+  ?stream_exe_print:stream_exe_print ->
   task_state ->
   dimension_attempt ->
   Dimension_fragment_program.execution ->
@@ -144,6 +147,8 @@ val complete_task_defaults :
   (unit, string) result
 
 val execute_task_default :
+  ?use_active_stream:bool ->
+  ?stream_exe_print:stream_exe_print ->
   task_state ->
   default_attempt ->
   Default_fragment_program.execution ->
@@ -182,6 +187,8 @@ val complete_task_initializer :
   (unit, string) result
 
 val execute_task_initializer :
+  ?use_active_stream:bool ->
+  ?stream_exe_print:stream_exe_print ->
   task_state ->
   initializer_attempt ->
   Initializer_fragment_program.execution ->
@@ -417,6 +424,8 @@ val task_initializer_limit : task_state -> int
 val record_task_preparation : task_state -> before:int -> steps:int -> unit
 
 val execute_task_program :
+  ?use_active_stream:bool ->
+  ?stream_exe_print:stream_exe_print ->
   task_state ->
   runtime_calls:Runtime_call_context.t ->
   globals:Integer_globals.t ->
@@ -712,6 +721,8 @@ val task_offset :
   Sema.Compiler_record.aggregate_offset option
 
 val execute_task_offset :
+  ?use_active_stream:bool ->
+  ?stream_exe_print:stream_exe_print ->
   task_state ->
   offset_attempt ->
   Offset_fragment_program.execution ->

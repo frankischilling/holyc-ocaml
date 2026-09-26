@@ -95,11 +95,21 @@ let install_providers ?(suspended = false) task =
   let session = Task.frontend task in
   let symbols = Session.symbols session in
   Frontend.Symbol_visibility.Environment.without_locals symbols (fun () ->
+      let storage primitive =
+        (Common.Primitive_type.info primitive).storage_spelling
+      in
+      let i64 = storage Common.Primitive_type.I64 in
+      let u0 = storage Common.Primitive_type.U0 in
+      let u8 = storage Common.Primitive_type.U8 in
+      let u64 = storage Common.Primitive_type.U64 in
       let headers =
         [
-          ("StreamPrint", "extern U0 StreamPrint(U8 *fmt,...);");
-          ("Print", "extern U0 Print(U8 *fmt,...);");
-          ("PutChars", "extern U0 PutChars(U64 ch);");
+          ( "StreamExePrint",
+            Printf.sprintf "extern %s StreamExePrint(%s *fmt,...);" i64 u8 );
+          ( "StreamPrint",
+            Printf.sprintf "extern %s StreamPrint(%s *fmt,...);" u0 u8 );
+          ("Print", Printf.sprintf "extern %s Print(%s *fmt,...);" u0 u8);
+          ("PutChars", Printf.sprintf "extern %s PutChars(%s ch);" u0 u64);
         ]
         |> List.filter_map (fun (name, header) ->
             match
@@ -232,7 +242,8 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
             providers_installed := true;
             Ok ()
         in
-        Task.stream_executor retained directive
+        Task.stream_executor ~allow_stream_exe_print:(not is_jit) retained
+          directive
       in
       let commands : Parser.command_sink =
         {

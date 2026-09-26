@@ -100,7 +100,7 @@ HCPARSE0167 reports an invalid separator or closing delimiter before later
 lexer effects. The [parentheses example](../examples/stateful-exe-implicit-parentheses.hc)
 checks saved and supplied arguments through top-level and body calls and returns
 42 with empty output in JIT and AOT.
-It uses 145 runtime / 12 preparation instructions in JIT and 147 / 12 in AOT.
+It uses 148 runtime and 12 preparation instructions in both JIT and AOT.
 Both exact limits pass together; either allowance one instruction lower stops
 with HCIRVM0007 and empty capture.
 

@@ -1929,7 +1929,7 @@ let () =
           let status, output, errors =
             run version
               [
-                "--step-limit=39";
+                "--step-limit=40";
                 "--initializer-step-limit=10";
                 "--global-byte-limit=16";
                 "--literal-byte-limit=8";
@@ -1943,7 +1943,7 @@ let () =
             (status = Unix.WEXITED 0
             && report |> member "final_value" |> member "value" |> to_string
                = "42"
-            && report |> member "executed_steps" |> to_int = 39
+            && report |> member "executed_steps" |> to_int = 40
             && report |> member "compiled_initializer_steps" |> to_int = 10)
             "AOT source reports cumulative stream and isolated work";
           require

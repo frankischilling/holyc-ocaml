@@ -43,6 +43,7 @@ let fork state =
 let contents state = Buffer.contents state.output
 let work state = state.work_budget.count
 let committed_bytes state = state.bytes.committed
+let capacity state = state.bytes.capacity
 let ( let* ) = Result.bind
 
 let charge state =

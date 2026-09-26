@@ -10,12 +10,12 @@ This supports metadata queries, not aggregate object execution.
 size as a member array bound. A retained function returns that array's size.
 A second stream replaces the first class with a one-byte definition; the saved
 size and the new size combine to return 42 in both outer modes. The CLI tests
-require exactly 31 runtime steps and three preparation units, and check each
+require exactly 32 runtime steps and three preparation units, and check each
 one-below failure. Stream dimensions use the task initializer allowance.
 
 `examples/stateful-exe-aggregate-phases.hc` reads a class at name lookahead,
 after its first member and during closing-brace lookahead. Those reads see
-0, 8 and 16 bytes and combine to return 42. Both modes pass at 35 runtime steps
+0, 8 and 16 bytes and combine to return 42. Both modes pass at 36 runtime steps
 and three preparation units; the CLI checks each one-below failure too.
 
 ## Source and ownership
@@ -144,13 +144,13 @@ remains rejected. Unnamed callback and ordinary AOT record positions remain
 outside this path.
 
 `holyc run examples/stateful-exe-frame-positions.hc` returns I64 42 in both
-outer modes at 27 runtime steps, three preparation units and zero dimension
+outer modes at 28 runtime steps, three preparation units and zero dimension
 work. It captures the position before a fifth automatic local after four
 different primitive allocations, then calls that retained function. Exact
 limits and both one-below failures are covered by the CLI suite.
 
 `holyc run examples/stateful-exe-runtime-frame-positions.hc` returns I64 42 in
-both outer modes at 73 runtime steps, six preparation units and zero closed
+both outer modes at 74 runtime steps, six preparation units and zero closed
 dimension work. The fixture prepares `I64 values[++N]` once, captures the
 24-byte downward position before the next local, and calls the retained function
 to write and sum its array elements. Exact limits and each one-below failure are
@@ -163,13 +163,13 @@ Empty semicolons do not begin a new iteration, and an undelimited final paramete
 does not reset the cell before closing-parenthesis lookahead.
 
 `holyc run examples/stateful-exe-function-positions.hc` returns 42 in both modes
-at 46 runtime steps, three preparation units and zero dimension work. The
+at 47 runtime steps, three preparation units and zero dimension work. The
 runtime offset combines captures before and after a nested function header,
 then calls that retained function. Ordinary AOT function headers still need
 their native record model; `#exe` uses the supported JIT record in either mode.
 
 `holyc run examples/stateful-exe-shared-positions.hc` returns 42 in JIT and AOT
-modes with 34 runtime steps, three preparation units and zero dimension work.
+modes with 35 runtime steps, three preparation units and zero dimension work.
 The fixture captures values before and after a nested runtime offset. Derived
 layouts retain the nested task dependency and cannot execute in an unrelated VM.
 
@@ -191,18 +191,18 @@ charge them again.
 `examples/stateful-exe-aggregate-offsets.hc` moves a class position from one byte
 to eight, observes that partial size, then appends an eight-byte member. Its
 saved and completed sizes combine to return 42.
-Both outer modes use 27 runtime steps and six preparation units. The CLI checks
+Both outer modes use 28 runtime steps and six preparation units. The CLI checks
 those combined limits and each one-below failure.
 
 `examples/stateful-exe-runtime-aggregate-offsets.hc` executes a selected function
 after a nested lookahead update, retains the resulting size in another function,
-and returns 42. Both outer modes use 49 runtime steps, three preparation units
+and returns 42. Both outer modes use 50 runtime steps, three preparation units
 and zero dimension work. `#exe` still uses JIT task storage in outer AOT mode.
 
 `examples/stateful-exe-runtime-offset-positions.hc` captures a function argument,
 then runs nested lookahead that changes both a task variable and another
 aggregate's position. The later function call receives the captured one. Both modes
-return 42 with 46 runtime steps, four preparation units and zero dimension work;
+return 42 with 47 runtime steps, four preparation units and zero dimension work;
 the CLI checks the exact limits and each one-below failure.
 
 Successful runtime offsets remain dependencies of partial and completed sizes,
@@ -212,6 +212,12 @@ metadata. Standalone functions and foreign tasks cannot use those dependencies.
 Failed preparation and execution consume their original attempt; later layout
 completion never reevaluates the expression. The authority tests also reject
 substituted typed roots, preparation counts, snapshots and replay.
+
+StreamExePrint nested source uses the same retained task and exact suspended
+parser authority. It can publish declarations into that task, but it does not
+create independent aggregate-layout authority. Existing size, position and
+runtime-offset dependencies still require their original parser and execution
+receipts before a later nested source can consume them.
 
 ## Remaining work
 
