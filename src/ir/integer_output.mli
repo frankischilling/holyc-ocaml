@@ -60,3 +60,4 @@ val discard_print :
 val contents : t -> string
 val work : t -> int
 val committed_bytes : t -> int
+val capacity : t -> int

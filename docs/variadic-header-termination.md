@@ -33,7 +33,7 @@ unclosed variadic definition through a saved caller. It returns I64 42 with no
 ordinary captured output. The [execution tests](../test/test_variadic_header_termination.ml)
 compare its resource use with an otherwise identical closed signature and cover
 exact and one-below runtime, preparation, frame and call-depth allowances.
-Its CLI reports use 58 runtime instructions in JIT and 60 in AOT, with three
+Its CLI reports use 61 runtime instructions in JIT and AOT, with three
 preparation instructions in either mode. The two active calls need 32 frame
 bytes and call depth two.
 Parser and semantic tests also cover prototype and recursive callback contexts,

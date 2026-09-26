@@ -35,7 +35,7 @@ default set. The public AOT compilation result remains an isolated artifact.
 I64 42. Inside the directive, parsing `Saved` evaluates `Next()` once and stores
 21 as its parameter default. The later write to `N` leaves that value intact;
 both calls to `Saved()` receive 21. StreamPrint emits the outer expression `42;`.
-The example uses 58 runtime instructions, three preparation instructions, eight
+The example uses 61 runtime instructions, three preparation instructions, eight
 global bytes, four literal bytes, 24 active frame bytes and seven formatting-work
 units. Exact limits pass; reducing each of those six limits by one rejects.
 

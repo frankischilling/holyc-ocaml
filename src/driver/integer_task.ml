@@ -273,7 +273,8 @@ let lower_initializer_fragment task ~destination receipt =
   in
   Initializer_fragment_lowering.lower ~context ~authority destination
 
-let execute_initializer_leaf task receipt =
+let execute_initializer_leaf ?(use_active_stream = true) ?stream_exe_print task
+    receipt =
   let ( let* ) = Result.bind in
   let* attempt =
     Task_declarations.begin_initializer_attempt task.declarations
@@ -288,7 +289,8 @@ let execute_initializer_leaf task receipt =
       Initializer_fragment_lowering.prepare ~context ~authority
         ~runtime:task.state destination
     in
-    VM.execute_task_initializer task.state attempt execution
+    VM.execute_task_initializer ~use_active_stream ?stream_exe_print task.state
+      attempt execution
     |> Result.map_error
          (Integer_execution_diagnostics.of_errors
             ~span:
@@ -299,7 +301,8 @@ let execute_initializer_leaf task receipt =
   | Ok () -> ());
   outcome
 
-let execute_parameter_default task receipt =
+let execute_parameter_default ?(use_active_stream = true) ?stream_exe_print task
+    receipt =
   let ( let* ) = Result.bind in
   let* attempt =
     Task_declarations.begin_default_attempt task.declarations
@@ -319,7 +322,8 @@ let execute_parameter_default task receipt =
       Default_fragment_lowering.prepare ~context ~authority ~runtime:task.state
         destination
     in
-    VM.execute_task_default task.state attempt execution
+    VM.execute_task_default ~use_active_stream ?stream_exe_print task.state
+      attempt execution
     |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
   in
   (match outcome with
@@ -327,7 +331,8 @@ let execute_parameter_default task receipt =
   | Ok () -> ());
   outcome
 
-let execute_runtime_dimension task receipt =
+let execute_runtime_dimension ?(use_active_stream = true) ?stream_exe_print task
+    receipt =
   let ( let* ) = Result.bind in
   let span = receipt.Frontend.Parser.dimension_opening.span in
   let diagnose result =
@@ -358,7 +363,8 @@ let execute_runtime_dimension task receipt =
       Dimension_fragment_lowering.prepare ~context ~authority
         ~runtime:task.state destination
     in
-    VM.execute_task_dimension task.state attempt execution
+    VM.execute_task_dimension ~use_active_stream ?stream_exe_print task.state
+      attempt execution
     |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
   in
   (match outcome with
@@ -371,7 +377,8 @@ let execute_runtime_dimension task receipt =
   let* () = outcome in
   finished
 
-let execute_runtime_offset task receipt =
+let execute_runtime_offset ?(use_active_stream = true) ?stream_exe_print task
+    receipt =
   let ( let* ) = Result.bind in
   let span = receipt.Frontend.Parser.phase_location.span in
   let diagnose result =
@@ -403,7 +410,8 @@ let execute_runtime_offset task receipt =
       Offset_fragment_lowering.prepare ~context ~authority ~runtime:task.state
         destination
     in
-    VM.execute_task_offset task.state attempt execution
+    VM.execute_task_offset ~use_active_stream ?stream_exe_print task.state
+      attempt execution
     |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
   in
   (match outcome with
@@ -416,14 +424,16 @@ let execute_runtime_offset task receipt =
   let* () = outcome in
   finished
 
-let observe_initializer task event =
+let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
+    task event =
   (match event with
     | Frontend.Parser.Aggregate_advanced receipt
       when Task_declarations.offset_requires_runtime receipt ->
-        execute_runtime_offset task receipt
+        execute_runtime_offset ~use_active_stream ?stream_exe_print task receipt
     | Frontend.Parser.Array_dimension_preparing receipt
       when Task_declarations.dimension_requires_runtime receipt ->
-        execute_runtime_dimension task receipt
+        execute_runtime_dimension ~use_active_stream ?stream_exe_print task
+          receipt
     | Frontend.Parser.Global_declared publication ->
         admit_global task publication
     | Frontend.Parser.Global_initializer_started start ->
@@ -433,11 +443,13 @@ let observe_initializer task event =
         Task_declarations.observe_initializer_delimiter task.declarations
           ~runtime:task.state receipt
     | Frontend.Parser.Global_initializer_leaf_completed receipt ->
-        execute_initializer_leaf task receipt
+        execute_initializer_leaf ~use_active_stream ?stream_exe_print task
+          receipt
     | Frontend.Parser.Parameter_default_completed receipt -> (
         match receipt.default_ast.value with
         | Frontend.Ast.Expression_default _ ->
-            execute_parameter_default task receipt
+            execute_parameter_default ~use_active_stream ?stream_exe_print task
+              receipt
         | Frontend.Ast.Lastclass_default _ -> Ok ())
     | Frontend.Parser.Function_header_completed header ->
         Result.bind
@@ -467,6 +479,8 @@ let observe_initializer task event =
               in
               { error with code = decoded.code; message = decoded.message }
             else error))
+
+let observe_initializer task event = observe_initializer_internal task event
 
 let compiled_units task =
   List.rev_map (fun (_, command) -> command.program) task.commands
@@ -549,7 +563,8 @@ let compile_source_ast task ast =
     (fun declaration_command ->
       compile_ast_internal ~declaration_command task ast)
 
-let execute task command =
+let execute_internal ?(use_active_stream = true) ?stream_exe_print task command
+    =
   let program = command.program in
   if task.identity != command.owner then
     Error
@@ -559,7 +574,7 @@ let execute task command =
       ]
   else
     let outcome =
-      VM.execute_task_program task.state
+      VM.execute_task_program ~use_active_stream ?stream_exe_print task.state
         ~runtime_calls:(Integer_unit.runtime_calls program)
         ~globals:(Integer_unit.globals program)
         ~initialization:(Integer_unit.initialization program)
@@ -592,6 +607,8 @@ let execute task command =
     | Error errors, Error publication_errors ->
         Error (errors @ publication_errors)
 
+let execute task command = execute_internal task command
+
 let stream_diagnostics span message =
   let code, detail =
     match String.index_opt message ':' with
@@ -618,10 +635,12 @@ let result task ~sequence =
           ~span:sequence.Frontend.Parser.sequence_ast.span "HCRUN0004" message;
       ])
 
-let execution_commands task span ~active =
+let execution_commands ?(use_active_stream = true) ?stream_exe_print task span
+    ~active ~execute_command =
   let ( let* ) = Result.bind in
   let context = ref None in
   let sequence = ref None in
+  let final_value = ref None in
   let aborted = ref false in
   let invalid () =
     Error
@@ -714,7 +733,7 @@ let execution_commands task span ~active =
     in
     let* () = reading start.command_context in
     let* () = Task_declarations.observe task.declarations event in
-    observe_initializer task event
+    observe_initializer_internal ~use_active_stream ?stream_exe_print task event
   in
   let dimension_count (completed : Frontend.Parser.completed_array_dimension) =
     let* () =
@@ -763,7 +782,9 @@ let execution_commands task span ~active =
             | Frontend.Parser.Command_resumed completed ->
                 let ast = completed.command_ast in
                 let* command = compile_source_ast task ast in
-                execute task command |> Result.map ignore
+                let* execution = execute_command command in
+                final_value := VM.final_value execution;
+                Ok ()
             | Frontend.Parser.Sequence_completed completed ->
                 sequence := Some completed;
                 Ok ()
@@ -843,13 +864,14 @@ let execution_commands task span ~active =
       match !sequence with
       | Some completed
         when owns completed.sequence_context
-             && Frontend.Parser.sequence_accepted completed -> Ok completed
+             && Frontend.Parser.sequence_accepted completed ->
+          Ok (completed, !final_value)
       | _ ->
           Error
             (stream_diagnostics span
                "HCIRVM0027: source sequence has not been accepted") )
 
-let stream_executor task span =
+let rec stream_executor ?(allow_stream_exe_print = false) task span =
   let ( let* ) = Result.bind in
   let* stream =
     begin_stream task |> Result.map_error (stream_diagnostics span)
@@ -862,7 +884,17 @@ let stream_executor task span =
            "HCIRVM0027: parser executor does not own the active stream context")
     else Ok ()
   in
-  let commands, completed = execution_commands task span ~active in
+  let stream_exe_print =
+    if allow_stream_exe_print then
+      Some (run_stream_exe_source task ~active ~span)
+    else None
+  in
+  let execute_command command =
+    execute_internal ?stream_exe_print task command
+  in
+  let commands, completed =
+    execution_commands ?stream_exe_print task span ~active ~execute_command
+  in
   Ok
     Frontend.Parser.
       {
@@ -871,7 +903,7 @@ let stream_executor task span =
         commands;
         finish =
           (fun () ->
-            let* _ = completed () in
+            let* _, _ = completed () in
             let* generated =
               finish_stream task stream
               |> Result.map_error (stream_diagnostics span)
@@ -885,7 +917,39 @@ let stream_executor task span =
             | Error _ -> ());
       }
 
-let run_input ?suspension task ~source =
+and run_stream_exe_source task ~active ~span contents =
+  let ( let* ) = Result.bind in
+  let* () = active () in
+  let* suspension =
+    Task_declarations.parser_suspension task.declarations
+    |> Result.map_error (stream_diagnostics span)
+  in
+  let source =
+    Session.add_source task.session ~path:"<StreamExePrint>" ~contents
+  in
+  Frontend.Symbol_visibility.Environment.without_locals
+    (Session.symbols task.session) (fun () ->
+      let* sequence, final_value =
+        run_input_execution ~suspension ~use_active_stream:false
+          ~allow_stream_exe_print:true ~active task ~source
+      in
+      let* () =
+        VM.check_task_suspended_completion task.state ~suspension sequence
+        |> Result.map_error (fun message ->
+            [
+              Integer_source.diagnostic
+                ~span:(Integer_source.source_span source)
+                "HCRUN0004" message;
+            ])
+      in
+      let* () = active () in
+      Ok
+        (Option.fold ~none:0L
+           ~some:(fun (word : VM.word) -> word.bits)
+           final_value))
+
+and run_input_execution ?suspension ?(use_active_stream = true)
+    ?(allow_stream_exe_print = false) ?(active = fun () -> Ok ()) task ~source =
   let ( let* ) = Result.bind in
   let* () =
     match
@@ -902,23 +966,34 @@ let run_input ?suspension task ~source =
               "HCRUN0004" "task input is not the exact registered source";
           ]
   in
+  let stream_exe_print =
+    if allow_stream_exe_print then
+      Some
+        (run_stream_exe_source task ~active
+           ~span:(Integer_source.source_span source))
+    else None
+  in
+  let execute_command command =
+    execute_internal ~use_active_stream ?stream_exe_print task command
+  in
   let commands, completed =
-    execution_commands task (Integer_source.source_span source)
-      ~active:(fun () -> Ok ())
+    execution_commands task
+      (Integer_source.source_span source)
+      ~use_active_stream ?stream_exe_print ~active ~execute_command
   in
   let* parsed =
     match suspension with
     | None ->
         Ok
           (Frontend.Parser.parse ~commands
-             ~execute_stream:(stream_executor task)
+             ~execute_stream:(stream_executor ~allow_stream_exe_print task)
              ~sources:(Session.sources task.session)
              ~definitions:(Session.definitions task.session)
              ~symbols:(Session.symbols task.session)
              ~config:task.config source)
     | Some suspension ->
         Frontend.Parser.parse_suspended suspension ~commands
-          ~execute_stream:(stream_executor task)
+          ~execute_stream:(stream_executor ~allow_stream_exe_print task)
           ~sources:(Session.sources task.session)
           ~definitions:(Session.definitions task.session)
           ~symbols:(Session.symbols task.session)
@@ -933,6 +1008,9 @@ let run_input ?suspension task ~source =
   match parsed.ast with
   | None -> Error parsed.diagnostics
   | Some _ -> completed ()
+
+let run_input ?suspension task ~source =
+  run_input_execution ?suspension task ~source |> Result.map fst
 
 let run task ~source =
   let ( let* ) = Result.bind in

@@ -867,6 +867,10 @@ let observe_command_source ledger event =
                   fun sequence ->
                     match sequence.phase with
                     | Pending saved -> saved == command
+                    | Ready -> (
+                        match sequence.completed_rev with
+                        | latest :: _ -> latest.receipt == command
+                        | [] -> false)
                     | _ -> false )
           in
           (match (parent_context, ledger.active) with

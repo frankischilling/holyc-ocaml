@@ -39,7 +39,7 @@ original dimension execution. The runtime validates inherited dependencies befor
 offset effects; source activation cannot import runtime-derived metadata as closed
 preparation. Repeated `sizeof` chains deduplicate original dimension proofs at
 each preparation boundary. The [runtime frame example](../examples/stateful-exe-runtime-frame-positions.hc)
-returns 42 in both outer modes with 73 runtime steps and six preparation steps.
+returns 42 in both outer modes with 74 runtime steps and six preparation steps.
 
 Ordinary AOT runtime bounds still report `HCRUN0006`: output relocation and
 callable address authority remain unresolved. Closed AOT bounds retain their
