@@ -1,5 +1,10 @@
 # holyc-ocaml
 
+[Internal ASCII conversion](docs/internal-toupper.md) executes the pinned
+`_intern IC_TOUPPER` declaration through both execution targets. The checked
+operation preserves full argument words; `examples/internal-toupper.hc`
+converts owned byte storage, captures `AZ!:3` and returns I64 42.
+
 [Internal byte-string length](docs/internal-strlen.md) executes the pinned
 `_intern IC_STRLEN` declaration through the interpreter and native target.
 `examples/internal-strlen.hc` connects owned byte storage to the scalar length

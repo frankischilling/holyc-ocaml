@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+[Internal ASCII conversion](internal-toupper.md) supports the retained numeric
+`IC_TOUPPER` target, I64 result and U8 scalar formal through interpreted and
+native source execution. Supplied integer words retain their complete bits;
+ordinary byte storage keeps its declared-width loads. Other internal signatures
+and general binding-expression evaluation remain under #695.
+
 [Internal byte-string length](internal-strlen.md) connects the retained numeric
 `IC_STRLEN` binding to checked I64 results in both execution targets and source
 modes. Calls preserve the source's unpushed argument and absence of ordinary

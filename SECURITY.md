@@ -23,6 +23,12 @@ its result in a private frame slot. Function names grant no operation authority,
 and this path exposes no host library call or raw address. See
 [internal byte-string length](docs/internal-strlen.md).
 
+The checked `IC_TOUPPER` operation shares this original declaration and call
+authority. It compares a supplied word within the ASCII lowercase range and
+uses bounded private native staging. It adds no host locale, memory access,
+output work or callee activation. Argument loads retain their own storage
+checks. See [internal ASCII conversion](docs/internal-toupper.md).
+
 Failure does not roll back effects already reached by earlier admitted work. Public reports retain captured ordinary output and cumulative progress on parse, compilation and runtime errors, without reporting a successful final result. A failed `StreamPrint` block injects no partial generated source. Ordinary `Print` publishes a complete formatted call only on success; `PutChars` can retain bytes emitted before a later fault. Failed source replay revokes call authority for commands that were not admitted. See [runtime output](docs/integer-output.md) for byte and work accounting.
 
 The six standard predefined values also have dedicated expansion of their audited definitions. Their generated text shares frontend nesting and byte limits. Native executable-memory execution is not provided by this hosted interpreter; the separate `eval-native` capability has its own explicit checked platform contract below.

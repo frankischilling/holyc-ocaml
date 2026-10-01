@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added checked `IC_TOUPPER` internal calls to interpreted and native JIT/AOT
+  source execution. ASCII conversion preserves full computed argument words,
+  original declaration/call ownership and existing instruction/frame limits.
+
 - Added checked `StreamExePrint` for compiled AOT `#exe` execution. Formatting
   uses the shared output-work budget, nested source runs against the outer task
   context, and reached declarations and ordinary effects survive later faults.

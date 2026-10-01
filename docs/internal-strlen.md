@@ -31,7 +31,9 @@ This gate requires the checked I64 return type and one U8 pointer parameter.
 The declaration retains its original binding alongside its checked signature.
 The argument producer and returned value remain attached to their original
 source and graph. A later macro redefinition cannot replace that binding.
-Other internal targets and signatures remain unsupported. Parenthesized,
+The scalar `IC_TOUPPER` operation has its own
+[checked conversion gate](internal-toupper.md). Other internal targets and
+signatures remain unsupported. Parenthesized,
 arithmetic and other binding expressions require their own original evaluation
 and preparation evidence; this gate does not evaluate them again at call time.
 

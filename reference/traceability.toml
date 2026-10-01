@@ -12444,6 +12444,23 @@ excluded = ["other internal opcodes and signatures", "general internal binding-e
 verification_boundary = "Independent source-derived lengths and compiler-consumer predicates, both source modes and execution targets, both native ABIs, repeated images, exact/one-below step budgets, storage faults and changed/foreign call-authority rejection. No new TempleOS execution capture is claimed."
 
 [[feature]]
+id = "HC-INTERNAL-TOUPPER"
+description = "Original numeric IC_TOUPPER declarations execute full-word ASCII conversion through interpreted and native source programs."
+status = "implemented"
+issue = 751
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Kernel/KernelB.HH:58", "Compiler/CompilerA.HH:52", "Compiler/CInit.HC:47", "Compiler/PrsExp.HC:440-586", "Compiler/BackB.HC:266-275", "Compiler/OptPass789A.HC:826-827", "Compiler/Lex.HC:409,519-522,656", "Kernel/StrPrint.HC:164,403"]
+implementation = ["src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml"]
+tests = ["test/test_internal_toupper.ml", "test/test_internal_strlen_authority.ml", "test/test_internal_strlen_source.ml", "test/native/test_internal_toupper_execution.ml", "test/native/test_internal_toupper_cli.ml", "examples/internal-toupper.hc"]
+documentation = ["docs/internal-toupper.md", "docs/internal-strlen.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "CHANGELOG.md", "SECURITY.md"]
+identity = "The exact retained numeric target, original declaration, I64 return and one U8 scalar formal select the operation. Names and later macro replacement grant no authority. Foreign contexts and changed intrinsic phases reject."
+lowering = "IC_CALL_START, the unpushed argument producer, operand-bearing IC_TOUPPER with no direct result, then IC_CALL_END with its I64 result. There is no ordinary call, cleanup or invented host address."
+execution = "Signed full-word comparison changes ASCII a through z to A through Z; other words retain their bits. The U8 formal does not truncate an internal argument. Declared-width storage loads and full computed narrow return bits remain distinct."
+resources = "One ordinary instruction tick, no extra byte probes, output work or semantic callee activation. Native result staging and encoded instructions remain bounded by existing frame and code quotas. Reached argument and later execution faults preserve prior effects."
+excluded = ["retained #exe internal-header/call-record joining under #684", "general internal binding-expression evaluation", "other internal operations and signatures", "floating arguments", "complete runtime, ABI, artifact, actual-loader and bootstrap gates"]
+verification_boundary = "Independent ASCII alphabets, all bytes, full-word controls, source/API/CLI execution in both modes and targets, both native ABI compilations, repeated images, exact/one-below resource limits and original/foreign/mutated authority controls. No new TempleOS oracle capture."
+
+[[feature]]
 id = "HC-RELEASE-CONTRACT"
 description = "The 1.0 contract defines required host/target cells, phase-specific acceptance, exact pinned source sets and explicit bootstrap producer/consumer lineage."
 status = "implemented"

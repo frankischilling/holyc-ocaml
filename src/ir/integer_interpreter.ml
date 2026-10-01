@@ -200,6 +200,7 @@ type prepared_operation =
   | Retained_call of Retained_function.t
   | Extern_call of Runtime.call * stored_type array
   | Internal_strlen of prepared_pointer
+  | Internal_toupper of prepared_operand
   | Call_cleanup
   | Call_end of Value_id.t * word_type
   | Call_end_void of Value_id.t
@@ -4043,6 +4044,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                 || Option.is_some description.result
                 || Option.is_some description.target_type
                 || Runtime.intrinsic_opcode intrinsic <> Opcode.Ic_strlen
+                   && Runtime.intrinsic_opcode intrinsic <> Opcode.Ic_toupper
                 || checked_return_kind (Runtime.intrinsic_return_type intrinsic)
                    <> Some (Word_return I64)
                 || (match description.payload with
@@ -4058,6 +4060,56 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                 intrinsics :=
                   (intrinsic, false, List.length stack) :: !intrinsics;
                 call_instruction description (Call_start None))
+          | Opcode.Ic_toupper, stack -> (
+              match
+                ( !intrinsics,
+                  Option.bind runtime_calls (fun context ->
+                      Runtime.find_intrinsic_instruction context
+                        ~owner:runtime_owner description.instruction_id) )
+              with
+              | (original, false, ordinary_depth) :: rest, Some intrinsic
+                when original == intrinsic
+                     && Runtime.intrinsic_opcode intrinsic = Opcode.Ic_toupper
+                     && ordinary_depth = List.length stack -> (
+                  let argument = Runtime.intrinsic_argument intrinsic in
+                  let value = Runtime.argument_value argument in
+                  match
+                    ( operand_of_value types value,
+                      Value_map.find_opt value types )
+                  with
+                  | Some operand, Some (Supported (_, source_type, _))
+                    when description.flags = 0L
+                         && description.operands = [ value ]
+                         && Option.is_none description.result
+                         && Option.is_none description.payload
+                         && Option.fold ~none:false
+                              ~some:
+                                (Type.equal
+                                   (Runtime.intrinsic_return_type intrinsic))
+                              description.target_type
+                         && Type.equal source_type
+                              (Runtime.argument_source_type argument)
+                         && Type.pointer_depth
+                              (Runtime.argument_target_type argument)
+                            = 0
+                         &&
+                         match
+                           Type.base (Runtime.argument_target_type argument)
+                         with
+                         | Type.Primitive (_, Sema.Primitive_type.U8) -> true
+                         | _ -> false ->
+                      intrinsics := (intrinsic, true, ordinary_depth) :: rest;
+                      call_instruction description (Internal_toupper operand)
+                  | _ ->
+                      Error
+                        (call_error description
+                           "IC_TOUPPER lost its checked scalar argument or \
+                            result type"))
+              | _ ->
+                  Error
+                    (call_error description
+                       "IC_TOUPPER has no exact collecting internal call scope")
+              )
           | Opcode.Ic_strlen, stack -> (
               match
                 ( !intrinsics,
@@ -4066,8 +4118,9 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                         ~owner:runtime_owner description.instruction_id) )
               with
               | (original, false, ordinary_depth) :: rest, Some intrinsic
-                when original == intrinsic && ordinary_depth = List.length stack
-                -> (
+                when original == intrinsic
+                     && Runtime.intrinsic_opcode intrinsic = Opcode.Ic_strlen
+                     && ordinary_depth = List.length stack -> (
                   let argument = Runtime.intrinsic_argument intrinsic in
                   let value = Runtime.argument_value argument in
                   match pointer_operand_of_value types value with
@@ -5242,6 +5295,29 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                 }
                 :: !calls
           | Call_cleanup -> ()
+          | Internal_toupper operand -> (
+              match (!calls, require_operand block instruction operand) with
+              | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
+                  :: rest,
+                  Some word ) ->
+                  let bits =
+                    if word.bits >= 97L && word.bits <= 122L then
+                      Int64.sub word.bits 32L
+                    else word.bits
+                  in
+                  calls :=
+                    {
+                      scope with
+                      completion = Completed_word { type_ = I64; bits };
+                    }
+                    :: rest
+              | _, None -> ()
+              | _ ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0008"
+                         "internal character conversion has no pending source \
+                          call scope"))
           | Internal_strlen pointer -> (
               match
                 ( !calls,

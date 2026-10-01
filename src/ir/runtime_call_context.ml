@@ -341,7 +341,8 @@ let intrinsic_opcode_of_source source =
                   match
                     Generated.Intermediate_codes.of_code (Int64.to_int value)
                   with
-                  | Some Opcode.Ic_strlen -> Some Opcode.Ic_strlen
+                  | Some ((Opcode.Ic_strlen | Opcode.Ic_toupper) as opcode) ->
+                      Some opcode
                   | Some _ | None -> None)
         | Some _ | None -> None)
   | Some _ | None -> None
@@ -816,13 +817,15 @@ let approved_intrinsic shape opcode =
     | _ -> false
   in
   match (opcode, shape.fixed) with
-  | Opcode.Ic_strlen, [ (parameter, Provided _) ] ->
+  | (Opcode.Ic_strlen | Opcode.Ic_toupper), [ (parameter, Provided _) ] ->
       Records.call_access shape.selected_record = Records.Internal_operation
       && Records.is_internal shape.selected_record
       && primitive shape.result_type 0 Sema.Primitive_type.I64
       && Headers.parameter_default parameter = None
       && Headers.parameter_register_requests parameter = []
-      && primitive (parameter_type parameter) 1 Sema.Primitive_type.U8
+      && primitive (parameter_type parameter)
+           (if opcode = Opcode.Ic_strlen then 1 else 0)
+           Sema.Primitive_type.U8
       && shape.variadic = []
       && Option.is_none shape.count_type
   | _ -> false
@@ -1162,51 +1165,53 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                 (item.payload = Some (Seq.Integer bytes))
                 "runtime cleanup byte count differs from its checked ABI slots";
               pending.phase <- Cleaned (call, item.instruction_id)
-          | Opcode.Ic_strlen, pending :: _
-            when pending.intrinsic_opcode = Some Opcode.Ic_strlen ->
+          | ((Opcode.Ic_strlen | Opcode.Ic_toupper) as opcode), pending :: _
+            when pending.intrinsic_opcode = Some opcode ->
               require ?span
                 (pending.phase = Collecting && item.result = None
                && item.payload = None && item.flags = 0L
                 && Option.fold ~none:false
                      ~some:(Type.equal pending.shape.result_type)
                      item.target_type)
-                "checked IC_STRLEN has an invalid instruction shape";
+                "checked internal operation has an invalid instruction shape";
               let expected =
                 match pending.expected with
                 | [ expected ] -> expected
                 | _ ->
                     fail ?span
-                      "checked IC_STRLEN does not have one exact fixed argument"
+                      "checked internal operation does not have one exact \
+                       fixed argument"
               in
               require ?span
                 (expected.expected_role = Fixed 0
                 && Option.is_none expected.expected_default
                 && Option.is_none expected.expected_count)
-                "checked IC_STRLEN argument is not its provided fixed value";
+                "checked internal argument is not its provided fixed value";
               let value =
                 match item.operands with
                 | [ value ] -> value
                 | _ ->
-                    fail ?span "checked IC_STRLEN does not consume one operand"
+                    fail ?span
+                      "checked internal operation does not consume one operand"
               in
               let producer : Seq.description =
                 match Values.find_opt value pending.intrinsic_producers with
                 | Some producer -> producer
                 | None ->
                     fail ?span
-                      "checked IC_STRLEN operand has no preceding in-scope \
+                      "checked internal operand has no preceding in-scope \
                        producer"
               in
               require ?span (producer.flags = 0L)
-                "checked IC_STRLEN argument producer has noncanonical flags";
+                "checked internal argument producer has noncanonical flags";
               require ?span
                 (Option.fold ~none:false
                    ~some:(Type.equal expected.expected_source)
                    producer.target_type)
-                "checked IC_STRLEN operand class differs from its source value";
+                "checked internal operand class differs from its source value";
               require ?span
                 (producer.span = expected.expected_origin)
-                "checked IC_STRLEN operand lost its checked source origin";
+                "checked internal operand lost its checked source origin";
               pending.pushes <-
                 [
                   {
@@ -1357,7 +1362,7 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
               [] ) ->
               fail ?span
                 "runtime call instruction has no checked enclosing scope"
-          | Opcode.Ic_strlen, _ ->
+          | (Opcode.Ic_strlen | Opcode.Ic_toupper), _ ->
               fail ?span
                 "intrinsic instruction has no matching checked intrinsic scope"
           | _, { phase = Called _ | Cleaned _ | Intrinsic_called _; _ } :: _ ->

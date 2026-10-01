@@ -1,5 +1,14 @@
 # Testing holyc-ocaml
 
+Internal character-conversion tests cover every byte, full signed/high-word
+inputs, computed narrow return bits, byte storage, nested and recursive calls,
+renamed declarations and same-name source bodies. Foreign contexts and altered
+intrinsic phases pair with valid controls. Native tests compile both host ABIs,
+execute fresh images and check exact/one-below instruction, code and frame
+limits. The CLI runs `examples/internal-toupper.hc` through both modes and
+targets, capturing `AZ!:3` and I64 42 with 194 runtime steps and 15 output-work
+units. See [internal ASCII conversion](internal-toupper.md).
+
 Internal byte-length tests start with the source `_intern 0x84` declaration and
 independent expected lengths. They cover macro and function-name selection,
 literal and owned array bytes, captured offsets, mutation, nested calls and the
