@@ -129,6 +129,7 @@
   test_native_scalar_functions
   test_internal_strlen
   test_internal_toupper
+  test_retained_internal
   test_internal_strlen_authority
   test_internal_strlen_source
   test_integer_program

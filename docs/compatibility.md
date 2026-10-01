@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+[Retained internal calls](retained-internal.md) support original numeric ToUpper
+and StrLen declarations inside IR `#exe` tasks in both outer modes. Publication,
+header installation, shared allocation history and argument/emission captures
+retain their own source receipts. General binding expressions and native
+retained source execution remain under #695 and #704.
+
 [Internal ASCII conversion](internal-toupper.md) supports the retained numeric
 `IC_TOUPPER` target, I64 result and U8 scalar formal through interpreted and
 native source execution. Supplied integer words retain their complete bits;

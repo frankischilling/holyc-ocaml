@@ -30,6 +30,7 @@ type native_state = {
   arguments : int option;
   ellipsis : bool;
   extern : bool option;
+  internal_binding : Parser.completed_function_header option;
   unavailable : string option;
 }
 
@@ -132,8 +133,10 @@ let same_cursor left right =
   && left.native_state.slots == right.native_state.slots
   && left.native_state.arguments = right.native_state.arguments
   && left.native_state.ellipsis = right.native_state.ellipsis
+  && left.native_state.internal_binding == right.native_state.internal_binding
 
 let native_source snapshot = snapshot.native_state.owner
+let internal_binding snapshot = snapshot.native_state.internal_binding
 
 let native_members snapshot =
   List.filter_map
@@ -443,6 +446,7 @@ let begin_header ?activation registry publication source =
                       arguments = (if unknown then None else Some 0);
                       ellipsis = false;
                       extern = (if unknown then None else Some true);
+                      internal_binding = None;
                       unavailable =
                         (if unknown then
                            Some "previous native function record is untracked"
@@ -581,6 +585,10 @@ let closed_intern_target = function
       | _ -> false)
   | _ -> false
 
+let has_literal_internal_target publication =
+  Option.fold ~none:false ~some:closed_intern_target
+    publication.Parser.function_header.binding
+
 let local_allocation_is_next record receipt =
   Parser.function_local_allocation_is_current receipt
   && receipt.Parser.allocation_function
@@ -652,7 +660,8 @@ let observe ?activation record event =
           then state.header_size
           else Size_value None
         in
-        advance_native record.native { state with extern; members; header_size };
+        advance_native record.native
+          { state with extern; members; header_size; internal_binding = None };
         record.latest_phase_event <- None;
         record.phase_revision <- record.native.revision;
         Ok ())
@@ -744,8 +753,7 @@ let observe ?activation record event =
                   | Some _ -> false
                 in
                 let internal_binding =
-                  Option.fold ~none:false ~some:closed_intern_target
-                    header.function_publication.function_header.binding
+                  has_literal_internal_target header.function_publication
                 in
                 if bounded_binding then
                   {
@@ -767,6 +775,9 @@ let observe ?activation record event =
                     extern =
                       (if Option.is_some state.unavailable then None
                        else Some false);
+                    internal_binding =
+                      (if Option.is_some state.unavailable then None
+                       else Some header);
                   }
                 else
                   {
@@ -774,6 +785,7 @@ let observe ?activation record event =
                     arguments = state.members;
                     header_size = Size_value None;
                     extern = None;
+                    internal_binding = None;
                     unavailable =
                       Some
                         "bound function lifecycle requires executable \

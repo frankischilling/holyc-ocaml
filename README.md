@@ -602,6 +602,12 @@ connection is merged. Broader compiler-state queries and stream services remain
 under #684; general defaults, omitted arguments and declaration-time bounds
 remain under #685.
 
+[Retained internal calls](docs/retained-internal.md) now connect numeric ToUpper
+and StrLen headers to the original task catalog and call captures. Nested header
+lookahead preserves the installed target and current member cursor separately.
+[stream-internal.hc](examples/stream-internal.hc) generates a Print call, captures
+`A:3` and returns I64 42 through `--target=ir` in both outer modes.
+
 ## License and attribution
 
 New project code is licensed under the MIT License. TempleOS is retained as a pinned reference and is not covered by this project's license. The upstream credits call TempleOS public domain while also listing material with separate provenance or uncertain permission. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) records the narrow reference use and those caveats.

@@ -3839,7 +3839,9 @@ let admit_function_phase ledger ~runtime event =
                       target = Ast.No_binding_target;
                       _;
                     } -> true
-                | _ -> false
+                | _ ->
+                    Sema.Function_record_phase.has_literal_internal_target
+                      publication
               in
               if eligible && Option.is_some state.native_record then
                 let snapshot =

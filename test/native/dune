@@ -26,12 +26,13 @@
 
 (rule
  (alias native-tests)
- (deps ../../examples/internal-toupper.hc)
+ (deps ../../examples/internal-toupper.hc ../../examples/stream-internal.hc)
  (action
   (run
    %{exe:test_internal_toupper_cli.exe}
    %{exe:../../bin/holyc.exe}
-   %{dep:../../examples/internal-toupper.hc})))
+   %{dep:../../examples/internal-toupper.hc}
+   %{dep:../../examples/stream-internal.hc})))
 
 (executable
  (name test_native_execution)
