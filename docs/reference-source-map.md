@@ -1,5 +1,15 @@
 # Reference source map
 
+Issue #751 connects `Kernel/KernelB.HH:58` to the ToUpper consumers in
+`Compiler/Lex.HC:409,519-522,656` and `Kernel/StrPrint.HC:164,403`.
+`Compiler/PrsExp.HC:440-586` retains supplied argument computation and emits
+the non-template internal call. `Compiler/BackB.HC:266-275` compares the full
+signed word with ASCII a and z, then subtracts 32 within that range;
+`Compiler/OptPass789A.HC:826-827` selects this backend operation. The U8 formal
+does not normalize the unpushed integer argument to a byte. Checked source
+ownership, instruction metering and private native staging use the existing
+internal-call contracts. See [internal ASCII conversion](internal-toupper.md).
+
 Issue #748 connects the internal declaration in `Kernel/KernelB.HH:61` to the
 scalar length consumer in `Compiler/UAsm.HC:293-303`. `PrsStmt.HC:1055-1061`
 evaluates the binding target; lines 244-249 install its numeric internal identity

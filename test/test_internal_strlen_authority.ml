@@ -14,7 +14,7 @@ let diagnostics errors =
   |> List.map (fun (error : Diagnostic.t) -> error.code ^ ": " ^ error.message)
   |> String.concat "; "
 
-let fixture mode =
+let fixture ?(source = source) mode =
   match
     Native_scalar_fixture.compile ~mode ~path:"internal-strlen-authority.hc"
       ~contents:source ()
@@ -46,7 +46,7 @@ let rejects label = function
   | Error [] -> Alcotest.fail (label ^ " returned no diagnostic")
   | Ok _ -> Alcotest.fail (label ^ " accepted changed internal-call authority")
 
-let valid_control fixture =
+let valid_control ?(expected = 3L) fixture =
   (match compile fixture with
   | Ok _ -> ()
   | Error errors ->
@@ -58,7 +58,7 @@ let valid_control fixture =
   | Ok execution -> (
       match VM.final_value execution with
       | Some value ->
-          Alcotest.(check int64) "valid original result" 3L value.bits
+          Alcotest.(check int64) "valid original result" expected value.bits
       | None -> Alcotest.fail "valid original has no result")
   | Error errors ->
       errors

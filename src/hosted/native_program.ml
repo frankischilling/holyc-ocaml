@@ -134,7 +134,7 @@ let print_provider_prototype (prototype : Ast.function_prototype) =
       && variadic.register_qualifiers = []
   | _ -> false
 
-let internal_byte_length_prototype (prototype : Ast.function_prototype) =
+let internal_prototype (prototype : Ast.function_prototype) =
   List.for_all
     (fun (modifier : Ast.declaration_modifier) -> modifier.kind = Ast.Public)
     prototype.modifiers
@@ -151,7 +151,7 @@ let internal_byte_length_prototype (prototype : Ast.function_prototype) =
   match prototype.parameters with
   | [ parameter ] ->
       parameter.register_qualifiers = []
-      && List.length parameter.pointer_layers = 1
+      && List.length parameter.pointer_layers <= 1
       && Option.is_none parameter.function_pointer
       && Option.is_none parameter.default
       && public_primitive U8 parameter.type_specifier
@@ -291,7 +291,7 @@ let ast_errors (ast : Ast.module_) =
         | Gate_item (Ast.Function_prototype prototype)
           when put_chars_provider_prototype prototype
                || print_provider_prototype prototype
-               || internal_byte_length_prototype prototype -> ()
+               || internal_prototype prototype -> ()
         | Gate_item (Ast.Global_variable variable) ->
             Option.iter reject
               (global_source_error ~span:variable.location.span

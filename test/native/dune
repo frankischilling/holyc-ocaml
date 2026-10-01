@@ -2,6 +2,37 @@
 
 (copy_files ../test_native_program.ml)
 
+(copy_files ../test_internal_toupper.ml)
+
+(copy_files ../test_internal_strlen_authority.ml)
+
+(executable
+ (name test_internal_toupper_execution)
+ (modules
+  test_internal_toupper_execution
+  test_internal_toupper
+  test_internal_strlen_authority)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_internal_toupper_execution.exe})))
+
+(executable
+ (name test_internal_toupper_cli)
+ (modules test_internal_toupper_cli)
+ (libraries unix yojson))
+
+(rule
+ (alias native-tests)
+ (deps ../../examples/internal-toupper.hc)
+ (action
+  (run
+   %{exe:test_internal_toupper_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/internal-toupper.hc})))
+
 (executable
  (name test_native_execution)
  (modules test_native_execution test_native_expression)

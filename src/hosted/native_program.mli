@@ -54,7 +54,11 @@ val compile :
     call metadata. Native Print retains the bounded interpreter format domain:
     ordinary bytes plus [%%], [%d], [%s] and [%c], with dynamic owned format and
     string pointers. A source-defined [Print] or [PutChars] remains an ordinary
-    direct source call. Effectful initializers, escaping/deeper pointers,
+    direct source call. The supported source-owned internal declarations are
+    [IC_STRLEN] with one U8 pointer and [IC_TOUPPER] with one U8 scalar, both
+    returning I64. Internal integer arguments retain full computed words without
+    formal-width storage; original numeric targets and sealed call phases
+    control admission. Effectful initializers, escaping/deeper pointers,
     automatic array initializers and other unsupported declarations/defaults
     reject before native entry. This never interprets ordinary commands or
     allocates executable memory. Parser warnings retain their original source

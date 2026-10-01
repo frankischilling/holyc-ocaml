@@ -253,8 +253,8 @@ let parameter_type parameter =
   parameter |> Headers.parameter_type_reference
   |> Sema.Type_reference.resolved_type
 
-let strlen_shape ~header ~arguments ~variadic_count_type ~variadic_count
-    ~variadic_arguments ~result_type =
+let intrinsic_shape opcode ~header ~arguments ~variadic_count_type
+    ~variadic_count ~variadic_arguments ~result_type =
   let parameters =
     header |> Headers.function_signature |> Headers.signature_parameters
   in
@@ -267,7 +267,9 @@ let strlen_shape ~header ~arguments ~variadic_count_type ~variadic_count
   | [ parameter ], [ Provided _ ] ->
       Headers.parameter_default parameter = None
       && Headers.parameter_register_requests parameter = []
-      && primitive (parameter_type parameter) 1 Sema.Primitive_type.U8
+      && primitive (parameter_type parameter)
+           (if opcode = Opcode.Ic_strlen then 1 else 0)
+           Sema.Primitive_type.U8
   | _ -> false
 
 let lower_intrinsic ?frame ?globals ?lower_call ~span ~instruction_id ~value_id
@@ -574,16 +576,16 @@ let lower ?frame ?globals ?lower_call ~instruction_id ~value_id ~target result =
                     arguments )
                 with
                 | ( Records.Internal_operation,
-                    Some Opcode.Ic_strlen,
+                    Some ((Opcode.Ic_strlen | Opcode.Ic_toupper) as opcode),
                     [ Provided argument ] )
-                  when strlen_shape
+                  when intrinsic_shape opcode
                          ~header:(Resolution.direct_active_header direct)
                          ~arguments ~variadic_count_type ~variadic_count
                          ~variadic_arguments ~result_type ->
                     lower_intrinsic ?frame ?globals ?lower_call ~span
                       ~instruction_id ~value_id ~source
                       ~symbol:(Resolution.direct_target_symbol direct)
-                      ~opcode:Opcode.Ic_strlen ~argument ~result_type ()
+                      ~opcode ~argument ~result_type ()
                 | Records.Internal_operation, _, _ -> Ok Unsupported_call
                 | _, _, _ -> (
                     match call_opcode access with
@@ -636,16 +638,16 @@ let lower_top_level ?frame ?globals ?lower_call ~instruction_id ~value_id
                     arguments )
                 with
                 | ( Records.Internal_operation,
-                    Some Opcode.Ic_strlen,
+                    Some ((Opcode.Ic_strlen | Opcode.Ic_toupper) as opcode),
                     [ Provided argument ] )
-                  when strlen_shape
+                  when intrinsic_shape opcode
                          ~header:(Result.top_level_direct_header typed)
                          ~arguments ~variadic_count_type ~variadic_count
                          ~variadic_arguments ~result_type ->
                     lower_intrinsic ?frame ?globals ?lower_call ~span
                       ~instruction_id ~value_id ~source
                       ~symbol:(Result.top_level_direct_target_symbol typed)
-                      ~opcode:Opcode.Ic_strlen ~argument ~result_type ()
+                      ~opcode ~argument ~result_type ()
                 | Records.Internal_operation, _, _ -> Ok Unsupported_call
                 | _, _, _ -> (
                     match call_opcode access with
