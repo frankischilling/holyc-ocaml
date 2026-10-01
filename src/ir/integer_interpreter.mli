@@ -43,6 +43,9 @@ val observe_task_function_selection :
   selection:Frontend.Parser.reference_selection ->
   selected:Retained_function.t ->
   (unit, string) result
+(** Admits the original selected parser entry and retained publication. A shared
+    record may have advanced through nested headers since that publication; only
+    its original native allocation and forward history permit selection. *)
 
 val capture_task_call_start :
   task_state ->

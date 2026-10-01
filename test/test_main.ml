@@ -9,6 +9,7 @@ let () =
       ("native scalar functions", Test_native_scalar_functions.tests);
       ("internal byte length", Test_internal_strlen.tests);
       ("internal character conversion", Test_internal_toupper.tests);
+      ("retained internal headers", Test_retained_internal.tests);
       ("internal call authority", Test_internal_strlen_authority.tests);
       ("internal source ownership", Test_internal_strlen_source.tests);
       ("integer goto execution", Test_integer_goto_execution.tests);

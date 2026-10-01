@@ -21,11 +21,12 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 3)
+    (Array.length Sys.argv = 4)
     "expected compiler and maintained example paths"
 
 let compiler = Sys.argv.(1)
 let example = Sys.argv.(2)
+let retained_example = Sys.argv.(3)
 
 let invoke ~target ~mode ?(steps = 100_000) ?(status = 0) path =
   let arguments =
@@ -117,3 +118,29 @@ let () =
               output rejected "" 0 0))
         [ "jit"; "aot" ])
     [ "ir"; "host-jit" ]
+
+let () =
+  List.iter
+    (fun mode ->
+      let steps = if mode = "jit" then 50 else 49 in
+      let report = invoke ~target:"ir" ~mode ~steps retained_example in
+      require
+        (member "outcome" report = `String "success")
+        "retained example outcome";
+      require
+        (member "executed_steps" report = `Int steps)
+        "retained cumulative work";
+      require
+        (report |> member "final_value" |> member "bits"
+       = `String "0x000000000000002a")
+        "retained generated I64 42";
+      output report "413a33" 3 55;
+      let below =
+        invoke ~target:"ir" ~mode ~steps:(steps - 1) ~status:1 retained_example
+      in
+      error below "HCIRVM0007";
+      output below "413a33" 3 55;
+      let native = invoke ~target:"host-jit" ~mode ~status:1 retained_example in
+      error native "HCPP0008";
+      output native "" 0 0)
+    [ "jit"; "aot" ]

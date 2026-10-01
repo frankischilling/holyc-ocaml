@@ -53,6 +53,10 @@ pinned non-template form: `IC_CALL_START`, an unpushed argument, `IC_STRLEN`, th
 `IC_CALL_END` with the scalar result. There is no ordinary call or stack cleanup.
 The checked intrinsic records remain separate from ordinary runtime-call records.
 
+[Retained IR tasks](retained-internal.md) admit numeric internal publications
+and header installation at their original source events. Nested headers retain
+the current installed target independently from the parameter cursor.
+
 ## Reads and execution limits
 
 Every reached byte probe checks the owned object's lifetime, extent and

@@ -315,36 +315,41 @@ let intrinsic_source_selection = function
   | Function_output _ | Top_level_output _ -> None
 
 let intrinsic_source_binding site =
-  Functions.declaration_site_source_binding site
+  match Functions.declaration_site_native_snapshot site with
+  | Some snapshot ->
+      Option.bind (Sema.Function_record_phase.internal_binding snapshot)
+        (fun header ->
+          header.Frontend.Parser.function_publication.function_header.binding)
+  | None ->
+      if
+        Functions.declaration_site_source_kind site = Functions.Intern
+        && Functions.declaration_site_kind site = Functions.Intern
+      then Functions.declaration_site_source_binding site
+      else None
 
 let intrinsic_opcode_of_source source =
   match intrinsic_source_selection source with
   | Some (declaration, record)
     when Records.call_access record = Records.Internal_operation -> (
       let site = Functions.resolved_declaration_site declaration in
-      if
-        Functions.declaration_site_source_kind site <> Functions.Intern
-        || Functions.declaration_site_kind site <> Functions.Intern
-      then None
-      else
-        match intrinsic_source_binding site with
-        | Some
-            {
-              Ast.kind = Ast.Intern;
-              spelling = "_intern";
-              target = Ast.Expression_binding_target target;
-              _;
-            } ->
-            Option.bind (retained_integer_value target) (fun value ->
-                if value < 0L || value > Int64.of_int Int.max_int then None
-                else
-                  match
-                    Generated.Intermediate_codes.of_code (Int64.to_int value)
-                  with
-                  | Some ((Opcode.Ic_strlen | Opcode.Ic_toupper) as opcode) ->
-                      Some opcode
-                  | Some _ | None -> None)
-        | Some _ | None -> None)
+      match intrinsic_source_binding site with
+      | Some
+          {
+            Ast.kind = Ast.Intern;
+            spelling = "_intern";
+            target = Ast.Expression_binding_target target;
+            _;
+          } ->
+          Option.bind (retained_integer_value target) (fun value ->
+              if value < 0L || value > Int64.of_int Int.max_int then None
+              else
+                match
+                  Generated.Intermediate_codes.of_code (Int64.to_int value)
+                with
+                | Some ((Opcode.Ic_strlen | Opcode.Ic_toupper) as opcode) ->
+                    Some opcode
+                | Some _ | None -> None)
+      | Some _ | None -> None)
   | Some _ | None -> None
 
 type fixed_value =

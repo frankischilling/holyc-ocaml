@@ -12457,8 +12457,25 @@ identity = "The exact retained numeric target, original declaration, I64 return 
 lowering = "IC_CALL_START, the unpushed argument producer, operand-bearing IC_TOUPPER with no direct result, then IC_CALL_END with its I64 result. There is no ordinary call, cleanup or invented host address."
 execution = "Signed full-word comparison changes ASCII a through z to A through Z; other words retain their bits. The U8 formal does not truncate an internal argument. Declared-width storage loads and full computed narrow return bits remain distinct."
 resources = "One ordinary instruction tick, no extra byte probes, output work or semantic callee activation. Native result staging and encoded instructions remain bounded by existing frame and code quotas. Reached argument and later execution faults preserve prior effects."
-excluded = ["retained #exe internal-header/call-record joining under #684", "general internal binding-expression evaluation", "other internal operations and signatures", "floating arguments", "complete runtime, ABI, artifact, actual-loader and bootstrap gates"]
+excluded = ["general internal binding-expression evaluation", "other internal operations and signatures", "floating arguments", "complete runtime, ABI, artifact, actual-loader and bootstrap gates"]
 verification_boundary = "Independent ASCII alphabets, all bytes, full-word controls, source/API/CLI execution in both modes and targets, both native ABI compilations, repeated images, exact/one-below resource limits and original/foreign/mutated authority controls. No new TempleOS oracle capture."
+
+[[feature]]
+id = "HC-RETAINED-INTERNAL-HEADERS"
+description = "Original numeric internal headers execute ToUpper and StrLen in retained IR tasks through authentic publication and installation phases."
+status = "implemented"
+issue = 753
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsStmt.HC:62-146,244-249,1055-1061", "Compiler/PrsExp.HC:440-586", "Kernel/KernelB.HH:58,61"]
+implementation = ["src/driver/task_declarations.ml", "src/sema/function_record_phase.ml", "src/sema/function_resolution.ml", "src/sema/function_record_classification.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_retained_internal.ml", "test/test_provisional_function_authority.ml", "test/native/test_internal_toupper_cli.ml", "examples/stream-internal.hc"]
+documentation = ["docs/retained-internal.md", "docs/internal-toupper.md", "docs/internal-strlen.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+identity = "Original live or activated publications advance the exact retained allocation. Internal installation requires the original completed numeric header. Selected parser entries and admitted references retain their native identity and forward revision history; metadata copies and replay grant no authority."
+timing = "Fresh incomplete headers remain undefined externs through parameter/default/closing lookahead. Completed numeric internal headers install before command completion. Nested installed target receipts remain independent from current member ownership; resumed ordinary headers preserve the installed operation and later internal completion installs its own target."
+execution = "Supported calls reuse checked IC_TOUPPER and IC_STRLEN paths, including retained function bodies and generated source. Complete non-extern records cause later JIT headers to allocate fresh shadows."
+resources = "Task setup, retained calls and generated code share cumulative step and output budgets. Exact and one-below limits preserve reached output without reporting a final result on failure."
+excluded = ["general binding-expression evaluation", "other internal operations and signatures", "native frontend #exe execution under #704", "complete compiler, artifact, actual-loader and bootstrap gates"]
+verification_boundary = "Both outer modes, public source and CLI, all bytes, shared/fresh/nested records, original installation and replay controls, unsupported bindings and exact budgets. No new TempleOS oracle capture."
 
 [[feature]]
 id = "HC-RELEASE-CONTRACT"

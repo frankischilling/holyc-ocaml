@@ -254,7 +254,27 @@ let apply_header declaration (state : declaration_state) (record : record) =
 let apply_binding compilation_mode declaration (state : declaration_state)
     (record : record) =
   let site = Function_resolution.resolved_declaration_site declaration in
-  if Function_resolution.declaration_site_is_pending site then record
+  let installed_internal_header =
+    Function_resolution.declaration_site_phase site
+    = Function_resolution.Completed_header
+    && Function_resolution.declaration_site_kind site
+       = Function_resolution.Intern
+    &&
+    match
+      ( Function_resolution.declaration_site_header_source site,
+        Function_resolution.declaration_site_native_snapshot site )
+    with
+    | Some source, Some snapshot ->
+        let header = Compiler_record.declared_function_source source in
+        Option.fold ~none:false ~some:(( == ) header)
+          (Function_record_phase.internal_binding snapshot)
+        && Function_record_phase.is_extern snapshot = Some false
+    | _ -> false
+  in
+  if
+    Function_resolution.declaration_site_is_pending site
+    && not installed_internal_header
+  then record
   else
     match Function_resolution.declaration_site_kind site with
     | Function_resolution.Extern -> record

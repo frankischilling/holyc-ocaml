@@ -1,5 +1,15 @@
 # Testing holyc-ocaml
 
+Retained internal tests cover original ToUpper and StrLen publications, generated
+code, retained bodies, all byte inputs, reused and fresh records, nested/default/
+closing lookahead and unsupported target/signature faults with prior output.
+Installation controls distinguish an authentic native header from pending
+metadata without a snapshot and reject replayed transitions. The CLI runs
+`examples/stream-internal.hc` in both IR modes, capturing `A:3` with I64 42 and
+55 output-work units. Exact/one-below cumulative steps are 50/49 in JIT and
+49/48 in AOT. Native frontend rejection of `#exe` remains explicit.
+See [retained internal calls](retained-internal.md).
+
 Internal character-conversion tests cover every byte, full signed/high-word
 inputs, computed narrow return bits, byte storage, nested and recursive calls,
 renamed declarations and same-name source bodies. Foreign contexts and altered

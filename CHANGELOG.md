@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added numeric ToUpper and StrLen declarations to retained `#exe` tasks in both
+  outer source modes. Calls preserve original publication, shared header timing
+  and installed target receipts through nested lookahead and generated code.
+
 - Added checked `IC_TOUPPER` internal calls to interpreted and native JIT/AOT
   source execution. ASCII conversion preserves full computed argument words,
   original declaration/call ownership and existing instruction/frame limits.

@@ -1116,7 +1116,15 @@ let observe_task_function_selection task ~namespace ~selection ~selected =
         in
         source_matches
         && Option.fold ~none:false
-             ~some:(Retained_function.same selected)
+             ~some:(fun current ->
+               Retained_function.metadata current
+               |> Sema.Outer_environment.function_declaration
+               |> F.resolved_declaration_site
+               |> F.declaration_site_native_snapshot
+               |> Option.fold ~none:false ~some:(fun current_snapshot ->
+                   N.same_revision snapshot current_snapshot
+                   || Result.is_ok
+                        (N.transition ~earlier:snapshot ~later:current_snapshot)))
              (function_record_head task snapshot))
       snapshot
   in

@@ -129,12 +129,23 @@ val same_identity : snapshot -> snapshot -> bool
 val same_revision : snapshot -> snapshot -> bool
 
 val same_cursor : snapshot -> snapshot -> bool
-(** Exact native member slots, owner, active count and variadic flag; completed
-    body bookkeeping may change without changing the argument cursor. *)
+(** Exact native member slots, owner, active count, variadic flag and installed
+    numeric internal source. Body bookkeeping can otherwise change without
+    changing the argument cursor. *)
 
 val native_source : snapshot -> Frontend.Parser.function_publication
 (** Latest header installed on the shared record; distinct from this snapshot's
     immutable per-publication source transcript after nested reuse. *)
+
+val internal_binding :
+  snapshot -> Frontend.Parser.completed_function_header option
+(** Original header that installed the current numeric internal executable.
+    Independent of the current member owner and immutable source transcript.
+    Initial publications and unsupported executable installations grant none. *)
+
+val has_literal_internal_target : Frontend.Parser.function_publication -> bool
+(** Checks the original expanded integer-literal target. This alone grants no
+    installation or runtime authority. *)
 
 val native_members : snapshot -> Provisional_function.member list
 (** Original concrete member sources in the current native cursor, including
@@ -160,8 +171,8 @@ val variadic_tail :
 
     This component tracks header member/count state, extern identity and the
     sticky ellipsis flag. It does not prove evaluated defaults, other native
-    flags, executable address, return type, ABI layout or body-local state
-    during body parsing. Those require the caller's independently checked
+    flags, general executable addresses, return type, ABI layout or body-local
+    state during body parsing. Those require the caller's independently checked
     lifecycle and typed metadata, including native member type validity.
     Duplicate member insertion checks use the actual retained native slots,
     including argc/argv and the native pad/reserved/_anon_ exemptions. A

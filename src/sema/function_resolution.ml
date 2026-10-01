@@ -792,7 +792,15 @@ let resolve_validated ~previous compilation_mode
       source_binding = declaration.source_binding;
       compiler_option_mask = declaration.compiler_option_mask;
       state =
-        (if declaration.pending_header then
+        (if
+           Option.fold ~none:false
+             ~some:(fun snapshot ->
+               Function_record_phase.is_extern snapshot = Some false
+               && Option.is_some
+                    (Function_record_phase.internal_binding snapshot))
+             declaration.native_snapshot
+         then Resolved
+         else if declaration.pending_header then
            match declaration.phase_current with
            | Some current -> current.site.state
            | None -> Unresolved_extern

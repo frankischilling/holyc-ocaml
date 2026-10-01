@@ -1,5 +1,14 @@
 # Reference source map
 
+Issue #753 connects `Compiler/PrsStmt.HC:62-146,244-249` to retained numeric
+internal declarations. Header joining finishes parameter and closing lookahead
+before installing the numeric executable and internal/non-extern flags.
+`Compiler/PrsExp.HC:440-586` reads the actual shared record at argument and
+emission phases. The retained task preserves installed target receipts apart
+from the current member owner and authenticates selected publications through
+their original native identity and forward history.
+See [retained internal calls](retained-internal.md).
+
 Issue #751 connects `Kernel/KernelB.HH:58` to the ToUpper consumers in
 `Compiler/Lex.HC:409,519-522,656` and `Kernel/StrPrint.HC:164,403`.
 `Compiler/PrsExp.HC:440-586` retains supplied argument computation and emits

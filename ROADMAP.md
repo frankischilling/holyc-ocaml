@@ -1,5 +1,10 @@
 # holyc-ocaml roadmap
 
+Issue #753 connects supported numeric internal declarations to retained IR
+tasks, including shared records changed during nested header lookahead.
+See [retained internal calls](docs/retained-internal.md). General binding
+evaluation and native retained source execution remain under #695 and #704.
+
 The PutChars increment under #705 captures native packed-character output through
 original provider calls and explicit byte/work limits. The checked Print
 provider also executes natively; the broader runtime-provider connection
