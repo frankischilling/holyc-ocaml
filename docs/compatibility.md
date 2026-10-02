@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+Issue #775 implements [owned scalar pointer addition](pointer-addition.md)
+in both modes and execution targets. Original objects and full computed offset
+words survive scaling and canonical reference formation. Bounds, initialization
+and overflow remain checked. Other pointer operators and broader pointer
+storage/lifetime domains remain under #687/#699/#700.
+
 Issue #773 implements [owned swap calls](swap-internals.md) in both source
 modes and execution targets. Original numeric U0 declarations exchange two
 matching-width integer/Bool cells after both reads succeed. Retained defaults

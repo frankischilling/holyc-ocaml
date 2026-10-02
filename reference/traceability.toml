@@ -12655,3 +12655,20 @@ documentation = ["docs/release-contract.md", "ROADMAP.md", "docs/compatibility.m
 identity = "The existing manifest fixes each source set by canonical Git revision, exact path prefix/extension, count, byte size and an ordinal path/blob membership digest. Inventory order does not replace project include order."
 resources = "All required language, runtime, target, actual-loader, bootstrap and release gates remain independently blocking under #682 and #736; a passing inventory check establishes source membership only."
 verification_boundary = "This feature implements the release definition and membership guards. It does not implement missing artifact, loader, corpus-phase or bootstrap consumers, qualify an untested host, or establish compiler completion."
+
+[[feature]]
+id = "HC-OWNED-SCALAR-POINTER-ADDITION"
+description = "Left-pointer addition scales original integer offsets and retains live owned scalar objects through IR, retained tasks and hosted native programs."
+status = "implemented"
+issue = 775
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsExp.HC:14-62,165-185", "Compiler/OptLib.HC:9-14,96-179,483-509", "Compiler/LexLib.HC:249-271", "Compiler/CMain.HC:128-141"]
+implementation = ["src/sema/function_call_expression_result.ml", "src/ir/expression_lowering.ml", "src/ir/integer_interpreter.ml", "src/ir/runtime_call_context.ml", "src/ir/runtime_call_context.mli"]
+tests = ["test/test_pointer_addition.ml", "test/native/test_pointer_addition_execution.ml", "test/test_pointer_addition_cli.ml", "examples/pointer-addition.hc", "examples/stream-pointer-addition.hc"]
+documentation = ["docs/pointer-addition.md", "docs/integer-pointers.md", "docs/native-pointers.md", "docs/intermediate-representation.md", "docs/holyc-language.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+identity = "Original one-level integer/Bool pointer types, checked producers and live owned object/extent/offset/initialization/lifetime survive addition. The left reference is captured before right-side effects. Original pointer scale/add records and their transitive producers are sealed with the completed source bundle. Foreign contexts, copies and type-compatible operand replacement reject."
+execution = "Checked original pointee stride, multiplication, byte-offset addition and reference materialization reuse the shared IR/native owned model. Full computed offset words remain distinct from stored narrowing. One-past formation is valid; access requires a real original cell."
+resources = "Scale/add overflow, negative/beyond-extent offsets, unknown pointers/words/cells and original fault work remain checked. Native evaluation reuses stable 32-byte canonical records with no per-evaluation allocation. Existing runtime/preparation/storage/frame/code/call/output limits remain."
+preparation = "Retained defaults execute their original offset read once and retain the successful word after later object writes. Native closed runtime-load preparation and retained frontend publication remain separate."
+excluded = ["subtraction/difference/comparisons/compound pointer updates under #687/#699", "pointer escapes/returns/persistent variables/casts/deeper pointers", "aggregate pointees under #700", "direct multi-rank array addition", "full optimizer under #696/#697", "native retained frontend under #704", "larger native frame/code limits under #703", "full ABI, artifacts, actual-loader and bootstrap gates"]
+verification_boundary = "116 independent values across all nine pointee/offset types, both modes/targets, caller/persistent/literal aliases, loops/recursion/effectful operands, one-past/unknown/bounds/scale/add faults, full computed words, retained defaults, public CLI, changed/copied/transitive producers/foreign contexts, both ABIs, fresh images and exact/one-below runtime/preparation/code/frame limits. No new TempleOS oracle capture."

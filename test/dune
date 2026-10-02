@@ -1,4 +1,18 @@
 (test
+ (name test_pointer_addition_cli)
+ (modules test_pointer_addition_cli)
+ (libraries unix yojson)
+ (deps
+  ../examples/pointer-addition.hc
+  ../examples/stream-pointer-addition.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/pointer-addition.hc}
+   %{dep:../examples/stream-pointer-addition.hc})))
+
+(test
  (name test_swap_cli)
  (modules test_swap_cli)
  (libraries unix yojson)
@@ -227,6 +241,7 @@
   test_internal_mod_u64
   test_canonical_bool
   test_pointer_bit_internals
+  test_pointer_addition
   test_swap_internals
   test_retained_internal
   test_internal_strlen_authority

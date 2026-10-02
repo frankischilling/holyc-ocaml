@@ -4,6 +4,12 @@ Report suspected vulnerabilities through GitHub private vulnerability reporting 
 
 ## Untrusted source files
 
+Pointer addition retains a captured live owned object, original pointee type
+and extent. Checked scaling and byte-offset addition precede materialization;
+one-past addresses cannot be dereferenced. No numeric word or guessed host
+address can supply reference authority. Canonical records preserve aliases
+across repeated evaluation and remain bounded by native frame/code quotas.
+
 Swap internal calls accept only original numeric U0 declarations and two
 sealed producers for live owned scalar cells of matching width. Both bounds
 and initialization checks finish before either cell is written. Original

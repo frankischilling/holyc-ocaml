@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added owned scalar pointer addition to IR, retained tasks and hosted native
+  programs. Original pointee scaling, full computed offsets, alias snapshots,
+  initialization, bounds, overflow and existing work/image limits stay checked.
+
 - Added original SwapI64/SwapU32/SwapU16/SwapU8 calls to IR, retained tasks and
   hosted native execution. Both owned scalar cells are read before either
   write; calls complete actual U0. Original numeric signatures, pointer roles,

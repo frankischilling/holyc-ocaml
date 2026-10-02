@@ -47,7 +47,10 @@ val create :
     publication. Scheduled initializer calls must belong to that exact checked
     initializer expression, including nested argument expressions; implicit
     output statements cannot belong to initializer regions. Matching spellings
-    or table-local symbol IDs do not establish ownership. *)
+    or table-local symbol IDs do not establish ownership. Pointer scale/add
+    instructions and their original transitive producers are also sealed;
+    replacing them with type-compatible records does not retain source
+    authority. *)
 
 val matches :
   t ->
@@ -55,6 +58,8 @@ val matches :
   initialization:Global_initialization.t option ->
   functions:Function_body.t list ->
   bool
+(** Require the original bundle and immutable pointer-offset producer records.
+*)
 
 val find_start :
   t -> owner:owner -> Instruction_sequence.Instruction_id.t -> call option

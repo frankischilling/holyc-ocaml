@@ -1,5 +1,9 @@
 # holyc-ocaml
 
+Issue #775 executes [owned scalar pointer addition](docs/pointer-addition.md)
+through IR, retained tasks and hosted native programs. Scaled offsets retain
+original integer/Bool objects, pointer types, extents and stable aliases.
+
 Issue #773 connects [owned swap calls](docs/swap-internals.md) to IR, retained
 tasks and hosted native execution. The four original widths exchange live
 scalar cells, preserve their declared storage and complete actual U0.

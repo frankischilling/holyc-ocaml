@@ -3177,7 +3177,7 @@ let index_offset types (description : Sequence.description) =
           Some (Supported (expected_type, index_type, computation_type)) )
         when Type.equal pointer stride_type
              && stride > 0L
-             && Option.is_some (return_word_type index_type) ->
+             && Option.is_some (function_return_word_type index_type) ->
           Index_offset
             ( pointer,
               stride,

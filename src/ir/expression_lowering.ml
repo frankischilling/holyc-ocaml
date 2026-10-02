@@ -2187,6 +2187,50 @@ let plan ?frame ?globals ~allow_calls root =
                   | Error item, _ | _, Error item -> error := Some item
                   | Ok (left, right), Ok span -> (
                       if
+                        opcode = Opcode.Ic_add && conversion = Keep_result
+                        && (Option.is_some frame || Option.is_some globals)
+                        &&
+                        match
+                          ( checked_frame_value left,
+                            checked_frame_integer right,
+                            checked_frame_value result )
+                        with
+                        | ( Ok (Checked_type pointer),
+                            Ok (Checked_type _),
+                            Ok (Checked_type target) ) ->
+                            Type.pointer_depth pointer = 1
+                            && Type.equal pointer target
+                            && Option.is_some (pointer_element_size pointer)
+                        | _ -> false
+                      then
+                        let pointer_type =
+                          match checked_frame_value result with
+                          | Ok (Checked_type pointer) -> pointer
+                          | _ -> assert false
+                        in
+                        let step =
+                          {
+                            indexed_result = result;
+                            indexed_base = left;
+                            index_value = right;
+                            index_stride =
+                              Option.get (pointer_element_size pointer_type);
+                            index_type = pointer_type;
+                            index_span = span;
+                          }
+                        in
+                        (* PrsAddOp and OptFixSizeOf scale the original integer
+                           by the pointee width. Reuse checked offset formation,
+                           then materialize the canonical owned reference. *)
+                        pending :=
+                          Visit { result = left; conversion = Keep_result }
+                          :: Emit_index_stride step
+                          :: Visit { result = right; conversion = Keep_result }
+                          :: Finish_index_address step
+                          :: Finish_materialize_array
+                               { result; operand = result; pointer_type; span }
+                          :: !pending
+                      else if
                         Opcode.equal opcode Opcode.Ic_assign
                         || compound_assignment opcode
                       then
