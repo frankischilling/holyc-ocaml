@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added source-owned Bsf/Bsr runtime calls to IR, retained tasks and hosted
+  native execution. Full words, the -1 zero sentinel, original argument
+  authority and cumulative limits remain checked. Native scans use pinned
+  qword encoder forms; closed preparation keeps its separate boundary.
+
 - Added source-owned signed and unsigned Min/Max internal calls to IR, retained
   tasks and hosted native execution. Two original argument producers retain
   their types, roles and right-to-left effects. Full-word results and cumulative

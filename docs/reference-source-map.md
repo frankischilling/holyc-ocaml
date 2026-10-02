@@ -1,5 +1,12 @@
 # Reference source map
 
+Issue #765 connects `Kernel/KernelB.HH:9-12`,
+`Compiler/CompilerA.HH:169-170` and `Compiler/PrsExp.HC:440-586` to Bsf/Bsr.
+`OptPass789A.HC:806-819` and `OpCodes.DD:724-731` supply full-word scan and
+encoder contracts. `Asm.HC:959-966` and OptPass012's power-of-two rules are
+consumers; its immediate rewrite at 912-933 remains separate. See
+[bit-scan internal calls](internal-bitscan.md).
+
 Issue #763 connects `Kernel/KernelB.HH:99-102`,
 `Compiler/CompilerA.HH:223-226` and `Compiler/PrsExp.HC:440-586` to the four
 source-owned two-argument Min/Max calls. `OptPass789A.HC:867-878` and

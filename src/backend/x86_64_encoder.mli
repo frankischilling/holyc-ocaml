@@ -91,6 +91,8 @@ type instruction =
   | Pop_rbp  (** Restore the caller's RBP immediately before returning. *)
   | Unary of unary * register
   | Binary of binary * register * register
+  | Bsf of register * register
+  | Bsr of register * register
   | Shift_cl of shift * register
       (** Shift the full-width destination by CL. [Shl] is left shift, [Shr]
           logical right shift, and [Sar] arithmetic right shift. The count is

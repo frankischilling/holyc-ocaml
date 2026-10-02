@@ -1,0 +1,357 @@
+open Holyc_lib
+module VM = Ir_integer_interpreter
+module A = Test_internal_strlen_authority
+module Encoder = X86_64_encoder
+
+let modes = [ Preprocessor.Jit; Preprocessor.Aot ]
+
+let declaration =
+  "public _intern 0x7e I64 Bsf(I64 bits);\n\
+   public _intern 0x7f I64 Bsr(I64 bits);"
+
+let run ?(max_steps = 100_000) ?(max_initializer_steps = 100_000) mode contents
+    =
+  let session = Session.create () in
+  let source =
+    Session.add_source session ~path:"internal-bitscan.hc" ~contents
+  in
+  let config =
+    match Preprocessor.Config.create ~compilation_mode:mode () with
+    | Ok value -> value
+    | Error message -> Alcotest.fail message
+  in
+  run_integer_program_report ~max_initializer_steps session ~config ~source
+    ~max_steps
+
+let success mode contents =
+  let report = run mode contents in
+  match integer_program_report_outcome report with
+  | Ok checked -> (report, checked.value)
+  | Error errors -> Alcotest.fail (A.diagnostics errors)
+
+let word label type_ bits execution =
+  match VM.final_value execution with
+  | Some actual ->
+      Alcotest.(check bool) (label ^ " class") true (actual.type_ = type_);
+      Alcotest.(check int64) (label ^ " bits") bits actual.bits
+  | None -> Alcotest.fail (label ^ " has no final value")
+
+let cases =
+  let case label expression bits =
+    (label, declaration ^ expression, VM.I64, bits)
+  in
+  [
+    case "forward zero sentinel" "Bsf(0);" (-1L);
+    case "reverse zero sentinel" "Bsr(0);" (-1L);
+    case "forward lowest bit" "Bsf(1);" 0L;
+    case "reverse lowest bit" "Bsr(1);" 0L;
+    case "forward second bit" "Bsf(2);" 1L;
+    case "reverse second bit" "Bsr(2);" 1L;
+    case "forward signed high bit" "Bsf(0x8000000000000000);" 63L;
+    case "reverse signed high bit" "Bsr(0x8000000000000000);" 63L;
+    case "forward low 32 boundary" "Bsf(0x80000000);" 31L;
+    case "reverse low 32 boundary" "Bsr(0x80000000);" 31L;
+    case "forward high 32 boundary" "Bsf(0x100000000);" 32L;
+    case "reverse high 32 boundary" "Bsr(0x100000000);" 32L;
+    case "forward all bits" "Bsf(0xffffffffffffffff);" 0L;
+    case "reverse all bits" "Bsr(0xffffffffffffffff);" 63L;
+    case "forward signed maximum" "Bsf(0x7fffffffffffffff);" 0L;
+    case "reverse signed maximum" "Bsr(0x7fffffffffffffff);" 62L;
+    case "forward mixed high word" "Bsf(0x8000000000000400);" 10L;
+    case "reverse mixed high word" "Bsr(0x8000000000000400);" 63L;
+    case "each of 64 bits"
+      "I64 Check(){I64 \
+       i,errors=0;for(i=0;i<64;i++){if(Bsf(1<<i)!=i||Bsr(1<<i)!=i)errors++;}return \
+       errors;}Check();"
+      0L;
+    case "computed narrow word" "U8 Input(){return 1<<42;}Bsf(Input());" 42L;
+    case "stored narrow word" "U8 bits=0x40000000000;Bsr(bits);" (-1L);
+    case "effectful argument"
+      "I64 N=0;I64 Input(){N++;return 1<<42;}Bsf(Input())+N;" 43L;
+    case "nested scans" "I64 F(){return Bsf(1<<Bsr(1<<32))+Bsr(1<<10);}F();" 42L;
+    case "recursive source caller"
+      "I64 F(I64 n){if(n)return Bsf(1<<F(n-1));return 42;}F(4);" 42L;
+    case "scan consumes unsigned internal word"
+      "_intern 0xae U64 Larger(U64 a,U64 b);Bsf(Larger(0x8000000000000000,1));"
+      63L;
+    case "binary internal consumes scan words"
+      "_intern 0xab I64 Smaller(I64 a,I64 \
+       b);Smaller(Bsf(0),Bsr(0x8000000000000000));"
+      (-1L);
+    ( "renamed numeric operation",
+      "_intern 0x7f I64 Highest(I64 bits);Highest(1<<42);",
+      VM.I64,
+      42L );
+    ( "ordinary spelling uses body",
+      "I64 Bsf(I64 bits){return bits+1;}Bsf(41);",
+      VM.I64,
+      42L );
+    ( "original macro target",
+      "#define OP 0x7e\n\
+       _intern OP I64 Lowest(I64 bits);\n\
+       #define OP 0x7f\n\
+       Lowest(0x8000000000000400);",
+      VM.I64,
+      10L );
+  ]
+
+let rejected =
+  [
+    "_intern 0x7e U64 Bad(I64 bits);Bad(1);";
+    "_intern 0x7f I64 Bad(U64 bits);Bad(1);";
+    "_intern 0x7e I64 Bad(U8 bits);Bad(1);";
+    "_intern 0x7f I64 Bad(I64 *bits);I64 n=1;Bad(&n);";
+    "_intern 0x7e I64 Bad(I64 bits,I64 extra);Bad(1,2);";
+    "_intern 0x7f I64 Bad(I64 bits,...);Bad(1,2);";
+    "_intern 0x7e I64 Bad(I64 bits=1);Bad();";
+    "_intern (0x7f) I64 Bad(I64 bits);Bad(1);";
+    "_intern 0x80 I64 Bad(I64 bits);Bad(1);";
+  ]
+
+let values () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (label, source, type_, bits) ->
+          let report, execution = success mode source in
+          word label type_ bits execution;
+          Alcotest.(check string)
+            "no output" ""
+            (integer_program_report_output_bytes report))
+        cases)
+    modes
+
+let signatures () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun source ->
+          match integer_program_report_outcome (run mode source) with
+          | Error (_ :: _) -> ()
+          | _ -> Alcotest.fail ("unsupported signature executed: " ^ source))
+        rejected)
+    modes
+
+let default_cases =
+  [
+    ("I64", "Bsf(0x40000000000)", 42L);
+    ("I64", "Bsr(0x40000000000)", 42L);
+    ("I64", "Bsf(0)", -1L);
+    ("I64", "Bsr(0)", -1L);
+  ]
+
+let limits () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (_, expression, expected) ->
+          let source =
+            declaration ^ "extern U0 Print(U8 *fmt,...);Print(\"kept\");"
+            ^ expression ^ ";"
+          in
+          let control, execution = success mode source in
+          let steps = VM.executed_steps execution in
+          (match
+             integer_program_report_outcome (run ~max_steps:steps mode source)
+           with
+          | Ok checked -> word "exact scan quota" VM.I64 expected checked.value
+          | Error errors -> Alcotest.fail (A.diagnostics errors));
+          let below = run ~max_steps:(steps - 1) mode source in
+          (match integer_program_report_outcome below with
+          | Error (first :: _) ->
+              Alcotest.(check string) "one below" "HCIRVM0007" first.code
+          | _ -> Alcotest.fail "one-below scan quota admitted");
+          Alcotest.(check string)
+            "reached bytes" "kept"
+            (integer_program_report_output_bytes below);
+          Alcotest.(check int)
+            "reached work"
+            (integer_program_report_output_work control)
+            (integer_program_report_output_work below))
+        default_cases)
+    modes
+
+let authority () =
+  let operations =
+    [
+      (Ir_opcode.Ic_bsf, "_intern 0x7e I64 F(I64 bits);F(1<<42);");
+      (Ir_opcode.Ic_bsr, "_intern 0x7f I64 F(I64 bits);F(1<<42);");
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (opcode, source) ->
+          let original = A.fixture ~source mode
+          and foreign = A.fixture ~source mode in
+          A.valid_control ~expected:42L original;
+          let context = A.Unit.runtime_calls foreign.unit_ in
+          A.rejects "foreign native context"
+            (A.compile ~runtime_calls:context original);
+          A.rejects "foreign VM context"
+            (A.execute ~runtime_calls:context original);
+          let mutations =
+            [
+              (fun (d : A.Seq.description) -> { d with flags = 1L });
+              (fun d -> { d with operands = [] });
+              (fun d -> { d with operands = d.operands @ d.operands });
+              (fun d ->
+                { d with result = Some { A.Seq.value_id = List.hd d.operands } });
+              (fun d -> { d with payload = Some (A.Seq.Integer 42L) });
+              (fun d -> { d with target_type = None });
+              (fun d ->
+                {
+                  d with
+                  opcode =
+                    (if opcode = Ir_opcode.Ic_bsf then Ir_opcode.Ic_bsr
+                     else Ir_opcode.Ic_bsf);
+                });
+            ]
+          in
+          List.iter
+            (fun transform ->
+              let original = A.fixture ~source mode in
+              let cell, description = A.find_cell original opcode in
+              Obj.set_field (Obj.repr cell) 0 (Obj.repr (transform description));
+              A.rejects "changed native scan" (A.compile original);
+              A.rejects "changed VM scan" (A.execute original))
+            mutations)
+        operations)
+    modes
+
+let fault_cases =
+  [ ("Bsf(Unknown());", "kept"); ("Bsr(Effect());", "keptright") ]
+
+let fault_source expression =
+  declaration
+  ^ "extern U0 Print(U8 *fmt,...);I64 Unknown(){I64 n;return n;}I64 \
+     Effect(){I64 n;Print(\"right\");return n;}Print(\"kept\");" ^ expression
+
+let faults () =
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (expression, expected) ->
+          let report = run mode (fault_source expression) in
+          (match integer_program_report_outcome report with
+          | Error (_ :: _) -> ()
+          | _ -> Alcotest.fail "unknown scan argument did not fault");
+          Alcotest.(check string)
+            "original reached output" expected
+            (integer_program_report_output_bytes report))
+        fault_cases)
+    modes
+
+let retained =
+  "#exe {" ^ declaration
+  ^ "I64 N=0;I64 Input(){N++;return 0x40000000000;}I64 Saved(I64 \
+     x=Bsf(Input())){return \
+     x;}N=0;if(Saved()!=42||N)Print(\"bad\");StreamPrint(\"%d;\",Saved()+Bsr(0)+1);}"
+
+let retained_values () =
+  List.iter
+    (fun mode ->
+      let report, execution = success mode retained in
+      word "retained result" VM.I64 42L execution;
+      Alcotest.(check int)
+        "original runtime work" 86
+        (VM.executed_steps execution);
+      Alcotest.(check int)
+        "original preparation work" 9
+        (Option.get (integer_program_report_preparation_work report));
+      Alcotest.(check string)
+        "default ran once" ""
+        (integer_program_report_output_bytes report);
+      let steps = VM.executed_steps execution in
+      (match
+         integer_program_report_outcome (run ~max_steps:steps mode retained)
+       with
+      | Ok checked -> word "exact runtime" VM.I64 42L checked.value
+      | Error errors -> Alcotest.fail (A.diagnostics errors));
+      (match
+         integer_program_report_outcome
+           (run ~max_steps:(steps - 1) mode retained)
+       with
+      | Error (_ :: _) -> ()
+      | _ -> Alcotest.fail "one-below retained runtime admitted");
+      (match
+         integer_program_report_outcome
+           (run ~max_initializer_steps:9 mode retained)
+       with
+      | Ok checked -> word "exact original preparation" VM.I64 42L checked.value
+      | Error errors -> Alcotest.fail (A.diagnostics errors));
+      let below = run ~max_initializer_steps:8 mode retained in
+      (match integer_program_report_outcome below with
+      | Error (_ :: _) -> ()
+      | _ -> Alcotest.fail "one-below preparation admitted");
+      Alcotest.(check int)
+        "failed original preparation work" 8
+        (Option.get (integer_program_report_preparation_work below));
+      List.iter
+        (fun (type_, expression, expected) ->
+          let source =
+            "#exe {" ^ declaration ^ type_ ^ " Saved(" ^ type_ ^ " x="
+            ^ expression ^ "){return x;}StreamPrint(\"%d;\",Saved());}"
+          in
+          let _, execution = success mode source in
+          word "original retained default" VM.I64 expected execution)
+        default_cases)
+    modes
+
+let hex bytes =
+  bytes |> String.to_seq
+  |> Seq.map (fun byte -> Printf.sprintf "%02x" (Char.code byte))
+  |> List.of_seq |> String.concat ""
+
+let encoder_bytes () =
+  let cases =
+    let open Encoder in
+    [
+      (Bsf (Rax, Rax), "480fbcc0");
+      (Bsf (Rcx, Rdx), "480fbcca");
+      (Bsf (R8, Rax), "4c0fbcc0");
+      (Bsf (Rax, R8), "490fbcc0");
+      (Bsf (R8, R11), "4d0fbcc3");
+      (Bsf (R11, R8), "4d0fbcd8");
+      (Bsf (R11, R11), "4d0fbcdb");
+      (Bsr (Rax, Rax), "480fbdc0");
+      (Bsr (Rcx, Rdx), "480fbdca");
+      (Bsr (R8, Rax), "4c0fbdc0");
+      (Bsr (Rax, R8), "490fbdc0");
+      (Bsr (R8, R11), "4d0fbdc3");
+      (Bsr (R11, R8), "4d0fbdd8");
+      (Bsr (R11, R11), "4d0fbddb");
+    ]
+  in
+  List.iter
+    (fun (instruction, expected) ->
+      Alcotest.(check string)
+        "independent scan encoding" expected
+        (hex (Encoder.encode instruction));
+      Alcotest.(check int) "exact qword scan size" 4 (Encoder.size instruction))
+    cases;
+  let instructions = List.map fst cases @ [ Encoder.Ret ] in
+  let expected = String.concat "" (List.map snd cases) ^ "c3" in
+  let bytes = String.length expected / 2 in
+  (match Encoder.encode_all ~max_code_bytes:bytes instructions with
+  | Ok encoded ->
+      Alcotest.(check string)
+        "exact aggregate scan bytes" expected (hex encoded)
+  | Error message -> Alcotest.fail message);
+  match Encoder.encode_all ~max_code_bytes:(bytes - 1) instructions with
+  | Error message ->
+      Alcotest.(check bool) "scan bound diagnostic" true (message <> "")
+  | Ok _ -> Alcotest.fail "one-below scan byte quota admitted"
+
+let tests =
+  [
+    Alcotest.test_case "independent full-word scans and callers" `Quick values;
+    Alcotest.test_case "original numeric signatures" `Quick signatures;
+    Alcotest.test_case "exact runtime limits and reached output" `Quick limits;
+    Alcotest.test_case "foreign and changed scan authority" `Quick authority;
+    Alcotest.test_case "argument faults retain original effects" `Quick faults;
+    Alcotest.test_case "retained defaults and generated source" `Quick
+      retained_values;
+    Alcotest.test_case "pinned qword and extended-register encoder bytes" `Quick
+      encoder_bytes;
+  ]

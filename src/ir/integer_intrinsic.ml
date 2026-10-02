@@ -1,8 +1,19 @@
-type unary = To_upper | To_bool | Absolute | Sign | Square_i64 | Square_u64
+type unary =
+  | To_upper
+  | To_bool
+  | Absolute
+  | Sign
+  | Square_i64
+  | Square_u64
+  | Scan_forward
+  | Scan_reverse
+
 type binary = Min_i64 | Min_u64 | Max_i64 | Max_u64
 
 let unary = function
-  | Opcode.Ic_toupper -> Some To_upper
+  | Opcode.Ic_bsf -> Some Scan_forward
+  | Ic_bsr -> Some Scan_reverse
+  | Ic_toupper -> Some To_upper
   | Ic_to_bool -> Some To_bool
   | Ic_abs_i64 -> Some Absolute
   | Ic_sign_i64 -> Some Sign
@@ -37,8 +48,14 @@ let argument_matches opcode type_ =
   | Ic_toupper -> primitive type_ 0 Sema.Primitive_type.U8
   | Ic_sqr_u64 | Ic_min_u64 | Ic_max_u64 ->
       primitive type_ 0 Sema.Primitive_type.U64
-  | Ic_to_bool | Ic_abs_i64 | Ic_sign_i64 | Ic_sqr_i64 | Ic_min_i64 | Ic_max_i64
-    -> primitive type_ 0 Sema.Primitive_type.I64
+  | Ic_bsf
+  | Ic_bsr
+  | Ic_to_bool
+  | Ic_abs_i64
+  | Ic_sign_i64
+  | Ic_sqr_i64
+  | Ic_min_i64
+  | Ic_max_i64 -> primitive type_ 0 Sema.Primitive_type.I64
   | _ -> false
 
 let result_matches opcode type_ =
@@ -46,6 +63,8 @@ let result_matches opcode type_ =
   | Opcode.Ic_to_bool -> primitive type_ 0 Sema.Primitive_type.U8
   | Ic_sqr_u64 | Ic_min_u64 | Ic_max_u64 ->
       primitive type_ 0 Sema.Primitive_type.U64
+  | Ic_bsf
+  | Ic_bsr
   | Ic_strlen
   | Ic_toupper
   | Ic_abs_i64
@@ -55,6 +74,17 @@ let result_matches opcode type_ =
   | Ic_max_i64 -> primitive type_ 0 Sema.Primitive_type.I64
   | _ -> false
 
+let bit_scan ~forward bits =
+  if bits = 0L then -1L
+  else
+    let rec find index =
+      if index < 0 || index > 63 then -1L
+      else if Int64.logand bits (Int64.shift_left 1L index) <> 0L then
+        Int64.of_int index
+      else find (index + if forward then 1 else -1)
+    in
+    find (if forward then 0 else 63)
+
 let apply operation bits =
   match operation with
   | To_upper -> if bits >= 97L && bits <= 122L then Int64.sub bits 32L else bits
@@ -62,6 +92,8 @@ let apply operation bits =
   | Absolute -> if bits < 0L then Int64.neg bits else bits
   | Sign -> if bits < 0L then -1L else if bits = 0L then 0L else 1L
   | Square_i64 | Square_u64 -> Int64.mul bits bits
+  | Scan_forward -> bit_scan ~forward:true bits
+  | Scan_reverse -> bit_scan ~forward:false bits
 
 let apply_binary operation left right =
   let comparison =

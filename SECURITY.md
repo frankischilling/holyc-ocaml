@@ -94,6 +94,13 @@ contexts and changed instructions before execution. Runtime admission keeps
 closed constant preparation separate; native default/initializer calls remain
 unsupported. See [unary integer internal calls](docs/internal-integers.md).
 
+Source-owned Bsf/Bsr calls validate the original numeric binding, I64 signature
+and argument producer. The interpreter examines at most 64 positions; native
+code uses checked qword encoder forms with explicit zero handling. These scalar
+operations add no host capability and retain existing instruction/image limits.
+Retained defaults use their owning source activation; closed preparation keeps
+its separate gate. See [bit-scan calls](docs/internal-bitscan.md).
+
 Source-owned signed and unsigned Min/Max calls validate both original argument
 producers, parameter roles and right-to-left order before execution. They expose
 only full-word selection, use the existing instruction and native image quotas,

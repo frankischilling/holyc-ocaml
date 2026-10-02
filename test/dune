@@ -1,4 +1,18 @@
 (test
+ (name test_internal_bitscan_cli)
+ (modules test_internal_bitscan_cli)
+ (libraries unix yojson)
+ (deps
+  ../examples/internal-bitscan.hc
+  ../examples/stream-internal-bitscan.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/internal-bitscan.hc}
+   %{dep:../examples/stream-internal-bitscan.hc})))
+
+(test
  (name test_internal_minmax_cli)
  (modules test_internal_minmax_cli)
  (libraries unix yojson)
@@ -157,6 +171,7 @@
   test_internal_toupper
   test_internal_integers
   test_internal_minmax
+  test_internal_bitscan
   test_retained_internal
   test_internal_strlen_authority
   test_internal_strlen_source
