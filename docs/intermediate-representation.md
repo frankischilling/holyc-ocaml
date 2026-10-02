@@ -6,6 +6,12 @@ sizes omit division. These original records and transitive producers are
 sealed. See [pointer difference](pointer-difference.md) for checked object
 identity, result transport and native mismatch authority.
 
+Retained preparation collects original numeric I64 difference divisions from
+the completed callee context, requiring original size 2/4/8 and matching scalar
+widths. Current transitive records and exact division identity are checked;
+execution still requires the original bundle. See
+[retained pointer differences](prepared-pointer-difference.md).
+
 [Owned scalar pointer ordering](pointer-ordering.md) uses the shared checked
 frame/global comparison path. Original live object/extent identity precedes
 logical offset comparison; cross-object ordering faults at its original

@@ -4,7 +4,10 @@ Issue #783 implements [owned scalar pointer difference](pointer-difference.md)
 in both modes and targets for matching references within one original live
 object/extent. Original byte subtraction and optional size division return I64
 without reading pointees. Cross-object difference is HCIRVM0018. Byte-sized
-retained defaults execute; wider preparation retains HCRUN0006.
+retained defaults execute. Issue #785 also prepares wider differences reached
+through retained calls with their original completed context. General division,
+direct unsealed expressions and separate native preparation remain gated. See
+[retained pointer differences](prepared-pointer-difference.md).
 
 Issue #781 implements [owned scalar pointer ordering](pointer-ordering.md)
 in both modes and targets within the same original live object/extent. It

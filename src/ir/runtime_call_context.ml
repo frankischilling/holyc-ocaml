@@ -269,6 +269,83 @@ let matches context ~entry ~initialization ~functions =
 let find_graph context owner =
   List.find_opt (fun graph -> same_owner graph.owner owner) context.graphs
 
+type pointer_difference_divisions = Seq.description Instructions.t
+
+let original_pointer_difference_divisions context ~owner =
+  let i64 (item : Seq.description) =
+    Option.fold ~none:false
+      ~some:(fun type_ ->
+        Type.pointer_depth type_ = 0
+        && Type.base type_
+           = Type.Primitive (Type.Internal_storage, Sema.Primitive_type.I64))
+      item.target_type
+  in
+  let width type_ =
+    if Type.pointer_depth type_ <> 1 then None
+    else
+      match Type.dereference type_ with
+      | Ok pointee -> (
+          match Type.base pointee with
+          | Type.Primitive (_, primitive) ->
+              Option.map
+                (fun info -> Int64.of_int info.Sema.Primitive_type.byte_size)
+                (Sema.Primitive_type.integer_storage_info primitive)
+          | _ -> None)
+      | _ -> None
+  in
+  if not (pointer_producers_match context) then None
+  else
+    Option.map
+      (fun graph ->
+        let produced =
+          Instructions.fold
+            (fun _ (item : Seq.description) produced ->
+              match item.result with
+              | Some result -> Values.add result.value_id item produced
+              | None -> produced)
+            graph.pointer_producers Values.empty
+        in
+        Instructions.filter
+          (fun _ (description : Seq.description) ->
+            match description.operands with
+            | [ bytes; size ]
+              when description.opcode = Opcode.Ic_div
+                   && description.flags = 0L && description.payload = None
+                   && i64 description -> (
+                match
+                  (Values.find_opt bytes produced, Values.find_opt size produced)
+                with
+                | Some sub, Some size
+                  when sub.opcode = Opcode.Ic_sub && sub.flags = 0L
+                       && sub.payload = None && i64 sub
+                       && size.opcode = Opcode.Ic_imm_i64
+                       && size.flags = 0L && size.operands = [] && i64 size -> (
+                    match (sub.operands, size.payload) with
+                    | ( [ left; right ],
+                        Some (Seq.Integer ((2L | 4L | 8L) as divisor)) ) -> (
+                        match
+                          ( Option.bind (Values.find_opt left produced)
+                              (fun item -> item.Seq.target_type),
+                            Option.bind (Values.find_opt right produced)
+                              (fun item -> item.Seq.target_type) )
+                        with
+                        | Some left, Some right ->
+                            Type.compatible_u8_pointer left right
+                            && width left = Some divisor
+                            && width right = Some divisor
+                        | _ -> false)
+                    | _ -> false)
+                | _ -> false)
+            | _ -> false)
+          graph.pointer_producers)
+      (find_graph context owner)
+
+let is_original_pointer_difference_division divisions
+    (description : Seq.description) =
+  match Instructions.find_opt description.instruction_id divisions with
+  | Some original -> original == description
+  | None -> false
+
 let find_start context ~owner id =
   Option.bind (find_graph context owner) (fun graph ->
       Instructions.find_opt id graph.calls)

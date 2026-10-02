@@ -1,5 +1,15 @@
 (rule
  (alias native-tests)
+ (deps ../../examples/stream-pointer-difference-wide.hc)
+ (action
+  (run
+   %{exe:../test_prepared_pointer_difference_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/stream-pointer-difference-wide.hc}
+   --native)))
+
+(rule
+ (alias native-tests)
  (deps
   ../../examples/pointer-difference.hc
   ../../examples/stream-pointer-difference.hc)

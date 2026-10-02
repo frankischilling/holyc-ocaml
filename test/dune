@@ -1,4 +1,15 @@
 (test
+ (name test_prepared_pointer_difference_cli)
+ (modules test_prepared_pointer_difference_cli)
+ (libraries unix yojson)
+ (deps ../examples/stream-pointer-difference-wide.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/stream-pointer-difference-wide.hc})))
+
+(test
  (name test_pointer_difference_cli)
  (modules test_pointer_difference_cli)
  (libraries unix yojson)
@@ -302,6 +313,7 @@
   test_pointer_equality
   test_pointer_ordering
   test_pointer_difference
+  test_prepared_pointer_difference
   test_swap_internals
   test_retained_internal
   test_internal_strlen_authority

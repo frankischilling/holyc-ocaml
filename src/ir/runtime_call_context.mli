@@ -65,6 +65,21 @@ val matches :
 val find_start :
   t -> owner:owner -> Instruction_sequence.Instruction_id.t -> call option
 
+type pointer_difference_divisions
+
+val original_pointer_difference_divisions :
+  t -> owner:owner -> pointer_difference_divisions option
+(** Validate current original/transitive graph records, then collect original
+    numeric I64 difference divisions by their matching scalar width, 2/4/8.
+    Valid reached offsets are aligned, so division agrees with the source
+    arithmetic-shift rewrite. This query does not construct or reseal a context.
+    Executing the prepared call still requires the matching original bundle. *)
+
+val is_original_pointer_difference_division :
+  pointer_difference_divisions -> Instruction_sequence.description -> bool
+(** Require the exact original instruction in the collected set. Copies,
+    foreign-context instructions and user divisions cannot supply this proof. *)
+
 val find_intrinsic_start :
   t -> owner:owner -> Instruction_sequence.Instruction_id.t -> intrinsic option
 

@@ -414,11 +414,8 @@ let retained =
 let retained_values () =
   List.iter
     (fun mode ->
-      (match integer_program_report_outcome (run mode retained_wide) with
-      | Error (first :: _) ->
-          Alcotest.(check string)
-            "wide constant-divisor preparation boundary" "HCRUN0006" first.code
-      | _ -> Alcotest.fail "wide preparation optimizer boundary widened");
+      let _, wide = success mode retained_wide in
+      T.word "wide original size division is prepared" VM.I64 42L wide;
       let report, execution = success mode retained in
       T.word "saved original difference" VM.I64 42L execution;
       Alcotest.(check string)

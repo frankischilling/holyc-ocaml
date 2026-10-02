@@ -9,6 +9,11 @@ The I64 result grants no reference authority. Original subtraction, size/divisio
 and transitive producers are sealed; current numeric rewrites reject. Native
 mismatch status 18 requires an original difference site and attempted work.
 
+Retained preparation collects authorized width divisions from the completed
+original callee context after validating current transitive records. Exact
+instruction identity is required, and execution rechecks the original bundle.
+Copied records, altered constants and compatible operand substitutions fail.
+
 Pointer ordering requires one original live object and extent before comparing
 valid logical offsets. Cross-object ordering faults after reached operand work.
 Original comparison/transitive records are sealed; numeric rewrites reject.
