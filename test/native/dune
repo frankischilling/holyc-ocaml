@@ -1,6 +1,19 @@
 (rule
  (alias native-tests)
  (deps
+  ../../examples/pointer-equality.hc
+  ../../examples/stream-pointer-equality.hc)
+ (action
+  (run
+   %{exe:../test_pointer_equality_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/pointer-equality.hc}
+   %{dep:../../examples/stream-pointer-equality.hc}
+   --native)))
+
+(rule
+ (alias native-tests)
+ (deps
   ../../examples/pointer-subtraction.hc
   ../../examples/stream-pointer-subtraction.hc)
  (action
@@ -10,6 +23,22 @@
    %{dep:../../examples/pointer-subtraction.hc}
    %{dep:../../examples/stream-pointer-subtraction.hc}
    --native)))
+
+(copy_files ../test_pointer_equality.ml)
+
+(executable
+ (name test_pointer_equality_execution)
+ (modules
+  test_pointer_equality_execution
+  test_pointer_equality
+  test_pointer_bit_internals
+  test_internal_strlen_authority)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_pointer_equality_execution.exe})))
 
 (copy_files ../test_pointer_subtraction.ml)
 

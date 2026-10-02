@@ -4,6 +4,12 @@ Report suspected vulnerabilities through GitHub private vulnerability reporting 
 
 ## Untrusted source files
 
+Pointer equality requires original live object identity, valid logical offsets
+and matching scalar pointees. Comparison and transitive producer records are
+sealed; a numeric instruction cannot be rewritten into a pointer comparison.
+Native comparison uses original object metadata and adds no raw address
+conversion or descriptor allocation.
+
 Pointer subtraction checks the original scaled word and signed subtraction
 range before reference formation. Minimum-signed operands cannot wrap into a
 valid address through negation. Original object/lifetime bounds, sealed offset

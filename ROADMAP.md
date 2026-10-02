@@ -1,13 +1,18 @@
 # holyc-ocaml roadmap
 
+Issue #779 adds [owned scalar pointer equality](docs/pointer-equality.md),
+including unknown pointees, one-past values, stable aliases across descriptor
+tables and original comparison authority. Ordering, difference and broader
+pointer storage/lifetime domains remain open under #687/#699/#700.
+
 Issue #777 adds [owned scalar pointer subtraction](docs/pointer-subtraction.md),
 including signed offset overflow, minimum-word handling and original producer
-sealing. Difference, comparisons, compound updates and broader pointer
+sealing. Difference, ordering, compound updates and broader pointer
 storage/lifetime domains remain open under #687/#699/#700.
 
 Issue #775 adds [owned scalar pointer addition](docs/pointer-addition.md),
 including original pointee scaling, captured references, signed offsets and
-one-past addresses. Difference, comparisons, compound updates,
+one-past addresses. Difference, ordering, compound updates,
 escapes, aggregates and full optimizer/native preparation remain open.
 
 Issue #773 adds [owned swap calls](docs/swap-internals.md) used by compiler

@@ -84,7 +84,8 @@ and exact/one-below runtime, preparation, code and frame limits. Maintained CLI
 fixtures check values, captures, full computed words, original overflow/bounds
 faults and once-only retained defaults.
 
-Difference, comparisons, integer-left operations, compound pointer updates,
+[Equality](pointer-equality.md) compares original object identity and offset.
+Difference, ordering, integer-left operations, compound pointer updates,
 casts, escaping/returned/persistent pointer variables, deeper pointers,
 aggregate pointees and direct multi-rank array arithmetic remain under
 #687/#699/#700. Native retained tasks remain under #704, larger native images

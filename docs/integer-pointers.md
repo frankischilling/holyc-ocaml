@@ -1,5 +1,9 @@
 # Scalar pointer aliases
 
+[Owned scalar pointer equality](pointer-equality.md) compares original live
+objects and logical offsets, including valid one-past values. It preserves
+left/right snapshots and returns I64 0/1 without reading pointees.
+
 [Owned scalar pointer subtraction](pointer-subtraction.md) retains the same
 object/extent/lifetime model while checking direct signed offset subtraction,
 including the minimum signed word. Other pointer arithmetic remains separate.

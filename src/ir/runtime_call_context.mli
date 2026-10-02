@@ -48,9 +48,10 @@ val create :
     initializer expression, including nested argument expressions; implicit
     output statements cannot belong to initializer regions. Matching spellings
     or table-local symbol IDs do not establish ownership. Pointer
-    scale/add/subtract instructions and their original transitive producers are
-    also sealed; replacing them with type-compatible records does not retain
-    source authority. *)
+    scale/add/subtract and equality instructions and their original transitive
+    producers are also sealed; replacing them with type-compatible records does
+    not retain source authority. A numeric producer cannot be rewritten into a
+    pointer comparison. *)
 
 val matches :
   t ->

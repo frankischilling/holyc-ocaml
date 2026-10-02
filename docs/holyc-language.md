@@ -1,5 +1,10 @@
 # HolyC language notes
 
+[Owned scalar pointer equality](pointer-equality.md) uses original
+IC_EQU_EQU/IC_NOT_EQU with checked references and I64 result transport. Captured
+objects, offsets, effects and comparison/transitive producer authority remain
+required.
+
 [Owned scalar pointer subtraction](pointer-subtraction.md) uses the checked
 frame/global path and original IC_SUB after pointee scaling. Full computed
 words, captured references and original producer records remain checked.
