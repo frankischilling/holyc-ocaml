@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+Issue #773 implements [owned swap calls](swap-internals.md) in both source
+modes and execution targets. Original numeric U0 declarations exchange two
+matching-width integer/Bool cells after both reads succeed. Retained defaults
+preserve the original mutation once. Wider pointer reinterpretation, aggregates,
+optimizer parity and native retained publication keep their owning gates.
+
 Issue #771 implements [owned pointer bit calls](pointer-bit-internals.md) in
 both source modes and execution targets. Plain canonical numeric calls select
 nonnegative bits within original integer/Bool extents and return prior bits.

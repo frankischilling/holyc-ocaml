@@ -181,6 +181,15 @@ let internal_prototype (prototype : Ast.function_prototype) =
          && List.length left.pointer_layers = 1
          && public_primitive U8 left.type_specifier
          && scalar I64 right
+      || public_primitive U0 prototype.return_type
+         && plain left && plain right
+         && List.length left.pointer_layers = 1
+         && List.length right.pointer_layers = 1
+         && List.exists
+              (fun primitive ->
+                public_primitive primitive left.type_specifier
+                && public_primitive primitive right.type_specifier)
+              [ I64; U32; U16; U8 ]
   | _ -> false
 
 let implicit_output_expressions (statement : Ast.implicit_output_statement) =

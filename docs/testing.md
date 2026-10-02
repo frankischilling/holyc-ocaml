@@ -1,5 +1,15 @@
 # Testing holyc-ocaml
 
+Swap tests check 287 independent value cases in both source modes and execution
+targets, covering every bit at each width, all nine integer/Bool storage types,
+aliases, arrays, literals, persistent cells, compiler operand-swap patterns and
+recursive/nested/effectful calls. Seven source groups and six native groups
+check real U0 completion, exact signatures, original/foreign/changed/copied
+authority, left-before-right reads, bounds and initialization, reached effects,
+both ABIs, fresh images and exact/one-below work/image limits. Maintained CLI
+examples check values, capture and work; retained defaults verify once-only
+mutation. Escaping pointers and mismatched widths remain explicit rejections.
+
 Pointer bit tests check 333 independent value cases in both source modes and
 execution targets, including all 64 positions for each operation, all nine
 integer/Bool storage types and array widths, aliases, literals, persistent cells, compiler

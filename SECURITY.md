@@ -4,6 +4,14 @@ Report suspected vulnerabilities through GitHub private vulnerability reporting 
 
 ## Untrusted source files
 
+Swap internal calls accept only original numeric U0 declarations and two
+sealed producers for live owned scalar cells of matching width. Both bounds
+and initialization checks finish before either cell is written. Original
+ownership, lifetime, extent and declared type remain checked; arbitrary
+addresses, escaping/deeper pointers and partial-object reinterpretation reject.
+Native staging uses two bounded private slots, and swaps retain existing
+instruction, storage, code, frame, call and output limits.
+
 The compiler treats input as untrusted. Relevant risks include include path traversal, recursive definition expansion, generated-text exhaustion, expression exhaustion, parser exhaustion, malformed binary lengths, relocation overflow, output path writes, and executable-memory permissions. Hosted includes are confined to canonical configured roots. `#help_file` resolves a lexical metadata path inside the same configured roots but never opens, creates, or reads the named help file. Definition expansion rejects active cycles and applies separate nesting and generated-byte budgets. Conditional nesting has its own limit; after it is exhausted, the rest of the stream remains inactive so later directives cannot mutate state during error recovery. Constant `#if` and `#assert` evaluation share a separate node budget and do not read the host environment, filesystem, process state, or clock. Inactive branches are scanned without loading includes, expanding ordinary identifiers, evaluating symbol predicates or assertions, or changing help metadata. Ordinary hosted lexing still rejects an embedded NUL so hidden suffix bytes cannot change later tooling behavior. The corpus command permits NUL termination only after it verifies a clean checkout at the exact reference commit. Its report records the terminator and all trailing bytes; it never executes the payload. The default symbol-visibility environment contains only entries derived from pinned compiler tables. It does not expose host process symbols or environment variables. Host metadata uses checked sizes and conversions. HolyC arithmetic wraps only where target semantics require it.
 
 ## Compile-time execution

@@ -202,6 +202,7 @@ type prepared_operation =
   | Internal_strlen of prepared_pointer
   | Internal_mod_u64 of prepared_pointer * prepared_operand
   | Internal_bit of Integer_intrinsic.bit * prepared_pointer * prepared_operand
+  | Internal_swap of prepared_pointer * prepared_pointer
   | Internal_integer of Integer_intrinsic.unary * prepared_operand * word_type
   | Internal_binary of
       Integer_intrinsic.binary * prepared_operand * prepared_operand * word_type
@@ -4403,6 +4404,66 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                     (call_error description
                        "pointed bit operation has no exact collecting internal \
                         call scope"))
+          | opcode, stack
+            when Option.is_some (Integer_intrinsic.swap_size opcode) -> (
+              match
+                ( !intrinsics,
+                  Option.bind runtime_calls (fun context ->
+                      Runtime.find_intrinsic_instruction context
+                        ~owner:runtime_owner description.instruction_id) )
+              with
+              | (original, false, ordinary_depth) :: rest, Some intrinsic
+                when original == intrinsic
+                     && Runtime.intrinsic_opcode intrinsic = opcode
+                     && ordinary_depth = List.length stack -> (
+                  match Runtime.intrinsic_arguments intrinsic with
+                  | [ left; right ] -> (
+                      let left_value = Runtime.argument_value left
+                      and right_value = Runtime.argument_value right in
+                      match
+                        ( pointer_operand_of_value types left_value,
+                          pointer_operand_of_value types right_value )
+                      with
+                      | Some left_pointer, Some right_pointer
+                        when description.flags = 0L
+                             && description.operands
+                                = [ left_value; right_value ]
+                             && Option.is_none description.result
+                             && Option.is_none description.payload
+                             && Option.fold ~none:false
+                                  ~some:
+                                    (Type.equal
+                                       (Runtime.intrinsic_return_type intrinsic))
+                                  description.target_type
+                             && List.for_all
+                                  (fun (index, pointer, argument) ->
+                                    Type.equal pointer.pointer_type
+                                      (Runtime.argument_source_type argument)
+                                    && Integer_intrinsic.swap_pointer opcode
+                                         pointer.pointer_type
+                                    && Integer_intrinsic.argument_matches opcode
+                                         ~index
+                                         (Runtime.argument_target_type argument))
+                                  [
+                                    (0, left_pointer, left);
+                                    (1, right_pointer, right);
+                                  ] ->
+                          intrinsics :=
+                            (intrinsic, true, ordinary_depth) :: rest;
+                          call_instruction description
+                            (Internal_swap (left_pointer, right_pointer))
+                      | _ ->
+                          Error
+                            (call_error description
+                               "swap lost its original scalar pointers"))
+                  | _ ->
+                      Error
+                        (call_error description
+                           "swap lost its two sealed arguments"))
+              | _ ->
+                  Error
+                    (call_error description
+                       "swap has no exact collecting internal call scope"))
           | Opcode.Ic_mod_u64, stack -> (
               match
                 ( !intrinsics,
@@ -4538,14 +4599,23 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                           ~some:
                             (Type.equal
                                (Runtime.intrinsic_return_type intrinsic))
-                          description.target_type ->
-                  intrinsics := rest;
-                  call_instruction description
-                    (Call_end
-                       ( result.value_id,
-                         Option.get
-                           (function_return_word_type
-                              (Runtime.intrinsic_return_type intrinsic)) ))
+                          description.target_type -> (
+                  match
+                    checked_return_kind
+                      (Runtime.intrinsic_return_type intrinsic)
+                  with
+                  | Some (Word_return type_) ->
+                      intrinsics := rest;
+                      call_instruction description
+                        (Call_end (result.value_id, type_))
+                  | Some Void_return ->
+                      intrinsics := rest;
+                      call_instruction description
+                        (Call_end_void result.value_id)
+                  | None ->
+                      Error
+                        (call_error description
+                           "internal call has no supported completion type"))
               | _ ->
                   Error
                     (call_error description
@@ -5781,6 +5851,73 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                       (runtime_error ~instruction block !steps "HCIRVM0008"
                          "pointed bit operation has no pending source call \
                           scope"))
+          | Internal_swap (left, right) -> (
+              let read pointer =
+                Option.bind (require_pointer block instruction pointer)
+                  (fun address ->
+                    if
+                      not
+                        (address_bounds ~one_past:false block instruction
+                           address)
+                    then None
+                    else
+                      let cell =
+                        address.pointer_base
+                        + Int64.to_int
+                            (Int64.div address.pointer_offset
+                               (Int64.of_int address.pointer_element_bytes))
+                      in
+                      match
+                        ( Scalar.of_type address.pointer_pointee,
+                          address.pointer_storage.cells.(cell) )
+                      with
+                      | Some scalar, Some (Runtime_word word)
+                        when word.type_ = scalar_runtime_type scalar ->
+                          Some (address.pointer_storage, cell, scalar, word)
+                      | _, None ->
+                          failed :=
+                            Some
+                              (runtime_error ~instruction block !steps
+                                 "HCIRVM0012"
+                                 address.pointer_storage.unknown_message);
+                          None
+                      | _ ->
+                          failed :=
+                            Some
+                              (runtime_error ~instruction block !steps
+                                 "HCIRVM0008"
+                                 "swap reached an invalid scalar cell");
+                          None)
+              in
+              let left_cell = read left in
+              let right_cell = Option.bind left_cell (fun _ -> read right) in
+              match (!calls, left_cell, right_cell) with
+              | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
+                  :: rest,
+                  Some (left_storage, left_cell, left_scalar, left_word),
+                  Some (right_storage, right_cell, right_scalar, right_word) )
+                ->
+                  right_storage.cells.(right_cell) <-
+                    Some
+                      (Runtime_word
+                         {
+                           right_word with
+                           bits = Scalar.normalize right_scalar left_word.bits;
+                         });
+                  left_storage.cells.(left_cell) <-
+                    Some
+                      (Runtime_word
+                         {
+                           left_word with
+                           bits = Scalar.normalize left_scalar right_word.bits;
+                         });
+                  calls := { scope with completion = Completed_void } :: rest
+              | _, None, _ | _, _, None -> ()
+              | _ ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0008"
+                         "swap has no pending source call scope"))
           | Internal_mod_u64 (pointer, divisor) -> (
               let right = require_operand block instruction divisor in
               let location =

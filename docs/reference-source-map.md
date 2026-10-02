@@ -1,5 +1,13 @@
 # Reference source map
 
+Issue #773 connects `Kernel/KernelB.HH:110-117`,
+`Compiler/CompilerA.HH:216-219` and `Compiler/PrsExp.HC:440-586` to owned
+SwapI64/SwapU32/SwapU16/SwapU8 calls. `OptPass789A.HC:887-892` dispatches
+to `BackC.HC:490-537`, which reads both cells before storing either.
+`BackA.HC:8-10,173-175`, `Asm.HC:157-158`, `BackFA.HC:483-486`,
+`BackC.HC:283`, `BackB.HC:479` and `PrsStmt.HC:705` supply compiler consumers.
+See [owned swap calls](swap-internals.md).
+
 Issue #771 connects `Kernel/KernelB.HH:13-20`,
 `Compiler/CompilerA.HH:162-165` and `Compiler/PrsExp.HC:440-586` to plain
 owned Bt/Bts/Btr/Btc calls. `OptPass789A.HC:787-804` and `BackB.HC:202-264`

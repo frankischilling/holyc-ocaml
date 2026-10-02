@@ -1,5 +1,11 @@
 # holyc-ocaml roadmap
 
+Issue #773 adds [owned swap calls](docs/swap-internals.md) used by compiler
+backend and assembler routines. The four scalar widths, both original pointer
+roles, read-before-write order, actual U0 completion and retained mutation are
+supported. General pointer and aggregate callers, optimizer parity and native
+retained publication remain open.
+
 Issue #771 adds [owned pointer bit calls](docs/pointer-bit-internals.md) for
 plain numeric Bt/Bts/Btr/Btc targets. Original owned storage, argument phases,
 prior-bit results and retained mutation are supported. Locked/concurrent forms,

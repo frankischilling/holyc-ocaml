@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added original SwapI64/SwapU32/SwapU16/SwapU8 calls to IR, retained tasks and
+  hosted native execution. Both owned scalar cells are read before either
+  write; calls complete actual U0. Original numeric signatures, pointer roles,
+  storage widths, fault order and existing work/image limits remain checked.
+
 - Added original plain Bt/Bts/Btr/Btc calls to IR, retained tasks and hosted
   native execution. Calls return prior bits and mutate live owned integer/Bool
   storage at its original width. Exact numeric signatures, immutable producers,

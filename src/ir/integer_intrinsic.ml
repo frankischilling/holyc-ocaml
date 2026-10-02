@@ -11,6 +11,13 @@ type unary =
 type binary = Min_i64 | Min_u64 | Max_i64 | Max_u64
 type bit = Test_bit | Set_bit | Reset_bit | Complement_bit
 
+let swap_size = function
+  | Opcode.Ic_swap_u8 -> Some 1
+  | Ic_swap_u16 -> Some 2
+  | Ic_swap_u32 -> Some 4
+  | Ic_swap_i64 -> Some 8
+  | _ -> None
+
 let bit = function
   | Opcode.Ic_bt -> Some Test_bit
   | Ic_bts -> Some Set_bit
@@ -42,6 +49,7 @@ let arity opcode =
     opcode = Opcode.Ic_mod_u64
     || Option.is_some (binary opcode)
     || Option.is_some (bit opcode)
+    || Option.is_some (swap_size opcode)
   then Some 2
   else None
 
@@ -65,8 +73,26 @@ let bit_pointer type_ =
   | Ok pointee -> Option.is_some (Integer_scalar_storage.of_type pointee)
   | Error _ -> false
 
+let swap_pointer opcode type_ =
+  Sema.Type.pointer_depth type_ = 1
+  &&
+  match (swap_size opcode, Sema.Type.dereference type_) with
+  | Some bytes, Ok pointee ->
+      Option.fold ~none:false
+        ~some:(fun scalar -> Integer_scalar_storage.byte_size scalar = bytes)
+        (Integer_scalar_storage.of_type pointee)
+  | _ -> false
+
 let argument_matches opcode ~index type_ =
   match opcode with
+  | Opcode.Ic_swap_u8 ->
+      (index = 0 || index = 1) && primitive type_ 1 Sema.Primitive_type.U8
+  | Ic_swap_u16 ->
+      (index = 0 || index = 1) && primitive type_ 1 Sema.Primitive_type.U16
+  | Ic_swap_u32 ->
+      (index = 0 || index = 1) && primitive type_ 1 Sema.Primitive_type.U32
+  | Ic_swap_i64 ->
+      (index = 0 || index = 1) && primitive type_ 1 Sema.Primitive_type.I64
   | Opcode.Ic_bt | Ic_bts | Ic_btr | Ic_btc ->
       if index = 0 then primitive type_ 1 Sema.Primitive_type.U8
       else index = 1 && primitive type_ 0 Sema.Primitive_type.I64
@@ -89,6 +115,8 @@ let argument_matches opcode ~index type_ =
 
 let result_matches opcode type_ =
   match opcode with
+  | Opcode.Ic_swap_u8 | Ic_swap_u16 | Ic_swap_u32 | Ic_swap_i64 ->
+      primitive type_ 0 Sema.Primitive_type.U0
   | Opcode.Ic_bt | Ic_bts | Ic_btr | Ic_btc ->
       primitive type_ 0 Sema.Primitive_type.Bool
   | Opcode.Ic_mod_u64 -> primitive type_ 0 Sema.Primitive_type.U64
