@@ -28,6 +28,7 @@ type fault_kind =
   | Output_invalid_argument
   | Output_invalid_pointer
   | Output_invalid_byte
+  | Pointer_object_mismatch
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
   | Divide
@@ -334,6 +335,16 @@ let decode_runtime_status (compiled : t) ~max_steps ~kind ~site ~executed_steps
                        else if Int64.equal kind 15L then Output_invalid_pointer
                        else Output_invalid_byte)
                       None
+                else if Int64.equal kind 17L then
+                  if not candidate.pointer_ordering_site then
+                    Error
+                      "native program pointer-object status names a \
+                       non-ordering site"
+                  else if executed_steps_int < 1 then
+                    Error
+                      "native program pointer-object fault did not consume its \
+                       instruction"
+                  else make_fault Pointer_object_mismatch None
                 else Error "native program status has an unknown fault kind")
 
 let validate_global_limit ~max_global_bytes =

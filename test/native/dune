@@ -1,6 +1,19 @@
 (rule
  (alias native-tests)
  (deps
+  ../../examples/pointer-ordering.hc
+  ../../examples/stream-pointer-ordering.hc)
+ (action
+  (run
+   %{exe:../test_pointer_ordering_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/pointer-ordering.hc}
+   %{dep:../../examples/stream-pointer-ordering.hc}
+   --native)))
+
+(rule
+ (alias native-tests)
+ (deps
   ../../examples/pointer-equality.hc
   ../../examples/stream-pointer-equality.hc)
  (action
@@ -23,6 +36,23 @@
    %{dep:../../examples/pointer-subtraction.hc}
    %{dep:../../examples/stream-pointer-subtraction.hc}
    --native)))
+
+(copy_files ../test_pointer_ordering.ml)
+
+(executable
+ (name test_pointer_ordering_execution)
+ (modules
+  test_pointer_ordering_execution
+  test_pointer_ordering
+  test_pointer_equality
+  test_pointer_bit_internals
+  test_internal_strlen_authority)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_pointer_ordering_execution.exe})))
 
 (copy_files ../test_pointer_equality.ml)
 

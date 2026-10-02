@@ -1,5 +1,9 @@
 # Scalar pointer aliases
 
+[Owned scalar pointer ordering](pointer-ordering.md) compares aligned offsets
+within one original live object and extent, including valid one-past values.
+Unknown pointees are allowed; unrelated objects fault at the ordering instruction.
+
 [Owned scalar pointer equality](pointer-equality.md) compares original live
 objects and logical offsets, including valid one-past values. It preserves
 left/right snapshots and returns I64 0/1 without reading pointees.

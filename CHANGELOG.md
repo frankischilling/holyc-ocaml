@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added owned scalar pointer ordering within one original live object and
+  extent to IR, retained tasks and hosted native programs. All four operators
+  return I64 words; unrelated objects retain a checked mismatch fault. Original
+  effects, fault work, producer authority and resource limits remain checked.
+
 - Added owned scalar pointer equality and inequality to IR, retained tasks
   and hosted native programs. Comparisons keep original objects/offsets and
   I64 results, including aliases across separate descriptor tables.

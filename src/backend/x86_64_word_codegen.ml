@@ -259,6 +259,7 @@ type operation =
       arithmetic_operation * word_type * fault_site * value * value * value
   | Apply_comparison of Encoder.condition * value * value * value
   | Apply_reference_comparison of Encoder.condition * value * value * value
+  | Apply_reference_ordering of Encoder.condition * value * value * value
   | Apply_logical_not of value * value
   | Apply_logical of Encoder.binary * value * value * value
   | Apply_word_view of value * value
@@ -1776,6 +1777,32 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
           mark complete;
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position rax result
+      | Apply_reference_ordering (condition, left, right, result) ->
+          spill_all_registers instruction.span;
+          copy_value_to instruction.span left rdx;
+          copy_value_to instruction.span right rcx;
+          let mismatch = fresh_label supply in
+          fault_blocks :=
+            {
+              label = mismatch;
+              kind_value = 17;
+              site_value = Option.get instruction.site;
+            }
+            :: !fault_blocks;
+          List.iter
+            (fun offset ->
+              emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
+              emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rcx, offset));
+              emit (Encoder.Cmp (Encoder.Rax, Encoder.R8));
+              emit_branch Not_equal mismatch)
+            [ 0; 8; 24 ];
+          emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 16));
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rcx, 16));
+          emit (Encoder.Cmp (Encoder.Rax, Encoder.R8));
+          emit (Encoder.Setcc (condition, Encoder.Rax));
+          emit (Encoder.Movzx8 (Encoder.Rax, Encoder.Rax));
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          assign position rax result
       | Apply_logical_not (input, result) ->
           let inputs, protected = ensure_inputs instruction.span [ input ] in
           let source = List.hd inputs in
@@ -2930,6 +2957,7 @@ type program_site = {
   index_scale_site : bool;
   index_addition_site : bool;
   address_bounds_site : bool;
+  pointer_ordering_site : bool;
   output_site : bool;
   atomic_output_site : bool;
 }
@@ -3145,6 +3173,7 @@ let preflight_program graph =
                 index_scale_site = false;
                 index_addition_site = false;
                 address_bounds_site = false;
+                pointer_ordering_site = false;
                 output_site = false;
                 atomic_output_site = false;
               }
@@ -5472,7 +5501,12 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       malformed description
                         "scalar update does not name its exact slot")
               | _ -> malformed description "invalid scalar update")
-          | (Opcode.Ic_equ_equ | Opcode.Ic_not_equ)
+          | Opcode.Ic_equ_equ
+          | Opcode.Ic_not_equ
+          | Opcode.Ic_less
+          | Opcode.Ic_less_equ
+          | Opcode.Ic_greater
+          | Opcode.Ic_greater_equ
             when List.exists
                    (fun id ->
                      Option.fold ~none:false
@@ -5504,13 +5538,25 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                     define values description position result target_type
                       (Computation.forward target_type)
                   in
-                  ( Apply_reference_comparison
-                      ( (if description.opcode = Opcode.Ic_equ_equ then Encoder.E
-                         else Encoder.NE),
-                        left,
-                        right,
-                        value ),
-                    None )
+                  let operation =
+                    match description.opcode with
+                    | Opcode.Ic_equ_equ ->
+                        Apply_reference_comparison
+                          (Encoder.E, left, right, value)
+                    | Opcode.Ic_not_equ ->
+                        Apply_reference_comparison
+                          (Encoder.NE, left, right, value)
+                    | Opcode.Ic_less ->
+                        Apply_reference_ordering (Encoder.L, left, right, value)
+                    | Opcode.Ic_less_equ ->
+                        Apply_reference_ordering (Encoder.LE, left, right, value)
+                    | Opcode.Ic_greater ->
+                        Apply_reference_ordering (Encoder.G, left, right, value)
+                    | Opcode.Ic_greater_equ ->
+                        Apply_reference_ordering (Encoder.GE, left, right, value)
+                    | _ -> assert false
+                  in
+                  (operation, None)
               | _ ->
                   malformed description
                     "invalid native pointer comparison shape")
@@ -5835,6 +5881,10 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | Print_output _ -> true
               | Materialize_reference (_, _, None, _)
               | Materialize_existing_reference ({ offset = None; _ }, _)
+              | _ -> false);
+            pointer_ordering_site =
+              (match operation with
+              | Apply_reference_ordering _ -> true
               | _ -> false);
             output_site =
               (match operation with

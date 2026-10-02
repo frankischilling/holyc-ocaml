@@ -57,6 +57,9 @@ casts and indirect calls all reject before native entry.
 captured objects; other pointer arithmetic remains unsupported.
 [Equality and inequality](pointer-equality.md) compare original object identity
 and logical offset, including valid one-past references, without reading cells.
+[Ordering](pointer-ordering.md) requires the same original live object and
+extent before comparing offsets. Different objects fault with HCIRVM0018;
+native mismatch statuses require sealed ordering sites and attempted work.
 A reference can therefore travel only through the current activation's local
 slots or down its synchronous call chain. Every recursive activation has a
 separate frame and descriptor region. A callee's local reference cannot survive
@@ -97,7 +100,7 @@ Automatic scalar arrays use the same references; see
 [native arrays](native-arrays.md). Global/static arrays and mutable byte literals
 use the [persistent storage](native-persistent-storage.md) path. Persistent pointer
 variables, pointer returns and
-ordering, null/integer conversions, pointer difference and compound
+raw address ordering, null/integer conversions, pointer difference and compound
 pointer updates, deeper indirection, pointer-valued arrays, aggregates, foreign calls and
 the full HolyC ABI remain unfinished native work. This feature does not produce
 objects or BIN files, establish loader acceptance, or complete the compiler.

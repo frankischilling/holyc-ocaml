@@ -19,6 +19,7 @@ let () =
       ("owned pointer addition", Test_pointer_addition.tests);
       ("owned pointer subtraction", Test_pointer_subtraction.tests);
       ("owned pointer equality", Test_pointer_equality.tests);
+      ("owned pointer ordering", Test_pointer_ordering.tests);
       ("retained internal headers", Test_retained_internal.tests);
       ("internal call authority", Test_internal_strlen_authority.tests);
       ("internal source ownership", Test_internal_strlen_source.tests);

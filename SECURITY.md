@@ -4,6 +4,12 @@ Report suspected vulnerabilities through GitHub private vulnerability reporting 
 
 ## Untrusted source files
 
+Pointer ordering requires one original live object and extent before comparing
+valid logical offsets. Cross-object ordering faults after reached operand work.
+Original comparison/transitive records are sealed; numeric rewrites reject.
+Native object-mismatch statuses require original ordering sites and attempted
+instruction work. The operation orders no unrelated host addresses.
+
 Pointer equality requires original live object identity, valid logical offsets
 and matching scalar pointees. Comparison and transitive producer records are
 sealed; a numeric instruction cannot be rewritten into a pointer comparison.

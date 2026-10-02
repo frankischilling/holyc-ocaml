@@ -1,5 +1,10 @@
 # HolyC language notes
 
+[Owned scalar pointer ordering](pointer-ordering.md) retains original
+IC_LESS/IC_LESS_EQU/IC_GREATER/IC_GREATER_EQU and I64 result transport within one
+live owned object/extent. Operand snapshots, effects, faults and original
+comparison/transitive producer authority remain checked.
+
 [Owned scalar pointer equality](pointer-equality.md) uses original
 IC_EQU_EQU/IC_NOT_EQU with checked references and I64 result transport. Captured
 objects, offsets, effects and comparison/transitive producer authority remain

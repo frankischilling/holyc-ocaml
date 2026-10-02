@@ -197,6 +197,7 @@ let status_kind = function
   | Program.Output_invalid_argument -> 14L
   | Program.Output_invalid_pointer -> 15L
   | Program.Output_invalid_byte -> 16L
+  | Program.Pointer_object_mismatch -> 17L
 
 let fault_from_outcome = function
   | Program.Fault fault -> fault

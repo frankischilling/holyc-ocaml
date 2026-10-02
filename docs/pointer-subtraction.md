@@ -1,5 +1,8 @@
 # Owned scalar pointer subtraction
 
+[Owned scalar pointer ordering](pointer-ordering.md) compares offsets within
+one original live object/extent; unrelated objects retain a checked fault.
+
 Issue #777 executes `pointer - integer` through IR, retained source tasks and
 hosted native programs in both source modes. The result keeps its original
 one-level integer/Bool pointer type and live owned object. The original pointee
@@ -85,7 +88,7 @@ fixtures check values, captures, full computed words, original overflow/bounds
 faults and once-only retained defaults.
 
 [Equality](pointer-equality.md) compares original object identity and offset.
-Difference, ordering, integer-left operations, compound pointer updates,
+Difference, raw ordering, integer-left operations, compound pointer updates,
 casts, escaping/returned/persistent pointer variables, deeper pointers,
 aggregate pointees and direct multi-rank array arithmetic remain under
 #687/#699/#700. Native retained tasks remain under #704, larger native images
