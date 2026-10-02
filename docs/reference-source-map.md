@@ -1,5 +1,12 @@
 # Reference source map
 
+Issue #763 connects `Kernel/KernelB.HH:99-102`,
+`Compiler/CompilerA.HH:223-226` and `Compiler/PrsExp.HC:440-586` to the four
+source-owned two-argument Min/Max calls. `OptPass789A.HC:867-878` and
+`BackC.HC:418-454` define signed/unsigned full-word selection. Original producers,
+parameter roles and right-to-left effects remain checked through shared IR and
+both host ABIs. See [Min/Max internal calls](internal-minmax.md).
+
 Issue #761 connects unary integer internal calls from
 `Kernel/KernelB.HH:95-121` and `Compiler/PrsExp.HC:440-586` to shared checked IR
 and native execution. `OptPass789A.HC:820-886`, `BackB.HC:289-303`,

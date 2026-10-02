@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added source-owned signed and unsigned Min/Max internal calls to IR, retained
+  tasks and hosted native execution. Two original argument producers retain
+  their types, roles and right-to-left effects. Full-word results and cumulative
+  resource/fault accounting remain checked.
+
 - Added source-owned ToBool, AbsI64, SignI64 and integer square calls to IR,
   retained tasks and hosted native execution. Full-word inputs, wrapping results,
   exact source/signature checks and existing runtime limits remain enforced.

@@ -1,3 +1,31 @@
+(copy_files ../test_internal_minmax.ml)
+
+(executable
+ (name test_internal_minmax_execution)
+ (modules
+  test_internal_minmax_execution
+  test_internal_minmax
+  test_internal_strlen_authority)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_internal_minmax_execution.exe})))
+
+(rule
+ (alias native-tests)
+ (deps
+  ../../examples/internal-minmax.hc
+  ../../examples/stream-internal-minmax.hc)
+ (action
+  (run
+   %{exe:../test_internal_minmax_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/internal-minmax.hc}
+   %{dep:../../examples/stream-internal-minmax.hc}
+   --native)))
+
 (copy_files ../test_internal_integers.ml)
 
 (executable

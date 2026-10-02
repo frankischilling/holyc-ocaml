@@ -201,6 +201,8 @@ type prepared_operation =
   | Extern_call of Runtime.call * stored_type array
   | Internal_strlen of prepared_pointer
   | Internal_integer of Integer_intrinsic.unary * prepared_operand * word_type
+  | Internal_binary of
+      Integer_intrinsic.binary * prepared_operand * prepared_operand * word_type
   | Call_cleanup
   | Call_end of Value_id.t * word_type
   | Call_end_void of Value_id.t
@@ -4248,8 +4250,9 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                 intrinsics :=
                   (intrinsic, false, List.length stack) :: !intrinsics;
                 call_instruction description (Call_start None))
-          | opcode, stack when Option.is_some (Integer_intrinsic.unary opcode)
-            -> (
+          | opcode, stack
+            when Option.is_some (Integer_intrinsic.unary opcode)
+                 || Option.is_some (Integer_intrinsic.binary opcode) -> (
               match
                 ( !intrinsics,
                   Option.bind runtime_calls (fun context ->
@@ -4260,39 +4263,58 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                 when original == intrinsic
                      && Runtime.intrinsic_opcode intrinsic = opcode
                      && ordinary_depth = List.length stack -> (
-                  let argument = Runtime.intrinsic_argument intrinsic in
-                  let value = Runtime.argument_value argument in
-                  match
-                    ( operand_of_value types value,
-                      Value_map.find_opt value types )
-                  with
-                  | Some operand, Some (Supported (_, source_type, _))
-                    when description.flags = 0L
-                         && description.operands = [ value ]
+                  let arguments = Runtime.intrinsic_arguments intrinsic in
+                  let operands =
+                    List.filter_map
+                      (fun argument ->
+                        let value = Runtime.argument_value argument in
+                        match
+                          ( operand_of_value types value,
+                            Value_map.find_opt value types )
+                        with
+                        | Some operand, Some (Supported (_, source_type, _))
+                          when Type.equal source_type
+                                 (Runtime.argument_source_type argument)
+                               && Integer_intrinsic.argument_matches opcode
+                                    (Runtime.argument_target_type argument) ->
+                            Some operand
+                        | _ -> None)
+                      arguments
+                  in
+                  let operation =
+                    match
+                      ( Integer_intrinsic.unary opcode,
+                        Integer_intrinsic.binary opcode,
+                        operands,
+                        function_return_word_type
+                          (Runtime.intrinsic_return_type intrinsic) )
+                    with
+                    | Some operation, None, [ operand ], Some type_ ->
+                        Some (Internal_integer (operation, operand, type_))
+                    | None, Some operation, [ left; right ], Some type_ ->
+                        Some (Internal_binary (operation, left, right, type_))
+                    | _ -> None
+                  in
+                  match operation with
+                  | Some operation
+                    when List.length operands = List.length arguments
+                         && description.flags = 0L
+                         && description.operands
+                            = List.map Runtime.argument_value arguments
                          && Option.is_none description.result
                          && Option.is_none description.payload
                          && Option.fold ~none:false
                               ~some:
                                 (Type.equal
                                    (Runtime.intrinsic_return_type intrinsic))
-                              description.target_type
-                         && Type.equal source_type
-                              (Runtime.argument_source_type argument)
-                         && Integer_intrinsic.argument_matches opcode
-                              (Runtime.argument_target_type argument) ->
+                              description.target_type ->
                       intrinsics := (intrinsic, true, ordinary_depth) :: rest;
-                      call_instruction description
-                        (Internal_integer
-                           ( Option.get (Integer_intrinsic.unary opcode),
-                             operand,
-                             Option.get
-                               (function_return_word_type
-                                  (Runtime.intrinsic_return_type intrinsic)) ))
+                      call_instruction description operation
                   | _ ->
                       Error
                         (call_error description
                            "integer internal operation lost its checked scalar \
-                            argument or result type"))
+                            arguments or result type"))
               | _ ->
                   Error
                     (call_error description
@@ -4309,31 +4331,38 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                 when original == intrinsic
                      && Runtime.intrinsic_opcode intrinsic = Opcode.Ic_strlen
                      && ordinary_depth = List.length stack -> (
-                  let argument = Runtime.intrinsic_argument intrinsic in
-                  let value = Runtime.argument_value argument in
-                  match pointer_operand_of_value types value with
-                  | Some pointer
-                    when description.flags = 0L
-                         && description.operands = [ value ]
-                         && Option.is_none description.result
-                         && Option.is_none description.payload
-                         && Option.fold ~none:false
-                              ~some:
-                                (Type.equal
-                                   (Runtime.intrinsic_return_type intrinsic))
-                              description.target_type
-                         && Type.equal pointer.pointer_type
-                              (Runtime.argument_source_type argument)
-                         && Type.compatible_u8_pointer
-                              (Runtime.argument_target_type argument)
-                              pointer.pointer_type ->
-                      intrinsics := (intrinsic, true, ordinary_depth) :: rest;
-                      call_instruction description (Internal_strlen pointer)
+                  let arguments = Runtime.intrinsic_arguments intrinsic in
+                  match arguments with
+                  | [ argument ] -> (
+                      let value = Runtime.argument_value argument in
+                      match pointer_operand_of_value types value with
+                      | Some pointer
+                        when description.flags = 0L
+                             && description.operands = [ value ]
+                             && Option.is_none description.result
+                             && Option.is_none description.payload
+                             && Option.fold ~none:false
+                                  ~some:
+                                    (Type.equal
+                                       (Runtime.intrinsic_return_type intrinsic))
+                                  description.target_type
+                             && Type.equal pointer.pointer_type
+                                  (Runtime.argument_source_type argument)
+                             && Type.compatible_u8_pointer
+                                  (Runtime.argument_target_type argument)
+                                  pointer.pointer_type ->
+                          intrinsics :=
+                            (intrinsic, true, ordinary_depth) :: rest;
+                          call_instruction description (Internal_strlen pointer)
+                      | _ ->
+                          Error
+                            (call_error description
+                               "IC_STRLEN lost its checked U8 argument or \
+                                result type"))
                   | _ ->
                       Error
                         (call_error description
-                           "IC_STRLEN lost its checked U8 argument or result \
-                            type"))
+                           "IC_STRLEN lost its sealed argument"))
               | _ ->
                   Error
                     (call_error description
@@ -5498,6 +5527,31 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     { scope with completion = Completed_word { type_; bits } }
                     :: rest
               | _, None -> ()
+              | _ ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0008"
+                         "integer internal operation has no pending source \
+                          call scope"))
+          | Internal_binary (operation, left, right, type_) -> (
+              let right_word = require_operand block instruction right in
+              let left_word =
+                Option.bind right_word (fun _ ->
+                    require_operand block instruction left)
+              in
+              match (!calls, left_word, right_word) with
+              | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
+                  :: rest,
+                  Some left,
+                  Some right ) ->
+                  let bits =
+                    Integer_intrinsic.apply_binary operation left.bits
+                      right.bits
+                  in
+                  calls :=
+                    { scope with completion = Completed_word { type_; bits } }
+                    :: rest
+              | _, None, _ | _, _, None -> ()
               | _ ->
                   failed :=
                     Some

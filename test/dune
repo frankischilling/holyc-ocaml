@@ -1,4 +1,16 @@
 (test
+ (name test_internal_minmax_cli)
+ (modules test_internal_minmax_cli)
+ (libraries unix yojson)
+ (deps ../examples/internal-minmax.hc ../examples/stream-internal-minmax.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/internal-minmax.hc}
+   %{dep:../examples/stream-internal-minmax.hc})))
+
+(test
  (name test_internal_integers_cli)
  (modules test_internal_integers_cli)
  (libraries unix yojson)
@@ -144,6 +156,7 @@
   test_internal_strlen
   test_internal_toupper
   test_internal_integers
+  test_internal_minmax
   test_retained_internal
   test_internal_strlen_authority
   test_internal_strlen_source

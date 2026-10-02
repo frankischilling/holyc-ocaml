@@ -10,6 +10,7 @@ let () =
       ("internal byte length", Test_internal_strlen.tests);
       ("internal character conversion", Test_internal_toupper.tests);
       ("unary integer internal calls", Test_internal_integers.tests);
+      ("two-argument integer internal calls", Test_internal_minmax.tests);
       ("retained internal headers", Test_retained_internal.tests);
       ("internal call authority", Test_internal_strlen_authority.tests);
       ("internal source ownership", Test_internal_strlen_source.tests);

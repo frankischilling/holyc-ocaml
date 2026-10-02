@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+Issue #763 implements [signed and unsigned Min/Max calls](internal-minmax.md)
+through original numeric declarations, both source modes and both execution
+targets. Checked two-argument order, full words and retained scalar defaults
+are supported. Broader preparation, F64 and native retained execution remain
+separate gates.
+
 Issue #761 connects [unary integer internal calls](internal-integers.md)
 to IR, retained tasks and hosted native execution. ToBool, AbsI64, SignI64 and
 integer squares preserve full-word results and original call authority. Broader

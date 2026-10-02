@@ -94,6 +94,13 @@ contexts and changed instructions before execution. Runtime admission keeps
 closed constant preparation separate; native default/initializer calls remain
 unsupported. See [unary integer internal calls](docs/internal-integers.md).
 
+Source-owned signed and unsigned Min/Max calls validate both original argument
+producers, parameter roles and right-to-left order before execution. They expose
+only full-word selection, use the existing instruction and native image quotas,
+and add no host capability. Retained scalar defaults run in their owning source
+activation; broader closed preparation and native retained publication keep
+their separate gates. See [Min/Max internal calls](docs/internal-minmax.md).
+
 `holyc run --target=host-jit` and `Native_program.evaluate` additionally execute
 structured control flow, fixed direct scalar integer functions and U0 procedures with automatic
 storage. Their source gate rejects statics, prototypes/externs,

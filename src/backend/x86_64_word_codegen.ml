@@ -313,6 +313,7 @@ type operation =
   | Print_output of Print_codegen.t
   | Internal_strlen of value * int
   | Internal_integer of Intrinsic.unary * value * int
+  | Internal_binary of Intrinsic.binary * value * value * int
   | Call_cleanup
   | Call_end of int * value
   | Call_end_void
@@ -2269,6 +2270,29 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
                (staged_stack_slot instruction.span result_stage, Encoder.Rax));
           note_peak ~temporaries:[ rax; rcx ] ();
           release_through position
+      | Internal_binary (operation, left, right, result_stage) ->
+          spill_all_registers instruction.span;
+          copy_value_to instruction.span left rax;
+          copy_value_to instruction.span right rcx;
+          let complete = fresh_label supply in
+          (match operation with
+          | Intrinsic.Min_i64 | Min_u64 ->
+              emit (Encoder.Cmp (Encoder.Rax, Encoder.Rcx))
+          | Intrinsic.Max_i64 | Max_u64 ->
+              emit (Encoder.Cmp (Encoder.Rcx, Encoder.Rax)));
+          emit_branch Equal complete;
+          emit_branch
+            (match operation with
+            | Intrinsic.Min_i64 | Max_i64 -> Less
+            | Min_u64 | Max_u64 -> Below)
+            complete;
+          emit (Encoder.Mov (Encoder.Rax, Encoder.Rcx));
+          mark complete;
+          emit
+            (Encoder.Store_stack
+               (staged_stack_slot instruction.span result_stage, Encoder.Rax));
+          note_peak ~temporaries:[ rax; rcx ] ();
+          release_through position
       | Internal_strlen (reference, result_stage) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span reference rdx;
@@ -4073,11 +4097,11 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                      && Runtime.intrinsic_opcode intrinsic = opcode
                      && (not scope.intrinsic_executed)
                      && scope.ordinary_depth = List.length !calls ->
-                  let argument = Runtime.intrinsic_argument intrinsic in
+                  let arguments = Runtime.intrinsic_arguments intrinsic in
                   if
                     pushes || description.flags <> 0L
                     || description.operands
-                       <> [ Runtime.argument_value argument ]
+                       <> List.map Runtime.argument_value arguments
                     || Option.is_some description.result
                     || Option.is_some description.payload
                     || not
@@ -4087,32 +4111,50 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                                  (Runtime.intrinsic_return_type intrinsic))
                             description.target_type)
                   then malformed description "invalid checked internal shape";
-                  let input =
-                    operand values description position
-                      (Runtime.argument_value argument)
+                  let inputs =
+                    List.map
+                      (fun argument ->
+                        let input =
+                          operand values description position
+                            (Runtime.argument_value argument)
+                        in
+                        if
+                          not
+                            (Type.equal input.declared_type
+                               (Runtime.argument_source_type argument))
+                        then
+                          malformed description
+                            "internal operation changed its checked argument \
+                             producer type";
+                        let target = Runtime.argument_target_type argument in
+                        checked_copy description target input.declared_type;
+                        if not (Intrinsic.argument_matches opcode target) then
+                          malformed description
+                            "internal operation changed its declared parameter";
+                        input)
+                      arguments
                   in
-                  if
-                    not
-                      (Type.equal input.declared_type
-                         (Runtime.argument_source_type argument))
-                  then
-                    malformed description
-                      "internal operation changed its checked argument \
-                       producer type";
-                  let target = Runtime.argument_target_type argument in
-                  checked_copy description target input.declared_type;
-                  if not (Intrinsic.argument_matches opcode target) then
-                    malformed description
-                      "internal operation changed its declared parameter";
+                  let operation =
+                    match
+                      ( opcode,
+                        Intrinsic.unary opcode,
+                        Intrinsic.binary opcode,
+                        inputs )
+                    with
+                    | Opcode.Ic_strlen, _, _, [ input ] ->
+                        Internal_strlen (input, scope.intrinsic_stage)
+                    | _, Some operation, None, [ input ] ->
+                        Internal_integer
+                          (operation, input, scope.intrinsic_stage)
+                    | _, None, Some operation, [ left; right ] ->
+                        Internal_binary
+                          (operation, left, right, scope.intrinsic_stage)
+                    | _ ->
+                        malformed description
+                          "internal operation lost its sealed arguments"
+                  in
                   scope.intrinsic_executed <- true;
-                  ( (if opcode = Opcode.Ic_strlen then
-                       Internal_strlen (input, scope.intrinsic_stage)
-                     else
-                       Internal_integer
-                         ( Option.get (Intrinsic.unary opcode),
-                           input,
-                           scope.intrinsic_stage )),
-                    None )
+                  (operation, None)
               | _ ->
                   malformed description
                     "internal operation has no exact collecting internal call \
