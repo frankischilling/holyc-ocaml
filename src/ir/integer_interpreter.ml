@@ -201,6 +201,7 @@ type prepared_operation =
   | Extern_call of Runtime.call * stored_type array
   | Internal_strlen of prepared_pointer
   | Internal_mod_u64 of prepared_pointer * prepared_operand
+  | Internal_bit of Integer_intrinsic.bit * prepared_pointer * prepared_operand
   | Internal_integer of Integer_intrinsic.unary * prepared_operand * word_type
   | Internal_binary of
       Integer_intrinsic.binary * prepared_operand * prepared_operand * word_type
@@ -4334,6 +4335,74 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                     (call_error description
                        "integer internal operation has no exact collecting \
                         internal call scope"))
+          | opcode, stack when Option.is_some (Integer_intrinsic.bit opcode)
+            -> (
+              match
+                ( !intrinsics,
+                  Option.bind runtime_calls (fun context ->
+                      Runtime.find_intrinsic_instruction context
+                        ~owner:runtime_owner description.instruction_id) )
+              with
+              | (original, false, ordinary_depth) :: rest, Some intrinsic
+                when original == intrinsic
+                     && Runtime.intrinsic_opcode intrinsic = opcode
+                     && ordinary_depth = List.length stack -> (
+                  match Runtime.intrinsic_arguments intrinsic with
+                  | [ pointed; index ] -> (
+                      let pointer_value = Runtime.argument_value pointed
+                      and index_value = Runtime.argument_value index in
+                      match
+                        ( pointer_operand_of_value types pointer_value,
+                          operand_of_value types index_value,
+                          Value_map.find_opt index_value types )
+                      with
+                      | ( Some pointer,
+                          Some index_operand,
+                          Some (Supported (_, index_source, _)) )
+                        when description.flags = 0L
+                             && description.operands
+                                = [ pointer_value; index_value ]
+                             && Option.is_none description.result
+                             && Option.is_none description.payload
+                             && Option.fold ~none:false
+                                  ~some:
+                                    (Type.equal
+                                       (Runtime.intrinsic_return_type intrinsic))
+                                  description.target_type
+                             && Type.equal pointer.pointer_type
+                                  (Runtime.argument_source_type pointed)
+                             && Integer_intrinsic.bit_pointer
+                                  pointer.pointer_type
+                             && Type.equal index_source
+                                  (Runtime.argument_source_type index)
+                             && Integer_intrinsic.argument_matches opcode
+                                  ~index:0
+                                  (Runtime.argument_target_type pointed)
+                             && Integer_intrinsic.argument_matches opcode
+                                  ~index:1
+                                  (Runtime.argument_target_type index) ->
+                          intrinsics :=
+                            (intrinsic, true, ordinary_depth) :: rest;
+                          call_instruction description
+                            (Internal_bit
+                               ( Option.get (Integer_intrinsic.bit opcode),
+                                 pointer,
+                                 index_operand ))
+                      | _ ->
+                          Error
+                            (call_error description
+                               "pointed bit operation lost its original scalar \
+                                pointer or index"))
+                  | _ ->
+                      Error
+                        (call_error description
+                           "pointed bit operation lost its two sealed arguments")
+                  )
+              | _ ->
+                  Error
+                    (call_error description
+                       "pointed bit operation has no exact collecting internal \
+                        call scope"))
           | Opcode.Ic_mod_u64, stack -> (
               match
                 ( !intrinsics,
@@ -5635,6 +5704,83 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                       (runtime_error ~instruction block !steps "HCIRVM0008"
                          "integer internal operation has no pending source \
                           call scope"))
+          | Internal_bit (operation, pointer, index) -> (
+              let index = require_operand block instruction index in
+              let address =
+                Option.bind index (fun _ ->
+                    require_pointer ~bounded:false block instruction pointer)
+              in
+              match (!calls, index, address) with
+              | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
+                  :: rest,
+                  Some index,
+                  Some address ) -> (
+                  let error code message =
+                    failed :=
+                      Some
+                        (runtime_error ~instruction block !steps code message)
+                  in
+                  let relative = Int64.shift_right_logical index.bits 3 in
+                  if
+                    index.bits < 0L
+                    || address.pointer_offset < 0L
+                    || address.pointer_offset > address.pointer_extent_bytes
+                    || relative
+                       >= Int64.sub address.pointer_extent_bytes
+                            address.pointer_offset
+                  then
+                    error "HCIRVM0019"
+                      "bit index is outside its declared object extent"
+                  else
+                    let offset = Int64.add address.pointer_offset relative in
+                    let width = Int64.of_int address.pointer_element_bytes in
+                    let cell =
+                      address.pointer_base
+                      + Int64.to_int (Int64.div offset width)
+                    in
+                    let bit =
+                      (8 * Int64.to_int (Int64.rem offset width))
+                      + Int64.to_int (Int64.logand index.bits 7L)
+                    in
+                    match
+                      ( Scalar.of_type address.pointer_pointee,
+                        address.pointer_storage.cells.(cell) )
+                    with
+                    | Some scalar, Some (Runtime_word word)
+                      when word.type_ = scalar_runtime_type scalar ->
+                        let previous, updated =
+                          Integer_intrinsic.apply_bit operation ~index:bit
+                            word.bits
+                        in
+                        if operation <> Integer_intrinsic.Test_bit then
+                          address.pointer_storage.cells.(cell) <-
+                            Some
+                              (Runtime_word
+                                 {
+                                   word with
+                                   bits = Scalar.normalize scalar updated;
+                                 });
+                        calls :=
+                          {
+                            scope with
+                            completion =
+                              Completed_word { type_ = I64; bits = previous };
+                          }
+                          :: rest
+                    | _, None ->
+                        error "HCIRVM0012"
+                          address.pointer_storage.unknown_message
+                    | _ ->
+                        error "HCIRVM0008"
+                          "pointed bit operation reached an invalid scalar cell"
+                  )
+              | _, None, _ | _, _, None -> ()
+              | _ ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0008"
+                         "pointed bit operation has no pending source call \
+                          scope"))
           | Internal_mod_u64 (pointer, divisor) -> (
               let right = require_operand block instruction divisor in
               let location =

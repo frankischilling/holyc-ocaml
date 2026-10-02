@@ -14,6 +14,7 @@ let () =
       ("bit scan internal calls", Test_internal_bitscan.tests);
       ("owned ModU64 internal calls", Test_internal_mod_u64.tests);
       ("canonical Bool execution", Test_canonical_bool.tests);
+      ("owned pointer bit calls", Test_pointer_bit_internals.tests);
       ("retained internal headers", Test_retained_internal.tests);
       ("internal call authority", Test_internal_strlen_authority.tests);
       ("internal source ownership", Test_internal_strlen_source.tests);

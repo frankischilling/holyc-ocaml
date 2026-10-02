@@ -9,6 +9,14 @@ type unary =
   | Scan_reverse
 
 type binary = Min_i64 | Min_u64 | Max_i64 | Max_u64
+type bit = Test_bit | Set_bit | Reset_bit | Complement_bit
+
+let bit = function
+  | Opcode.Ic_bt -> Some Test_bit
+  | Ic_bts -> Some Set_bit
+  | Ic_btr -> Some Reset_bit
+  | Ic_btc -> Some Complement_bit
+  | _ -> None
 
 let unary = function
   | Opcode.Ic_bsf -> Some Scan_forward
@@ -30,8 +38,11 @@ let binary = function
 
 let arity opcode =
   if opcode = Opcode.Ic_strlen || Option.is_some (unary opcode) then Some 1
-  else if opcode = Opcode.Ic_mod_u64 || Option.is_some (binary opcode) then
-    Some 2
+  else if
+    opcode = Opcode.Ic_mod_u64
+    || Option.is_some (binary opcode)
+    || Option.is_some (bit opcode)
+  then Some 2
   else None
 
 let supports opcode = Option.is_some (arity opcode)
@@ -47,8 +58,18 @@ let mod_u64_pointer type_ =
   primitive type_ 1 Sema.Primitive_type.I64
   || primitive type_ 1 Sema.Primitive_type.U64
 
+let bit_pointer type_ =
+  Sema.Type.pointer_depth type_ = 1
+  &&
+  match Sema.Type.dereference type_ with
+  | Ok pointee -> Option.is_some (Integer_scalar_storage.of_type pointee)
+  | Error _ -> false
+
 let argument_matches opcode ~index type_ =
   match opcode with
+  | Opcode.Ic_bt | Ic_bts | Ic_btr | Ic_btc ->
+      if index = 0 then primitive type_ 1 Sema.Primitive_type.U8
+      else index = 1 && primitive type_ 0 Sema.Primitive_type.I64
   | Opcode.Ic_mod_u64 ->
       if index = 0 then primitive type_ 1 Sema.Primitive_type.U64
       else index = 1 && primitive type_ 0 Sema.Primitive_type.U64
@@ -68,6 +89,8 @@ let argument_matches opcode ~index type_ =
 
 let result_matches opcode type_ =
   match opcode with
+  | Opcode.Ic_bt | Ic_bts | Ic_btr | Ic_btc ->
+      primitive type_ 0 Sema.Primitive_type.Bool
   | Opcode.Ic_mod_u64 -> primitive type_ 0 Sema.Primitive_type.U64
   | Opcode.Ic_to_bool ->
       primitive type_ 0 Sema.Primitive_type.U8
@@ -115,3 +138,17 @@ let apply_binary operation left right =
   match operation with
   | Min_i64 | Min_u64 -> if comparison <= 0 then left else right
   | Max_i64 | Max_u64 -> if comparison >= 0 then left else right
+
+let apply_bit operation ~index bits =
+  if index < 0 || index > 63 then
+    invalid_arg "bit index must be within one word";
+  let mask = Int64.shift_left 1L index in
+  let previous = if Int64.logand bits mask = 0L then 0L else 1L in
+  let updated =
+    match operation with
+    | Test_bit -> bits
+    | Set_bit -> Int64.logor bits mask
+    | Reset_bit -> Int64.logand bits (Int64.lognot mask)
+    | Complement_bit -> Int64.logxor bits mask
+  in
+  (previous, updated)

@@ -1,4 +1,18 @@
 (test
+ (name test_pointer_bit_cli)
+ (modules test_pointer_bit_cli)
+ (libraries unix yojson)
+ (deps
+  ../examples/pointer-bit-internals.hc
+  ../examples/stream-pointer-bit-internals.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/pointer-bit-internals.hc}
+   %{dep:../examples/stream-pointer-bit-internals.hc})))
+
+(test
  (name test_canonical_bool_cli)
  (modules test_canonical_bool_cli)
  (libraries unix yojson)
@@ -200,6 +214,7 @@
   test_internal_bitscan
   test_internal_mod_u64
   test_canonical_bool
+  test_pointer_bit_internals
   test_retained_internal
   test_internal_strlen_authority
   test_internal_strlen_source

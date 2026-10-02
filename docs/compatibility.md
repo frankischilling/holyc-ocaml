@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+Issue #771 implements [owned pointer bit calls](pointer-bit-internals.md) in
+both source modes and execution targets. Plain canonical numeric calls select
+nonnegative bits within original integer/Bool extents and return prior bits.
+Retained defaults preserve original mutation once. Locked/concurrent semantics,
+source optimizer forms and broader pointer domains remain separate gates.
+
 Issue #769 implements [canonical Bool execution](canonical-bool.md) through
 both source modes and execution targets. Bool retains its distinct public type
 and signed one-byte backing. Computed returns preserve full words; storage and

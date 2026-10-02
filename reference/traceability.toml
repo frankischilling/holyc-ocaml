@@ -12609,6 +12609,23 @@ excluded = ["F64 and zero-sized storage", "aggregates and general pointer conver
 verification_boundary = "Independent expected scalar words and every truth input bit, both modes/targets, original defaults/effects, exact signatures and type identity, original/foreign/changed/copied authority, bounds and uninitialized faults, public CLI, both ABIs, fresh images and exact/one-below limits. No new TempleOS oracle capture."
 
 [[feature]]
+id = "HC-OWNED-POINTER-BIT-INTERNALS"
+description = "Original plain Bt/Bts/Btr/Btc calls return prior bits and mutate bounded owned integer/Bool storage through IR, retained tasks and hosted native execution."
+status = "implemented"
+issue = 771
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Kernel/KernelB.HH:13-26", "Compiler/CompilerA.HH:162-168", "Compiler/PrsExp.HC:440-586", "Compiler/OptPass789A.HC:787-804", "Compiler/BackB.HC:202-264", "Compiler/OpCodes.DD:738,748,758,768", "Compiler/Asm.HC:397-423", "Compiler/PrsLib.HC:88,232-243,309", "Compiler/OptLib.HC:539-553", "Doc/Bit.DD"]
+implementation = ["src/ir/integer_intrinsic.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_encoder.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml"]
+tests = ["test/test_pointer_bit_internals.ml", "test/test_pointer_bit_cli.ml", "test/native/test_pointer_bit_execution.ml", "examples/pointer-bit-internals.hc", "examples/stream-pointer-bit-internals.hc"]
+documentation = ["docs/pointer-bit-internals.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+identity = "Original numeric targets 0x77-0x7A, exact Bool(U8*,I64) signatures, call phases and both immutable argument producers retain authority. Original pointee type, extent, offset, initialization and lifetime survive the operation-specific pointer admission. Renamed declarations work; ordinary same-name functions execute their bodies."
+execution = "Nonnegative indexes select a byte and bit within the original owned integer/Bool object. Bt returns the prior bit unchanged; Bts/Btr/Btc set/reset/complement it and return I64 zero/one. Native code uses declared-width checked cell loads/stores, qword register bit forms and SETC. Other bits remain unchanged."
+resources = "Bounds precede the selected cell initialization check. Each operation consumes one IC tick; original arguments, call phases, private staging, code/frame/storage/output and preparation limits retain their existing controls. Reached effects and work survive faults."
+preparation = "Original retained defaults execute actual mutation once in their owning activation and reuse saved prior bits. Native closed internal-call preparation and retained frontend publication remain separate."
+excluded = ["flat-address and general pointer domains under #687/#699", "aggregate flag storage under #700", "locked/concurrent operations under #693/#695", "source immediate/BY_VAL/branch optimizer parity under #696/#697", "broader declaration preparation under #685", "native retained frontend under #704", "full ABI, artifacts, BIN/actual-loader and bootstrap gates under #702/#682"]
+verification_boundary = "Independent expectations for all bits and storage widths, zero/high/mixed/all-ones words, arrays/aliases/literals/persistent cells, compiler caller patterns, computed/stored indexes, nested/recursive/effectful calls, exact signatures, original/foreign/changed/copied authority, bounds and uninitialized faults, public CLI, both modes/targets, both ABIs, fresh images and exact/one-below limits. No new TempleOS oracle capture."
+
+[[feature]]
 id = "HC-RELEASE-CONTRACT"
 description = "The 1.0 contract defines required host/target cells, phase-specific acceptance, exact pinned source sets and explicit bootstrap producer/consumer lineage."
 status = "implemented"

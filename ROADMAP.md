@@ -1,5 +1,10 @@
 # holyc-ocaml roadmap
 
+Issue #771 adds [owned pointer bit calls](docs/pointer-bit-internals.md) for
+plain numeric Bt/Bts/Btr/Btc targets. Original owned storage, argument phases,
+prior-bit results and retained mutation are supported. Locked/concurrent forms,
+optimizer rewrites, aggregate flags and broader pointer domains remain open.
+
 Issue #769 adds [canonical Bool execution](docs/canonical-bool.md), including
 the pinned ToBool signature, scalar storage, calls and original saved defaults.
 Bool identity, signed byte reads and full computed returns remain distinct.

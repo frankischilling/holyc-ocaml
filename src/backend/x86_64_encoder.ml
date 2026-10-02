@@ -4,6 +4,7 @@ type register = Rax | Rcx | Rdx | R8 | R9 | R10 | R11
 type unary = Neg | Not
 type binary = Add | Sub | Imul | And | Or | Xor
 type shift = Shl | Shr | Sar
+type bit = Bt | Bts | Btr | Btc
 type status_abi = Windows_x64 | System_v_x64
 type condition = E | NE | L | GE | G | LE | B | AE | A | BE
 type narrow_frame_width = Frame8 | Frame16 | Frame32
@@ -50,6 +51,7 @@ type instruction =
   | Binary of binary * register * register
   | Bsf of register * register
   | Bsr of register * register
+  | Bit of bit * register * register
   | Shift_cl of shift * register
   | Capture_status of status_abi
   | Zero_edx
@@ -180,6 +182,10 @@ let subtract = source_form "SUB" 445
 let multiply = source_form "IMUL2" 694
 let scan_forward = source_form "BSF" 727
 let scan_reverse = source_form "BSR" 731
+let bit_test = source_form "BT" 738
+let bit_complement = source_form "BTC" 748
+let bit_reset = source_form "BTR" 758
+let bit_set = source_form "BTS" 768
 let bitwise_and = source_form "AND" 353
 let bitwise_or = source_form "OR" 399
 let bitwise_xor = source_form "XOR" 501
@@ -282,6 +288,10 @@ let form = function
   | Binary (Imul, _, _) -> multiply
   | Bsf _ -> scan_forward
   | Bsr _ -> scan_reverse
+  | Bit (Bt, _, _) -> bit_test
+  | Bit (Bts, _, _) -> bit_set
+  | Bit (Btr, _, _) -> bit_reset
+  | Bit (Btc, _, _) -> bit_complement
   | Binary (And, _, _) -> bitwise_and
   | Binary (Or, _, _) -> bitwise_or
   | Binary (Xor, _, _) -> bitwise_xor
@@ -420,6 +430,7 @@ let size instruction =
   | Binary _
   | Bsf _
   | Bsr _
+  | Bit _
   | Shift_cl _
   | Cmp _
   | Test _
@@ -628,6 +639,9 @@ let write buffer position instruction =
   | Bsf (destination, source) | Bsr (destination, source) ->
       (* OpCodes.DD:727/731 are R64,RM64; REX.R extends the destination. *)
       modrm ~reg:(register_number destination) ~rm:(register_number source)
+  | Bit (_, field, index) ->
+      (* The pinned qword forms are RM64,R64; REX.R extends the index. *)
+      modrm ~reg:(register_number index) ~rm:(register_number field)
   | Binary (Imul, destination, source) ->
       (* IMUL2 is R64,RM64; the other binary forms are RM64,R64. *)
       modrm ~reg:(register_number destination) ~rm:(register_number source)
