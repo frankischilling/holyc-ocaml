@@ -1,5 +1,15 @@
 # Testing holyc-ocaml
 
+Pointer bit tests check 333 independent value cases in both source modes and
+execution targets, including all 64 positions for each operation, all nine
+integer/Bool storage types and array widths, aliases, literals, persistent cells, compiler
+mask callers, computed/stored indexes and recursive/nested/effectful calls.
+Seven source groups and five native groups cover exact signatures, original/
+foreign/changed/copied authority, bounds-before-initialization faults, reached
+effects, independent encoder bytes, both ABIs, fresh images and exact/one-below
+work/image limits. Maintained CLI examples check capture and work in both modes
+and targets; retained defaults verify once-only mutation and saved prior bits.
+
 Canonical Bool tests check 110 independent value cases in both source modes,
 including every input bit, signed-byte loads, full register returns, arithmetic,
 parameters, prepared arrays, statics, aliases, updates and original defaults.

@@ -313,6 +313,7 @@ type operation =
   | Print_output of Print_codegen.t
   | Internal_strlen of value * int
   | Internal_mod_u64 of value * value * int
+  | Internal_bit of Intrinsic.bit * value * value * scalar_value * int
   | Internal_integer of Intrinsic.unary * value * int
   | Internal_binary of Intrinsic.binary * value * value * int
   | Call_cleanup
@@ -2308,6 +2309,69 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
                (staged_stack_slot instruction.span result_stage, Encoder.Rax));
           note_peak ~temporaries:[ rax; rcx ] ();
           release_through position
+      | Internal_bit (operation, reference, index, scalar, result_stage) ->
+          spill_all_registers instruction.span;
+          let site = Option.get instruction.site in
+          let bounds_fault = fault_label 10 site in
+          let stage = staged_stack_slot instruction.span result_stage in
+          copy_value_to instruction.span index rax;
+          emit (Encoder.Test Encoder.Rax);
+          emit_branch Less bounds_fault;
+          emit (Encoder.Mov (Encoder.R8, Encoder.Rax));
+          emit (Encoder.Mov_imm64 (Encoder.Rcx, 7L));
+          emit (Encoder.Binary (Encoder.And, Encoder.R8, Encoder.Rcx));
+          emit (Encoder.Store_stack (stage, Encoder.R8));
+          emit (Encoder.Mov_imm64 (Encoder.Rcx, 3L));
+          emit (Encoder.Shift_cl (Encoder.Shr, Encoder.Rax));
+          copy_value_to instruction.span reference rdx;
+          emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
+          emit_bounds instruction.span site ~one_past:true ~scalar
+            ~offset:Encoder.Rcx ~extent:Encoder.R8;
+          emit (Encoder.Binary (Encoder.Add, Encoder.Rcx, Encoder.Rax));
+          emit_branch Overflow (fault_label 9 site);
+          emit_bounds instruction.span site ~one_past:false
+            ~scalar:{ word_type = U64; byte_size = 1 }
+            ~offset:Encoder.Rcx ~extent:Encoder.R8;
+          (* Select the actual cell and bit before looking up its initialization
+             flag. A byte inside a wider object shares that original cell. *)
+          emit (Encoder.Mov (Encoder.R8, Encoder.Rcx));
+          emit
+            (Encoder.Mov_imm64 (Encoder.Rax, Int64.of_int (scalar.byte_size - 1)));
+          emit (Encoder.Binary (Encoder.And, Encoder.R8, Encoder.Rax));
+          emit_doubles instruction.span Encoder.R8 3;
+          emit (Encoder.Load_stack (Encoder.Rax, stage));
+          emit (Encoder.Binary (Encoder.Or, Encoder.R8, Encoder.Rax));
+          emit (Encoder.Store_stack (stage, Encoder.R8));
+          emit
+            (Encoder.Mov_imm64 (Encoder.Rax, Int64.of_int (-scalar.byte_size)));
+          emit (Encoder.Binary (Encoder.And, Encoder.Rcx, Encoder.Rax));
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 8));
+          emit_flag_check instruction.span site scalar ~flag_base:Encoder.R8
+            ~offset:Encoder.Rcx;
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 0));
+          emit (Encoder.Binary (Encoder.Add, Encoder.R8, Encoder.Rcx));
+          emit
+            (load_reference_scalar instruction.span Encoder.Rdx Encoder.R8
+               scalar);
+          emit (Encoder.Load_stack (Encoder.Rcx, stage));
+          let native_operation =
+            match operation with
+            | Intrinsic.Test_bit -> Encoder.Bt
+            | Set_bit -> Encoder.Bts
+            | Reset_bit -> Encoder.Btr
+            | Complement_bit -> Encoder.Btc
+          in
+          emit (Encoder.Bit (native_operation, Encoder.Rdx, Encoder.Rcx));
+          emit (Encoder.Mov_imm64 (Encoder.Rax, 0L));
+          emit (Encoder.Setcc (Encoder.B, Encoder.Rax));
+          if operation <> Intrinsic.Test_bit then
+            emit
+              (store_reference_scalar instruction.span Encoder.R8 scalar
+                 Encoder.Rdx);
+          emit (Encoder.Store_stack (stage, Encoder.Rax));
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          release_through position
       | Internal_mod_u64 (reference, divisor, result_stage) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span reference rdx;
@@ -4176,7 +4240,16 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                             "internal operation changed its checked argument \
                              producer type";
                         let target = Runtime.argument_target_type argument in
-                        if opcode = Opcode.Ic_mod_u64 && index = 0 then (
+                        if Option.is_some (Intrinsic.bit opcode) && index = 0
+                        then (
+                          if not (Intrinsic.bit_pointer input.declared_type)
+                          then
+                            malformed description
+                              "pointed bit operation requires an original \
+                               scalar object pointer";
+                          ignore
+                            (checked_reference description input.declared_type))
+                        else if opcode = Opcode.Ic_mod_u64 && index = 0 then (
                           if not (Intrinsic.mod_u64_pointer input.declared_type)
                           then
                             malformed description
@@ -4199,6 +4272,17 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                         Intrinsic.binary opcode,
                         inputs )
                     with
+                    | opcode, _, _, [ pointed; index ]
+                      when Option.is_some (Intrinsic.bit opcode) ->
+                        let _, scalar =
+                          checked_reference description pointed.declared_type
+                        in
+                        Internal_bit
+                          ( Option.get (Intrinsic.bit opcode),
+                            pointed,
+                            index,
+                            scalar,
+                            scope.intrinsic_stage )
                     | Opcode.Ic_mod_u64, _, _, [ pointed; divisor ] ->
                         Internal_mod_u64
                           (pointed, divisor, scope.intrinsic_stage)
@@ -5570,6 +5654,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | Load_reference_value _
               | Update_reference_value _
               | Internal_mod_u64 _
+              | Internal_bit _
               | Internal_strlen _
               | Print_output _ -> true
               | _ -> false);
@@ -5579,7 +5664,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | _ -> false);
             index_addition_site =
               (match operation with
-              | Add_index _ | Print_output _ -> true
+              | Add_index _ | Internal_bit _ | Print_output _ -> true
               | _ -> false);
             address_bounds_site =
               (match operation with
@@ -5592,6 +5677,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | Store_indexed_object_value _
               | Update_indexed_object_value _
               | Internal_mod_u64 _
+              | Internal_bit _
               | Internal_strlen _
               | Print_output _ -> true
               | Materialize_reference (_, _, None, _)

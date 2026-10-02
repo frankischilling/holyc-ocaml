@@ -589,7 +589,13 @@ val execute_program :
     convert at checked stores and fixed arguments because U8 denotes a native
     internal class. Conversion preserves object identity, extent and byte offset
     while adopting the destination pointee type. Canonical producer and
-    memory-operation types remain exact. Public results remain words. *)
+    memory-operation types remain exact. Plain numeric Bt/Bts/Btr/Btc calls
+    require exact original Bool(U8*,I64) signatures and both immutable
+    producers. Nonnegative indexes select bits within original owned
+    integer/Bool extents; bounds precede the selected cell initialization check.
+    Mutations retain the original width and return I64 prior bits. This
+    operation-specific admission preserves original pointer metadata and adds no
+    general pointer conversion. Public results remain words. *)
 
 val execute_program_report :
   ?runtime_calls:Runtime_call_context.t ->

@@ -2,6 +2,7 @@ type register = Rax | Rcx | Rdx | R8 | R9 | R10 | R11
 type unary = Neg | Not
 type binary = Add | Sub | Imul | And | Or | Xor
 type shift = Shl | Shr | Sar
+type bit = Bt | Bts | Btr | Btc
 type status_abi = Windows_x64 | System_v_x64
 type narrow_frame_width = Frame8 | Frame16 | Frame32
 type frame_extension = Sign_extend | Zero_extend
@@ -93,6 +94,9 @@ type instruction =
   | Binary of binary * register * register
   | Bsf of register * register
   | Bsr of register * register
+  | Bit of bit * register * register
+      (** Field then index: qword BT/BTS/BTR/BTC register forms. The prior bit
+          is placed in carry; modifying forms update the field register. *)
   | Shift_cl of shift * register
       (** Shift the full-width destination by CL. [Shl] is left shift, [Shr]
           logical right shift, and [Sar] arithmetic right shift. The count is

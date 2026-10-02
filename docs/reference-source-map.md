@@ -1,5 +1,13 @@
 # Reference source map
 
+Issue #771 connects `Kernel/KernelB.HH:13-20`,
+`Compiler/CompilerA.HH:162-165` and `Compiler/PrsExp.HC:440-586` to plain
+owned Bt/Bts/Btr/Btc calls. `OptPass789A.HC:787-804` and `BackB.HC:202-264`
+supply dispatch, prior-bit carry and the separate BY_VAL/LOCK paths. Register
+forms occur at `OpCodes.DD:738,748,758,768`; `Asm.HC:397-423`,
+`PrsLib.HC:88,232-243,309` and `OptLib.HC:539-553` supply compiler callers.
+See [owned pointer bit calls](pointer-bit-internals.md).
+
 Issue #769 connects Bool's signed one-byte backing at `Compiler/CInit.HC:1-15`
 to the original ToBool signature at `Kernel/KernelB.HH:119` and numeric target
 at `Compiler/CompilerA.HH:51`. `BackB.HC:289-303` and

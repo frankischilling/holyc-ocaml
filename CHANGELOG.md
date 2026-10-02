@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added original plain Bt/Bts/Btr/Btc calls to IR, retained tasks and hosted
+  native execution. Calls return prior bits and mutate live owned integer/Bool
+  storage at its original width. Exact numeric signatures, immutable producers,
+  nonnegative bounds, initialization and existing work/image limits remain checked.
+
 - Added canonical Bool ToBool calls and Bool scalar execution to IR, retained
   tasks and the hosted native target. Bool keeps its distinct public type and
   signed one-byte backing. Computed words, stored narrowing, original call

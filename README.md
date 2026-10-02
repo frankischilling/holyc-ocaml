@@ -1,5 +1,9 @@
 # holyc-ocaml
 
+Issue #771 connects [owned pointer bit calls](docs/pointer-bit-internals.md)
+to IR, retained tasks and hosted native execution. Bt/Bts/Btr/Btc return the
+prior bit and preserve the original integer/Bool object and its storage width.
+
 Issue #769 connects [canonical Bool execution](docs/canonical-bool.md) to IR,
 retained tasks and hosted native execution. Bool keeps its public type identity
 and signed one-byte storage; the original ToBool declaration tests full words.

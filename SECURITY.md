@@ -87,6 +87,13 @@ checkout credentials. See [native expressions](docs/native-expressions.md).
 
 ## Explicit native program execution
 
+Plain pointer bit calls require original numeric Bool(U8*,I64) signatures and
+sealed original producers. Nonnegative indexes select bytes within the original
+owned integer/Bool extent; bounds precede the selected cell initialization check.
+Native mutation uses that cell's declared width and existing private descriptors.
+Pointer metadata and reached work remain checked. Concurrent/locked semantics
+are outside this domain. See [owned pointer bit calls](docs/pointer-bit-internals.md).
+
 Bool objects use their audited signed one-byte backing without changing public
 type or pointer identity. Parameter bounds expose one byte despite eight-byte
 ABI slots. Canonical ToBool calls require the original numeric declaration,
