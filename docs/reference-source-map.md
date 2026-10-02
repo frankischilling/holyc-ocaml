@@ -1,5 +1,12 @@
 # Reference source map
 
+Issue #755 connects `Compiler/PrsStmt.HC:1055-1061` and
+`Compiler/PrsExp.HC:1116-1154` to original retained integer binding evaluation.
+Expression lookahead precedes evaluation; type validation and header publication
+follow it. The saved target retains its original expression and successful task
+execution independently of nested header changes. Unsupported F64 targets and
+ordinary output-source binding expressions remain open.
+
 Issue #753 connects `Compiler/PrsStmt.HC:62-146,244-249` to retained numeric
 internal declarations. Header joining finishes parameter and closing lookahead
 before installing the numeric executable and internal/non-extern flags.

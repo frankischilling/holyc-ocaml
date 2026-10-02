@@ -16,6 +16,50 @@ let generated_code =
 
 let cases =
   [
+    ( "parenthesized target",
+      {|#exe {_intern (0x1e) I64 Convert(U8 ch);StreamPrint("%d;",Convert('a'));}|},
+      "",
+      65L );
+    ( "arithmetic target",
+      {|#exe {_intern 0x10+0xe I64 Convert(U8 ch);StreamPrint("%d;",Convert('a'));}|},
+      "",
+      65L );
+    ( "retained global target",
+      {|#exe {I64 Code=0x1e;_intern Code I64 Convert(U8 ch);Code=0x84;StreamPrint("%d;",Convert('a'));}|},
+      "",
+      65L );
+    ( "effectful target executes once before publication",
+      {|#exe {I64 Count=0;I64 Target(){Count++;return 0x1e;}_intern Target() I64 Convert(U8 ch);StreamPrint("%d*100+%d;",Convert('a'),Count);}|},
+      "",
+      6501L );
+    ( "target effects precede header defaults",
+      {|#exe {I64 Count=0;I64 Saved=0;I64 Target(){Count++;return 0x1e;}_intern Target() I64 Convert(U8 ch=#exe {Saved=Count;}'a');StreamPrint("%d*100+%d;",Count,Saved);}|},
+      "",
+      101L );
+    ( "target expression uses original call emission",
+      {|#exe {extern I64 Target();_intern Target()#exe {I64 Target(){return 0x1e;}} I64 Convert(U8 ch);StreamPrint("%d;",Convert('a'));}|},
+      "",
+      65L );
+    ( "header lookahead preserves saved target",
+      {|#exe {I64 Code=0x1e;_intern Code I64 Convert#exe {Code=0x84;}(U8 ch);StreamPrint("%d;",Convert('a'));}|},
+      "",
+      65L );
+    ( "target query keeps original type receipt",
+      {|#exe {_intern sizeof(I64)+22 I64 Convert(U8 ch);StreamPrint("%d;",Convert('a'));}|},
+      "",
+      65L );
+    ( "expression lookahead precedes target execution",
+      {|#exe {I64 Code=0x1e;_intern Code#exe {Code=0x84;} I64 Length(U8 *text);StreamPrint("%d;",Length("abc"));}|},
+      "",
+      3L );
+    ( "nested target preparation cannot replace the saved outer value",
+      {|#exe {I64 Code=0x1e;_intern Code I64 F(U8 outer)#exe {Code=0x7f;_intern Code I64 F(U8 inner);};StreamPrint("%d;",F('a'));}|},
+      "",
+      65L );
+    ( "target call retains default and array preparation",
+      {|#exe {I64 Target(I64 code=30){I64 Values[2+1];Values[0]=code;return Values[0];}_intern Target() I64 Convert(U8 ch);StreamPrint("%d;",Convert('a'));}|},
+      "",
+      65L );
     ("generated calls and retained body", generated_code, "A:3", 42L);
     ( "full input word",
       {|#exe {_intern 0x1e I64 F(U8 ch);StreamPrint("%d;",F(0x161));}|},
@@ -111,8 +155,6 @@ let unsupported_targets () =
           ("_intern 0x1e I64 F(U8 *ch);", "F(\"a\")", "HCRUN0003");
           ("_intern 0x1e I64 F(U8 ch='a');", "F()", "HCRUN0003");
           ("_intern 0x1e I64 F(U8 ch,...);", "F('a')", "HCRUN0003");
-          ("_intern (0x1e) I64 F(U8 ch);", "F('a')", "HCRUN0004");
-          ("_intern 0x1e+0 I64 F(U8 ch);", "F('a')", "HCRUN0004");
           ( "I64 F(U8 outer)#exe {_intern 0x1e I64 F(U8 inner);}{return 42;}",
             "F('a')",
             "HCIR0027" );
@@ -122,7 +164,7 @@ let unsupported_targets () =
 let cumulative_budgets () =
   List.iter
     (fun mode ->
-      let steps = if mode = Preprocessor.Jit then 50 else 49 in
+      let steps = if mode = Preprocessor.Jit then 56 else 55 in
       let exact =
         O.run ~mode ~max_steps:steps ~max_output_work:55 generated_code
         |> O.expect "A:3"
@@ -134,6 +176,69 @@ let cumulative_budgets () =
         |> O.fault ~output:"A:3" "HCIRVM0007");
       ignore
         (O.run ~mode ~max_output_work:54 generated_code |> O.fault "HCIRVM0023"))
+    modes
+
+let binding_failures () =
+  List.iter
+    (fun mode ->
+      let prefix =
+        {|extern U0 Print(U8 *fmt,...);#exe {I64 Target(){Print("kept");return 0x1e;}_intern Target() |}
+      in
+      List.iter
+        (fun (suffix, code) ->
+          ignore (O.run ~mode (prefix ^ suffix) |> O.fault ~output:"kept" code))
+        [
+          ("BadType F(U8 ch);}", "HCPARSE0001");
+          ("I64 ;}", "HCPARSE0002");
+          ("I64 F(U8 ch", "HCPARSE0010");
+          ("I64 F(U8 ch;}", "HCPARSE0009");
+        ];
+      ignore
+        (O.run ~mode
+           {|#exe {extern I64 Target();_intern Target() BadType F(U8 ch);}|}
+        |> O.fault "HCIRVM0030");
+      ignore
+        (O.run ~mode
+           (O.print_header
+          ^ {|#exe {Print("before");_intern 30.0 I64 F(U8 ch);}|})
+        |> O.fault ~output:"before" "HCRUN0001");
+      ignore
+        (O.run ~mode
+           (O.print_header
+          ^ {|#exe {I64 Target(){Print("kept");return 0x7f;}_intern Target() I64 F(U8 ch);F('a');}|}
+           )
+        |> O.fault ~output:"kept" "HCRUN0003"))
+    modes
+
+let effectful_binding_budgets () =
+  let source =
+    O.print_header
+    ^ {|#exe {I64 Count=0;I64 Target(){Count++;Print("%d",Count);return 0x1e;}_intern Target() I64 F(U8 ch);StreamPrint("%d*100+%d;",F('a'),Count);}|}
+  in
+  List.iter
+    (fun mode ->
+      let exact =
+        O.run ~mode ~max_steps:50 ~max_initializer_steps:3 ~max_output_work:24
+          source
+        |> O.expect ~value:(Some 6501L) "1"
+      in
+      Alcotest.(check int)
+        "effectful target cumulative execution" 50 (VM.executed_steps exact);
+      Alcotest.(check int)
+        "effectful target cumulative preparation" 3
+        (VM.compiled_initializer_steps exact);
+      ignore
+        (O.run ~mode ~max_steps:49 source |> O.fault ~output:"1" "HCIRVM0007");
+      ignore
+        (O.run ~mode ~max_initializer_steps:2 source |> O.fault "HCIRVM0007");
+      ignore
+        (O.run ~mode ~max_output_work:23 source
+        |> O.fault ~output:"1" "HCIRVM0023");
+      ignore (O.run ~mode ~max_call_depth:1 source |> O.fault "HCIRVM0015");
+      ignore
+        (O.run ~mode ~max_frame_bytes:31 source
+        |> O.fault ~output:"1" "HCIRVM0011");
+      ignore (O.run ~mode ~max_literal_bytes:1 source |> O.fault "HCIRVM0021"))
     modes
 
 let original_installation () =
@@ -212,6 +317,11 @@ let tests =
       Alcotest.test_case label `Quick (successful_case case))
     cases
   @ [
+      Alcotest.test_case "target effects survive declaration errors" `Quick
+        binding_failures;
+      Alcotest.test_case
+        "effectful targets share execution and preparation budgets" `Quick
+        effectful_binding_budgets;
       Alcotest.test_case "incomplete headers retain undefined extern execution"
         `Quick incomplete_headers;
       Alcotest.test_case "unsupported targets preserve earlier task output"

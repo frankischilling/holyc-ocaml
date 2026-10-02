@@ -93,6 +93,7 @@ type input = {
   fragment_owner : Initializer_fragment.t option;
   default_owner : Default_fragment.t option;
   static_owner : Static_initializer_fragment.t option;
+  internal_binding_owner : Internal_binding_fragment.t option;
   dimension_owner : Dimension_fragment.t option;
   offset_owner : Offset_fragment.t option;
 }
@@ -113,6 +114,7 @@ let make_statement ~statement_index ~item_index ~origin events =
         fragment_owner = None;
         default_owner = None;
         static_owner = None;
+        internal_binding_owner = None;
         dimension_owner = None;
         offset_owner = None;
       }
@@ -125,8 +127,9 @@ let make_source_statement ~source ~statement_index ~item_index events =
     events
   |> Result.map (fun input -> { input with original_statement = Some source })
 
-let make_fragment_input ?static_owner ~leaf ~origin ~references ~source_queries
-    ~fragment_owner ~default_owner ~dimension_owner ~offset_owner events =
+let make_fragment_input ?internal_binding_owner ?static_owner ~leaf ~origin
+    ~references ~source_queries ~fragment_owner ~default_owner ~dimension_owner
+    ~offset_owner events =
   let same_leaf actual =
     match (leaf, actual) with
     | None, None -> true
@@ -191,6 +194,7 @@ let make_fragment_input ?static_owner ~leaf ~origin ~references ~source_queries
         fragment_owner;
         default_owner;
         static_owner;
+        internal_binding_owner;
         dimension_owner;
         offset_owner;
       }
@@ -227,6 +231,14 @@ let make_dimension_fragment ~fragment events =
     ~source_queries:(Dimension_fragment.queries fragment)
     ~fragment_owner:None ~default_owner:None ~dimension_owner:(Some fragment)
     ~offset_owner:None events
+
+let make_internal_binding_fragment ~fragment events =
+  make_fragment_input ~leaf:None
+    ~origin:(Internal_binding_fragment.origin fragment)
+    ~references:(Internal_binding_fragment.references fragment)
+    ~source_queries:(Internal_binding_fragment.queries fragment)
+    ~fragment_owner:None ~default_owner:None ~internal_binding_owner:fragment
+    ~dimension_owner:None ~offset_owner:None events
 
 let make_offset_fragment ~fragment events =
   make_fragment_input ~leaf:None
@@ -312,6 +324,9 @@ let statement_static (statement : statement) = statement.source.static_owner
 
 let statement_dimension (statement : statement) =
   statement.source.dimension_owner
+
+let statement_internal_binding (statement : statement) =
+  statement.source.internal_binding_owner
 
 let statement_offset (statement : statement) = statement.source.offset_owner
 
@@ -769,6 +784,16 @@ let resolve ~table ~parent ~module_expressions inputs =
                   <> []
                || List.length inputs <> 1)
              input.dimension_owner
+        || Option.fold ~none:false
+             ~some:(fun fragment ->
+               (not (Internal_binding_fragment.owns_table fragment table))
+               || Declaration_collection.namespace_scope
+                    (Internal_binding_fragment.namespace fragment)
+                  != parent
+               || Module_expression_binding.publications module_expressions
+                  <> []
+               || List.length inputs <> 1)
+             input.internal_binding_owner
         || Option.fold ~none:false
              ~some:(fun fragment ->
                (not (Offset_fragment.owns_table fragment table))

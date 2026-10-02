@@ -377,6 +377,56 @@ let execute_runtime_dimension ?(use_active_stream = true) ?stream_exe_print task
   let* () = outcome in
   finished
 
+let execute_runtime_internal_binding ?(use_active_stream = true)
+    ?stream_exe_print task receipt =
+  let ( let* ) = Result.bind in
+  let span = receipt.Frontend.Parser.binding_ast.location.span in
+  let diagnose result =
+    Result.map_error
+      (fun message -> [ Integer_source.message_diagnostic ~span message ])
+      result
+  in
+  let* task_view = VM.task_snapshot task.state |> diagnose in
+  let* authority, attempt =
+    Task_declarations.begin_runtime_internal_binding task.declarations
+      ~runtime:task.state ~task_view receipt
+  in
+  let outcome =
+    let fragment =
+      Sema.Internal_binding_fragment.authorized_fragment authority
+    in
+    let* context =
+      Initializer_fragment_typing.create_context
+        ~table:(Session.semantic_symbols task.session)
+        ~parent:(Task_declarations.initializer_scope task.declarations)
+      |> diagnose
+    in
+    let* typed =
+      Initializer_fragment_typing.prepare_internal_binding context fragment
+      |> diagnose
+    in
+    let* destination =
+      Ir.Internal_binding_fragment_destination.create ~task_view typed
+      |> diagnose
+    in
+    let* execution =
+      Internal_binding_fragment_lowering.prepare ~context ~authority
+        ~runtime:task.state destination
+    in
+    VM.execute_task_internal_binding ~use_active_stream ?stream_exe_print
+      task.state attempt execution
+    |> Result.map_error (Integer_execution_diagnostics.of_errors ~span)
+  in
+  (match outcome with
+  | Error _ -> ignore (VM.fail_task_internal_binding task.state attempt)
+  | Ok () -> ());
+  let finished =
+    Task_declarations.finish_runtime_internal_binding task.declarations
+      ~runtime:task.state ~succeeded:(Result.is_ok outcome) receipt
+  in
+  let* () = outcome in
+  finished
+
 let execute_runtime_offset ?(use_active_stream = true) ?stream_exe_print task
     receipt =
   let ( let* ) = Result.bind in
@@ -427,6 +477,9 @@ let execute_runtime_offset ?(use_active_stream = true) ?stream_exe_print task
 let observe_initializer_internal ?(use_active_stream = true) ?stream_exe_print
     task event =
   (match event with
+    | Frontend.Parser.Internal_binding_preparing receipt ->
+        execute_runtime_internal_binding ~use_active_stream ?stream_exe_print
+          task receipt
     | Frontend.Parser.Aggregate_advanced receipt
       when Task_declarations.offset_requires_runtime receipt ->
         execute_runtime_offset ~use_active_stream ?stream_exe_print task receipt
@@ -682,6 +735,7 @@ let execution_commands ?(use_active_stream = true) ?stream_exe_print task span
     let open Frontend.Parser in
     let start =
       match event with
+      | Internal_binding_preparing p -> p.binding_command
       | Aggregate_declared p -> p.aggregate_header.declaration_command
       | Aggregate_advanced p ->
           p.phase_aggregate.aggregate_header.declaration_command

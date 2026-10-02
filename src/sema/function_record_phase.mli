@@ -92,6 +92,7 @@ val create_registry :
 
 val begin_header :
   ?activation:Source_activation.t ->
+  ?internal_target:Prepared_internal_binding.t ->
   registry ->
   Declaration_collection.publication ->
   Frontend.Parser.function_publication ->
@@ -179,8 +180,18 @@ val variadic_tail :
     rejected insertion grants neither member nor argument count authority.
     Completed bodies with unmodeled member mutations make the member count
     unavailable before a suspended header can use it. An original
-    integer-literal [_intern] target establishes its numeric internal/non-extern
-    state at header completion without a host executable installation. Call
-    consumers must still verify that exact target and signature. Other
-    bound/import headers require separate installation evidence and become
-    unavailable at header completion; they cannot establish extern reuse. *)
+    integer-literal or prepared scalar integer [_intern] target establishes its
+    numeric internal/non-extern state at header completion without a host
+    executable installation. Retained runtime admission separately requires the
+    owning VM's original target execution. Call consumers must still verify the
+    exact target and signature. Other bound/import headers require separate
+    installation evidence and become unavailable at header completion; they
+    cannot establish extern reuse. *)
+
+val internal_target : snapshot -> Prepared_internal_binding.t option
+(** Saved value installed by the current executable's original header. Shared
+    header changes can preserve an installation owned by another publication. *)
+
+val prepared_target : snapshot -> Prepared_internal_binding.t option
+(** Value evaluated before this snapshot's source publication. It remains
+    separate from the native allocation's current installed target. *)

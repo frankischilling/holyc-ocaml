@@ -21,8 +21,9 @@ holyc run --target=host-jit --mode=aot --format=json examples/internal-strlen.hc
 
 ## Declaration and call ownership
 
-The original `_intern` target selects the operation. This gate reads the parsed
-integer literal retained after macro expansion. The target `0x84` maps to
+The original `_intern` target selects the operation. Source batches use the
+integer literal retained after macro expansion. Retained tasks use the saved
+value from their original supported integer expression execution. The target `0x84` maps to
 `IC_STRLEN` in the generated reference table. Renaming this declaration to
 `ByteCount` preserves its operation. An ordinary source function called `StrLen`
 executes its own body.
@@ -53,8 +54,9 @@ pinned non-template form: `IC_CALL_START`, an unpushed argument, `IC_STRLEN`, th
 `IC_CALL_END` with the scalar result. There is no ordinary call or stack cleanup.
 The checked intrinsic records remain separate from ordinary runtime-call records.
 
-[Retained IR tasks](retained-internal.md) admit numeric internal publications
-and header installation at their original source events. Nested headers retain
+[Retained IR tasks](retained-internal.md) evaluate integer binding expressions
+before type validation and publication, then install their saved values at the
+original completed-header event. Nested headers retain
 the current installed target independently from the parameter cursor.
 
 ## Reads and execution limits

@@ -70,6 +70,7 @@ type task_view = {
 type fragment_kind =
   | Initializer_context
   | Default_context
+  | Internal_binding_context
   | Dimension_context
   | Offset_context
 
@@ -150,8 +151,31 @@ let dimension_context view fragment =
         function_publications_ = [];
       }
 
+let internal_binding_context view fragment =
+  if view.environment != Sema.Internal_binding_fragment.environment fragment
+  then Error "internal_binding fragment has another retained task snapshot"
+  else
+    Ok
+      {
+        fragment_kind_ = Some Internal_binding_context;
+        source_defaults = [];
+        declared_slots_ = [];
+        slots_ = [];
+        symbols = Symbols.empty;
+        statics_ = [];
+        mode = Resolution.Jit;
+        global_byte_size_ = 0;
+        global_cell_count_ = 0;
+        byte_size_ = 0;
+        task_view = Some view;
+        function_publications_ = [];
+      }
+
 let is_dimension_fragment globals =
   globals.fragment_kind_ = Some Dimension_context
+
+let is_internal_binding_fragment globals =
+  globals.fragment_kind_ = Some Internal_binding_context
 
 let offset_context view fragment =
   if view.environment != Sema.Offset_fragment.environment fragment then
@@ -962,6 +986,10 @@ let check_function_phase_source catalog ~namespace ~event snapshot =
 let check_dimension_source ?require_admitted catalog receipt =
   Sema.Task_command_order.check_dimension ?require_admitted catalog.source_order
     ~admitted:catalog.admitted_commands receipt
+
+let check_internal_binding_source ?require_admitted catalog receipt =
+  Sema.Task_command_order.check_internal_binding ?require_admitted
+    catalog.source_order ~admitted:catalog.admitted_commands receipt
 
 let check_offset_source catalog receipt =
   Sema.Task_command_order.check_offset catalog.source_order

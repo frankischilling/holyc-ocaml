@@ -248,6 +248,8 @@ type t = {
   mutable source_defaults_runtime : VM.task_state option;
   mutable prepared_source_defaults : Ir.Prepared_parameter_default.t list;
   mutable native_static_attempts : Parser.static_initializer_preparation list;
+  mutable internal_bindings : Parser.internal_binding_preparation list;
+  mutable prepared_internal_bindings : Sema.Prepared_internal_binding.t list;
   mutable static_preparations : Parser.static_initializer_preparation list;
   mutable static_completions : Parser.completed_static_initializer list;
   mutable native_initializer_attempts : Sema.Initializer_source.leaf list;
@@ -383,6 +385,8 @@ let create_with_authority ?compiler_positions ?max_switch_work ?switch_budget
                   prepared_source_defaults = [];
                   native_initializer_attempts = [];
                   native_static_attempts = [];
+                  internal_bindings = [];
+                  prepared_internal_bindings = [];
                   static_preparations = [];
                   static_completions = [];
                   storage_boundaries = Names.create 16;
@@ -1862,8 +1866,14 @@ let assign ledger (name : Ast.identifier) kind source entry =
         in
         state.native_record <-
           Some
-            (Sema.Function_record_phase.begin_header registry publication
-               state.publication
+            (Sema.Function_record_phase.begin_header
+               ?internal_target:
+                 (List.find_opt
+                    (fun target ->
+                      Sema.Prepared_internal_binding.matches_header target
+                        state.publication.function_header)
+                    ledger.prepared_internal_bindings)
+               registry publication state.publication
             |> checked name.location.span)
       else
         state.provisional_source <-
@@ -2149,6 +2159,24 @@ let validate_global_dimensions ledger (publication : Parser.global_publication)
 let observe ?offset_runtime ledger event =
   protect (fun () ->
       match event with
+      | Parser.Internal_binding_preparing receipt ->
+          let span = receipt.binding_ast.location.span in
+          let sequence =
+            active_sequence ledger receipt.binding_command.command_context
+          in
+          if
+            (not (Parser.internal_binding_is_current receipt))
+            || receipt.binding_environment != ledger.symbols
+            || List.exists (( == ) receipt) ledger.internal_bindings
+            ||
+            match sequence.phase with
+            | Reading start -> start != receipt.binding_command
+            | _ -> true
+          then
+            fail span
+              "internal binding is foreign, repeated or outside its original \
+               callback";
+          ledger.internal_bindings <- receipt :: ledger.internal_bindings
       | Parser.Aggregate_declared publication -> (
           validate_source ledger publication.aggregate_environment
             publication.aggregate_header publication.aggregate_name;
@@ -3696,6 +3724,48 @@ let finish_runtime_offset ledger ~runtime ~before ~succeeded phase =
               Some (Sema.Compiler_record.aggregate_metadata progress)
         | _ -> assert false))
 
+let begin_runtime_internal_binding ledger ~runtime ~task_view receipt =
+  protect (fun () ->
+      let span = receipt.Parser.binding_ast.location.span in
+      require_initializer_runtime ledger runtime span;
+      if not (List.exists (( == ) receipt) ledger.internal_bindings) then
+        fail span "internal binding lacks its original observed preparation";
+      let expression =
+        match receipt.binding_ast.target with
+        | Ast.Expression_binding_target expression -> expression
+        | _ -> fail span "internal binding lacks its original expression"
+      in
+      let environment, references, queries =
+        selected_fragment_transcript ledger ~task_view ~span expression
+      in
+      let fragment =
+        Sema.Internal_binding_fragment.create ~table:ledger.table
+          ~namespace:ledger.namespace ~receipt ~environment ~references ~queries
+        |> checked span
+      in
+      let authority =
+        Sema.Internal_binding_fragment.authorize fragment |> checked span
+      in
+      let attempt =
+        VM.begin_task_internal_binding runtime authority |> checked span
+      in
+      (authority, attempt))
+
+let finish_runtime_internal_binding ledger ~runtime ~succeeded receipt =
+  protect (fun () ->
+      let span = receipt.Parser.binding_ast.location.span in
+      require_initializer_runtime ledger runtime span;
+      if succeeded then
+        match VM.task_internal_binding_target runtime receipt with
+        | Some target
+          when not
+                 (List.exists (( == ) target) ledger.prepared_internal_bindings)
+          ->
+            ledger.prepared_internal_bindings <-
+              target :: ledger.prepared_internal_bindings
+        | _ ->
+            fail span "internal binding lacks its successful original execution")
+
 let begin_runtime_dimension ledger ~runtime ~task_view receipt =
   protect (fun () ->
       let span = receipt.Parser.dimension_opening.span in
@@ -3842,6 +3912,11 @@ let admit_function_phase ledger ~runtime event =
                 | _ ->
                     Sema.Function_record_phase.has_literal_internal_target
                       publication
+                    || List.exists
+                         (fun target ->
+                           Sema.Prepared_internal_binding.matches_header target
+                             publication.function_header)
+                         ledger.prepared_internal_bindings
               in
               if eligible && Option.is_some state.native_record then
                 let snapshot =

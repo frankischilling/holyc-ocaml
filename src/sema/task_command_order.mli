@@ -20,6 +20,13 @@ val check_dimension :
   Frontend.Parser.array_dimension_preparation ->
   (unit, string) result
 
+val check_internal_binding :
+  ?require_admitted:bool ->
+  t ->
+  admitted:command list ->
+  Frontend.Parser.internal_binding_preparation ->
+  (unit, string) result
+
 val command_receipts : command -> Frontend.Parser.completed_command list
 
 val check_completion :

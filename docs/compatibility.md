@@ -3,8 +3,10 @@
 [Retained internal calls](retained-internal.md) support original numeric ToUpper
 and StrLen declarations inside IR `#exe` tasks in both outer modes. Publication,
 header installation, shared allocation history and argument/emission captures
-retain their own source receipts. General binding expressions and native
-retained source execution remain under #695 and #704.
+retain their own source receipts. Supported retained integer binding expressions
+evaluate before type validation and publication, including calls with effects.
+Floating targets, ordinary output-source binding expressions and native retained
+source execution remain under #701, #695 and #704.
 
 [Internal ASCII conversion](internal-toupper.md) supports the retained numeric
 `IC_TOUPPER` target, I64 result and U8 scalar formal through interpreted and

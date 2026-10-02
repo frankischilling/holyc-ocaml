@@ -20,6 +20,16 @@ val prepare_dimension :
   Ir.Dimension_fragment_destination.t ->
   (classification * int, Common.Diagnostic.t list) result
 
+val prepare_internal_binding :
+  ?retained_function_source:
+    (Ir.Retained_function.t ->
+    Ir.Integer_interpreter.task_function_source option) ->
+  ?on_progress:(int -> unit) ->
+  max_steps:int ->
+  top_calls:Sema.Top_level_function_call_target_classification.t list ->
+  Ir.Internal_binding_fragment_destination.t ->
+  (classification * int, Common.Diagnostic.t list) result
+
 type item
 type static_item
 type t

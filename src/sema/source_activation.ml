@@ -131,6 +131,7 @@ let event_context = function
   | Declaration event ->
       let start =
         match event with
+        | Parser.Internal_binding_preparing p -> p.binding_command
         | Parser.Aggregate_declared p -> p.aggregate_header.declaration_command
         | Parser.Aggregate_advanced p ->
             p.phase_aggregate.aggregate_header.declaration_command
@@ -506,6 +507,12 @@ let global_admission activation publication =
 let dimension_admission activation preparation =
   admission activation (function
     | Declaration (Parser.Array_dimension_preparing original) ->
+        original == preparation
+    | _ -> false)
+
+let internal_binding_admission activation preparation =
+  admission activation (function
+    | Declaration (Parser.Internal_binding_preparing original) ->
         original == preparation
     | _ -> false)
 

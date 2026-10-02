@@ -21,12 +21,13 @@ let with_file suffix contents action =
 
 let () =
   require
-    (Array.length Sys.argv = 4)
+    (Array.length Sys.argv = 5)
     "expected compiler and maintained example paths"
 
 let compiler = Sys.argv.(1)
 let example = Sys.argv.(2)
 let retained_example = Sys.argv.(3)
+let binding_example = Sys.argv.(4)
 
 let invoke ~target ~mode ?(steps = 100_000) ?(status = 0) path =
   let arguments =
@@ -122,7 +123,7 @@ let () =
 let () =
   List.iter
     (fun mode ->
-      let steps = if mode = "jit" then 50 else 49 in
+      let steps = if mode = "jit" then 56 else 55 in
       let report = invoke ~target:"ir" ~mode ~steps retained_example in
       require
         (member "outcome" report = `String "success")
@@ -141,6 +142,38 @@ let () =
       error below "HCIRVM0007";
       output below "413a33" 3 55;
       let native = invoke ~target:"host-jit" ~mode ~status:1 retained_example in
+      error native "HCPP0008";
+      output native "" 0 0)
+    [ "jit"; "aot" ]
+
+let () =
+  List.iter
+    (fun mode ->
+      let steps = if mode = "jit" then 58 else 57 in
+      let report = invoke ~target:"ir" ~mode ~steps binding_example in
+      require
+        (member "outcome" report = `String "success")
+        "effectful binding outcome";
+      require
+        (report |> member "final_value" |> member "bits"
+       = `String "0x000000000000002a")
+        "effectful binding I64 42";
+      require
+        (member "output_hex" report = `String "7461726765743a313b413a31")
+        "binding target executes once before generated output";
+      require
+        (member "executed_steps" report = `Int steps)
+        "binding example cumulative execution";
+      require
+        (member "compiled_initializer_steps" report = `Int 3)
+        "binding example cumulative preparation";
+      output report "7461726765743a313b413a31" 12 75;
+      let below =
+        invoke ~target:"ir" ~mode ~steps:(steps - 1) ~status:1 binding_example
+      in
+      error below "HCIRVM0007";
+      output below "7461726765743a313b413a31" 12 75;
+      let native = invoke ~target:"host-jit" ~mode ~status:1 binding_example in
       error native "HCPP0008";
       output native "" 0 0)
     [ "jit"; "aot" ]

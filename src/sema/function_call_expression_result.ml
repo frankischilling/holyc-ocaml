@@ -4250,6 +4250,7 @@ let type_top_level_root table members policies ~before_item_index state source =
           | Top_level_expression_tree.Implicit_output_fixed _
           | Top_level_expression_tree.Global_initializer _
           | Top_level_expression_tree.Initializer_fragment _
+          | Top_level_expression_tree.Internal_binding_fragment _
           | Top_level_expression_tree.Dimension_fragment _
           | Top_level_expression_tree.Offset_fragment _
           | Top_level_expression_tree.Static_initializer_fragment _

@@ -34,6 +34,13 @@ val resolve_dimension_fragment :
   Sema.Dimension_fragment.t ->
   (Sema.Top_level_expression_binding.t, string) result
 
+val resolve_internal_binding_fragment :
+  table:Sema.Symbol_table.t ->
+  parent:Sema.Symbol_table.scope ->
+  module_expressions:Sema.Module_expression_binding.t ->
+  Sema.Internal_binding_fragment.t ->
+  (Sema.Top_level_expression_binding.t, string) result
+
 val resolve_offset_fragment :
   table:Sema.Symbol_table.t ->
   parent:Sema.Symbol_table.scope ->
