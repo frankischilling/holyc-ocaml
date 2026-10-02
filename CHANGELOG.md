@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added owned scalar pointer equality and inequality to IR, retained tasks
+  and hosted native programs. Comparisons keep original objects/offsets and
+  I64 results, including aliases across separate descriptor tables.
+
 - Added owned scalar pointer subtraction to IR, retained tasks and hosted
   native programs. Original scaled operands, stable aliases, direct signed
   overflow checks and sealed source producers preserve the owned reference.

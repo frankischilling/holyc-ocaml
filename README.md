@@ -1,5 +1,9 @@
 # holyc-ocaml
 
+Issue #779 executes [owned scalar pointer equality](docs/pointer-equality.md)
+through IR, retained tasks and hosted native programs. Original object identity,
+logical offsets and sealed producers preserve aliases and I64 comparison words.
+
 Issue #777 connects [owned scalar pointer subtraction](docs/pointer-subtraction.md)
 to IR, retained tasks and hosted native programs. Original scaled operands,
 alias snapshots and direct checked subtraction preserve the owned reference.

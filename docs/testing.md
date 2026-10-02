@@ -1,5 +1,13 @@
 # Testing holyc-ocaml
 
+Pointer-equality tests check 146 independent values across all nine pointee
+classes, both modes and both targets. Seven source groups and six native groups
+cover unknown pointees, one-past values, distinct owners, aliases across sites,
+loops/recursion/effects, original faults/work, sealed and forged comparison
+producers, retained defaults, both ABI images and exact/one-below limits.
+Maintained CLI fixtures check capture, operand order, bounds/overflow and
+once-only preparation. See [pointer equality](pointer-equality.md).
+
 Pointer-subtraction tests check 116 independent values across all nine pointee
 and offset classes, both modes and both targets. Seven source groups and six
 native groups cover alias snapshots, recursion, persistent/literal cells,

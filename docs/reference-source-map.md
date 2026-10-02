@@ -1,5 +1,10 @@
 # Reference source map
 
+Issue #779 connects `Compiler/PrsExp.HC:14-62,218-229`,
+`OptLib.HC:96-179` and `OptPass012.HC:724-740,808-827` to original pointer
+equality and I64 result transport. `OptPass789A.HC:567-572` dispatches to
+`BackB.HC:102-200`'s ICCmp. See [owned scalar pointer equality](pointer-equality.md).
+
 Issue #777 connects `Compiler/PrsExp.HC:14-62,165-185` and
 `OptLib.HC:9-14,96-179,483-509` to pointer/integer subtraction.
 `OptPass789A.HC:559-566` dispatches to `BackA.HC:166-222`'s ICSub;

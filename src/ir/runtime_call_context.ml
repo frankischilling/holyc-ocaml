@@ -90,7 +90,7 @@ type intrinsic = {
 
 type graph_context = {
   owner : owner;
-  pointer_offset_producers : Seq.description Instructions.t;
+  pointer_producers : Seq.description Instructions.t;
   calls : call Instructions.t;
   discards : call Instructions.t;
   intrinsic_starts : intrinsic Instructions.t;
@@ -176,7 +176,18 @@ let same_owner left right =
   | Function left, Function right -> left == right
   | _ -> false
 
-let pointer_offsets_match context =
+let pointer_comparison produced (description : Seq.description) =
+  (description.opcode = Opcode.Ic_equ_equ
+  || description.opcode = Opcode.Ic_not_equ)
+  && List.exists
+       (fun operand ->
+         Option.fold ~none:false
+           ~some:(fun type_ -> Type.pointer_depth type_ > 0)
+           (Option.bind (Values.find_opt operand produced) (fun producer ->
+                producer.Seq.target_type)))
+       description.operands
+
+let pointer_producers_match context =
   List.for_all
     (fun graph ->
       let checked =
@@ -198,12 +209,28 @@ let pointer_offsets_match context =
                     current)
              Instructions.empty
       in
+      let produced =
+        Instructions.fold
+          (fun _ (description : Seq.description) produced ->
+            match description.result with
+            | Some result -> Values.add result.value_id description produced
+            | None -> produced)
+          current Values.empty
+      in
       Instructions.for_all
-        (fun id original ->
-          match Instructions.find_opt id current with
-          | Some supplied -> original == supplied
-          | None -> false)
-        graph.pointer_offset_producers)
+        (fun id supplied ->
+          if not (pointer_comparison produced supplied) then true
+          else
+            match Instructions.find_opt id graph.pointer_producers with
+            | Some original -> original == supplied
+            | None -> false)
+        current
+      && Instructions.for_all
+           (fun id original ->
+             match Instructions.find_opt id current with
+             | Some supplied -> original == supplied
+             | None -> false)
+           graph.pointer_producers)
     context.graphs
 
 let matches context ~entry ~initialization ~functions =
@@ -213,7 +240,7 @@ let matches context ~entry ~initialization ~functions =
        initialization
   && List.length context.functions = List.length functions
   && List.for_all2 ( == ) context.functions functions
-  && pointer_offsets_match context
+  && pointer_producers_match context
 
 let find_graph context owner =
   List.find_opt (fun graph -> same_owner graph.owner owner) context.graphs
@@ -1547,21 +1574,20 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
            || item.opcode = Opcode.Ic_sub)
            && Option.fold ~none:false
                 ~some:(fun type_ -> Type.pointer_depth type_ = 1)
-                item.target_type)
+                item.target_type
+           || pointer_comparison produced item)
          all_items)
   in
-  let pointer_offset_producers = ref Instructions.empty in
+  let pointer_producers = ref Instructions.empty in
   while !pending <> [] do
     match !pending with
     | [] -> ()
     | item :: rest ->
         pending := rest;
-        if
-          not
-            (Instructions.mem item.Seq.instruction_id !pointer_offset_producers)
+        if not (Instructions.mem item.Seq.instruction_id !pointer_producers)
         then (
-          pointer_offset_producers :=
-            Instructions.add item.instruction_id item !pointer_offset_producers;
+          pointer_producers :=
+            Instructions.add item.instruction_id item !pointer_producers;
           List.iter
             (fun operand ->
               Option.iter
@@ -1571,7 +1597,7 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
   done;
   {
     owner;
-    pointer_offset_producers = !pointer_offset_producers;
+    pointer_producers = !pointer_producers;
     calls = !calls;
     discards = !discards;
     intrinsic_starts = !intrinsic_starts;

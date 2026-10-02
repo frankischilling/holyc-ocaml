@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+Issue #779 implements [owned scalar pointer equality](pointer-equality.md)
+in both modes and targets. Original object identity and logical offset produce
+I64 0/1 without reading pointees; source snapshots, one-past values, sealed
+producers and original fault work remain checked. Broader pointer domains stay
+with their existing owners.
+
 Issue #777 implements [owned scalar pointer subtraction](pointer-subtraction.md)
 in both modes and execution targets. It scales full computed integer operands
 and directly subtracts the offset with bounds/overflow checks. One-past,

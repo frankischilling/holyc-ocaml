@@ -1,4 +1,18 @@
 (test
+ (name test_pointer_equality_cli)
+ (modules test_pointer_equality_cli)
+ (libraries unix yojson)
+ (deps
+  ../examples/pointer-equality.hc
+  ../examples/stream-pointer-equality.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/pointer-equality.hc}
+   %{dep:../examples/stream-pointer-equality.hc})))
+
+(test
  (name test_pointer_subtraction_cli)
  (modules test_pointer_subtraction_cli)
  (libraries unix yojson)
@@ -257,6 +271,7 @@
   test_pointer_bit_internals
   test_pointer_addition
   test_pointer_subtraction
+  test_pointer_equality
   test_swap_internals
   test_retained_internal
   test_internal_strlen_authority

@@ -2235,6 +2235,46 @@ let plan ?frame ?globals ~allow_calls root =
                                { result; operand = result; pointer_type; span }
                           :: !pending
                       else if
+                        (opcode = Opcode.Ic_equ_equ
+                       || opcode = Opcode.Ic_not_equ)
+                        && conversion = Keep_result
+                        && (Option.is_some frame || Option.is_some globals)
+                        &&
+                        match
+                          ( checked_frame_value left,
+                            checked_frame_value right,
+                            checked_frame_integer result )
+                        with
+                        | ( Ok (Checked_type left_type),
+                            Ok (Checked_type right_type),
+                            Ok (Checked_type result_type) ) ->
+                            Type.pointer_depth left_type = 1
+                            && Type.pointer_depth right_type = 1
+                            && Type.compatible_u8_pointer left_type right_type
+                            && Option.is_some (pointer_element_size left_type)
+                            && Option.is_some (pointer_element_size right_type)
+                            && Type.pointer_depth result_type = 0
+                            && Type.base result_type
+                               = Type.Primitive
+                                   ( Type.Internal_storage,
+                                     Sema.Primitive_type.I64 )
+                        | _ -> false
+                      then
+                        pending :=
+                          Visit { result = left; conversion = Keep_result }
+                          :: Visit { result = right; conversion = Keep_result }
+                          :: Finish_binary
+                               {
+                                 result;
+                                 opcode;
+                                 span;
+                                 left;
+                                 right;
+                                 conversion;
+                                 operation_flags = 0L;
+                               }
+                          :: !pending
+                      else if
                         Opcode.equal opcode Opcode.Ic_assign
                         || compound_assignment opcode
                       then

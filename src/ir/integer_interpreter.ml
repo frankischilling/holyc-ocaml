@@ -226,6 +226,8 @@ type prepared_operation =
   | Immediate of Value_id.t * word
   | Unary of unary_operation * prepared_operand * Value_id.t * word_type
   | Word_view of prepared_operand * Value_id.t * word_type
+  | Compare_pointers of
+      comparison_operation * prepared_pointer * prepared_pointer * Value_id.t
   | Binary of
       binary_operation
       * prepared_operand
@@ -3953,6 +3955,36 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                       | Some _ ->
                           Error (invalid_type_matrix block_id description)))
               | _ -> Error (malformed block_id description))
+          | Binary_kind (Compare ((Equal | Not_equal) as comparison))
+            when memory_enabled
+                 && List.exists
+                      (fun id ->
+                        Option.is_some (pointer_operand_of_value types id))
+                      description.operands -> (
+              match
+                ( description.operands,
+                  description.result,
+                  description.target_type,
+                  description.payload )
+              with
+              | [ left_id; right_id ], Some result, Some target_type, None
+                when Type.pointer_depth target_type = 0
+                     && Type.base target_type
+                        = Type.Primitive
+                            (Type.Internal_storage, Sema.Primitive_type.I64)
+                -> (
+                  match
+                    ( pointer_operand_of_value types left_id,
+                      pointer_operand_of_value types right_id )
+                  with
+                  | Some left, Some right
+                    when Scalar.compatible_pointer left.pointer_type
+                           right.pointer_type ->
+                      Ok
+                        (Compare_pointers
+                           (comparison, left, right, result.value_id))
+                  | _ -> Error (invalid_type_matrix block_id description))
+              | _ -> Error (malformed block_id description))
           | Binary_kind binary -> (
               match
                 ( description.operands,
@@ -6380,6 +6412,35 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     Value_map.add result
                       (Runtime_word { type_ = result_type; bits = operand.bits })
                       !values)
+          | Compare_pointers (comparison, left, right, result) -> (
+              match require_pointer block instruction left with
+              | None -> ()
+              | Some left -> (
+                  match require_pointer block instruction right with
+                  | None -> ()
+                  | Some right ->
+                      let equal =
+                        left.pointer_storage == right.pointer_storage
+                        && left.pointer_base = right.pointer_base
+                        && left.pointer_count = right.pointer_count
+                        && left.pointer_element_bytes
+                           = right.pointer_element_bytes
+                        && left.pointer_offset = right.pointer_offset
+                      in
+                      let predicate =
+                        match comparison with
+                        | Equal -> equal
+                        | Not_equal -> not equal
+                        | _ -> assert false
+                      in
+                      values :=
+                        Value_map.add result
+                          (Runtime_word
+                             {
+                               type_ = I64;
+                               bits = (if predicate then 1L else 0L);
+                             })
+                          !values))
           | Binary (operation, left, right, result, result_type) -> (
               match
                 require_operand ~computation:true block instruction left

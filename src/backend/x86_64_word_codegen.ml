@@ -258,6 +258,7 @@ type operation =
   | Apply_division of
       arithmetic_operation * word_type * fault_site * value * value * value
   | Apply_comparison of Encoder.condition * value * value * value
+  | Apply_reference_comparison of Encoder.condition * value * value * value
   | Apply_logical_not of value * value
   | Apply_logical of Encoder.binary * value * value * value
   | Apply_word_view of value * value
@@ -1751,6 +1752,30 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
           emit (Encoder.Setcc (condition, target));
           emit (Encoder.Movzx8 (target, target));
           assign position destination result
+      | Apply_reference_comparison (condition, left, right, result) ->
+          spill_all_registers instruction.span;
+          copy_value_to instruction.span left rdx;
+          copy_value_to instruction.span right rcx;
+          let different = fresh_label supply in
+          let complete = fresh_label supply in
+          (* Separate address sites can own separate canonical tables. The
+             original data/flags/offset/extent identify the same live object
+             independently of which table produced its descriptor. *)
+          List.iter
+            (fun offset ->
+              emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, offset));
+              emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rcx, offset));
+              emit (Encoder.Cmp (Encoder.Rax, Encoder.R8));
+              emit_branch Not_equal different)
+            [ 0; 8; 16; 24 ];
+          let same = if condition = Encoder.E then 1L else 0L in
+          emit (Encoder.Mov_imm64 (Encoder.Rax, same));
+          emit_branch Unconditional complete;
+          mark different;
+          emit (Encoder.Mov_imm64 (Encoder.Rax, Int64.sub 1L same));
+          mark complete;
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          assign position rax result
       | Apply_logical_not (input, result) ->
           let inputs, protected = ensure_inputs instruction.span [ input ] in
           let source = List.hd inputs in
@@ -5447,6 +5472,48 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                       malformed description
                         "scalar update does not name its exact slot")
               | _ -> malformed description "invalid scalar update")
+          | (Opcode.Ic_equ_equ | Opcode.Ic_not_equ)
+            when List.exists
+                   (fun id ->
+                     Option.fold ~none:false
+                       ~some:(fun (value : value) ->
+                         Type.pointer_depth value.declared_type > 0)
+                       (Value_map.find_opt id !values))
+                   description.operands -> (
+              if description.flags <> 0L || Option.is_some description.payload
+              then malformed description "invalid native pointer comparison";
+              match
+                ( description.operands,
+                  description.result,
+                  description.target_type )
+              with
+              | [ left_id; right_id ], Some result, Some target_type ->
+                  let left = operand values description position left_id
+                  and right = operand values description position right_id in
+                  ignore (checked_reference description left.declared_type);
+                  ignore (checked_reference description right.declared_type);
+                  if
+                    (not
+                       (Type.compatible_u8_pointer left.declared_type
+                          right.declared_type))
+                    || checked_word description target_type <> I64
+                  then
+                    malformed description
+                      "invalid native pointer comparison types";
+                  let value =
+                    define values description position result target_type
+                      (Computation.forward target_type)
+                  in
+                  ( Apply_reference_comparison
+                      ( (if description.opcode = Opcode.Ic_equ_equ then Encoder.E
+                         else Encoder.NE),
+                        left,
+                        right,
+                        value ),
+                    None )
+              | _ ->
+                  malformed description
+                    "invalid native pointer comparison shape")
           | Opcode.Ic_end_exp -> (
               if description.flags <> 0x200L then
                 malformed description "IC_END_EXP requires flags=0x000000200";
