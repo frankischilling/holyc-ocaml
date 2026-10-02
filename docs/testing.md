@@ -1,5 +1,14 @@
 # Testing holyc-ocaml
 
+Seven retained pointer-difference groups check 53 independent saved values
+across all nine scalar types, both modes, signed/interior/one-past differences,
+snapshots, rows, aliases, loops and nested/recursive calls. Original, copied,
+foreign and changed records cover division/size/subtraction flags, targets,
+operand order and compatible substitutions. Generic optimizer gates, four
+fault phases, reached output and exact/one-below runtime, preparation and output
+limits are checked separately. Public CLI checks include both native admission
+boundaries. See [retained pointer differences](prepared-pointer-difference.md).
+
 Pointer-difference tests check 97 independent values and 16 faults across
 all nine scalar types, both modes and targets. Eight source and seven native
 groups cover signed offsets, snapshots, rows, recursive/caller/persistent/

@@ -2,8 +2,9 @@
 
 Issue #783 adds [owned scalar pointer difference](docs/pointer-difference.md),
 including signed element counts, one-past references, operand snapshots and
-original subtraction/size/division authority. Byte-sized retained defaults
-execute; wider initializer division and raw address/class-query parity remain
+original subtraction/size/division authority. Issue #785 prepares wider
+differences reached through retained calls with original source authority.
+General initializer division and raw address/class-query parity remain
 under #685/#696/#697/#687/#699.
 
 Issue #781 adds [owned scalar pointer ordering](docs/pointer-ordering.md),

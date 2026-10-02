@@ -1,5 +1,13 @@
 # Reference source map
 
+Issue #785 uses `Compiler/PrsExp.HC:14-62`,
+`OptPass012.HC:403-440`, `OptPass789A.HC:682-688` and
+`BackA.HC:573-601` for retained pointer-difference preparation. Valid aligned
+same-object offsets differ by an exact multiple of scalar width 2/4/8, so signed
+division and the source arithmetic-shift rewrite agree in this bounded domain.
+Original source authority remains required. See
+[retained pointer differences](prepared-pointer-difference.md).
+
 Issue #783 connects `Compiler/PrsExp.HC:14-62`, `OptLib.HC:96-179`,
 `OptPass012.HC:403-440,619-695` and `OptPass789A.HC:524-530,559-566`
 to original pointer byte subtraction and optional pointee-size division.

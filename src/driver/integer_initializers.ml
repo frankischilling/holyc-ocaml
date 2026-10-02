@@ -499,7 +499,12 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                     && not (Ir.Integer_intrinsic.supports item.opcode))
                   value_code
               in
-              let guard ~constant code =
+              let guard ?runtime ~constant code =
+                let divisions =
+                  Option.bind runtime (fun (context, owner) ->
+                      Runtime.original_pointer_difference_divisions context
+                        ~owner)
+                in
                 let rec check pure = function
                   | [] -> Ok ()
                   | (item : Seq.description) :: rest ->
@@ -524,7 +529,15 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                             _ ) -> true
                         | ( (Ir.Opcode.Ic_div | Ic_mod | Ic_div_equ | Ic_mod_equ),
                             [ _; right ] )
-                          when not constant -> known right
+                          when not constant ->
+                            known right
+                            && not
+                                 (Option.fold ~none:false
+                                    ~some:(fun divisions ->
+                                      Runtime
+                                      .is_original_pointer_difference_division
+                                        divisions item)
+                                    divisions)
                         | _ -> false
                       in
                       if rejected then
@@ -746,7 +759,13 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                         let code =
                           instructions (Ir.Function_body.body function_.body)
                         in
-                        let* () = guard ~constant:false code in
+                        let runtime =
+                          Option.map
+                            (fun (context, _) ->
+                              (context, Runtime.Function function_.body))
+                            runtime
+                        in
+                        let* () = guard ?runtime ~constant:false code in
                         let* () =
                           guard_updates ~globals:owner_globals
                             ~frame:(Some function_.frame)
@@ -754,12 +773,6 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                               (Ir.Function_body.compiler_options function_.body)
                             ~terminal:None
                             (Ir.Function_body.body function_.body)
-                        in
-                        let runtime =
-                          Option.map
-                            (fun (context, _) ->
-                              (context, Runtime.Function function_.body))
-                            runtime
                         in
                         guard_callees
                           (function_.body :: visited)

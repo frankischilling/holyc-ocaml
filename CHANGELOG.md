@@ -2,10 +2,14 @@
 
 ## Unreleased
 
+- Added preparation of wider scalar pointer differences reached through
+  retained calls. The completed original source context authorizes only its
+  original size divisions. Defaults execute once; generic division, modulo,
+  shifts and separate native preparation boundaries remain gated.
+
 - Added owned scalar pointer difference to IR and hosted native programs.
   Original byte subtraction and optional pointee-size division return signed
-  I64 element counts within one live object. Byte-sized retained defaults
-  execute; wider preparation keeps the existing constant-divisor optimizer gate.
+  I64 element counts within one live object. Retained defaults execute once.
   Original effects, faults, work, source/status authority and limits are checked.
 
 - Added owned scalar pointer ordering within one original live object and

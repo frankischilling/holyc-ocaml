@@ -65,12 +65,14 @@ pointer-minus-integer keep their existing behavior.
 
 ## Preparation, source and verification
 
-Byte-sized retained differences execute operands once and preserve the saved
-word. Wider retained differences still encounter HCRUN0006's constant-divisor
-initializer optimizer gate. Closed native owned-reference preparation also
-remains HCRUN0006; native retained publication remains HCPP0008. These boundaries
-are tested separately under #685/#696/#697/#704. No general initializer
-division or optimizer admission is added.
+Retained differences at all nine scalar widths execute operands once and
+preserve the saved word. Issue #785 admits original wider size divisions only
+through the completed original callee context. Generic constant division,
+modulo, shifts and unsealed direct expressions keep their optimizer gates.
+Closed native owned-reference preparation remains HCRUN0006; native retained
+publication remains HCPP0008. See
+[retained pointer differences](prepared-pointer-difference.md) for the proof,
+measured wider example and separate #685/#696/#697/#704 boundaries.
 
 Difference adds no callee activation or descriptor allocation per evaluation.
 Runtime, preparation, storage, arena, descriptors, calls, output, frames and

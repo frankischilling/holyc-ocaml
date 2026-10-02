@@ -1,5 +1,11 @@
 # Declaration-time integer defaults
 
+Retained calls can prepare original scalar pointer differences at every
+integer/Bool width. The owning completed context admits only its original
+size divisions; saved numeric results survive later offset changes. Generic
+division, modulo and shifts retain their optimizer gates. See
+[retained pointer differences](prepared-pointer-difference.md).
+
 Scheduled defaults retain the private lowering result for their original typed
 expression and globals. Execution requires that result's exact graph and the
 original typed runtime context, including call-free expressions. Empty or
