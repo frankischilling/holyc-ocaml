@@ -1,6 +1,35 @@
 (rule
  (alias native-tests)
  (deps
+  ../../examples/pointer-addition.hc
+  ../../examples/stream-pointer-addition.hc)
+ (action
+  (run
+   %{exe:../test_pointer_addition_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/pointer-addition.hc}
+   %{dep:../../examples/stream-pointer-addition.hc}
+   --native)))
+
+(copy_files ../test_pointer_addition.ml)
+
+(executable
+ (name test_pointer_addition_execution)
+ (modules
+  test_pointer_addition_execution
+  test_pointer_addition
+  test_pointer_bit_internals
+  test_internal_strlen_authority)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_pointer_addition_execution.exe})))
+
+(rule
+ (alias native-tests)
+ (deps
   ../../examples/swap-internals.hc
   ../../examples/stream-swap-internals.hc)
  (action

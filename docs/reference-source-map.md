@@ -1,5 +1,11 @@
 # Reference source map
 
+Issue #775 connects `Compiler/PrsExp.HC:14-62,165-185` and
+`OptLib.HC:9-14,96-179,483-509` to original pointee scaling and owned reference
+addition. `LexLib.HC:249-271` and `CMain.HC:128-141` supply compiler string
+and AOT-buffer consumers whose broader memory requirements remain open. See
+[owned scalar pointer addition](pointer-addition.md).
+
 Issue #773 connects `Kernel/KernelB.HH:110-117`,
 `Compiler/CompilerA.HH:216-219` and `Compiler/PrsExp.HC:440-586` to owned
 SwapI64/SwapU32/SwapU16/SwapU8 calls. `OptPass789A.HC:887-892` dispatches

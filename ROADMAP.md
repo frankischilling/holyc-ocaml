@@ -1,5 +1,10 @@
 # holyc-ocaml roadmap
 
+Issue #775 adds [owned scalar pointer addition](docs/pointer-addition.md),
+including original pointee scaling, captured references, signed offsets and
+one-past addresses. Subtraction, difference, comparisons, compound updates,
+escapes, aggregates and full optimizer/native preparation remain open.
+
 Issue #773 adds [owned swap calls](docs/swap-internals.md) used by compiler
 backend and assembler routines. The four scalar widths, both original pointer
 roles, read-before-write order, actual U0 completion and retained mutation are

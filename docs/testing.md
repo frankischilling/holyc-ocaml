@@ -1,5 +1,13 @@
 # Testing holyc-ocaml
 
+Pointer-addition tests check 116 independent value cases across all nine
+pointee and offset types, both modes and both execution targets. Seven source
+groups and six native groups cover captured aliases, loops, recursive borrowing,
+one-past addresses, exact faults/work, full computed offset words, changed
+producers, foreign contexts, both ABIs, fresh images and exact/one-below limits.
+Maintained CLI examples check source values, captures, bounds faults and
+once-only retained defaults. See [pointer addition](pointer-addition.md).
+
 Swap tests check 287 independent value cases in both source modes and execution
 targets, covering every bit at each width, all nine integer/Bool storage types,
 aliases, arrays, literals, persistent cells, compiler operand-swap patterns and

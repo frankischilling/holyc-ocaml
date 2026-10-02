@@ -463,7 +463,11 @@ let narrow_operand_boundaries () =
                             consumer.instruction_id
                         then
                           if index then
-                            { d with operands = [ List.hd d.operands; byte ] }
+                            {
+                              d with
+                              operands = [ List.hd d.operands; byte ];
+                              target_type = Some H.i64;
+                            }
                           else
                             {
                               d with
@@ -542,7 +546,8 @@ let tests =
         resource_limits;
       Alcotest.test_case "malformed byte IR types strides layouts and owners"
         `Quick malformed_ir_and_owners;
-      Alcotest.test_case "byte values cannot forge word indices or casts" `Quick
+      Alcotest.test_case
+        "byte values cannot forge pointer strides or word casts" `Quick
         narrow_operand_boundaries;
       Alcotest.test_case "byte arithmetic result rank is checked" `Quick
         malformed_arithmetic_rank;

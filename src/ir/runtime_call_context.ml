@@ -90,6 +90,7 @@ type intrinsic = {
 
 type graph_context = {
   owner : owner;
+  pointer_offset_producers : Seq.description Instructions.t;
   calls : call Instructions.t;
   discards : call Instructions.t;
   intrinsic_starts : intrinsic Instructions.t;
@@ -175,6 +176,36 @@ let same_owner left right =
   | Function left, Function right -> left == right
   | _ -> false
 
+let pointer_offsets_match context =
+  List.for_all
+    (fun graph ->
+      let checked =
+        match graph.owner with
+        | Entry -> context.entry
+        | Function body -> Function_body.x87 body
+      in
+      let current =
+        X87_stack.graph checked |> Block_graph.blocks
+        |> List.fold_left
+             (fun current block ->
+               Block_graph.instructions block
+               |> Seq.instructions
+               |> List.fold_left
+                    (fun current instruction ->
+                      let description = Seq.description instruction in
+                      Instructions.add description.instruction_id description
+                        current)
+                    current)
+             Instructions.empty
+      in
+      Instructions.for_all
+        (fun id original ->
+          match Instructions.find_opt id current with
+          | Some supplied -> original == supplied
+          | None -> false)
+        graph.pointer_offset_producers)
+    context.graphs
+
 let matches context ~entry ~initialization ~functions =
   context.entry == entry
   && Option.fold ~none:false
@@ -182,6 +213,7 @@ let matches context ~entry ~initialization ~functions =
        initialization
   && List.length context.functions = List.length functions
   && List.for_all2 ( == ) context.functions functions
+  && pointer_offsets_match context
 
 let find_graph context owner =
   List.find_opt (fun graph -> same_owner graph.owner owner) context.graphs
@@ -1498,8 +1530,46 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
             "implicit discard does not consume its exact checked call result"
       | None -> fail "implicit output discard is absent from its exact graph")
     !discards;
+  let produced =
+    List.fold_left
+      (fun produced (item : Seq.description) ->
+        match item.result with
+        | Some result -> Values.add result.value_id item produced
+        | None -> produced)
+      Values.empty all_items
+  in
+  let pending =
+    ref
+      (List.filter
+         (fun (item : Seq.description) ->
+           (item.opcode = Opcode.Ic_mul || item.opcode = Opcode.Ic_add)
+           && Option.fold ~none:false
+                ~some:(fun type_ -> Type.pointer_depth type_ = 1)
+                item.target_type)
+         all_items)
+  in
+  let pointer_offset_producers = ref Instructions.empty in
+  while !pending <> [] do
+    match !pending with
+    | [] -> ()
+    | item :: rest ->
+        pending := rest;
+        if
+          not
+            (Instructions.mem item.Seq.instruction_id !pointer_offset_producers)
+        then (
+          pointer_offset_producers :=
+            Instructions.add item.instruction_id item !pointer_offset_producers;
+          List.iter
+            (fun operand ->
+              Option.iter
+                (fun producer -> pending := producer :: !pending)
+                (Values.find_opt operand produced))
+            item.operands)
+  done;
   {
     owner;
+    pointer_offset_producers = !pointer_offset_producers;
     calls = !calls;
     discards = !discards;
     intrinsic_starts = !intrinsic_starts;

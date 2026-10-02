@@ -976,6 +976,32 @@ let select_known_binary_type left right result_class =
           | _ -> None)
       | None, _ | _, None -> None)
 
+let scalar_pointer_addition_type left right =
+  let pointer =
+    match left.source_type with
+    | Some type_ when left.array_address && left.array_rank = 1 ->
+        Result.to_option (Type.pointer_to type_)
+    | type_ when left.array_rank = 0 -> type_
+    | _ -> None
+  in
+  match (pointer, right.source_type) with
+  | Some pointer, Some integer
+    when left.result_class = Integer_result
+         && right.result_class = Integer_result
+         && right.array_rank = 0
+         && Type.pointer_depth pointer = 1
+         && Type.pointer_depth integer = 0 -> (
+      match (Type.dereference pointer, Type.base integer) with
+      | Ok pointee, Type.Primitive (_, primitive)
+        when Option.is_some (Primitive_type.integer_storage_info primitive) -> (
+          match Type.base pointee with
+          | Type.Primitive (_, primitive)
+            when Option.is_some (Primitive_type.integer_storage_info primitive)
+            -> Some pointer
+          | _ -> None)
+      | _ -> None)
+  | _ -> None
+
 let is_writable_storage_type = function
   | Some type_ when Type.pointer_depth type_ > 0 -> true
   | Some type_ -> (
@@ -2653,6 +2679,9 @@ and type_binary table members policies ~before_item_index ~intrinsic_conversion
           | Ok (right, state) ->
               let result_class, source_type =
                 match Function_call_resolution.binary_operator binary with
+                | Generated.Intermediate_codes.Ic_add
+                  when Option.is_some (scalar_pointer_addition_type left right)
+                  -> (Integer_result, scalar_pointer_addition_type left right)
                 | Generated.Intermediate_codes.Ic_power ->
                     (F64_result, float_type)
                 | Generated.Intermediate_codes.Ic_equ_equ
@@ -2691,7 +2720,14 @@ and type_binary table members policies ~before_item_index ~intrinsic_conversion
               Ok
                 (make_result ~binary_operands:(left, right)
                    ~intrinsic_conversion state ~id ~source ~source_type
-                   ~category:Object_value ~result_class)))
+                   ~category:
+                     (if
+                        Option.fold ~none:false
+                          ~some:(fun type_ -> Type.pointer_depth type_ > 0)
+                          source_type
+                      then Address_value
+                      else Object_value)
+                   ~result_class)))
 
 and type_outer_callback_call table members policies ~before_item_index
     ~intrinsic_conversion state id source resolution call occurrence binding =

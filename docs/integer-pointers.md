@@ -1,5 +1,10 @@
 # Scalar pointer aliases
 
+[Owned scalar pointer addition](pointer-addition.md) scales an integer offset
+by the original pointee width and preserves the captured object's extent and
+live owner. It works with all supported integer/Bool pointees through both
+source modes, retained tasks and the hosted native target.
+
 [Array indexing](integer-arrays.md) extends references with full declared-object
 extents and byte offsets. Any-rank ordinary arrays can supply an element
 pointer; one-past pointers can be copied but cannot be dereferenced. Explicit
@@ -78,8 +83,8 @@ All source locations refer to `c26482bb6ad3f80106d28504ec5db3c6a360732c`:
   `Compiler/CInit.HC:49` marks `IC_ADDR` as a constant barrier.
 
 Pointer returns and escapes, pointer-valued global/static initial images,
-integer/null address conversions, casts, arithmetic, deeper pointers and other
-pointee shapes remain explicit boundaries. General memory/runtime output,
+integer/null address conversions, casts, other pointer arithmetic, deeper
+pointers and other pointee shapes remain explicit boundaries. General memory/runtime output,
 stateful compilation and `#exe`, optimizer parity, native backends, BIN/loader
 acceptance and bootstrap remain requirements of the full compiler. The tests
 provide hosted source and malformed-IR evidence; no new native capture is claimed.
