@@ -17,6 +17,7 @@ let () =
       ("owned pointer bit calls", Test_pointer_bit_internals.tests);
       ("owned swap calls", Test_swap_internals.tests);
       ("owned pointer addition", Test_pointer_addition.tests);
+      ("owned pointer subtraction", Test_pointer_subtraction.tests);
       ("retained internal headers", Test_retained_internal.tests);
       ("internal call authority", Test_internal_strlen_authority.tests);
       ("internal source ownership", Test_internal_strlen_source.tests);

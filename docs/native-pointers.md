@@ -52,8 +52,9 @@ captured before later effects have the same protection.
 The accepted language prevents references from escaping their owners. Pointer
 returns, persistent pointer storage, pointer-to-pointer objects, integer/null
 casts and indirect calls all reject before native entry.
-[Scalar pointer addition](pointer-addition.md) scales original integer offsets
-and preserves captured objects; other pointer arithmetic remains unsupported.
+[Scalar pointer addition](pointer-addition.md) and
+[subtraction](pointer-subtraction.md) scale original integer offsets and preserve
+captured objects; other pointer arithmetic remains unsupported.
 A reference can therefore travel only through the current activation's local
 slots or down its synchronous call chain. Every recursive activation has a
 separate frame and descriptor region. A callee's local reference cannot survive
@@ -61,8 +62,9 @@ its return; no generation counter or host-address lookup is needed for this
 restricted lifetime proof. Broadening those escape paths will require a new
 lifetime mechanism before admission.
 
-Checked indexing and scalar pointer addition retain the original object range
-and validate signed scaling and addition before forming a host address. Intermediate multidimensional
+Checked indexing and scalar pointer addition/subtraction retain the original
+object range and check signed scaling and offset arithmetic before forming a
+host address. Intermediate multidimensional
 offsets remain internal until final materialization or access. Materialization
 accepts aligned one-past addresses; reads and writes require an actual element.
 Negative indexing from an interior pointer can reach earlier elements, but a
@@ -93,7 +95,7 @@ Automatic scalar arrays use the same references; see
 [native arrays](native-arrays.md). Global/static arrays and mutable byte literals
 use the [persistent storage](native-persistent-storage.md) path. Persistent pointer
 variables, pointer returns and
-comparisons, null/integer conversions, subtraction/difference and compound
+comparisons, null/integer conversions, pointer difference and compound
 pointer updates, deeper indirection, pointer-valued arrays, aggregates, foreign calls and
 the full HolyC ABI remain unfinished native work. This feature does not produce
 objects or BIN files, establish loader acceptance, or complete the compiler.

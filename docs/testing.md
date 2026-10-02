@@ -1,5 +1,13 @@
 # Testing holyc-ocaml
 
+Pointer-subtraction tests check 116 independent values across all nine pointee
+and offset classes, both modes and both targets. Seven source groups and six
+native groups cover alias snapshots, recursion, persistent/literal cells,
+minimum-signed overflow, exact faults/work, sealed subtraction and transitive
+producers, both ABIs, fresh images and exact/one-below limits. Maintained CLI
+fixtures check captures, overflow/bounds faults and once-only defaults. See
+[pointer subtraction](pointer-subtraction.md).
+
 Pointer-addition tests check 116 independent value cases across all nine
 pointee and offset types, both modes and both execution targets. Seven source
 groups and six native groups cover captured aliases, loops, recursive borrowing,

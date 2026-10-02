@@ -211,7 +211,8 @@ type prepared_operation =
   | Call_end_void of Value_id.t
   | Frame_address_tick
   | Scale_index of prepared_operand * int64 * Value_id.t
-  | Index_address of storage_location * Value_id.t * Value_id.t * Type.t
+  | Index_address of
+      binary_operation * storage_location * Value_id.t * Value_id.t * Type.t
   | Materialize_address of storage_location * Value_id.t * Type.t
   | Load_slot of storage_location * Value_id.t
   | Store_slot of storage_location * prepared_value * Value_id.t * stored_type
@@ -3315,7 +3316,8 @@ let declared_types ?frame ?globals ?literals ?initialization
                          | _, Opcode.Ic_mul
                            when scalar_pointer_type type_ && memory_enabled ->
                              index_offset types description
-                         | _, Opcode.Ic_add when frame_pointer type_ -> (
+                         | _, (Opcode.Ic_add | Opcode.Ic_sub)
+                           when frame_pointer type_ -> (
                              match indexed_address frame types description with
                              | Indexed_address _ as indexed -> indexed
                              | _ -> (
@@ -3651,7 +3653,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
       when match produced with
            | Some (Index_offset _) -> true
            | _ -> false -> Some Scale_index_kind
-    | _, Opcode.Ic_add
+    | _, (Opcode.Ic_add | Opcode.Ic_sub)
       when match produced with
            | Some (Indexed_address _) -> true
            | _ -> false -> Some Index_address_kind
@@ -3757,7 +3759,12 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                     when Type.equal actual pointee ->
                       Ok
                         (Index_address
-                           (location, offset, result.value_id, pointee))
+                           ( (if description.opcode = Opcode.Ic_sub then Subtract
+                              else Add),
+                             location,
+                             offset,
+                             result.value_id,
+                             pointee ))
                   | _ -> Error (malformed block_id description))
               | _ -> Error (malformed block_id description))
           | Pointer_address_kind -> (
@@ -6188,32 +6195,47 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                       Value_map.add result
                         (Runtime_offset (Int64.mul index.bits stride))
                         !values)
-          | Index_address (location, offset, result, pointee) -> (
+          | Index_address (operation, location, offset, result, pointee) -> (
               match
                 ( resolve_address block instruction location pointee,
                   Value_map.find_opt offset !values )
               with
               | Some address, Some (Runtime_offset delta) ->
-                  if
-                    delta > 0L
-                    && address.pointer_offset > Int64.sub Int64.max_int delta
-                    || delta < 0L
-                       && address.pointer_offset < Int64.sub Int64.min_int delta
-                  then
+                  let overflow, offset =
+                    match operation with
+                    | Add ->
+                        ( delta > 0L
+                          && address.pointer_offset
+                             > Int64.sub Int64.max_int delta
+                          || delta < 0L
+                             && address.pointer_offset
+                                < Int64.sub Int64.min_int delta,
+                          Int64.add address.pointer_offset delta )
+                    | Subtract ->
+                        ( delta > 0L
+                          && address.pointer_offset
+                             < Int64.add Int64.min_int delta
+                          || delta < 0L
+                             && address.pointer_offset
+                                > Int64.add Int64.max_int delta,
+                          Int64.sub address.pointer_offset delta )
+                    | _ -> assert false
+                  in
+                  if overflow then
                     failed :=
                       Some
                         (runtime_error ~instruction block !steps "HCIRVM0020"
-                           "index address addition exceeds the hosted signed \
-                            address range")
+                           (if operation = Subtract then
+                              "index address subtraction exceeds the hosted \
+                               signed address range"
+                            else
+                              "index address addition exceeds the hosted \
+                               signed address range"))
                   else
                     values :=
                       Value_map.add result
                         (Runtime_pointer
-                           {
-                             address with
-                             pointer_offset =
-                               Int64.add address.pointer_offset delta;
-                           })
+                           { address with pointer_offset = offset })
                         !values
               | None, _ -> ()
               | _ ->

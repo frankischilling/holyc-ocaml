@@ -1,5 +1,11 @@
 # Reference source map
 
+Issue #777 connects `Compiler/PrsExp.HC:14-62,165-185` and
+`OptLib.HC:9-14,96-179,483-509` to pointer/integer subtraction.
+`OptPass789A.HC:559-566` dispatches to `BackA.HC:166-222`'s ICSub;
+`LexLib.HC:249-271` supplies a compiler string consumer. See
+[owned scalar pointer subtraction](pointer-subtraction.md).
+
 Issue #775 connects `Compiler/PrsExp.HC:14-62,165-185` and
 `OptLib.HC:9-14,96-179,483-509` to original pointee scaling and owned reference
 addition. `LexLib.HC:249-271` and `CMain.HC:128-141` supply compiler string

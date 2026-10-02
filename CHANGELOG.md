@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added owned scalar pointer subtraction to IR, retained tasks and hosted
+  native programs. Original scaled operands, stable aliases, direct signed
+  overflow checks and sealed source producers preserve the owned reference.
+
 - Added owned scalar pointer addition to IR, retained tasks and hosted native
   programs. Original pointee scaling, full computed offsets, alias snapshots,
   initialization, bounds, overflow and existing work/image limits stay checked.

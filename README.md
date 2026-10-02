@@ -1,5 +1,9 @@
 # holyc-ocaml
 
+Issue #777 connects [owned scalar pointer subtraction](docs/pointer-subtraction.md)
+to IR, retained tasks and hosted native programs. Original scaled operands,
+alias snapshots and direct checked subtraction preserve the owned reference.
+
 Issue #775 executes [owned scalar pointer addition](docs/pointer-addition.md)
 through IR, retained tasks and hosted native programs. Scaled offsets retain
 original integer/Bool objects, pointer types, extents and stable aliases.

@@ -47,10 +47,10 @@ val create :
     publication. Scheduled initializer calls must belong to that exact checked
     initializer expression, including nested argument expressions; implicit
     output statements cannot belong to initializer regions. Matching spellings
-    or table-local symbol IDs do not establish ownership. Pointer scale/add
-    instructions and their original transitive producers are also sealed;
-    replacing them with type-compatible records does not retain source
-    authority. *)
+    or table-local symbol IDs do not establish ownership. Pointer
+    scale/add/subtract instructions and their original transitive producers are
+    also sealed; replacing them with type-compatible records does not retain
+    source authority. *)
 
 val matches :
   t ->
