@@ -6,8 +6,15 @@ closing lookahead and unsupported target/signature faults with prior output.
 Installation controls distinguish an authentic native header from pending
 metadata without a snapshot and reject replayed transitions. The CLI runs
 `examples/stream-internal.hc` in both IR modes, capturing `A:3` with I64 42 and
-55 output-work units. Exact/one-below cumulative steps are 50/49 in JIT and
-49/48 in AOT. Native frontend rejection of `#exe` remains explicit.
+55 output-work units. Exact/one-below cumulative steps are 56/55 in JIT and
+55/54 in AOT. Native frontend rejection of `#exe` remains explicit.
+Binding tests also cover original expression lookahead, saved values across
+header and nested target preparation, effectful calls that execute once, queries,
+globals, later malformed types/headers, unsupported F64 targets and exact
+preparation/output/frame/depth limits. The binding authority suite rejects
+foreign environments, typed roots, namespaces, equal source facts, unrelated IR
+with matching source metadata and replay.
+The CLI also checks `examples/stream-internal-binding.hc` in both IR modes.
 See [retained internal calls](retained-internal.md).
 
 Internal character-conversion tests cover every byte, full signed/high-word

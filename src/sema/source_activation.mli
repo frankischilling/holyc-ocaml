@@ -112,6 +112,11 @@ val dimension_admission :
 (** Journaled preparations require their exact active event, including after
     replay fails. Later unjournaled preparations retain the normal live path. *)
 
+val internal_binding_admission :
+  t option -> Frontend.Parser.internal_binding_preparation -> bool
+(** Journaled preparations require their exact active event, including after
+    replay fails. Later unjournaled preparations retain the normal live path. *)
+
 val function_phase_admission :
   t option -> Frontend.Parser.declaration_event -> bool
 (** Journaled declaration/member/default/variadic/header phases require the

@@ -689,3 +689,20 @@ val native_static_initializer_fragment :
   runtime:Ir.Integer_interpreter.task_state ->
   Frontend.Parser.static_initializer_preparation ->
   (Sema.Static_initializer_fragment.t, Common.Diagnostic.t list) result
+
+val begin_runtime_internal_binding :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  task_view:Ir.Integer_globals.task_view ->
+  Frontend.Parser.internal_binding_preparation ->
+  ( Sema.Internal_binding_fragment.authority
+    * Ir.Integer_interpreter.internal_binding_attempt,
+    Common.Diagnostic.t list )
+  result
+
+val finish_runtime_internal_binding :
+  t ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  succeeded:bool ->
+  Frontend.Parser.internal_binding_preparation ->
+  (unit, Common.Diagnostic.t list) result

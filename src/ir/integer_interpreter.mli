@@ -91,6 +91,7 @@ val owns_call_phase : task_state -> Sema.Function_call_phase.t -> bool
 type task_stream
 type task_admission
 type initializer_attempt
+type internal_binding_attempt
 type dimension_attempt
 
 val prepare_task_closed_dimension :
@@ -127,6 +128,27 @@ val execute_task_dimension :
   task_state ->
   dimension_attempt ->
   Dimension_fragment_program.execution ->
+  (unit, error list) result
+
+val begin_task_internal_binding :
+  task_state ->
+  Sema.Internal_binding_fragment.authority ->
+  (internal_binding_attempt, string) result
+
+val fail_task_internal_binding :
+  task_state -> internal_binding_attempt -> (unit, string) result
+
+val task_internal_binding_target :
+  task_state ->
+  Frontend.Parser.internal_binding_preparation ->
+  Sema.Prepared_internal_binding.t option
+
+val execute_task_internal_binding :
+  ?use_active_stream:bool ->
+  ?stream_exe_print:stream_exe_print ->
+  task_state ->
+  internal_binding_attempt ->
+  Internal_binding_fragment_program.execution ->
   (unit, error list) result
 
 type default_attempt

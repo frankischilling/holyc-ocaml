@@ -263,12 +263,27 @@ type query_event = private
     expression with its exact root and ordered member receipts. Rejection stops
     parsing at that read point. *)
 
+type binding_activity
+
+type internal_binding_preparation = private {
+  binding_command : command_start;
+  binding_environment : Symbol_visibility.Environment.t;
+  binding_ast : Ast.declaration_binding;
+  binding_activity : binding_activity;
+}
+
+val internal_binding_is_current : internal_binding_preparation -> bool
+(** Original expression lookahead has completed. Type validation and function
+    name publication follow this callback; lookahead may already have read the
+    type token. The receipt is active only during its callback. *)
+
 type declaration_header = private {
   declaration_sources : Common.Source_manager.t;
   declaration_source : Common.Source_file.t;
   declaration_command : command_start;
   modifiers : Ast.declaration_modifier list;
   binding : Ast.declaration_binding option;
+  binding_preparation : internal_binding_preparation option;
   type_specifier : Ast.type_specifier;
 }
 
@@ -672,6 +687,7 @@ val aggregate_publication_is_current : aggregate_publication -> bool
 val aggregate_completion_is_current : completed_aggregate -> bool
 
 type declaration_event = private
+  | Internal_binding_preparing of internal_binding_preparation
   | Aggregate_declared of aggregate_publication
   | Aggregate_advanced of aggregate_phase
   | Aggregate_completed of completed_aggregate

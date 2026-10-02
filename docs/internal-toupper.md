@@ -73,7 +73,8 @@ CLI execution, both modes, native ABI compilation and authority mutations.
 They add no TempleOS oracle capture. General internal binding-expression
 preparation, floating arguments, other internal operations and broader runtime
 services remain under #695 and #705. [Retained IR tasks](retained-internal.md)
-now admit original numeric internal headers and preserve their installed target
-through nested lookahead. Native retained source execution remains under #704.
+evaluate supported integer targets before publication, including calls with
+effects, and preserve their saved values through nested header lookahead.
+Floating targets remain under #701. Native retained source execution remains under #704.
 The compiler, artifacts, actual loader
 and bootstrap requirements remain under #682.

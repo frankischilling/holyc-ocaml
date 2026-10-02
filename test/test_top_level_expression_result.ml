@@ -455,6 +455,7 @@ let literals_and_module_values () =
             | Semantic_top_level_expression_tree.Initializer_fragment _
             | Semantic_top_level_expression_tree.Static_initializer_fragment _
             | Semantic_top_level_expression_tree.Default_fragment _
+            | Semantic_top_level_expression_tree.Internal_binding_fragment _
             | Semantic_top_level_expression_tree.Dimension_fragment _
             | Semantic_top_level_expression_tree.Offset_fragment _
             | Semantic_top_level_expression_tree.Implicit_output_argument _

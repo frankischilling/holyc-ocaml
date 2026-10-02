@@ -259,12 +259,26 @@ type query_event =
   | Query_member of query_member
   | Query_completed of completed_query
 
+type binding_activity = { mutable binding_active : bool }
+
+type internal_binding_preparation = {
+  binding_command : command_start;
+  binding_environment : Symbol_visibility.Environment.t;
+  binding_ast : Ast.declaration_binding;
+  binding_activity : binding_activity;
+}
+
+let internal_binding_is_current preparation =
+  preparation.binding_activity.binding_active
+  && preparation.binding_command.command_context.context_active
+
 type declaration_header = {
   declaration_sources : Common.Source_manager.t;
   declaration_source : Common.Source_file.t;
   declaration_command : command_start;
   modifiers : Ast.declaration_modifier list;
   binding : Ast.declaration_binding option;
+  binding_preparation : internal_binding_preparation option;
   type_specifier : Ast.type_specifier;
 }
 
@@ -801,6 +815,7 @@ let aggregate_phase_is_current phase =
        .context_active
 
 type declaration_event =
+  | Internal_binding_preparing of internal_binding_preparation
   | Aggregate_declared of aggregate_publication
   | Aggregate_advanced of aggregate_phase
   | Aggregate_completed of completed_aggregate
@@ -947,6 +962,7 @@ type offset_position_capture = {
 }
 
 type cursor = {
+  mutable internal_bindings : internal_binding_preparation list;
   mutable offset_position_capture : offset_position_capture option;
   command_stack : command_position ref list ref;
   mutable current_command : command_start option;
@@ -2080,6 +2096,11 @@ let declaration_header cursor ~modifiers ~binding ~type_specifier =
     declaration_command = Option.get cursor.current_command;
     modifiers;
     binding;
+    binding_preparation =
+      Option.bind binding (fun binding ->
+          List.find_opt
+            (fun receipt -> receipt.binding_ast == binding)
+            cursor.internal_bindings);
     type_specifier;
   }
 
@@ -3993,6 +4014,21 @@ let parse_binding cursor =
               ~location:(token_location keyword.token)
               ~target:(Ast.Expression_binding_target expression.node)
           in
+          let preparation =
+            {
+              binding_command = Option.get cursor.current_command;
+              binding_environment = cursor.symbols;
+              binding_ast = node;
+              binding_activity = { binding_active = true };
+            }
+          in
+          cursor.internal_bindings <- preparation :: cursor.internal_bindings;
+          Fun.protect
+            ~finally:(fun () ->
+              preparation.binding_activity.binding_active <- false)
+            (fun () ->
+              publish_declaration cursor keyword
+                (Internal_binding_preparing preparation));
           Parsed_binding
             { node; keyword; tokens = keyword.token :: expression.tokens })
   | _ -> (
@@ -9778,6 +9814,7 @@ let make_cursor ?reference ?call ?implicit_output ?query ?declaration
     command_stack;
     offset_position_capture = None;
     current_command = None;
+    internal_bindings = [];
     stream;
     sources;
     source;

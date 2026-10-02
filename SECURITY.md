@@ -8,6 +8,12 @@ The compiler treats input as untrusted. Relevant risks include include path trav
 
 ## Compile-time execution
 
+Retained integer `_intern` targets execute at their original parser boundary.
+They share the task's preparation, execution, output and storage limits. Saved
+values retain an exact successful VM attempt; copied source facts and foreign
+tasks cannot admit them. Reached effects and charges survive later type or
+header errors. Unsupported target domains fail before function publication.
+
 The hosted source execution path runs supported `#exe` blocks through checked semantic passes, verified IR and `Ir.Integer_interpreter`. Blocks can retain task declarations, call supported functions, update bounded storage and generate source with `StreamPrint`. This applies during both JIT and outer AOT compilation; the AOT output namespace remains separate from the directive task. See [integer task execution](docs/integer-task.md) for the supported domain and remaining compatibility work.
 
 Runtime services require checked declarations and original retained call authority. The hosted VM supplies bounded output and source generation; it grants no process spawning, host commands, network access, unrestricted filesystem access or raw host pointers. Includes still use the configured frontend roots. Provider installation during a suspended parse uses its original task environments and a single-use parser token, temporarily clears caller locals, and verifies the accepted child sequence and admitted commands.

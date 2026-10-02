@@ -31,6 +31,7 @@ type native_state = {
   ellipsis : bool;
   extern : bool option;
   internal_binding : Parser.completed_function_header option;
+  internal_target : Prepared_internal_binding.t option;
   unavailable : string option;
 }
 
@@ -50,6 +51,7 @@ and t = {
   registry : registry;
   transcript : P.t;
   native : native;
+  prepared_target : Prepared_internal_binding.t option;
   saved_arguments : int option;
   mutable aliases : Visibility.entry list;
   mutable body : Ast.function_definition option;
@@ -63,6 +65,7 @@ and snapshot = {
   source_state : P.snapshot;
   native_state : native_state;
   identity : native_identity;
+  snapshot_prepared_target : Prepared_internal_binding.t option;
   snapshot_saved_arguments : int option;
   revision : revision;
   phase_event : phase_event option;
@@ -134,9 +137,12 @@ let same_cursor left right =
   && left.native_state.arguments = right.native_state.arguments
   && left.native_state.ellipsis = right.native_state.ellipsis
   && left.native_state.internal_binding == right.native_state.internal_binding
+  && left.native_state.internal_target == right.native_state.internal_target
 
 let native_source snapshot = snapshot.native_state.owner
 let internal_binding snapshot = snapshot.native_state.internal_binding
+let internal_target snapshot = snapshot.native_state.internal_target
+let prepared_target snapshot = snapshot.snapshot_prepared_target
 
 let native_members snapshot =
   List.filter_map
@@ -225,6 +231,7 @@ let snapshot record =
           source_state;
           native_state;
           identity = record.native.identity;
+          snapshot_prepared_target = record.prepared_target;
           snapshot_saved_arguments = record.saved_arguments;
           revision = record.native.revision;
           phase_event =
@@ -369,7 +376,18 @@ let rec entry_has_ancestry entries entry =
        ~some:(entry_has_ancestry entries)
        (Visibility.function_alias_original entry)
 
-let begin_header ?activation registry publication source =
+let begin_header ?activation ?internal_target registry publication source =
+  let ( let* ) = Result.bind in
+  let* () =
+    match internal_target with
+    | None -> Ok ()
+    | Some target
+      when Prepared_internal_binding.owns_table target registry.table
+           && Prepared_internal_binding.namespace target == registry.namespace
+           && Prepared_internal_binding.matches_header target
+                source.Parser.function_header -> Ok ()
+    | Some _ -> Error "internal target belongs to another original header"
+  in
   let latest =
     List.find_opt
       (fun record ->
@@ -447,6 +465,7 @@ let begin_header ?activation registry publication source =
                       ellipsis = false;
                       extern = (if unknown then None else Some true);
                       internal_binding = None;
+                      internal_target = None;
                       unavailable =
                         (if unknown then
                            Some "previous native function record is untracked"
@@ -465,6 +484,7 @@ let begin_header ?activation registry publication source =
                 registry;
                 transcript;
                 native;
+                prepared_target = internal_target;
                 saved_arguments;
                 aliases = [ source.function_entry ];
                 body = None;
@@ -661,7 +681,14 @@ let observe ?activation record event =
           else Size_value None
         in
         advance_native record.native
-          { state with extern; members; header_size; internal_binding = None };
+          {
+            state with
+            extern;
+            members;
+            header_size;
+            internal_binding = None;
+            internal_target = None;
+          };
         record.latest_phase_event <- None;
         record.phase_revision <- record.native.revision;
         Ok ())
@@ -754,6 +781,7 @@ let observe ?activation record event =
                 in
                 let internal_binding =
                   has_literal_internal_target header.function_publication
+                  || Option.is_some record.prepared_target
                 in
                 if bounded_binding then
                   {
@@ -778,6 +806,9 @@ let observe ?activation record event =
                     internal_binding =
                       (if Option.is_some state.unavailable then None
                        else Some header);
+                    internal_target =
+                      (if Option.is_some state.unavailable then None
+                       else record.prepared_target);
                   }
                 else
                   {
@@ -786,6 +817,7 @@ let observe ?activation record event =
                     header_size = Size_value None;
                     extern = None;
                     internal_binding = None;
+                    internal_target = None;
                     unavailable =
                       Some
                         "bound function lifecycle requires executable \

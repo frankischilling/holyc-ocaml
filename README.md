@@ -602,11 +602,14 @@ connection is merged. Broader compiler-state queries and stream services remain
 under #684; general defaults, omitted arguments and declaration-time bounds
 remain under #685.
 
-[Retained internal calls](docs/retained-internal.md) now connect numeric ToUpper
+[Retained internal calls](docs/retained-internal.md) connect numeric ToUpper
 and StrLen headers to the original task catalog and call captures. Nested header
 lookahead preserves the installed target and current member cursor separately.
 [stream-internal.hc](examples/stream-internal.hc) generates a Print call, captures
 `A:3` and returns I64 42 through `--target=ir` in both outer modes.
+Integer binding expressions also evaluate before header publication, including
+retained calls with effects. [stream-internal-binding.hc](examples/stream-internal-binding.hc)
+captures `target:1;A:1` with a target call that runs once.
 
 ## License and attribution
 

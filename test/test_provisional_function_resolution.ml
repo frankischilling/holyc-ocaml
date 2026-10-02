@@ -44,7 +44,8 @@ let fixture ?(contents = "I64 F(I64 n=#exe {}40)#exe {}{return n;}") () =
         let record = N.begin_header registry publication source |> checked in
         records := record :: !records;
         events := (event, N.snapshot record) :: !events
-    | Parser.Function_position_written _ -> ()
+    | Parser.Function_position_written _ | Parser.Internal_binding_preparing _
+      -> ()
     | _ -> (
         let current =
           List.find (fun record -> N.event_belongs record event) !records

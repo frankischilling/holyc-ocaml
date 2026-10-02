@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added original integer `_intern` target evaluation inside retained tasks.
+  Arithmetic, globals, queries and effectful calls save their value before
+  header publication; later declaration errors preserve reached output and work.
+
 - Added numeric ToUpper and StrLen declarations to retained `#exe` tasks in both
   outer source modes. Calls preserve original publication, shared header timing
   and installed target receipts through nested lookahead and generated code.

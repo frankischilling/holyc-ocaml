@@ -11,6 +11,7 @@ type root_role =
   | Initializer_fragment of Initializer_fragment.t
   | Default_fragment of Default_fragment.t
   | Static_initializer_fragment of Static_initializer_fragment.t
+  | Internal_binding_fragment of Internal_binding_fragment.t
   | Dimension_fragment of Dimension_fragment.t
   | Offset_fragment of Offset_fragment.t
   | Implicit_output_fixed of {
@@ -89,6 +90,13 @@ val root_implicit_statement :
 val make_dimension_root :
   index:int ->
   fragment:Dimension_fragment.t ->
+  expression:Function_call_resolution.argument_expression ->
+  calls:call list ->
+  (root, error) result
+
+val make_internal_binding_root :
+  index:int ->
+  fragment:Internal_binding_fragment.t ->
   expression:Function_call_resolution.argument_expression ->
   calls:call list ->
   (root, error) result

@@ -1395,6 +1395,16 @@ let build_dimension_fragment ~table ~expressions fragment =
     ~make_root:
       (Sema.Top_level_expression_tree.make_dimension_root ~index:0 ~fragment)
 
+let build_internal_binding_fragment ~table ~expressions fragment =
+  build_fragment ~offset_fragment:None ~table ~expressions
+    ~matches_source:(fun source ->
+      Option.fold ~none:false ~some:(( == ) fragment)
+        (Sema.Top_level_expression_binding.statement_internal_binding source))
+    ~source_expression:(Sema.Internal_binding_fragment.expression fragment)
+    ~make_root:
+      (Sema.Top_level_expression_tree.make_internal_binding_root ~index:0
+         ~fragment)
+
 let build_offset_fragment ~table ~expressions fragment =
   build_fragment ~offset_fragment:(Some fragment) ~table ~expressions
     ~matches_source:(fun source ->

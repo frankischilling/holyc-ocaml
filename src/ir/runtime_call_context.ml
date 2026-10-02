@@ -330,26 +330,33 @@ let intrinsic_source_binding site =
 let intrinsic_opcode_of_source source =
   match intrinsic_source_selection source with
   | Some (declaration, record)
-    when Records.call_access record = Records.Internal_operation -> (
+    when Records.call_access record = Records.Internal_operation ->
       let site = Functions.resolved_declaration_site declaration in
-      match intrinsic_source_binding site with
-      | Some
-          {
-            Ast.kind = Ast.Intern;
-            spelling = "_intern";
-            target = Ast.Expression_binding_target target;
-            _;
-          } ->
-          Option.bind (retained_integer_value target) (fun value ->
-              if value < 0L || value > Int64.of_int Int.max_int then None
-              else
-                match
-                  Generated.Intermediate_codes.of_code (Int64.to_int value)
-                with
-                | Some ((Opcode.Ic_strlen | Opcode.Ic_toupper) as opcode) ->
-                    Some opcode
-                | Some _ | None -> None)
-      | Some _ | None -> None)
+      let value =
+        match Functions.declaration_site_native_snapshot site with
+        | Some snapshot
+          when Option.is_some
+                 (Sema.Function_record_phase.internal_target snapshot) ->
+            Option.map Sema.Prepared_internal_binding.bits
+              (Sema.Function_record_phase.internal_target snapshot)
+        | Some _ | None -> (
+            match intrinsic_source_binding site with
+            | Some
+                {
+                  Ast.kind = Ast.Intern;
+                  spelling = "_intern";
+                  target = Ast.Expression_binding_target target;
+                  _;
+                } -> retained_integer_value target
+            | Some _ | None -> None)
+      in
+      Option.bind value (fun value ->
+          if value < 0L || value > Int64.of_int Int.max_int then None
+          else
+            match Generated.Intermediate_codes.of_code (Int64.to_int value) with
+            | Some ((Opcode.Ic_strlen | Opcode.Ic_toupper) as opcode) ->
+                Some opcode
+            | Some _ | None -> None)
   | Some _ | None -> None
 
 type fixed_value =

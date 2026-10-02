@@ -259,6 +259,17 @@ let resolve ~table ~environment ~expressions =
       (fun statement ->
         Option.fold ~none:false
           ~some:(fun fragment ->
+            Internal_binding_fragment.environment fragment != environment)
+          (Top_level_expression_binding.statement_internal_binding statement))
+      (Top_level_expression_binding.statements expressions)
+  then
+    Error
+      (invalid_input "internal binding fragment uses another outer environment")
+  else if
+    List.exists
+      (fun statement ->
+        Option.fold ~none:false
+          ~some:(fun fragment ->
             Offset_fragment.environment fragment != environment)
           (Top_level_expression_binding.statement_offset statement))
       (Top_level_expression_binding.statements expressions)

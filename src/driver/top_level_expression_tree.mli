@@ -30,6 +30,12 @@ val build_dimension_fragment :
   Sema.Dimension_fragment.t ->
   (Sema.Top_level_expression_tree.t, string) result
 
+val build_internal_binding_fragment :
+  table:Sema.Symbol_table.t ->
+  expressions:Sema.Top_level_outer_expression_binding.t ->
+  Sema.Internal_binding_fragment.t ->
+  (Sema.Top_level_expression_tree.t, string) result
+
 val build_offset_fragment :
   table:Sema.Symbol_table.t ->
   expressions:Sema.Top_level_outer_expression_binding.t ->

@@ -361,6 +361,15 @@ type dimension_attempt = {
   mutable dimension_work : int option;
 }
 
+type internal_binding_attempt = {
+  internal_binding_catalog : Integer_globals.task_catalog;
+  internal_binding_authority : Sema.Internal_binding_fragment.authority;
+  internal_binding_receipt : Frontend.Parser.internal_binding_preparation;
+  internal_binding_preparation_before : int;
+  mutable internal_binding_state : initializer_attempt_state;
+  mutable internal_binding_prepared : Sema.Prepared_internal_binding.t option;
+}
+
 type offset_attempt = {
   offset_catalog : Integer_globals.task_catalog;
   offset_authority : Sema.Offset_fragment.authority;
@@ -375,6 +384,7 @@ type task_input = {
   input_streams : task_stream list;
   input_failure : unit ref;
   input_seen_dimensions : Frontend.Parser.array_dimension_preparation list;
+  input_internal_bindings : internal_binding_attempt list;
   input_dimensions : dimension_attempt list;
   input_offsets : offset_attempt list;
   input_defaults : default_attempt list;
@@ -416,6 +426,7 @@ type task_state = {
   mutable seen_dimensions : Frontend.Parser.array_dimension_preparation list;
   mutable closed_dimensions : Sema.Compiler_record.dimension_preparation list;
   mutable completed_dimensions : Frontend.Parser.completed_array_dimension list;
+  mutable internal_bindings : internal_binding_attempt list;
   mutable dimensions : dimension_attempt list;
   mutable runtime_offsets : offset_attempt list;
   mutable defaults : default_attempt list;
@@ -494,6 +505,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         implicit_starts = [];
         call_phases = [];
         defaults = [];
+        internal_bindings = [];
         dimensions = [];
         runtime_offsets = [];
         initializers = [];
@@ -585,6 +597,9 @@ let input_has_active_work task =
     | _ -> false
   in
   List.exists (fun attempt -> active attempt.default_state) task.defaults
+  || List.exists
+       (fun attempt -> active attempt.internal_binding_state)
+       task.internal_bindings
   || List.exists (fun attempt -> active attempt.dimension_state) task.dimensions
   || List.exists
        (fun attempt -> active attempt.offset_state)
@@ -603,6 +618,8 @@ let completed_input task input =
   && Sema.Source_activation.finished task.source_activation
   && task.deferred_dimensions = []
   && task.deferred_offsets = []
+  && input_prefix_complete input.input_internal_bindings task.internal_bindings
+       (fun attempt -> attempt.internal_binding_state = Successful_initializer)
   && input_prefix_complete input.input_seen_dimensions task.seen_dimensions
        (fun preparation ->
          List.exists
@@ -630,6 +647,7 @@ let observe_task_source_event task event =
               input_streams = task.streams;
               input_failure = task.failure_generation;
               input_seen_dimensions = task.seen_dimensions;
+              input_internal_bindings = task.internal_bindings;
               input_dimensions = task.dimensions;
               input_offsets = task.runtime_offsets;
               input_defaults = task.defaults;
@@ -1065,10 +1083,61 @@ let admitted_publication_for_symbol task symbol =
   | Some publication -> Some publication
   | None -> completed ()
 
+let task_owns_internal_target task target =
+  List.exists
+    (fun attempt ->
+      attempt.internal_binding_state = Successful_initializer
+      && Option.fold ~none:false ~some:(( == ) target)
+           attempt.internal_binding_prepared)
+    task.internal_bindings
+
+let native_internal_targets_ready task snapshot =
+  let module Native = Sema.Function_record_phase in
+  let target_matches target receipt =
+    Option.fold ~none:false
+      ~some:(fun target ->
+        Sema.Prepared_internal_binding.receipt target == receipt
+        && task_owns_internal_target task target)
+      target
+  in
+  let source = Native.source snapshot in
+  let prepared = Native.prepared_target snapshot in
+  let installed = Native.internal_target snapshot in
+  (match source.Frontend.Parser.function_header.binding_preparation with
+    | Some receipt -> target_matches prepared receipt
+    | None ->
+        Option.fold ~none:true ~some:(task_owns_internal_target task) prepared)
+  &&
+  match Native.internal_binding snapshot with
+  | Some header -> (
+      match
+        header.Frontend.Parser.function_publication.function_header
+          .binding_preparation
+      with
+      | Some receipt -> target_matches installed receipt
+      | None ->
+          Option.fold ~none:true
+            ~some:(task_owns_internal_target task)
+            installed)
+  | None -> Option.is_none installed
+
 let check_function_header_source task ~namespace source =
   let header = Sema.Compiler_record.declared_function_source source in
   if
     (not (source_dimensions_ready task))
+    || (match
+          header.Frontend.Parser.function_publication.function_header
+            .binding_preparation
+        with
+      | None -> false
+      | Some receipt ->
+          not
+            (List.exists
+               (fun attempt ->
+                 attempt.internal_binding_receipt == receipt
+                 && attempt.internal_binding_state = Successful_initializer
+                 && Option.is_some attempt.internal_binding_prepared)
+               task.internal_bindings))
     || (not
           (Sema.Source_activation.default_completion task.source_activation
              header))
@@ -1509,6 +1578,7 @@ let check_function_phase_source task ~namespace ~event snapshot =
       && Native.owns_namespace snapshot namespace
       && Integer_globals.task_catalog_owns_namespace task.catalog namespace
       && Native.matches_event snapshot event
+      && native_internal_targets_ready task snapshot
       && Sema.Source_activation.function_phase_admission task.source_activation
            event
       && (live
@@ -1531,6 +1601,23 @@ let admit_function_phase task ~namespace ~event ~snapshot ~records =
            ~snapshot ~records))
 
 let admit_function_header task ~namespace ~source ~records =
+  let ( let* ) = Result.bind in
+  let* () =
+    if
+      List.for_all
+        (fun classified ->
+          classified
+          |> Sema.Function_record_classification.classified_declaration_source
+          |> Sema.Function_resolution.resolved_declaration_site
+          |> Sema.Function_resolution.declaration_site_native_snapshot
+          |> Option.fold ~none:true ~some:(native_internal_targets_ready task))
+        (Sema.Function_record_classification.declarations records)
+    then Ok ()
+    else
+      Error
+        "native internal header lacks its owning task's original target \
+         execution"
+  in
   Result.bind (check_function_header_source task ~namespace source) (fun () ->
       Result.map
         (fun reference ->
@@ -1987,6 +2074,63 @@ let task_dimension_bits task receipt =
       else None)
     task.dimensions
 
+let begin_task_internal_binding task authority =
+  let ( let* ) = Result.bind in
+  let fragment = Sema.Internal_binding_fragment.authorized_fragment authority in
+  let receipt = Sema.Internal_binding_fragment.receipt fragment in
+  let* () =
+    require_initializer_namespace task
+      (Sema.Internal_binding_fragment.namespace fragment)
+  in
+  let* () =
+    Integer_globals.check_internal_binding_source task.catalog receipt
+  in
+  if
+    (not
+       (Sema.Source_activation.internal_binding_admission task.source_activation
+          receipt))
+    || (not (source_dimensions_ready task))
+    || List.exists
+         (fun attempt -> attempt.internal_binding_receipt == receipt)
+         task.internal_bindings
+  then
+    Error "internal binding preparation has another source or consumed boundary"
+  else
+    let attempt =
+      {
+        internal_binding_catalog = task.catalog;
+        internal_binding_authority = authority;
+        internal_binding_receipt = receipt;
+        internal_binding_preparation_before = task.initializer_steps;
+        internal_binding_state = Preparing_initializer;
+        internal_binding_prepared = None;
+      }
+    in
+    task.internal_bindings <- attempt :: task.internal_bindings;
+    task.source_promotion_open <- false;
+    Ok attempt
+
+let fail_task_internal_binding task attempt =
+  if
+    attempt.internal_binding_catalog != task.catalog
+    || (not (List.exists (( == ) attempt) task.internal_bindings))
+    || attempt.internal_binding_state <> Preparing_initializer
+       && attempt.internal_binding_state <> Executing_initializer
+  then Error "internal binding failure has another task or inactive attempt"
+  else (
+    attempt.internal_binding_state <- Failed_initializer;
+    Ok ())
+
+let task_internal_binding_target task receipt =
+  List.find_map
+    (fun attempt ->
+      if
+        attempt.internal_binding_receipt == receipt
+        && attempt.internal_binding_state = Successful_initializer
+      then attempt.internal_binding_prepared
+      else None)
+    task.internal_bindings
+
 let complete_task_defaults task ~namespace header =
   let ( let* ) = Result.bind in
   let* () = require_initializer_namespace task namespace in
@@ -2215,6 +2359,10 @@ let task_result task ~sequence =
                   receipt.Frontend.Parser.dimension_preparation == preparation)
                 task.completed_dimensions))
          task.seen_dimensions
+    || List.exists
+         (fun attempt ->
+           attempt.internal_binding_state <> Successful_initializer)
+         task.internal_bindings
     || List.exists
          (fun attempt -> attempt.dimension_state <> Successful_initializer)
          task.dimensions
@@ -6874,6 +7022,117 @@ let execute_task_dimension ?(use_active_stream = true) ?stream_exe_print task
       attempt.dimension_state <- Successful_initializer;
       Ok ()
 
+let execute_task_internal_binding ?(use_active_stream = true) ?stream_exe_print
+    task attempt execution =
+  let module Program = Internal_binding_fragment_program in
+  let module Destination = Internal_binding_fragment_destination in
+  let ( let* ) = Result.bind in
+  let destination = Program.execution_destination execution in
+  let fragment = Destination.fragment destination in
+  let span = Destination.span destination in
+  let invalid message =
+    Error
+      [
+        make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026" message;
+      ]
+  in
+  let* () =
+    if
+      attempt.internal_binding_catalog != task.catalog
+      || (not (List.exists (( == ) attempt) task.internal_bindings))
+      || attempt.internal_binding_state <> Preparing_initializer
+      || (not
+            (Frontend.Parser.internal_binding_is_current
+               attempt.internal_binding_receipt))
+      || Program.authority execution != attempt.internal_binding_authority
+      || Sema.Internal_binding_fragment.receipt fragment
+         != attempt.internal_binding_receipt
+      || Sema.Internal_binding_fragment.authorized_fragment
+           (Program.authority execution)
+         != fragment
+      || (not
+            (Integer_globals.owns_task_storage task.catalog
+               (Destination.globals destination)))
+      || (not
+            (Integer_globals.is_internal_binding_fragment
+               (Destination.globals destination)))
+      || Integer_globals.byte_size (Destination.globals destination) <> 0
+      || Program.steps execution
+         <> task.initializer_steps - attempt.internal_binding_preparation_before
+    then
+      invalid
+        "internal binding execution has another task, source attempt or \
+         preparation"
+    else Ok ()
+  in
+  attempt.internal_binding_state <- Executing_initializer;
+  let outcome =
+    let* () =
+      validate_dimension_dependencies (Some task)
+        (Dimension_requirements.top_level (Destination.typed destination))
+      |> Result.map_error (fun message ->
+          [
+            make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026"
+              message;
+          ])
+    in
+    match Program.code execution with
+    | Program.Scheduled program -> (
+        if task.steps >= task.max_steps then
+          Error
+            [
+              make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0007"
+                "the task cumulative execution step limit was exhausted";
+            ]
+        else
+          let* result =
+            execute_program_with_output ~task ~initializer_mode:true
+              ~capture_fragment_value:true ~use_active_stream ?stream_exe_print
+              ~runtime_calls:(Program.runtime_calls program)
+              ~output:task.output
+              ~globals:(Destination.globals destination)
+              ~initialization:(Program.initialization program)
+              ~max_global_bytes:task.max_global_bytes
+              ~max_literal_bytes:task.max_literal_bytes
+              ~max_steps:(task.max_steps - task.steps)
+              ~max_frame_bytes:(task.max_frame_bytes - task.nested_frame_bytes)
+              ~max_call_depth:(task.max_call_depth - task.nested_call_depth)
+              ~functions:[] (Program.entry program)
+          in
+          match result.final_value_ with
+          | Some word -> Ok word.bits
+          | None ->
+              invalid
+                "internal binding evaluation produced no checked parameter \
+                 value")
+  in
+  match outcome with
+  | Error errors ->
+      ignore (fail_task_internal_binding task attempt);
+      Error errors
+  | Ok bits ->
+      let work =
+        task.initializer_steps - attempt.internal_binding_preparation_before
+      in
+      let namespace = Sema.Internal_binding_fragment.namespace fragment in
+      let table = Sema.Internal_binding_fragment.table fragment in
+      let prepared =
+        Sema.Prepared_internal_binding.create ~table ~namespace
+          ~receipt:attempt.internal_binding_receipt ~bits ~work
+      in
+      let* prepared =
+        Result.map_error
+          (fun message ->
+            [
+              make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026"
+                message;
+            ])
+          prepared
+      in
+      attempt.internal_binding_prepared <- Some prepared;
+      attempt.internal_binding_state <- Successful_initializer;
+      Ok ()
+
 let execute_task_offset ?(use_active_stream = true) ?stream_exe_print task
     attempt execution =
   let module Program = Offset_fragment_program in
@@ -7033,6 +7292,11 @@ let execute_task_program ?(use_active_stream = true) ?stream_exe_print task
              attempt.dimension_state = Preparing_initializer
              || attempt.dimension_state = Executing_initializer)
            task.dimensions
+      || List.exists
+           (fun attempt ->
+             attempt.internal_binding_state = Preparing_initializer
+             || attempt.internal_binding_state = Executing_initializer)
+           task.internal_bindings
     then
       Error
         [

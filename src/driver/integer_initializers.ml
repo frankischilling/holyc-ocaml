@@ -9,6 +9,7 @@ module Layout = Ir.Integer_initializer_layout
 module Updates = Integer_update_initializers
 module Destination = Ir.Initializer_fragment_destination
 module Default = Ir.Default_fragment_destination
+module Internal_binding = Ir.Internal_binding_fragment_destination
 module Dimension = Ir.Dimension_fragment_destination
 module Offset = Ir.Offset_fragment_destination
 module Runtime = Ir.Runtime_call_context
@@ -60,6 +61,7 @@ type owner =
   | Static of Globals.static_slot * Typed.initializer_result
   | Fragment of Destination.t
   | Default of Default.t
+  | Internal_binding of Internal_binding.t
   | Dimension of Dimension.t
   | Offset of Offset.t
 
@@ -70,6 +72,7 @@ type t = {
   copies_ : (owner * string * int) list;
   fragment_items_ : Destination.t prepared_item list;
   default_items_ : Default.t prepared_item list;
+  internal_binding_items_ : Internal_binding.t prepared_item list;
   dimension_items_ : Dimension.t prepared_item list;
   offset_items_ : Offset.t prepared_item list;
   native_items_ : owner prepared_item list;
@@ -106,9 +109,9 @@ let value_instructions graph =
       | Ir.Opcode.Ic_end_exp | Ic_end -> false
       | _ -> true)
 
-let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
-    ?native_static ?(already_prepared = []) ?(statics_prepared = [])
-    ?(function_calls = []) ?(allow_zero_budget = false)
+let prepare_internal ?fragment ?default ?internal_binding ?dimension ?offset
+    ?native_global ?native_static ?(already_prepared = [])
+    ?(statics_prepared = []) ?(function_calls = []) ?(allow_zero_budget = false)
     ?(retained_function_source = fun _ -> None) ?(on_progress = fun _ -> ())
     ~max_steps ~span ~globals ~top_calls ~functions () =
   let invalid ?(notes = []) ?(at = span) code message =
@@ -131,19 +134,24 @@ let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
       | None, None -> (
           match offset with
           | Some destination
-            when Option.is_none dimension && Option.is_none fragment
+            when Option.is_none internal_binding
+                 && Option.is_none dimension && Option.is_none fragment
                  && Option.is_none default -> [ Offset destination ]
           | Some _ -> invalid_arg "conflicting offset preparation owners"
           | None -> (
-              match (dimension, fragment, default) with
-              | Some destination, None, None -> [ Dimension destination ]
-              | Some _, _, _ ->
+              match (internal_binding, dimension, fragment, default) with
+              | Some destination, None, None, None ->
+                  [ Internal_binding destination ]
+              | Some _, _, _, _ ->
+                  invalid_arg "conflicting internal binding preparation owners"
+              | None, Some destination, None, None -> [ Dimension destination ]
+              | None, Some _, _, _ ->
                   invalid_arg "conflicting dimension preparation owners"
-              | None, Some destination, None -> [ Fragment destination ]
-              | None, None, Some destination -> [ Default destination ]
-              | None, Some _, Some _ ->
+              | None, None, Some destination, None -> [ Fragment destination ]
+              | None, None, None, Some destination -> [ Default destination ]
+              | None, None, Some _, Some _ ->
                   invalid_arg "conflicting fragment preparation owners"
-              | None, None, None ->
+              | None, None, None, None ->
                   (Globals.slots globals
                   |> List.concat_map (fun slot ->
                       List.map
@@ -167,6 +175,7 @@ let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
                         | Native_global _
                         | Fragment _
                         | Default _
+                        | Internal_binding _
                         | Dimension _
                         | Offset _ -> 0
                         | Global (slot, _) ->
@@ -205,6 +214,7 @@ let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
           let* globals_ =
             if
               Option.is_some fragment || Option.is_some default
+              || Option.is_some internal_binding
               || Option.is_some dimension || Option.is_some offset
               || Option.is_some native_global
               || Option.is_some native_static
@@ -234,6 +244,7 @@ let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
           let* globals_ =
             if
               Option.is_some fragment || Option.is_some default
+              || Option.is_some internal_binding
               || Option.is_some dimension || Option.is_some offset
               || Option.is_some native_global
               || Option.is_some native_static
@@ -253,6 +264,7 @@ let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
                 | Static _
                 | Fragment _
                 | Default _
+                | Internal_binding _
                 | Dimension _
                 | Offset _ -> None)
               prepared
@@ -275,6 +287,7 @@ let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
                 | Global _
                 | Fragment _
                 | Default _
+                | Internal_binding _
                 | Dimension _
                 | Offset _ -> None)
               prepared
@@ -325,6 +338,13 @@ let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
                     | Dimension root_ -> Some { item with root_ }
                     | _ -> None)
                   prepared;
+              internal_binding_items_ =
+                List.filter_map
+                  (fun item ->
+                    match item.root_ with
+                    | Internal_binding root_ -> Some { item with root_ }
+                    | _ -> None)
+                  prepared;
               default_items_ =
                 List.filter_map
                   (fun item ->
@@ -352,6 +372,10 @@ let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
             | Dimension destination ->
                 ( None,
                   Typed.top_level_root_value (Dimension.root destination),
+                  None )
+            | Internal_binding destination ->
+                ( None,
+                  Typed.top_level_root_value (Internal_binding.root destination),
                   None )
             | Default destination ->
                 ( Some (Default.symbol destination),
@@ -382,6 +406,8 @@ let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
             | None ->
                 if Option.is_some offset then
                   [ "aggregate-offset=runtime-expression" ]
+                else if Option.is_some internal_binding then
+                  [ "internal-binding=runtime-expression" ]
                 else [ "dimension=runtime-expression" ]
             | Some symbol ->
                 [
@@ -394,7 +420,7 @@ let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
             match root_ with
             | Native_static (_, _, destination)
             | Native_global (_, _, destination) -> Some destination.operation
-            | Default _ | Dimension _ | Offset _ -> None
+            | Default _ | Internal_binding _ | Dimension _ | Offset _ -> None
             | Fragment destination ->
                 Some (Layout.operation (Destination.layout destination))
             | Global (slot, root) ->
@@ -438,6 +464,7 @@ let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
                     | Global _
                     | Fragment _
                     | Default _
+                    | Internal_binding _
                     | Dimension _
                     | Offset _ -> errors
                     | Static _ ->
@@ -544,6 +571,8 @@ let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
                       |> Sema.Type_reference.resolved_type,
                       0L )
                 | Offset destination -> (Offset.type_ destination, 0L)
+                | Internal_binding destination ->
+                    (Internal_binding.type_ destination, 0L)
                 | Dimension destination -> (Dimension.type_ destination, 0L)
                 | Default destination -> (Default.type_ destination, 0L)
                 | Fragment destination ->
@@ -626,6 +655,7 @@ let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
                       | Native_global _
                       | Fragment _
                       | Default _
+                      | Internal_binding _
                       | Dimension _
                       | Offset _ -> None
                     in
@@ -801,6 +831,7 @@ let prepare_internal ?fragment ?default ?dimension ?offset ?native_global
                 | Global _
                 | Fragment _
                 | Default _
+                | Internal_binding _
                 | Dimension _
                 | Offset _ -> false
               then
@@ -1480,6 +1511,20 @@ let prepare_dimension ?retained_function_source ?on_progress ~max_steps
       Ok (item.classification_, prepared.steps)
   | _ -> invalid_arg "dimension preparation lost its original work item"
 
+let prepare_internal_binding ?retained_function_source ?on_progress ~max_steps
+    ~top_calls destination =
+  let* prepared =
+    prepare_internal ~internal_binding:destination ~allow_zero_budget:true
+      ?retained_function_source ?on_progress ~max_steps
+      ~span:(Internal_binding.span destination)
+      ~globals:(Internal_binding.globals destination)
+      ~top_calls ~functions:[] ()
+  in
+  match prepared.internal_binding_items_ with
+  | [ item ] when item.root_ == destination ->
+      Ok (item.classification_, prepared.steps)
+  | _ -> invalid_arg "internal binding preparation lost its original work item"
+
 let prepare_offset ?retained_function_source ?on_progress ~max_steps ~top_calls
     destination =
   let* prepared =
@@ -1561,8 +1606,11 @@ let human prepared =
              (fun (owner, bytes, steps) ->
                let symbol =
                  match owner with
-                 | Native_static _ | Native_global _ | Dimension _ | Offset _ ->
-                     invalid_arg "dimension cannot own copied bytes"
+                 | Native_static _
+                 | Native_global _
+                 | Internal_binding _
+                 | Dimension _
+                 | Offset _ -> invalid_arg "dimension cannot own copied bytes"
                  | Default destination -> Default.symbol destination
                  | Fragment destination ->
                      Globals.storage_symbol (Destination.storage destination)

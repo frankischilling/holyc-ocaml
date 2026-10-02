@@ -25,6 +25,11 @@ val prepare_dimension :
   Sema.Dimension_fragment.t ->
   (Sema.Function_call_expression_result.top_level_t, string) result
 
+val prepare_internal_binding :
+  context ->
+  Sema.Internal_binding_fragment.t ->
+  (Sema.Function_call_expression_result.top_level_t, string) result
+
 val prepare_default :
   context ->
   Sema.Default_fragment.t ->

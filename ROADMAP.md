@@ -2,8 +2,11 @@
 
 Issue #753 connects supported numeric internal declarations to retained IR
 tasks, including shared records changed during nested header lookahead.
-See [retained internal calls](docs/retained-internal.md). General binding
-evaluation and native retained source execution remain under #695 and #704.
+Issue #755 evaluates original integer binding expressions before type validation
+and header publication, including retained calls with effects.
+See [retained internal calls](docs/retained-internal.md). Floating targets,
+ordinary output-source binding expressions and native retained source execution
+remain under #701, #695 and #704.
 
 The PutChars increment under #705 captures native packed-character output through
 original provider calls and explicit byte/work limits. The checked Print
