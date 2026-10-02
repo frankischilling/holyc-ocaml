@@ -79,8 +79,7 @@ let prepend_statements in_function statements rest =
     rest
 
 let scalar_integer primitive =
-  let info = Common.Primitive_type.info primitive in
-  info.category = Common.Primitive_type.Integer && info.byte_size > 0
+  Option.is_some (Common.Primitive_type.integer_storage_info primitive)
 
 let scalar_word_type = function
   | Ast.Primitive_type_specifier primitive -> scalar_integer primitive.primitive
@@ -165,8 +164,9 @@ let internal_prototype (prototype : Ast.function_prototype) =
               && List.length parameter.pointer_layers <= 1
              || scalar I64 parameter)
          || (public_primitive U64 prototype.return_type && scalar U64 parameter)
-         || (public_primitive U8 prototype.return_type && scalar I64 parameter)
-         )
+         || (public_primitive U8 prototype.return_type
+            || public_primitive Bool prototype.return_type)
+            && scalar I64 parameter)
   | [ left; right ] ->
       public_primitive I64 prototype.return_type
       && scalar I64 left && scalar I64 right

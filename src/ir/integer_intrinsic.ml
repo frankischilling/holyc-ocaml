@@ -69,7 +69,9 @@ let argument_matches opcode ~index type_ =
 let result_matches opcode type_ =
   match opcode with
   | Opcode.Ic_mod_u64 -> primitive type_ 0 Sema.Primitive_type.U64
-  | Opcode.Ic_to_bool -> primitive type_ 0 Sema.Primitive_type.U8
+  | Opcode.Ic_to_bool ->
+      primitive type_ 0 Sema.Primitive_type.U8
+      || primitive type_ 0 Sema.Primitive_type.Bool
   | Ic_sqr_u64 | Ic_min_u64 | Ic_max_u64 ->
       primitive type_ 0 Sema.Primitive_type.U64
   | Ic_bsf

@@ -3,9 +3,7 @@ module P = Primitive_type
 let scalar_info type_ =
   match Type.base type_ with
   | Type.Primitive (form, primitive) when Type.pointer_depth type_ = 0 ->
-      let info = P.info primitive in
-      if info.category = P.Integer && info.byte_size > 0 then Some (form, info)
-      else None
+      Option.map (fun info -> (form, info)) (P.integer_storage_info primitive)
   | _ -> None
 
 let internal primitive =

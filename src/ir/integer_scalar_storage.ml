@@ -7,11 +7,7 @@ let of_type type_ =
   if Type.pointer_depth type_ <> 0 then None
   else
     match Type.base type_ with
-    | Type.Primitive (_, primitive) ->
-        let info = Primitive.info primitive in
-        if info.category = Primitive.Integer && info.byte_size > 0 then
-          Some info
-        else None
+    | Type.Primitive (_, primitive) -> Primitive.integer_storage_info primitive
     | Type.Aggregate _ -> None
 
 let byte_size scalar = scalar.Primitive.byte_size

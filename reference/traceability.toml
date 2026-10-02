@@ -12592,6 +12592,23 @@ excluded = ["general pointer casts/escapes under #687/#699", "full formatting un
 verification_boundary = "Independent quotient/remainder expectations, every divisor bit, signed object/raw word behavior, narrowing, interior/copied/rebound/recursive aliases, nested calls, source effects, retained mutation, exact signatures, original/foreign/changed authority, bounds/uninitialized/zero faults, public CLI, both ABIs, repeated images and exact/one-below limits. No new TempleOS oracle capture."
 
 [[feature]]
+id = "HC-CANONICAL-BOOL-EXECUTION"
+description = "Canonical Bool internal calls and scalar execution preserve distinct public identity and audited signed byte backing."
+status = "implemented"
+issue = 769
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/CInit.HC:1-15", "Kernel/KernelB.HH:119", "Compiler/CompilerA.HH:51", "Compiler/PrsExp.HC:440-586", "Compiler/BackB.HC:289-303", "Compiler/OptPass789A.HC:779-782,835-837", "Compiler/BackLib.HC:281-309,509-534,550-572", "Compiler/PrsVar.HC:619-657", "Compiler/OptPass012.HC:1069-1088"]
+implementation = ["src/common/primitive_type.ml", "src/sema/integer_computation_class.ml", "src/sema/static_initializer_fragment.ml", "src/ir/integer_scalar_storage.ml", "src/ir/integer_intrinsic.ml", "src/driver/native_default_preparation.ml", "src/hosted/native_program.ml"]
+tests = ["test/test_canonical_bool.ml", "test/test_canonical_bool_cli.ml", "test/native/test_canonical_bool_execution.ml", "examples/canonical-bool.hc", "examples/stream-canonical-bool.hc"]
+documentation = ["docs/canonical-bool.md", "docs/integer-narrow.md", "docs/native-scalars.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+identity = "Bool remains a distinct public Boolean type with RT_I8, one byte and I8i backing. No internal Bool spelling or Bool/I8/U8 type equality is introduced. Original numeric ToBool publication, exact signature, call phases and immutable producer records retain authority."
+execution = "Bool locals, globals, statics, arrays, parameters and saved defaults share existing signed byte storage and I64 computation. Stores narrow; loads sign-extend; computed returns and assignment expressions retain full words. Canonical ToBool tests all input bits and returns I64 zero/one; the supported U8 signature keeps U64."
+resources = "Declared object extents, eight-byte parameter charges, initialization, original pointer/activation ownership, IC work, output and image/frame quotas remain checked. Retained defaults execute once in their original activation. Native default runtime work is compared with its isolated checked batch."
+preparation = "Constant defaults retain full original saved words and narrow at parameter entry. Scheduled retained ToBool calls keep their source phase. Runtime admission does not implement the separate immediate rewrite or widen native closed internal-call preparation."
+excluded = ["F64 and zero-sized storage", "aggregates and general pointer conversions", "full runtime and optimizer parity under #695/#685", "native retained frontend under #704", "artifact, actual-loader and bootstrap gates"]
+verification_boundary = "Independent expected scalar words and every truth input bit, both modes/targets, original defaults/effects, exact signatures and type identity, original/foreign/changed/copied authority, bounds and uninitialized faults, public CLI, both ABIs, fresh images and exact/one-below limits. No new TempleOS oracle capture."
+
+[[feature]]
 id = "HC-RELEASE-CONTRACT"
 description = "The 1.0 contract defines required host/target cells, phase-specific acceptance, exact pinned source sets and explicit bootstrap producer/consumer lineage."
 status = "implemented"

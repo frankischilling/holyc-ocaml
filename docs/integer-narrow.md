@@ -9,12 +9,15 @@ checked integer storage and direct-call pipeline with I64, U64 and U8.
 | Type | Object bytes | Stored read | Runtime word |
 | --- | ---: | --- | --- |
 | I8 | 1 | Sign-extend low 8 bits | I64 |
+| Bool | 1 | Sign-extend low 8 bits | I64 |
 | I16 | 2 | Sign-extend low 16 bits | I64 |
 | U16 | 2 | Zero-extend low 16 bits | U64 |
 | I32 | 4 | Sign-extend low 32 bits | I64 |
 | U32 | 4 | Zero-extend low 32 bits | U64 |
 
 Generated primitive metadata supplies a shared width and signedness descriptor.
+Bool retains its distinct public identity and uses the audited I8i backing;
+[canonical Bool execution](canonical-bool.md) records its separate truth call.
 Normalization applies to automatic, global and static scalars, fixed arrays,
 plain stores, update writeback, prepared images and publications. I8 persistent
 string copies sign-extend high bytes while retaining the original owned source
@@ -130,7 +133,7 @@ entry and returns. `PrsVar.HC:132-134` permits I8/U8 persistent string copies.
 evidence remains documented in [byte updates](integer-byte-updates.md).
 These are pinned-source audits and hosted tests, without a new native capture.
 
-Bool, zero-sized and floating storage, aggregates, pointer returns, general
+Zero-sized and floating storage, aggregates, pointer returns, general
 pointer conversions and narrow word-cast/index producers remain outside this
 execution slice. Automatic brace/string array initialization does not follow
 the pinned persistent initializer parser and remains explicitly unsupported.

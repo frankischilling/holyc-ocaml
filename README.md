@@ -1,5 +1,9 @@
 # holyc-ocaml
 
+Issue #769 connects [canonical Bool execution](docs/canonical-bool.md) to IR,
+retained tasks and hosted native execution. Bool keeps its public type identity
+and signed one-byte storage; the original ToBool declaration tests full words.
+
 Issue #767 connects [owned ModU64 calls](docs/internal-mod-u64.md) to IR,
 retained tasks and hosted native execution. It stores an unsigned quotient
 through an original I64/U64 object pointer and returns the remainder.

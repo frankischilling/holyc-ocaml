@@ -283,6 +283,13 @@ let information =
 let info primitive =
   List.find (fun (entry : info) -> equal entry.primitive primitive) information
 
+let integer_storage_info primitive =
+  Option.bind (of_storage_spelling (info primitive).storage_spelling)
+    (fun storage ->
+      let storage = info storage in
+      if storage.category = Integer && storage.byte_size > 0 then Some storage
+      else None)
+
 let is_zero_sized primitive = (info primitive).byte_size = 0
 
 let pointer_representation =

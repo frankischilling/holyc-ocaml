@@ -280,7 +280,7 @@ let scalar_compile_limits_are_exact () =
 let unsupported_neighbors_stay_outside_native_gate () =
   let cases =
     [
-      "Bool F(Bool n){return n;} F(1);";
+      "I64 F(){Bool n=42;I8 *p=&n;return *p;} F();";
       "I0 F(I0 n){return n;} F(1);";
       "F64 F(F64 n){return n;} F(1.0);";
       "I64 F(I64 **p){return **p;} 42;";

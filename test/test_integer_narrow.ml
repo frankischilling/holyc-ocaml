@@ -562,7 +562,7 @@ let unsupported_domains () =
       List.iter
         (fun source -> ignore (F.first_error (G.run ~mode source)))
         [
-          "Bool N=42;N;";
+          "I64 F(){Bool n=42;I8 *p=&n;return *p;}F();";
           "U0 N=42;N;";
           "I0 N=42;N;";
           "F64 N=42;N;";

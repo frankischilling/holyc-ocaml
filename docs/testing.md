@@ -1,5 +1,15 @@
 # Testing holyc-ocaml
 
+Canonical Bool tests check 110 independent value cases in both source modes,
+including every input bit, signed-byte loads, full register returns, arithmetic,
+parameters, prepared arrays, statics, aliases, updates and original defaults.
+Seven source groups and five native groups also cover public type identity,
+exact signatures, original/foreign/changed/copied authority, true one-byte bounds,
+uninitialized reads, reached effects, both ABIs, fresh images and exact/one-below
+runtime/preparation/code/frame limits. Default runtime comparison uses the
+isolated checked batch rather than the public JIT task's declaration meter.
+Maintained CLI examples check values, capture and work in both modes and targets.
+
 ModU64 tests check independent quotient/remainder pairs, all divisor bits,
 signed objects, high words, narrow computed/stored divisors, alias snapshots,
 recursive/nested/effectful callers and original retained mutation. Zero divisors
