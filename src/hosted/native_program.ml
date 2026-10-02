@@ -147,23 +147,31 @@ let internal_prototype (prototype : Ast.function_prototype) =
   && Option.is_none prototype.variadic
   && Option.is_some prototype.closing_parenthesis
   &&
+  let plain (parameter : Ast.function_parameter) =
+    parameter.register_qualifiers = []
+    && Option.is_none parameter.function_pointer
+    && Option.is_none parameter.default
+  in
+  let scalar primitive (parameter : Ast.function_parameter) =
+    plain parameter
+    && parameter.pointer_layers = []
+    && public_primitive primitive parameter.type_specifier
+  in
   match prototype.parameters with
   | [ parameter ] ->
-      parameter.register_qualifiers = []
-      && List.length parameter.pointer_layers <= 1
-      && Option.is_none parameter.function_pointer
-      && Option.is_none parameter.default
-      &&
-      let depth = List.length parameter.pointer_layers in
+      plain parameter
+      && (public_primitive I64 prototype.return_type
+          && (public_primitive U8 parameter.type_specifier
+              && List.length parameter.pointer_layers <= 1
+             || scalar I64 parameter)
+         || (public_primitive U64 prototype.return_type && scalar U64 parameter)
+         || (public_primitive U8 prototype.return_type && scalar I64 parameter)
+         )
+  | [ left; right ] ->
       public_primitive I64 prototype.return_type
-      && ((public_primitive U8 parameter.type_specifier && depth <= 1)
-         || (public_primitive I64 parameter.type_specifier && depth = 0))
+      && scalar I64 left && scalar I64 right
       || public_primitive U64 prototype.return_type
-         && public_primitive U64 parameter.type_specifier
-         && depth = 0
-      || public_primitive U8 prototype.return_type
-         && public_primitive I64 parameter.type_specifier
-         && depth = 0
+         && scalar U64 left && scalar U64 right
   | _ -> false
 
 let implicit_output_expressions (statement : Ast.implicit_output_statement) =

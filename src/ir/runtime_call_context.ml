@@ -81,7 +81,7 @@ type intrinsic = {
   opcode_ : Opcode.t;
   symbol_ : Sema.Symbol.t;
   return_type_ : Type.t;
-  argument_ : argument;
+  intrinsic_arguments_ : argument list;
   instruction_ : Seq.Instruction_id.t;
   result_value_ : Seq.Value_id.t;
   declaration_ : Functions.resolved_declaration;
@@ -131,7 +131,7 @@ let header (call : call) = call.header_
 let call_original_phase (call : call) = original_phase call.description.source
 let retained_function (call : call) = call.retained_function_
 let intrinsic_opcode (intrinsic : intrinsic) = intrinsic.opcode_
-let intrinsic_argument (intrinsic : intrinsic) = intrinsic.argument_
+let intrinsic_arguments (intrinsic : intrinsic) = intrinsic.intrinsic_arguments_
 let intrinsic_symbol (intrinsic : intrinsic) = intrinsic.symbol_
 let intrinsic_return_type (intrinsic : intrinsic) = intrinsic.return_type_
 let intrinsic_first (intrinsic : intrinsic) = intrinsic.description.first
@@ -820,18 +820,24 @@ let approved_provider shape =
   | _ -> None
 
 let approved_intrinsic shape opcode =
-  match (opcode, shape.fixed) with
-  | opcode, [ (parameter, Provided _) ] when Integer_intrinsic.supports opcode
-    ->
-      Records.call_access shape.selected_record = Records.Internal_operation
-      && Records.is_internal shape.selected_record
-      && Integer_intrinsic.result_matches opcode shape.result_type
-      && Headers.parameter_default parameter = None
-      && Headers.parameter_register_requests parameter = []
-      && Integer_intrinsic.argument_matches opcode (parameter_type parameter)
-      && shape.variadic = []
-      && Option.is_none shape.count_type
-  | _ -> false
+  Option.fold ~none:false
+    ~some:(fun count -> List.length shape.fixed = count)
+    (Integer_intrinsic.arity opcode)
+  && Records.call_access shape.selected_record = Records.Internal_operation
+  && Records.is_internal shape.selected_record
+  && Integer_intrinsic.result_matches opcode shape.result_type
+  && List.for_all
+       (fun (parameter, argument) ->
+         Headers.parameter_default parameter = None
+         && Headers.parameter_register_requests parameter = []
+         && Integer_intrinsic.argument_matches opcode (parameter_type parameter)
+         &&
+         match argument with
+         | Provided _ -> true
+         | Prepared_default _ -> false)
+       shape.fixed
+  && shape.variadic = []
+  && Option.is_none shape.count_type
 
 type expected_argument = {
   expected_default : Prepared_parameter_default.t option;
@@ -1178,55 +1184,61 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                      ~some:(Type.equal pending.shape.result_type)
                      item.target_type)
                 "checked internal operation has an invalid instruction shape";
-              let expected =
-                match pending.expected with
-                | [ expected ] -> expected
-                | _ ->
-                    fail ?span
-                      "checked internal operation does not have one exact \
-                       fixed argument"
-              in
+              let expected = List.rev pending.expected in
+              let count = Option.get (Integer_intrinsic.arity opcode) in
               require ?span
-                (expected.expected_role = Fixed 0
-                && Option.is_none expected.expected_default
-                && Option.is_none expected.expected_count)
-                "checked internal argument is not its provided fixed value";
-              let value =
-                match item.operands with
-                | [ value ] -> value
-                | _ ->
-                    fail ?span
-                      "checked internal operation does not consume one operand"
-              in
-              let producer : Seq.description =
-                match Values.find_opt value pending.intrinsic_producers with
-                | Some producer -> producer
-                | None ->
-                    fail ?span
-                      "checked internal operand has no preceding in-scope \
-                       producer"
-              in
-              require ?span (producer.flags = 0L)
-                "checked internal argument producer has noncanonical flags";
-              require ?span
-                (Option.fold ~none:false
-                   ~some:(Type.equal expected.expected_source)
-                   producer.target_type)
-                "checked internal operand class differs from its source value";
-              require ?span
-                (producer.span = expected.expected_origin)
-                "checked internal operand lost its checked source origin";
+                (List.length expected = count
+                && List.length item.operands = count)
+                "checked internal operation lost its exact fixed operands";
+              let previous_producer = ref None in
               pending.pushes <-
-                [
-                  {
-                    role = expected.expected_role;
-                    prepared_default = None;
-                    producer = producer.instruction_id;
-                    value;
-                    source_type = expected.expected_source;
-                    target_type = expected.expected_target;
-                  };
-                ];
+                List.mapi
+                  (fun index (expected, value) ->
+                    require ?span
+                      (expected.expected_role = Fixed index
+                      && Option.is_none expected.expected_default
+                      && Option.is_none expected.expected_count)
+                      "checked internal argument is not its provided fixed \
+                       value";
+                    let producer : Seq.description =
+                      match
+                        Values.find_opt value pending.intrinsic_producers
+                      with
+                      | Some producer -> producer
+                      | None ->
+                          fail ?span
+                            "checked internal operand has no preceding \
+                             in-scope producer"
+                    in
+                    require ?span (producer.flags = 0L)
+                      "checked internal argument producer has noncanonical \
+                       flags";
+                    require ?span
+                      (Option.fold ~none:false
+                         ~some:(Type.equal expected.expected_source)
+                         producer.target_type)
+                      "checked internal operand class differs from its source \
+                       value";
+                    require ?span
+                      (producer.span = expected.expected_origin)
+                      "checked internal operand lost its checked source origin";
+                    require ?span
+                      (Option.fold ~none:true
+                         ~some:(fun previous ->
+                           Seq.Instruction_id.to_int previous
+                           > Seq.Instruction_id.to_int producer.instruction_id)
+                         !previous_producer)
+                      "checked internal argument producers changed source order";
+                    previous_producer := Some producer.instruction_id;
+                    {
+                      role = expected.expected_role;
+                      prepared_default = None;
+                      producer = producer.instruction_id;
+                      value;
+                      source_type = expected.expected_source;
+                      target_type = expected.expected_target;
+                    })
+                  (List.combine expected item.operands);
               pending.expected <- [];
               pending.phase <- Intrinsic_called item.instruction_id
           | Opcode.Ic_call_end, pending :: rest
@@ -1252,19 +1264,19 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                 | Some value -> value.value_id
                 | None -> fail ?span "intrinsic call end has no result identity"
               in
-              let argument_ =
-                match pending.pushes with
-                | [ argument ] -> argument
-                | _ -> fail ?span "intrinsic call has no sealed argument"
-              in
               let opcode_ = Option.get pending.intrinsic_opcode in
+              let arguments_ = pending.pushes in
+              require ?span
+                (List.length arguments_
+                = Option.get (Integer_intrinsic.arity opcode_))
+                "intrinsic call has no complete sealed arguments";
               let intrinsic =
                 {
                   description = pending.shape.source_description;
                   opcode_;
                   symbol_ = pending.shape.selected_symbol;
                   return_type_ = pending.shape.result_type;
-                  argument_;
+                  intrinsic_arguments_ = arguments_;
                   instruction_;
                   result_value_;
                   declaration_ = pending.shape.selected_declaration;

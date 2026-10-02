@@ -255,33 +255,62 @@ let intrinsic_shape opcode ~header ~arguments ~variadic_count_type
   && Option.is_none variadic_count_type
   && variadic_arguments = []
   && Integer_intrinsic.result_matches opcode result_type
-  &&
-  match (parameters, arguments) with
-  | [ parameter ], [ Provided _ ] ->
-      Headers.parameter_default parameter = None
-      && Headers.parameter_register_requests parameter = []
-      && Integer_intrinsic.argument_matches opcode (parameter_type parameter)
-  | _ -> false
+  && Option.fold ~none:false
+       ~some:(fun count -> List.length parameters = count)
+       (Integer_intrinsic.arity opcode)
+  && List.length arguments = List.length parameters
+  && List.for_all2
+       (fun parameter argument ->
+         Headers.parameter_default parameter = None
+         && Headers.parameter_register_requests parameter = []
+         && Integer_intrinsic.argument_matches opcode (parameter_type parameter)
+         &&
+         match argument with
+         | Provided _ -> true
+         | Prepared_default _ -> false)
+       parameters arguments
 
 let lower_intrinsic ?frame ?globals ?lower_call ~span ~instruction_id ~value_id
-    ~source ~symbol ~opcode ~argument ~result_type () =
+    ~source ~symbol ~opcode ~arguments ~result_type () =
+  let rec lower_arguments instruction_id value_id descriptions operands =
+    function
+    | [] -> Ok (Some (descriptions, operands, instruction_id, value_id))
+    | Provided argument :: rest -> (
+        match
+          Expression.lower_typed_result ?frame ?globals ?lower_call
+            ~instruction_id ~value_id argument
+        with
+        | Error _ as error -> error
+        | Ok Expression.Unsupported_expression -> Ok None
+        | Ok (Expression.Lowered lowered) ->
+            let items =
+              lowered |> Expression.sequence |> Sequence.instructions
+              |> List.map Sequence.description
+            in
+            lower_arguments
+              (Expression.next_instruction_id lowered)
+              (Expression.next_value_id lowered)
+              (descriptions @ items)
+              (Expression.result_value lowered :: operands)
+              rest)
+    | Prepared_default _ :: _ -> Ok None
+  in
   let start_id = instruction_id in
   match next_instruction_id ~span start_id with
   | Error error -> Error [ error ]
   | Ok argument_instruction_id -> (
       match
-        Expression.lower_typed_result ?frame ?globals ?lower_call
-          ~instruction_id:argument_instruction_id ~value_id argument
+        lower_arguments argument_instruction_id value_id [] []
+          (List.rev arguments)
       with
       | Error _ as error -> error
-      | Ok Expression.Unsupported_expression -> Ok Unsupported_call
-      | Ok (Expression.Lowered lowered) -> (
-          let argument_descriptions =
-            lowered |> Expression.sequence |> Sequence.instructions
-            |> List.map Sequence.description
-          in
-          let operation_id = Expression.next_instruction_id lowered in
-          let operation_result_value = Expression.next_value_id lowered in
+      | Ok None -> Ok Unsupported_call
+      | Ok
+          (Some
+             ( argument_descriptions,
+               operands,
+               operation_id,
+               operation_result_value )) -> (
           match
             ( next_instruction_id ~span operation_id,
               next_value_id ~span operation_result_value )
@@ -302,8 +331,7 @@ let lower_intrinsic ?frame ?globals ?lower_call ~span ~instruction_id ~value_id
                     @ [
                         description ~instruction_id:operation_id ~opcode
                           ~target_type:(Some result_type) ~payload:None ~span
-                          ~operands:[ Expression.result_value lowered ]
-                          ();
+                          ~operands ();
                         description ~instruction_id:end_id
                           ~opcode:Opcode.Ic_call_end
                           ~target_type:(Some result_type)
@@ -566,7 +594,7 @@ let lower ?frame ?globals ?lower_call ~instruction_id ~value_id ~target result =
                     Runtime_call_context.intrinsic_opcode_of_source source,
                     arguments )
                 with
-                | Records.Internal_operation, Some opcode, [ Provided argument ]
+                | Records.Internal_operation, Some opcode, arguments
                   when Integer_intrinsic.supports opcode
                        && intrinsic_shape opcode
                             ~header:(Resolution.direct_active_header direct)
@@ -575,7 +603,7 @@ let lower ?frame ?globals ?lower_call ~instruction_id ~value_id ~target result =
                     lower_intrinsic ?frame ?globals ?lower_call ~span
                       ~instruction_id ~value_id ~source
                       ~symbol:(Resolution.direct_target_symbol direct)
-                      ~opcode ~argument ~result_type ()
+                      ~opcode ~arguments ~result_type ()
                 | Records.Internal_operation, _, _ -> Ok Unsupported_call
                 | _, _, _ -> (
                     match call_opcode access with
@@ -627,7 +655,7 @@ let lower_top_level ?frame ?globals ?lower_call ~instruction_id ~value_id
                     Runtime_call_context.intrinsic_opcode_of_source source,
                     arguments )
                 with
-                | Records.Internal_operation, Some opcode, [ Provided argument ]
+                | Records.Internal_operation, Some opcode, arguments
                   when Integer_intrinsic.supports opcode
                        && intrinsic_shape opcode
                             ~header:(Result.top_level_direct_header typed)
@@ -636,7 +664,7 @@ let lower_top_level ?frame ?globals ?lower_call ~instruction_id ~value_id
                     lower_intrinsic ?frame ?globals ?lower_call ~span
                       ~instruction_id ~value_id ~source
                       ~symbol:(Result.top_level_direct_target_symbol typed)
-                      ~opcode ~argument ~result_type ()
+                      ~opcode ~arguments ~result_type ()
                 | Records.Internal_operation, _, _ -> Ok Unsupported_call
                 | _, _, _ -> (
                     match call_opcode access with

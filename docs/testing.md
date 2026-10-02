@@ -1,5 +1,12 @@
 # Testing holyc-ocaml
 
+Min/Max tests cover independent signed/unsigned extrema, equality, reversed
+operands, high bits, stored versus computed words and right-to-left effects.
+Foreign contexts and changed two-argument instructions reject in both consumers.
+Argument faults retain earlier output. Retained default, runtime/preparation
+quota and CLI controls run in both modes; native suites check both ABIs, code
+and frame quotas, fresh images and the closed-preparation boundary.
+
 Unary integer internal tests cover independent sign/high-bit/overflow words,
 all Boolean input bits, narrow computed versus stored values, original numeric
 signatures, nested and recursive callers, effectful arguments and retained

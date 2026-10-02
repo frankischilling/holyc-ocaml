@@ -1,5 +1,10 @@
 # holyc-ocaml roadmap
 
+Issue #763 adds [signed and unsigned Min/Max calls](docs/internal-minmax.md)
+through the shared interpreter and both host ABIs. Original two-argument call
+authority and retained defaults are implemented; broader runtime and compiler
+requirements remain open under #695 and #682.
+
 Issue #761 connects [unary integer internal calls](docs/internal-integers.md)
 to IR, retained tasks and hosted native execution. ToBool, AbsI64, SignI64 and
 integer squares preserve full-word results and original call authority. Broader
