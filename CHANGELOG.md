@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Added original ModU64 calls to IR, retained tasks and hosted native execution.
+  Live I64/U64 objects receive unsigned quotients and calls return remainders.
+  Original pointer/argument authority, read-before-division faults and existing
+  work, bounds and image limits remain checked.
+  Internal-call preflight also rejects replaced sealed argument producers,
+  including altered source spans.
+
 - Added source-owned Bsf/Bsr runtime calls to IR, retained tasks and hosted
   native execution. Full words, the -1 zero sentinel, original argument
   authority and cumulative limits remain checked. Native scans use pinned

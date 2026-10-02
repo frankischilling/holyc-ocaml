@@ -1,5 +1,12 @@
 # Testing holyc-ocaml
 
+ModU64 tests check independent quotient/remainder pairs, all divisor bits,
+signed objects, high words, narrow computed/stored divisors, alias snapshots,
+recursive/nested/effectful callers and original retained mutation. Zero divisors
+fault after the pointed read and before storing; uninitialized and out-of-bounds
+objects preserve prior effects. Original/foreign/changed authority, public CLI,
+both ABIs, fresh images and exact/one-below work/image limits are covered.
+
 Bit-scan tests check every input bit, zero/high/mixed/all-ones words, stored and
 computed narrowing, source signatures, nested/recursive/effectful callers and
 foreign or changed call authority. Independent BSF/BSR bytes cover ModRM and

@@ -1,5 +1,10 @@
 # holyc-ocaml roadmap
 
+Issue #767 adds [owned ModU64 calls](docs/internal-mod-u64.md) for numeric
+formatting and date-conversion patterns. Original pointer ownership, argument
+order, quotient mutation and fault phases are checked through IR and both host
+ABIs. General pointer and full runtime work remain under #687/#699 and #695.
+
 Issue #765 adds [Bsf/Bsr runtime calls](docs/internal-bitscan.md) through shared
 IR and checked native encoder forms. Pinned alignment and power-of-two callers
 supply the source contract; the optimizer's immediate rewrite and broader

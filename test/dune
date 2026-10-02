@@ -1,4 +1,18 @@
 (test
+ (name test_internal_mod_u64_cli)
+ (modules test_internal_mod_u64_cli)
+ (libraries unix yojson)
+ (deps
+  ../examples/internal-mod-u64.hc
+  ../examples/stream-internal-mod-u64.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/internal-mod-u64.hc}
+   %{dep:../examples/stream-internal-mod-u64.hc})))
+
+(test
  (name test_internal_bitscan_cli)
  (modules test_internal_bitscan_cli)
  (libraries unix yojson)
@@ -172,6 +186,7 @@
   test_internal_integers
   test_internal_minmax
   test_internal_bitscan
+  test_internal_mod_u64
   test_retained_internal
   test_internal_strlen_authority
   test_internal_strlen_source

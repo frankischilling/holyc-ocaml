@@ -260,15 +260,17 @@ let intrinsic_shape opcode ~header ~arguments ~variadic_count_type
        (Integer_intrinsic.arity opcode)
   && List.length arguments = List.length parameters
   && List.for_all2
-       (fun parameter argument ->
+       (fun (index, parameter) argument ->
          Headers.parameter_default parameter = None
          && Headers.parameter_register_requests parameter = []
-         && Integer_intrinsic.argument_matches opcode (parameter_type parameter)
+         && Integer_intrinsic.argument_matches opcode ~index
+              (parameter_type parameter)
          &&
          match argument with
          | Provided _ -> true
          | Prepared_default _ -> false)
-       parameters arguments
+       (List.mapi (fun index parameter -> (index, parameter)) parameters)
+       arguments
 
 let lower_intrinsic ?frame ?globals ?lower_call ~span ~instruction_id ~value_id
     ~source ~symbol ~opcode ~arguments ~result_type () =

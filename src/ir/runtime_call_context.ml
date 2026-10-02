@@ -82,6 +82,7 @@ type intrinsic = {
   symbol_ : Sema.Symbol.t;
   return_type_ : Type.t;
   intrinsic_arguments_ : argument list;
+  producer_descriptions_ : Seq.description list;
   instruction_ : Seq.Instruction_id.t;
   result_value_ : Seq.Value_id.t;
   declaration_ : Functions.resolved_declaration;
@@ -132,6 +133,16 @@ let call_original_phase (call : call) = original_phase call.description.source
 let retained_function (call : call) = call.retained_function_
 let intrinsic_opcode (intrinsic : intrinsic) = intrinsic.opcode_
 let intrinsic_arguments (intrinsic : intrinsic) = intrinsic.intrinsic_arguments_
+
+let intrinsic_producer_matches (intrinsic : intrinsic) description =
+  List.for_all
+    (fun original ->
+      (not
+         (Seq.Instruction_id.equal original.Seq.instruction_id
+            description.Seq.instruction_id))
+      || original == description)
+    intrinsic.producer_descriptions_
+
 let intrinsic_symbol (intrinsic : intrinsic) = intrinsic.symbol_
 let intrinsic_return_type (intrinsic : intrinsic) = intrinsic.return_type_
 let intrinsic_first (intrinsic : intrinsic) = intrinsic.description.first
@@ -827,15 +838,16 @@ let approved_intrinsic shape opcode =
   && Records.is_internal shape.selected_record
   && Integer_intrinsic.result_matches opcode shape.result_type
   && List.for_all
-       (fun (parameter, argument) ->
+       (fun (index, (parameter, argument)) ->
          Headers.parameter_default parameter = None
          && Headers.parameter_register_requests parameter = []
-         && Integer_intrinsic.argument_matches opcode (parameter_type parameter)
+         && Integer_intrinsic.argument_matches opcode ~index
+              (parameter_type parameter)
          &&
          match argument with
          | Provided _ -> true
          | Prepared_default _ -> false)
-       shape.fixed
+       (List.mapi (fun index fixed -> (index, fixed)) shape.fixed)
   && shape.variadic = []
   && Option.is_none shape.count_type
 
@@ -1277,6 +1289,11 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                   symbol_ = pending.shape.selected_symbol;
                   return_type_ = pending.shape.result_type;
                   intrinsic_arguments_ = arguments_;
+                  producer_descriptions_ =
+                    List.map
+                      (fun argument ->
+                        Values.find argument.value pending.intrinsic_producers)
+                      arguments_;
                   instruction_;
                   result_value_;
                   declaration_ = pending.shape.selected_declaration;

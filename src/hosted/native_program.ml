@@ -171,7 +171,11 @@ let internal_prototype (prototype : Ast.function_prototype) =
       public_primitive I64 prototype.return_type
       && scalar I64 left && scalar I64 right
       || public_primitive U64 prototype.return_type
-         && scalar U64 left && scalar U64 right
+         && (scalar U64 left
+            || plain left
+               && List.length left.pointer_layers = 1
+               && public_primitive U64 left.type_specifier)
+         && scalar U64 right
   | _ -> false
 
 let implicit_output_expressions (statement : Ast.implicit_output_statement) =

@@ -12,6 +12,7 @@ let () =
       ("unary integer internal calls", Test_internal_integers.tests);
       ("two-argument integer internal calls", Test_internal_minmax.tests);
       ("bit scan internal calls", Test_internal_bitscan.tests);
+      ("owned ModU64 internal calls", Test_internal_mod_u64.tests);
       ("retained internal headers", Test_retained_internal.tests);
       ("internal call authority", Test_internal_strlen_authority.tests);
       ("internal source ownership", Test_internal_strlen_source.tests);

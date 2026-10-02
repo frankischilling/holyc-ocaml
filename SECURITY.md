@@ -87,6 +87,13 @@ checkout credentials. See [native expressions](docs/native-expressions.md).
 
 ## Explicit native program execution
 
+ModU64 calls require an original numeric binding, exact asymmetric signature
+and both original producers. The pointed value must identify a live owned
+I64/U64 cell within its original extent. Bounds and initialization are checked
+before unsigned division; zero divisors stop before a quotient store. This
+operation preserves pointer metadata and introduces no raw host addresses or
+general pointer cast capability. See [owned ModU64 calls](docs/internal-mod-u64.md).
+
 Unary integer internal calls require their original numeric declaration, exact
 fixed signature, source phase and unpushed producer. Source names and equal
 metadata cannot authorize an operation. VM and native preflight reject foreign

@@ -1,5 +1,12 @@
 # Reference source map
 
+Issue #767 connects `Kernel/KernelB.HH:103`, `Compiler/CompilerA.HH:227` and
+`PrsExp.HC:440-586` to ModU64. `BackC.HC:463-488` and
+`OptPass789A.HC:878-879` supply its unsigned division, quotient store and returned
+remainder. `Kernel/StrPrint.HC:217-219,449,489,657,764` and
+`Kernel/KDate.HC:40-68` supply U64/I64 object callers. See
+[owned ModU64 calls](internal-mod-u64.md).
+
 Issue #765 connects `Kernel/KernelB.HH:9-12`,
 `Compiler/CompilerA.HH:169-170` and `Compiler/PrsExp.HC:440-586` to Bsf/Bsr.
 `OptPass789A.HC:806-819` and `OpCodes.DD:724-731` supply full-word scan and

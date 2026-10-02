@@ -30,7 +30,8 @@ let binary = function
 
 let arity opcode =
   if opcode = Opcode.Ic_strlen || Option.is_some (unary opcode) then Some 1
-  else if Option.is_some (binary opcode) then Some 2
+  else if opcode = Opcode.Ic_mod_u64 || Option.is_some (binary opcode) then
+    Some 2
   else None
 
 let supports opcode = Option.is_some (arity opcode)
@@ -42,8 +43,15 @@ let primitive type_ depth expected =
   | Sema.Type.Primitive (_, actual) -> Sema.Primitive_type.equal actual expected
   | _ -> false
 
-let argument_matches opcode type_ =
+let mod_u64_pointer type_ =
+  primitive type_ 1 Sema.Primitive_type.I64
+  || primitive type_ 1 Sema.Primitive_type.U64
+
+let argument_matches opcode ~index type_ =
   match opcode with
+  | Opcode.Ic_mod_u64 ->
+      if index = 0 then primitive type_ 1 Sema.Primitive_type.U64
+      else index = 1 && primitive type_ 0 Sema.Primitive_type.U64
   | Opcode.Ic_strlen -> primitive type_ 1 Sema.Primitive_type.U8
   | Ic_toupper -> primitive type_ 0 Sema.Primitive_type.U8
   | Ic_sqr_u64 | Ic_min_u64 | Ic_max_u64 ->
@@ -60,6 +68,7 @@ let argument_matches opcode type_ =
 
 let result_matches opcode type_ =
   match opcode with
+  | Opcode.Ic_mod_u64 -> primitive type_ 0 Sema.Primitive_type.U64
   | Opcode.Ic_to_bool -> primitive type_ 0 Sema.Primitive_type.U8
   | Ic_sqr_u64 | Ic_min_u64 | Ic_max_u64 ->
       primitive type_ 0 Sema.Primitive_type.U64

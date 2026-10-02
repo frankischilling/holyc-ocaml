@@ -14,7 +14,12 @@ val unary : Opcode.t -> unary option
 val binary : Opcode.t -> binary option
 val arity : Opcode.t -> int option
 val supports : Opcode.t -> bool
-val argument_matches : Opcode.t -> Sema.Type.t -> bool
+val argument_matches : Opcode.t -> index:int -> Sema.Type.t -> bool
+
+val mod_u64_pointer : Sema.Type.t -> bool
+(** The original operation reads and writes one complete I64/U64 object word.
+    This does not change its checked pointee type or authorize pointer casts. *)
+
 val result_matches : Opcode.t -> Sema.Type.t -> bool
 
 val apply : unary -> int64 -> int64

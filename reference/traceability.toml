@@ -12575,6 +12575,23 @@ excluded = ["broader runtime services under #695", "additional source folding an
 verification_boundary = "Independent zero/high/mixed/all-ones words and every input bit, both modes/targets, narrowing, nested Min/Max and recursive/effectful callers, retained defaults/generated source, public CLI, independent qword/extended-register bytes, both native ABIs, repeated images, exact/one-below limits and original/foreign/changed authority. No new TempleOS oracle capture."
 
 [[feature]]
+id = "HC-MOD-U64-INTERNAL"
+description = "Original ModU64 calls divide an owned I64/U64 object as unsigned, store the quotient and return its U64 remainder through IR, retained tasks and hosted native execution."
+status = "implemented"
+issue = 767
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Kernel/KernelB.HH:103", "Compiler/CompilerA.HH:227", "Compiler/PrsExp.HC:440-586", "Compiler/BackC.HC:463-488", "Compiler/OptPass789A.HC:878-879", "Kernel/StrPrint.HC:217-219,449,489,657,764", "Kernel/KDate.HC:40-68"]
+implementation = ["src/ir/integer_intrinsic.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml"]
+tests = ["test/test_internal_mod_u64.ml", "test/test_internal_mod_u64_cli.ml", "test/native/test_internal_mod_u64_execution.ml", "examples/internal-mod-u64.hc", "examples/stream-internal-mod-u64.hc"]
+documentation = ["docs/internal-mod-u64.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+identity = "Original numeric 0xAF publication, exact U64(U64*,U64) signature and canonical call phases seal both original producers, parameter roles, source types/origins and right-to-left effects. Foreign contexts and changed instructions reject; ordinary same-name bodies remain ordinary calls."
+execution = "IC_CALL_START, unpushed original arguments, operand-bearing IC_MOD_U64 and IC_CALL_END preserve the pointer object and return U64. Live owned I64/U64 words provide raw unsigned bits; the quotient is stored through the original reference and the remainder completes the call. Native code uses checked load/store and unsigned DIV forms."
+resources = "One IC tick pays for division; argument/marker work, pointer descriptor pools, extents, initialization, code/frame and private staging quotas remain checked. The pointed read precedes division. A zero divisor faults before store/completion; reached work and output remain visible."
+preparation = "Original retained defaults execute once in their owning source activation, including pointed mutation. Ordinary native closed preparation and retained frontend publication remain separate."
+excluded = ["general pointer casts/escapes under #687/#699", "full formatting under #694", "broader runtime under #695", "native retained frontend under #704", "full ABI, artifacts, actual-loader and bootstrap gates"]
+verification_boundary = "Independent quotient/remainder expectations, every divisor bit, signed object/raw word behavior, narrowing, interior/copied/rebound/recursive aliases, nested calls, source effects, retained mutation, exact signatures, original/foreign/changed authority, bounds/uninitialized/zero faults, public CLI, both ABIs, repeated images and exact/one-below limits. No new TempleOS oracle capture."
+
+[[feature]]
 id = "HC-RELEASE-CONTRACT"
 description = "The 1.0 contract defines required host/target cells, phase-specific acceptance, exact pinned source sets and explicit bootstrap producer/consumer lineage."
 status = "implemented"
