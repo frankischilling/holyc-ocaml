@@ -1,5 +1,9 @@
 # Owned scalar pointer ordering
 
+[Owned scalar pointer difference](pointer-difference.md) is implemented
+by #783 with signed numeric results and sealed original size/division records.
+Its preparation and raw-address boundaries remain explicit.
+
 Issue #781 executes `<`, `<=`, `>` and `>=` for matching live owned
 integer/Bool scalar references within the same original object and extent.
 Compatible U8 literal spellings retain their existing contract. Both source
@@ -90,7 +94,7 @@ exact/one-below runtime, preparation, code and frame limits. Native status
 tests reject mismatches at unauthorized sites. Maintained CLI fixtures check
 captures, operand order, mismatches, bounds/overflow and once-only defaults.
 
-Pointer difference, raw address ordering, chained pointer comparisons,
+Raw pointer difference, raw address ordering, chained pointer comparisons,
 null/integer conversions, casts, mismatched pointees, compound updates,
 returned/escaping/persistent pointer variables, deeper pointers and aggregate
 pointees remain under #687/#699/#700. Full native ABI, larger images, retained

@@ -1,5 +1,9 @@
 # Owned scalar pointer subtraction
 
+[Owned scalar pointer difference](pointer-difference.md) is implemented
+by #783 with signed numeric results and sealed original size/division records.
+Its preparation and raw-address boundaries remain explicit.
+
 [Owned scalar pointer ordering](pointer-ordering.md) compares offsets within
 one original live object/extent; unrelated objects retain a checked fault.
 
@@ -88,7 +92,7 @@ fixtures check values, captures, full computed words, original overflow/bounds
 faults and once-only retained defaults.
 
 [Equality](pointer-equality.md) compares original object identity and offset.
-Difference, raw ordering, integer-left operations, compound pointer updates,
+Raw difference, raw ordering, integer-left operations, compound pointer updates,
 casts, escaping/returned/persistent pointer variables, deeper pointers,
 aggregate pointees and direct multi-rank array arithmetic remain under
 #687/#699/#700. Native retained tasks remain under #704, larger native images

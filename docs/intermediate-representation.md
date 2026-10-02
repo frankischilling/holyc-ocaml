@@ -1,5 +1,11 @@
 # Intermediate-code specification
 
+Owned scalar pointer difference retains numeric-result IC_SUB over captured
+original references. Pointee sizes above one then emit IMM_I64 and IC_DIV; byte
+sizes omit division. These original records and transitive producers are
+sealed. See [pointer difference](pointer-difference.md) for checked object
+identity, result transport and native mismatch authority.
+
 [Owned scalar pointer ordering](pointer-ordering.md) uses the shared checked
 frame/global comparison path. Original live object/extent identity precedes
 logical offset comparison; cross-object ordering faults at its original

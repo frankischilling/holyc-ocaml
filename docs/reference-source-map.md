@@ -1,5 +1,13 @@
 # Reference source map
 
+Issue #783 connects `Compiler/PrsExp.HC:14-62`, `OptLib.HC:96-179`,
+`OptPass012.HC:403-440,619-695` and `OptPass789A.HC:524-530,559-566`
+to original pointer byte subtraction and optional pointee-size division.
+`BackA.HC:166-222,355-370` supplies subtraction and signed division.
+`Kernel/KernelA.HH:1573` declares signed RT_PTR; byte-sized source nodes retain
+that raw class. See [pointer difference](pointer-difference.md) for hosted
+I64 transport and its separate class-query/address boundary.
+
 Issue #781 connects `Compiler/PrsExp.HC:14-62,218-229`,
 `OptLib.HC:96-179` and `OptPass012.HC:741-827` to original ordered pointer
 comparisons and I64 result transport. `OptPass789A.HC:573-596` selects

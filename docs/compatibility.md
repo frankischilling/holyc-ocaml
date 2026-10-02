@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+Issue #783 implements [owned scalar pointer difference](pointer-difference.md)
+in both modes and targets for matching references within one original live
+object/extent. Original byte subtraction and optional size division return I64
+without reading pointees. Cross-object difference is HCIRVM0018. Byte-sized
+retained defaults execute; wider preparation retains HCRUN0006.
+
 Issue #781 implements [owned scalar pointer ordering](pointer-ordering.md)
 in both modes and targets within the same original live object/extent. It
 returns I64 0/1 without reading pointees and preserves operand effects, original
@@ -15,7 +21,7 @@ Issue #777 implements [owned scalar pointer subtraction](pointer-subtraction.md)
 in both modes and execution targets. It scales full computed integer operands
 and directly subtracts the offset with bounds/overflow checks. One-past,
 initialization, original producer authority and existing limits remain checked.
-Difference, chained comparisons, casts and escapes remain separate.
+Raw difference, chained comparisons, casts and escapes remain separate.
 
 Issue #775 implements [owned scalar pointer addition](pointer-addition.md)
 in both modes and execution targets. Original objects and full computed offset

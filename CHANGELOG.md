@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added owned scalar pointer difference to IR and hosted native programs.
+  Original byte subtraction and optional pointee-size division return signed
+  I64 element counts within one live object. Byte-sized retained defaults
+  execute; wider preparation keeps the existing constant-divisor optimizer gate.
+  Original effects, faults, work, source/status authority and limits are checked.
+
 - Added owned scalar pointer ordering within one original live object and
   extent to IR, retained tasks and hosted native programs. All four operators
   return I64 words; unrelated objects retain a checked mismatch fault. Original

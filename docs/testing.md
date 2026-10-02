@@ -1,5 +1,13 @@
 # Testing holyc-ocaml
 
+Pointer-difference tests check 97 independent values and 16 faults across
+all nine scalar types, both modes and targets. Eight source and seven native
+groups cover signed offsets, snapshots, rows, recursive/caller/persistent/
+literal aliases, original byte/size IR shape, faults/work, source authority,
+status authorization, preparation boundaries, both ABIs, fresh execution and
+exact/one-below limits. CLI fixtures retain measured output and work. See
+[pointer difference](pointer-difference.md).
+
 Pointer-ordering tests check 246 independent values and 19 fault cases across
 all nine pointee classes, four operators, both modes and targets. Seven source
 groups and seven native groups cover original objects/extents, one-past values,

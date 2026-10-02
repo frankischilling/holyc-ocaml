@@ -1,5 +1,10 @@
 # Scalar pointer aliases
 
+Two matching owned scalar references can subtract within one original live
+object and extent. Aligned byte offsets feed original IC_SUB and, above byte
+size, original size/IC_DIV. The numeric I64 result carries no pointer authority.
+See [pointer difference](pointer-difference.md).
+
 [Owned scalar pointer ordering](pointer-ordering.md) compares aligned offsets
 within one original live object and extent, including valid one-past values.
 Unknown pointees are allowed; unrelated objects fault at the ordering instruction.

@@ -71,9 +71,19 @@ type index_step = {
   index_span : Common.Span.t;
 }
 
+type pointer_difference_step = {
+  difference_result : Semantic_result.expression_result;
+  difference_left : Semantic_result.expression_result;
+  difference_right : Semantic_result.expression_result;
+  difference_stride : int64;
+  difference_type : Type.t;
+  difference_span : Common.Span.t;
+}
+
 type plan_node =
   | Index_stride of index_step
   | Index_address of index_step
+  | Pointer_difference of pointer_difference_step
   | Materialize_array of {
       result : Semantic_result.expression_result;
       operand : Semantic_result.expression_result;
@@ -164,6 +174,7 @@ type plan_node =
 type task =
   | Emit_index_stride of index_step
   | Finish_index_address of index_step
+  | Finish_pointer_difference of pointer_difference_step
   | Finish_materialize_array of {
       result : Semantic_result.expression_result;
       operand : Semantic_result.expression_result;
@@ -2239,7 +2250,8 @@ let plan ?frame ?globals ~allow_calls root =
                        || opcode = Opcode.Ic_not_equ || opcode = Opcode.Ic_less
                         || opcode = Opcode.Ic_less_equ
                         || opcode = Opcode.Ic_greater
-                        || opcode = Opcode.Ic_greater_equ)
+                        || opcode = Opcode.Ic_greater_equ
+                        || opcode = Opcode.Ic_sub)
                         && conversion = Keep_result
                         && (Option.is_some frame || Option.is_some globals)
                         &&
@@ -2263,20 +2275,43 @@ let plan ?frame ?globals ~allow_calls root =
                                      Sema.Primitive_type.I64 )
                         | _ -> false
                       then
+                        let finish =
+                          if opcode = Opcode.Ic_sub then
+                            let pointer, target =
+                              match
+                                ( checked_frame_value left,
+                                  checked_frame_integer result )
+                              with
+                              | ( Ok (Checked_type pointer),
+                                  Ok (Checked_type target) ) -> (pointer, target)
+                              | _ -> assert false
+                            in
+                            Finish_pointer_difference
+                              {
+                                difference_result = result;
+                                difference_left = left;
+                                difference_right = right;
+                                difference_stride =
+                                  Option.get (pointer_element_size pointer);
+                                difference_type = target;
+                                difference_span = span;
+                              }
+                          else
+                            Finish_binary
+                              {
+                                result;
+                                opcode;
+                                span;
+                                left;
+                                right;
+                                conversion;
+                                operation_flags = 0L;
+                              }
+                        in
                         pending :=
                           Visit { result = left; conversion = Keep_result }
                           :: Visit { result = right; conversion = Keep_result }
-                          :: Finish_binary
-                               {
-                                 result;
-                                 opcode;
-                                 span;
-                                 left;
-                                 right;
-                                 conversion;
-                                 operation_flags = 0L;
-                               }
-                          :: !pending
+                          :: finish :: !pending
                       else if
                         Opcode.equal opcode Opcode.Ic_assign
                         || compound_assignment opcode
@@ -2454,6 +2489,8 @@ let plan ?frame ?globals ~allow_calls root =
                 | Semantic_source.Postfix_cast_expression
                 | Semantic_source.Call_expression ) -> unsupported := true)
         | Emit_index_stride step -> reversed := Index_stride step :: !reversed
+        | Finish_pointer_difference step ->
+            reversed := Pointer_difference step :: !reversed
         | Finish_index_address step ->
             reversed := Index_address step :: !reversed
         | Finish_materialize_array { result; operand; pointer_type; span } ->
@@ -2825,6 +2862,43 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
             | Ok node ->
                 lowered :=
                   Int_map.add (result_key step.indexed_result) node !lowered)
+        | Pointer_difference step -> (
+            let ( let* ) = Result.bind in
+            let emitted =
+              let* left =
+                find_lowered !lowered step.difference_left
+                  "left pointer difference operand"
+              in
+              let* right =
+                find_lowered !lowered step.difference_right
+                  "right pointer difference operand"
+              in
+              let emit opcode operands payload =
+                emit_index_value ~opcode ~operands ~payload
+                  ~target_type:step.difference_type ~span:step.difference_span
+              in
+              (* PrsAddOp subtracts byte addresses before its optional size
+                 divisor. The numeric word never becomes a reference. *)
+              let* bytes =
+                emit Opcode.Ic_sub
+                  [ left.lowered_value; right.lowered_value ]
+                  None
+              in
+              if step.difference_stride = 1L then Ok bytes
+              else
+                let* stride =
+                  emit Opcode.Ic_imm_i64 []
+                    (Some (Sequence.Integer step.difference_stride))
+                in
+                emit Opcode.Ic_div
+                  [ bytes.lowered_value; stride.lowered_value ]
+                  None
+            in
+            match emitted with
+            | Error item -> error := Some item
+            | Ok node ->
+                lowered :=
+                  Int_map.add (result_key step.difference_result) node !lowered)
         | Materialize_array { result; operand; pointer_type; span } -> (
             match find_lowered !lowered operand "array address" with
             | Error item -> error := Some item
@@ -3262,6 +3336,7 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
                 | Indirect_address { result; _ } :: _
                 | Index_stride { indexed_result = result; _ } :: _
                 | Index_address { indexed_result = result; _ } :: _
+                | Pointer_difference { difference_result = result; _ } :: _
                 | Materialize_array { result; _ } :: _
                 | Storage_load { result; _ } :: _
                 | Literal { result; _ } :: _

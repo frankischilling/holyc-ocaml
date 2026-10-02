@@ -176,13 +176,14 @@ let same_owner left right =
   | Function left, Function right -> left == right
   | _ -> false
 
-let pointer_comparison produced (description : Seq.description) =
+let pointer_relation produced (description : Seq.description) =
   (description.opcode = Opcode.Ic_equ_equ
   || description.opcode = Opcode.Ic_not_equ
   || description.opcode = Opcode.Ic_less
   || description.opcode = Opcode.Ic_less_equ
   || description.opcode = Opcode.Ic_greater
-  || description.opcode = Opcode.Ic_greater_equ)
+  || description.opcode = Opcode.Ic_greater_equ
+  || description.opcode = Opcode.Ic_sub)
   && List.exists
        (fun operand ->
          Option.fold ~none:false
@@ -190,6 +191,21 @@ let pointer_comparison produced (description : Seq.description) =
            (Option.bind (Values.find_opt operand produced) (fun producer ->
                 producer.Seq.target_type)))
        description.operands
+
+let pointer_difference_division produced (description : Seq.description) =
+  description.opcode = Opcode.Ic_div
+  &&
+  match description.operands with
+  | bytes :: _ -> (
+      match Values.find_opt bytes produced with
+      | Some producer ->
+          producer.Seq.opcode = Opcode.Ic_sub
+          && Option.fold ~none:false
+               ~some:(fun type_ -> Type.pointer_depth type_ = 0)
+               producer.target_type
+          && pointer_relation produced producer
+      | None -> false)
+  | [] -> false
 
 let pointer_producers_match context =
   List.for_all
@@ -223,7 +239,11 @@ let pointer_producers_match context =
       in
       Instructions.for_all
         (fun id supplied ->
-          if not (pointer_comparison produced supplied) then true
+          if
+            not
+              (pointer_relation produced supplied
+              || pointer_difference_division produced supplied)
+          then true
           else
             match Instructions.find_opt id graph.pointer_producers with
             | Some original -> original == supplied
@@ -1579,7 +1599,8 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
            && Option.fold ~none:false
                 ~some:(fun type_ -> Type.pointer_depth type_ = 1)
                 item.target_type
-           || pointer_comparison produced item)
+           || pointer_relation produced item
+           || pointer_difference_division produced item)
          all_items)
   in
   let pointer_producers = ref Instructions.empty in

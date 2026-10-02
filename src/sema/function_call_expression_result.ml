@@ -1002,6 +1002,29 @@ let scalar_pointer_integer_arithmetic_type left right =
       | _ -> None)
   | _ -> None
 
+let scalar_pointer_difference left right =
+  let pointer result =
+    match result.source_type with
+    | Some type_ when result.array_address && result.array_rank = 1 ->
+        Result.to_option (Type.pointer_to type_)
+    | type_ when result.array_rank = 0 -> type_
+    | _ -> None
+  in
+  match (pointer left, pointer right) with
+  | Some left_type, Some right_type
+    when left.result_class = Integer_result
+         && right.result_class = Integer_result
+         && Type.pointer_depth left_type = 1
+         && Type.compatible_u8_pointer left_type right_type -> (
+      match Type.dereference left_type with
+      | Ok pointee -> (
+          match Type.base pointee with
+          | Type.Primitive (_, primitive) ->
+              Option.is_some (Primitive_type.integer_storage_info primitive)
+          | _ -> false)
+      | _ -> false)
+  | _ -> false
+
 let is_writable_storage_type = function
   | Some type_ when Type.pointer_depth type_ > 0 -> true
   | Some type_ -> (
@@ -2684,6 +2707,9 @@ and type_binary table members policies ~before_item_index ~intrinsic_conversion
                          (scalar_pointer_integer_arithmetic_type left right) ->
                     ( Integer_result,
                       scalar_pointer_integer_arithmetic_type left right )
+                | Generated.Intermediate_codes.Ic_sub
+                  when scalar_pointer_difference left right ->
+                    (Integer_result, integer_type)
                 | Generated.Intermediate_codes.Ic_power ->
                     (F64_result, float_type)
                 | Generated.Intermediate_codes.Ic_equ_equ
