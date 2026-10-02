@@ -1,3 +1,31 @@
+(copy_files ../test_internal_bitscan.ml)
+
+(executable
+ (name test_internal_bitscan_execution)
+ (modules
+  test_internal_bitscan_execution
+  test_internal_bitscan
+  test_internal_strlen_authority)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_internal_bitscan_execution.exe})))
+
+(rule
+ (alias native-tests)
+ (deps
+  ../../examples/internal-bitscan.hc
+  ../../examples/stream-internal-bitscan.hc)
+ (action
+  (run
+   %{exe:../test_internal_bitscan_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/internal-bitscan.hc}
+   %{dep:../../examples/stream-internal-bitscan.hc}
+   --native)))
+
 (copy_files ../test_internal_minmax.ml)
 
 (executable

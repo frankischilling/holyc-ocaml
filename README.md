@@ -1,5 +1,9 @@
 # holyc-ocaml
 
+Issue #765 connects [full-word bit scans](docs/internal-bitscan.md) to IR,
+retained tasks and hosted native execution. Bsf/Bsr preserve original call
+authority, inspect all 64 bits and return -1 for zero.
+
 Issue #763 connects [signed and unsigned Min/Max calls](docs/internal-minmax.md)
 to IR, retained tasks and hosted native execution. Both original argument
 producers, right-to-left effects and full-word comparison remain checked.

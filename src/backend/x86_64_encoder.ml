@@ -48,6 +48,8 @@ type instruction =
   | Pop_rbp
   | Unary of unary * register
   | Binary of binary * register * register
+  | Bsf of register * register
+  | Bsr of register * register
   | Shift_cl of shift * register
   | Capture_status of status_abi
   | Zero_edx
@@ -176,6 +178,8 @@ let complement = source_form "NOT" 675
 let add = source_form "ADD" 330
 let subtract = source_form "SUB" 445
 let multiply = source_form "IMUL2" 694
+let scan_forward = source_form "BSF" 727
+let scan_reverse = source_form "BSR" 731
 let bitwise_and = source_form "AND" 353
 let bitwise_or = source_form "OR" 399
 let bitwise_xor = source_form "XOR" 501
@@ -276,6 +280,8 @@ let form = function
   | Binary (Add, _, _) -> add
   | Binary (Sub, _, _) -> subtract
   | Binary (Imul, _, _) -> multiply
+  | Bsf _ -> scan_forward
+  | Bsr _ -> scan_reverse
   | Binary (And, _, _) -> bitwise_and
   | Binary (Or, _, _) -> bitwise_or
   | Binary (Xor, _, _) -> bitwise_xor
@@ -409,8 +415,15 @@ let size instruction =
   | Load_context _ | Store_context _ -> 4
   | Store_context_imm _ -> 8
   | Dec _ -> 3
-  | Mov _ | Unary _ | Binary _ | Shift_cl _ | Cmp _ | Test _ | Movzx8 _ ->
-      opcode_bytes + 1 + 1
+  | Mov _
+  | Unary _
+  | Binary _
+  | Bsf _
+  | Bsr _
+  | Shift_cl _
+  | Cmp _
+  | Test _
+  | Movzx8 _ -> opcode_bytes + 1 + 1
   | Setcc (_, destination) ->
       opcode_bytes + 1 + if register_number destination < 8 then 0 else 1
   | Ret -> opcode_bytes
@@ -612,6 +625,9 @@ let write buffer position instruction =
       List.iter (fun opcode -> byte (opcode lor 5)) selected.opcode_bytes
   | Unary (_, destination) ->
       modrm ~reg:selected.slash_value ~rm:(register_number destination)
+  | Bsf (destination, source) | Bsr (destination, source) ->
+      (* OpCodes.DD:727/731 are R64,RM64; REX.R extends the destination. *)
+      modrm ~reg:(register_number destination) ~rm:(register_number source)
   | Binary (Imul, destination, source) ->
       (* IMUL2 is R64,RM64; the other binary forms are RM64,R64. *)
       modrm ~reg:(register_number destination) ~rm:(register_number source)

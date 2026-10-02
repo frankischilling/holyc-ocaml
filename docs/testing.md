@@ -1,5 +1,12 @@
 # Testing holyc-ocaml
 
+Bit-scan tests check every input bit, zero/high/mixed/all-ones words, stored and
+computed narrowing, source signatures, nested/recursive/effectful callers and
+foreign or changed call authority. Independent BSF/BSR bytes cover ModRM and
+extended-register fields. Retained default, runtime/preparation quota and CLI
+controls run in both modes; native suites check both ABIs, fresh images, image
+limits, argument faults and closed-preparation rejection.
+
 Min/Max tests cover independent signed/unsigned extrema, equality, reversed
 operands, high bits, stored versus computed words and right-to-left effects.
 Foreign contexts and changed two-argument instructions reject in both consumers.

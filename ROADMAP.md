@@ -1,5 +1,10 @@
 # holyc-ocaml roadmap
 
+Issue #765 adds [Bsf/Bsr runtime calls](docs/internal-bitscan.md) through shared
+IR and checked native encoder forms. Pinned alignment and power-of-two callers
+supply the source contract; the optimizer's immediate rewrite and broader
+preparation remain separate requirements.
+
 Issue #763 adds [signed and unsigned Min/Max calls](docs/internal-minmax.md)
 through the shared interpreter and both host ABIs. Original two-argument call
 authority and retained defaults are implemented; broader runtime and compiler

@@ -1,4 +1,13 @@
-type unary = To_upper | To_bool | Absolute | Sign | Square_i64 | Square_u64
+type unary =
+  | To_upper
+  | To_bool
+  | Absolute
+  | Sign
+  | Square_i64
+  | Square_u64
+  | Scan_forward
+  | Scan_reverse
+
 type binary = Min_i64 | Min_u64 | Max_i64 | Max_u64
 
 val unary : Opcode.t -> unary option

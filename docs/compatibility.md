@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+Issue #765 implements [Bsf/Bsr internal calls](internal-bitscan.md) in both
+source modes and execution targets, including full-word indices, the -1 zero
+sentinel and original retained scalar defaults. Ordinary closed preparation,
+the separate immediate-folding rewrite and native retained execution remain
+explicit gates.
+
 Issue #763 implements [signed and unsigned Min/Max calls](internal-minmax.md)
 through original numeric declarations, both source modes and both execution
 targets. Checked two-argument order, full words and retained scalar defaults

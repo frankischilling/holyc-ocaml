@@ -2263,6 +2263,20 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
               mark negative;
               emit (Encoder.Mov_imm64 (Encoder.Rax, -1L));
               mark complete
+          | Intrinsic.Scan_forward | Scan_reverse ->
+              let nonzero = fresh_label supply in
+              let complete = fresh_label supply in
+              emit (Encoder.Test Encoder.Rax);
+              emit_branch Not_equal nonzero;
+              emit (Encoder.Mov_imm64 (Encoder.Rax, -1L));
+              emit_branch Unconditional complete;
+              mark nonzero;
+              emit
+                (match operation with
+                | Intrinsic.Scan_forward ->
+                    Encoder.Bsf (Encoder.Rax, Encoder.Rax)
+                | _ -> Encoder.Bsr (Encoder.Rax, Encoder.Rax));
+              mark complete
           | Intrinsic.Square_i64 | Square_u64 ->
               emit (Encoder.Binary (Encoder.Imul, Encoder.Rax, Encoder.Rax)));
           emit
