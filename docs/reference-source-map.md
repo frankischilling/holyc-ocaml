@@ -1,5 +1,11 @@
 # Reference source map
 
+Issue #781 connects `Compiler/PrsExp.HC:14-62,218-229`,
+`OptLib.HC:96-179` and `OptPass012.HC:741-827` to original ordered pointer
+comparisons and I64 result transport. `OptPass789A.HC:573-596` selects
+`BackB.HC:102-200`'s ICCmp; `Kernel/KernelA.HH:1573` declares signed RT_PTR.
+See [owned scalar pointer ordering](pointer-ordering.md).
+
 Issue #779 connects `Compiler/PrsExp.HC:14-62,218-229`,
 `OptLib.HC:96-179` and `OptPass012.HC:724-740,808-827` to original pointer
 equality and I64 result transport. `OptPass789A.HC:567-572` dispatches to

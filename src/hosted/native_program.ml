@@ -897,6 +897,8 @@ let fault_diagnostic ~fallback (fault : Image.fault) =
         ("HCIRVM0018", "native Print requires a live byte pointer")
     | Image.Output_invalid_byte ->
         ("HCIRVM0008", "native Print byte cell has an invalid runtime value")
+    | Image.Pointer_object_mismatch ->
+        ("HCIRVM0018", "pointer ordering requires the same live object extent")
   in
   Common.Diagnostic.make ~code ~severity:Common.Diagnostic.Error ~message
     ~primary:(Option.value fault.span ~default:fallback)

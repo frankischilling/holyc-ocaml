@@ -1,5 +1,10 @@
 # holyc-ocaml compatibility status
 
+Issue #781 implements [owned scalar pointer ordering](pointer-ordering.md)
+in both modes and targets within the same original live object/extent. It
+returns I64 0/1 without reading pointees and preserves operand effects, original
+faults/work and sealed producer authority. Cross-object ordering is HCIRVM0018.
+
 Issue #779 implements [owned scalar pointer equality](pointer-equality.md)
 in both modes and targets. Original object identity and logical offset produce
 I64 0/1 without reading pointees; source snapshots, one-past values, sealed
@@ -10,7 +15,7 @@ Issue #777 implements [owned scalar pointer subtraction](pointer-subtraction.md)
 in both modes and execution targets. It scales full computed integer operands
 and directly subtracts the offset with bounds/overflow checks. One-past,
 initialization, original producer authority and existing limits remain checked.
-Difference, comparisons, casts and escapes remain separate.
+Difference, chained comparisons, casts and escapes remain separate.
 
 Issue #775 implements [owned scalar pointer addition](pointer-addition.md)
 in both modes and execution targets. Original objects and full computed offset

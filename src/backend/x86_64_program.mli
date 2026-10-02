@@ -26,6 +26,7 @@ type fault_kind =
   | Output_invalid_argument
   | Output_invalid_pointer
   | Output_invalid_byte
+  | Pointer_object_mismatch
 
 type arithmetic_operation = X86_64_expression.arithmetic_operation =
   | Divide

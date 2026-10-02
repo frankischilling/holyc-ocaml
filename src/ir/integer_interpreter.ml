@@ -3955,7 +3955,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                       | Some _ ->
                           Error (invalid_type_matrix block_id description)))
               | _ -> Error (malformed block_id description))
-          | Binary_kind (Compare ((Equal | Not_equal) as comparison))
+          | Binary_kind (Compare comparison)
             when memory_enabled
                  && List.exists
                       (fun id ->
@@ -6419,28 +6419,44 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                   match require_pointer block instruction right with
                   | None -> ()
                   | Some right ->
-                      let equal =
+                      let same_object =
                         left.pointer_storage == right.pointer_storage
                         && left.pointer_base = right.pointer_base
                         && left.pointer_count = right.pointer_count
                         && left.pointer_element_bytes
                            = right.pointer_element_bytes
-                        && left.pointer_offset = right.pointer_offset
                       in
-                      let predicate =
-                        match comparison with
-                        | Equal -> equal
-                        | Not_equal -> not equal
-                        | _ -> assert false
-                      in
-                      values :=
-                        Value_map.add result
-                          (Runtime_word
-                             {
-                               type_ = I64;
-                               bits = (if predicate then 1L else 0L);
-                             })
-                          !values))
+                      if
+                        comparison <> Equal && comparison <> Not_equal
+                        && not same_object
+                      then
+                        failed :=
+                          Some
+                            (runtime_error ~instruction block !steps
+                               "HCIRVM0018"
+                               "pointer ordering requires the same live object \
+                                extent")
+                      else
+                        let order =
+                          Int64.compare left.pointer_offset right.pointer_offset
+                        in
+                        let predicate =
+                          match comparison with
+                          | Equal -> same_object && order = 0
+                          | Not_equal -> not (same_object && order = 0)
+                          | Less -> order < 0
+                          | Less_equal -> order <= 0
+                          | Greater -> order > 0
+                          | Greater_equal -> order >= 0
+                        in
+                        values :=
+                          Value_map.add result
+                            (Runtime_word
+                               {
+                                 type_ = I64;
+                                 bits = (if predicate then 1L else 0L);
+                               })
+                            !values))
           | Binary (operation, left, right, result, result_type) -> (
               match
                 require_operand ~computation:true block instruction left

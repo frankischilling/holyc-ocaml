@@ -1,5 +1,9 @@
 # holyc-ocaml
 
+Issue #781 executes [owned scalar pointer ordering](docs/pointer-ordering.md)
+within one original live object and extent through IR, retained tasks and hosted
+native programs. Cross-object ordering retains an explicit checked fault.
+
 Issue #779 executes [owned scalar pointer equality](docs/pointer-equality.md)
 through IR, retained tasks and hosted native programs. Original object identity,
 logical offsets and sealed producers preserve aliases and I64 comparison words.

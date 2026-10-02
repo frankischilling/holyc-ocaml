@@ -178,7 +178,11 @@ let same_owner left right =
 
 let pointer_comparison produced (description : Seq.description) =
   (description.opcode = Opcode.Ic_equ_equ
-  || description.opcode = Opcode.Ic_not_equ)
+  || description.opcode = Opcode.Ic_not_equ
+  || description.opcode = Opcode.Ic_less
+  || description.opcode = Opcode.Ic_less_equ
+  || description.opcode = Opcode.Ic_greater
+  || description.opcode = Opcode.Ic_greater_equ)
   && List.exists
        (fun operand ->
          Option.fold ~none:false

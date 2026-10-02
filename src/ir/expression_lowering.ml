@@ -2236,7 +2236,10 @@ let plan ?frame ?globals ~allow_calls root =
                           :: !pending
                       else if
                         (opcode = Opcode.Ic_equ_equ
-                       || opcode = Opcode.Ic_not_equ)
+                       || opcode = Opcode.Ic_not_equ || opcode = Opcode.Ic_less
+                        || opcode = Opcode.Ic_less_equ
+                        || opcode = Opcode.Ic_greater
+                        || opcode = Opcode.Ic_greater_equ)
                         && conversion = Keep_result
                         && (Option.is_some frame || Option.is_some globals)
                         &&

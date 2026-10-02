@@ -1,5 +1,14 @@
 # Testing holyc-ocaml
 
+Pointer-ordering tests check 246 independent values and 19 fault cases across
+all nine pointee classes, four operators, both modes and targets. Seven source
+groups and seven native groups cover original objects/extents, one-past values,
+alias/effect snapshots, recursion, original faults/work, producer authority,
+retained defaults, both ABI images and exact/one-below limits. Native mismatch
+statuses require original ordering sites and attempted work. Maintained CLI
+fixtures check capture, operand order, mismatches and once-only preparation.
+See [pointer ordering](pointer-ordering.md).
+
 Pointer-equality tests check 146 independent values across all nine pointee
 classes, both modes and both targets. Seven source groups and six native groups
 cover unknown pointees, one-past values, distinct owners, aliases across sites,

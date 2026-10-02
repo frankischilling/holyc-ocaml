@@ -58,6 +58,7 @@ let status_kind = function
   | Program.Output_invalid_argument -> 14L
   | Program.Output_invalid_pointer -> 15L
   | Program.Output_invalid_byte -> 16L
+  | Program.Pointer_object_mismatch -> 17L
 
 let check_fault_site label (expected : Program.fault) (actual : Program.fault) =
   Alcotest.(check int64)

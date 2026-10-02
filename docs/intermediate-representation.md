@@ -1,5 +1,10 @@
 # Intermediate-code specification
 
+[Owned scalar pointer ordering](pointer-ordering.md) uses the shared checked
+frame/global comparison path. Original live object/extent identity precedes
+logical offset comparison; cross-object ordering faults at its original
+instruction. Numeric rewrites cannot acquire original pointer authority.
+
 [Owned scalar pointer equality](pointer-equality.md) uses original
 IC_EQU_EQU/IC_NOT_EQU with checked references and I64 result transport. Captured
 objects, offsets, effects and comparison/transitive producer authority remain
