@@ -4,7 +4,10 @@ Scheduled defaults retain the private lowering result for their original typed
 expression and globals. Execution requires that result's exact graph and the
 original typed runtime context, including call-free expressions. Empty or
 substituted graphs and copied expression values fail before execution. Closed
-constant defaults keep their existing preparation path and charges.
+constant defaults evaluate that original lowering once. An opaque VM result
+retains the actual word, reached work and owning invocation. Completion consumes
+that result during its original callback or retained source activation; a raw
+word and a matching work charge cannot substitute for evaluation.
 
 `holyc run --mode=jit --format=json examples/integer-jit-defaults.hc` returns
 I64 42 without a directive. Parsing `Saved` calls `Next()` once and saves 21.
@@ -30,9 +33,10 @@ including work for the unused prototype, with no captured output.
 Ordinary AOT defaults use the same bounded initializer preparation engine at
 their original parameter callbacks. Closed integer expressions and original
 checked queries are supported. Their work shares the invocation's preparation
-allowance with directives and later image preparation. Completion verifies the
-exact charge to the owning invocation; another runtime's charge cannot pay for
-it. Missing preparation, skipped header publication and replay cannot seal even
+allowance with directives and later image preparation. Completion consumes the
+actual successful VM result and verifies its exact charge to the owning
+invocation. Another runtime's evaluation cannot complete it, even if it returns
+the same word. Failed evaluations retain reached work and cannot restart. Missing preparation, skipped header publication and replay cannot seal even
 an unused prototype. Values retain the original source namespace, publication,
 header and parameter identity, and are never added to the directive task's
 default set. The public AOT compilation result remains an isolated artifact.
@@ -82,8 +86,9 @@ operates in live parser tasks, including AOT
 `#exe` bodies and activated outer JIT source. Outer JIT activation consumes
 earlier original default receipts once at the first default or directive;
 later defaults use their live parser callbacks.
-Issue #635 and draft #636 remain open, together with the full compiler, native
-backend, BIN/loader and bootstrap requirements.
+PR #636 completed the bounded stateful `#exe` path under issue #635. Broader
+defaults under #685, compiler state under #684, native frontend execution under
+#704, and the full compiler, BIN/loader and bootstrap requirements remain open.
 
 Defaults containing string storage reject with HCRUN0006 before evaluation,
 including an integer-returning call with a string argument. Native

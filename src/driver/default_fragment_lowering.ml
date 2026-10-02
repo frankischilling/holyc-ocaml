@@ -42,7 +42,7 @@ let prepare ~context ~authority ~runtime destination =
   let* top_calls = classify (Typed.top_level_direct_calls typed) in
   let before = VM.task_initializer_steps runtime in
   let* classification, steps =
-    Integer_initializers.prepare_default
+    Integer_initializers.prepare_default ~runtime ~authority
       ~retained_function_source:(VM.task_function_source runtime)
       ~on_progress:(fun steps ->
         VM.record_task_preparation runtime ~before ~steps)
@@ -51,8 +51,9 @@ let prepare ~context ~authority ~runtime destination =
   in
   let* code =
     match classification with
-    | Integer_initializers.Prepared_constant bits -> Ok (Program.Prepared bits)
-    | Scheduled ->
+    | Integer_initializers.Prepared_default proof ->
+        Ok (VM.Prepared_default proof)
+    | Scheduled_default ->
         let globals = Destination.globals destination in
         let* lowered =
           Lower.lower_complete ~globals ~records ~top_calls ~span
@@ -73,9 +74,16 @@ let prepare ~context ~authority ~runtime destination =
             ~entry_calls:(Lower.runtime_calls lowered)
             ~functions:[]
         in
-        Program.create ~authority ~destination ~lowered ~entry ~initialization
-          ~runtime_calls
-        |> diagnose
-        |> Result.map (fun program -> Program.Scheduled program)
+        let* program =
+          Program.create ~authority ~destination ~lowered ~entry ~initialization
+            ~runtime_calls
+          |> diagnose
+        in
+        let* execution =
+          Program.prepare ~authority ~destination
+            ~code:(Program.Scheduled program) ~steps
+          |> diagnose
+        in
+        Ok (VM.Scheduled_default execution)
   in
-  Program.prepare ~authority ~destination ~code ~steps |> diagnose
+  Ok code

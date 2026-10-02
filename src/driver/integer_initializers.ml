@@ -16,9 +16,14 @@ module Runtime = Ir.Runtime_call_context
 
 type classification = Prepared_constant of int64 | Scheduled
 
+type default_preparation =
+  | Prepared_default of VM.default_constant
+  | Scheduled_default
+
 type 'a prepared_item = {
   root_ : 'a;
   value_graph_ : Ir.X87_stack.t;
+  default_constant_ : VM.default_constant option;
   classification_ : classification;
   steps : int;
 }
@@ -109,8 +114,8 @@ let value_instructions graph =
       | Ir.Opcode.Ic_end_exp | Ic_end -> false
       | _ -> true)
 
-let prepare_internal ?fragment ?default ?internal_binding ?dimension ?offset
-    ?native_global ?native_static ?(already_prepared = [])
+let prepare_internal ?fragment ?default ?default_execution ?internal_binding
+    ?dimension ?offset ?native_global ?native_static ?(already_prepared = [])
     ?(statics_prepared = []) ?(function_calls = []) ?(allow_zero_budget = false)
     ?(retained_function_source = fun _ -> None) ?(on_progress = fun _ -> ())
     ~max_steps ~span ~globals ~top_calls ~functions () =
@@ -452,7 +457,7 @@ let prepare_internal ?fragment ?default ?internal_binding ?dimension ?offset
                 collect (total + steps)
                   ((root_, Arrays.Bytes bytes, steps) :: updates)
                   reversed rest
-          | Some Layout.Scalar_store | None -> (
+          | Some Layout.Scalar_store | None ->
               let* value_lowered =
                 Ir.Integer_program_lowering.lower_complete ?frame ~globals
                   ~top_calls ~function_calls ~span:at
@@ -843,12 +848,14 @@ let prepare_internal ?fragment ?default ?internal_binding ?dimension ?offset
                   ({
                      root_;
                      value_graph_;
+                     default_constant_ = None;
                      classification_ = Scheduled;
                      steps = 0;
                    }
                   :: reversed)
                   rest
-              else if total >= max_steps then
+              else if total >= max_steps && Option.is_none default_execution
+              then
                 invalid ~at
                   ~notes:
                     (notes
@@ -860,45 +867,62 @@ let prepare_internal ?fragment ?default ?internal_binding ?dimension ?offset
                   "the bounded constant initializer preparation step limit was \
                    exhausted"
               else
-                let* result =
-                  VM.execute_program ~max_steps:(max_steps - total)
-                    ~max_frame_bytes:1 ~max_call_depth:1 ~functions:[]
-                    value_graph_
-                  |> Result.map_error
-                       (List.map (fun (error : VM.error) ->
-                            on_progress (total + error.executed_steps);
-                            Common.Diagnostic.make ~code:error.code
-                              ~severity:Common.Diagnostic.Error
-                              ~message:error.message
-                              ~primary:(Option.value error.span ~default:at)
-                              ~notes:
-                                (notes
-                                @ [
-                                    "initializer_phase=constant-preparation";
-                                    Printf.sprintf
-                                      "compiled_initializer_steps=%d"
-                                      (total + error.executed_steps);
-                                    "constant preparation precedes hosted \
-                                     whole-program execution";
-                                  ])
-                              ()))
+                let diagnose result =
+                  Result.map_error
+                    (List.map (fun (error : VM.error) ->
+                         on_progress (total + error.executed_steps);
+                         Common.Diagnostic.make ~code:error.code
+                           ~severity:Common.Diagnostic.Error
+                           ~message:error.message
+                           ~primary:(Option.value error.span ~default:at)
+                           ~notes:
+                             (notes
+                             @ [
+                                 "initializer_phase=constant-preparation";
+                                 Printf.sprintf "compiled_initializer_steps=%d"
+                                   (total + error.executed_steps);
+                                 "constant preparation precedes hosted \
+                                  whole-program execution";
+                               ])
+                           ()))
+                    result
                 in
-                match VM.final_value result with
-                | None ->
-                    invalid ~at ~notes "HCRUN0004"
-                      "constant initializer preparation produced no word"
-                | Some word ->
-                    let steps = VM.executed_steps result in
-                    collect (total + steps)
-                      ((root_, Arrays.Word word.bits, steps) :: updates)
-                      ({
-                         root_;
-                         value_graph_;
-                         classification_ = Prepared_constant word.bits;
-                         steps;
-                       }
-                      :: reversed)
-                      rest))
+                let* default_constant_, bits, steps =
+                  match (root_, default_execution) with
+                  | Default destination, Some (runtime, authority) ->
+                      VM.prepare_default_constant runtime ~authority
+                        ~destination ~lowered:value_lowered
+                        ~max_steps:(max_steps - total)
+                      |> diagnose
+                      |> Result.map (fun proof ->
+                          ( Some proof,
+                            VM.default_constant_bits proof,
+                            VM.default_constant_steps proof ))
+                  | _ -> (
+                      let* result =
+                        VM.execute_program ~max_steps:(max_steps - total)
+                          ~max_frame_bytes:1 ~max_call_depth:1 ~functions:[]
+                          value_graph_
+                        |> diagnose
+                      in
+                      match VM.final_value result with
+                      | None ->
+                          invalid ~at ~notes "HCRUN0004"
+                            "constant initializer preparation produced no word"
+                      | Some word ->
+                          Ok (None, word.bits, VM.executed_steps result))
+                in
+                collect (total + steps)
+                  ((root_, Arrays.Word bits, steps) :: updates)
+                  ({
+                     root_;
+                     value_graph_;
+                     default_constant_;
+                     classification_ = Prepared_constant bits;
+                     steps;
+                   }
+                  :: reversed)
+                  rest)
     in
     collect 0 [] [] work
 
@@ -1483,18 +1507,23 @@ let prepare_fragment ?retained_function_source ?on_progress ~max_steps
       fragment_steps_ = prepared.steps;
     }
 
-let prepare_default ?retained_function_source ?on_progress ~max_steps ~top_calls
-    destination =
+let prepare_default ?retained_function_source ?on_progress ~runtime ~authority
+    ~max_steps ~top_calls destination =
   let* prepared =
-    prepare_internal ~default:destination ~allow_zero_budget:true
+    prepare_internal ~default:destination
+      ~default_execution:(runtime, authority) ~allow_zero_budget:true
       ?retained_function_source ?on_progress ~max_steps
       ~span:(Default.span destination)
       ~globals:(Default.globals destination)
       ~top_calls ~functions:[] ()
   in
   match prepared.default_items_ with
-  | [ item ] when item.root_ == destination ->
-      Ok (item.classification_, prepared.steps)
+  | [ item ] when item.root_ == destination -> (
+      match (item.classification_, item.default_constant_) with
+      | Prepared_constant _, Some proof ->
+          Ok (Prepared_default proof, prepared.steps)
+      | Scheduled, None -> Ok (Scheduled_default, prepared.steps)
+      | _ -> invalid_arg "default preparation lost its original evaluation")
   | _ -> invalid_arg "default preparation lost its unique original work item"
 
 let prepare_dimension ?retained_function_source ?on_progress ~max_steps

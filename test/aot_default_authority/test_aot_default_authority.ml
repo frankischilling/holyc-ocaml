@@ -5,7 +5,8 @@ module Typing = Holyc_lib__Driver.Initializer_fragment_typing
 module Preparation = Holyc_lib__Driver.Integer_initializers
 module Fragment = Holyc_lib__Sema.Default_fragment
 module Destination = Holyc_lib__Ir.Default_fragment_destination
-module Program = Holyc_lib__Ir.Default_fragment_program
+module Lower = Holyc_lib__Ir.Integer_program_lowering
+module Typed = Holyc_lib__Sema.Function_call_expression_result
 
 let checked = function
   | Ok value -> value
@@ -18,21 +19,22 @@ let diagnostics = function
 let reject label result =
   Alcotest.(check bool) label true (Result.is_error result)
 
-let preparation_budget ?(publish = true) () =
+let evaluation ?(publish = true) ?(tamper = false) ?(hold = false)
+    ?(max_steps = 100) ?(contents = "I64 F(I64 x=20+22){return x;};")
+    ?(values = [ 42L ]) () =
   let session = Session.create () in
   let table = Session.semantic_symbols session in
   let source =
-    Session.add_source session ~path:"default-authority.hc"
-      ~contents:"I64 F(I64 x=20+22){return x;};"
+    Session.add_source session ~path:"default-authority.hc" ~contents
   in
   let ledger = D.create_source session ~source |> checked in
   let owner = VM.create_task_state ~table () |> checked in
   let foreign = VM.create_task_state ~table () |> checked in
-  let completed = ref None in
+  let completed = ref [] in
   let declaration event =
     D.observe ledger event |> diagnostics;
     (match event with
-    | Parser.Parameter_default_completed receipt ->
+    | Parser.Parameter_default_completed receipt -> (
         let authority =
           D.begin_source_default ledger ~runtime:owner receipt |> diagnostics
         in
@@ -43,31 +45,102 @@ let preparation_budget ?(publish = true) () =
         in
         let typed = Typing.prepare_default context fragment |> checked in
         let destination = Destination.create_source typed |> checked in
-        let classification, steps =
-          Preparation.prepare_default ~max_steps:100 ~top_calls:[] destination
+        let globals = Destination.globals destination in
+        let span = Destination.span destination in
+        let lower value =
+          Lower.lower_complete ~globals ~span [ Lower.Expression value ]
           |> diagnostics
         in
-        let bits =
-          match classification with
-          | Preparation.Prepared_constant bits -> bits
-          | Scheduled -> Alcotest.fail "constant default was scheduled"
+        let root = Typed.top_level_root_value (Destination.root destination) in
+        let lowered = lower root in
+        let empty =
+          Lower.lower_complete ~globals ~span [ Lower.Empty span ]
+          |> diagnostics
         in
-        let execution =
-          Program.prepare ~authority ~destination ~code:(Program.Prepared bits)
-            ~steps
-          |> checked
+        reject "source metadata cannot authorize empty constant IR"
+          (VM.prepare_default_constant owner ~authority ~destination
+             ~lowered:empty ~max_steps:100);
+        let copied = Typing.prepare_default context fragment |> checked in
+        let copied_root =
+          Typed.top_level_statements copied
+          |> List.concat_map Typed.top_level_statement_roots
+          |> List.hd |> Typed.top_level_root_value
         in
-        reject "uncharged preparation cannot complete"
-          (D.finish_source_default ledger execution);
-        VM.record_task_preparation foreign ~before:0 ~steps;
-        reject "another invocation cannot pay for preparation"
-          (D.finish_source_default ledger execution);
-        VM.record_task_preparation owner ~before:0 ~steps;
-        D.finish_source_default ledger execution |> diagnostics;
-        reject "completion cannot replay"
-          (D.finish_source_default ledger execution);
-        completed := Some execution
-    | Parser.Function_header_completed header when publish ->
+        reject
+          "copied typed value cannot authorize original constant evaluation"
+          (VM.prepare_default_constant owner ~authority ~destination
+             ~lowered:(lower copied_root) ~max_steps:100);
+        let other_destination = Destination.create_source typed |> checked in
+        reject "another globals context cannot borrow the original lowering"
+          (VM.prepare_default_constant owner ~authority
+             ~destination:other_destination ~lowered ~max_steps:100);
+        let before = VM.task_initializer_steps owner in
+        let prepared, work =
+          Preparation.prepare_default ~runtime:owner ~authority ~max_steps
+            ~top_calls:[] destination
+          |> fun result ->
+          if max_steps < 5 then (
+            reject "failed evaluation produces no completion" result;
+            (None, 0))
+          else
+            match diagnostics result with
+            | Preparation.Prepared_default result, work -> (Some result, work)
+            | _ -> Alcotest.fail "constant default was scheduled"
+        in
+        match prepared with
+        | None ->
+            Alcotest.(check int)
+              "failed evaluation retains reached work" 4
+              (VM.task_initializer_steps owner - before);
+            reject "failed original evaluation cannot restart"
+              (VM.prepare_default_constant owner ~authority ~destination
+                 ~lowered ~max_steps:100);
+            Alcotest.(check int)
+              "failed replay charges no work" (before + 4)
+              (VM.task_initializer_steps owner)
+        | Some result ->
+            Alcotest.(check int64)
+              "actual original evaluated bits"
+              (List.nth values receipt.default_parameter_index)
+              (VM.default_constant_bits result);
+            Alcotest.(check int) "actual original evaluation work" 5 work;
+            Alcotest.(check int)
+              "owning invocation pays automatically" (before + 5)
+              (VM.task_initializer_steps owner);
+            reject "successful original evaluation cannot replay"
+              (VM.prepare_default_constant owner ~authority ~destination
+                 ~lowered ~max_steps:100);
+            List.iter
+              (fun prior ->
+                reject "another original expression cannot borrow a completion"
+                  (D.finish_source_default ledger prior))
+              !completed;
+            let foreign_result =
+              VM.prepare_default_constant foreign ~authority ~destination
+                ~lowered ~max_steps:100
+              |> diagnostics
+            in
+            reject
+              "equal-value foreign evaluation cannot complete this invocation"
+              (D.finish_source_default ledger foreign_result);
+            reject
+              "original completion cannot be consumed by another invocation"
+              (VM.consume_default_constant foreign result);
+            if tamper then (
+              VM.record_task_preparation owner
+                ~before:(VM.task_initializer_steps owner)
+                ~steps:1;
+              reject "changed work cannot complete an actual value"
+                (D.finish_source_default ledger result))
+            else if not hold then (
+              D.finish_source_default ledger result |> diagnostics;
+              reject "completion cannot replay"
+                (D.finish_source_default ledger result);
+              reject "consumption is single use"
+                (VM.consume_default_constant owner result));
+            completed := result :: !completed)
+    | Parser.Function_header_completed header
+      when publish && (not tamper) && (not hold) && max_steps >= 5 ->
         D.complete_source_defaults ledger header |> diagnostics
     | _ -> ());
     Ok ()
@@ -92,11 +165,22 @@ let preparation_budget ?(publish = true) () =
       ~symbols:(Session.symbols session) ~config source
   in
   Alcotest.(check bool) "source parsed" false (Parser.has_errors output);
-  reject "completion cannot outlive callback"
-    (D.finish_source_default ledger (Option.get !completed));
-  let sealed = D.seal_source ledger (Option.get output.ast) in
-  if publish then ignore (diagnostics sealed)
-  else reject "unpublished default cannot enter output seal" sealed
+  List.iter
+    (fun result ->
+      reject "completion cannot outlive callback"
+        (D.finish_source_default ledger result);
+      reject "consumption cannot outlive callback"
+        (VM.consume_default_constant owner result))
+    !completed;
+  let ast = Option.get output.ast in
+  let sealed = D.seal_source ledger ast in
+  if publish && (not tamper) && (not hold) && max_steps >= 5 then
+    let sealed = diagnostics sealed in
+    let saved = D.source_defaults ~table ~ast sealed |> diagnostics in
+    Alcotest.(check (list int64))
+      "seal retains only actual original values" values
+      (List.map Holyc_lib__Ir.Prepared_parameter_default.bits saved)
+  else reject "uncompleted values cannot enter output seal" sealed
 
 let missing_preparation () =
   List.iter
@@ -138,12 +222,23 @@ let () =
     [
       ( "preparation",
         [
-          Alcotest.test_case
-            "owning invocation must pay for original preparation" `Quick
-            (preparation_budget ~publish:true);
+          Alcotest.test_case "only actual owning evaluation can complete" `Quick
+            evaluation;
           Alcotest.test_case "sealing requires header publication" `Quick
-            (preparation_budget ~publish:false);
+            (evaluation ~publish:false);
           Alcotest.test_case "sealing requires even unused defaults" `Quick
             missing_preparation;
+          Alcotest.test_case
+            "equal-valued defaults keep their original expression" `Quick
+            (evaluation ~contents:"I64 F(I64 x=20+22,I64 y=40+2){return x+y;};"
+               ~values:[ 42L; 42L ]);
+          Alcotest.test_case "changed work cannot complete actual evaluation"
+            `Quick (evaluation ~tamper:true);
+          Alcotest.test_case "unconsumed evaluation expires with callback"
+            `Quick (evaluation ~hold:true);
+          Alcotest.test_case "failed evaluation retains work and cannot restart"
+            `Quick (evaluation ~max_steps:4);
+          Alcotest.test_case "exact constant evaluation budget" `Quick
+            (evaluation ~max_steps:5);
         ] );
     ]

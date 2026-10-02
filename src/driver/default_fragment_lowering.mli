@@ -3,4 +3,4 @@ val prepare :
   authority:Sema.Default_fragment.authority ->
   runtime:Ir.Integer_interpreter.task_state ->
   Ir.Default_fragment_destination.t ->
-  (Ir.Default_fragment_program.execution, Common.Diagnostic.t list) result
+  (Ir.Integer_interpreter.default_evaluation, Common.Diagnostic.t list) result

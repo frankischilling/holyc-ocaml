@@ -12508,6 +12508,22 @@ resources = "Rejected program substitutions execute no VM instructions. Original
 verification_boundary = "Original dimensions publish 2 and 3 and ordered scheduled defaults publish 42 and 7. Empty graphs, changed integer payloads, another lowering, copied typed values, foreign globals and typed contexts reject before execution. Closed-constant and native default preparation paths remain separate; no new TempleOS oracle capture."
 
 [[feature]]
+id = "HC-CONSTANT-DEFAULT-EVALUATION"
+description = "Constant parameter defaults retain and consume the actual original VM evaluation result."
+status = "implemented"
+issue = 759
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:628-648", "Compiler/PrsExp.HC:1116-1154"]
+implementation = ["src/ir/integer_interpreter.ml", "src/ir/default_fragment_program.ml", "src/driver/integer_initializers.ml", "src/driver/default_fragment_lowering.ml", "src/driver/task_declarations.ml", "src/driver/integer_task.ml", "src/driver/native_default_preparation.ml", "src/driver/native_parameter_defaults.ml"]
+tests = ["test/aot_default_authority/test_aot_default_authority.ml", "test/runtime_default_authority/test_runtime_default_authority.ml", "test/native_default_authority/test_native_default_authority.ml", "test/test_parameter_default_execution.ml", "test/native/test_native_program_execution.ml", "examples/integer-aot-defaults.hc", "examples/integer-jit-defaults.hc", "examples/native-integer-defaults.hc"]
+documentation = ["docs/integer-defaults.md", "docs/native-defaults.md", "docs/testing.md", "docs/reference-source-map.md", "CHANGELOG.md"]
+identity = "The opaque successful result retains its owning VM catalog, original authority and destination, exact typed expression/globals/private lowering, actual evaluated bits and measured work. Original source callback or retained activation and exact owning work must be current at single-use consumption. Native saved values must match that consumed result."
+execution = "One existing bounded VM evaluation produces the saved full word. Raw integer completions are unavailable; equal-valued foreign expressions or invocations cannot replace the original result. Ordinary AOT output namespaces remain separate from directive task storage. Later omitted arguments reuse the saved word and existing declared-width entry conversion."
+resources = "Constant work charges the shared declaration preparation budget without ordinary runtime ticks. Failed evaluations retain reached work and claim the original receipt against restart; rejected substitutions charge no work. Existing callee/default/query prerequisites, shift exclusion and scheduled-effect paths remain enforced."
+excluded = ["F64, pointer, owned string and lastclass defaults", "general ordinary AOT globals and calls", "native frontend #exe execution under #704", "complete compiler, artifact, actual-loader and bootstrap gates"]
+verification_boundary = "AOT, retained and native original success, foreign/copied/replayed/expired result controls, changed work and native bits, equal-valued ordered defaults and exact/one-below preparation budgets. No new TempleOS execution capture."
+
+[[feature]]
 id = "HC-RELEASE-CONTRACT"
 description = "The 1.0 contract defines required host/target cells, phase-specific acceptance, exact pinned source sets and explicit bootstrap producer/consumer lineage."
 status = "implemented"

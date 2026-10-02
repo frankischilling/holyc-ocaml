@@ -351,6 +351,22 @@ type default_attempt = {
   mutable default_bits : int64 option;
 }
 
+type default_constant = {
+  constant_catalog : Integer_globals.task_catalog;
+  constant_authority : Sema.Default_fragment.authority;
+  constant_destination : Default_fragment_destination.t;
+  constant_lowered : Integer_program_lowering.t;
+  constant_preparation_before : int;
+  mutable constant_state : initializer_attempt_state;
+  mutable constant_bits : int64 option;
+  mutable constant_steps : int;
+  mutable constant_consumed : bool;
+}
+
+type default_evaluation =
+  | Prepared_default of default_constant
+  | Scheduled_default of Default_fragment_program.execution
+
 type dimension_attempt = {
   dimension_catalog : Integer_globals.task_catalog;
   dimension_authority : Sema.Dimension_fragment.authority;
@@ -388,6 +404,7 @@ type task_input = {
   input_dimensions : dimension_attempt list;
   input_offsets : offset_attempt list;
   input_defaults : default_attempt list;
+  input_default_constants : default_constant list;
   input_initializers : task_initializer list;
   input_ready : bool;
   mutable input_value : word option;
@@ -430,6 +447,7 @@ type task_state = {
   mutable dimensions : dimension_attempt list;
   mutable runtime_offsets : offset_attempt list;
   mutable defaults : default_attempt list;
+  mutable default_constants : default_constant list;
   mutable initializers : task_initializer list;
   mutable declared_admissions : admitted_publication list;
   mutable source_promotion_open : bool;
@@ -505,6 +523,7 @@ let create_task_state ?(max_steps = 100_000) ?(max_initializer_steps = 100_000)
         implicit_starts = [];
         call_phases = [];
         defaults = [];
+        default_constants = [];
         internal_bindings = [];
         dimensions = [];
         runtime_offsets = [];
@@ -630,6 +649,10 @@ let completed_input task input =
        (fun attempt -> attempt.offset_state = Successful_initializer)
   && input_prefix_complete input.input_dimensions task.dimensions
        (fun attempt -> attempt.dimension_state = Successful_initializer)
+  && input_prefix_complete input.input_default_constants task.default_constants
+       (fun result ->
+         result.constant_state = Successful_initializer
+         && result.constant_consumed)
   && input_prefix_complete input.input_defaults task.defaults (fun attempt ->
       attempt.default_state = Successful_initializer)
   && input_prefix_complete input.input_initializers task.initializers
@@ -651,6 +674,7 @@ let observe_task_source_event task event =
               input_dimensions = task.dimensions;
               input_offsets = task.runtime_offsets;
               input_defaults = task.defaults;
+              input_default_constants = task.default_constants;
               input_initializers = task.initializers;
               input_ready = not (input_has_active_work task);
               input_value = None;
@@ -2376,6 +2400,11 @@ let task_result task ~sequence =
     || List.exists
          (fun state -> not state.initializer_complete)
          task.initializers
+    || List.exists
+         (fun result ->
+           result.constant_state <> Successful_initializer
+           || not result.constant_consumed)
+         task.default_constants
     || List.exists
          (fun attempt -> attempt.default_state <> Successful_initializer)
          task.defaults
@@ -6838,12 +6867,63 @@ let execute_task_initializer ?(use_active_stream = true) ?stream_exe_print task
           attempt.attempt_state <- Successful_initializer;
           Ok ())
 
+let default_constant_authority value = value.constant_authority
+let default_constant_destination value = value.constant_destination
+let default_constant_steps value = value.constant_steps
+let default_constant_bits value = Option.get value.constant_bits
+
+let default_constant_is_consumed value =
+  value.constant_state = Successful_initializer && value.constant_consumed
+
+let consume_default_constant task value =
+  let fragment =
+    Sema.Default_fragment.authorized_fragment value.constant_authority
+  in
+  let receipt = Sema.Default_fragment.receipt fragment in
+  if
+    value.constant_catalog != task.catalog
+    || (not (List.exists (( == ) value) task.default_constants))
+    || value.constant_state <> Successful_initializer
+    || value.constant_consumed
+    || (not
+          (Integer_program_lowering.owns_expression value.constant_lowered
+             ~globals:
+               (Default_fragment_destination.globals value.constant_destination)
+             ~value:
+               (Sema.Function_call_expression_result.top_level_root_value
+                  (Default_fragment_destination.root value.constant_destination))))
+    || (not
+          (Frontend.Parser.parameter_default_is_current receipt
+          || (not
+                (Integer_globals.is_isolated_default
+                   (Default_fragment_destination.globals
+                      value.constant_destination)))
+             && Sema.Source_activation.parameter_default task.source_activation
+                  receipt))
+    || task.initializer_steps
+       <> value.constant_preparation_before + value.constant_steps
+  then
+    Error "constant default requires its original successful owning evaluation"
+  else (
+    value.constant_consumed <- true;
+    Ok (default_constant_bits value))
+
 let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
-    attempt execution =
+    attempt evaluation =
   let module Program = Default_fragment_program in
   let module Destination = Default_fragment_destination in
   let ( let* ) = Result.bind in
-  let destination = Program.execution_destination execution in
+  let destination, authority, steps =
+    match evaluation with
+    | Prepared_default result ->
+        ( default_constant_destination result,
+          default_constant_authority result,
+          default_constant_steps result )
+    | Scheduled_default execution ->
+        ( Program.execution_destination execution,
+          Program.authority execution,
+          Program.steps execution )
+  in
   let fragment = Destination.fragment destination in
   let span = Destination.span destination in
   let invalid message =
@@ -6865,8 +6945,7 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
       || Sema.Default_fragment.receipt fragment != attempt.default_receipt
       || Sema.Default_fragment.publication fragment
          != attempt.default_publication
-      || Sema.Default_fragment.authorized_fragment (Program.authority execution)
-         != fragment
+      || Sema.Default_fragment.authorized_fragment authority != fragment
       || (not
             (Integer_globals.owns_task_storage task.catalog
                (Destination.globals destination)))
@@ -6874,8 +6953,7 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
             (Integer_globals.is_default_fragment
                (Destination.globals destination)))
       || Integer_globals.byte_size (Destination.globals destination) <> 0
-      || Program.steps execution
-         <> task.initializer_steps - attempt.default_preparation_before
+      || steps <> task.initializer_steps - attempt.default_preparation_before
     then
       invalid
         "default execution has another task, source attempt or preparation"
@@ -6892,9 +6970,16 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
               message;
           ])
     in
-    match Program.code execution with
-    | Program.Prepared bits -> Ok bits
-    | Program.Scheduled program -> (
+    match evaluation with
+    | Prepared_default result ->
+        consume_default_constant task result
+        |> Result.map_error (fun message ->
+            [
+              make_error ~stage:Preflight ~span ~executed_steps:0 "HCIRVM0026"
+                message;
+            ])
+    | Scheduled_default execution -> (
+        let (Program.Scheduled program) = Program.code execution in
         if task.steps >= task.max_steps then
           Error
             [
@@ -7450,3 +7535,113 @@ let human execution =
 
 let check_task_suspended_completion task ~suspension receipt =
   Integer_globals.check_suspended_completion task.catalog ~suspension receipt
+
+let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
+  let module Destination = Default_fragment_destination in
+  let fragment = Destination.fragment destination in
+  let receipt = Sema.Default_fragment.receipt fragment in
+  let span = Destination.span destination in
+  let invalid code message =
+    Error [ make_error ~stage:Preflight ~span ~executed_steps:0 code message ]
+  in
+  let globals = Destination.globals destination in
+  let graph = Integer_program_lowering.graph lowered in
+  let current =
+    Frontend.Parser.parameter_default_is_current receipt
+    || (not (Integer_globals.is_isolated_default globals))
+       && Sema.Source_activation.parameter_default task.source_activation
+            receipt
+  in
+  let pure =
+    Block_graph.blocks (X87.graph graph)
+    |> List.concat_map (fun block ->
+        Block_graph.instructions block |> Sequence.instructions)
+    |> List.for_all (fun instruction ->
+        let description = Sequence.description instruction in
+        match description.opcode with
+        | Opcode.Ic_end | Ic_end_exp -> true
+        | Ic_shl | Ic_shr | Ic_shl_equ | Ic_shr_equ -> false
+        | opcode -> not (Opcode.info opcode).prevents_constant_folding)
+  in
+  if max_steps < 0 then
+    invalid "HCIRVM0001" "constant default allowance cannot be negative"
+  else if
+    (not current)
+    || (not (Integer_globals.is_isolated_default globals))
+       && not (task_owns_table task (Sema.Default_fragment.table fragment))
+    || Sema.Default_fragment.authorized_fragment authority != fragment
+    || (not (Integer_globals.is_default_fragment globals))
+    || Integer_globals.byte_size globals <> 0
+    || (not
+          (Integer_program_lowering.owns_expression lowered ~globals
+             ~value:
+               (Sema.Function_call_expression_result.top_level_root_value
+                  (Destination.root destination))))
+    || (not pure)
+    || (not (Integer_globals.is_isolated_default globals))
+       && not (Integer_globals.owns_task_storage task.catalog globals)
+  then
+    invalid "HCIRVM0026"
+      "constant default has another original source, lowering or owner"
+  else if
+    List.exists
+      (fun result ->
+        Sema.Default_fragment.receipt
+          (Sema.Default_fragment.authorized_fragment result.constant_authority)
+        == receipt)
+      task.default_constants
+  then invalid "HCIRVM0026" "constant default evaluation cannot replay"
+  else
+    let proof =
+      {
+        constant_catalog = task.catalog;
+        constant_authority = authority;
+        constant_destination = destination;
+        constant_lowered = lowered;
+        constant_preparation_before = task.initializer_steps;
+        constant_state = Executing_initializer;
+        constant_bits = None;
+        constant_steps = 0;
+        constant_consumed = false;
+      }
+    in
+    task.default_constants <- proof :: task.default_constants;
+    let remaining =
+      min max_steps (task.max_initializer_steps - task.initializer_steps)
+    in
+    let outcome =
+      if remaining <= 0 then
+        invalid "HCIRVM0007"
+          "the bounded constant initializer preparation step limit was \
+           exhausted"
+      else
+        execute_program ~max_steps:remaining ~max_frame_bytes:1
+          ~max_call_depth:1 ~functions:[] graph
+    in
+    match outcome with
+    | Error errors ->
+        let work =
+          List.fold_left
+            (fun total (error : error) -> max total error.executed_steps)
+            0 errors
+        in
+        proof.constant_steps <- work;
+        task.initializer_steps <- proof.constant_preparation_before + work;
+        proof.constant_state <- Failed_initializer;
+        Error errors
+    | Ok result -> (
+        let work = executed_steps result in
+        proof.constant_steps <- work;
+        task.initializer_steps <- proof.constant_preparation_before + work;
+        match final_value result with
+        | None ->
+            proof.constant_state <- Failed_initializer;
+            Error
+              [
+                make_error ~stage:Execution ~span ~executed_steps:work
+                  "HCRUN0004" "constant default evaluation produced no word";
+              ]
+        | Some word ->
+            proof.constant_bits <- Some word.bits;
+            proof.constant_state <- Successful_initializer;
+            Ok proof)

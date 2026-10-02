@@ -323,6 +323,10 @@ let with_native_source_defaults globals defaults =
   else Ok { globals with source_defaults = defaults }
 
 let is_default_fragment globals = globals.fragment_kind_ = Some Default_context
+
+let is_isolated_default globals =
+  is_default_fragment globals && Option.is_none globals.task_view
+
 let byte_size globals = globals.byte_size_
 let slot_index slot = slot.index
 let slot_symbol slot = slot.symbol

@@ -4,7 +4,7 @@ module Parser = Frontend.Parser
 module Layout = Ir.Integer_initializer_layout
 module Shape = Ir.Integer_storage_shape
 
-type completion = { execution : Ir.Default_fragment_program.execution }
+type completion = { execution : VM.default_constant }
 
 type initializer_completion = {
   preparation : Integer_initializers.native_preparation;
@@ -223,24 +223,20 @@ let prepare value ~session ~ledger receipt =
     Ir.Default_fragment_destination.create_native_source typed |> diagnose
   in
   let before = work value in
-  let* classification, steps =
-    Integer_initializers.prepare_default
+  let* classification, _steps =
+    Integer_initializers.prepare_default ~runtime:value.state ~authority
       ~on_progress:(fun steps ->
         VM.record_task_preparation value.state ~before ~steps)
       ~max_steps:(VM.task_initializer_limit value.state - before)
       ~top_calls:[] destination
   in
-  let* bits =
+  let* execution =
     match classification with
-    | Integer_initializers.Prepared_constant bits -> Ok bits
-    | Scheduled ->
+    | Integer_initializers.Prepared_default proof -> Ok proof
+    | Scheduled_default ->
         fail "HCRUN0006" "native defaults require checked constant preparation"
   in
-  let* execution =
-    Ir.Default_fragment_program.prepare ~authority ~destination
-      ~code:(Ir.Default_fragment_program.Prepared bits) ~steps
-    |> diagnose
-  in
+
   let* () = Task_declarations.finish_native_source_default ledger execution in
   value.saved_bytes <- value.saved_bytes + 8;
   value.completed_rev <- { execution } :: value.completed_rev;
