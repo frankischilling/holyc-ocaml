@@ -48,10 +48,10 @@ val create :
     initializer expression, including nested argument expressions; implicit
     output statements cannot belong to initializer regions. Matching spellings
     or table-local symbol IDs do not establish ownership. Pointer
-    scale/add/subtract and comparison instructions and their original transitive
-    producers are also sealed; replacing them with type-compatible records does
-    not retain source authority. A numeric producer cannot be rewritten into a
-    pointer comparison. *)
+    scale/add/subtract, difference size/division and comparison instructions and
+    their original transitive producers are also sealed; replacing them with
+    type-compatible records does not retain source authority. A numeric producer
+    cannot be rewritten into a pointer comparison or difference. *)
 
 val matches :
   t ->
@@ -59,8 +59,8 @@ val matches :
   initialization:Global_initialization.t option ->
   functions:Function_body.t list ->
   bool
-(** Require the original bundle and immutable pointer producer/comparison
-    records. *)
+(** Require the original bundle and immutable pointer
+    producer/comparison/difference records. *)
 
 val find_start :
   t -> owner:owner -> Instruction_sequence.Instruction_id.t -> call option

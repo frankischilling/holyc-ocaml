@@ -1,5 +1,11 @@
 # Native scalar pointer aliases
 
+Native [owned scalar pointer difference](pointer-difference.md) checks original
+data-base, initialization-region and extent fields, then subtracts offsets.
+Original size division returns a signed I64 element count. Mismatch status 18
+requires a sealed original difference site and attempted work. Existing stable
+references and resource limits remain required.
+
 `run --target=host-jit` accepts one-level pointers to I8, U8, I16, U16, I32,
 U32, I64, U64 and Bool in automatic locals and named fixed parameters. Both
 JIT and AOT source modes use this path. `examples/native-scalar-pointers.hc` returns 42
@@ -100,7 +106,7 @@ Automatic scalar arrays use the same references; see
 [native arrays](native-arrays.md). Global/static arrays and mutable byte literals
 use the [persistent storage](native-persistent-storage.md) path. Persistent pointer
 variables, pointer returns and
-raw address ordering, null/integer conversions, pointer difference and compound
+raw address ordering, null/integer conversions, raw pointer difference and compound
 pointer updates, deeper indirection, pointer-valued arrays, aggregates, foreign calls and
 the full HolyC ABI remain unfinished native work. This feature does not produce
 objects or BIN files, establish loader acceptance, or complete the compiler.

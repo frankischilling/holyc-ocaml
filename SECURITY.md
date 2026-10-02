@@ -4,6 +4,11 @@ Report suspected vulnerabilities through GitHub private vulnerability reporting 
 
 ## Untrusted source files
 
+Pointer difference requires one original live object, extent and scalar width.
+The I64 result grants no reference authority. Original subtraction, size/division
+and transitive producers are sealed; current numeric rewrites reject. Native
+mismatch status 18 requires an original difference site and attempted work.
+
 Pointer ordering requires one original live object and extent before comparing
 valid logical offsets. Cross-object ordering faults after reached operand work.
 Original comparison/transitive records are sealed; numeric rewrites reject.

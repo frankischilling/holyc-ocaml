@@ -1,5 +1,11 @@
 # HolyC language notes
 
+Owned scalar pointer difference returns a signed I64 element count from
+original byte subtraction and optional pointee-size division. Operands retain
+source-left snapshots and one live object/extent; unrelated objects fault.
+See [pointer difference](pointer-difference.md) for the byte-sized retained
+path and remaining preparation/raw-address boundaries.
+
 [Owned scalar pointer ordering](pointer-ordering.md) retains original
 IC_LESS/IC_LESS_EQU/IC_GREATER/IC_GREATER_EQU and I64 result transport within one
 live owned object/extent. Operand snapshots, effects, faults and original

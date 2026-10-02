@@ -34,6 +34,7 @@ type program_site = {
   index_addition_site : bool;
   address_bounds_site : bool;
   pointer_ordering_site : bool;
+  pointer_difference_site : bool;
   output_site : bool;
   atomic_output_site : bool;
 }

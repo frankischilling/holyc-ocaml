@@ -1,5 +1,10 @@
 # holyc-ocaml
 
+Issue #783 executes [owned scalar pointer difference](docs/pointer-difference.md)
+through IR and hosted native programs. Original byte subtraction and optional
+pointee-size division return signed I64 element counts within one live object.
+Byte-sized retained differences also execute; wider preparation remains gated.
+
 Issue #781 executes [owned scalar pointer ordering](docs/pointer-ordering.md)
 within one original live object and extent through IR, retained tasks and hosted
 native programs. Cross-object ordering retains an explicit checked fault.

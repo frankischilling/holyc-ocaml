@@ -1,5 +1,9 @@
 # Owned scalar pointer equality
 
+[Owned scalar pointer difference](pointer-difference.md) is implemented
+by #783 with signed numeric results and sealed original size/division records.
+Its preparation and raw-address boundaries remain explicit.
+
 [Owned scalar pointer ordering](pointer-ordering.md) compares offsets within
 one original live object/extent; unrelated objects retain a checked fault.
 
@@ -86,7 +90,7 @@ exact/one-below runtime, preparation, code and frame limits. Maintained CLI
 fixtures check values, captures, operand order, overflow/bounds faults and
 once-only defaults.
 
-Raw ordering, pointer difference, chained pointer comparisons, mismatched pointees,
+Raw ordering, raw pointer difference, chained pointer comparisons, mismatched pointees,
 null/integer conversions, casts, compound updates, returned/escaping/persistent
 pointer variables, deeper pointers and aggregate pointees remain under
 #687/#699/#700. Native retained tasks, larger native images and full ABI,
