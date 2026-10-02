@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+Issue #767 implements [owned ModU64 calls](internal-mod-u64.md) in both modes
+and execution targets. I64/U64 object words supply unsigned bits, retain their
+original pointer type and receive the quotient; the U64 result is the remainder.
+Retained defaults execute once. General pointer casts, native closed preparation
+and native retained publication keep their separate boundaries.
+
 Issue #765 implements [Bsf/Bsr internal calls](internal-bitscan.md) in both
 source modes and execution targets, including full-word indices, the -1 zero
 sentinel and original retained scalar defaults. Ordinary closed preparation,

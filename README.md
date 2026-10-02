@@ -1,5 +1,9 @@
 # holyc-ocaml
 
+Issue #767 connects [owned ModU64 calls](docs/internal-mod-u64.md) to IR,
+retained tasks and hosted native execution. It stores an unsigned quotient
+through an original I64/U64 object pointer and returns the remainder.
+
 Issue #765 connects [full-word bit scans](docs/internal-bitscan.md) to IR,
 retained tasks and hosted native execution. Bsf/Bsr preserve original call
 authority, inspect all 64 bits and return -1 for zero.

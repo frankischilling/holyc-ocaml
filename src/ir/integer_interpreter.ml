@@ -200,6 +200,7 @@ type prepared_operation =
   | Retained_call of Retained_function.t
   | Extern_call of Runtime.call * stored_type array
   | Internal_strlen of prepared_pointer
+  | Internal_mod_u64 of prepared_pointer * prepared_operand
   | Internal_integer of Integer_intrinsic.unary * prepared_operand * word_type
   | Internal_binary of
       Integer_intrinsic.binary * prepared_operand * prepared_operand * word_type
@@ -4204,6 +4205,16 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
           in
           match (description.opcode, !calls) with
           | _, _
+            when List.exists
+                   (fun (intrinsic, _, _) ->
+                     not
+                       (Runtime.intrinsic_producer_matches intrinsic description))
+                   !intrinsics ->
+              Error
+                (call_error description
+                   "internal argument producer differs from its sealed source \
+                    record")
+          | _, _
             when match !intrinsics with
                  | (intrinsic, true, _) :: _ ->
                      description.opcode <> Opcode.Ic_call_end
@@ -4266,7 +4277,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                   let arguments = Runtime.intrinsic_arguments intrinsic in
                   let operands =
                     List.filter_map
-                      (fun argument ->
+                      (fun (index, argument) ->
                         let value = Runtime.argument_value argument in
                         match
                           ( operand_of_value types value,
@@ -4276,10 +4287,13 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                           when Type.equal source_type
                                  (Runtime.argument_source_type argument)
                                && Integer_intrinsic.argument_matches opcode
+                                    ~index
                                     (Runtime.argument_target_type argument) ->
                             Some operand
                         | _ -> None)
-                      arguments
+                      (List.mapi
+                         (fun index argument -> (index, argument))
+                         arguments)
                   in
                   let operation =
                     match
@@ -4320,6 +4334,69 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                     (call_error description
                        "integer internal operation has no exact collecting \
                         internal call scope"))
+          | Opcode.Ic_mod_u64, stack -> (
+              match
+                ( !intrinsics,
+                  Option.bind runtime_calls (fun context ->
+                      Runtime.find_intrinsic_instruction context
+                        ~owner:runtime_owner description.instruction_id) )
+              with
+              | (original, false, ordinary_depth) :: rest, Some intrinsic
+                when original == intrinsic
+                     && Runtime.intrinsic_opcode intrinsic = Opcode.Ic_mod_u64
+                     && ordinary_depth = List.length stack -> (
+                  match Runtime.intrinsic_arguments intrinsic with
+                  | [ pointed; divisor ] -> (
+                      let pointer_value = Runtime.argument_value pointed
+                      and divisor_value = Runtime.argument_value divisor in
+                      match
+                        ( pointer_operand_of_value types pointer_value,
+                          operand_of_value types divisor_value,
+                          Value_map.find_opt divisor_value types )
+                      with
+                      | ( Some pointer,
+                          Some divisor_operand,
+                          Some (Supported (_, divisor_source, _)) )
+                        when description.flags = 0L
+                             && description.operands
+                                = [ pointer_value; divisor_value ]
+                             && Option.is_none description.result
+                             && Option.is_none description.payload
+                             && Option.fold ~none:false
+                                  ~some:
+                                    (Type.equal
+                                       (Runtime.intrinsic_return_type intrinsic))
+                                  description.target_type
+                             && Type.equal pointer.pointer_type
+                                  (Runtime.argument_source_type pointed)
+                             && Integer_intrinsic.mod_u64_pointer
+                                  pointer.pointer_type
+                             && Type.equal divisor_source
+                                  (Runtime.argument_source_type divisor)
+                             && Integer_intrinsic.argument_matches
+                                  Opcode.Ic_mod_u64 ~index:0
+                                  (Runtime.argument_target_type pointed)
+                             && Integer_intrinsic.argument_matches
+                                  Opcode.Ic_mod_u64 ~index:1
+                                  (Runtime.argument_target_type divisor) ->
+                          intrinsics :=
+                            (intrinsic, true, ordinary_depth) :: rest;
+                          call_instruction description
+                            (Internal_mod_u64 (pointer, divisor_operand))
+                      | _ ->
+                          Error
+                            (call_error description
+                               "IC_MOD_U64 lost its checked word pointer or \
+                                divisor"))
+                  | _ ->
+                      Error
+                        (call_error description
+                           "IC_MOD_U64 lost its two sealed arguments"))
+              | _ ->
+                  Error
+                    (call_error description
+                       "IC_MOD_U64 has no exact collecting internal call scope")
+              )
           | Opcode.Ic_strlen, stack -> (
               match
                 ( !intrinsics,
@@ -5558,6 +5635,56 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                       (runtime_error ~instruction block !steps "HCIRVM0008"
                          "integer internal operation has no pending source \
                           call scope"))
+          | Internal_mod_u64 (pointer, divisor) -> (
+              let right = require_operand block instruction divisor in
+              let location =
+                Option.bind right (fun _ ->
+                    resolve_location block instruction (Indirect_slot pointer))
+              in
+              match (!calls, right, location) with
+              | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
+                  :: rest,
+                  Some right,
+                  Some (storage, index) ) -> (
+                  match storage.cells.(index) with
+                  | Some (Runtime_word left) -> (
+                      match
+                        divide_bits ~opcode:"IC_MOD_U64" ~remainder:true U64
+                          left right
+                      with
+                      | Error (code, message) ->
+                          failed :=
+                            Some
+                              (runtime_error ~instruction block !steps code
+                                 message)
+                      | Ok bits ->
+                          let quotient =
+                            Int64.unsigned_div left.bits right.bits
+                          in
+                          storage.cells.(index) <-
+                            Some (Runtime_word { left with bits = quotient });
+                          calls :=
+                            {
+                              scope with
+                              completion = Completed_word { type_ = U64; bits };
+                            }
+                            :: rest)
+                  | None ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0012"
+                             storage.unknown_message)
+                  | Some _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0008"
+                             "IC_MOD_U64 pointed object is not a scalar word"))
+              | _, None, _ | _, _, None -> ()
+              | _ ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0008"
+                         "IC_MOD_U64 has no pending source call scope"))
           | Internal_strlen pointer -> (
               match
                 ( !calls,

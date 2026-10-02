@@ -312,6 +312,7 @@ type operation =
   | Put_chars of int
   | Print_output of Print_codegen.t
   | Internal_strlen of value * int
+  | Internal_mod_u64 of value * value * int
   | Internal_integer of Intrinsic.unary * value * int
   | Internal_binary of Intrinsic.binary * value * value * int
   | Call_cleanup
@@ -2307,6 +2308,32 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
                (staged_stack_slot instruction.span result_stage, Encoder.Rax));
           note_peak ~temporaries:[ rax; rcx ] ();
           release_through position
+      | Internal_mod_u64 (reference, divisor, result_stage) ->
+          spill_all_registers instruction.span;
+          copy_value_to instruction.span reference rdx;
+          emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
+          let site = Option.get instruction.site in
+          let scalar = { word_type = U64; byte_size = 8 } in
+          emit_bounds instruction.span site ~one_past:false ~scalar
+            ~offset:Encoder.Rcx ~extent:Encoder.R8;
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 8));
+          emit_flag_check instruction.span site scalar ~flag_base:Encoder.R8
+            ~offset:Encoder.Rcx;
+          emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 0));
+          emit (Encoder.Binary (Encoder.Add, Encoder.R8, Encoder.Rcx));
+          emit (Encoder.Load_indirect (Encoder.Rax, Encoder.R8, 0));
+          copy_value_to instruction.span divisor rcx;
+          emit (Encoder.Test Encoder.Rcx);
+          emit_branch Equal (fault_label 1 site);
+          emit Encoder.Zero_edx;
+          emit Encoder.Div_rcx;
+          emit (Encoder.Store_indirect (Encoder.R8, Encoder.Rax));
+          emit
+            (Encoder.Store_stack
+               (staged_stack_slot instruction.span result_stage, Encoder.Rdx));
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          release_through position
       | Internal_strlen (reference, result_stage) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span reference rdx;
@@ -3755,6 +3782,14 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
     List.iteri
       (fun position instruction ->
         let raw = Sequence.description instruction in
+        if
+          List.exists
+            (fun scope ->
+              not (Runtime.intrinsic_producer_matches scope.intrinsic raw))
+            !intrinsics
+        then
+          malformed raw
+            "internal argument producer differs from its sealed source record";
         validate_identity instruction_ids raw;
         let site = !next_site + 1 in
         incr next_site;
@@ -4126,8 +4161,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                             description.target_type)
                   then malformed description "invalid checked internal shape";
                   let inputs =
-                    List.map
-                      (fun argument ->
+                    List.mapi
+                      (fun index argument ->
                         let input =
                           operand values description position
                             (Runtime.argument_value argument)
@@ -4141,8 +4176,17 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                             "internal operation changed its checked argument \
                              producer type";
                         let target = Runtime.argument_target_type argument in
-                        checked_copy description target input.declared_type;
-                        if not (Intrinsic.argument_matches opcode target) then
+                        if opcode = Opcode.Ic_mod_u64 && index = 0 then (
+                          if not (Intrinsic.mod_u64_pointer input.declared_type)
+                          then
+                            malformed description
+                              "IC_MOD_U64 requires an original I64/U64 object \
+                               pointer";
+                          ignore
+                            (checked_reference description input.declared_type))
+                        else checked_copy description target input.declared_type;
+                        if not (Intrinsic.argument_matches opcode ~index target)
+                        then
                           malformed description
                             "internal operation changed its declared parameter";
                         input)
@@ -4155,6 +4199,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                         Intrinsic.binary opcode,
                         inputs )
                     with
+                    | Opcode.Ic_mod_u64, _, _, [ pointed; divisor ] ->
+                        Internal_mod_u64
+                          (pointed, divisor, scope.intrinsic_stage)
                     | Opcode.Ic_strlen, _, _, [ input ] ->
                         Internal_strlen (input, scope.intrinsic_stage)
                     | _, Some operation, None, [ input ] ->
@@ -5479,6 +5526,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
         in
         let arithmetic =
           match operation with
+          | Internal_mod_u64 _ -> Some (Remainder, false)
           | Apply_division (arithmetic_operation, word, _, _, _, _) ->
               Some (arithmetic_operation, word = I64)
           | Update_frame_value
@@ -5521,6 +5569,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | Update_indexed_object_value _
               | Load_reference_value _
               | Update_reference_value _
+              | Internal_mod_u64 _
               | Internal_strlen _
               | Print_output _ -> true
               | _ -> false);
@@ -5542,6 +5591,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | Load_indexed_object_value _
               | Store_indexed_object_value _
               | Update_indexed_object_value _
+              | Internal_mod_u64 _
               | Internal_strlen _
               | Print_output _ -> true
               | Materialize_reference (_, _, None, _)

@@ -111,6 +111,12 @@ val intrinsic_arguments : intrinsic -> argument list
 (** The sealed provided arguments in fixed-parameter order. Their producers run
     in the pinned source's reverse argument order. *)
 
+val intrinsic_producer_matches :
+  intrinsic -> Instruction_sequence.description -> bool
+(** At a sealed argument producer's instruction ID, require its original
+    immutable description. Other instruction IDs do not select that argument
+    proof. *)
+
 val intrinsic_symbol : intrinsic -> Sema.Symbol.t
 val intrinsic_return_type : intrinsic -> Sema.Type.t
 val intrinsic_first : intrinsic -> Instruction_sequence.Instruction_id.t
