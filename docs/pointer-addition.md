@@ -82,7 +82,8 @@ overflow, full computed words, both ABIs, fresh images and exact/one-below
 runtime, preparation, code and frame limits. Maintained CLI fixtures check
 values, captures, original fault kinds and retained defaults in both modes.
 
-Subtraction, difference, integer-left addition, pointer comparisons, compound
+[Pointer subtraction](pointer-subtraction.md) uses the same owned model with
+direct subtraction checks. Difference, integer-left addition, pointer comparisons, compound
 pointer updates, pointer returns, persistent pointer variables, casts, deeper
 indirection, aggregate pointees and direct multi-rank array addition remain
 outside this path under #687/#699/#700. Native retained tasks remain under #704,

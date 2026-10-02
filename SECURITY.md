@@ -4,6 +4,11 @@ Report suspected vulnerabilities through GitHub private vulnerability reporting 
 
 ## Untrusted source files
 
+Pointer subtraction checks the original scaled word and signed subtraction
+range before reference formation. Minimum-signed operands cannot wrap into a
+valid address through negation. Original object/lifetime bounds, sealed offset
+records and transitive producers remain required by both execution targets.
+
 Pointer addition retains a captured live owned object, original pointee type
 and extent. Checked scaling and byte-offset addition precede materialization;
 one-past addresses cannot be dereferenced. No numeric word or guessed host

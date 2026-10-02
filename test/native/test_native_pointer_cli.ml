@@ -186,7 +186,7 @@ let () =
           "I64 F(I64 *p){return *p;}F(42);";
           "I64 F(){I64 x=42;I64 *p=&x;return p;}F();";
           "I64 *F(){I64 x=42;return &x;}42;";
-          "I64 F(){I64 x=42;I64 *p=&x;return *(p-1);}F();";
+          "I64 F(){I64 x=42;I64 *p=&x;return *(p*1);}F();";
         ];
       with_file ".hc" "I64 G=42;40;&G;" (fun path ->
           let report = host_json ~mode path in

@@ -976,7 +976,7 @@ let select_known_binary_type left right result_class =
           | _ -> None)
       | None, _ | _, None -> None)
 
-let scalar_pointer_addition_type left right =
+let scalar_pointer_integer_arithmetic_type left right =
   let pointer =
     match left.source_type with
     | Some type_ when left.array_address && left.array_rank = 1 ->
@@ -2679,9 +2679,11 @@ and type_binary table members policies ~before_item_index ~intrinsic_conversion
           | Ok (right, state) ->
               let result_class, source_type =
                 match Function_call_resolution.binary_operator binary with
-                | Generated.Intermediate_codes.Ic_add
-                  when Option.is_some (scalar_pointer_addition_type left right)
-                  -> (Integer_result, scalar_pointer_addition_type left right)
+                | Generated.Intermediate_codes.(Ic_add | Ic_sub)
+                  when Option.is_some
+                         (scalar_pointer_integer_arithmetic_type left right) ->
+                    ( Integer_result,
+                      scalar_pointer_integer_arithmetic_type left right )
                 | Generated.Intermediate_codes.Ic_power ->
                     (F64_result, float_type)
                 | Generated.Intermediate_codes.Ic_equ_equ

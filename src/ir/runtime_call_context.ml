@@ -1542,7 +1542,9 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
     ref
       (List.filter
          (fun (item : Seq.description) ->
-           (item.opcode = Opcode.Ic_mul || item.opcode = Opcode.Ic_add)
+           (item.opcode = Opcode.Ic_mul
+           || item.opcode = Opcode.Ic_add
+           || item.opcode = Opcode.Ic_sub)
            && Option.fold ~none:false
                 ~some:(fun type_ -> Type.pointer_depth type_ = 1)
                 item.target_type)

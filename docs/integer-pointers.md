@@ -1,5 +1,9 @@
 # Scalar pointer aliases
 
+[Owned scalar pointer subtraction](pointer-subtraction.md) retains the same
+object/extent/lifetime model while checking direct signed offset subtraction,
+including the minimum signed word. Other pointer arithmetic remains separate.
+
 [Owned scalar pointer addition](pointer-addition.md) scales an integer offset
 by the original pointee width and preserves the captured object's extent and
 live owner. It works with all supported integer/Bool pointees through both
@@ -39,7 +43,8 @@ The expression planner validates the retained prefix operand and exact type.
 An indirect assignment computes its destination reference before the RHS;
 the update reads that object's word after RHS effects. Thus with n=20, m=22
 and p=&n, `*p+=*(p=&m)` stores 42 in n. Unsigned pointees retain all 64 bits and
-their update signedness. Pointer arithmetic has no implementation in this gate.
+their update signedness. The same checked storage path supports scalar pointer
+addition and subtraction as described above.
 
 Canonical `IC_RBP`/offset/`IC_ADD` and symbol address instructions keep their
 metadata role. `IC_ADDR` materializes an internal reference to the actual storage

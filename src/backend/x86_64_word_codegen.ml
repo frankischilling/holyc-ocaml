@@ -263,7 +263,7 @@ type operation =
   | Apply_word_view of value * value
   | Frame_tick
   | Scale_index of word_type * int64 * value * value
-  | Add_index of index_add_base * value * value
+  | Apply_index_offset of Encoder.binary * index_add_base * value * value
   | Materialize_reference of
       reference_origin * reference_table * value option * value
   | Materialize_existing_reference of reference_access * value
@@ -1820,7 +1820,7 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
           emit_branch Overflow overflow;
           note_peak ~temporaries:[ rax; rcx ] ();
           assign position rax result
-      | Add_index (base, delta, result) ->
+      | Apply_index_offset (operation, base, delta, result) ->
           spill_all_registers instruction.span;
           let overflow = fault_label 9 (Option.get instruction.site) in
           (match base with
@@ -1830,7 +1830,7 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
               copy_value_to instruction.span reference rdx;
               emit (Encoder.Load_indirect (Encoder.Rax, Encoder.Rdx, 16)));
           copy_value_to instruction.span delta rcx;
-          emit (Encoder.Binary (Encoder.Add, Encoder.Rax, Encoder.Rcx));
+          emit (Encoder.Binary (operation, Encoder.Rax, Encoder.Rcx));
           emit_branch Overflow overflow;
           note_peak ~temporaries:[ rax; rcx; rdx ] ();
           assign position rax result
@@ -4744,7 +4744,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   ( Scale_index (index_word, Int64.of_int stride, index, scaled),
                     None )
               | _ -> malformed description "invalid native index scaling")
-          | Opcode.Ic_add
+          | (Opcode.Ic_add | Opcode.Ic_sub)
             when Option.fold ~none:false
                    ~some:(fun type_ ->
                      Type.pointer_depth type_ = 1
@@ -4759,7 +4759,8 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               with
               | [ base_id; offset_id ], Some result, Some target_type -> (
                   match Value_map.find_opt offset_id !frame_values with
-                  | Some (Frame_offset (offset_type, offset)) -> (
+                  | Some (Frame_offset (offset_type, offset))
+                    when description.opcode = Opcode.Ic_add -> (
                       match Value_map.find_opt base_id !frame_values with
                       | Some (Frame_base base_type)
                         when Type.equal base_type target_type
@@ -4896,7 +4897,13 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                                 indexed_remaining_strides = remaining;
                               })
                       in
-                      ( Add_index (base, scaled.index_offset, indexed_offset),
+                      ( Apply_index_offset
+                          ( (if description.opcode = Opcode.Ic_sub then
+                               Encoder.Sub
+                             else Encoder.Add),
+                            base,
+                            scaled.index_offset,
+                            indexed_offset ),
                         None )
                   | _ ->
                       malformed description
@@ -5742,7 +5749,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | _ -> false);
             index_addition_site =
               (match operation with
-              | Add_index _ | Internal_bit _ | Print_output _ -> true
+              | Apply_index_offset _ | Internal_bit _ | Print_output _ -> true
               | _ -> false);
             address_bounds_site =
               (match operation with

@@ -66,6 +66,7 @@ type index_step = {
   indexed_base : Semantic_result.expression_result;
   index_value : Semantic_result.expression_result;
   index_stride : int64;
+  index_opcode : Opcode.t;
   index_type : Type.t;
   index_span : Common.Span.t;
 }
@@ -1752,6 +1753,7 @@ let plan ?frame ?globals ~allow_calls root =
             indexed_base = base;
             index_value = index;
             index_stride = stride;
+            index_opcode = Opcode.Ic_add;
             index_type = pointer_type;
             index_span = span;
           }
@@ -2187,7 +2189,8 @@ let plan ?frame ?globals ~allow_calls root =
                   | Error item, _ | _, Error item -> error := Some item
                   | Ok (left, right), Ok span -> (
                       if
-                        opcode = Opcode.Ic_add && conversion = Keep_result
+                        (opcode = Opcode.Ic_add || opcode = Opcode.Ic_sub)
+                        && conversion = Keep_result
                         && (Option.is_some frame || Option.is_some globals)
                         &&
                         match
@@ -2215,6 +2218,7 @@ let plan ?frame ?globals ~allow_calls root =
                             index_value = right;
                             index_stride =
                               Option.get (pointer_element_size pointer_type);
+                            index_opcode = opcode;
                             index_type = pointer_type;
                             index_span = span;
                           }
@@ -2768,7 +2772,7 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
                     ~target_type:step.index_type ~payload:None
                     ~span:step.index_span
                 in
-                emit_index_value ~opcode:Opcode.Ic_add
+                emit_index_value ~opcode:step.index_opcode
                   ~operands:[ base.lowered_value; scaled.lowered_value ]
                   ~target_type:step.index_type ~payload:None
                   ~span:step.index_span

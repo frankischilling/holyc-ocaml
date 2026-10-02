@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+Issue #777 implements [owned scalar pointer subtraction](pointer-subtraction.md)
+in both modes and execution targets. It scales full computed integer operands
+and directly subtracts the offset with bounds/overflow checks. One-past,
+initialization, original producer authority and existing limits remain checked.
+Difference, comparisons, casts and escapes remain separate.
+
 Issue #775 implements [owned scalar pointer addition](pointer-addition.md)
 in both modes and execution targets. Original objects and full computed offset
 words survive scaling and canonical reference formation. Bounds, initialization
