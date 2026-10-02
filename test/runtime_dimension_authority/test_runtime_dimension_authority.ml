@@ -135,6 +135,7 @@ let runtime_lifetime () =
               Destination.create ~task_view:view typed |> checked
             in
             let before = VM.task_initializer_steps owner in
+            let before_steps = VM.task_executed_steps owner in
             let execution =
               Lowering.prepare ~context ~authority ~runtime:owner destination
               |> diagnostics
@@ -153,9 +154,127 @@ let runtime_lifetime () =
             in
             reject "program retains its exact typed dimension source"
               (Program.create ~authority ~destination
+                 ~lowered:(Program.lowered program)
                  ~entry:(Program.entry program)
                  ~initialization:(Program.initialization program)
                  ~runtime_calls:unrelated);
+            let module Lower = Holyc_lib__Ir.Integer_program_lowering in
+            let module Initialization = Holyc_lib__Ir.Global_initialization in
+            let module Typed = Holyc_lib__Sema.Function_call_expression_result
+            in
+            let globals = Destination.globals destination in
+            let span = Destination.span destination in
+            let context_for entry =
+              let initialization =
+                Initialization.create ~span ~globals ~entry [] |> diagnostics
+              in
+              let runtime_calls =
+                Calls.create ~records:(Typing.records context)
+                  ~function_sources:(Typing.function_sources context)
+                  ~top_level:typed ~initialization ~entry ~entry_calls:[]
+                  ~functions:[]
+                |> diagnostics
+              in
+              (initialization, runtime_calls)
+            in
+            let empty =
+              Lower.lower_complete ~globals ~span [ Lower.Empty span ]
+              |> diagnostics
+            in
+            let empty_entry = Lower.graph empty in
+            let empty_initialization, empty_calls = context_for empty_entry in
+            reject "original source facts cannot authorize empty IR"
+              (Program.create ~authority ~destination ~lowered:empty
+                 ~entry:empty_entry ~initialization:empty_initialization
+                 ~runtime_calls:empty_calls);
+            reject "original lowering cannot authorize an empty graph"
+              (Program.create ~authority ~destination
+                 ~lowered:(Program.lowered program) ~entry:empty_entry
+                 ~initialization:empty_initialization ~runtime_calls:empty_calls);
+            reject "another lowering cannot authorize the original graph"
+              (Program.create ~authority ~destination ~lowered:empty
+                 ~entry:(Program.entry program)
+                 ~initialization:(Program.initialization program)
+                 ~runtime_calls:(Program.runtime_calls program));
+            let copied_value =
+              Lower.lower_complete ~globals ~span
+                [
+                  Lower.Expression
+                    (Typed.top_level_root_value
+                       (List.hd
+                          (Typed.top_level_statements retyped
+                          |> List.concat_map Typed.top_level_statement_roots)));
+                ]
+              |> diagnostics
+            in
+            let copied_entry = Lower.graph copied_value in
+            let copied_initialization, copied_calls =
+              context_for copied_entry
+            in
+            reject "equal copied typed values grant no expression authority"
+              (Program.create ~authority ~destination ~lowered:copied_value
+                 ~entry:copied_entry ~initialization:copied_initialization
+                 ~runtime_calls:copied_calls);
+            let other_globals =
+              Destination.create ~task_view:view typed
+              |> checked |> Destination.globals
+            in
+            let other_lowering =
+              Lower.lower_complete ~globals:other_globals ~span
+                [
+                  Lower.Expression
+                    (Typed.top_level_root_value (Destination.root destination));
+                ]
+              |> diagnostics
+            in
+            let other_entry = Lower.graph other_lowering in
+            let other_initialization, other_calls = context_for other_entry in
+            reject "same typed dimension cannot borrow another globals context"
+              (Program.create ~authority ~destination ~lowered:other_lowering
+                 ~entry:other_entry ~initialization:other_initialization
+                 ~runtime_calls:other_calls);
+            let original_graph = Ir_x87_stack.graph (Program.entry program) in
+            let descriptions =
+              Ir_block_graph.blocks original_graph
+              |> List.map (fun block ->
+                  let instructions =
+                    Ir_block_graph.instructions block
+                    |> Ir_instruction_sequence.instructions
+                    |> List.map (fun instruction ->
+                        let description =
+                          Ir_instruction_sequence.description instruction
+                        in
+                        match description.payload with
+                        | Some (Ir_instruction_sequence.Integer _) ->
+                            {
+                              description with
+                              payload =
+                                Some (Ir_instruction_sequence.Integer 9L);
+                            }
+                        | _ -> description)
+                  in
+                  ({ block_id = Ir_block_graph.block_id block; instructions }
+                    : Ir_block_graph.block_description))
+            in
+            let substituted =
+              Ir_block_graph.create
+                ~entry:
+                  (Ir_block_graph.block_id
+                     (Ir_block_graph.entry original_graph))
+                descriptions
+              |> diagnostics |> Ir_x87_stack.verify |> diagnostics
+            in
+            let changed_initialization, changed_calls =
+              context_for substituted
+            in
+            reject "changed constants cannot supply original dimension values"
+              (Program.create ~authority ~destination
+                 ~lowered:(Program.lowered program) ~entry:substituted
+                 ~initialization:changed_initialization
+                 ~runtime_calls:changed_calls);
+            Alcotest.(check int)
+              "rejected substitutions execute no instructions" before_steps
+              (VM.task_executed_steps owner);
             reject "execution belongs to its task"
               (VM.execute_task_dimension foreign attempt execution);
             VM.execute_task_dimension owner attempt execution |> diagnostics;
@@ -164,6 +283,10 @@ let runtime_lifetime () =
             reject "original boundary cannot start again"
               (VM.begin_task_dimension owner authority);
             let count = Option.get (VM.task_dimension_bits owner receipt) in
+            Alcotest.(check int64)
+              "original dimension value survives graph controls"
+              (Int64.of_int (receipt.dimension_index + 2))
+              count;
             let work = VM.task_initializer_steps owner - before in
             pending := Some (receipt, count, work);
             saved := fragment :: !saved

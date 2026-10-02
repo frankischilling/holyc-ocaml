@@ -12494,6 +12494,20 @@ excluded = ["F64 target execution under #701", "ordinary output-source binding-e
 verification_boundary = "Both outer modes, parenthesized/arithmetic/global/query targets, effectful calls, original lookup/emission, nested/header lookahead, malformed declarations, exact budgets and original/foreign/copied/replayed authority. No new TempleOS oracle capture."
 
 [[feature]]
+id = "HC-SCHEDULED-EXPRESSION-OWNERSHIP"
+description = "Scheduled dimension and default execution retains the private lowering of each original typed expression."
+status = "implemented"
+issue = 757
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:255-265,628-648", "Compiler/PrsExp.HC:1116-1154"]
+implementation = ["src/ir/dimension_fragment_program.ml", "src/ir/default_fragment_program.ml", "src/driver/dimension_fragment_lowering.ml", "src/driver/default_fragment_lowering.ml", "src/ir/integer_program_lowering.ml"]
+tests = ["test/runtime_dimension_authority/test_runtime_dimension_authority.ml", "test/runtime_default_authority/test_runtime_default_authority.ml", "test/aot_default_authority/test_aot_default_authority.ml", "test/test_jit_source_execution.ml", "test/test_parameter_default_execution.ml"]
+documentation = ["docs/integer-runtime-dimensions.md", "docs/integer-defaults.md", "docs/testing.md", "docs/reference-source-map.md", "CHANGELOG.md"]
+identity = "The original lowering result owns the exact typed expression and globals; its graph is the graph executed. Runtime call context retains the exact original typed root set, including call-free defaults. Equal copied values, substituted graphs and foreign storage contexts grant no authority."
+resources = "Rejected program substitutions execute no VM instructions. Original callee prerequisites, preparation, execution, effects, task budgets, source order and once-only attempt lifetimes remain enforced by their existing consumers."
+verification_boundary = "Original dimensions publish 2 and 3 and ordered scheduled defaults publish 42 and 7. Empty graphs, changed integer payloads, another lowering, copied typed values, foreign globals and typed contexts reject before execution. Closed-constant and native default preparation paths remain separate; no new TempleOS oracle capture."
+
+[[feature]]
 id = "HC-RELEASE-CONTRACT"
 description = "The 1.0 contract defines required host/target cells, phase-specific acceptance, exact pinned source sets and explicit bootstrap producer/consumer lineage."
 status = "implemented"

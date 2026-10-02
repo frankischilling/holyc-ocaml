@@ -1,4 +1,5 @@
 type t = {
+  lowered_ : Integer_program_lowering.t;
   authority_ : Sema.Dimension_fragment.authority;
   destination_ : Dimension_fragment_destination.t;
   entry_ : X87_stack.t;
@@ -7,14 +8,23 @@ type t = {
 }
 
 let destination value = value.destination_
+let lowered value = value.lowered_
 let entry value = value.entry_
 let initialization value = value.initialization_
 let runtime_calls value = value.runtime_calls_
 
-let create ~authority ~destination ~entry ~initialization ~runtime_calls =
+let create ~authority ~destination ~lowered ~entry ~initialization
+    ~runtime_calls =
   if
-    Sema.Dimension_fragment.authorized_fragment authority
-    != Dimension_fragment_destination.fragment destination
+    Integer_program_lowering.graph lowered != entry
+    || (not
+          (Integer_program_lowering.owns_expression lowered
+             ~globals:(Dimension_fragment_destination.globals destination)
+             ~value:
+               (Sema.Function_call_expression_result.top_level_root_value
+                  (Dimension_fragment_destination.root destination))))
+    || Sema.Dimension_fragment.authorized_fragment authority
+       != Dimension_fragment_destination.fragment destination
     || (not
           (Runtime_call_context.owns_top_level runtime_calls
              (Dimension_fragment_destination.typed destination)))
@@ -29,6 +39,7 @@ let create ~authority ~destination ~entry ~initialization ~runtime_calls =
   else
     Ok
       {
+        lowered_ = lowered;
         authority_ = authority;
         destination_ = destination;
         entry_ = entry;

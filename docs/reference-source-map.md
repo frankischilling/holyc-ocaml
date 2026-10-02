@@ -1,5 +1,12 @@
 # Reference source map
 
+Issue #757 connects `Compiler/PrsVar.HC:255-265,628-648` and
+`Compiler/PrsExp.HC:1116-1154` to scheduled dimension and default programs.
+Each program retains the private lowering result for its original typed
+expression and globals, and executes only that result's graph with the original
+typed call context. Checked source metadata cannot authorize a substituted
+graph or copied expression value.
+
 Issue #755 connects `Compiler/PrsStmt.HC:1055-1061` and
 `Compiler/PrsExp.HC:1116-1154` to original retained integer binding evaluation.
 Expression lookahead precedes evaluation; type validation and header publication

@@ -25,6 +25,10 @@ Runtime bounds share their task's initializer, instruction, storage and output
 allowances. Their temporary result does not replace the preceding ordinary
 expression result. Grammar, layout and `sizeof` reuse the prepared count.
 
+Scheduled programs retain the private lowering result for the original typed
+bound and globals. The executed graph and typed runtime context must belong to
+that same expression; copied source metadata cannot supply a different count.
+
 The parser scopes preparation and completion receipts to their original
 callbacks. Semantic shapes retain explicit dependencies on runtime outcomes;
 the VM checks the owning task, original receipt, returned count and preparation

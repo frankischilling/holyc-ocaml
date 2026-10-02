@@ -1,5 +1,11 @@
 # Declaration-time integer defaults
 
+Scheduled defaults retain the private lowering result for their original typed
+expression and globals. Execution requires that result's exact graph and the
+original typed runtime context, including call-free expressions. Empty or
+substituted graphs and copied expression values fail before execution. Closed
+constant defaults keep their existing preparation path and charges.
+
 `holyc run --mode=jit --format=json examples/integer-jit-defaults.hc` returns
 I64 42 without a directive. Parsing `Saved` calls `Next()` once and saves 21.
 The later assignment sets N to zero; both omitted arguments still receive 21.

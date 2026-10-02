@@ -1,5 +1,12 @@
 # Testing holyc-ocaml
 
+The runtime dimension and default authority suites reject empty graphs,
+changed constant payloads, copied typed values, foreign globals and another
+typed call context before execution. The original programs still publish bounds
+2 and 3 and defaults 42 and 7; ordered defaults, task ownership, expiration and
+single-use execution retain their controls. Existing source suites cover
+callee prerequisites, effects and exact cumulative limits in both outer modes.
+
 Retained internal tests cover original ToUpper and StrLen publications, generated
 code, retained bodies, all byte inputs, reused and fresh records, nested/default/
 closing lookahead and unsupported target/signature faults with prior output.
