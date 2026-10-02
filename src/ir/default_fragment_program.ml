@@ -47,7 +47,7 @@ let create ~authority ~destination ~lowered ~entry ~initialization
         runtime_calls_ = runtime_calls;
       }
 
-type code = Prepared of int64 | Scheduled of t
+type code = Scheduled of t
 
 type execution = {
   authority_ : Sema.Default_fragment.authority;
@@ -68,7 +68,6 @@ let prepare ~authority ~destination ~code ~steps =
        != Default_fragment_destination.fragment destination
     ||
     match code with
-    | Prepared _ -> false
     | Scheduled program ->
         program.authority_ != authority
         || program.destination_ != destination

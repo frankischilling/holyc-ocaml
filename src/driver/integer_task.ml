@@ -204,27 +204,23 @@ let prepare_source_default task ~session ~ledger receipt =
     Ir.Default_fragment_destination.create_source typed |> diagnose
   in
   let before = VM.task_initializer_steps task.state in
-  let* classification, steps =
-    Integer_initializers.prepare_default
+  let* classification, _steps =
+    Integer_initializers.prepare_default ~runtime:task.state ~authority
       ~on_progress:(fun steps ->
         VM.record_task_preparation task.state ~before ~steps)
       ~max_steps:(VM.task_initializer_limit task.state - before)
       ~top_calls:[] destination
   in
-  let* bits =
+  let* result =
     match classification with
-    | Integer_initializers.Prepared_constant bits -> Ok bits
-    | Scheduled ->
+    | Integer_initializers.Prepared_default result -> Ok result
+    | Scheduled_default ->
         Error
           "HCRUN0006: AOT default requires proven output relocation and \
            callable authority" |> diagnose
   in
-  let* execution =
-    Ir.Default_fragment_program.prepare ~authority ~destination
-      ~code:(Ir.Default_fragment_program.Prepared bits) ~steps
-    |> diagnose
-  in
-  Task_declarations.finish_source_default ledger execution
+
+  Task_declarations.finish_source_default ledger result
 
 let prepare_initializer_destination_context task ~destination receipt =
   let ( let* ) = Result.bind in

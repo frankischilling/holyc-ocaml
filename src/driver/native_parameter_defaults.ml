@@ -1,6 +1,6 @@
 module Headers = Sema.Function_type_resolution
 module Function = Ir.Function_body
-module Program = Ir.Default_fragment_program
+module Program = Ir.Integer_interpreter
 module Prepared = Ir.Prepared_parameter_default
 module Integer_globals = Ir.Integer_globals
 module Runtime_call_context = Ir.Runtime_call_context
@@ -108,9 +108,9 @@ let add_requirements globals prepared requirements header =
     (Ok requirements) parameters
 
 let execution_matches prepared execution =
-  let authority = Program.authority execution in
+  let authority = Program.default_constant_authority execution in
   let fragment = Sema.Default_fragment.authorized_fragment authority in
-  let destination = Program.execution_destination execution in
+  let destination = Program.default_constant_destination execution in
   Sema.Default_fragment.receipt fragment == Prepared.receipt prepared
   && Sema.Default_fragment.publication fragment == Prepared.publication prepared
   && Sema.Default_fragment.references fragment = []
@@ -118,10 +118,10 @@ let execution_matches prepared execution =
   && Type.equal
        (Default_fragment_destination.type_ destination)
        (Prepared.type_ prepared)
-  &&
-  match Program.code execution with
-  | Program.Prepared bits -> Int64.equal bits (Prepared.bits prepared)
-  | Program.Scheduled _ -> false
+  && Program.default_constant_is_consumed execution
+  && Int64.equal
+       (Program.default_constant_bits execution)
+       (Prepared.bits prepared)
 
 let create ~globals ~runtime_calls ~initialization ~entry ~functions ~prepared
     ~completions =
@@ -161,7 +161,7 @@ let create ~globals ~runtime_calls ~initialization ~entry ~functions ~prepared
       | [] -> Ok ()
       | execution :: rest ->
           let receipt =
-            execution |> Program.authority
+            execution |> Program.default_constant_authority
             |> Sema.Default_fragment.authorized_fragment
             |> Sema.Default_fragment.receipt
           in

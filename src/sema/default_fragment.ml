@@ -11,6 +11,7 @@ type t = {
 type authority = { authorized_fragment : t }
 
 let owns_table fragment table = fragment.table == table
+let table fragment = fragment.table
 let publication fragment = fragment.publication_
 let receipt fragment = fragment.receipt_
 let expression fragment = fragment.expression_

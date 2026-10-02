@@ -1,5 +1,14 @@
 # Testing holyc-ocaml
 
+The constant-default authority suites exercise actual original evaluation in
+AOT source, retained tasks and native preparation. They reject empty or copied
+lowerings, another globals context, equal-valued foreign completions, replay,
+changed work and altered native saved bits. An unconsumed result expires with
+its callback. The `20+22` control returns 42 in five preparation instructions;
+four instructions fail with the reached work retained and no restart. Existing
+source and native suites cover queries, integer narrowing, unused defaults,
+callee prerequisites and cumulative exact/one-below limits.
+
 The runtime dimension and default authority suites reject empty graphs,
 changed constant payloads, copied typed values, foreign globals and another
 typed call context before execution. The original programs still publish bounds

@@ -171,6 +171,7 @@ let original_program ~contents ~values () =
           Program.prepare ~authority ~destination
             ~code:(Program.Scheduled program) ~steps:0
           |> checked
+          |> fun execution -> VM.Scheduled_default execution
         in
         reject "default execution belongs to its task"
           (VM.execute_task_default foreign attempt execution);
@@ -230,11 +231,140 @@ let original_program ~contents ~values () =
         (VM.execute_task_default owner attempt execution))
     !saved
 
+let constant_execution ?(max_steps = 5) () =
+  let session = Session.create () in
+  let table = Session.semantic_symbols session in
+  let namespace = C.create_namespace ~table () |> checked in
+  let owner = VM.create_task_state ~table () |> checked in
+  let foreign = VM.create_task_state ~table () |> checked in
+  VM.bind_task_namespace owner namespace |> checked;
+  VM.bind_task_namespace foreign namespace |> checked;
+  let publication = ref None and result = ref None in
+  let declaration = function
+    | Parser.Function_declared source ->
+        publication := Some (C.publish_function namespace source |> checked)
+    | Parser.Parameter_default_completed receipt ->
+        let view = VM.task_snapshot owner |> checked in
+        let attempt =
+          VM.begin_task_default owner ~namespace
+            ~publication:(Option.get !publication) receipt
+          |> checked
+        in
+        let fragment =
+          Fragment.create ~table ~publication:(Option.get !publication) ~receipt
+            ~environment:(Globals.task_environment view)
+            ~references:[] ~queries:[]
+          |> checked
+        in
+        let authority = Fragment.authorize ~namespace fragment |> checked in
+        let context =
+          Typing.create_context ~table ~parent:(C.namespace_scope namespace)
+          |> checked
+        in
+        let typed = Typing.prepare_default context fragment |> checked in
+        let destination = Destination.create ~task_view:view typed |> checked in
+        let globals = Destination.globals destination in
+        let span = Destination.span destination in
+        let lowered =
+          Lower.lower_complete ~globals ~span
+            [
+              Lower.Expression
+                (Typed.top_level_root_value (Destination.root destination));
+            ]
+          |> diagnostics
+        in
+        reject "foreign task cannot evaluate the original task environment"
+          (VM.prepare_default_constant foreign ~authority ~destination ~lowered
+             ~max_steps:5);
+        let prepared =
+          VM.prepare_default_constant owner ~authority ~destination ~lowered
+            ~max_steps
+        in
+        if max_steps < 5 then (
+          reject "failed constant produces no successful value" prepared;
+          Alcotest.(check int)
+            "reached failure work remains charged" 4
+            (VM.task_initializer_steps owner);
+          reject "failed original constant cannot restart"
+            (VM.prepare_default_constant owner ~authority ~destination ~lowered
+               ~max_steps:5);
+          Alcotest.(check int)
+            "failed replay leaves work unchanged" 4
+            (VM.task_initializer_steps owner))
+        else
+          let proof = prepared |> diagnostics in
+          Alcotest.(check int64)
+            "actual constant bits" 42L
+            (VM.default_constant_bits proof);
+          Alcotest.(check int)
+            "actual constant work" 5
+            (VM.default_constant_steps proof);
+          Alcotest.(check int)
+            "preparation has no ordinary execution ticks" 0
+            (VM.task_executed_steps owner);
+          reject "actual constant cannot be recomputed"
+            (VM.prepare_default_constant owner ~authority ~destination ~lowered
+               ~max_steps:5);
+          reject "foreign task cannot consume actual constant"
+            (VM.consume_default_constant foreign proof);
+          VM.execute_task_default owner attempt (VM.Prepared_default proof)
+          |> diagnostics;
+          Alcotest.(check (option int64))
+            "default attempt stores actual constant" (Some 42L)
+            (VM.task_default_bits owner receipt);
+          reject "prepared constant cannot replay into its attempt"
+            (VM.execute_task_default owner attempt (VM.Prepared_default proof));
+          result := Some proof
+    | _ -> ()
+  in
+  let commands : Parser.command_sink =
+    {
+      checkpoint =
+        Some
+          (fun event ->
+            VM.observe_task_source_event owner event |> checked;
+            Ok ());
+      call = None;
+      implicit_output = None;
+      reference = None;
+      query = None;
+      dimension_count = None;
+      declaration =
+        Some
+          (fun event ->
+            declaration event;
+            Ok ());
+      command = (fun _ -> Ok ());
+      resume = (fun () -> Ok ());
+    }
+  in
+  let source =
+    Session.add_source session ~path:"constant-default-task.hc"
+      ~contents:"I64 F(I64 x=20+22);"
+  in
+  let config = Preprocessor.Config.create ~compilation_mode:Jit () |> checked in
+  let parsed =
+    Parser.parse ~commands ~sources:(Session.sources session)
+      ~definitions:(Session.definitions session)
+      ~symbols:(Session.symbols session) ~config source
+  in
+  Alcotest.(check bool) "source parsed" false (Parser.has_errors parsed);
+  Option.iter
+    (fun proof ->
+      reject "constant completion expires"
+        (VM.consume_default_constant owner proof))
+    !result
+
 let () =
   Alcotest.run "runtime default graph authority"
     [
       ( "defaults",
         [
+          Alcotest.test_case "actual prepared constants belong to their task"
+            `Quick constant_execution;
+          Alcotest.test_case "failed constants retain work and cannot restart"
+            `Quick
+            (constant_execution ~max_steps:4);
           Alcotest.test_case "original scheduled expression owns its graph"
             `Quick
             (original_program ~contents:"I64 F(I64 x=20+22);" ~values:[ 42L ]);

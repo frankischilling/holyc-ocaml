@@ -53,7 +53,7 @@ val completions : t -> completion list
     Failed preparation retains reached work but publishes no execution or saved
     word. *)
 
-val execution : completion -> Ir.Default_fragment_program.execution
+val execution : completion -> Ir.Integer_interpreter.default_constant
 (** Read-only fragment facts; a raw fragment execution cannot create a receipt.
 *)
 

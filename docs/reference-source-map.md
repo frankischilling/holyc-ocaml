@@ -1,5 +1,15 @@
 # Reference source map
 
+Issue #759 connects `Compiler/PrsVar.HC:628-648` and
+`Compiler/PrsExp.HC:1116-1154` to actual constant-default evaluation. The VM
+evaluates the private lowering of the original typed expression once and keeps
+its actual word and reached work in an opaque result. The owning invocation
+consumes that result before source publication, retained completion or native
+admission. Raw bits and a matching counter cannot replace evaluation. Failed
+evaluations keep reached work and cannot restart. The existing closed-integer
+domain, integer entry conversions and preparation limits remain in force; this
+adds no TempleOS oracle capture.
+
 Issue #757 connects `Compiler/PrsVar.HC:255-265,628-648` and
 `Compiler/PrsExp.HC:1116-1154` to scheduled dimension and default programs.
 Each program retains the private lowering result for its original typed

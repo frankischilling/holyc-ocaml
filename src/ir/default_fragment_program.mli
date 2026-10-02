@@ -15,7 +15,7 @@ val entry : t -> X87_stack.t
 val initialization : t -> Global_initialization.t
 val runtime_calls : t -> Runtime_call_context.t
 
-type code = Prepared of int64 | Scheduled of t
+type code = Scheduled of t
 type execution
 
 val prepare :

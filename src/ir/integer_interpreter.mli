@@ -151,6 +151,37 @@ val execute_task_internal_binding :
   Internal_binding_fragment_program.execution ->
   (unit, error list) result
 
+type default_constant
+(** Successful original constant evaluation, registered with its owning task.
+    Its actual full word and reached preparation work cannot be supplied by the
+    caller. Consumption requires the current original source phase and is
+    single-use. Failed evaluations retain work and cannot restart. *)
+
+type default_evaluation =
+  | Prepared_default of default_constant
+  | Scheduled_default of Default_fragment_program.execution
+
+val prepare_default_constant :
+  task_state ->
+  authority:Sema.Default_fragment.authority ->
+  destination:Default_fragment_destination.t ->
+  lowered:Integer_program_lowering.t ->
+  max_steps:int ->
+  (default_constant, error list) result
+
+val default_constant_authority :
+  default_constant -> Sema.Default_fragment.authority
+
+val default_constant_destination :
+  default_constant -> Default_fragment_destination.t
+
+val default_constant_steps : default_constant -> int
+val default_constant_bits : default_constant -> int64
+val default_constant_is_consumed : default_constant -> bool
+
+val consume_default_constant :
+  task_state -> default_constant -> (int64, string) result
+
 type default_attempt
 
 val begin_task_default :
@@ -176,7 +207,7 @@ val execute_task_default :
   ?stream_exe_print:stream_exe_print ->
   task_state ->
   default_attempt ->
-  Default_fragment_program.execution ->
+  default_evaluation ->
   (unit, error list) result
 
 val begin_task_initializer :

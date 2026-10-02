@@ -4338,8 +4338,7 @@ let begin_native_source_default =
 
 let finish_source_default_with_owner expected_owner ledger execution =
   protect (fun () ->
-      let module Program = Ir.Default_fragment_program in
-      let authority = Program.authority execution in
+      let authority = VM.default_constant_authority execution in
       let fragment = Sema.Default_fragment.authorized_fragment authority in
       let receipt = Sema.Default_fragment.receipt fragment in
       let span = receipt.Parser.default_ast.location.span in
@@ -4358,16 +4357,16 @@ let finish_source_default_with_owner expected_owner ledger execution =
       (match ledger.source_defaults_runtime with
       | Some runtime
         when VM.task_initializer_steps runtime - before
-             = Program.steps execution -> ()
+             = VM.default_constant_steps execution -> ()
       | _ ->
           fail span
             "output default preparation was not charged to its owning \
              invocation");
-      match Program.code execution with
-      | Program.Prepared bits -> value := Some bits
-      | Program.Scheduled _ ->
-          fail ~code:"HCRUN0006" span
-            "AOT default execution requires output relocation authority")
+      let runtime = Option.get ledger.source_defaults_runtime in
+      let bits =
+        VM.consume_default_constant runtime execution |> checked span
+      in
+      value := Some bits)
 
 let finish_source_default = finish_source_default_with_owner Output_aot_default
 

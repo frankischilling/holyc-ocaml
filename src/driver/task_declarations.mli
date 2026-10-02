@@ -251,7 +251,7 @@ val begin_source_default :
 
 val finish_source_default :
   t ->
-  Ir.Default_fragment_program.execution ->
+  Ir.Integer_interpreter.default_constant ->
   (unit, Common.Diagnostic.t list) result
 
 val begin_native_source_default :
@@ -266,7 +266,7 @@ val begin_native_source_default :
 
 val finish_native_source_default :
   t ->
-  Ir.Default_fragment_program.execution ->
+  Ir.Integer_interpreter.default_constant ->
   (unit, Common.Diagnostic.t list) result
 (** Complete only the exact native attempt, once, with work charged to its
     owning invocation before publication. *)

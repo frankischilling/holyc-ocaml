@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Bound constant parameter defaults to their actual original VM evaluation.
+  AOT source, retained tasks and native preparation consume one owning result;
+  changed saved bits, foreign results, replay and expired callbacks reject.
+  Failed evaluations retain reached preparation work and cannot restart.
+
 - Fixed scheduled array-bound and parameter-default programs to retain their
   original expression lowering. Substituted graphs, copied typed values and
   foreign storage or call contexts are rejected before execution.

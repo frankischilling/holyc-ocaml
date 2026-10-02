@@ -1,6 +1,8 @@
 type t
 type authority
 
+val table : t -> Symbol_table.t
+
 val create :
   table:Symbol_table.t ->
   publication:Declaration_collection.publication ->

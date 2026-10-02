@@ -3,7 +3,7 @@ module D = Task_declarations
 module Preparation = Holyc_lib__Driver.Native_default_preparation
 module Unit = Holyc_lib__Driver.Integer_unit
 module Saved = Holyc_lib__Ir.Prepared_parameter_default
-module Default_program = Holyc_lib__Ir.Default_fragment_program
+module Default_program = Holyc_lib__Ir.Integer_interpreter
 module Fragment = Holyc_lib__Sema.Default_fragment
 module Proof = Native_parameter_defaults
 module Image = X86_64_program
@@ -126,6 +126,20 @@ let proof_ownership () =
                 (seal unit_ prepared []);
               List.iteri
                 (fun index saved ->
+                  let altered =
+                    Saved.create ~publication:(Saved.publication saved)
+                      ~header:(Saved.header saved)
+                      ~receipt:(Saved.receipt saved)
+                      ~bits:(Int64.succ (Saved.bits saved))
+                    |> checked
+                  in
+                  reject "changed saved bits cannot borrow an actual completion"
+                    (seal unit_
+                       (List.map
+                          (fun value ->
+                            if value == saved then altered else value)
+                          prepared)
+                       executions);
                   let label =
                     Printf.sprintf "default %d with %s" index ending
                   in
@@ -136,7 +150,7 @@ let proof_ownership () =
                     List.filter
                       (fun completion ->
                         completion |> Preparation.execution
-                        |> Default_program.authority
+                        |> Default_program.default_constant_authority
                         |> Fragment.authorized_fragment |> Fragment.receipt
                         |> fun receipt -> receipt != Saved.receipt saved)
                       executions

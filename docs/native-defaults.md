@@ -59,9 +59,13 @@ Successful native preparations remain tied to the exact receipt, publication,
 typed fragment and completed header, and are published only after their work is
 charged to the owning preparation budget.
 
-Only that successful helper path can issue an opaque native completion receipt.
-The certificate requires these receipts; constructing a raw fragment execution
-or a saved word with matching fields cannot authorize native defaults.
+The helper evaluates the original private lowering once and consumes its opaque
+VM result. That result retains the actual full word, reached work and owning
+invocation. Only this successful path can issue a native completion receipt.
+The certificate checks the actual result against the saved word; replacing its
+bits while retaining the receipt rejects before native allocation. Matching raw
+fields or work charges cannot authorize evaluation. Failed preparations retain
+the work already reached and cannot restart their original receipt.
 
 The certificate and preparation helpers live in `Driver`. The native expression
 and program entry wrappers live in `Hosted`, above both the backend and host

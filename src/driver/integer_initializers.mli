@@ -1,14 +1,20 @@
 type classification = Prepared_constant of int64 | Scheduled
 
+type default_preparation =
+  | Prepared_default of Ir.Integer_interpreter.default_constant
+  | Scheduled_default
+
 val prepare_default :
   ?retained_function_source:
     (Ir.Retained_function.t ->
     Ir.Integer_interpreter.task_function_source option) ->
   ?on_progress:(int -> unit) ->
+  runtime:Ir.Integer_interpreter.task_state ->
+  authority:Sema.Default_fragment.authority ->
   max_steps:int ->
   top_calls:Sema.Top_level_function_call_target_classification.t list ->
   Ir.Default_fragment_destination.t ->
-  (classification * int, Common.Diagnostic.t list) result
+  (default_preparation * int, Common.Diagnostic.t list) result
 
 val prepare_dimension :
   ?retained_function_source:
