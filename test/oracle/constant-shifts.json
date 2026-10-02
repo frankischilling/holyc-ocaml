@@ -1,0 +1,2044 @@
+{
+  "fixture_version": 1,
+  "id": "arithmetic/constant-shifts-001",
+  "reference": {
+    "repository": "https://github.com/cia-foundation/TempleOS",
+    "commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+    "release_tag": "final",
+    "release_url": "https://github.com/cia-foundation/TempleOS/releases/tag/final",
+    "asset": "TOS_Distro.ISO",
+    "published_sha1": "1a1ec79990e21fa3d66ac680009da63d3ac512b0",
+    "verified_sha256": "3c68ca395d0b64f779f1ffa330e2685798b17862e3c36ae4e349537fd676b40b"
+  },
+  "environment": {
+    "date": "2026-10-02",
+    "hypervisor": "QEMU 9.2.0 (v9.2.0-12071-g3dd0aeb44b)",
+    "host": "Windows x86-64",
+    "accelerator": "tcg",
+    "vcpu_count": 1,
+    "memory_mib": 512,
+    "network": "disabled",
+    "boot_media": "verified ISO attached read-only",
+    "persistent_disk": false,
+    "display": "none; PNG captures through owned QMP stdio relay on loopback",
+    "compilation_mode": "TempleOS native JIT shell with default compiler options",
+    "target": "TempleOS x86-64",
+    "implementation_baseline_commit": "3ba28b0da0e9f93dae3978f51cef5f4897f3e897"
+  },
+  "input_delivery": {
+    "qmp_command": "input-send-event",
+    "key_events": "modifier and key down; reverse-order up",
+    "initial_hold_milliseconds": 20,
+    "initial_gap_milliseconds": 20,
+    "retry_hold_milliseconds": 50,
+    "retry_gap_milliseconds": 80,
+    "post_line_milliseconds": 2000,
+    "preflight_command": "\"PREFLIGHT=%d:%s\\n\",(17-2)/3,\"aA_<>!%[]{}\\\"\";",
+    "preflight_output": "PREFLIGHT=5:aA_<>!%[]{}\"",
+    "preflight_source_capture": {
+      "file": "keymap-preflight-source.png",
+      "sha256": "501d81bb033d898cdad9f8d82f3d99a00ea6db6fa747986037ce5cffaedce212"
+    },
+    "preflight_result_capture": {
+      "file": "keymap-preflight-result.png",
+      "sha256": "ec8b6d55a068125bc2a6a81388684d586278cf68dff9a4377f1dfef8b3a7cb88"
+    }
+  },
+  "setup": [
+    "Decline installation and the tour.",
+    "AutoComplete(OFF);WinMax;"
+  ],
+  "observation_method": "Read original screen pixels using the exact pinned Kernel/FontStd.HC glyph table; visually check key values and instruction captures. Values below are transcribed native fields, not computed expected results.",
+  "repeatability": {
+    "boots": 1,
+    "runs_per_field": 2,
+    "fields": 49,
+    "result_observations": 98,
+    "scope": "Identical fields in two runs within one boot; cross-boot stability is not claimed."
+  },
+  "source_references": [
+    "Compiler/CompilerA.HH:68-71",
+    "Compiler/CInit.HC:60-63",
+    "Compiler/OptLib.HC:96-179,196-225",
+    "Compiler/OptPass012.HC:193-266,337-356,403-455,741-827",
+    "Compiler/OptPass3.HC:405-406",
+    "Compiler/OptPass4.HC:27-34,302-344,599-601",
+    "Compiler/OptPass789A.HC:676-687",
+    "Compiler/BackA.HC:573-601",
+    "Compiler/BackB.HC:158,193",
+    "Compiler/OpCodes.DD:1103-1156",
+    "Kernel/KernelA.HH:1609"
+  ],
+  "checks": [
+    {
+      "id": "compile-LS",
+      "kind": "definition",
+      "command": "DocClear;I64 O574LS0(I64 x){return x<<0;}I64 O574LS1(I64 x){return x<<1;}I64 O574LS63(I64 x){return x<<63;}I64 O574LS64(I64 x){return x<<64;}I64 O574LS65(I64 x){return x<<65;}I64 O574LSm1(I64 x){return x<<-1;}I64 O574LSm64(I64 x){return x<<-64;}",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "compile-LS-source.png",
+        "sha256": "d289193e3183a5b254b7266aa83c47f6012db4db50e5a5fb0645bfcb0ba4cde4"
+      },
+      "result_capture": {
+        "file": "compile-LS-result.png",
+        "sha256": "e8994ca9a9295c7d97ca30e7cbf243af22db0dd7806729df4a6b02b68c8b8c2d"
+      }
+    },
+    {
+      "id": "compile-RS",
+      "kind": "definition",
+      "command": "DocClear;I64 O574RS0(I64 x){return x>>0;}I64 O574RS1(I64 x){return x>>1;}I64 O574RS63(I64 x){return x>>63;}I64 O574RS64(I64 x){return x>>64;}I64 O574RS65(I64 x){return x>>65;}I64 O574RSm1(I64 x){return x>>-1;}I64 O574RSm64(I64 x){return x>>-64;}",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "compile-RS-source.png",
+        "sha256": "98263cd6535c551c29f27e04e4d9fc1ce89c128d0eccfa66688e6889f4f48068"
+      },
+      "result_capture": {
+        "file": "compile-RS-result.png",
+        "sha256": "a582b9e1cab5e7fe3ff7b11f7fdf9587f9ed29a509cf2128ea0d7c2518f34955"
+      }
+    },
+    {
+      "id": "compile-RU",
+      "kind": "definition",
+      "command": "DocClear;U64 O574RU0(U64 x){return x>>0;}U64 O574RU1(U64 x){return x>>1;}U64 O574RU63(U64 x){return x>>63;}U64 O574RU64(U64 x){return x>>64;}U64 O574RU65(U64 x){return x>>65;}U64 O574RUm1(U64 x){return x>>-1;}U64 O574RUm64(U64 x){return x>>-64;}",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "compile-RU-source.png",
+        "sha256": "4ae53aa475d5d3429db3284a18dd846d719ad37cfc8950d1535478152fce5716"
+      },
+      "result_capture": {
+        "file": "compile-RU-result.png",
+        "sha256": "6aae8b9284563d7a324ab68d35147adf44a190ccf26d52e48a0d5ca8e19b5ec1"
+      }
+    },
+    {
+      "id": "compile-CLASS",
+      "kind": "definition",
+      "command": "DocClear;I64 O574RVI(I64 x,I64 n){return x>>n;}I64 O574RVU(I64 x,U64 n){return x>>n;}I64 O574RH1(I64 x){return x>>0x8000000000000001;}I64 O574RH0(I64 x){return x>>0x8000000000000000;}I64 O574CH1(I64 x){return (x>>0x8000000000000001)<0;}I64 O574CH0(I64 x){return (x>>0x8000000000000000)<0;}I64 O574CVU(I64 x,U64 n){return (x>>n)<0;}",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "compile-CLASS-source.png",
+        "sha256": "736e5ef1a6839ebab770e66a3105ed7b43b5dcee8bad4205a20345003221a324"
+      },
+      "result_capture": {
+        "file": "compile-CLASS-result.png",
+        "sha256": "017769d3a27f1b6a672f9312bb87acfb0effd3caaaa4a2328b9d4c2b7824b675"
+      }
+    },
+    {
+      "id": "compile-NEST",
+      "kind": "definition",
+      "command": "DocClear;I64 O574LN64(I64 x){return (x<<63)<<1;}I64 O574RN64(I64 x){return (x>>63)>>1;}U64 O574UN64(U64 x){return (x>>63)>>1;}I64 O574LN128(I64 x){return (x<<63)<<65;}I64 O574RN128(I64 x){return (x>>63)>>65;}I64 O574LRAW(I64 x,I64 a,I64 b){return (x<<a)<<b;}I64 O574RRAW(I64 x,I64 a,I64 b){return (x>>a)>>b;}",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "compile-NEST-source.png",
+        "sha256": "48056eb74f7117bd133a9a8ff386fc23402631f6328adb880c9eb08c4e64f2ce"
+      },
+      "result_capture": {
+        "file": "compile-NEST-result.png",
+        "sha256": "0aaee80a083472573f7cacd210eb8cb339e3a55e57ff734b8f92aa7ef5a671c0"
+      }
+    },
+    {
+      "id": "compile-LU-fix-0",
+      "kind": "definition",
+      "command": "DocClear;U64 O574LUFix0(U64 x){return x<<0;}",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "compile-LU-fix-0-source.png",
+        "sha256": "329f49efe2a445a66e57ebd1210590d1829e2ccfb71834545b998e718c0495b0"
+      },
+      "result_capture": {
+        "file": "compile-LU-fix-0-result.png",
+        "sha256": "c7636caa89f0a0de2c9817cb469eb2c2e7cd91ee66d57dd486192262ae0d8054"
+      }
+    },
+    {
+      "id": "compile-LU-fix-1",
+      "kind": "definition",
+      "command": "DocClear;U64 O574LUFix1(U64 x){return x<<1;}",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "compile-LU-fix-1-source.png",
+        "sha256": "f78b6ff244efa1ef3208d89069640a34bf3040a7eb2eb035435170e94dc924ca"
+      },
+      "result_capture": {
+        "file": "compile-LU-fix-1-result.png",
+        "sha256": "dcb1ebf028d8d50f2191ed9fef86721dc5c68ecab01a4c5af9414f8b46f72ac8"
+      }
+    },
+    {
+      "id": "compile-LU-fix-63",
+      "kind": "definition",
+      "command": "DocClear;U64 O574LUFix63(U64 x){return x<<63;}",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "compile-LU-fix-63-source.png",
+        "sha256": "f3f044eecdac785cdd18b3237c3e33c692fe9c46734a9da238e4bcb3a6049c5b"
+      },
+      "result_capture": {
+        "file": "compile-LU-fix-63-result.png",
+        "sha256": "ccf2ad5ee0e7b127b2d841fbea501582ee1c65c410a4294b32f1d29dff241e46"
+      }
+    },
+    {
+      "id": "compile-LU-fix-64",
+      "kind": "definition",
+      "command": "DocClear;U64 O574LUFix64(U64 x){return x<<64;}",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "compile-LU-fix-64-source.png",
+        "sha256": "cfb6bc466f90e8bf121ac79c7a479cced6d2bf356431e75f870c624c3a89947e"
+      },
+      "result_capture": {
+        "file": "compile-LU-fix-64-result.png",
+        "sha256": "10f30bc428df3471529ac6aceab7f2815c9968ced3e5bde59afcdf0ae4f85608"
+      }
+    },
+    {
+      "id": "compile-LU-fix-65",
+      "kind": "definition",
+      "command": "DocClear;U64 O574LUFix65(U64 x){return x<<65;}",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "compile-LU-fix-65-source.png",
+        "sha256": "163271650352c5bdd0ab75b8f0183217f5c9a6cfdd554670c236b549d32f2b99"
+      },
+      "result_capture": {
+        "file": "compile-LU-fix-65-result.png",
+        "sha256": "e021cb2847e2cadebbca9df337de0f4569918e5c4e9ee945c768066293216fc8"
+      }
+    },
+    {
+      "id": "compile-LU-fix-m1",
+      "kind": "definition",
+      "command": "DocClear;U64 O574LUFixm1(U64 x){return x<<-1;}",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "compile-LU-fix-m1-source.png",
+        "sha256": "54f16ec082cf6eeb83a3bdf52e6efacff2a94364428cc84471ce16d4066c367b"
+      },
+      "result_capture": {
+        "file": "compile-LU-fix-m1-result.png",
+        "sha256": "ff0f4d28df9cca464cce33b6bbdced97c775f050fac386aab3bae9e31d2435cf"
+      }
+    },
+    {
+      "id": "compile-LU-fix-m64",
+      "kind": "definition",
+      "command": "DocClear;U64 O574LUFixm64(U64 x){return x<<-64;}",
+      "observed_output": [],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "compile-LU-fix-m64-source.png",
+        "sha256": "0e9338e01fb375f241f85ed2a72b8e142bd556238548722a13439b318dc176be"
+      },
+      "result_capture": {
+        "file": "compile-LU-fix-m64-result.png",
+        "sha256": "fe9312ece0b2b80e05892891cf5fd17942d3e0fd03f8a2afd94a5e20a75efc29"
+      }
+    },
+    {
+      "id": "results-LS-A",
+      "kind": "result",
+      "command": "DocClear;\"SC_A_LS LS0=%X LS1=%X LS63=%X LS64=%X LS65=%X LSm1=%X LSm64=%X\\n\",O574LS0(-7),O574LS1(-7),O574LS63(-7),O574LS64(-7),O574LS65(-7),O574LSm1(-7),O574LSm64(-7);",
+      "observed_output": [
+        "LS0=FFFFFFFFFFFFFFF9 LS1=FFFFFFFFFFFFFFF2 LS63=8000000000000000 LS64=FFFFFFFFFFFFFFF9 LS65=FFFFFFFFFFFFFFF2 LSm1=8000000000000000 LSm64=FFFFFFFFFFFFFFF9"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "results-LS-A-source.png",
+        "sha256": "bade9faa68283b0b3b55fbc020ae457aa063356e8f4ef690b111ae2174aa09d0"
+      },
+      "result_capture": {
+        "file": "results-LS-A-result.png",
+        "sha256": "ab8a232d5fdc5f13f94a5d4adc812def4ea89387d1bac3059ee093248aef42d3"
+      }
+    },
+    {
+      "id": "results-LS-B",
+      "kind": "result",
+      "command": "DocClear;\"SC_B_LS LS0=%X LS1=%X LS63=%X LS64=%X LS65=%X LSm1=%X LSm64=%X\\n\",O574LS0(-7),O574LS1(-7),O574LS63(-7),O574LS64(-7),O574LS65(-7),O574LSm1(-7),O574LSm64(-7);",
+      "observed_output": [
+        "LS0=FFFFFFFFFFFFFFF9 LS1=FFFFFFFFFFFFFFF2 LS63=8000000000000000 LS64=FFFFFFFFFFFFFFF9 LS65=FFFFFFFFFFFFFFF2 LSm1=8000000000000000 LSm64=FFFFFFFFFFFFFFF9"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "results-LS-B-source.png",
+        "sha256": "30d5e3cde0d2689ec51bb342c4a0f90b160376c74ca30448f14bd2a2ded3ce70"
+      },
+      "result_capture": {
+        "file": "results-LS-B-result.png",
+        "sha256": "7e89c945208e55f47f7f3e067e77c65a1c72264425ee2ab6a5662ea86d68e6a0"
+      }
+    },
+    {
+      "id": "results-RS-A",
+      "kind": "result",
+      "command": "DocClear;\"SC_A_RS RS0=%X RS1=%X RS63=%X RS64=%X RS65=%X RSm1=%X RSm64=%X\\n\",O574RS0(-7),O574RS1(-7),O574RS63(-7),O574RS64(-7),O574RS65(-7),O574RSm1(-7),O574RSm64(-7);",
+      "observed_output": [
+        "RS0=FFFFFFFFFFFFFFF9 RS1=FFFFFFFFFFFFFFFC RS63=FFFFFFFFFFFFFFFF RS64=FFFFFFFFFFFFFFF9 RS65=FFFFFFFFFFFFFFFC RSm1=FFFFFFFFFFFFFFFF RSm64=FFFFFFFFFFFFFFF9"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "results-RS-A-source.png",
+        "sha256": "0f444184ad76b096001e6b7cb3d266b32612c04fc2ec707a5d0e750b999c0174"
+      },
+      "result_capture": {
+        "file": "results-RS-A-result.png",
+        "sha256": "0e371e25a5aa0bae19fd8cceb851def19f0283ca22da06d2fd59e26cb63b49fc"
+      }
+    },
+    {
+      "id": "results-RS-B",
+      "kind": "result",
+      "command": "DocClear;\"SC_B_RS RS0=%X RS1=%X RS63=%X RS64=%X RS65=%X RSm1=%X RSm64=%X\\n\",O574RS0(-7),O574RS1(-7),O574RS63(-7),O574RS64(-7),O574RS65(-7),O574RSm1(-7),O574RSm64(-7);",
+      "observed_output": [
+        "RS0=FFFFFFFFFFFFFFF9 RS1=FFFFFFFFFFFFFFFC RS63=FFFFFFFFFFFFFFFF RS64=FFFFFFFFFFFFFFF9 RS65=FFFFFFFFFFFFFFFC RSm1=FFFFFFFFFFFFFFFF RSm64=FFFFFFFFFFFFFFF9"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "results-RS-B-source.png",
+        "sha256": "7cd12dcf2721205168a54e605bef13f0d66956225b42cbb0038534ab06c9e979"
+      },
+      "result_capture": {
+        "file": "results-RS-B-result.png",
+        "sha256": "3596d2f47ce558a6d3c12fb65fce481465e833f6eec8448c1f131f0e77198a7b"
+      }
+    },
+    {
+      "id": "results-LU-fix-A",
+      "kind": "result",
+      "command": "DocClear;\"SC_A_LU LU0=%X LU1=%X LU63=%X LU64=%X LU65=%X LUm1=%X LUm64=%X\\n\",O574LUFix0(0x8000000000000005),O574LUFix1(0x8000000000000005),O574LUFix63(0x8000000000000005),O574LUFix64(0x8000000000000005),O574LUFix65(0x8000000000000005),O574LUFixm1(0x8000000000000005),O574LUFixm64(0x8000000000000005);",
+      "observed_output": [
+        "LU0=8000000000000005 LU1=A LU63=8000000000000000 LU64=8000000000000005 LU65=A LUm1=8000000000000000 LUm64=8000000000000005"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "results-LU-fix-A-source.png",
+        "sha256": "51f93e80c8664fb5db6e1f4efbfde3083d7576444b166e5a4b83aac3ac39a993"
+      },
+      "result_capture": {
+        "file": "results-LU-fix-A-result.png",
+        "sha256": "a844956d82e85518efb095c836574867930760d1b4b81325eca5e36b93cbe4a3"
+      }
+    },
+    {
+      "id": "results-LU-fix-B",
+      "kind": "result",
+      "command": "DocClear;\"SC_B_LU LU0=%X LU1=%X LU63=%X LU64=%X LU65=%X LUm1=%X LUm64=%X\\n\",O574LUFix0(0x8000000000000005),O574LUFix1(0x8000000000000005),O574LUFix63(0x8000000000000005),O574LUFix64(0x8000000000000005),O574LUFix65(0x8000000000000005),O574LUFixm1(0x8000000000000005),O574LUFixm64(0x8000000000000005);",
+      "observed_output": [
+        "LU0=8000000000000005 LU1=A LU63=8000000000000000 LU64=8000000000000005 LU65=A LUm1=8000000000000000 LUm64=8000000000000005"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "results-LU-fix-B-source.png",
+        "sha256": "330a079b82da5abd88bc3f23d6630348b123bbde593c01e2f26870a0098a183a"
+      },
+      "result_capture": {
+        "file": "results-LU-fix-B-result.png",
+        "sha256": "546694d4ea8233de97cca4a61da886dbe19bc8e75c1c94c3552980d89b0d3fdb"
+      }
+    },
+    {
+      "id": "results-RU-A",
+      "kind": "result",
+      "command": "DocClear;\"SC_A_RU RU0=%X RU1=%X RU63=%X RU64=%X RU65=%X RUm1=%X RUm64=%X\\n\",O574RU0(0x8000000000000005),O574RU1(0x8000000000000005),O574RU63(0x8000000000000005),O574RU64(0x8000000000000005),O574RU65(0x8000000000000005),O574RUm1(0x8000000000000005),O574RUm64(0x8000000000000005);",
+      "observed_output": [
+        "RU0=8000000000000005 RU1=4000000000000002 RU63=1 RU64=8000000000000005 RU65=4000000000000002 RUm1=1 RUm64=8000000000000005"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "results-RU-A-source.png",
+        "sha256": "2d430a53e5c4a7cd8b2acc42b8b05db20b5dab596d36771f9f6d64d6f93195cb"
+      },
+      "result_capture": {
+        "file": "results-RU-A-result.png",
+        "sha256": "27ae424dae1d63b2428aeb53f67f28f0756566038ffb63f75eec9d316c63fc8e"
+      }
+    },
+    {
+      "id": "results-RU-B",
+      "kind": "result",
+      "command": "DocClear;\"SC_B_RU RU0=%X RU1=%X RU63=%X RU64=%X RU65=%X RUm1=%X RUm64=%X\\n\",O574RU0(0x8000000000000005),O574RU1(0x8000000000000005),O574RU63(0x8000000000000005),O574RU64(0x8000000000000005),O574RU65(0x8000000000000005),O574RUm1(0x8000000000000005),O574RUm64(0x8000000000000005);",
+      "observed_output": [
+        "RU0=8000000000000005 RU1=4000000000000002 RU63=1 RU64=8000000000000005 RU65=4000000000000002 RUm1=1 RUm64=8000000000000005"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "results-RU-B-source.png",
+        "sha256": "421fe3817e4a6f9e9630132e9bb45be9cf8b45eee77f3faa97c477d504667396"
+      },
+      "result_capture": {
+        "file": "results-RU-B-result.png",
+        "sha256": "3c5237c66a9d586eee600b67d9c4a6951da7db1f4d24645e88ad3f62b680f5e8"
+      }
+    },
+    {
+      "id": "results-CLASS-A",
+      "kind": "result",
+      "command": "DocClear;\"SC_A_CLASS RVI=%X RVU=%X RH1=%X RH0=%X CH1=%X CH0=%X CVU=%X\\n\",O574RVI(-7,1),O574RVU(-7,0x8000000000000001),O574RH1(-7),O574RH0(-7),O574CH1(-7),O574CH0(-7),O574CVU(-7,0x8000000000000000);",
+      "observed_output": [
+        "RVI=FFFFFFFFFFFFFFFC RVU=7FFFFFFFFFFFFFFC RH1=FFFFFFFFFFFFFFFC RH0=FFFFFFFFFFFFFFF9 CH1=0 CH0=0 CVU=0"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "results-CLASS-A-source.png",
+        "sha256": "c13b06c86fd1c41292d897c5d8b3430a12d25af2859b3b0a2e3b85145da528e5"
+      },
+      "result_capture": {
+        "file": "results-CLASS-A-result.png",
+        "sha256": "ccdaea6800550d72c549d2aaf5c22b020fb28b35dbbef83bd22e80d7a214522f"
+      }
+    },
+    {
+      "id": "results-CLASS-B",
+      "kind": "result",
+      "command": "DocClear;\"SC_B_CLASS RVI=%X RVU=%X RH1=%X RH0=%X CH1=%X CH0=%X CVU=%X\\n\",O574RVI(-7,1),O574RVU(-7,0x8000000000000001),O574RH1(-7),O574RH0(-7),O574CH1(-7),O574CH0(-7),O574CVU(-7,0x8000000000000000);",
+      "observed_output": [
+        "RVI=FFFFFFFFFFFFFFFC RVU=7FFFFFFFFFFFFFFC RH1=FFFFFFFFFFFFFFFC RH0=FFFFFFFFFFFFFFF9 CH1=0 CH0=0 CVU=0"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "results-CLASS-B-source.png",
+        "sha256": "ee35c493008eb02e06d5f150bbcdfa8bbb084220e08079671331687dc7d66218"
+      },
+      "result_capture": {
+        "file": "results-CLASS-B-result.png",
+        "sha256": "7ed39faab151263368018420547f9797baaa560a8d34aedd30ef6406fd8ebac6"
+      }
+    },
+    {
+      "id": "results-NEST-A",
+      "kind": "result",
+      "command": "DocClear;\"SC_A_NEST LN64=%X RN64=%X UN64=%X LN128=%X RN128=%X LRAW=%X RRAW=%X\\n\",O574LN64(-7),O574RN64(-7),O574UN64(0x8000000000000005),O574LN128(-7),O574RN128(-7),O574LRAW(-7,63,1),O574RRAW(-7,63,1);",
+      "observed_output": [
+        "LN64=FFFFFFFFFFFFFFF9 RN64=FFFFFFFFFFFFFFF9 UN64=8000000000000005 LN128=FFFFFFFFFFFFFFF9 RN128=FFFFFFFFFFFFFFF9 LRAW=0 RRAW=FFFFFFFFFFFFFFFF"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "results-NEST-A-source.png",
+        "sha256": "b2b6f6ee3054b021acfb494cf34cb9f855018cb46e0ac8f920416836a879e3be"
+      },
+      "result_capture": {
+        "file": "results-NEST-A-result.png",
+        "sha256": "542304c13b7db87fe9fd0afd2a0e69efc7ad800251751bd55bf08b68da676df1"
+      }
+    },
+    {
+      "id": "results-NEST-B",
+      "kind": "result",
+      "command": "DocClear;\"SC_B_NEST LN64=%X RN64=%X UN64=%X LN128=%X RN128=%X LRAW=%X RRAW=%X\\n\",O574LN64(-7),O574RN64(-7),O574UN64(0x8000000000000005),O574LN128(-7),O574RN128(-7),O574LRAW(-7,63,1),O574RRAW(-7,63,1);",
+      "observed_output": [
+        "LN64=FFFFFFFFFFFFFFF9 RN64=FFFFFFFFFFFFFFF9 UN64=8000000000000005 LN128=FFFFFFFFFFFFFFF9 RN128=FFFFFFFFFFFFFFF9 LRAW=0 RRAW=FFFFFFFFFFFFFFFF"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "results-NEST-B-source.png",
+        "sha256": "e4d304d9f5a16b3fa2635feeb490468774b078456c0ac0068afcdf8486659593"
+      },
+      "result_capture": {
+        "file": "results-NEST-B-result.png",
+        "sha256": "feac8f4d89b8715e53580c0b9eb102424b74e1369b8469df9c3be8042b393561"
+      }
+    },
+    {
+      "id": "results-CONST-A",
+      "kind": "result",
+      "command": "DocClear;\"SC_A_CONST CSU=%X CSV=%X CSUC=%X CLN=%X CRN=%X CUR=%X CUL=%X\\n\",-7>>0x8000000000000001,-7>>1,(-7>>0x8000000000000001)<0,(-7<<63)<<1,(-7>>63)>>1,0x8000000000000005>>1,0x8000000000000005<<1;",
+      "observed_output": [
+        "CSU=7FFFFFFFFFFFFFFC CSV=FFFFFFFFFFFFFFFC CSUC=0 CLN=0 CRN=FFFFFFFFFFFFFFFF CUR=4000000000000002 CUL=A"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "results-CONST-A-source.png",
+        "sha256": "6e5871b485c22a1f1ee9687dfa1f21309d6bedd4a19930d756dd408dcc51ed20"
+      },
+      "result_capture": {
+        "file": "results-CONST-A-result.png",
+        "sha256": "ad051e03466515830816280a1facf493f591a352e79f8e34a5f2e941f28839e0"
+      }
+    },
+    {
+      "id": "results-CONST-B",
+      "kind": "result",
+      "command": "DocClear;\"SC_B_CONST CSU=%X CSV=%X CSUC=%X CLN=%X CRN=%X CUR=%X CUL=%X\\n\",-7>>0x8000000000000001,-7>>1,(-7>>0x8000000000000001)<0,(-7<<63)<<1,(-7>>63)>>1,0x8000000000000005>>1,0x8000000000000005<<1;",
+      "observed_output": [
+        "CSU=7FFFFFFFFFFFFFFC CSV=FFFFFFFFFFFFFFFC CSUC=0 CLN=0 CRN=FFFFFFFFFFFFFFFF CUR=4000000000000002 CUL=A"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "results-CONST-B-source.png",
+        "sha256": "209ec69db5a599b6a6df21042807b4285e4ea8bbc084dec0782dccb55e505634"
+      },
+      "result_capture": {
+        "file": "results-CONST-B-result.png",
+        "sha256": "63e56da9986b4673c63a39169b79b25c2b0344ef9447db060767c7ca5e8e4f59"
+      }
+    },
+    {
+      "id": "disasm-O574CH1",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O574CH1);",
+      "observed_output": [
+        "         &O574CH1+0x0000 55           PUSH      U64 RBP",
+        "         &O574CH1+0x0001 488BEC       MOV       U64 RBP,U64 RSP",
+        "         &O574CH1+0x0004 56           PUSH      U64 RSI",
+        "         &O574CH1+0x0005 488B7510     MOV       U64 RSI,U64 10[RBP]",
+        "         &O574CH1+0x0009 4C8BC6       MOV       U64 R8,U64 RSI",
+        "         &O574CH1+0x000C 49C1F801     SAR       U64 R8,U8 01",
+        "         &O574CH1+0x0010 33C0         XOR       U64 RAX,U64 RAX",
+        "         &O574CH1+0x0012 4983F800     CMP       U64 R8,I8 00",
+        "         &O574CH1+0x0016 7303         JAE       I8",
+        "         &O574CH1+0x0018 48FFC0       INC       U64 RAX",
+        "         &O574CH1+0x001B 5E           POP       U64 RSI",
+        "         &O574CH1+0x001C 5D           POP       U64 RBP",
+        "         &O574CH1+0x001D C20800       RET1      I16 0008",
+        "         &O574CH1+0x0020 3806         CMP       U8 [RSI],U8 AL",
+        "         &O574CH1+0x0022 E615         OUT       U8 15,U8 AL",
+        "         &O574CH1+0x0024 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574CH1+0x0026 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574CH1+0x0028 6800000000   PUSH      I32 00000000",
+        "         &O574CH1+0x002D 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574CH1+0x002F 007838       ADD       U8 38[RAX],U8 BH"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-O574CH1-source.png",
+        "sha256": "aced840abcccc08f2442db43bdf6a2ba1314b348b62e2e5aed030eee7e900174"
+      },
+      "result_capture": {
+        "file": "disasm-O574CH1-result.png",
+        "sha256": "ba31cb718563fb7c6bba06e1cac394b0889e43c588460688a02f9c6b4319d351"
+      }
+    },
+    {
+      "id": "disasm-O574LN128",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O574LN128);",
+      "observed_output": [
+        "       &O574LN128+0x0000 55           PUSH      U64 RBP",
+        "       &O574LN128+0x0001 488BEC       MOV       U64 RBP,U64 RSP",
+        "       &O574LN128+0x0004 56           PUSH      U64 RSI",
+        "       &O574LN128+0x0005 488B7510     MOV       U64 RSI,U64 10[RBP]",
+        "       &O574LN128+0x0009 488BC6       MOV       U64 RAX,U64 RSI",
+        "       &O574LN128+0x000C 48C1E080     SHL       U64 RAX,I8 80",
+        "       &O574LN128+0x0010 5E           POP       U64 RSI",
+        "       &O574LN128+0x0011 5D           POP       U64 RBP",
+        "       &O574LN128+0x0012 C20800       RET1      I16 0008",
+        "       &O574LN128+0x0015 0000         ADD       U8 [RAX],U8 AL",
+        "       &O574LN128+0x0017 0028         ADD       U8 [RAX],U8 CH",
+        "       &O574LN128+0x0019 96           XCHG      U32 ESI,U32 EAX",
+        "       &O574LN128+0x001A E615         OUT       U8 15,U8 AL",
+        "       &O574LN128+0x001C 0000         ADD       U8 [RAX],U8 AL",
+        "       &O574LN128+0x001E 0000         ADD       U8 [RAX],U8 AL",
+        "       &O574LN128+0x0020 2000         AND       U8 [RAX],U8 AL",
+        "       &O574LN128+0x0022 0000         ADD       U8 [RAX],U8 AL",
+        "       &O574LN128+0x0024 0000         ADD       U8 [RAX],U8 AL",
+        "       &O574LN128+0x0026 0000         ADD       U8 [RAX],U8 AL",
+        "       &O574LN128+0x0028 464C3A7E2F   CMP       U8 R15u8,U8 2F[RSI]"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-O574LN128-source.png",
+        "sha256": "e8c829aae21eea7e096dd58aa5ab5472fb00ca059a9d1db5876c59c497a52841"
+      },
+      "result_capture": {
+        "file": "disasm-O574LN128-result.png",
+        "sha256": "db1f89e101cce3d9a14e6aff0e01971968d2839016a8b0dbb878b0cd5edc7816"
+      }
+    },
+    {
+      "id": "disasm-O574LN64",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O574LN64);",
+      "observed_output": [
+        "        &O574LN64+0x0000 55           PUSH      U64 RBP",
+        "        &O574LN64+0x0001 488BEC       MOV       U64 RBP,U64 RSP",
+        "        &O574LN64+0x0004 56           PUSH      U64 RSI",
+        "        &O574LN64+0x0005 488B7510     MOV       U64 RSI,U64 10[RBP]",
+        "        &O574LN64+0x0009 488BC6       MOV       U64 RAX,U64 RSI",
+        "        &O574LN64+0x000C 48C1E040     SHL       U64 RAX,I8 40",
+        "        &O574LN64+0x0010 5E           POP       U64 RSI",
+        "        &O574LN64+0x0011 5D           POP       U64 RBP",
+        "        &O574LN64+0x0012 C20800       RET1      I16 0008",
+        "        &O574LN64+0x0015 7200         JB        I8",
+        "        &O574LN64+0x0017 0028         ADD       U8 [RAX],U8 CH",
+        "        &O574LN64+0x0019 96           XCHG      U32 ESI,U32 EAX",
+        "        &O574LN64+0x001A E615         OUT       U8 15,U8 AL",
+        "        &O574LN64+0x001C 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574LN64+0x001E 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574LN64+0x0020 2800         SUB       U8 [RAX],U8 AL",
+        "        &O574LN64+0x0022 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574LN64+0x0024 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574LN64+0x0026 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574LN64+0x0028 0200         ADD       U8 AL,U8 [RAX]"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-O574LN64-source.png",
+        "sha256": "1337d2f02f843f489607e014d787589a23f2fe5f8ef966a0b7cfd9b2a7da468a"
+      },
+      "result_capture": {
+        "file": "disasm-O574LN64-result.png",
+        "sha256": "12d5fdddd72525b06fe0b43f03bd352d5bb169f2f4db92e86b89c93565fc5b86"
+      }
+    },
+    {
+      "id": "disasm-O574LRAW",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O574LRAW);",
+      "observed_output": [
+        "        &O574LRAW+0x0000 55           PUSH      U64 RBP",
+        "        &O574LRAW+0x0001 488BEC       MOV       U64 RBP,U64 RSP",
+        "        &O574LRAW+0x0004 56           PUSH      U64 RSI",
+        "        &O574LRAW+0x0005 57           PUSH      U64 RDI",
+        "        &O574LRAW+0x0006 4952         PUSH      U64 R10",
+        "        &O574LRAW+0x0008 488B7520     MOV       U64 RSI,U64 20[RBP]",
+        "        &O574LRAW+0x000C 488B7D18     MOV       U64 RDI,U64 18[RBP]",
+        "        &O574LRAW+0x0010 4C8B5510     MOV       U64 R10,U64 10[RBP]",
+        "        &O574LRAW+0x0014 488BCF       MOV       U64 RCX,U64 RDI",
+        "        &O574LRAW+0x0017 4D8BC2       MOV       U64 R8,U64 R10",
+        "        &O574LRAW+0x001A 49D3E0       SHL       U64 R8,U8 CL",
+        "        &O574LRAW+0x001D 488BCE       MOV       U64 RCX,U64 RSI",
+        "        &O574LRAW+0x0020 498BC0       MOV       U64 RAX,U64 R8",
+        "        &O574LRAW+0x0023 48D3E0       SHL       U64 RAX,U8 CL",
+        "        &O574LRAW+0x0026 495A         POP       U64 R10",
+        "        &O574LRAW+0x0028 5F           POP       U64 RDI",
+        "        &O574LRAW+0x0029 5E           POP       U64 RSI",
+        "        &O574LRAW+0x002A 5D           POP       U64 RBP",
+        "        &O574LRAW+0x002B C21800       RET1      I16 0018",
+        "        &O574LRAW+0x002E FFFF         PUSH      U64 RDI"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-O574LRAW-source.png",
+        "sha256": "e45dc309c161aab963da679a4290b7b8559c5c37b9437503a6a9686c317b42c7"
+      },
+      "result_capture": {
+        "file": "disasm-O574LRAW-result.png",
+        "sha256": "19d327d114558cc2b133b33436c50c05a26a1ae3761c751330833e845c08a19f"
+      }
+    },
+    {
+      "id": "disasm-O574LS63",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O574LS63);",
+      "observed_output": [
+        "        &O574LS63+0x0000 55           PUSH      U64 RBP",
+        "        &O574LS63+0x0001 488BEC       MOV       U64 RBP,U64 RSP",
+        "        &O574LS63+0x0004 56           PUSH      U64 RSI",
+        "        &O574LS63+0x0005 488B7510     MOV       U64 RSI,U64 10[RBP]",
+        "        &O574LS63+0x0009 488BC6       MOV       U64 RAX,U64 RSI",
+        "        &O574LS63+0x000C 48C1E03F     SHL       U64 RAX,I8 3F",
+        "        &O574LS63+0x0010 5E           POP       U64 RSI",
+        "        &O574LS63+0x0011 5D           POP       U64 RBP",
+        "        &O574LS63+0x0012 C20800       RET1      I16 0008",
+        "        &O574LS63+0x0015 293B         SUB       U32 [RBX],U32 EDI",
+        "        &O574LS63+0x0017 0048FA       ADD       U8 FA[RAX],U8 CL",
+        "        &O574LS63+0x001A E515         IN        U32 EAX,I8 15",
+        "        &O574LS63+0x001C 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574LS63+0x001E 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574LS63+0x0020 6800000000   PUSH      I32 00000000",
+        "        &O574LS63+0x0025 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574LS63+0x0027 0080F7E51500 ADD       U8 0015E5F7[RAX],U8 AL",
+        "        &O574LS63+0x002D 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574LS63+0x002F 0028         ADD       U8 [RAX],U8 CH",
+        "        &O574LS63+0x0031 0AD6         OR        U8 DL,U8 DH"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-O574LS63-source.png",
+        "sha256": "a1172f9df3adc2c7d672fb8b1635f1981a6c0162dd308f9cb18f51d622f8a0bb"
+      },
+      "result_capture": {
+        "file": "disasm-O574LS63-result.png",
+        "sha256": "63d4db9311b878e25daf36621cd2d1ceaa9a5f764a1f27782cf05e969801e793"
+      }
+    },
+    {
+      "id": "disasm-O574RH1",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O574RH1);",
+      "observed_output": [
+        "         &O574RH1+0x0000 55           PUSH      U64 RBP",
+        "         &O574RH1+0x0001 488BEC       MOV       U64 RBP,U64 RSP",
+        "         &O574RH1+0x0004 56           PUSH      U64 RSI",
+        "         &O574RH1+0x0005 488B7510     MOV       U64 RSI,U64 10[RBP]",
+        "         &O574RH1+0x0009 488BC6       MOV       U64 RAX,U64 RSI",
+        "         &O574RH1+0x000C 48C1F801     SAR       U64 RAX,U8 01",
+        "         &O574RH1+0x0010 5E           POP       U64 RSI",
+        "         &O574RH1+0x0011 5D           POP       U64 RBP",
+        "         &O574RH1+0x0012 C20800       RET1      I16 0008",
+        "         &O574RH1+0x0015 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574RH1+0x0017 0028         ADD       U8 [RAX],U8 CH",
+        "         &O574RH1+0x0019 96           XCHG      U32 ESI,U32 EAX",
+        "         &O574RH1+0x001A E615         OUT       U8 15,U8 AL",
+        "         &O574RH1+0x001C 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574RH1+0x001E 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574RH1+0x0020 2000         AND       U8 [RAX],U8 AL",
+        "         &O574RH1+0x0022 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574RH1+0x0024 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574RH1+0x0026 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574RH1+0x0028 4F3537344C53 XOR       U32 EAX,I32 534C3437"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-O574RH1-source.png",
+        "sha256": "34392f7d342e97deaeb5e6b5b250c7fc72ca7c969a6b770d0501b291aba5109c"
+      },
+      "result_capture": {
+        "file": "disasm-O574RH1-result.png",
+        "sha256": "be3ace4e4d921a985aa0ff382051c799e5c56ceb7e56e2870c9a5f3ac5622a1c"
+      }
+    },
+    {
+      "id": "disasm-O574RN128",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O574RN128);",
+      "observed_output": [
+        "       &O574RN128+0x0000 55           PUSH      U64 RBP",
+        "       &O574RN128+0x0001 488BEC       MOV       U64 RBP,U64 RSP",
+        "       &O574RN128+0x0004 56           PUSH      U64 RSI",
+        "       &O574RN128+0x0005 488B7510     MOV       U64 RSI,U64 10[RBP]",
+        "       &O574RN128+0x0009 488BC6       MOV       U64 RAX,U64 RSI",
+        "       &O574RN128+0x000C 48C1F880     SAR       U64 RAX,U8 80",
+        "       &O574RN128+0x0010 5E           POP       U64 RSI",
+        "       &O574RN128+0x0011 5D           POP       U64 RBP",
+        "       &O574RN128+0x0012 C20800       RET1      I16 0008",
+        "       &O574RN128+0x0015 0000         ADD       U8 [RAX],U8 AL",
+        "       &O574RN128+0x0017 0028         ADD       U8 [RAX],U8 CH",
+        "       &O574RN128+0x0019 96           XCHG      U32 ESI,U32 EAX",
+        "       &O574RN128+0x001A E615         OUT       U8 15,U8 AL",
+        "       &O574RN128+0x001C 0000         ADD       U8 [RAX],U8 AL",
+        "       &O574RN128+0x001E 0000         ADD       U8 [RAX],U8 AL",
+        "       &O574RN128+0x0020 A000000000   MOV       U16 AX,U16 [0]",
+        "       &O574RN128+0x0025 0000         ADD       U8 [RAX],U8 AL",
+        "       &O574RN128+0x0027 0000         ADD       U8 [RAX],U8 AL",
+        "       &O574RN128+0x0029 0000         ADD       U8 [RAX],U8 AL",
+        "       &O574RN128+0x002B 0000         ADD       U8 [RAX],U8 AL"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-O574RN128-source.png",
+        "sha256": "4fc8dfe12c4bd6a7093c64ceae035c5e5ad74ab747be7cff423bcbd7653508c8"
+      },
+      "result_capture": {
+        "file": "disasm-O574RN128-result.png",
+        "sha256": "39b103ed3d35b264ef535072f2076a8b2cdc40336cf21a5bb416deeb06488c76"
+      }
+    },
+    {
+      "id": "disasm-O574RN64",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O574RN64);",
+      "observed_output": [
+        "        &O574RN64+0x0000 55           PUSH      U64 RBP",
+        "        &O574RN64+0x0001 488BEC       MOV       U64 RBP,U64 RSP",
+        "        &O574RN64+0x0004 56           PUSH      U64 RSI",
+        "        &O574RN64+0x0005 488B7510     MOV       U64 RSI,U64 10[RBP]",
+        "        &O574RN64+0x0009 488BC6       MOV       U64 RAX,U64 RSI",
+        "        &O574RN64+0x000C 48C1F840     SAR       U64 RAX,U8 40",
+        "        &O574RN64+0x0010 5E           POP       U64 RSI",
+        "        &O574RN64+0x0011 5D           POP       U64 RBP",
+        "        &O574RN64+0x0012 C20800       RET1      I16 0008",
+        "        &O574RN64+0x0015 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RN64+0x0017 0028         ADD       U8 [RAX],U8 CH",
+        "        &O574RN64+0x0019 96           XCHG      U32 ESI,U32 EAX",
+        "        &O574RN64+0x001A E615         OUT       U8 15,U8 AL",
+        "        &O574RN64+0x001C 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RN64+0x001E 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RN64+0x0020 58           POP       U64 RAX",
+        "        &O574RN64+0x0021 0300         ADD       U32 EAX,U32 [RAX]",
+        "        &O574RN64+0x0023 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RN64+0x0025 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RN64+0x0027 0000         ADD       U8 [RAX],U8 AL"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-O574RN64-source.png",
+        "sha256": "bb6270a6e0b10e27d583bca516fd818462347298685af1f578b0cfd8287a115f"
+      },
+      "result_capture": {
+        "file": "disasm-O574RN64-result.png",
+        "sha256": "eb9393c02e4b6b0af5e053fad1ac0eefb05b274db7e47c5cffa968cf83790872"
+      }
+    },
+    {
+      "id": "disasm-O574RS0",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O574RS0);",
+      "observed_output": [
+        "         &O574RS0+0x0000 55           PUSH      U64 RBP",
+        "         &O574RS0+0x0001 488BEC       MOV       U64 RBP,U64 RSP",
+        "         &O574RS0+0x0004 56           PUSH      U64 RSI",
+        "         &O574RS0+0x0005 488B7510     MOV       U64 RSI,U64 10[RBP]",
+        "         &O574RS0+0x0009 488BC6       MOV       U64 RAX,U64 RSI",
+        "         &O574RS0+0x000C 48C1F800     SAR       U64 RAX,U8 00",
+        "         &O574RS0+0x0010 5E           POP       U64 RSI",
+        "         &O574RS0+0x0011 5D           POP       U64 RBP",
+        "         &O574RS0+0x0012 C20800       RET1      I16 0008",
+        "         &O574RS0+0x0015 7D00         JGE       I8",
+        "         &O574RS0+0x0017 009869D61400 ADD       U8 0014D669[RAX],U8 BL",
+        "         &O574RS0+0x001D 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574RS0+0x001F 006800       ADD       U8 00[RAX],U8 CH",
+        "         &O574RS0+0x0022 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574RS0+0x0024 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574RS0+0x0026 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574RS0+0x0028 8803         MOV       U8 [RBX],U8 AL",
+        "         &O574RS0+0x002A E615         OUT       U8 15,U8 AL",
+        "         &O574RS0+0x002C 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574RS0+0x002E 0000         ADD       U8 [RAX],U8 AL"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-O574RS0-source.png",
+        "sha256": "21fbc45b57d13dced74c55bb31630993d3f0f3be6b8f5b25d58642ad9e933523"
+      },
+      "result_capture": {
+        "file": "disasm-O574RS0-result.png",
+        "sha256": "613d1262f33f90740c7721710d2139be37980755a52138041b6de1693189bfe4"
+      }
+    },
+    {
+      "id": "disasm-O574RS1",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O574RS1);",
+      "observed_output": [
+        "         &O574RS1+0x0000 55           PUSH      U64 RBP",
+        "         &O574RS1+0x0001 488BEC       MOV       U64 RBP,U64 RSP",
+        "         &O574RS1+0x0004 56           PUSH      U64 RSI",
+        "         &O574RS1+0x0005 488B7510     MOV       U64 RSI,U64 10[RBP]",
+        "         &O574RS1+0x0009 488BC6       MOV       U64 RAX,U64 RSI",
+        "         &O574RS1+0x000C 48D1F8       SAR1      U64 RAX",
+        "         &O574RS1+0x000F 5E           POP       U64 RSI",
+        "         &O574RS1+0x0010 5D           POP       U64 RBP",
+        "         &O574RS1+0x0011 C20800       RET1      I16 0008",
+        "         &O574RS1+0x0014 463900       CMP       U32 [RAX],U32 R8u32",
+        "         &O574RS1+0x0017 009846E61500 ADD       U8 0015E646[RAX],U8 BL",
+        "         &O574RS1+0x001D 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574RS1+0x001F 006800       ADD       U8 00[RAX],U8 CH",
+        "         &O574RS1+0x0022 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574RS1+0x0024 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574RS1+0x0026 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574RS1+0x0028 F0           LOCK",
+        "         &O574RS1+0x0029 F6E5         MUL       U8 CH",
+        "         &O574RS1+0x002B 1500000000   ADC       U32 EAX,U32 00000000",
+        "         &O574RS1+0x0030 280A         SUB       U8 [RDX],U8 CL"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-O574RS1-source.png",
+        "sha256": "cd4f090640ce27b4daeaabc1603a8e1594a30c8ab03435b735c4da8e5ef69568"
+      },
+      "result_capture": {
+        "file": "disasm-O574RS1-result.png",
+        "sha256": "bb63098d4c9011125b7fbc2ee19bd8c64e648803a74a32ce0872ea20fca2d0b0"
+      }
+    },
+    {
+      "id": "disasm-O574RS63",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O574RS63);",
+      "observed_output": [
+        "        &O574RS63+0x0000 55           PUSH      U64 RBP",
+        "        &O574RS63+0x0001 488BEC       MOV       U64 RBP,U64 RSP",
+        "        &O574RS63+0x0004 56           PUSH      U64 RSI",
+        "        &O574RS63+0x0005 488B7510     MOV       U64 RSI,U64 10[RBP]",
+        "        &O574RS63+0x0009 488BC6       MOV       U64 RAX,U64 RSI",
+        "        &O574RS63+0x000C 48C1F83F     SAR       U64 RAX,U8 3F",
+        "        &O574RS63+0x0010 5E           POP       U64 RSI",
+        "        &O574RS63+0x0011 5D           POP       U64 RBP",
+        "        &O574RS63+0x0012 C20800       RET1      I16 0008",
+        "        &O574RS63+0x0015 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RS63+0x0017 0038         ADD       U8 [RAX],U8 BH",
+        "        &O574RS63+0x0019 35E6150000   XOR       U32 EAX,I32 000015E6",
+        "        &O574RS63+0x001E 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RS63+0x0020 6800000000   PUSH      I32 00000000",
+        "        &O574RS63+0x0025 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RS63+0x0027 006839       ADD       U8 39[RAX],U8 CH",
+        "        &O574RS63+0x002A E615         OUT       U8 15,U8 AL",
+        "        &O574RS63+0x002C 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RS63+0x002E 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RS63+0x0030 58           POP       U64 RAX"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-O574RS63-source.png",
+        "sha256": "cb4995d933efcc1f9522ecd48b78f6b2398bc49054151c09053bc1f02710a4fd"
+      },
+      "result_capture": {
+        "file": "disasm-O574RS63-result.png",
+        "sha256": "956ccafa39b3c5c188b71b3a988c442d7a3e41320c685b063c5b8bb9ae0635fd"
+      }
+    },
+    {
+      "id": "disasm-O574RS65",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O574RS65);",
+      "observed_output": [
+        "        &O574RS65+0x0000 55           PUSH      U64 RBP",
+        "        &O574RS65+0x0001 488BEC       MOV       U64 RBP,U64 RSP",
+        "        &O574RS65+0x0004 56           PUSH      U64 RSI",
+        "        &O574RS65+0x0005 488B7510     MOV       U64 RSI,U64 10[RBP]",
+        "        &O574RS65+0x0009 488BC6       MOV       U64 RAX,U64 RSI",
+        "        &O574RS65+0x000C 48C1F841     SAR       U64 RAX,U8 41",
+        "        &O574RS65+0x0010 5E           POP       U64 RSI",
+        "        &O574RS65+0x0011 5D           POP       U64 RBP",
+        "        &O574RS65+0x0012 C20800       RET1      I16 0008",
+        "        &O574RS65+0x0015 3100         XOR       U64 [RAX],U64 RAX",
+        "        &O574RS65+0x0017 0028         ADD       U8 [RAX],U8 CH",
+        "        &O574RS65+0x0019 96           XCHG      U32 ESI,U32 EAX",
+        "        &O574RS65+0x001A E615         OUT       U8 15,U8 AL",
+        "        &O574RS65+0x001C 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RS65+0x001E 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RS65+0x0020 2800         SUB       U8 [RAX],U8 AL",
+        "        &O574RS65+0x0022 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RS65+0x0024 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RS65+0x0026 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RSm1+0x0000 55           PUSH      U64 RBP"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-O574RS65-source.png",
+        "sha256": "f60d4cc7aa8c8d647f72f51b0ec2ae96dd3093031e047698a9cd42c3d9ee03b8"
+      },
+      "result_capture": {
+        "file": "disasm-O574RS65-result.png",
+        "sha256": "f9999df662aaeaa48d99799f331dedc138ae5b7baebd8325982a7421590590d6"
+      }
+    },
+    {
+      "id": "disasm-O574RSm1",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O574RSm1);",
+      "observed_output": [
+        "        &O574RSm1+0x0000 55           PUSH      U64 RBP",
+        "        &O574RSm1+0x0001 488BEC       MOV       U64 RBP,U64 RSP",
+        "        &O574RSm1+0x0004 56           PUSH      U64 RSI",
+        "        &O574RSm1+0x0005 488B7510     MOV       U64 RSI,U64 10[RBP]",
+        "        &O574RSm1+0x0009 488BC6       MOV       U64 RAX,U64 RSI",
+        "        &O574RSm1+0x000C 48C1F8FF     SAR       U64 RAX,U8 FF",
+        "        &O574RSm1+0x0010 5E           POP       U64 RSI",
+        "        &O574RSm1+0x0011 5D           POP       U64 RBP",
+        "        &O574RSm1+0x0012 C20800       RET1      I16 0008",
+        "        &O574RSm1+0x0015 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RSm1+0x0017 0028         ADD       U8 [RAX],U8 CH",
+        "        &O574RSm1+0x0019 96           XCHG      U32 ESI,U32 EAX",
+        "        &O574RSm1+0x001A E615         OUT       U8 15,U8 AL",
+        "        &O574RSm1+0x001C 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RSm1+0x001E 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RSm1+0x0020 2000         AND       U8 [RAX],U8 AL",
+        "        &O574RSm1+0x0022 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RSm1+0x0024 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RSm1+0x0026 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RSm1+0x0028 0400         ADD       U8 AL,U8 00"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-O574RSm1-source.png",
+        "sha256": "a9c7d69c2fb858693b4a0f82ef644476c450289614388c42aff31a059f1c9b7a"
+      },
+      "result_capture": {
+        "file": "disasm-O574RSm1-result.png",
+        "sha256": "80857d4f5d4f5f0a2975ebfa18bb4c8e7549907f44fd6c6055b4a739c8632bf6"
+      }
+    },
+    {
+      "id": "disasm-O574RU63",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O574RU63);",
+      "observed_output": [
+        "        &O574RU63+0x0000 55           PUSH      U64 RBP",
+        "        &O574RU63+0x0001 488BEC       MOV       U64 RBP,U64 RSP",
+        "        &O574RU63+0x0004 56           PUSH      U64 RSI",
+        "        &O574RU63+0x0005 488B7510     MOV       U64 RSI,U64 10[RBP]",
+        "        &O574RU63+0x0009 488BC6       MOV       U64 RAX,U64 RSI",
+        "        &O574RU63+0x000C 48C1E83F     SHR       U64 RAX,I8 3F",
+        "        &O574RU63+0x0010 5E           POP       U64 RSI",
+        "        &O574RU63+0x0011 5D           POP       U64 RBP",
+        "        &O574RU63+0x0012 C20800       RET1      I16 0008",
+        "        &O574RU63+0x0015 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RU63+0x0017 0028         ADD       U8 [RAX],U8 CH",
+        "        &O574RU63+0x0019 96           XCHG      U32 ESI,U32 EAX",
+        "        &O574RU63+0x001A E615         OUT       U8 15,U8 AL",
+        "        &O574RU63+0x001C 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RU63+0x001E 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RU63+0x0020 2800         SUB       U8 [RAX],U8 AL",
+        "        &O574RU63+0x0022 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RU63+0x0024 0000         ADD       U8 [RAX],U8 AL",
+        "        &O574RU63+0x0026 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574LS1+0x0000 55           PUSH      U64 RBP"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-O574RU63-source.png",
+        "sha256": "efcf6b3bf3212524dfab0798d691b58bb49ca50fee018719d14840f02b4ee303"
+      },
+      "result_capture": {
+        "file": "disasm-O574RU63-result.png",
+        "sha256": "99ad718350cfa5c1bad87bab94246b1629548f38bdd051850f2e192f405c5a94"
+      }
+    },
+    {
+      "id": "disasm-O574RVU",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O574RVU);",
+      "observed_output": [
+        "         &O574RVU+0x0000 55           PUSH      U64 RBP",
+        "         &O574RVU+0x0001 488BEC       MOV       U64 RBP,U64 RSP",
+        "         &O574RVU+0x0004 56           PUSH      U64 RSI",
+        "         &O574RVU+0x0005 57           PUSH      U64 RDI",
+        "         &O574RVU+0x0006 488B7518     MOV       U64 RSI,U64 18[RBP]",
+        "         &O574RVU+0x000A 488B7D10     MOV       U64 RDI,U64 10[RBP]",
+        "         &O574RVU+0x000E 488BCE       MOV       U64 RCX,U64 RSI",
+        "         &O574RVU+0x0011 488BC7       MOV       U64 RAX,U64 RDI",
+        "         &O574RVU+0x0014 48D3E8       SHR       U64 RAX,U8 CL",
+        "         &O574RVU+0x0017 5F           POP       U64 RDI",
+        "         &O574RVU+0x0018 5E           POP       U64 RSI",
+        "         &O574RVU+0x0019 5D           POP       U64 RBP",
+        "         &O574RVU+0x001A C21000       RET1      I16 0010",
+        "         &O574RVU+0x001D 3B7D00       CMP       U32 EDI,U32 00[RBP]",
+        "         &O574RVU+0x0020 281A         SUB       U8 [RDX],U8 BL",
+        "         &O574RVU+0x0022 E615         OUT       U8 15,U8 AL",
+        "         &O574RVU+0x0024 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574RVU+0x0026 0000         ADD       U8 [RAX],U8 AL",
+        "         &O574RVU+0x0028 6800000000   PUSH      I32 00000000",
+        "         &O574RVU+0x002D 0000         ADD       U8 [RAX],U8 AL"
+      ],
+      "first_failing_phase": "none",
+      "source_capture": {
+        "file": "disasm-O574RVU-source.png",
+        "sha256": "57c6f08d4d52a4bfdafff22ab63114d0db42a814a6befcf48439f906a6c9f1e0"
+      },
+      "result_capture": {
+        "file": "disasm-O574RVU-result.png",
+        "sha256": "31270311db8e4774e154ea85c16c94efb1283bcd44ada0026b95c1ef745a1ed8"
+      }
+    }
+  ],
+  "discarded_attempts": [
+    {
+      "id": "direct-tcp-startup",
+      "phase": "hypervisor startup",
+      "observed_failure": "Bad file descriptor; no native commands ran."
+    },
+    {
+      "id": "fixed-port-relay-startup",
+      "phase": "relay startup",
+      "observed_failure": "WinError 10048 while binding; no native commands ran."
+    },
+    {
+      "id": "compile-LU",
+      "phase": "input delivery",
+      "observed_source_error": "O574LU639U64 x) was delivered instead of O574LU63(U64 x).",
+      "observed_failure": "Missing ) during definition; original results-LU-A/B report Invalid lval and are excluded.",
+      "captures": [
+        {
+          "file": "compile-LU-source.png",
+          "sha256": "6178ea6250b8c4eb488ae5d7ced7e6cbea929448e185f131a2a4c15a792a3328"
+        },
+        {
+          "file": "compile-LU-result.png",
+          "sha256": "3d0792b0691967de541776b0eecbf6c701857ecde1ba674bfdcc0a0681ae1d5d"
+        },
+        {
+          "file": "results-LU-A-source.png",
+          "sha256": "c6187665fa9dc0310474486fa6cb14b22502a4b0c7e04b383c32d05bab3fd362"
+        },
+        {
+          "file": "results-LU-A-result.png",
+          "sha256": "ecd720841a64b5cb7ec17e47e85af781995b9109ee51bb8be2336ffd4c5d3146"
+        },
+        {
+          "file": "results-LU-B-source.png",
+          "sha256": "e8598ebe0334542b7d6a2330b480951f79cbe748d548005d8befccd6f5fac5b6"
+        },
+        {
+          "file": "results-LU-B-result.png",
+          "sha256": "9c1250a572a9d5cbc39224811beae2240e781cf3ce64540f133979cc1e6d39f3"
+        }
+      ],
+      "replacement": "Seven individually delivered definitions with fresh O574LUFix names and two successful result captures."
+    }
+  ],
+  "hosted_value_projections": [
+    {
+      "field": "LS0",
+      "case_id": "results-LS-A",
+      "repeat_case_id": "results-LS-B",
+      "holy_c_source": "I64 O574LS0(I64 x){return x<<0;}I64 O574LS1(I64 x){return x<<1;}I64 O574LS63(I64 x){return x<<63;}I64 O574LS64(I64 x){return x<<64;}I64 O574LS65(I64 x){return x<<65;}I64 O574LSm1(I64 x){return x<<-1;}I64 O574LSm64(I64 x){return x<<-64;}O574LS0(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "left",
+          "count": "0",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0xfffffffffffffff9",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "LS1",
+      "case_id": "results-LS-A",
+      "repeat_case_id": "results-LS-B",
+      "holy_c_source": "I64 O574LS0(I64 x){return x<<0;}I64 O574LS1(I64 x){return x<<1;}I64 O574LS63(I64 x){return x<<63;}I64 O574LS64(I64 x){return x<<64;}I64 O574LS65(I64 x){return x<<65;}I64 O574LSm1(I64 x){return x<<-1;}I64 O574LSm64(I64 x){return x<<-64;}O574LS1(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "left",
+          "count": "1",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0xfffffffffffffff2",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "LS63",
+      "case_id": "results-LS-A",
+      "repeat_case_id": "results-LS-B",
+      "holy_c_source": "I64 O574LS0(I64 x){return x<<0;}I64 O574LS1(I64 x){return x<<1;}I64 O574LS63(I64 x){return x<<63;}I64 O574LS64(I64 x){return x<<64;}I64 O574LS65(I64 x){return x<<65;}I64 O574LSm1(I64 x){return x<<-1;}I64 O574LSm64(I64 x){return x<<-64;}O574LS63(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "left",
+          "count": "63",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x8000000000000000",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "LS64",
+      "case_id": "results-LS-A",
+      "repeat_case_id": "results-LS-B",
+      "holy_c_source": "I64 O574LS0(I64 x){return x<<0;}I64 O574LS1(I64 x){return x<<1;}I64 O574LS63(I64 x){return x<<63;}I64 O574LS64(I64 x){return x<<64;}I64 O574LS65(I64 x){return x<<65;}I64 O574LSm1(I64 x){return x<<-1;}I64 O574LSm64(I64 x){return x<<-64;}O574LS64(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "left",
+          "count": "64",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0xfffffffffffffff9",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "LS65",
+      "case_id": "results-LS-A",
+      "repeat_case_id": "results-LS-B",
+      "holy_c_source": "I64 O574LS0(I64 x){return x<<0;}I64 O574LS1(I64 x){return x<<1;}I64 O574LS63(I64 x){return x<<63;}I64 O574LS64(I64 x){return x<<64;}I64 O574LS65(I64 x){return x<<65;}I64 O574LSm1(I64 x){return x<<-1;}I64 O574LSm64(I64 x){return x<<-64;}O574LS65(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "left",
+          "count": "65",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0xfffffffffffffff2",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "LSm1",
+      "case_id": "results-LS-A",
+      "repeat_case_id": "results-LS-B",
+      "holy_c_source": "I64 O574LS0(I64 x){return x<<0;}I64 O574LS1(I64 x){return x<<1;}I64 O574LS63(I64 x){return x<<63;}I64 O574LS64(I64 x){return x<<64;}I64 O574LS65(I64 x){return x<<65;}I64 O574LSm1(I64 x){return x<<-1;}I64 O574LSm64(I64 x){return x<<-64;}O574LSm1(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "left",
+          "count": "-1",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x8000000000000000",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "LSm64",
+      "case_id": "results-LS-A",
+      "repeat_case_id": "results-LS-B",
+      "holy_c_source": "I64 O574LS0(I64 x){return x<<0;}I64 O574LS1(I64 x){return x<<1;}I64 O574LS63(I64 x){return x<<63;}I64 O574LS64(I64 x){return x<<64;}I64 O574LS65(I64 x){return x<<65;}I64 O574LSm1(I64 x){return x<<-1;}I64 O574LSm64(I64 x){return x<<-64;}O574LSm64(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "left",
+          "count": "-64",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0xfffffffffffffff9",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "RS0",
+      "case_id": "results-RS-A",
+      "repeat_case_id": "results-RS-B",
+      "holy_c_source": "I64 O574RS0(I64 x){return x>>0;}I64 O574RS1(I64 x){return x>>1;}I64 O574RS63(I64 x){return x>>63;}I64 O574RS64(I64 x){return x>>64;}I64 O574RS65(I64 x){return x>>65;}I64 O574RSm1(I64 x){return x>>-1;}I64 O574RSm64(I64 x){return x>>-64;}O574RS0(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "0",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0xfffffffffffffff9",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "RS1",
+      "case_id": "results-RS-A",
+      "repeat_case_id": "results-RS-B",
+      "holy_c_source": "I64 O574RS0(I64 x){return x>>0;}I64 O574RS1(I64 x){return x>>1;}I64 O574RS63(I64 x){return x>>63;}I64 O574RS64(I64 x){return x>>64;}I64 O574RS65(I64 x){return x>>65;}I64 O574RSm1(I64 x){return x>>-1;}I64 O574RSm64(I64 x){return x>>-64;}O574RS1(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "1",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0xfffffffffffffffc",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "RS63",
+      "case_id": "results-RS-A",
+      "repeat_case_id": "results-RS-B",
+      "holy_c_source": "I64 O574RS0(I64 x){return x>>0;}I64 O574RS1(I64 x){return x>>1;}I64 O574RS63(I64 x){return x>>63;}I64 O574RS64(I64 x){return x>>64;}I64 O574RS65(I64 x){return x>>65;}I64 O574RSm1(I64 x){return x>>-1;}I64 O574RSm64(I64 x){return x>>-64;}O574RS63(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "63",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0xffffffffffffffff",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "RS64",
+      "case_id": "results-RS-A",
+      "repeat_case_id": "results-RS-B",
+      "holy_c_source": "I64 O574RS0(I64 x){return x>>0;}I64 O574RS1(I64 x){return x>>1;}I64 O574RS63(I64 x){return x>>63;}I64 O574RS64(I64 x){return x>>64;}I64 O574RS65(I64 x){return x>>65;}I64 O574RSm1(I64 x){return x>>-1;}I64 O574RSm64(I64 x){return x>>-64;}O574RS64(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "64",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0xfffffffffffffff9",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "RS65",
+      "case_id": "results-RS-A",
+      "repeat_case_id": "results-RS-B",
+      "holy_c_source": "I64 O574RS0(I64 x){return x>>0;}I64 O574RS1(I64 x){return x>>1;}I64 O574RS63(I64 x){return x>>63;}I64 O574RS64(I64 x){return x>>64;}I64 O574RS65(I64 x){return x>>65;}I64 O574RSm1(I64 x){return x>>-1;}I64 O574RSm64(I64 x){return x>>-64;}O574RS65(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "65",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0xfffffffffffffffc",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "RSm1",
+      "case_id": "results-RS-A",
+      "repeat_case_id": "results-RS-B",
+      "holy_c_source": "I64 O574RS0(I64 x){return x>>0;}I64 O574RS1(I64 x){return x>>1;}I64 O574RS63(I64 x){return x>>63;}I64 O574RS64(I64 x){return x>>64;}I64 O574RS65(I64 x){return x>>65;}I64 O574RSm1(I64 x){return x>>-1;}I64 O574RSm64(I64 x){return x>>-64;}O574RSm1(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "-1",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0xffffffffffffffff",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "RSm64",
+      "case_id": "results-RS-A",
+      "repeat_case_id": "results-RS-B",
+      "holy_c_source": "I64 O574RS0(I64 x){return x>>0;}I64 O574RS1(I64 x){return x>>1;}I64 O574RS63(I64 x){return x>>63;}I64 O574RS64(I64 x){return x>>64;}I64 O574RS65(I64 x){return x>>65;}I64 O574RSm1(I64 x){return x>>-1;}I64 O574RSm64(I64 x){return x>>-64;}O574RSm64(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "-64",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0xfffffffffffffff9",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "LU0",
+      "case_id": "results-LU-fix-A",
+      "repeat_case_id": "results-LU-fix-B",
+      "holy_c_source": "U64 O574LUFix0(U64 x){return x<<0;}U64 O574LUFix1(U64 x){return x<<1;}U64 O574LUFix63(U64 x){return x<<63;}U64 O574LUFix64(U64 x){return x<<64;}U64 O574LUFix65(U64 x){return x<<65;}U64 O574LUFixm1(U64 x){return x<<-1;}U64 O574LUFixm64(U64 x){return x<<-64;}O574LUFix0(0x8000000000000005);",
+      "input_type": "U64",
+      "input_bits": "0x8000000000000005",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "left",
+          "count": "0",
+          "type": "U64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x8000000000000005",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "LU1",
+      "case_id": "results-LU-fix-A",
+      "repeat_case_id": "results-LU-fix-B",
+      "holy_c_source": "U64 O574LUFix0(U64 x){return x<<0;}U64 O574LUFix1(U64 x){return x<<1;}U64 O574LUFix63(U64 x){return x<<63;}U64 O574LUFix64(U64 x){return x<<64;}U64 O574LUFix65(U64 x){return x<<65;}U64 O574LUFixm1(U64 x){return x<<-1;}U64 O574LUFixm64(U64 x){return x<<-64;}O574LUFix1(0x8000000000000005);",
+      "input_type": "U64",
+      "input_bits": "0x8000000000000005",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "left",
+          "count": "1",
+          "type": "U64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x000000000000000a",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "LU63",
+      "case_id": "results-LU-fix-A",
+      "repeat_case_id": "results-LU-fix-B",
+      "holy_c_source": "U64 O574LUFix0(U64 x){return x<<0;}U64 O574LUFix1(U64 x){return x<<1;}U64 O574LUFix63(U64 x){return x<<63;}U64 O574LUFix64(U64 x){return x<<64;}U64 O574LUFix65(U64 x){return x<<65;}U64 O574LUFixm1(U64 x){return x<<-1;}U64 O574LUFixm64(U64 x){return x<<-64;}O574LUFix63(0x8000000000000005);",
+      "input_type": "U64",
+      "input_bits": "0x8000000000000005",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "left",
+          "count": "63",
+          "type": "U64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x8000000000000000",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "LU64",
+      "case_id": "results-LU-fix-A",
+      "repeat_case_id": "results-LU-fix-B",
+      "holy_c_source": "U64 O574LUFix0(U64 x){return x<<0;}U64 O574LUFix1(U64 x){return x<<1;}U64 O574LUFix63(U64 x){return x<<63;}U64 O574LUFix64(U64 x){return x<<64;}U64 O574LUFix65(U64 x){return x<<65;}U64 O574LUFixm1(U64 x){return x<<-1;}U64 O574LUFixm64(U64 x){return x<<-64;}O574LUFix64(0x8000000000000005);",
+      "input_type": "U64",
+      "input_bits": "0x8000000000000005",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "left",
+          "count": "64",
+          "type": "U64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x8000000000000005",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "LU65",
+      "case_id": "results-LU-fix-A",
+      "repeat_case_id": "results-LU-fix-B",
+      "holy_c_source": "U64 O574LUFix0(U64 x){return x<<0;}U64 O574LUFix1(U64 x){return x<<1;}U64 O574LUFix63(U64 x){return x<<63;}U64 O574LUFix64(U64 x){return x<<64;}U64 O574LUFix65(U64 x){return x<<65;}U64 O574LUFixm1(U64 x){return x<<-1;}U64 O574LUFixm64(U64 x){return x<<-64;}O574LUFix65(0x8000000000000005);",
+      "input_type": "U64",
+      "input_bits": "0x8000000000000005",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "left",
+          "count": "65",
+          "type": "U64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x000000000000000a",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "LUm1",
+      "case_id": "results-LU-fix-A",
+      "repeat_case_id": "results-LU-fix-B",
+      "holy_c_source": "U64 O574LUFix0(U64 x){return x<<0;}U64 O574LUFix1(U64 x){return x<<1;}U64 O574LUFix63(U64 x){return x<<63;}U64 O574LUFix64(U64 x){return x<<64;}U64 O574LUFix65(U64 x){return x<<65;}U64 O574LUFixm1(U64 x){return x<<-1;}U64 O574LUFixm64(U64 x){return x<<-64;}O574LUFixm1(0x8000000000000005);",
+      "input_type": "U64",
+      "input_bits": "0x8000000000000005",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "left",
+          "count": "-1",
+          "type": "U64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x8000000000000000",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "LUm64",
+      "case_id": "results-LU-fix-A",
+      "repeat_case_id": "results-LU-fix-B",
+      "holy_c_source": "U64 O574LUFix0(U64 x){return x<<0;}U64 O574LUFix1(U64 x){return x<<1;}U64 O574LUFix63(U64 x){return x<<63;}U64 O574LUFix64(U64 x){return x<<64;}U64 O574LUFix65(U64 x){return x<<65;}U64 O574LUFixm1(U64 x){return x<<-1;}U64 O574LUFixm64(U64 x){return x<<-64;}O574LUFixm64(0x8000000000000005);",
+      "input_type": "U64",
+      "input_bits": "0x8000000000000005",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "left",
+          "count": "-64",
+          "type": "U64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x8000000000000005",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "RU0",
+      "case_id": "results-RU-A",
+      "repeat_case_id": "results-RU-B",
+      "holy_c_source": "U64 O574RU0(U64 x){return x>>0;}U64 O574RU1(U64 x){return x>>1;}U64 O574RU63(U64 x){return x>>63;}U64 O574RU64(U64 x){return x>>64;}U64 O574RU65(U64 x){return x>>65;}U64 O574RUm1(U64 x){return x>>-1;}U64 O574RUm64(U64 x){return x>>-64;}O574RU0(0x8000000000000005);",
+      "input_type": "U64",
+      "input_bits": "0x8000000000000005",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "0",
+          "type": "U64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x8000000000000005",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "RU1",
+      "case_id": "results-RU-A",
+      "repeat_case_id": "results-RU-B",
+      "holy_c_source": "U64 O574RU0(U64 x){return x>>0;}U64 O574RU1(U64 x){return x>>1;}U64 O574RU63(U64 x){return x>>63;}U64 O574RU64(U64 x){return x>>64;}U64 O574RU65(U64 x){return x>>65;}U64 O574RUm1(U64 x){return x>>-1;}U64 O574RUm64(U64 x){return x>>-64;}O574RU1(0x8000000000000005);",
+      "input_type": "U64",
+      "input_bits": "0x8000000000000005",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "1",
+          "type": "U64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x4000000000000002",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "RU63",
+      "case_id": "results-RU-A",
+      "repeat_case_id": "results-RU-B",
+      "holy_c_source": "U64 O574RU0(U64 x){return x>>0;}U64 O574RU1(U64 x){return x>>1;}U64 O574RU63(U64 x){return x>>63;}U64 O574RU64(U64 x){return x>>64;}U64 O574RU65(U64 x){return x>>65;}U64 O574RUm1(U64 x){return x>>-1;}U64 O574RUm64(U64 x){return x>>-64;}O574RU63(0x8000000000000005);",
+      "input_type": "U64",
+      "input_bits": "0x8000000000000005",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "63",
+          "type": "U64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x0000000000000001",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "RU64",
+      "case_id": "results-RU-A",
+      "repeat_case_id": "results-RU-B",
+      "holy_c_source": "U64 O574RU0(U64 x){return x>>0;}U64 O574RU1(U64 x){return x>>1;}U64 O574RU63(U64 x){return x>>63;}U64 O574RU64(U64 x){return x>>64;}U64 O574RU65(U64 x){return x>>65;}U64 O574RUm1(U64 x){return x>>-1;}U64 O574RUm64(U64 x){return x>>-64;}O574RU64(0x8000000000000005);",
+      "input_type": "U64",
+      "input_bits": "0x8000000000000005",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "64",
+          "type": "U64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x8000000000000005",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "RU65",
+      "case_id": "results-RU-A",
+      "repeat_case_id": "results-RU-B",
+      "holy_c_source": "U64 O574RU0(U64 x){return x>>0;}U64 O574RU1(U64 x){return x>>1;}U64 O574RU63(U64 x){return x>>63;}U64 O574RU64(U64 x){return x>>64;}U64 O574RU65(U64 x){return x>>65;}U64 O574RUm1(U64 x){return x>>-1;}U64 O574RUm64(U64 x){return x>>-64;}O574RU65(0x8000000000000005);",
+      "input_type": "U64",
+      "input_bits": "0x8000000000000005",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "65",
+          "type": "U64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x4000000000000002",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "RUm1",
+      "case_id": "results-RU-A",
+      "repeat_case_id": "results-RU-B",
+      "holy_c_source": "U64 O574RU0(U64 x){return x>>0;}U64 O574RU1(U64 x){return x>>1;}U64 O574RU63(U64 x){return x>>63;}U64 O574RU64(U64 x){return x>>64;}U64 O574RU65(U64 x){return x>>65;}U64 O574RUm1(U64 x){return x>>-1;}U64 O574RUm64(U64 x){return x>>-64;}O574RUm1(0x8000000000000005);",
+      "input_type": "U64",
+      "input_bits": "0x8000000000000005",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "-1",
+          "type": "U64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x0000000000000001",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "RUm64",
+      "case_id": "results-RU-A",
+      "repeat_case_id": "results-RU-B",
+      "holy_c_source": "U64 O574RU0(U64 x){return x>>0;}U64 O574RU1(U64 x){return x>>1;}U64 O574RU63(U64 x){return x>>63;}U64 O574RU64(U64 x){return x>>64;}U64 O574RU65(U64 x){return x>>65;}U64 O574RUm1(U64 x){return x>>-1;}U64 O574RUm64(U64 x){return x>>-64;}O574RUm64(0x8000000000000005);",
+      "input_type": "U64",
+      "input_bits": "0x8000000000000005",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "-64",
+          "type": "U64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x8000000000000005",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "RVI",
+      "case_id": "results-CLASS-A",
+      "repeat_case_id": "results-CLASS-B",
+      "holy_c_source": "I64 O574RVI(I64 x,I64 n){return x>>n;}I64 O574RVU(I64 x,U64 n){return x>>n;}I64 O574RH1(I64 x){return x>>0x8000000000000001;}I64 O574RH0(I64 x){return x>>0x8000000000000000;}I64 O574CH1(I64 x){return (x>>0x8000000000000001)<0;}I64 O574CH0(I64 x){return (x>>0x8000000000000000)<0;}I64 O574CVU(I64 x,U64 n){return (x>>n)<0;}O574RVI(-7,1);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "raw-shift",
+          "direction": "right",
+          "count": "1",
+          "count_type": "I64",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0xfffffffffffffffc",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "RVU",
+      "case_id": "results-CLASS-A",
+      "repeat_case_id": "results-CLASS-B",
+      "holy_c_source": "I64 O574RVI(I64 x,I64 n){return x>>n;}I64 O574RVU(I64 x,U64 n){return x>>n;}I64 O574RH1(I64 x){return x>>0x8000000000000001;}I64 O574RH0(I64 x){return x>>0x8000000000000000;}I64 O574CH1(I64 x){return (x>>0x8000000000000001)<0;}I64 O574CH0(I64 x){return (x>>0x8000000000000000)<0;}I64 O574CVU(I64 x,U64 n){return (x>>n)<0;}O574RVU(-7,0x8000000000000001);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "raw-shift",
+          "direction": "right",
+          "count": "-9223372036854775807",
+          "count_type": "U64",
+          "type": "U64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x7ffffffffffffffc",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "RH1",
+      "case_id": "results-CLASS-A",
+      "repeat_case_id": "results-CLASS-B",
+      "holy_c_source": "I64 O574RVI(I64 x,I64 n){return x>>n;}I64 O574RVU(I64 x,U64 n){return x>>n;}I64 O574RH1(I64 x){return x>>0x8000000000000001;}I64 O574RH0(I64 x){return x>>0x8000000000000000;}I64 O574CH1(I64 x){return (x>>0x8000000000000001)<0;}I64 O574CH0(I64 x){return (x>>0x8000000000000000)<0;}I64 O574CVU(I64 x,U64 n){return (x>>n)<0;}O574RH1(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "-9223372036854775807",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x7ffffffffffffffc",
+      "source_pipeline_matches_baseline": false
+    },
+    {
+      "field": "RH0",
+      "case_id": "results-CLASS-A",
+      "repeat_case_id": "results-CLASS-B",
+      "holy_c_source": "I64 O574RVI(I64 x,I64 n){return x>>n;}I64 O574RVU(I64 x,U64 n){return x>>n;}I64 O574RH1(I64 x){return x>>0x8000000000000001;}I64 O574RH0(I64 x){return x>>0x8000000000000000;}I64 O574CH1(I64 x){return (x>>0x8000000000000001)<0;}I64 O574CH0(I64 x){return (x>>0x8000000000000000)<0;}I64 O574CVU(I64 x,U64 n){return (x>>n)<0;}O574RH0(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "-9223372036854775808",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0xfffffffffffffff9",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "CH1",
+      "case_id": "results-CLASS-A",
+      "repeat_case_id": "results-CLASS-B",
+      "holy_c_source": "I64 O574RVI(I64 x,I64 n){return x>>n;}I64 O574RVU(I64 x,U64 n){return x>>n;}I64 O574RH1(I64 x){return x>>0x8000000000000001;}I64 O574RH0(I64 x){return x>>0x8000000000000000;}I64 O574CH1(I64 x){return (x>>0x8000000000000001)<0;}I64 O574CH0(I64 x){return (x>>0x8000000000000000)<0;}I64 O574CVU(I64 x,U64 n){return (x>>n)<0;}O574CH1(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "-9223372036854775807",
+          "type": "I64"
+        },
+        {
+          "kind": "word-view",
+          "type": "U64"
+        },
+        {
+          "kind": "less-zero"
+        }
+      ],
+      "published_raw_baseline_bits": "0x0000000000000000",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "CH0",
+      "case_id": "results-CLASS-A",
+      "repeat_case_id": "results-CLASS-B",
+      "holy_c_source": "I64 O574RVI(I64 x,I64 n){return x>>n;}I64 O574RVU(I64 x,U64 n){return x>>n;}I64 O574RH1(I64 x){return x>>0x8000000000000001;}I64 O574RH0(I64 x){return x>>0x8000000000000000;}I64 O574CH1(I64 x){return (x>>0x8000000000000001)<0;}I64 O574CH0(I64 x){return (x>>0x8000000000000000)<0;}I64 O574CVU(I64 x,U64 n){return (x>>n)<0;}O574CH0(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "-9223372036854775808",
+          "type": "I64"
+        },
+        {
+          "kind": "word-view",
+          "type": "U64"
+        },
+        {
+          "kind": "less-zero"
+        }
+      ],
+      "published_raw_baseline_bits": "0x0000000000000000",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "CVU",
+      "case_id": "results-CLASS-A",
+      "repeat_case_id": "results-CLASS-B",
+      "holy_c_source": "I64 O574RVI(I64 x,I64 n){return x>>n;}I64 O574RVU(I64 x,U64 n){return x>>n;}I64 O574RH1(I64 x){return x>>0x8000000000000001;}I64 O574RH0(I64 x){return x>>0x8000000000000000;}I64 O574CH1(I64 x){return (x>>0x8000000000000001)<0;}I64 O574CH0(I64 x){return (x>>0x8000000000000000)<0;}I64 O574CVU(I64 x,U64 n){return (x>>n)<0;}O574CVU(-7,0x8000000000000000);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "raw-shift",
+          "direction": "right",
+          "count": "-9223372036854775808",
+          "count_type": "U64",
+          "type": "U64"
+        },
+        {
+          "kind": "less-zero"
+        }
+      ],
+      "published_raw_baseline_bits": "0x0000000000000000",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "LN64",
+      "case_id": "results-NEST-A",
+      "repeat_case_id": "results-NEST-B",
+      "holy_c_source": "I64 O574LN64(I64 x){return (x<<63)<<1;}I64 O574RN64(I64 x){return (x>>63)>>1;}U64 O574UN64(U64 x){return (x>>63)>>1;}I64 O574LN128(I64 x){return (x<<63)<<65;}I64 O574RN128(I64 x){return (x>>63)>>65;}I64 O574LRAW(I64 x,I64 a,I64 b){return (x<<a)<<b;}I64 O574RRAW(I64 x,I64 a,I64 b){return (x>>a)>>b;}O574LN64(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "left",
+          "count": "64",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x0000000000000000",
+      "source_pipeline_matches_baseline": false
+    },
+    {
+      "field": "RN64",
+      "case_id": "results-NEST-A",
+      "repeat_case_id": "results-NEST-B",
+      "holy_c_source": "I64 O574LN64(I64 x){return (x<<63)<<1;}I64 O574RN64(I64 x){return (x>>63)>>1;}U64 O574UN64(U64 x){return (x>>63)>>1;}I64 O574LN128(I64 x){return (x<<63)<<65;}I64 O574RN128(I64 x){return (x>>63)>>65;}I64 O574LRAW(I64 x,I64 a,I64 b){return (x<<a)<<b;}I64 O574RRAW(I64 x,I64 a,I64 b){return (x>>a)>>b;}O574RN64(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "64",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0xffffffffffffffff",
+      "source_pipeline_matches_baseline": false
+    },
+    {
+      "field": "UN64",
+      "case_id": "results-NEST-A",
+      "repeat_case_id": "results-NEST-B",
+      "holy_c_source": "I64 O574LN64(I64 x){return (x<<63)<<1;}I64 O574RN64(I64 x){return (x>>63)>>1;}U64 O574UN64(U64 x){return (x>>63)>>1;}I64 O574LN128(I64 x){return (x<<63)<<65;}I64 O574RN128(I64 x){return (x>>63)>>65;}I64 O574LRAW(I64 x,I64 a,I64 b){return (x<<a)<<b;}I64 O574RRAW(I64 x,I64 a,I64 b){return (x>>a)>>b;}O574UN64(0x8000000000000005);",
+      "input_type": "U64",
+      "input_bits": "0x8000000000000005",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "64",
+          "type": "U64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x0000000000000000",
+      "source_pipeline_matches_baseline": false
+    },
+    {
+      "field": "LN128",
+      "case_id": "results-NEST-A",
+      "repeat_case_id": "results-NEST-B",
+      "holy_c_source": "I64 O574LN64(I64 x){return (x<<63)<<1;}I64 O574RN64(I64 x){return (x>>63)>>1;}U64 O574UN64(U64 x){return (x>>63)>>1;}I64 O574LN128(I64 x){return (x<<63)<<65;}I64 O574RN128(I64 x){return (x>>63)>>65;}I64 O574LRAW(I64 x,I64 a,I64 b){return (x<<a)<<b;}I64 O574RRAW(I64 x,I64 a,I64 b){return (x>>a)>>b;}O574LN128(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "left",
+          "count": "128",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x0000000000000000",
+      "source_pipeline_matches_baseline": false
+    },
+    {
+      "field": "RN128",
+      "case_id": "results-NEST-A",
+      "repeat_case_id": "results-NEST-B",
+      "holy_c_source": "I64 O574LN64(I64 x){return (x<<63)<<1;}I64 O574RN64(I64 x){return (x>>63)>>1;}U64 O574UN64(U64 x){return (x>>63)>>1;}I64 O574LN128(I64 x){return (x<<63)<<65;}I64 O574RN128(I64 x){return (x>>63)>>65;}I64 O574LRAW(I64 x,I64 a,I64 b){return (x<<a)<<b;}I64 O574RRAW(I64 x,I64 a,I64 b){return (x>>a)>>b;}O574RN128(-7);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "constant-shift",
+          "direction": "right",
+          "count": "128",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0xffffffffffffffff",
+      "source_pipeline_matches_baseline": false
+    },
+    {
+      "field": "LRAW",
+      "case_id": "results-NEST-A",
+      "repeat_case_id": "results-NEST-B",
+      "holy_c_source": "I64 O574LN64(I64 x){return (x<<63)<<1;}I64 O574RN64(I64 x){return (x>>63)>>1;}U64 O574UN64(U64 x){return (x>>63)>>1;}I64 O574LN128(I64 x){return (x<<63)<<65;}I64 O574RN128(I64 x){return (x>>63)>>65;}I64 O574LRAW(I64 x,I64 a,I64 b){return (x<<a)<<b;}I64 O574RRAW(I64 x,I64 a,I64 b){return (x>>a)>>b;}O574LRAW(-7,63,1);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "raw-shift",
+          "direction": "left",
+          "count": "63",
+          "count_type": "I64",
+          "type": "I64"
+        },
+        {
+          "kind": "raw-shift",
+          "direction": "left",
+          "count": "1",
+          "count_type": "I64",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x0000000000000000",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "RRAW",
+      "case_id": "results-NEST-A",
+      "repeat_case_id": "results-NEST-B",
+      "holy_c_source": "I64 O574LN64(I64 x){return (x<<63)<<1;}I64 O574RN64(I64 x){return (x>>63)>>1;}U64 O574UN64(U64 x){return (x>>63)>>1;}I64 O574LN128(I64 x){return (x<<63)<<65;}I64 O574RN128(I64 x){return (x>>63)>>65;}I64 O574LRAW(I64 x,I64 a,I64 b){return (x<<a)<<b;}I64 O574RRAW(I64 x,I64 a,I64 b){return (x>>a)>>b;}O574RRAW(-7,63,1);",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "raw-shift",
+          "direction": "right",
+          "count": "63",
+          "count_type": "I64",
+          "type": "I64"
+        },
+        {
+          "kind": "raw-shift",
+          "direction": "right",
+          "count": "1",
+          "count_type": "I64",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0xffffffffffffffff",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "CSU",
+      "case_id": "results-CONST-A",
+      "repeat_case_id": "results-CONST-B",
+      "holy_c_source": "-7>>0x8000000000000001;",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "raw-shift",
+          "direction": "right",
+          "count": "-9223372036854775807",
+          "count_type": "U64",
+          "type": "U64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x7ffffffffffffffc",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "CSV",
+      "case_id": "results-CONST-A",
+      "repeat_case_id": "results-CONST-B",
+      "holy_c_source": "-7>>1;",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "raw-shift",
+          "direction": "right",
+          "count": "1",
+          "count_type": "I64",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0xfffffffffffffffc",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "CSUC",
+      "case_id": "results-CONST-A",
+      "repeat_case_id": "results-CONST-B",
+      "holy_c_source": "(-7>>0x8000000000000001)<0;",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "raw-shift",
+          "direction": "right",
+          "count": "-9223372036854775807",
+          "count_type": "U64",
+          "type": "U64"
+        },
+        {
+          "kind": "less-zero"
+        }
+      ],
+      "published_raw_baseline_bits": "0x0000000000000000",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "CLN",
+      "case_id": "results-CONST-A",
+      "repeat_case_id": "results-CONST-B",
+      "holy_c_source": "(-7<<63)<<1;",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "raw-shift",
+          "direction": "left",
+          "count": "63",
+          "count_type": "I64",
+          "type": "I64"
+        },
+        {
+          "kind": "raw-shift",
+          "direction": "left",
+          "count": "1",
+          "count_type": "I64",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x0000000000000000",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "CRN",
+      "case_id": "results-CONST-A",
+      "repeat_case_id": "results-CONST-B",
+      "holy_c_source": "(-7>>63)>>1;",
+      "input_type": "I64",
+      "input_bits": "-7",
+      "operations": [
+        {
+          "kind": "raw-shift",
+          "direction": "right",
+          "count": "63",
+          "count_type": "I64",
+          "type": "I64"
+        },
+        {
+          "kind": "raw-shift",
+          "direction": "right",
+          "count": "1",
+          "count_type": "I64",
+          "type": "I64"
+        }
+      ],
+      "published_raw_baseline_bits": "0xffffffffffffffff",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "CUR",
+      "case_id": "results-CONST-A",
+      "repeat_case_id": "results-CONST-B",
+      "holy_c_source": "0x8000000000000005>>1;",
+      "input_type": "U64",
+      "input_bits": "0x8000000000000005",
+      "operations": [
+        {
+          "kind": "raw-shift",
+          "direction": "right",
+          "count": "1",
+          "count_type": "I64",
+          "type": "U64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x4000000000000002",
+      "source_pipeline_matches_baseline": true
+    },
+    {
+      "field": "CUL",
+      "case_id": "results-CONST-A",
+      "repeat_case_id": "results-CONST-B",
+      "holy_c_source": "0x8000000000000005<<1;",
+      "input_type": "U64",
+      "input_bits": "0x8000000000000005",
+      "operations": [
+        {
+          "kind": "raw-shift",
+          "direction": "left",
+          "count": "1",
+          "count_type": "I64",
+          "type": "U64"
+        }
+      ],
+      "published_raw_baseline_bits": "0x000000000000000a",
+      "source_pipeline_matches_baseline": true
+    }
+  ],
+  "projection_boundary": "These canonical full-word IR projections reproduce captured bits. Result/computation classes are source-derived because %X does not expose a runtime type tag. The unsigned comparison decision is represented by an existing U64 word view. The public source pipeline still emits raw shifts; six captured fields differ until source optimizer integration under #585/#696/#697.",
+  "baseline_comparison": {
+    "cases": 196,
+    "modes": [
+      "jit",
+      "aot"
+    ],
+    "targets": [
+      "ir",
+      "host-jit"
+    ],
+    "successes": 196,
+    "failures": 0,
+    "native_differing_fields": [
+      "RH1",
+      "LN64",
+      "RN64",
+      "UN64",
+      "LN128",
+      "RN128"
+    ],
+    "native_differing_controls": 24
+  }
+}

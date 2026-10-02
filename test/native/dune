@@ -1,5 +1,15 @@
 (rule
  (alias native-tests)
+ (deps ../oracle/constant-shifts.json)
+ (action
+  (run
+   %{exe:../test_constant_shift_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../oracle/constant-shifts.json}
+   --native)))
+
+(rule
+ (alias native-tests)
  (deps ../../examples/stream-pointer-difference-wide.hc)
  (action
   (run
@@ -392,6 +402,22 @@
    %{dep:../../examples/internal-toupper.hc}
    %{dep:../../examples/stream-internal.hc}
    %{dep:../../examples/stream-internal-binding.hc})))
+
+(copy_files ../test_constant_shifts.ml)
+
+(executable
+ (name test_constant_shift_execution)
+ (modules
+  test_constant_shift_execution
+  test_constant_shifts
+  test_native_expression)
+ (libraries holyc_lib alcotest yojson))
+
+(rule
+ (alias native-tests)
+ (deps ../oracle/constant-shifts.json)
+ (action
+  (run %{exe:test_constant_shift_execution.exe})))
 
 (executable
  (name test_native_execution)

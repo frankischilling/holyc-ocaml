@@ -53,6 +53,7 @@ type instruction =
   | Bsr of register * register
   | Bit of bit * register * register
   | Shift_cl of shift * register
+  | Shift_immediate of shift * register * int64
   | Capture_status of status_abi
   | Zero_edx
   | Cqo
@@ -192,6 +193,12 @@ let bitwise_xor = source_form "XOR" 501
 let shift_left_cl = source_form "SHL" 1107
 let shift_right_cl = source_form "SHR" 1125
 let shift_arithmetic_right_cl = source_form "SAR" 1143
+let shift_left_immediate = source_form "SHL" 1115
+let shift_right_immediate = source_form "SHR" 1133
+let shift_arithmetic_right_immediate = source_form "SAR" 1151
+let shift_left_one = source_form "SHL1" 1120
+let shift_right_one = source_form "SHR1" 1138
+let shift_arithmetic_right_one = source_form "SAR1" 1156
 let compare_immediate_byte = source_form "CMP" 365
 let zero_register32 = source_form "XOR" 496
 let divide = source_form "DIV" 708
@@ -236,6 +243,15 @@ let shift_form = function
   | Shl -> shift_left_cl
   | Shr -> shift_right_cl
   | Sar -> shift_arithmetic_right_cl
+
+let immediate_shift_form shift count =
+  match (shift, count = 1L) with
+  | Shl, true -> shift_left_one
+  | Shr, true -> shift_right_one
+  | Sar, true -> shift_arithmetic_right_one
+  | Shl, false -> shift_left_immediate
+  | Shr, false -> shift_right_immediate
+  | Sar, false -> shift_arithmetic_right_immediate
 
 let narrow_load_form width extension =
   match (width, extension) with
@@ -296,6 +312,7 @@ let form = function
   | Binary (Or, _, _) -> bitwise_or
   | Binary (Xor, _, _) -> bitwise_xor
   | Shift_cl (shift, _) -> shift_form shift
+  | Shift_immediate (shift, _, count) -> immediate_shift_form shift count
   | Capture_status _ -> mov_register
   | Zero_edx -> zero_register32
   | Cqo -> sign_extend_rax
@@ -425,6 +442,8 @@ let size instruction =
   | Load_context _ | Store_context _ -> 4
   | Store_context_imm _ -> 8
   | Dec _ -> 3
+  | Shift_immediate (_, _, count) ->
+      opcode_bytes + 2 + if count = 1L then 0 else 1
   | Mov _
   | Unary _
   | Binary _
@@ -651,6 +670,9 @@ let write buffer position instruction =
       (* OpCodes.DD:1107/1125/1143 are the 64-bit RM64,CL forms. The slash
          value selects SHL/SHR/SAR; RCX is implicit and REX.B extends RM64. *)
       modrm ~reg:selected.slash_value ~rm:(register_number destination)
+  | Shift_immediate (_, destination, count) ->
+      modrm ~reg:selected.slash_value ~rm:(register_number destination);
+      if count <> 1L then byte (Int64.to_int (Int64.logand count 0xffL))
   | Capture_status abi ->
       (* MOV R11,RCX on Windows x64; MOV R11,RDI on System V x86-64. R11 is
          fixed private state for fault-capable images and RDI is intentionally

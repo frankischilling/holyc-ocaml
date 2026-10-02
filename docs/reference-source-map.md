@@ -1391,9 +1391,10 @@ Integer immediate and unary evidence comes from `Compiler/PrsExp.HC:608-616,678-
 multiplication, addition, and subtraction behavior.
 `Compiler/OptPass789A.HC:418-420,779-786` consumes return values and emits `RET`.
 The existing runtime shift, comparison, and logical evidence in this map applies
-to the same VM after source lowering. Issue #574 still tracks constant-form
-shift questions, and issue #396 still tracks the broader IR work. No TempleOS
-execution oracle was run for this hosted integration.
+to the same VM after source lowering. The later [constant-shift audit](constant-shifts.md)
+settles #574 using its own native captures; source optimizer integration remains
+under #585/#696/#697. Issue #396 retains the broader IR work. This earlier hosted
+integration did not produce a TempleOS execution capture.
 
 ## Native scalar pointer aliases
 
@@ -1593,3 +1594,22 @@ field padding. `Compiler/UAsm.HC:578-581,617-620` selects register names with `%
 All three source files already have canonical hashes in the manifest. Public
 source, generated declarations and native API/CLI tests exercise these paths;
 [list formatting](list-formatting.md) records work and fault-order examples.
+
+## Constant integer shifts
+
+The [constant-shift audit](constant-shifts.md) follows every pinned producer and
+consumer, including power-of-two multiplication/division producers and later
+address-selection consumers. Its native fixture records 49 fields twice and
+15 disassemblies. `OptPass012.HC:193-266` combines unary counts before masking,
+`OptLib.HC:196-225` forwards the surviving operand class, and
+`BackA.HC:573-601` selects C1/D1 and arithmetic or logical right shift.
+`OptPass012.HC:741-827` and `BackB.HC:158,193` explain the retained unsigned
+comparison decision after an unsigned count is removed.
+
+`src/ir/integer_interpreter.ml` preflights the zero-flag, full-word unary forms
+and charges each reached instruction once. `src/backend/x86_64_word_codegen.ml`
+and `src/backend/x86_64_encoder.ml` consume the canonical form without an RCX
+count value. `test/test_constant_shifts.ml` links expected bits to captured
+fields, and the native suite executes both expression and program images.
+This settles the policy in #574. The public raw source pipeline still differs
+on six fields; #585/#696/#697 retain source optimizer integration.

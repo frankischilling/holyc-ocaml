@@ -98,6 +98,7 @@ type instruction =
       (** Field then index: qword BT/BTS/BTR/BTC register forms. The prior bit
           is placed in carry; modifying forms update the field register. *)
   | Shift_cl of shift * register
+  | Shift_immediate of shift * register * int64
       (** Shift the full-width destination by CL. [Shl] is left shift, [Shr]
           logical right shift, and [Sar] arithmetic right shift. The count is
           read from RCX implicitly; the destination may be any public register.
