@@ -10,6 +10,7 @@ module Global_storage = X86_64_global_storage
 module Literal_storage = X86_64_literal_storage
 module Print_codegen = X86_64_print_format
 module Runtime = Ir.Runtime_call_context
+module Intrinsic = Ir.Integer_intrinsic
 module Defaults = Driver.Native_parameter_defaults
 module Prepared_default = Ir.Prepared_parameter_default
 module Function = Ir.Function_body
@@ -311,7 +312,7 @@ type operation =
   | Put_chars of int
   | Print_output of Print_codegen.t
   | Internal_strlen of value * int
-  | Internal_toupper of value * int
+  | Internal_integer of Intrinsic.unary * value * int
   | Call_cleanup
   | Call_end of int * value
   | Call_end_void
@@ -2222,19 +2223,47 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           assign position (if old_result then r8 else computed_index) result
       | Call_start | Call_cleanup -> release_through position
-      | Internal_toupper (input, result_stage) ->
+      | Internal_integer (operation, input, result_stage) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span input rax;
-          let complete = fresh_label supply in
-          emit (Encoder.Mov_imm64 (Encoder.Rcx, 97L));
-          emit (Encoder.Cmp (Encoder.Rax, Encoder.Rcx));
-          emit_branch Less complete;
-          emit (Encoder.Mov_imm64 (Encoder.Rcx, 122L));
-          emit (Encoder.Cmp (Encoder.Rcx, Encoder.Rax));
-          emit_branch Less complete;
-          emit (Encoder.Mov_imm64 (Encoder.Rcx, 32L));
-          emit (Encoder.Binary (Encoder.Sub, Encoder.Rax, Encoder.Rcx));
-          mark complete;
+          (match operation with
+          | Intrinsic.To_upper ->
+              let complete = fresh_label supply in
+              emit (Encoder.Mov_imm64 (Encoder.Rcx, 97L));
+              emit (Encoder.Cmp (Encoder.Rax, Encoder.Rcx));
+              emit_branch Less complete;
+              emit (Encoder.Mov_imm64 (Encoder.Rcx, 122L));
+              emit (Encoder.Cmp (Encoder.Rcx, Encoder.Rax));
+              emit_branch Less complete;
+              emit (Encoder.Mov_imm64 (Encoder.Rcx, 32L));
+              emit (Encoder.Binary (Encoder.Sub, Encoder.Rax, Encoder.Rcx));
+              mark complete
+          | Intrinsic.To_bool ->
+              emit (Encoder.Test Encoder.Rax);
+              emit (Encoder.Setcc (Encoder.NE, Encoder.Rax));
+              emit (Encoder.Movzx8 (Encoder.Rax, Encoder.Rax))
+          | Intrinsic.Absolute ->
+              let negative = fresh_label supply in
+              let complete = fresh_label supply in
+              emit (Encoder.Test Encoder.Rax);
+              emit_branch Less negative;
+              emit_branch Unconditional complete;
+              mark negative;
+              emit (Encoder.Unary (Encoder.Neg, Encoder.Rax));
+              mark complete
+          | Intrinsic.Sign ->
+              let negative = fresh_label supply in
+              let complete = fresh_label supply in
+              emit (Encoder.Test Encoder.Rax);
+              emit_branch Equal complete;
+              emit_branch Less negative;
+              emit (Encoder.Mov_imm64 (Encoder.Rax, 1L));
+              emit_branch Unconditional complete;
+              mark negative;
+              emit (Encoder.Mov_imm64 (Encoder.Rax, -1L));
+              mark complete
+          | Intrinsic.Square_i64 | Square_u64 ->
+              emit (Encoder.Binary (Encoder.Imul, Encoder.Rax, Encoder.Rax)));
           emit
             (Encoder.Store_stack
                (staged_stack_slot instruction.span result_stage, Encoder.Rax));
@@ -3731,9 +3760,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | _ ->
                   malformed description
                     "internal call start changed its selected symbol");
-              if
-                Runtime.intrinsic_opcode intrinsic <> Opcode.Ic_strlen
-                && Runtime.intrinsic_opcode intrinsic <> Opcode.Ic_toupper
+              if not (Intrinsic.supports (Runtime.intrinsic_opcode intrinsic))
               then
                 unsupported description
                   "native internal operation is outside the checked subset";
@@ -3741,10 +3768,13 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                  source_return_kind ?span:description.span
                    (Runtime.intrinsic_return_type intrinsic)
                with
-              | Callable_word_return { word_type = I64; byte_size = 8 } -> ()
+              | Callable_word_return _
+                when Intrinsic.result_matches
+                       (Runtime.intrinsic_opcode intrinsic)
+                       (Runtime.intrinsic_return_type intrinsic) -> ()
               | _ ->
                   malformed description
-                    "internal operation must retain its declared I64 return \
+                    "internal operation must retain its declared scalar return \
                      type");
               if !stage_cursor >= max_stack_bytes / 8 then
                 reject ?span:description.span "HCBACK0004"
@@ -4032,7 +4062,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               in
               calls := scope :: !calls;
               (Call_start, None)
-          | (Opcode.Ic_strlen | Opcode.Ic_toupper) as opcode -> (
+          | opcode when Intrinsic.supports opcode -> (
               match
                 ( !intrinsics,
                   Runtime.find_intrinsic_instruction runtime_calls
@@ -4071,17 +4101,17 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                        producer type";
                   let target = Runtime.argument_target_type argument in
                   checked_copy description target input.declared_type;
-                  (match Type.base target with
-                  | Type.Primitive (_, Primitive.U8)
-                    when Type.pointer_depth target
-                         = if opcode = Opcode.Ic_strlen then 1 else 0 -> ()
-                  | _ ->
-                      malformed description
-                        "internal operation changed its declared U8 parameter");
+                  if not (Intrinsic.argument_matches opcode target) then
+                    malformed description
+                      "internal operation changed its declared parameter";
                   scope.intrinsic_executed <- true;
                   ( (if opcode = Opcode.Ic_strlen then
                        Internal_strlen (input, scope.intrinsic_stage)
-                     else Internal_toupper (input, scope.intrinsic_stage)),
+                     else
+                       Internal_integer
+                         ( Option.get (Intrinsic.unary opcode),
+                           input,
+                           scope.intrinsic_stage )),
                     None )
               | _ ->
                   malformed description

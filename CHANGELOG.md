@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added source-owned ToBool, AbsI64, SignI64 and integer square calls to IR,
+  retained tasks and hosted native execution. Full-word inputs, wrapping results,
+  exact source/signature checks and existing runtime limits remain enforced.
+  Constant folding and native closed preparation keep their separate gates.
+
 - Bound constant parameter defaults to their actual original VM evaluation.
   AOT source, retained tasks and native preparation consume one owning result;
   changed saved bits, foreign results, replay and expired callbacks reject.

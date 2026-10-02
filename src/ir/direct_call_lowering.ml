@@ -242,13 +242,6 @@ let description ~instruction_id ~opcode ~target_type ~payload ~span ?result
     span = Some span;
   }
 
-let primitive type_ depth expected =
-  Type.pointer_depth type_ = depth
-  &&
-  match Type.base type_ with
-  | Type.Primitive (_, actual) -> Sema.Primitive_type.equal actual expected
-  | _ -> false
-
 let parameter_type parameter =
   parameter |> Headers.parameter_type_reference
   |> Sema.Type_reference.resolved_type
@@ -261,15 +254,13 @@ let intrinsic_shape opcode ~header ~arguments ~variadic_count_type
   Int64.equal variadic_count 0L
   && Option.is_none variadic_count_type
   && variadic_arguments = []
-  && primitive result_type 0 Sema.Primitive_type.I64
+  && Integer_intrinsic.result_matches opcode result_type
   &&
   match (parameters, arguments) with
   | [ parameter ], [ Provided _ ] ->
       Headers.parameter_default parameter = None
       && Headers.parameter_register_requests parameter = []
-      && primitive (parameter_type parameter)
-           (if opcode = Opcode.Ic_strlen then 1 else 0)
-           Sema.Primitive_type.U8
+      && Integer_intrinsic.argument_matches opcode (parameter_type parameter)
   | _ -> false
 
 let lower_intrinsic ?frame ?globals ?lower_call ~span ~instruction_id ~value_id
@@ -575,13 +566,12 @@ let lower ?frame ?globals ?lower_call ~instruction_id ~value_id ~target result =
                     Runtime_call_context.intrinsic_opcode_of_source source,
                     arguments )
                 with
-                | ( Records.Internal_operation,
-                    Some ((Opcode.Ic_strlen | Opcode.Ic_toupper) as opcode),
-                    [ Provided argument ] )
-                  when intrinsic_shape opcode
-                         ~header:(Resolution.direct_active_header direct)
-                         ~arguments ~variadic_count_type ~variadic_count
-                         ~variadic_arguments ~result_type ->
+                | Records.Internal_operation, Some opcode, [ Provided argument ]
+                  when Integer_intrinsic.supports opcode
+                       && intrinsic_shape opcode
+                            ~header:(Resolution.direct_active_header direct)
+                            ~arguments ~variadic_count_type ~variadic_count
+                            ~variadic_arguments ~result_type ->
                     lower_intrinsic ?frame ?globals ?lower_call ~span
                       ~instruction_id ~value_id ~source
                       ~symbol:(Resolution.direct_target_symbol direct)
@@ -637,13 +627,12 @@ let lower_top_level ?frame ?globals ?lower_call ~instruction_id ~value_id
                     Runtime_call_context.intrinsic_opcode_of_source source,
                     arguments )
                 with
-                | ( Records.Internal_operation,
-                    Some ((Opcode.Ic_strlen | Opcode.Ic_toupper) as opcode),
-                    [ Provided argument ] )
-                  when intrinsic_shape opcode
-                         ~header:(Result.top_level_direct_header typed)
-                         ~arguments ~variadic_count_type ~variadic_count
-                         ~variadic_arguments ~result_type ->
+                | Records.Internal_operation, Some opcode, [ Provided argument ]
+                  when Integer_intrinsic.supports opcode
+                       && intrinsic_shape opcode
+                            ~header:(Result.top_level_direct_header typed)
+                            ~arguments ~variadic_count_type ~variadic_count
+                            ~variadic_arguments ~result_type ->
                     lower_intrinsic ?frame ?globals ?lower_call ~span
                       ~instruction_id ~value_id ~source
                       ~symbol:(Result.top_level_direct_target_symbol typed)

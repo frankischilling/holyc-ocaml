@@ -87,6 +87,13 @@ checkout credentials. See [native expressions](docs/native-expressions.md).
 
 ## Explicit native program execution
 
+Unary integer internal calls require their original numeric declaration, exact
+fixed signature, source phase and unpushed producer. Source names and equal
+metadata cannot authorize an operation. VM and native preflight reject foreign
+contexts and changed instructions before execution. Runtime admission keeps
+closed constant preparation separate; native default/initializer calls remain
+unsupported. See [unary integer internal calls](docs/internal-integers.md).
+
 `holyc run --target=host-jit` and `Native_program.evaluate` additionally execute
 structured control flow, fixed direct scalar integer functions and U0 procedures with automatic
 storage. Their source gate rejects statics, prototypes/externs,

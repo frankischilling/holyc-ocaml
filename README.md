@@ -1,5 +1,10 @@
 # holyc-ocaml
 
+Issue #761 connects [unary integer internal calls](docs/internal-integers.md)
+to IR, retained tasks and hosted native execution. ToBool, AbsI64, SignI64 and
+integer squares preserve full-word results and original call authority. Broader
+runtime, floating and native frontend work remains open.
+
 [Internal ASCII conversion](docs/internal-toupper.md) executes the pinned
 `_intern IC_TOUPPER` declaration through both execution targets. The checked
 operation preserves full argument words; `examples/internal-toupper.hc`

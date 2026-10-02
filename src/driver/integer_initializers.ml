@@ -490,10 +490,13 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                 Ir.Integer_program_lowering.graph value_lowered
               in
               let value_code = value_instructions value_graph_ in
+              (* Checked internal calls keep their runtime scopes until the
+                 source optimizer's folding rewrite has been implemented. *)
               let constant =
                 List.for_all
                   (fun (item : Seq.description) ->
-                    not (Ir.Opcode.info item.opcode).prevents_constant_folding)
+                    (not (Ir.Opcode.info item.opcode).prevents_constant_folding)
+                    && not (Ir.Integer_intrinsic.supports item.opcode))
                   value_code
               in
               let guard ~constant code =
@@ -538,6 +541,8 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                               (not
                                  (Ir.Opcode.info item.opcode)
                                    .prevents_constant_folding)
+                              && (not
+                                    (Ir.Integer_intrinsic.supports item.opcode))
                               && item.operands <> []
                               && List.for_all known item.operands
                         in

@@ -1,5 +1,13 @@
 # Testing holyc-ocaml
 
+Unary integer internal tests cover independent sign/high-bit/overflow words,
+all Boolean input bits, narrow computed versus stored values, original numeric
+signatures, nested and recursive callers, effectful arguments and retained
+defaults. Foreign contexts and changed internal instructions reject in both
+consumers. Native tests compile both ABIs, repeat fresh images, check runtime,
+code and frame limits, and preserve the closed-preparation boundary. Maintained
+CLI examples check exact and one-below work in both modes and targets.
+
 The constant-default authority suites exercise actual original evaluation in
 AOT source, retained tasks and native preparation. They reject empty or copied
 lowerings, another globals context, equal-valued foreign completions, replay,

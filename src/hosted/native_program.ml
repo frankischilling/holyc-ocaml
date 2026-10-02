@@ -144,7 +144,6 @@ let internal_prototype (prototype : Ast.function_prototype) =
     | Ast.Expression_binding_target _ -> true
     | _ -> false)
   && prototype.return_pointer_layers = []
-  && public_primitive I64 prototype.return_type
   && Option.is_none prototype.variadic
   && Option.is_some prototype.closing_parenthesis
   &&
@@ -154,7 +153,17 @@ let internal_prototype (prototype : Ast.function_prototype) =
       && List.length parameter.pointer_layers <= 1
       && Option.is_none parameter.function_pointer
       && Option.is_none parameter.default
-      && public_primitive U8 parameter.type_specifier
+      &&
+      let depth = List.length parameter.pointer_layers in
+      public_primitive I64 prototype.return_type
+      && ((public_primitive U8 parameter.type_specifier && depth <= 1)
+         || (public_primitive I64 parameter.type_specifier && depth = 0))
+      || public_primitive U64 prototype.return_type
+         && public_primitive U64 parameter.type_specifier
+         && depth = 0
+      || public_primitive U8 prototype.return_type
+         && public_primitive I64 parameter.type_specifier
+         && depth = 0
   | _ -> false
 
 let implicit_output_expressions (statement : Ast.implicit_output_statement) =
