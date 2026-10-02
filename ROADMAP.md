@@ -1,5 +1,10 @@
 # holyc-ocaml roadmap
 
+Issue #769 adds [canonical Bool execution](docs/canonical-bool.md), including
+the pinned ToBool signature, scalar storage, calls and original saved defaults.
+Bool identity, signed byte reads and full computed returns remain distinct.
+Broader runtime, optimizer and native retained work stays under #695/#685/#704.
+
 Issue #767 adds [owned ModU64 calls](docs/internal-mod-u64.md) for numeric
 formatting and date-conversion patterns. Original pointer ownership, argument
 order, quotient mutation and fault phases are checked through IR and both host

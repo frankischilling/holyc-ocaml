@@ -1,7 +1,9 @@
 type t
 
 val of_type : Sema.Type.t -> t option
-(** Nonzero scalar integer storage, using generated primitive metadata. *)
+(** Nonzero scalar integer backing, including Bool's audited I8i storage.
+    Generated metadata determines width and signedness; exact checked type
+    identity remains separate. *)
 
 val byte_size : t -> int
 

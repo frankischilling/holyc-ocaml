@@ -60,6 +60,7 @@ val to_string : t -> string
 val of_spelling : string -> t option
 val of_storage_spelling : string -> t option
 val info : t -> info
+val integer_storage_info : t -> info option
 val is_zero_sized : t -> bool
 val pointer_representation : pointer_representation
 val pointer_byte_size : int

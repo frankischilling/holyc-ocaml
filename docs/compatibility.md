@@ -1,5 +1,11 @@
 # holyc-ocaml compatibility status
 
+Issue #769 implements [canonical Bool execution](canonical-bool.md) through
+both source modes and execution targets. Bool retains its distinct public type
+and signed one-byte backing. Computed returns preserve full words; storage and
+parameter entry narrow. The original Bool ToBool signature and retained defaults
+are supported; closed native internal-call preparation remains separate.
+
 Issue #767 implements [owned ModU64 calls](internal-mod-u64.md) in both modes
 and execution targets. I64/U64 object words supply unsigned bits, retain their
 original pointer type and receive the quotient; the U64 result is the remainder.

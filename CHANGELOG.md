@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added canonical Bool ToBool calls and Bool scalar execution to IR, retained
+  tasks and the hosted native target. Bool keeps its distinct public type and
+  signed one-byte backing. Computed words, stored narrowing, original call
+  authority and once-only defaults retain the existing execution limits.
+
 - Added original ModU64 calls to IR, retained tasks and hosted native execution.
   Live I64/U64 objects receive unsigned quotients and calls return remainders.
   Original pointer/argument authority, read-before-division faults and existing

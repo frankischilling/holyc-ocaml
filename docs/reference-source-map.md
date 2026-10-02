@@ -1,5 +1,13 @@
 # Reference source map
 
+Issue #769 connects Bool's signed one-byte backing at `Compiler/CInit.HC:1-15`
+to the original ToBool signature at `Kernel/KernelB.HH:119` and numeric target
+at `Compiler/CompilerA.HH:51`. `BackB.HC:289-303` and
+`OptPass789A.HC:835-837` provide full-word truth conversion. Existing width,
+argument-slot, saved-default and return consumers supply scalar execution;
+the separate immediate rewrite remains open. See
+[canonical Bool execution](canonical-bool.md).
+
 Issue #767 connects `Kernel/KernelB.HH:103`, `Compiler/CompilerA.HH:227` and
 `PrsExp.HC:440-586` to ModU64. `BackC.HC:463-488` and
 `OptPass789A.HC:878-879` supply its unsigned division, quotient store and returned

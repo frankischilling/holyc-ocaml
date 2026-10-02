@@ -1,6 +1,34 @@
 (rule
  (alias native-tests)
  (deps
+  ../../examples/canonical-bool.hc
+  ../../examples/stream-canonical-bool.hc)
+ (action
+  (run
+   %{exe:../test_canonical_bool_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/canonical-bool.hc}
+   %{dep:../../examples/stream-canonical-bool.hc}
+   --native)))
+
+(copy_files ../test_canonical_bool.ml)
+
+(executable
+ (name test_canonical_bool_execution)
+ (modules
+  test_canonical_bool_execution
+  test_canonical_bool
+  test_internal_strlen_authority)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_canonical_bool_execution.exe})))
+
+(rule
+ (alias native-tests)
+ (deps
   ../../examples/internal-mod-u64.hc
   ../../examples/stream-internal-mod-u64.hc)
  (action

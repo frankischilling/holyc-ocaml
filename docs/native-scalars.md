@@ -18,6 +18,8 @@ numeric value. The ordinary `run` target remains the checked interpreter.
 
 Named fixed parameters, automatic locals and scalar returns admit I8, U8, I16,
 U16, I32, U32, I64 and U64, including their checked intrinsic storage spellings.
+Issue #769 also admits Bool using its audited I8i backing while preserving its
+distinct public type. See [canonical Bool execution](canonical-bool.md).
 The source type identity stays separate from the value's computation class.
 Generated primitive metadata and `Ir.Integer_scalar_storage` determine width
 and signedness; there is no additional native primitive registry.
@@ -25,6 +27,7 @@ and signedness; there is no additional native primitive registry.
 | Declared object | Bytes read or written | Loaded word |
 | --- | --- | --- |
 | I8 / I16 / I32 | 1 / 2 / 4 | Sign-extended I64 |
+| Bool | 1 | Sign-extended I64 |
 | U8 / U16 / U32 | 1 / 2 / 4 | Zero-extended U64 |
 | I64 / U64 | 8 | Full I64 / U64 word |
 
@@ -71,8 +74,8 @@ TempleOS register-allocation or optimizer parity.
 
 ## Saved defaults
 
-The existing constant-only native preparation path now accepts the same eight
-integer parameter types. A narrow default retains its full saved 64-bit word and
+The constant-only native preparation path accepts the eight nonzero integer
+parameter types and Bool. A narrow default retains its full saved 64-bit word and
 the exact declared type. For `U8 value=554`, preparation retains 554; a read of the
 callee's U8 parameter yields 42. Preparation does not silently replace the saved
 word with 42. Each successfully prepared value still consumes eight saved-payload
@@ -162,7 +165,7 @@ by [native globals](native-globals.md) and [native pointers](native-pointers.md)
 Automatic integer arrays are covered by [native arrays](native-arrays.md).
 Global/static arrays, closed initializers and strings are covered by
 [persistent storage](native-persistent-storage.md).
-Broader pointer storage, automatic initialized arrays, aggregate values, Bool/I0/F64 storage,
+Broader pointer storage, automatic initialized arrays, aggregate values, I0/F64 storage,
 variadic/indirect/external calls, prototypes, explicit register/function flags,
 runtime output and general declaration/`#exe` execution remain outside this gate.
 Optimizer parity, complete HolyC ABI, assembly/object/BIN output, actual loader

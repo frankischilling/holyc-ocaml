@@ -67,8 +67,7 @@ let create ~compilation_mode ~max_initializer_steps
       }
 
 let scalar_integer primitive =
-  let info = Common.Primitive_type.info primitive in
-  info.category = Common.Primitive_type.Integer && info.byte_size > 0
+  Option.is_some (Common.Primitive_type.integer_storage_info primitive)
 
 let scalar_word_type = function
   | Ast.Primitive_type_specifier primitive -> scalar_integer primitive.primitive

@@ -87,6 +87,14 @@ checkout credentials. See [native expressions](docs/native-expressions.md).
 
 ## Explicit native program execution
 
+Bool objects use their audited signed one-byte backing without changing public
+type or pointer identity. Parameter bounds expose one byte despite eight-byte
+ABI slots. Canonical ToBool calls require the original numeric declaration,
+exact signature and sealed producer. Storage does not normalize arbitrary
+values to truth; the explicit operation tests the full word. Existing bounds,
+initialization and instruction/image quotas apply. See
+[canonical Bool execution](docs/canonical-bool.md).
+
 ModU64 calls require an original numeric binding, exact asymmetric signature
 and both original producers. The pointed value must identify a live owned
 I64/U64 cell within its original extent. Bounds and initialization are checked

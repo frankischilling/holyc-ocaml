@@ -102,8 +102,7 @@ let create ~table ~namespace ~publication
   let* () =
     match Type.base type_ with
     | Type.Primitive (_, p)
-      when (Primitive_type.info p).category = Primitive_type.Integer
-           && (Primitive_type.info p).byte_size > 0 -> Ok ()
+      when Option.is_some (Primitive_type.integer_storage_info p) -> Ok ()
     | _ ->
         Error
           "HCRUN0001: native static initializers require nonzero integer types"
