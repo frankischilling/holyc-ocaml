@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Fixed scheduled array-bound and parameter-default programs to retain their
+  original expression lowering. Substituted graphs, copied typed values and
+  foreign storage or call contexts are rejected before execution.
+
 - Added original integer `_intern` target evaluation inside retained tasks.
   Arithmetic, globals, queries and effectful calls save their value before
   header publication; later declaration errors preserve reached output and work.

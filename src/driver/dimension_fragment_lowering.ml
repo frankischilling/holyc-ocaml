@@ -58,7 +58,8 @@ let prepare ~context ~authority ~runtime destination =
         ~entry_calls:(Lower.runtime_calls lowered)
         ~functions:[]
     in
-    Program.create ~authority ~destination ~entry ~initialization ~runtime_calls
+    Program.create ~authority ~destination ~lowered ~entry ~initialization
+      ~runtime_calls
     |> diagnose
     |> Result.map (fun program -> Program.Scheduled program)
   in

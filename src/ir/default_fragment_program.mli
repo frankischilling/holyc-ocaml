@@ -3,12 +3,14 @@ type t
 val create :
   authority:Sema.Default_fragment.authority ->
   destination:Default_fragment_destination.t ->
+  lowered:Integer_program_lowering.t ->
   entry:X87_stack.t ->
   initialization:Global_initialization.t ->
   runtime_calls:Runtime_call_context.t ->
   (t, string) result
 
 val destination : t -> Default_fragment_destination.t
+val lowered : t -> Integer_program_lowering.t
 val entry : t -> X87_stack.t
 val initialization : t -> Global_initialization.t
 val runtime_calls : t -> Runtime_call_context.t
