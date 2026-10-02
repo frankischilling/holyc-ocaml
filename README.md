@@ -1,5 +1,9 @@
 # holyc-ocaml
 
+Issue #773 connects [owned swap calls](docs/swap-internals.md) to IR, retained
+tasks and hosted native execution. The four original widths exchange live
+scalar cells, preserve their declared storage and complete actual U0.
+
 Issue #771 connects [owned pointer bit calls](docs/pointer-bit-internals.md)
 to IR, retained tasks and hosted native execution. Bt/Bts/Btr/Btc return the
 prior bit and preserve the original integer/Bool object and its storage width.

@@ -314,6 +314,7 @@ type operation =
   | Internal_strlen of value * int
   | Internal_mod_u64 of value * value * int
   | Internal_bit of Intrinsic.bit * value * value * scalar_value * int
+  | Internal_swap of value * scalar_value * value * scalar_value * int
   | Internal_integer of Intrinsic.unary * value * int
   | Internal_binary of Intrinsic.binary * value * value * int
   | Call_cleanup
@@ -2372,6 +2373,43 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
           emit (Encoder.Store_stack (stage, Encoder.Rax));
           note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
           release_through position
+      | Internal_swap (left, left_scalar, right, right_scalar, scratch_stage) ->
+          spill_all_registers instruction.span;
+          let site = Option.get instruction.site in
+          let address_stage = staged_stack_slot instruction.span scratch_stage
+          and value_stage =
+            staged_stack_slot instruction.span (scratch_stage + 1)
+          in
+          let load reference scalar =
+            copy_value_to instruction.span reference rdx;
+            emit (Encoder.Load_indirect (Encoder.Rcx, Encoder.Rdx, 16));
+            emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 24));
+            emit_bounds instruction.span site ~one_past:false ~scalar
+              ~offset:Encoder.Rcx ~extent:Encoder.R8;
+            emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 8));
+            emit_flag_check instruction.span site scalar ~flag_base:Encoder.R8
+              ~offset:Encoder.Rcx;
+            emit (Encoder.Load_indirect (Encoder.R8, Encoder.Rdx, 0));
+            emit (Encoder.Binary (Encoder.Add, Encoder.R8, Encoder.Rcx));
+            emit
+              (load_reference_scalar instruction.span Encoder.Rdx Encoder.R8
+                 scalar)
+          in
+          load left left_scalar;
+          emit (Encoder.Store_stack (address_stage, Encoder.R8));
+          emit (Encoder.Store_stack (value_stage, Encoder.Rdx));
+          load right right_scalar;
+          (* BackC.HC reads both cells before writing the second, then the first. *)
+          emit (Encoder.Load_stack (Encoder.Rax, value_stage));
+          emit
+            (store_reference_scalar instruction.span Encoder.R8 right_scalar
+               Encoder.Rax);
+          emit (Encoder.Load_stack (Encoder.R8, address_stage));
+          emit
+            (store_reference_scalar instruction.span Encoder.R8 left_scalar
+               Encoder.Rdx);
+          note_peak ~temporaries:[ rax; rcx; rdx; r8 ] ();
+          release_through position
       | Internal_mod_u64 (reference, divisor, result_stage) ->
           spill_all_registers instruction.span;
           copy_value_to instruction.span reference rdx;
@@ -3905,17 +3943,25 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                  source_return_kind ?span:description.span
                    (Runtime.intrinsic_return_type intrinsic)
                with
-              | Callable_word_return _
+              | (Callable_word_return _ | Callable_void_return)
                 when Intrinsic.result_matches
                        (Runtime.intrinsic_opcode intrinsic)
                        (Runtime.intrinsic_return_type intrinsic) -> ()
               | _ ->
                   malformed description
-                    "internal operation must retain its declared scalar return \
-                     type");
-              if !stage_cursor >= max_stack_bytes / 8 then
+                    "internal operation must retain its declared return type");
+              let stage_count =
+                if
+                  Option.is_some
+                    (Intrinsic.swap_size (Runtime.intrinsic_opcode intrinsic))
+                then 2
+                else 1
+              in
+              if stage_count > (max_stack_bytes / 8) - !stage_cursor then
                 reject ?span:description.span "HCBACK0004"
-                  "native internal result exceeds the private frame limit";
+                  (if stage_count = 2 then
+                     "native swap staging exceeds the private frame limit"
+                   else "native internal result exceeds the private frame limit");
               intrinsics :=
                 {
                   intrinsic;
@@ -3924,7 +3970,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                   intrinsic_executed = false;
                 }
                 :: !intrinsics;
-              incr stage_cursor;
+              stage_cursor := !stage_cursor + stage_count;
               stage_high_water := max !stage_high_water !stage_cursor;
               (Call_start, None)
           | Opcode.Ic_call_start ->
@@ -4240,7 +4286,18 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                             "internal operation changed its checked argument \
                              producer type";
                         let target = Runtime.argument_target_type argument in
-                        if Option.is_some (Intrinsic.bit opcode) && index = 0
+                        if Option.is_some (Intrinsic.swap_size opcode) then (
+                          if
+                            not
+                              (Intrinsic.swap_pointer opcode input.declared_type)
+                          then
+                            malformed description
+                              "swap requires original matching-width scalar \
+                               pointers";
+                          ignore
+                            (checked_reference description input.declared_type))
+                        else if
+                          Option.is_some (Intrinsic.bit opcode) && index = 0
                         then (
                           if not (Intrinsic.bit_pointer input.declared_type)
                           then
@@ -4272,6 +4329,19 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                         Intrinsic.binary opcode,
                         inputs )
                     with
+                    | opcode, _, _, [ left; right ]
+                      when Option.is_some (Intrinsic.swap_size opcode) ->
+                        let _, left_scalar =
+                          checked_reference description left.declared_type
+                        and _, right_scalar =
+                          checked_reference description right.declared_type
+                        in
+                        Internal_swap
+                          ( left,
+                            left_scalar,
+                            right,
+                            right_scalar,
+                            scope.intrinsic_stage )
                     | opcode, _, _, [ pointed; index ]
                       when Option.is_some (Intrinsic.bit opcode) ->
                         let _, scalar =
@@ -4417,7 +4487,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | scope :: rest
                 when scope.intrinsic == intrinsic
                      && scope.intrinsic_executed
-                     && scope.ordinary_depth = List.length !calls ->
+                     && scope.ordinary_depth = List.length !calls -> (
                   if description.flags <> 0L || description.operands <> [] then
                     malformed description "invalid internal call-end shape";
                   (match description.payload with
@@ -4438,13 +4508,20 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
                         malformed description
                           "internal call end changed its declared result"
                   in
-                  let value =
-                    define values description position result target_type
-                      (Computation.declared target_type)
-                  in
                   intrinsics := rest;
                   stage_cursor := scope.intrinsic_stage;
-                  (Call_end (scope.intrinsic_stage, value), None)
+                  match
+                    source_return_kind ?span:description.span target_type
+                  with
+                  | Callable_word_return _ ->
+                      let value =
+                        define values description position result target_type
+                          (Computation.declared target_type)
+                      in
+                      (Call_end (scope.intrinsic_stage, value), None)
+                  | Callable_void_return ->
+                      void_values := Value_set.add result.value_id !void_values;
+                      (Call_end_void, None))
               | _ ->
                   malformed description
                     "internal call end has no completed intrinsic scope")
@@ -5655,6 +5732,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | Update_reference_value _
               | Internal_mod_u64 _
               | Internal_bit _
+              | Internal_swap _
               | Internal_strlen _
               | Print_output _ -> true
               | _ -> false);
@@ -5678,6 +5756,7 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
               | Update_indexed_object_value _
               | Internal_mod_u64 _
               | Internal_bit _
+              | Internal_swap _
               | Internal_strlen _
               | Print_output _ -> true
               | Materialize_reference (_, _, None, _)

@@ -1,6 +1,35 @@
 (rule
  (alias native-tests)
  (deps
+  ../../examples/swap-internals.hc
+  ../../examples/stream-swap-internals.hc)
+ (action
+  (run
+   %{exe:../test_swap_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../../examples/swap-internals.hc}
+   %{dep:../../examples/stream-swap-internals.hc}
+   --native)))
+
+(copy_files ../test_swap_internals.ml)
+
+(executable
+ (name test_swap_execution)
+ (modules
+  test_swap_execution
+  test_swap_internals
+  test_pointer_bit_internals
+  test_internal_strlen_authority)
+ (libraries holyc_lib native_scalar_support alcotest))
+
+(rule
+ (alias native-tests)
+ (action
+  (run %{exe:test_swap_execution.exe})))
+
+(rule
+ (alias native-tests)
+ (deps
   ../../examples/pointer-bit-internals.hc
   ../../examples/stream-pointer-bit-internals.hc)
  (action

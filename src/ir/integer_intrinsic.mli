@@ -14,6 +14,7 @@ type bit = Test_bit | Set_bit | Reset_bit | Complement_bit
 val unary : Opcode.t -> unary option
 val binary : Opcode.t -> binary option
 val bit : Opcode.t -> bit option
+val swap_size : Opcode.t -> int option
 val arity : Opcode.t -> int option
 val supports : Opcode.t -> bool
 val argument_matches : Opcode.t -> index:int -> Sema.Type.t -> bool
@@ -25,6 +26,11 @@ val mod_u64_pointer : Sema.Type.t -> bool
 val bit_pointer : Sema.Type.t -> bool
 (** An original one-level pointer to admitted scalar backing. This capability is
     local to plain pointed bit calls and preserves the original pointee. *)
+
+val swap_pointer : Opcode.t -> Sema.Type.t -> bool
+(** A scalar pointer type whose original backing width matches the selected swap
+    operation. Execution checks ownership and lifetime separately. This does not
+    authorize partial-object reinterpretation. *)
 
 val result_matches : Opcode.t -> Sema.Type.t -> bool
 

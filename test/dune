@@ -1,4 +1,16 @@
 (test
+ (name test_swap_cli)
+ (modules test_swap_cli)
+ (libraries unix yojson)
+ (deps ../examples/swap-internals.hc ../examples/stream-swap-internals.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/swap-internals.hc}
+   %{dep:../examples/stream-swap-internals.hc})))
+
+(test
  (name test_pointer_bit_cli)
  (modules test_pointer_bit_cli)
  (libraries unix yojson)
@@ -215,6 +227,7 @@
   test_internal_mod_u64
   test_canonical_bool
   test_pointer_bit_internals
+  test_swap_internals
   test_retained_internal
   test_internal_strlen_authority
   test_internal_strlen_source

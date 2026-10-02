@@ -56,8 +56,10 @@ val compile :
     string pointers. A source-defined [Print] or [PutChars] remains an ordinary
     direct source call. Source-owned internal declarations support owned StrLen,
     ToUpper, ToBool, integer absolute/sign/square, Min/Max, Bsf/Bsr and pointed
-    ModU64 and plain Bt/Bts/Btr/Btc operations under their exact numeric
-    signatures. Bit calls select nonnegative bits within original owned
+    ModU64, plain Bt/Bts/Btr/Btc and U0 SwapI64/SwapU32/SwapU16/SwapU8
+    operations under their exact numeric signatures. Swap calls read both
+    original matching-width scalar cells before writing either and complete
+    actual U0. Bit calls select nonnegative bits within original owned
     integer/Bool extents and mutate at the original declared width. Bool retains
     its public identity and signed one-byte backing. Internal integer arguments
     retain full computed words without formal-width storage; original numeric
