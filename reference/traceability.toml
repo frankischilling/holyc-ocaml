@@ -12759,3 +12759,26 @@ execution = "Valid same-object aligned offsets differ by an exact multiple of th
 resources = "Original unknown/bounds/overflow/object-mismatch phases, left-before-right effects, reached output and attempted work remain. Size constant/division count as callee runtime instructions. Runtime/preparation/output/storage/descriptor/call/frame/code limits remain bounded."
 excluded = ["arbitrary constant division/modulo and shifts", "outer user division and byte-difference user division", "direct expressions without the completed original callee context", "general optimizer and declaration preparation under #696/#697/#685", "native closed owned-reference defaults HCRUN0006 and retained frontend HCPP0008 under #704", "raw class/address parity and broader pointer/ABI/image/artifact/loader/bootstrap gates under #687/#699/#700/#702/#703/#682"]
 verification_boundary = "Seven source groups cover 53 independent retained values across all nine types and both modes, signed/interior/one-past offsets, snapshots/rows/aliases/loops/nested/recursive calls, original query and current/transitive authority, user-division and generic-gate controls, four original fault phases/work, reached output and exact/one-below preparation/runtime/output limits. Public CLI retains native boundaries and existing IR/native controls. No new TempleOS oracle capture."
+
+[[feature]]
+id = "HC-IR-CONSTANT-INTEGER-SHIFTS"
+description = "Canonical full-word constant shifts forward the surviving computation class, retain the full count payload and mask only at execution."
+sources = ["Compiler/CompilerA.HH:68-71", "Compiler/CInit.HC:60-63", "Compiler/OptLib.HC:96-179,196-225", "Compiler/OptPass012.HC:193-266,337-356,403-455,741-827", "Compiler/OptPass3.HC:405-406", "Compiler/OptPass4.HC:27-34,302-344,599-601", "Compiler/OptPass789A.HC:676-687", "Compiler/BackA.HC:573-601", "Compiler/BackB.HC:158,193", "Compiler/OpCodes.DD:1103-1156", "Kernel/KernelA.HH:1609"]
+implementation = ["src/ir/integer_interpreter.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_encoder.ml", "docs/constant-shifts.md"]
+tests = ["test/test_constant_shifts.ml", "test/native/test_constant_shift_execution.ml", "test/oracle/constant-shifts.json"]
+status = "implemented"
+issue = 574
+native_fields = 49
+repeated_native_observations = 98
+native_disassemblies = 15
+repeatability = "two runs within one boot; no cross-boot claim"
+shape = "one full-width word operand, one internal I64/U64 result, integer count payload, zero flags; result matches forwarded operand computation class"
+encoding = "complete count exactly one selects D1; all other counts select C1 and its low byte; CPU masks to six bits"
+comparison_boundary = "canonical projection uses the existing U64 word view to preserve the earlier unsigned comparison decision; nonzero comparison flags remain unsupported"
+initializer_boundary = "generic retained initializer constant shifts remain HCRUN0006"
+source_optimizer_issues = [585, 696, 697]
+source_baseline_commit = "3ba28b0da0e9f93dae3978f51cef5f4897f3e897"
+source_baseline_controls = 196
+source_baseline_differing_controls = 24
+source_baseline_differing_fields = ["RH1", "LN64", "RN64", "UN64", "LN128", "RN128"]
+excluded = ["automatic source shift optimization", "full constant-expression folding and multiplication/division strength reductions", "compound/narrow/pointer/F64 constant shifts", "LEA/SIB optimization", "TempleOS loader acceptance and bootstrap"]

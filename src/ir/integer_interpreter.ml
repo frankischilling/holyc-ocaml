@@ -225,6 +225,8 @@ type prepared_operation =
       * stored_type
   | Immediate of Value_id.t * word
   | Unary of unary_operation * prepared_operand * Value_id.t * word_type
+  | Constant_shift of
+      binary_operation * prepared_operand * int64 * Value_id.t * word_type
   | Word_view of prepared_operand * Value_id.t * word_type
   | Compare_pointers of
       comparison_operation * prepared_pointer * prepared_pointer * Value_id.t
@@ -2577,6 +2579,7 @@ type opcode_kind =
   | Increment_slot_kind of binary_operation * bool
   | Immediate_kind
   | Unary_kind of unary_operation
+  | Constant_shift_kind of binary_operation
   | Word_view_kind
   | Binary_kind of binary_operation
   | Discard_kind
@@ -2653,6 +2656,8 @@ let opcode_kind = function
   | Opcode.Ic_xor -> Some (Binary_kind Bitwise_xor)
   | Opcode.Ic_shl -> Some (Binary_kind Shift_left)
   | Opcode.Ic_shr -> Some (Binary_kind Shift_right)
+  | Opcode.Ic_shl_const -> Some (Constant_shift_kind Shift_left)
+  | Opcode.Ic_shr_const -> Some (Constant_shift_kind Shift_right)
   | Opcode.Ic_equ_equ -> Some (Binary_kind (Compare Equal))
   | Opcode.Ic_not_equ -> Some (Binary_kind (Compare Not_equal))
   | Opcode.Ic_less -> Some (Binary_kind (Compare Less))
@@ -3332,7 +3337,10 @@ let declared_types ?frame ?globals ?literals ?initialization
                            when (memory_enabled || allow_calls)
                                 &&
                                 match opcode_kind opcode with
-                                | Some (Unary_kind _ | Binary_kind _) -> true
+                                | Some
+                                    ( Unary_kind _
+                                    | Constant_shift_kind _
+                                    | Binary_kind _ ) -> true
                                 | _ -> false -> (
                              match
                                scalar_value_type ~allow_byte ~allow_public:true
@@ -3930,6 +3938,39 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                                  (unary, operand, result.value_id, result_type))
                           else Error (invalid_type_matrix block_id description))
                   )
+              | _ -> Error (malformed block_id description))
+          | Constant_shift_kind direction -> (
+              match
+                ( description.operands,
+                  description.result,
+                  description.target_type,
+                  description.payload )
+              with
+              | ( [ operand_id ],
+                  Some result,
+                  Some target,
+                  Some (Sequence.Integer count) ) -> (
+                  match producer_word_type target with
+                  | None -> Error (unsupported_type block_id description)
+                  | Some result_type -> (
+                      match
+                        ( operand_of_value types operand_id,
+                          Value_map.find_opt operand_id types )
+                      with
+                      | ( Some operand,
+                          Some (Supported (_, declared, computation)) )
+                        when Option.is_some (return_word_type declared)
+                             && Type.equal
+                                  (Computation.forward computation)
+                                  target ->
+                          Ok
+                            (Constant_shift
+                               ( direction,
+                                 operand,
+                                 count,
+                                 result.value_id,
+                                 result_type ))
+                      | _ -> Error (invalid_type_matrix block_id description)))
               | _ -> Error (malformed block_id description))
           | Word_view_kind -> (
               match
@@ -6429,6 +6470,24 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     | Logical_not ->
                         if Int64.equal operand.bits 0L then 1L else 0L
                     | Negate -> Int64.neg operand.bits
+                  in
+                  values :=
+                    Value_map.add result
+                      (Runtime_word { type_ = result_type; bits })
+                      !values)
+          | Constant_shift (direction, operand, count, result, result_type) -> (
+              match require_operand block instruction operand with
+              | None -> ()
+              | Some operand ->
+                  let shift = shift_count count in
+                  let bits =
+                    match (direction, result_type) with
+                    | Shift_left, (I64 | U64) ->
+                        Int64.shift_left operand.bits shift
+                    | Shift_right, I64 -> Int64.shift_right operand.bits shift
+                    | Shift_right, U64 ->
+                        Int64.shift_right_logical operand.bits shift
+                    | _ -> assert false
                   in
                   values :=
                     Value_map.add result

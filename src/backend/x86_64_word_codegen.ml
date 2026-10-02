@@ -255,6 +255,7 @@ type operation =
   | Apply_unary of Encoder.unary * value * value
   | Apply_binary of Encoder.binary * value * value * value
   | Apply_shift of Encoder.shift * value * value * value
+  | Apply_constant_shift of Encoder.shift * value * int64 * value
   | Apply_division of
       arithmetic_operation * word_type * fault_site * value * value * value
   | Apply_comparison of Encoder.condition * value * value * value
@@ -345,6 +346,7 @@ type kind =
   | Unary_kind of Encoder.unary
   | Binary_kind of Encoder.binary
   | Shift_kind of [ `Left | `Right ]
+  | Constant_shift_kind of [ `Left | `Right ]
   | Division_kind of arithmetic_operation
   | Comparison_kind of Encoder.condition * Encoder.condition
   | Logical_not_kind
@@ -368,6 +370,8 @@ let opcode_kind = function
   | Opcode.Ic_xor -> Some (Binary_kind Encoder.Xor)
   | Opcode.Ic_shl -> Some (Shift_kind `Left)
   | Opcode.Ic_shr -> Some (Shift_kind `Right)
+  | Opcode.Ic_shl_const -> Some (Constant_shift_kind `Left)
+  | Opcode.Ic_shr_const -> Some (Constant_shift_kind `Right)
   | Opcode.Ic_div -> Some (Division_kind Divide)
   | Opcode.Ic_mod -> Some (Division_kind Remainder)
   | Opcode.Ic_equ_equ -> Some (Comparison_kind (Encoder.E, Encoder.E))
@@ -567,6 +571,27 @@ let prepare_word_operation ?(allow_public = false) ?(allow_narrow = false)
               define result target_type (Computation.forward target_type)
             in
             Apply_binary (binary, left, right, result)
+        | ( Constant_shift_kind direction,
+            ( [ input_id ],
+              Some result,
+              Some target_type,
+              Some (Sequence.Integer count) ) ) ->
+            let word = checked_word description target_type in
+            let input = operand input_id in
+            ignore (checked_word ~allow_public description input.declared_type);
+            require_type description
+              (Computation.forward input.computation_type)
+              target_type;
+            let shift =
+              match (direction, word) with
+              | `Left, (I64 | U64) -> Encoder.Shl
+              | `Right, I64 -> Encoder.Sar
+              | `Right, U64 -> Encoder.Shr
+            in
+            let result =
+              define result target_type (Computation.forward target_type)
+            in
+            Apply_constant_shift (shift, input, count, result)
         | ( Shift_kind direction,
             ([ left_id; right_id ], Some result, Some target_type, None) ) ->
             let word = checked_value target_type in
@@ -1650,6 +1675,17 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
           else (
             emit (Encoder.Mov (target, registers.(left)));
             emit (Encoder.Binary (binary, target, registers.(right))));
+          assign position destination result
+      | Apply_constant_shift (shift, input, count, result) ->
+          let inputs, protected = ensure_inputs instruction.span [ input ] in
+          let source = List.hd inputs in
+          let destination =
+            acquire_destination instruction.span position ~protected
+              ~excluded:[]
+          in
+          if destination <> source then
+            emit (Encoder.Mov (registers.(destination), registers.(source)));
+          emit (Encoder.Shift_immediate (shift, registers.(destination), count));
           assign position destination result
       | Apply_shift (shift, left, count, result) ->
           let count_register = find_register count in

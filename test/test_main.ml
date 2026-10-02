@@ -2,6 +2,7 @@ let () =
   Alcotest.run "holyc"
     [
       ("source", Test_source.tests);
+      ("constant shift policy", Test_constant_shifts.tests);
       ("native expression encoding", Test_native_expression.tests);
       ("native program encoding", Test_native_program.tests);
       ("native literal storage", Test_native_literal_storage.tests);

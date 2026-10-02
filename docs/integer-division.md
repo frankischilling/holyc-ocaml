@@ -93,7 +93,7 @@ the unsigned divisor, while `OptFixupUnaryOp` at `OptLib.HC:196-225` forwards
 the surviving operand's class when the constant shift is revisited.
 `OptPass789A.HC:682-687` and `BackA.HC:573-600` then select the signed shift.
 This is a source explanation of the captured difference; it does not settle
-the independent count-merging questions in issue #574. An unsigned `x/2`
+the count-merging policy now captured in [constant shifts](constant-shifts.md); source integration remains under #585/#696/#697. An unsigned `x/2`
 function emitted `SHR` and agreed with raw and constant unsigned division.
 
 ## Observed fault phases

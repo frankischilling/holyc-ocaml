@@ -1,4 +1,12 @@
 (test
+ (name test_constant_shift_cli)
+ (modules test_constant_shift_cli)
+ (libraries unix yojson)
+ (deps oracle/constant-shifts.json)
+ (action
+  (run %{test} %{exe:../bin/holyc.exe} %{dep:oracle/constant-shifts.json})))
+
+(test
  (name test_prepared_pointer_difference_cli)
  (modules test_prepared_pointer_difference_cli)
  (libraries unix yojson)
@@ -296,6 +304,7 @@
   test_task_function_alias
   test_integer_expression
   test_native_expression
+  test_constant_shifts
   test_native_program
   test_native_literal_storage
   test_native_persistent_storage
@@ -577,6 +586,7 @@
   oracle/conditional-recovery.json
   oracle/function-definitions.json
   oracle/integer-division.json
+  oracle/constant-shifts.json
   oracle/local-declarations.json
   oracle/parenthesis-free-calls.json
   golden/integer-unary-folding.ir

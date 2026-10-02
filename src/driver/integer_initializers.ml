@@ -525,7 +525,12 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                       in
                       let rejected =
                         match (item.opcode, item.operands) with
-                        | ( (Ir.Opcode.Ic_shl | Ic_shr | Ic_shl_equ | Ic_shr_equ),
+                        | ( ( Ir.Opcode.Ic_shl
+                            | Ic_shr
+                            | Ic_shl_const
+                            | Ic_shr_const
+                            | Ic_shl_equ
+                            | Ic_shr_equ ),
                             _ ) -> true
                         | ( (Ir.Opcode.Ic_div | Ic_mod | Ic_div_equ | Ic_mod_equ),
                             [ _; right ] )

@@ -333,9 +333,10 @@ the VM's opcode, type, or flag domain; evaluation rejects those during preflight
 This bounded expression path does not implement general `run` or `compile`,
 `#exe`, native code generation, a hosted runtime, or whole-program execution.
 M5 and [IR epic #396](https://github.com/frankischilling/holyc-ocaml/issues/396)
-remain open. Runtime shifts retain the constant-versus-runtime discrepancy in
-[issue #574](https://github.com/frankischilling/holyc-ocaml/issues/574); no
-constant-folding equivalence or native shift oracle is claimed.
+remain open. The [constant-shift audit](docs/constant-shifts.md) records native
+values, immediate encodings and checked canonical IR execution. The public
+source optimizer still needs integration under #585/#696/#697; six captured
+source fields differ from the current raw pipeline.
 
 ## Integer source execution
 

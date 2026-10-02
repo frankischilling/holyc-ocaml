@@ -114,8 +114,9 @@ source control-flow branches and conditional comparison chains remain outside
 this native gate. They receive diagnostics from their first unsupported source
 or IR stage. Native division and remainder implement the checked raw IR
 semantics; the distinct TempleOS strength-reduction and fault-phase optimizer
-policy remains separate work in #585. Native shift execution likewise does not
-establish the constant-form optimizer policy in #574.
+policy remains separate work in #585. Canonical constant shifts now have
+[native evidence and checked execution](constant-shifts.md); the public source
+optimizer still needs integration under #585/#696/#697.
 The only admitted cast form is a full-width internal I64/U64 word view with
 `IC_HOLYC_TYPECAST`, integer payload zero and zero flags. It preserves all bits
 and selects the target computation class. The internal source spellings
@@ -333,10 +334,12 @@ They describe the host boundary and do not replace the pinned HolyC evidence.
 Issue #652 consumes `OpCodes.DD:1107,1125,1143` for SHL, SHR and SAR qword
 CL encodings. `BackA.HC:573-600` reserves RCX for a variable count and selects
 unsigned behavior from the computation class; `OptPass789A.HC:506-516` supplies
-the left/right shift consumers. This implementation consistently uses the CL
-form, including literal counts, and preserves the existing low-six-bit runtime
-semantics. It does not claim the immediate-form or constant-folding optimizer
-behavior tracked separately in #574.
+the raw left/right shift consumers. Raw shifts still use CL, including
+literal counts emitted by the current source pipeline. Canonical constant
+forms use the pinned C1/D1 immediate encodings from `OpCodes.DD:1115-1156`,
+retain the full count until encoding and avoid reserving RCX. Their result
+class follows the surviving operand computation class. Source folding and
+strength reductions remain under #585/#696/#697.
 
 Issue #654 consumes `BackA.HC:355-370,425-440` for fixed division operands and
 results, `BackLib.HC:404-411` for RDX zeroing, and `OpCodes.DD:284,365,496,584,
