@@ -12524,6 +12524,23 @@ excluded = ["F64, pointer, owned string and lastclass defaults", "general ordina
 verification_boundary = "AOT, retained and native original success, foreign/copied/replayed/expired result controls, changed work and native bits, equal-valued ordered defaults and exact/one-below preparation budgets. No new TempleOS execution capture."
 
 [[feature]]
+id = "HC-UNARY-INTEGER-INTERNALS"
+description = "Original numeric unary integer internal calls execute full-word Boolean, absolute, sign and wrapping square operations."
+status = "implemented"
+issue = 761
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Kernel/KernelB.HH:95-121", "Compiler/CompilerA.HH:51,221-229", "Compiler/PrsExp.HC:440-586", "Compiler/OptPass789A.HC:820-824,835-837,859-865,881-886", "Compiler/Templates.HC:101-108", "Compiler/BackB.HC:289-303", "Compiler/BackC.HC:456-462", "Compiler/OptPass012.HC:1069-1088"]
+implementation = ["src/ir/integer_intrinsic.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_initializers.ml", "src/backend/x86_64_word_codegen.ml", "src/hosted/native_program.ml"]
+tests = ["test/test_internal_integers.ml", "test/test_internal_integers_cli.ml", "test/native/test_internal_integers_execution.ml", "examples/internal-integers.hc", "examples/stream-internal-integers.hc"]
+documentation = ["docs/internal-integers.md", "docs/testing.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md", "SECURITY.md"]
+identity = "The exact original numeric internal target, publication, fixed parameter/return signature and source-call phase select the operation. Unpushed arguments retain their exact typed producer and source origin. Renamed numeric operations work; ordinary same-name functions retain their own bodies. Foreign contexts and mutated instructions reject."
+execution = "IC_CALL_START, original unpushed argument computation, operand-bearing IC_TO_BOOL/IC_ABS_I64/IC_SIGN_I64/IC_SQR_I64/IC_SQR_U64 and IC_CALL_END with its declared result. ToBool tests the full word, signed minimum absolute value retains its bits, and each square retains the wrapping low 64 product bits. Computed narrow words remain distinct from declared-width storage."
+resources = "Each operation consumes one ordinary IC tick without a semantic callee activation, scan or formatting charge. Native staging and code use existing quotas. Exact/one-below runtime, code and frame limits preserve reached output/work. Retained defaults execute in their original once-only callback and reuse saved values."
+preparation = "Checked internal scopes remain scheduled until the source constant-folding rewrite exists. ToBool's separate OptPass012 rewrite is not inferred from runtime admission; native closed default/initializer preparation rejects these calls explicitly."
+excluded = ["F64 internal operations", "high product word and processor-flag services", "other internal signatures and services under #695", "native frontend #exe under #704", "complete ABI, artifacts, actual-loader and bootstrap gates"]
+verification_boundary = "Independent exact expected words, all Boolean input bits, both source modes/targets, narrow computed/storage controls, nested and recursive callers, effectful arguments, original retained defaults and generated source, both native ABI compilations, repeated images, exact/one-below quotas and original/foreign/changed authority. No new TempleOS oracle capture."
+
+[[feature]]
 id = "HC-RELEASE-CONTRACT"
 description = "The 1.0 contract defines required host/target cells, phase-specific acceptance, exact pinned source sets and explicit bootstrap producer/consumer lineage."
 status = "implemented"

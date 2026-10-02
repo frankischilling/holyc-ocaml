@@ -354,8 +354,7 @@ let intrinsic_opcode_of_source source =
           if value < 0L || value > Int64.of_int Int.max_int then None
           else
             match Generated.Intermediate_codes.of_code (Int64.to_int value) with
-            | Some ((Opcode.Ic_strlen | Opcode.Ic_toupper) as opcode) ->
-                Some opcode
+            | Some opcode when Integer_intrinsic.supports opcode -> Some opcode
             | Some _ | None -> None)
   | Some _ | None -> None
 
@@ -821,23 +820,15 @@ let approved_provider shape =
   | _ -> None
 
 let approved_intrinsic shape opcode =
-  let primitive type_ depth value =
-    Type.pointer_depth type_ = depth
-    &&
-    match Type.base type_ with
-    | Type.Primitive (_, actual) -> Sema.Primitive_type.equal actual value
-    | _ -> false
-  in
   match (opcode, shape.fixed) with
-  | (Opcode.Ic_strlen | Opcode.Ic_toupper), [ (parameter, Provided _) ] ->
+  | opcode, [ (parameter, Provided _) ] when Integer_intrinsic.supports opcode
+    ->
       Records.call_access shape.selected_record = Records.Internal_operation
       && Records.is_internal shape.selected_record
-      && primitive shape.result_type 0 Sema.Primitive_type.I64
+      && Integer_intrinsic.result_matches opcode shape.result_type
       && Headers.parameter_default parameter = None
       && Headers.parameter_register_requests parameter = []
-      && primitive (parameter_type parameter)
-           (if opcode = Opcode.Ic_strlen then 1 else 0)
-           Sema.Primitive_type.U8
+      && Integer_intrinsic.argument_matches opcode (parameter_type parameter)
       && shape.variadic = []
       && Option.is_none shape.count_type
   | _ -> false
@@ -1177,8 +1168,9 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                 (item.payload = Some (Seq.Integer bytes))
                 "runtime cleanup byte count differs from its checked ABI slots";
               pending.phase <- Cleaned (call, item.instruction_id)
-          | ((Opcode.Ic_strlen | Opcode.Ic_toupper) as opcode), pending :: _
-            when pending.intrinsic_opcode = Some opcode ->
+          | opcode, pending :: _
+            when Integer_intrinsic.supports opcode
+                 && pending.intrinsic_opcode = Some opcode ->
               require ?span
                 (pending.phase = Collecting && item.result = None
                && item.payload = None && item.flags = 0L
@@ -1374,7 +1366,7 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
               [] ) ->
               fail ?span
                 "runtime call instruction has no checked enclosing scope"
-          | (Opcode.Ic_strlen | Opcode.Ic_toupper), _ ->
+          | opcode, _ when Integer_intrinsic.supports opcode ->
               fail ?span
                 "intrinsic instruction has no matching checked intrinsic scope"
           | _, { phase = Called _ | Cleaned _ | Intrinsic_called _; _ } :: _ ->

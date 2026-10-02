@@ -1,5 +1,14 @@
 # Reference source map
 
+Issue #761 connects unary integer internal calls from
+`Kernel/KernelB.HH:95-121` and `Compiler/PrsExp.HC:440-586` to shared checked IR
+and native execution. `OptPass789A.HC:820-886`, `BackB.HC:289-303`,
+`BackC.HC:456-462` and `Templates.HC:101-108` supply full-word Boolean conversion,
+signed absolute/sign operations and low-word square results. Original numeric
+bindings, signatures and call scopes retain authority. Runtime execution does
+not implement the separate `OptPass012.HC:1069-1088` folding rewrite. See
+[unary integer internal calls](internal-integers.md).
+
 Issue #759 connects `Compiler/PrsVar.HC:628-648` and
 `Compiler/PrsExp.HC:1116-1154` to actual constant-default evaluation. The VM
 evaluates the private lowering of the original typed expression once and keeps

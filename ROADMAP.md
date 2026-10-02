@@ -1,5 +1,10 @@
 # holyc-ocaml roadmap
 
+Issue #761 connects [unary integer internal calls](docs/internal-integers.md)
+to IR, retained tasks and hosted native execution. ToBool, AbsI64, SignI64 and
+integer squares preserve full-word results and original call authority. Broader
+runtime, floating and native frontend work remains open.
+
 Issue #753 connects supported numeric internal declarations to retained IR
 tasks, including shared records changed during nested header lookahead.
 Issue #755 evaluates original integer binding expressions before type validation

@@ -1,5 +1,10 @@
 # holyc-ocaml compatibility status
 
+Issue #761 connects [unary integer internal calls](internal-integers.md)
+to IR, retained tasks and hosted native execution. ToBool, AbsI64, SignI64 and
+integer squares preserve full-word results and original call authority. Broader
+runtime, floating and native frontend work remains open.
+
 [Retained internal calls](retained-internal.md) support original numeric ToUpper
 and StrLen declarations inside IR `#exe` tasks in both outer modes. Publication,
 header installation, shared allocation history and argument/emission captures

@@ -1,3 +1,17 @@
+(test
+ (name test_internal_integers_cli)
+ (modules test_internal_integers_cli)
+ (libraries unix yojson)
+ (deps
+  ../examples/internal-integers.hc
+  ../examples/stream-internal-integers.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:../examples/internal-integers.hc}
+   %{dep:../examples/stream-internal-integers.hc})))
+
 (library
  (name native_scalar_support)
  (wrapped false)
@@ -129,6 +143,7 @@
   test_native_scalar_functions
   test_internal_strlen
   test_internal_toupper
+  test_internal_integers
   test_retained_internal
   test_internal_strlen_authority
   test_internal_strlen_source

@@ -200,7 +200,7 @@ type prepared_operation =
   | Retained_call of Retained_function.t
   | Extern_call of Runtime.call * stored_type array
   | Internal_strlen of prepared_pointer
-  | Internal_toupper of prepared_operand
+  | Internal_integer of Integer_intrinsic.unary * prepared_operand * word_type
   | Call_cleanup
   | Call_end of Value_id.t * word_type
   | Call_end_void of Value_id.t
@@ -4228,10 +4228,13 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                 (not no_operands)
                 || Option.is_some description.result
                 || Option.is_some description.target_type
-                || Runtime.intrinsic_opcode intrinsic <> Opcode.Ic_strlen
-                   && Runtime.intrinsic_opcode intrinsic <> Opcode.Ic_toupper
-                || checked_return_kind (Runtime.intrinsic_return_type intrinsic)
-                   <> Some (Word_return I64)
+                || (not
+                      (Integer_intrinsic.supports
+                         (Runtime.intrinsic_opcode intrinsic)))
+                || (not
+                      (Integer_intrinsic.result_matches
+                         (Runtime.intrinsic_opcode intrinsic)
+                         (Runtime.intrinsic_return_type intrinsic)))
                 || (match description.payload with
                   | Some (Sequence.Symbol symbol) ->
                       symbol != Runtime.intrinsic_symbol intrinsic
@@ -4245,7 +4248,8 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                 intrinsics :=
                   (intrinsic, false, List.length stack) :: !intrinsics;
                 call_instruction description (Call_start None))
-          | Opcode.Ic_toupper, stack -> (
+          | opcode, stack when Option.is_some (Integer_intrinsic.unary opcode)
+            -> (
               match
                 ( !intrinsics,
                   Option.bind runtime_calls (fun context ->
@@ -4254,7 +4258,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
               with
               | (original, false, ordinary_depth) :: rest, Some intrinsic
                 when original == intrinsic
-                     && Runtime.intrinsic_opcode intrinsic = Opcode.Ic_toupper
+                     && Runtime.intrinsic_opcode intrinsic = opcode
                      && ordinary_depth = List.length stack -> (
                   let argument = Runtime.intrinsic_argument intrinsic in
                   let value = Runtime.argument_value argument in
@@ -4274,27 +4278,26 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                               description.target_type
                          && Type.equal source_type
                               (Runtime.argument_source_type argument)
-                         && Type.pointer_depth
-                              (Runtime.argument_target_type argument)
-                            = 0
-                         &&
-                         match
-                           Type.base (Runtime.argument_target_type argument)
-                         with
-                         | Type.Primitive (_, Sema.Primitive_type.U8) -> true
-                         | _ -> false ->
+                         && Integer_intrinsic.argument_matches opcode
+                              (Runtime.argument_target_type argument) ->
                       intrinsics := (intrinsic, true, ordinary_depth) :: rest;
-                      call_instruction description (Internal_toupper operand)
+                      call_instruction description
+                        (Internal_integer
+                           ( Option.get (Integer_intrinsic.unary opcode),
+                             operand,
+                             Option.get
+                               (function_return_word_type
+                                  (Runtime.intrinsic_return_type intrinsic)) ))
                   | _ ->
                       Error
                         (call_error description
-                           "IC_TOUPPER lost its checked scalar argument or \
-                            result type"))
+                           "integer internal operation lost its checked scalar \
+                            argument or result type"))
               | _ ->
                   Error
                     (call_error description
-                       "IC_TOUPPER has no exact collecting internal call scope")
-              )
+                       "integer internal operation has no exact collecting \
+                        internal call scope"))
           | Opcode.Ic_strlen, stack -> (
               match
                 ( !intrinsics,
@@ -4362,7 +4365,12 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                                (Runtime.intrinsic_return_type intrinsic))
                           description.target_type ->
                   intrinsics := rest;
-                  call_instruction description (Call_end (result.value_id, I64))
+                  call_instruction description
+                    (Call_end
+                       ( result.value_id,
+                         Option.get
+                           (function_return_word_type
+                              (Runtime.intrinsic_return_type intrinsic)) ))
               | _ ->
                   Error
                     (call_error description
@@ -5480,28 +5488,21 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                 }
                 :: !calls
           | Call_cleanup -> ()
-          | Internal_toupper operand -> (
+          | Internal_integer (operation, operand, type_) -> (
               match (!calls, require_operand block instruction operand) with
               | ( ({ completion = Pending; arguments_rev = []; _ } as scope)
                   :: rest,
                   Some word ) ->
-                  let bits =
-                    if word.bits >= 97L && word.bits <= 122L then
-                      Int64.sub word.bits 32L
-                    else word.bits
-                  in
+                  let bits = Integer_intrinsic.apply operation word.bits in
                   calls :=
-                    {
-                      scope with
-                      completion = Completed_word { type_ = I64; bits };
-                    }
+                    { scope with completion = Completed_word { type_; bits } }
                     :: rest
               | _, None -> ()
               | _ ->
                   failed :=
                     Some
                       (runtime_error ~instruction block !steps "HCIRVM0008"
-                         "internal character conversion has no pending source \
+                         "integer internal operation has no pending source \
                           call scope"))
           | Internal_strlen pointer -> (
               match
@@ -7561,6 +7562,7 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
         match description.opcode with
         | Opcode.Ic_end | Ic_end_exp -> true
         | Ic_shl | Ic_shr | Ic_shl_equ | Ic_shr_equ -> false
+        | opcode when Integer_intrinsic.supports opcode -> false
         | opcode -> not (Opcode.info opcode).prevents_constant_folding)
   in
   if max_steps < 0 then
