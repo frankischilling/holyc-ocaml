@@ -4222,7 +4222,9 @@ let selected_defaults_retain_semantic_results () =
                  result))
         (direct_defaults "Target" @ indirect_defaults);
       Alcotest.(check int)
-        "selected defaults add no identities beyond the three statement calls" 3
+        "selected defaults add no identities beyond three calls and their \
+         callback callee"
+        4
         (results |> Semantic_function_call_expression_result.all_results
        |> List.length))
     [ Preprocessor.Jit; Preprocessor.Aot ]

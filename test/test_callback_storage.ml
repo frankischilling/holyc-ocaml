@@ -269,6 +269,312 @@ let callback_frame_addresses_use_the_original_declarator () =
       | _ -> Alcotest.fail "a foreign callback frame supplied address authority")
     modes
 
+let checked_callees_retain_original_values_before_arguments () =
+  let text =
+    "F64 (*Global)(I64 n);class Box {F64 (*member)(I64 n);};\n\
+     I64 Caller(F64 (*parameter)(I64 n),Box *box){\n\
+     F64 (*local)(I64 n);static F64 (*saved)(I64 n);\n\
+     F64 (*array)(I64 n)[2][3];\n\
+     local(40);parameter(40);saved(40);Global(40);\n\
+     array[1][2](40);box->member(40);(local)(40);return 0;}"
+  in
+  List.iter
+    (fun mode ->
+      let _, results =
+        prepare mode text |> Test_function_call_expression_result.analyze
+      in
+      let calls =
+        Test_function_call_expression_result.function_named results "Caller"
+        |> R.function_calls
+        |> List.filter_map (function
+          | R.Indirect_call_result call -> Some call
+          | _ -> None)
+      in
+      Alcotest.(check int) "all seven callback callees" 7 (List.length calls);
+      List.iter
+        (fun call ->
+          let resolution =
+            call |> R.indirect_source
+            |> Semantic_function_call_conversion_policy.indirect_source
+          in
+          let source = S.indirect_source resolution in
+          let callee = R.indirect_callee_result call |> Option.get in
+          Alcotest.(check bool)
+            "exact original callee expression" true
+            (R.result_source callee == Option.get (S.call_callee_value source));
+          let pointer = check_storage callee in
+          Alcotest.(check bool)
+            "exact selected callback declarator" true
+            (pointer == S.callable_pointer (S.indirect_callable resolution));
+          List.iter
+            (fun fixed ->
+              match R.fixed_path fixed with
+              | R.Provided_result argument ->
+                  Alcotest.(check bool)
+                    "callee typed before the argument" true
+                    (R.Id.compare (R.result_id callee) (R.result_id argument)
+                    < 0)
+              | R.Declared_default_result _ -> ())
+            (R.indirect_fixed_results call);
+          match S.call_callee_form source with
+          | S.Member_callee ->
+              Alcotest.(check bool)
+                "member form retains its computed tree" true
+                (Option.is_some (S.call_computed_callee source))
+          | S.Identifier_callee | S.Dereferenced_identifier_callee _ ->
+              Alcotest.(check bool)
+                "identifier keeps its original form" true
+                (Option.is_none (S.call_computed_callee source)))
+        calls)
+    modes
+
+let top_level_scalar_callback_retains_original_callee () =
+  List.iter
+    (fun mode ->
+      let source = prepare mode "F64 (*Global)(I64 n);(Global)(40);" in
+      let _, _, _, results = Test_top_level_expression_result.analyze source in
+      let call = R.top_level_global_callback_calls results |> List.hd in
+      let callee = R.top_level_global_callback_callee_result call in
+      let tree = R.top_level_global_callback_source call in
+      Alcotest.(check bool)
+        "exact top-level callee tree" true
+        (R.result_source callee
+        == Semantic_top_level_expression_tree.call_callee_expression tree);
+      let pointer = check_storage callee in
+      Alcotest.(check bool)
+        "exact top-level callback signature" true
+        (pointer
+        == S.callable_pointer (R.top_level_global_callback_callable call)))
+    modes
+
+let callback_loads_use_physical_words () =
+  let module T = Test_ir_frame_address_lowering in
+  let module L = Ir_expression_lowering in
+  let module Seq = Ir_instruction_sequence in
+  let text =
+    "class Box {I64 n;};I64 Caller(F64 (*argument)(I64 n)){\n\
+     U0 (*void_callback)(I64 n);Box (*aggregate_callback)(I64 n);\n\
+     F64 (**two)(I64 n);F64 (***three)(I64 n);\n\
+     (argument);void_callback;aggregate_callback;two;three;return 0;}"
+  in
+  List.iter
+    (fun mode ->
+      let frames, results = T.analyze ~compilation_mode:mode text in
+      let function_ = T.function_named results "Caller" in
+      let frame = T.frame_for frames function_ in
+      let values = T.expression_values function_ in
+      List.iter2
+        (fun depth result ->
+          match
+            L.lower_typed_result ~frame ~instruction_id:(T.instruction_id 0)
+              ~value_id:(T.value_id 0) result
+          with
+          | Ok (L.Lowered lowered) ->
+              check_word_pointer depth (Some (L.result_type lowered));
+              let instructions =
+                L.sequence lowered |> Seq.instructions
+                |> List.map Seq.description
+              in
+              let load = List.hd (List.rev instructions) in
+              Alcotest.(check bool)
+                "callback is loaded once from its cell" true
+                (load.opcode = Ir_opcode.Ic_deref
+                && List.length
+                     (List.filter
+                        (fun (d : Seq.description) ->
+                          d.opcode = Ir_opcode.Ic_deref)
+                        instructions)
+                   = 1);
+              check_word_pointer depth load.target_type
+          | Error errors ->
+              Alcotest.fail
+                (Test_ir_expression_lowering.show_sequence_errors errors)
+          | Ok L.Unsupported_expression ->
+              Alcotest.fail "original callback cell was not lowered")
+        [ 1; 1; 1; 2; 3 ] values;
+      let foreign_frames, foreign_results =
+        T.analyze ~compilation_mode:mode text
+      in
+      let foreign_frame =
+        T.frame_for foreign_frames (T.function_named foreign_results "Caller")
+      in
+      match
+        L.lower_typed_result ~frame:foreign_frame
+          ~instruction_id:(T.instruction_id 0) ~value_id:(T.value_id 0)
+          (List.hd values)
+      with
+      | Error [ error ] ->
+          Alcotest.(check string)
+            "foreign frame cannot load a callee" "HCIRL0004" error.Seq.code
+      | _ -> Alcotest.fail "another frame supplied callback load authority")
+    modes
+
+let callback_parameter_default_is_an_integer_address () =
+  List.iter
+    (fun mode ->
+      let _, results =
+        prepare mode
+          "U0 Target(F64 (*callback)(I64 n)=0);I64 Caller(){Target();return 0;}"
+        |> Test_function_call_expression_result.analyze
+      in
+      let fixed =
+        Test_function_call_expression_result.only_direct results "Caller"
+        |> R.direct_fixed_results |> List.hd
+      in
+      match R.fixed_path fixed with
+      | R.Declared_default_result default ->
+          Alcotest.(check string)
+            "callback default is integer storage" "integer-result"
+            (R.declared_default_class default |> R.result_class_name);
+          let type_ = R.declared_default_type default in
+          Alcotest.(check bool)
+            "callback return type remains F64" true
+            (Semantic_type.pointer_depth type_ = 0
+            && Semantic_type.base type_
+               = Semantic_type.Primitive
+                   (Semantic_type.Public_spelling, Primitive_type.F64));
+          check_word_pointer 1 (R.declared_default_storage_type default)
+      | R.Provided_result _ -> Alcotest.fail "expected a callback default")
+    modes
+
+let callback_callee_snapshot_matches_prs_fun_call () =
+  let module T = Test_ir_frame_address_lowering in
+  let module L = Ir_expression_lowering in
+  let module Seq = Ir_instruction_sequence in
+  List.iter
+    (fun mode ->
+      let text = "I64 Caller(F64 (*p)(I64 n)){(p)(40);return 0;}" in
+      let frames, results = T.analyze ~compilation_mode:mode text in
+      let function_ = T.function_named results "Caller" in
+      let frame = T.frame_for frames function_ in
+      let call =
+        R.function_calls function_ |> List.hd |> function
+        | R.Indirect_call_result call -> call
+        | _ -> Alcotest.fail "expected the original callback call"
+      in
+      let lower ?(instruction = 53) ?(value = 81) frame =
+        L.lower_indirect_callee ~frame
+          ~instruction_id:(T.instruction_id instruction)
+          ~value_id:(T.value_id value) call
+      in
+      let lowered =
+        match lower frame with
+        | Ok (L.Lowered lowered) -> lowered
+        | Error errors ->
+            Alcotest.fail
+              (Test_ir_expression_lowering.show_sequence_errors errors)
+        | Ok L.Unsupported_expression ->
+            Alcotest.fail "callee snapshot was unsupported"
+      in
+      let instructions =
+        L.sequence lowered |> Seq.instructions |> List.map Seq.description
+      in
+      Alcotest.(check (list string))
+        "original callee precedes the call-start boundary"
+        [
+          "IC_RBP"; "IC_IMM_I64"; "IC_ADD"; "IC_DEREF"; "IC_SET_RAX"; "IC_NOP2";
+        ]
+        (List.map
+           (fun (d : Seq.description) -> (Ir_opcode.info d.opcode).source_name)
+           instructions);
+      let load = List.nth instructions 3
+      and set_rax = List.nth instructions 4
+      and nop = List.nth instructions 5 in
+      check_word_pointer 0 load.target_type;
+      check_word_pointer 0 (Some (L.result_type lowered));
+      Alcotest.(check bool)
+        "RAX consumes the original loaded callee" true
+        (set_rax.operands = [ L.result_value lowered ]
+        && load.result = Some { Seq.value_id = L.result_value lowered });
+      Alcotest.(check bool)
+        "source bookkeeping is balanced" true
+        (nop.payload = Some (Seq.Integer 1L));
+      Alcotest.(check (list int))
+        "consecutive instruction identities" [ 53; 54; 55; 56; 57; 58 ]
+        (List.map
+           (fun (d : Seq.description) ->
+             Seq.Instruction_id.to_int d.instruction_id)
+           instructions);
+      Alcotest.(check (pair int int))
+        "snapshot has no fabricated value producers" (59, 85)
+        ( Seq.Instruction_id.to_int (L.next_instruction_id lowered),
+          Seq.Value_id.to_int (L.next_value_id lowered) );
+      let callee = Option.get (R.indirect_callee_result call) in
+      check_word_pointer 1 (R.result_storage_type callee);
+      Alcotest.(check string)
+        "callee return type is retained" "F64"
+        (Test_function_call_expression_result.type_name callee);
+      (match lower ~instruction:(max_int - 6) ~value:(max_int - 4) frame with
+      | Ok (L.Lowered lowered) ->
+          Alcotest.(check (pair int int))
+            "exact identifier capacity" (max_int, max_int)
+            ( Seq.Instruction_id.to_int (L.next_instruction_id lowered),
+              Seq.Value_id.to_int (L.next_value_id lowered) )
+      | _ ->
+          Alcotest.fail "exact callee snapshot identity capacity was rejected");
+      List.iter
+        (fun (instruction, value) ->
+          match lower ~instruction ~value frame with
+          | Error errors ->
+              Alcotest.(check bool)
+                "one-below identity capacity is diagnosed" true
+                (List.exists
+                   (fun (error : Seq.error) -> error.code = "HCIRL0005")
+                   errors)
+          | _ -> Alcotest.fail "callee snapshot exceeded its identity capacity")
+        [ (max_int - 5, 81); (53, max_int - 3) ];
+      let foreign_frames, foreign_results =
+        T.analyze ~compilation_mode:mode text
+      in
+      let foreign_frame =
+        T.frame_for foreign_frames (T.function_named foreign_results "Caller")
+      in
+      match lower foreign_frame with
+      | Error [ error ] ->
+          Alcotest.(check string)
+            "foreign frame cannot snapshot a callee" "HCIRL0004" error.Seq.code
+      | _ -> Alcotest.fail "foreign frame supplied an indirect callee snapshot")
+    modes
+
+let scalar_call_rejects_another_callee_value () =
+  List.iter
+    (fun mode ->
+      let _, results =
+        prepare mode
+          "I64 Caller(I64 (*p)(I64 n),I64 (*q)(I64 n)){p(40);q(40);return 0;}"
+        |> Test_function_call_expression_result.analyze
+      in
+      let calls =
+        Test_function_call_expression_result.function_named results "Caller"
+        |> R.function_calls
+        |> List.map (function
+          | R.Indirect_call_result call ->
+              R.indirect_source call
+              |> Semantic_function_call_conversion_policy.indirect_source
+              |> S.indirect_source
+          | _ -> Alcotest.fail "expected checked callback calls")
+      in
+      let source = List.hd calls and other = List.nth calls 1 in
+      match
+        S.make_call ~index:(S.call_index source)
+          ~callee_occurrence_index:(S.call_callee_occurrence_index source)
+          ~callee_name:(S.call_callee_name source)
+          ~callee_origin:(S.call_callee_origin source)
+          ~callee_form:(S.call_callee_form source)
+          ?callable:(S.call_callable source)
+          ?callee_value:(S.call_callee_value other)
+          ~origin:(S.call_origin source) ~syntax:(S.call_syntax source)
+          (S.call_arguments source)
+      with
+      | Error message ->
+          Alcotest.(check string)
+            "a matching signature is not callee ownership"
+            "function call callee value does not retain its bound occurrence \
+             and form"
+            message
+      | Ok _ -> Alcotest.fail "another callback supplied the callee value")
+    modes
+
 let tests =
   [
     Alcotest.test_case
@@ -284,4 +590,16 @@ let tests =
       top_level_storage_and_exact_signature;
     Alcotest.test_case "callback frame addresses retain declaration identity"
       `Quick callback_frame_addresses_use_the_original_declarator;
+    Alcotest.test_case "original callback values precede argument typing" `Quick
+      checked_callees_retain_original_values_before_arguments;
+    Alcotest.test_case "top-level scalar callback retains its callee" `Quick
+      top_level_scalar_callback_retains_original_callee;
+    Alcotest.test_case "callback loads use physical words" `Quick
+      callback_loads_use_physical_words;
+    Alcotest.test_case "callback parameter defaults use integer storage" `Quick
+      callback_parameter_default_is_an_integer_address;
+    Alcotest.test_case "callee snapshot follows original PrsFunCall" `Quick
+      callback_callee_snapshot_matches_prs_fun_call;
+    Alcotest.test_case "a scalar call rejects another callee value" `Quick
+      scalar_call_rejects_another_callee_value;
   ]

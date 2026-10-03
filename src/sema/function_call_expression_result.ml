@@ -130,6 +130,7 @@ type top_level_global_callback_call = {
   top_level_global_callback_source : Top_level_expression_tree.call;
   top_level_global_callback_global : Global_type_resolution.global;
   top_level_global_callback_value : Function_call_resolution.identifier_value;
+  top_level_global_callback_callee_result : expression_result;
   top_level_global_callback_callable : Function_call_resolution.callable;
   top_level_global_callback_fixed_results : top_level_fixed_result list;
   top_level_global_callback_variadic_results : expression_result list;
@@ -482,6 +483,16 @@ let fixed_path (fixed : fixed_result) = fixed.path
 let declared_default_source result = result.default_source
 let declared_default_parameter result = result.default_parameter
 let declared_default_type result = result.default_type
+
+let declared_default_storage_type result =
+  match
+    Function_type_resolution.parameter_declarator_kind result.default_parameter
+  with
+  | Function_type_resolution.Object -> Some result.default_type
+  | Function_type_resolution.Function_pointer pointer ->
+      Function_type_resolution.function_pointer_storage_type pointer
+      |> Result.to_option
+
 let declared_default_class result = result.default_class
 let declared_default_kind result = result.default_kind
 let declared_default_materialization result = result.default_materialization
@@ -580,6 +591,10 @@ let top_level_global_callback_global (call : top_level_global_callback_call) =
 
 let top_level_global_callback_value (call : top_level_global_callback_call) =
   call.top_level_global_callback_value
+
+let top_level_global_callback_callee_result
+    (call : top_level_global_callback_call) =
+  call.top_level_global_callback_callee_result
 
 let top_level_global_callback_callable (call : top_level_global_callback_call) =
   call.top_level_global_callback_callable
@@ -1224,7 +1239,11 @@ let declared_default_result policies ~before_item_index fixed default =
     default_source = default;
     default_parameter = parameter;
     default_type = type_;
-    default_class = forwarded_class policies ~before_item_index type_;
+    default_class =
+      (match Function_type_resolution.parameter_declarator_kind parameter with
+      | Function_type_resolution.Function_pointer _ -> Integer_result
+      | Function_type_resolution.Object ->
+          forwarded_class policies ~before_item_index type_);
     default_kind = kind;
     default_materialization = materialization;
   }
@@ -2869,7 +2888,7 @@ and type_outer_callback_call table members policies ~before_item_index
         | Outer_environment.Object_global -> unavailable state
         | Outer_environment.Function_pointer_global function_pointer -> (
             let expected_rank = Outer_environment.global_array_rank metadata in
-            let computed = Function_call_resolution.call_computed_callee call in
+            let computed = Function_call_resolution.call_callee_value call in
             let actual_rank =
               match computed with
               | None -> Some 0
@@ -3188,6 +3207,12 @@ and type_top_level_global_callback_call table members policies
     | Global_type_resolution.Object ->
         invalid "top-level callback global has no function-pointer signature"
     | Global_type_resolution.Function_pointer function_pointer -> (
+        let ( let* ) = Result.bind in
+        let* callee_result, state =
+          type_expression table members policies ~before_item_index
+            ~context:Value_context state
+            (Top_level_expression_tree.call_callee_expression call)
+        in
         let callable =
           Function_call_resolution.make_callable
             ~return_type:(Global_type_resolution.global_type_reference global)
@@ -3225,6 +3250,7 @@ and type_top_level_global_callback_call table members policies
                         top_level_global_callback_source = call;
                         top_level_global_callback_global = global;
                         top_level_global_callback_value = value;
+                        top_level_global_callback_callee_result = callee_result;
                         top_level_global_callback_callable = callable;
                         top_level_global_callback_fixed_results = fixed_results;
                         top_level_global_callback_variadic_results =
@@ -3298,9 +3324,16 @@ and type_top_level_outer_callback_metadata table members policies =
         then
           invalid "top-level outer callback does not use an identifier callee"
         else
+          let ( let* ) = Result.bind in
+          let* callee_result, state =
+            type_expression table members policies ~before_item_index
+              ~context:Value_context state
+              (Top_level_expression_tree.call_callee_expression call)
+          in
           type_top_level_outer_callback_arguments table members policies
             ~before_item_index ~intrinsic_conversion state id source call
-            occurrence binding source_call origin callable ~callee_result:None
+            occurrence binding source_call origin callable
+            ~callee_result:(Some callee_result)
       else
         type_top_level_indexed_outer_callback_callee table members policies
           ~before_item_index ~intrinsic_conversion state id source call
@@ -3857,15 +3890,12 @@ let type_call table members policies ~before_item_index state = function
       let resolution = Function_call_conversion_policy.indirect_source source in
       let source_call = Function_call_resolution.indirect_source resolution in
       let callee_result =
-        match
-          ( Function_call_resolution.indirect_member_lookup resolution,
-            Function_call_resolution.call_computed_callee source_call )
-        with
-        | None, Some computed ->
+        match Function_call_resolution.call_callee_value source_call with
+        | Some computed ->
             type_expression table members policies ~before_item_index
               ~context:Value_context state computed
             |> Result.map (fun (result, state) -> (Some result, state))
-        | Some _, _ | None, None -> Ok (None, state)
+        | None -> Ok (None, state)
       in
       match callee_result with
       | Error _ as error -> error

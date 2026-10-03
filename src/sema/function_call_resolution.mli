@@ -343,6 +343,7 @@ val make_call :
   ?callee_form:callee_form ->
   ?callable:callable ->
   ?computed_callee:argument_expression ->
+  ?callee_value:argument_expression ->
   ?original_phase:Function_call_phase.t ->
   origin:Symbol.origin ->
   syntax:call_syntax ->
@@ -634,6 +635,12 @@ val call_callee_origin : call -> Symbol.origin
 val call_callee_form : call -> callee_form
 val call_callable : call -> callable option
 val call_computed_callee : call -> argument_expression option
+
+val call_callee_value : call -> argument_expression option
+(** The original callee value tree, including identifier and dereferenced
+    identifier callees. Member/index callees retain [computed_callee]. This
+    query preserves the syntactic callee form and does not select a target. *)
+
 val call_origin : call -> Symbol.origin
 val call_original_phase : call -> Function_call_phase.t option
 

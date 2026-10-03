@@ -42,8 +42,19 @@ callback assignments and updates, and selects the same storage class after all
 callback-array dimensions are consumed. The returned value still uses the
 callback signature's return class. Frame metadata retains the exact parameter
 or local callback declarator. Symbolic frame-address lowering checks that
-identity before emitting its RBP-relative fragment. These facts do not grant
-executable address or invocation authority. [Issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801)
+identity before emitting its RBP-relative fragment. Scalar callback parameters
+and automatic locals also lower to a word load from that exact cell. The original
+callee expression is retained before fixed and variadic argument typing for
+scalar, indexed and member calls. Callback parameter defaults use the integer
+address class while retaining their declared return type.
+
+`Expression_lowering.lower_indirect_callee` checks the exact source value tree
+and selected declarator, loads a supported frame cell, retags its producer to
+internal `RT_PTR`, and emits `IC_SET_RAX` followed by `IC_NOP2`. This follows
+`PrsFunCall` before its call-start and saved-callee push. The fragment preserves
+the original loaded value and consumes no additional value identity. Argument
+pushes, saved-callee cleanup, retained executable selection and runtime dispatch
+remain unfinished. [Issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801)
 owns the execution connection. The [native JIT observations](../test/oracle/callback-storage-and-calls.json)
 include assignment, member storage, eight-byte updates, callee capture before
 arguments, right-to-left arguments, callback defaults and word variadic tails.
@@ -104,7 +115,7 @@ Pointers and callback objects use eight-byte elements. Non-pointer primitives us
 
 The layout rejects foreign or inconsistent semantic batches, unresolved or non-integral dimensions, negative or mismatched extents, incomplete aggregate layouts, duplicate or missing locations, and checked `Int64` arithmetic overflow. A closed dimension may use floating intermediates, but its final finite value must be an exact, in-range integer. The pass returns no partial layout after an error. Overflow, unresolved dimensions, and fractional final dimensions are hosted safety strengthenings. The pinned path converts an `F64` result with `ToI64`, which truncates, and has no corresponding overflow or unresolved-dimension recovery branch at this boundary (`Compiler/PrsExp.HC:1140-1151`, `Kernel/KernelB.HH:121`). The deterministic dump schema is `holyc-function-frame-layout-v1`. [Issue #558](https://github.com/frankischilling/holyc-ocaml/issues/558) records this semantic boundary.
 
-`Ir.Frame_address_lowering` follows an identifier occurrence to its exact retained local binding, then uses `find_binding_location` without a spelling or symbol fallback. A supported non-static object slot emits `IC_RBP`, signed-displacement `IC_IMM_I64`, and `IC_ADD` in that order, with the base before the displacement. All three producers use one pointer layer over the checked location type, keep the exact identifier span, carry zero flags, and consume consecutive caller-owned instruction and value identities. Static locals, callback declarators, direct functions, module and outer bindings, unsupported positive parameter arrays, and values already at the maximum pointer depth return `Unsupported_location` without a fragment. This is an address calculation only. It does not load or store the object, scale an index, select a register, construct a machine frame, or execute the sequence. [Issue #560](https://github.com/frankischilling/holyc-ocaml/issues/560) records this IR boundary.
+`Ir.Frame_address_lowering` follows an identifier occurrence to its exact retained local binding, then uses `find_binding_location` without a spelling or symbol fallback. A supported non-static object or callback slot emits `IC_RBP`, signed-displacement `IC_IMM_I64`, and `IC_ADD` in that order, with the base before the displacement. All three producers use one pointer layer over the checked physical storage type, keep the exact identifier span, carry zero flags, and consume consecutive caller-owned instruction and value identities. Callback slots require the original declarator as well as the frame binding. Static locals, direct functions, module and outer bindings, unsupported positive parameter arrays, and storage already at the maximum pointer depth return `Unsupported_location` without a fragment. This fragment calculates the address for later load, store and call consumers. [Issue #560](https://github.com/frankischilling/holyc-ocaml/issues/560) records the original address boundary; [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801) owns callback execution.
 
 ## Classified function records
 

@@ -662,6 +662,11 @@ and call_expression state source (call : Frontend.Ast.call_expression) =
                           .Dereferenced_identifier_callee
                             _ -> None
                       in
+                      let callee_value =
+                        if Option.is_none computed_callee then
+                          Some callee_expression
+                        else None
+                      in
                       let ( let* ) = Result.bind in
                       let* original_phase = state.call_phases call in
                       match
@@ -669,7 +674,8 @@ and call_expression state source (call : Frontend.Ast.call_expression) =
                           ~index:call_index ~callee_occurrence_index
                           ~callee_name:callee_identifier.spelling
                           ~callee_origin:(origin callee_identifier.location)
-                          ~callee_form ?computed_callee ?original_phase
+                          ~callee_form ?computed_callee ?callee_value
+                          ?original_phase
                           ~origin:(origin call.call_location)
                           ~syntax:(call_syntax call) arguments
                       with

@@ -366,6 +366,16 @@ let checked_frame_value result =
 
 let checked_frame_scalar result =
   match Semantic_result.result_category result with
+  | Semantic_result.Callback_value
+    when Semantic_result.result_is_callback_storage result
+         && Semantic_result.result_class result = Semantic_result.Integer_result
+    -> (
+      match Semantic_result.result_storage_type result with
+      | Some storage_type -> Ok (Checked_type storage_type)
+      | None ->
+          Error
+            (metadata_error ?span:(result_span result)
+               "callback cell has no checked physical storage type"))
   | Semantic_result.Object_value | Semantic_result.Lvalue ->
       checked_frame_value result
   | _ -> Ok Unsupported_type
@@ -4162,6 +4172,120 @@ let lower_typed_result ?frame ?globals ?lower_call ?(optimize_shifts = false)
         | None -> Unsupported_expression)
 
 let sequence lowered = lowered.sequence_
+
+let lower_indirect_callee ?frame ?globals ?lower_call ?optimize_shifts
+    ?optimize_division ~instruction_id ~value_id call =
+  let resolution =
+    call |> Semantic_result.indirect_source
+    |> Sema.Function_call_conversion_policy.indirect_source
+  in
+  let source = Semantic_source.indirect_source resolution in
+  match
+    ( Semantic_result.indirect_callee_result call,
+      Semantic_source.call_callee_value source )
+  with
+  | None, _ | _, None -> Ok Unsupported_expression
+  | Some callee, Some original -> (
+      let span = result_span callee in
+      if Semantic_result.result_source callee != original then
+        Error
+          [
+            metadata_error ?span
+              "indirect callee does not retain its original value tree";
+          ]
+      else if not (Semantic_result.result_is_callback_storage callee) then
+        Ok Unsupported_expression
+      else if
+        not
+          (Option.fold ~none:false
+             ~some:
+               (( == )
+                  (Semantic_source.callable_pointer
+                     (Semantic_source.indirect_callable resolution)))
+             (Semantic_result.result_callback_pointer callee))
+      then
+        Error
+          [
+            metadata_error ?span
+              "indirect callee does not retain its selected callback declarator";
+          ]
+      else
+        match
+          lower_typed_result ?frame ?globals ?lower_call ?optimize_shifts
+            ?optimize_division ~instruction_id ~value_id callee
+        with
+        | Error _ as error -> error
+        | Ok Unsupported_expression -> Ok Unsupported_expression
+        | Ok (Lowered lowered) ->
+            let instruction =
+              Sequence.Instruction_id.to_int lowered.next_instruction_id_
+            in
+            if instruction > max_int - 2 then
+              Error
+                [
+                  lowering_error ?span "HCIRL0005"
+                    "cannot allocate an indirect callee snapshot because the \
+                     host integer range is exhausted";
+                ]
+            else
+              let ( let* ) = Result.bind in
+              let checked result =
+                Result.map_error (fun error -> [ error ]) result
+              in
+              let* set_rax =
+                checked (Sequence.Instruction_id.of_int instruction)
+              in
+              let* nop =
+                checked (Sequence.Instruction_id.of_int (instruction + 1))
+              in
+              let* next_instruction_id_ =
+                checked (Sequence.Instruction_id.of_int (instruction + 2))
+              in
+              let pointer_word = internal_i64_type in
+              let make instruction_id opcode operands result payload :
+                  Sequence.description =
+                {
+                  instruction_id;
+                  opcode;
+                  operands;
+                  result;
+                  payload;
+                  target_type = Some pointer_word;
+                  flags = 0L;
+                  span;
+                }
+              in
+              (* PrsFunCall retags the loaded address to RT_PTR, sets RAX and
+                 balances the expression bookkeeping before CALL_START and
+                 the saved-callee register push. Keep that boundary explicit. *)
+              let items =
+                List.map
+                  (fun instruction ->
+                    let description = Sequence.description instruction in
+                    if
+                      Option.fold ~none:false
+                        ~some:(fun result ->
+                          Sequence.Value_id.equal result.Sequence.value_id
+                            lowered.result_value_)
+                        description.result
+                    then { description with target_type = Some pointer_word }
+                    else description)
+                  (Sequence.instructions lowered.sequence_)
+                @ [
+                    make set_rax Opcode.Ic_set_rax [ lowered.result_value_ ]
+                      None None;
+                    make nop Opcode.Ic_nop2 [] None (Some (Sequence.Integer 1L));
+                  ]
+              in
+              let* sequence_ = Sequence.create items in
+              Ok
+                (Lowered
+                   {
+                     lowered with
+                     sequence_;
+                     result_type_ = pointer_word;
+                     next_instruction_id_;
+                   }))
 
 let lower_condition_chain ?frame ?globals ?lower_call ?(optimize_shifts = false)
     ?(optimize_division = false) ~instruction_id ~value_id ~block_id

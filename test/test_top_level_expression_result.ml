@@ -1781,10 +1781,24 @@ let top_level_outer_callback_calls () =
         .top_level_outer_callback_callable first
       in
       Alcotest.(check bool)
-        "scalar outer callback has no computed callee result" true
-        (Option.is_none
+        "scalar outer callback retains its original callee result" true
+        (Option.is_some
            (Semantic_function_call_expression_result
             .top_level_outer_callback_callee_result first));
+      let module R = Semantic_function_call_expression_result in
+      let callee =
+        Option.get (R.top_level_outer_callback_callee_result first)
+      in
+      let callee_source = R.top_level_outer_callback_source first in
+      Alcotest.(check bool)
+        "scalar outer callback retains the exact callee source tree" true
+        (R.result_source callee
+        == Semantic_top_level_expression_tree.call_callee_expression
+             callee_source);
+      Alcotest.(check bool)
+        "scalar outer callback retains the exact selected declarator" true
+        (Option.get (R.result_callback_pointer callee)
+        == Semantic_function_call_resolution.callable_pointer first_callable);
       let first_signature =
         Semantic_function_call_resolution.callable_signature first_callable
       in

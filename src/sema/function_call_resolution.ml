@@ -236,6 +236,7 @@ type call = {
   callee_form : callee_form;
   callable : callable option;
   computed_callee : argument_expression option;
+  callee_value : argument_expression option;
   origin : Symbol.origin;
   syntax : call_syntax;
   arguments : argument list;
@@ -483,6 +484,12 @@ let call_callee_origin (call : call) = call.callee_origin
 let call_callee_form (call : call) = call.callee_form
 let call_callable (call : call) = call.callable
 let call_computed_callee (call : call) = call.computed_callee
+
+let call_callee_value (call : call) =
+  match call.callee_value with
+  | Some _ as expression -> expression
+  | None -> call.computed_callee
+
 let call_origin (call : call) = call.origin
 let call_original_phase (call : call) = call.original_phase
 
@@ -1766,8 +1773,47 @@ let validate_argument_indexes (arguments : argument list) =
   in
   loop 0 arguments
 
+let identifier_callee_value_matches ~callee_occurrence_index ~callee_name
+    ~callee_origin ~callee_form expression =
+  let occurrence_matches occurrence =
+    Module_expression_binding.occurrence_index occurrence
+    = callee_occurrence_index
+    && Module_expression_binding.occurrence_name occurrence = callee_name
+    && Module_expression_binding.occurrence_origin occurrence = callee_origin
+  in
+  let depth_matches depth =
+    match callee_form with
+    | Identifier_callee -> depth = 0
+    | Dereferenced_identifier_callee expected -> depth = expected
+    | Member_callee -> false
+  in
+  let rec matches depth expression =
+    match expression.expression_kind with
+    | Parenthesized_expression inner -> matches depth inner
+    | Prefix_expression prefix when prefix.prefix_operator = Dereference ->
+        depth <> max_int && matches (depth + 1) prefix.prefix_operand
+    | Bound_identifier_expression identifier ->
+        depth_matches depth
+        && occurrence_matches (bound_identifier_occurrence identifier)
+    | Unresolved_expression Identifier_expression ->
+        depth_matches depth
+        && Option.fold ~none:false ~some:occurrence_matches
+             expression.source_identifier
+    | Top_level_bound_identifier_expression identifier ->
+        let occurrence = top_level_bound_identifier_occurrence identifier in
+        depth_matches depth
+        && Top_level_outer_expression_binding.occurrence_index occurrence
+           = callee_occurrence_index
+        && Top_level_outer_expression_binding.occurrence_name occurrence
+           = callee_name
+        && Top_level_outer_expression_binding.occurrence_origin occurrence
+           = callee_origin
+    | _ -> false
+  in
+  matches 0 expression
+
 let make_call ~index ~callee_occurrence_index ~callee_name ~callee_origin
-    ?(callee_form = Identifier_callee) ?callable ?computed_callee
+    ?(callee_form = Identifier_callee) ?callable ?computed_callee ?callee_value
     ?original_phase ~origin ~syntax (arguments : argument list) =
   if index < 0 then Error "function call index cannot be negative"
   else if callee_occurrence_index < 0 then
@@ -1787,6 +1833,18 @@ let make_call ~index ~callee_occurrence_index ~callee_name ~callee_origin
     | Member_callee, Some _
     | (Identifier_callee | Dereferenced_identifier_callee _), None -> false
   then Error "function call computed callee does not match its callee form"
+  else if Option.is_some callee_value && callee_form = Member_callee then
+    Error "member call must retain its callee through computed_callee"
+  else if
+    Option.fold ~none:false
+      ~some:(fun expression ->
+        not
+          (identifier_callee_value_matches ~callee_occurrence_index ~callee_name
+             ~callee_origin ~callee_form expression))
+      callee_value
+  then
+    Error
+      "function call callee value does not retain its bound occurrence and form"
   else
     match validate_argument_indexes arguments with
     | Error _ as error -> error
@@ -1801,6 +1859,7 @@ let make_call ~index ~callee_occurrence_index ~callee_name ~callee_origin
             callee_form;
             callable;
             computed_callee;
+            callee_value;
             origin;
             syntax;
             arguments;
@@ -2055,7 +2114,7 @@ let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
             with
           | Some (_, callee) -> matches ast.call_callee callee
           | None -> (
-              match checked.computed_callee with
+              match call_callee_value checked with
               | Some callee -> matches ast.call_callee callee
               | None -> true))
         && same_list
@@ -2910,7 +2969,7 @@ let validate_argument_expressions table parent visible declarations
     | [] -> Ok ()
     | (call : call) :: rest -> (
         match
-          match call.computed_callee with
+          match call_callee_value call with
           | None -> Ok ()
           | Some expression ->
               validate_argument_expression table parent visible declarations
@@ -3255,7 +3314,7 @@ let validate_call_bound_evidence calls occurrences queries =
     | [] -> Ok ()
     | call :: rest -> (
         match
-          match call.computed_callee with
+          match call_callee_value call with
           | None -> Ok ()
           | Some expression ->
               validate_bound_evidence occurrence_by_index query_by_index

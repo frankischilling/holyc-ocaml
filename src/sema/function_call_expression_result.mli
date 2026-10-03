@@ -361,6 +361,9 @@ val top_level_global_callback_global :
 val top_level_global_callback_value :
   top_level_global_callback_call -> Function_call_resolution.identifier_value
 
+val top_level_global_callback_callee_result :
+  top_level_global_callback_call -> expression_result
+
 val top_level_global_callback_callable :
   top_level_global_callback_call -> Function_call_resolution.callable
 
@@ -465,6 +468,7 @@ val declared_default_parameter :
   declared_default_result -> Function_type_resolution.parameter
 
 val declared_default_type : declared_default_result -> Type.t
+val declared_default_storage_type : declared_default_result -> Type.t option
 val declared_default_class : declared_default_result -> result_class
 val declared_default_kind : declared_default_result -> declared_default_kind
 

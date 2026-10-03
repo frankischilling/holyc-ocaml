@@ -154,6 +154,22 @@ val lower_global_initializer :
 
 val sequence : t -> Instruction_sequence.t
 
+val lower_indirect_callee :
+  ?frame:Sema.Function_frame_layout.function_layout ->
+  ?globals:Integer_globals.t ->
+  ?lower_call:call_lowerer ->
+  ?optimize_shifts:bool ->
+  ?optimize_division:bool ->
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  Sema.Function_call_expression_result.indirect_call ->
+  (lowering_result, Instruction_sequence.error list) result
+(** Lower the original checked callback cell, retag its loaded address to the
+    internal RT_PTR word, and emit [IC_SET_RAX] plus [IC_NOP2] before argument
+    evaluation. The exact selected declarator and source value tree must match.
+    This fragment ends before [IC_CALL_START]; it does not authorize dispatch or
+    emit the saved-callee push, arguments or cleanup. *)
+
 val lower_condition_chain :
   ?frame:Sema.Function_frame_layout.function_layout ->
   ?globals:Integer_globals.t ->

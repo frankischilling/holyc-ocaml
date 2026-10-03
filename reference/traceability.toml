@@ -12858,6 +12858,7 @@ sources = [
   "Compiler/PrsVar.HC:285-366 callback signature and internal RT_PTR storage selection",
   "Compiler/PrsExp.HC:96-116 storage loads and updates",
   "Compiler/PrsExp.HC:195-202 assignment lvalue validation",
+  "Compiler/PrsExp.HC:383-588 callee load and RT_PTR/RAX capture before argument emission",
   "Compiler/PrsExp.HC:764-809 local callback and frame selection",
   "Compiler/PrsExp.HC:868-904 global callback selection",
   "Compiler/PrsExp.HC:997-1022 callback member selection",
@@ -12875,7 +12876,9 @@ implementation = [
   "src/sema/function_frame_layout.mli",
   "src/ir/frame_address_lowering.ml",
   "src/ir/frame_address_lowering.mli",
-  "src/ir/expression_lowering.ml"
+  "src/ir/expression_lowering.ml",
+  "src/ir/expression_lowering.mli",
+  "src/driver/top_level_expression_tree.ml"
 ]
 tests = [
   "test/test_callback_storage.ml",
@@ -12889,7 +12892,7 @@ documentation = ["docs/compatibility.md", "docs/holy-abi.md", "docs/task-functio
 status = "implemented"
 issue = 801
 reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
-scope = "semantic scalar and fully indexed callback storage; original parameter/local frame metadata and symbolic RBP-relative addresses"
+scope = "semantic scalar and fully indexed callback storage; original callee trees and default storage class; original parameter/local frame metadata, symbolic RBP-relative addresses, scalar word loads and pre-argument RT_PTR/RAX callee fragments"
 storage = "internal RT_PTR represented by intrinsic I64 with the callback declarator indirection count; source return type and recursive signature remain separate"
 identity = "The original callback pointer object is carried from the checked declarator through identifier typing, grouping, indexing, and exact frame selection. A nonordinary array or a matching Type.t cannot invent a callback signature."
 assignments_and_updates = "Scalar callback cells and fully indexed callback arrays are writable; assignment/update result types use storage rather than return class. Call and arithmetic results do not inherit callable expression metadata."
@@ -12897,5 +12900,8 @@ array_class = "Fully indexed callback arrays produce integer callback addresses,
 frame_address = "Exact original frame binding, symbol, source type, callback declarator, rank, location kind and span are checked before a symbolic RBP/displacement/add fragment is emitted. Foreign frames and swapped declarators have no address authority."
 native_oracle = "Twelve field/source pairs and twenty-four original observations from one verified read-only TempleOS JIT boot; native AOT has not been observed."
 compilation_modes = ["jit", "aot"]
-execution_connection = "unfinished under issue 801; symbolic addresses and semantic callback metadata do not grant retained executable authority"
+callee = "Identifier and dereferenced identifier calls retain a separate original callee value without changing syntactic form. Member and indexed calls retain and type their original computed callee. Scalar top-level and retained outer callbacks keep the same source tree. Identifier callee values must match the original occurrence, name, origin and dereference depth."
+callee_fragment = "A supported original frame cell is loaded once; PrsFunCall retags that producer to internal RT_PTR before SET_RAX/NOP2. The fragment ends before CALL_START and does not emit argument pushes, the saved-callee push or cleanup. Exact instruction/value capacity and foreign frames are checked."
+callback_defaults = "Callback parameter defaults keep their source return type and original parameter while exposing physical RT_PTR storage and the integer address class. Runtime default materialization remains unfinished."
+execution_connection = "unfinished under issue 801; callee fragments do not grant retained executable authority or complete indirect-call lowering"
 remaining = ["callback runtime storage", "indirect invocation", "retained executable ownership and lifetime", "checked reached signature and cleanup", "native callback emission", "callback returns and aggregate runtime consumers", "general noninteger variadics under issue 688"]
