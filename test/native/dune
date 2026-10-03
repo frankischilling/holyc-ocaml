@@ -405,6 +405,24 @@
 
 (copy_files ../test_constant_shifts.ml)
 
+(copy_files ../source_constant_shift_cases.ml)
+
+(executable
+ (name test_source_constant_shift_execution)
+ (modules
+  test_source_constant_shift_execution
+  source_constant_shift_cases
+  test_constant_shifts
+  test_internal_strlen_authority
+  test_native_expression)
+ (libraries holyc_lib native_scalar_support alcotest yojson))
+
+(rule
+ (alias native-tests)
+ (deps ../oracle/constant-shifts.json)
+ (action
+  (run %{exe:test_source_constant_shift_execution.exe})))
+
 (executable
  (name test_constant_shift_execution)
  (modules

@@ -399,7 +399,7 @@ let default_failure_reporting () =
         [
           ("I64 F(I64 n=1/0){return n;} F(42);", "HCIRVM0009", true);
           ("I64 F(I64 n=1/0){return n;} 42;", "HCIRVM0009", true);
-          ("I64 F(I64 n=1<<3){return n;} F();", "HCRUN0006", false);
+          ("I64 N;I64 F(I64 n=N<<3){return n;} F();", "HCRUN0006", false);
           ("1/0; I64 F(I64 n=42){return n;} F();", "HCRUN0006", false);
         ];
       with_file ".hc" "I64 F(I64 n=42){return n;} 1/0;" (fun source ->
@@ -568,10 +568,10 @@ let source_rejection_has_no_native_outcome () =
             && diagnostics report <> [])
             (contents ^ " rejects before native entry")))
     [
-      "I64 x=1<<2;";
+      "I64 N=1;I64 x=N<<2;";
       "I64 Bad(){F64 x=1.0;return 0;} 42;";
       "1/0; I64 F(I64 n=42){return n;} F();";
-      "I64 F(I64 n=1<<3){return n;} F();";
+      "I64 N;I64 F(I64 n=N<<3){return n;} F();";
       "extern I64 Add(I64 x); 42;";
       "\"output\";";
       "#exe {42;}\n42;";

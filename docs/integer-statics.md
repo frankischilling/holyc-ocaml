@@ -88,6 +88,6 @@ capture a future invocation.
 [Persistent arrays](integer-persistent-arrays.md), U8 storage and
 [byte updates](integer-byte-updates.md) extend this scalar static connection.
 Pointer-valued statics, other narrow/floating/aggregate storage, full runtime output,
-stateful compilation, optimizer parity (#574/#585), native execution, BIN/loader
+stateful compilation, broader optimizer parity (#585/#696/#697), native execution, BIN/loader
 acceptance and bootstrap remain unfinished. This increment has hosted execution
 tests and pinned-source evidence, without a new native TempleOS capture.

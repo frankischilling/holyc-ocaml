@@ -144,7 +144,7 @@ nonconstant value or any transitively called function. A call cannot bypass
 this check: `Half(-3)` where `Half(n)` returns `n/2` reaches TempleOS's signed
 divide-to-shift rewrite at `OptPass012.HC:419-430`, which differs from raw VM
 division. Pure successful constant division such as `(-3)/2` is accepted and
-produces -1. Issues #574 and #585 retain the broader optimizer work.
+produces -1. Fully constant shifts now fold before preparation under #787; nonconstant shifts retain their gate. #585 retains the broader division/remainder optimizer work.
 
 The same guard covers compound shifts and constant-divisor `/=` and `%=`.
 `OptPass012.HC:827-854` also rewrites compound arithmetic; a signed remainder

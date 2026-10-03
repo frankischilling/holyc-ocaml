@@ -785,15 +785,18 @@ let source_parameter_default_limits_and_failures () =
           "I64 F(I64 a=1/0,I64 b=1<<3){return a+b;}\n42;"
       in
       Alcotest.(check string)
-        "first declaration default faults before later shift guard" "HCIRVM0009"
-        (first_code first_fault);
-      let _, first_shift =
+        "first declaration default faults before later folded shift"
+        "HCIRVM0009" (first_code first_fault);
+      let folded_report, first_shift =
         source_pre_entry_failure ~mode
           "I64 F(I64 a=1<<3,I64 b=1/0){return a+b;}\n42;"
       in
       Alcotest.(check string)
-        "first declaration shift guard precedes later arithmetic fault"
-        "HCRUN0006" (first_code first_shift);
+        "folded first default allows the later arithmetic fault" "HCIRVM0009"
+        (first_code first_shift);
+      Alcotest.(check int)
+        "folded default and faulting second default work" 6
+        (Native_program.preparation_steps folded_report);
       let _, call_default =
         source_pre_entry_failure ~mode
           "I64 Inc(I64 n){return n+1;}\nI64 F(I64 n=Inc(41)){return n;}\nF();"

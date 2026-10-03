@@ -90,7 +90,7 @@ type intrinsic = {
 
 type graph_context = {
   owner : owner;
-  pointer_producers : Seq.description Instructions.t;
+  source_producers : Seq.description Instructions.t;
   calls : call Instructions.t;
   discards : call Instructions.t;
   intrinsic_starts : intrinsic Instructions.t;
@@ -207,7 +207,11 @@ let pointer_difference_division produced (description : Seq.description) =
       | None -> false)
   | [] -> false
 
-let pointer_producers_match context =
+let constant_shift (description : Seq.description) =
+  description.opcode = Opcode.Ic_shl_const
+  || description.opcode = Opcode.Ic_shr_const
+
+let source_producers_match context =
   List.for_all
     (fun graph ->
       let checked =
@@ -242,10 +246,11 @@ let pointer_producers_match context =
           if
             not
               (pointer_relation produced supplied
-              || pointer_difference_division produced supplied)
+              || pointer_difference_division produced supplied
+              || constant_shift supplied)
           then true
           else
-            match Instructions.find_opt id graph.pointer_producers with
+            match Instructions.find_opt id graph.source_producers with
             | Some original -> original == supplied
             | None -> false)
         current
@@ -254,7 +259,7 @@ let pointer_producers_match context =
              match Instructions.find_opt id current with
              | Some supplied -> original == supplied
              | None -> false)
-           graph.pointer_producers)
+           graph.source_producers)
     context.graphs
 
 let matches context ~entry ~initialization ~functions =
@@ -264,7 +269,7 @@ let matches context ~entry ~initialization ~functions =
        initialization
   && List.length context.functions = List.length functions
   && List.for_all2 ( == ) context.functions functions
-  && pointer_producers_match context
+  && source_producers_match context
 
 let find_graph context owner =
   List.find_opt (fun graph -> same_owner graph.owner owner) context.graphs
@@ -293,7 +298,7 @@ let original_pointer_difference_divisions context ~owner =
           | _ -> None)
       | _ -> None
   in
-  if not (pointer_producers_match context) then None
+  if not (source_producers_match context) then None
   else
     Option.map
       (fun graph ->
@@ -303,7 +308,7 @@ let original_pointer_difference_divisions context ~owner =
               match item.result with
               | Some result -> Values.add result.value_id item produced
               | None -> produced)
-            graph.pointer_producers Values.empty
+            graph.source_producers Values.empty
         in
         Instructions.filter
           (fun _ (description : Seq.description) ->
@@ -337,7 +342,7 @@ let original_pointer_difference_divisions context ~owner =
                     | _ -> false)
                 | _ -> false)
             | _ -> false)
-          graph.pointer_producers)
+          graph.source_producers)
       (find_graph context owner)
 
 let is_original_pointer_difference_division divisions
@@ -1677,19 +1682,19 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                 ~some:(fun type_ -> Type.pointer_depth type_ = 1)
                 item.target_type
            || pointer_relation produced item
-           || pointer_difference_division produced item)
+           || pointer_difference_division produced item
+           || constant_shift item)
          all_items)
   in
-  let pointer_producers = ref Instructions.empty in
+  let source_producers = ref Instructions.empty in
   while !pending <> [] do
     match !pending with
     | [] -> ()
     | item :: rest ->
         pending := rest;
-        if not (Instructions.mem item.Seq.instruction_id !pointer_producers)
-        then (
-          pointer_producers :=
-            Instructions.add item.instruction_id item !pointer_producers;
+        if not (Instructions.mem item.Seq.instruction_id !source_producers) then (
+          source_producers :=
+            Instructions.add item.instruction_id item !source_producers;
           List.iter
             (fun operand ->
               Option.iter
@@ -1699,7 +1704,7 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
   done;
   {
     owner;
-    pointer_producers = !pointer_producers;
+    source_producers = !source_producers;
     calls = !calls;
     discards = !discards;
     intrinsic_starts = !intrinsic_starts;

@@ -217,7 +217,7 @@ let optimizer_guards () =
         (read task "A[0];");
       Alcotest.(check int64)
         "guard runs before the rejected call has effects" 0L (read task "N;"))
-    [ "return 1<<2;"; "return N/2;" ]
+    [ "return N<<2;"; "return N/2;" ]
 
 let instruction_budget () =
   let text = {|I64 Add(I64 a,I64 b){return a+b;};77;I64 N=Add(20,22);N;|} in

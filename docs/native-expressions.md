@@ -116,7 +116,7 @@ or IR stage. Native division and remainder implement the checked raw IR
 semantics; the distinct TempleOS strength-reduction and fault-phase optimizer
 policy remains separate work in #585. Canonical constant shifts now have
 [native evidence and checked execution](constant-shifts.md); the public source
-optimizer still needs integration under #585/#696/#697.
+program pipeline integrates that full-word policy under #787. Raw expression fragment APIs keep their existing default contract; broader optimizer work remains under #585/#696/#697.
 The only admitted cast form is a full-width internal I64/U64 word view with
 `IC_HOLYC_TYPECAST`, integer payload zero and zero flags. It preserves all bits
 and selects the target computation class. The internal source spellings

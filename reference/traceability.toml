@@ -12782,3 +12782,19 @@ source_baseline_controls = 196
 source_baseline_differing_controls = 24
 source_baseline_differing_fields = ["RH1", "LN64", "RN64", "UN64", "LN128", "RN128"]
 excluded = ["automatic source shift optimization", "full constant-expression folding and multiplication/division strength reductions", "compound/narrow/pointer/F64 constant shifts", "LEA/SIB optimization", "TempleOS loader acceptance and bootstrap"]
+
+[[feature]]
+id = "HC-SOURCE-CONSTANT-INTEGER-SHIFTS"
+description = "Checked full-word source shift plans fold constant children before merging complete counts and preserve original source publication."
+status = "implemented"
+issue = 787
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/OptLib.HC:96-179,196-225", "Compiler/OptPass012.HC:193-266,741-827", "Compiler/OptPass789A.HC:676-687", "Compiler/BackA.HC:573-601", "Compiler/BackB.HC:158,193"]
+implementation = ["src/ir/expression_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/return_lowering.ml", "src/ir/direct_call_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_source_constant_shifts.ml", "test/source_constant_shift_cases.ml", "test/native/test_source_constant_shift_execution.ml", "test/test_constant_shift_cli.ml", "test/native_initializer_authority/test_native_initializer_authority.ml", "test/native_default_authority/test_native_default_authority.ml", "test/oracle/constant-shifts.json", "examples/constant-shifts.hc", "examples/stream-constant-shifts.hc"]
+documentation = ["docs/constant-shifts.md", "docs/compatibility.md", "docs/intermediate-representation.md", "docs/native-programs.md", "docs/testing.md", "README.md"]
+ordering = "Pure constant children fold with their common class before same-direction variable-word counts merge by full wrapping addition. Calls and reads retain their original order and execute once. Opposite directions and variable counts stay separate."
+classes = "Surviving operand computation classes reach unary/arithmetic/return consumers. Earlier unsigned comparison decisions retain a word view. Checked call boundaries preserve original source class/span through a charged full-width view."
+authority = "Rewrite before IR identities and source sealing. Original canonical shifts and transitive producers are retained; changed/copy/foreign/new-after-seal records reject. Folded initializer/default leaves require original declaration and completion proofs."
+verification_boundary = "49 captured fields across JIT/AOT and both program targets; 25 additional consumers/effects/preparation sources; dense identities, complete payloads, authority mutations, both ABI encodings, fresh host replay and exact/one-below allowances. Historical raw baseline and native captures remain unchanged."
+excluded = ["shared comparison/address/pointer plans", "narrow/pointer/F64 operands and compound shifts", "arithmetic or cast count folding", "multiplication/division reductions and full early/late optimizer", "native retained frontend publication", "TempleOS loader acceptance and bootstrap"]
