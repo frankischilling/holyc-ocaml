@@ -66,28 +66,31 @@ val lower_typed_result :
     address/dereference cancellation, and consecutive identity allocation. With
     [frame], scalar U8/I64/U64 bound identifiers load their exact checked slots,
     and simple assignments store through the checked destination address without
-    reading its old contents. [globals] enables scalar I64/U64 loads/stores for
-    exact module-bound globals in function or top-level expressions, preserving
-    their JIT/AOT symbol-backed address intent. Scalar compound assignments and
-    prefix/postfix increment/decrement use those addresses and retain their
-    original update ICs. Compound RHS evaluation precedes the destination read;
-    compound results retain full computed bits, prefix results use the new
-    stored value and postfix uses the old stored value. Checked one-level
-    U8/I64/U64 pointer locals and fixed parameters load and store references.
-    Ordinary automatic integer arrays retain exact index children and frame
-    dimensions; shared address plans emit stride/index/mul/add for loads,
-    assignments and updates. Any-rank array values materialize an element
-    pointer with [IC_ADDR]; grouping discards the dimension cursor. Address-of
-    emits [IC_ADDR] over a canonical scalar or indexed address or the retained
-    reference in [&*p], without loading the pointee. Indirect assignments
-    capture their checked address before evaluating the RHS. U8 storage supports
-    plain assignments, compound and prefix/postfix updates, and one-byte element
-    strides. Other pointer domains remain unsupported by storage execution.
-    Without storage context, pointer-tree lowering keeps its existing domain.
-    [lower_call] composes calls as expression nodes and applies retained result
-    conversion only to the final call-end producer. Expressions outside the
-    implemented tree shapes return [Unsupported_expression] without returning a
-    partial sequence. *)
+    reading its old contents. Checked scalar callback cells use their physical
+    RT_PTR storage for loads and plain assignment; their return type remains
+    signature metadata. Numeric comparison consumes their integer address class.
+    [globals] enables scalar I64/U64 loads/stores for exact module-bound globals
+    in function or top-level expressions, preserving their JIT/AOT symbol-backed
+    address intent. Scalar compound assignments and prefix/postfix
+    increment/decrement use those addresses and retain their original update
+    ICs. Compound RHS evaluation precedes the destination read; compound results
+    retain full computed bits, prefix results use the new stored value and
+    postfix uses the old stored value. Checked one-level U8/I64/U64 pointer
+    locals and fixed parameters load and store references. Ordinary automatic
+    integer arrays retain exact index children and frame dimensions; shared
+    address plans emit stride/index/mul/add for loads, assignments and updates.
+    Any-rank array values materialize an element pointer with [IC_ADDR];
+    grouping discards the dimension cursor. Address-of emits [IC_ADDR] over a
+    canonical scalar or indexed address or the retained reference in [&*p],
+    without loading the pointee. Indirect assignments capture their checked
+    address before evaluating the RHS. U8 storage supports plain assignments,
+    compound and prefix/postfix updates, and one-byte element strides. Other
+    pointer domains remain unsupported by storage execution. Without storage
+    context, pointer-tree lowering keeps its existing domain. [lower_call]
+    composes calls as expression nodes and applies retained result conversion
+    only to the final call-end producer. Expressions outside the implemented
+    tree shapes return [Unsupported_expression] without returning a partial
+    sequence. *)
 
 (** [optimize_shifts] defaults to false for raw fragment callers. Public program
     lowering enables the verified full-width integer rewrite before allocation
@@ -153,6 +156,22 @@ val lower_global_initializer :
     responsibility. *)
 
 val sequence : t -> Instruction_sequence.t
+
+val lower_indirect_callee :
+  ?frame:Sema.Function_frame_layout.function_layout ->
+  ?globals:Integer_globals.t ->
+  ?lower_call:call_lowerer ->
+  ?optimize_shifts:bool ->
+  ?optimize_division:bool ->
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  Sema.Function_call_expression_result.indirect_call ->
+  (lowering_result, Instruction_sequence.error list) result
+(** Lower the original checked callback cell, retag its loaded address to the
+    internal RT_PTR word, and emit [IC_SET_RAX] plus [IC_NOP2] before argument
+    evaluation. The exact selected declarator and source value tree must match.
+    This fragment ends before [IC_CALL_START]; it does not authorize dispatch or
+    emit the saved-callee push, arguments or cleanup. *)
 
 val lower_condition_chain :
   ?frame:Sema.Function_frame_layout.function_layout ->

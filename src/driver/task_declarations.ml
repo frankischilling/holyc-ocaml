@@ -187,6 +187,7 @@ type command = {
     * Sema.Function_type_resolution.resolved_function)
     list;
   implicit_outputs : selected_implicit_output list;
+  source_callback_defaults : Ir.Prepared_callback_default.t list;
   source_defaults : Ir.Prepared_parameter_default.t list;
   native_source_defaults : Ir.Prepared_parameter_default.t list;
   table : Sema.Symbol_table.t;
@@ -230,7 +231,24 @@ type command_sequence = {
   mutable completed_rev : parsed_command list;
 }
 
+type callback_state = {
+  callback_publication : Parser.callback_signature_publication;
+  mutable callback_pending : Parser.callback_parameter_publication option;
+  mutable callback_members_rev : Parser.completed_callback_parameter list;
+  mutable callback_defaults_rev : Parser.completed_callback_default list;
+  mutable callback_header : Parser.completed_callback_signature option;
+}
+
 type t = {
+  mutable callback_states : callback_state list;
+  mutable source_callback_attempts :
+    (Parser.completed_callback_default
+    * Sema.Default_fragment.authority
+    * int
+    * int64 option ref)
+    list;
+  mutable prepared_source_callback_defaults :
+    Ir.Prepared_callback_default.t list;
   compiler_positions : Sema.Compiler_record.compiler_positions;
   call_journal : Sema.Source_activation.call_journal;
   mutable calls : selected_call list;
@@ -380,6 +398,9 @@ let create_with_authority ?compiler_positions ?max_switch_work ?switch_budget
                   calls = [];
                   native_functions = None;
                   native_function_events = [];
+                  callback_states = [];
+                  source_callback_attempts = [];
+                  prepared_source_callback_defaults = [];
                   source_default_attempts = [];
                   source_defaults_runtime = None;
                   prepared_source_defaults = [];
@@ -2156,9 +2177,175 @@ let validate_global_dimensions ledger (publication : Parser.global_publication)
       fail publication.global_name.location.span
         "global publication is missing its original completed array dimensions"
 
+let callback_state ledger publication span =
+  match
+    List.find_opt
+      (fun state -> state.callback_publication == publication)
+      ledger.callback_states
+  with
+  | Some state -> state
+  | None ->
+      fail span "anonymous signature has no original observed declaration scope"
+
+let validate_callback_command ledger publication span =
+  let sequence =
+    active_sequence ledger publication.Parser.callback_command.command_context
+  in
+  match sequence.phase with
+  | Reading original when original == publication.callback_command -> ()
+  | _ -> fail span "anonymous signature belongs to another source command"
+
 let observe ?offset_runtime ledger event =
   protect (fun () ->
       match event with
+      | Parser.Callback_position_written receipt ->
+          let owner = receipt.callback_position_signature in
+          let span = owner.callback_opening.span in
+          validate_callback_command ledger owner span;
+          let state = callback_state ledger owner span in
+          if
+            Option.is_some state.callback_header
+            || Option.is_some state.callback_pending
+          then
+            fail span
+              "anonymous position is outside its original member boundary";
+          Sema.Compiler_record.record_callback_position
+            ledger.compiler_positions
+            ~parameters:(List.rev state.callback_members_rev)
+            receipt
+          |> checked span
+      | Parser.Callback_signature_started publication ->
+          let span = publication.callback_opening.span in
+          validate_callback_command ledger publication span;
+          if
+            (not (Parser.callback_signature_is_current publication))
+            || List.exists
+                 (fun state -> state.callback_publication == publication)
+                 ledger.callback_states
+          then fail span "anonymous signature start is foreign or repeated";
+          ledger.callback_states <-
+            {
+              callback_publication = publication;
+              callback_pending = None;
+              callback_members_rev = [];
+              callback_defaults_rev = [];
+              callback_header = None;
+            }
+            :: ledger.callback_states
+      | Parser.Callback_parameter_declared publication ->
+          let owner = publication.callback_parameter_signature in
+          let span = owner.callback_opening.span in
+          validate_callback_command ledger owner span;
+          let state = callback_state ledger owner span in
+          if
+            (not (Parser.callback_parameter_is_current publication))
+            || Option.is_some state.callback_header
+            || Option.is_some state.callback_pending
+            || publication.callback_parameter_index
+               <> List.length state.callback_members_rev
+            || not
+                 (same_option ( == ) publication.callback_parameter_predecessor
+                    (List.nth_opt state.callback_members_rev 0))
+          then
+            fail span
+              "anonymous parameter has another original position or predecessor";
+          state.callback_pending <- Some publication
+      | Parser.Callback_default_completed receipt ->
+          let owner = receipt.callback_default_signature in
+          let span = receipt.callback_default_ast.location.span in
+          validate_callback_command ledger owner span;
+          let state = callback_state ledger owner span in
+          if
+            (not (Parser.callback_default_is_current receipt))
+            || Option.is_some state.callback_header
+            || (not
+                  (Option.fold ~none:false
+                     ~some:(( == ) receipt.callback_default_parameter)
+                     state.callback_pending))
+            || receipt.callback_default_index
+               <> receipt.callback_default_parameter.callback_parameter_index
+            || (not
+                  (same_option ( == ) receipt.callback_default_predecessor
+                     (List.nth_opt state.callback_defaults_rev 0)))
+            || List.exists (( == ) receipt) state.callback_defaults_rev
+          then
+            fail span
+              "anonymous default has another original member or completion \
+               order";
+          state.callback_defaults_rev <- receipt :: state.callback_defaults_rev
+      | Parser.Callback_parameter_completed receipt ->
+          let publication = receipt.callback_parameter_publication in
+          let owner = publication.callback_parameter_signature in
+          let span = receipt.callback_parameter_ast.location.span in
+          validate_callback_command ledger owner span;
+          let state = callback_state ledger owner span in
+          let ast = receipt.callback_parameter_ast in
+          if
+            (not (Parser.callback_parameter_completion_is_current receipt))
+            || (not
+                  (Option.fold ~none:false ~some:(( == ) publication)
+                     state.callback_pending))
+            || ast.type_specifier
+               != publication.callback_parameter_type_specifier
+            || ast.pointer_layers
+               != publication.callback_parameter_pointer_layers
+            || ast.register_qualifiers
+               != publication.callback_parameter_register_qualifiers
+            || (not
+                  (same_option ( == ) ast.name
+                     publication.callback_parameter_name))
+            || (not
+                  (same_option ( == ) ast.function_pointer
+                     publication.callback_parameter_function_pointer))
+            ||
+            match ast.default with
+            | None ->
+                List.exists
+                  (fun r -> r.Parser.callback_default_parameter == publication)
+                  state.callback_defaults_rev
+            | Some default ->
+                not
+                  (List.exists
+                     (fun r ->
+                       r.Parser.callback_default_parameter == publication
+                       && r.callback_default_ast == default)
+                     state.callback_defaults_rev)
+          then
+            fail span
+              "anonymous parameter completion lost its exact original children";
+          state.callback_pending <- None;
+          state.callback_members_rev <- receipt :: state.callback_members_rev
+      | Parser.Callback_signature_completed header ->
+          let owner = header.callback_signature_publication in
+          let span = owner.callback_opening.span in
+          validate_callback_command ledger owner span;
+          let state = callback_state ledger owner span in
+          if
+            (not (Parser.callback_signature_completion_is_current header))
+            || Option.is_some state.callback_header
+            || Option.is_some state.callback_pending
+            || List.length header.callback_parameters
+               <> List.length state.callback_members_rev
+            || (not
+                  (List.for_all2 ( == ) header.callback_parameters
+                     (List.rev state.callback_members_rev)))
+            || List.length header.callback_defaults
+               <> List.length state.callback_defaults_rev
+            || (not
+                  (List.for_all2 ( == ) header.callback_defaults
+                     (List.rev state.callback_defaults_rev)))
+            || List.length header.callback_pointer.signature_parameters
+               <> List.length header.callback_parameters
+            || not
+                 (List.for_all2
+                    (fun ast r -> ast == r.Parser.callback_parameter_ast)
+                    header.callback_pointer.signature_parameters
+                    header.callback_parameters)
+          then
+            fail span
+              "anonymous signature completion is foreign, repeated or missing \
+               original members";
+          state.callback_header <- Some header
       | Parser.Internal_binding_preparing receipt ->
           let span = receipt.binding_ast.location.span in
           let sequence =
@@ -2507,13 +2694,22 @@ let observe ?offset_runtime ledger event =
           if not (Parser.function_position_is_current receipt) then
             fail span "function position write is outside its original callback";
           match (find ledger publication.function_name).source with
-          | Function state when state.publication == publication ->
-              Option.iter
-                (fun record ->
+          | Function state when state.publication == publication -> (
+              match state.native_record with
+              | Some record ->
                   Sema.Compiler_record.record_function_position
                     ledger.compiler_positions record receipt
-                  |> checked span)
-                state.native_record
+                  |> checked span
+              | None when not receipt.position_is_local ->
+                  Option.iter
+                    (fun source ->
+                      Sema.Compiler_record.record_source_header_position
+                        ledger.compiler_positions
+                        (Sema.Provisional_function.snapshot source)
+                        receipt
+                      |> checked span)
+                    state.provisional_source
+              | None -> ())
           | _ -> fail span "function position belongs to another declaration")
       | ( Parser.Function_parameter_declared _
         | Parser.Function_parameter_completed _
@@ -3163,6 +3359,18 @@ let seal ledger (ast : Ast.module_) =
                           == Parser.implicit_command original.implicit_selection)
                         original_commands)
                     ledger.implicit_outputs;
+                source_callback_defaults =
+                  List.filter
+                    (fun value ->
+                      let owner =
+                        (Ir.Prepared_callback_default.header value)
+                          .Parser.callback_signature_publication
+                      in
+                      List.exists
+                        (fun entry ->
+                          entry.receipt.command_start == owner.callback_command)
+                        original_commands)
+                    ledger.prepared_source_callback_defaults;
                 source_defaults =
                   List.filter
                     (fun value ->
@@ -4212,6 +4420,10 @@ let default_fragment_authority ledger ~runtime ~task_view receipt =
         Sema.Default_fragment.create ~table:ledger.table
           ~publication:assigned.publication ~receipt ~environment ~references
           ~queries
+        |> (fun result ->
+        Result.bind result
+          (Sema.Default_fragment.with_positions
+             ~compiler_positions:ledger.compiler_positions))
         |> checked span
       in
       Sema.Default_fragment.authorize ?activation:ledger.activation
@@ -4319,6 +4531,10 @@ let begin_source_default_with_owner owner ledger ~runtime receipt =
         Sema.Default_fragment.create ~table:ledger.table
           ~publication:assigned.publication ~receipt ~environment ~references:[]
           ~queries
+        |> (fun result ->
+        Result.bind result
+          (Sema.Default_fragment.with_positions
+             ~compiler_positions:ledger.compiler_positions))
         |> checked span
       in
       let authority =
@@ -5145,3 +5361,255 @@ let parser_suspension ledger =
   match ledger.active with
   | active :: _ -> Parser.suspend_context active.context
   | [] -> Error "task has no suspended parser source"
+
+let require_observed_callback_default ledger receipt =
+  let span = receipt.Parser.callback_default_ast.location.span in
+  let state = callback_state ledger receipt.callback_default_signature span in
+  if
+    (not (List.exists (( == ) receipt) state.callback_defaults_rev))
+    || not
+         (Parser.callback_default_is_current receipt
+         || Sema.Source_activation.callback_default ledger.activation receipt)
+  then fail span "anonymous default lacks its original observed active boundary"
+
+let begin_callback_default_attempt ledger ~runtime receipt =
+  protect (fun () ->
+      let span = receipt.Parser.callback_default_ast.location.span in
+      require_initializer_runtime ledger runtime span;
+      require_observed_callback_default ledger receipt;
+      VM.begin_task_callback_default runtime ~namespace:ledger.namespace receipt
+      |> checked span)
+
+let callback_default_fragment_authority ledger ~runtime ~task_view receipt =
+  protect (fun () ->
+      let span = receipt.Parser.callback_default_ast.location.span in
+      require_initializer_runtime ledger runtime span;
+      require_observed_callback_default ledger receipt;
+      if not (VM.task_owns_snapshot runtime task_view) then
+        fail span "anonymous default has another task snapshot";
+      let expression =
+        match receipt.callback_default_ast.value with
+        | Ast.Expression_default e -> e
+        | Lastclass_default _ ->
+            fail span "lastclass needs separate materialization"
+      in
+      let environment, references, queries =
+        selected_fragment_transcript ledger ~task_view ~span expression
+      in
+      let fragment =
+        Sema.Default_fragment.create_callback ~table:ledger.table
+          ~namespace:ledger.namespace ~receipt ~environment ~references ~queries
+        |> (fun result ->
+        Result.bind result
+          (Sema.Default_fragment.with_positions
+             ~compiler_positions:ledger.compiler_positions))
+        |> checked span
+      in
+      Sema.Default_fragment.authorize ?activation:ledger.activation
+        ~namespace:ledger.namespace fragment
+      |> checked span)
+
+let complete_callback_defaults_runtime ledger ~runtime header =
+  protect (fun () ->
+      let span =
+        header.Parser.callback_signature_publication.callback_opening.span
+      in
+      require_initializer_runtime ledger runtime span;
+      let state =
+        callback_state ledger header.callback_signature_publication span
+      in
+      if
+        not
+          (Option.fold ~none:false ~some:(( == ) header) state.callback_header)
+      then fail span "anonymous completion lacks its original observed header";
+      VM.complete_task_callback_defaults runtime ~namespace:ledger.namespace
+        header
+      |> checked span)
+
+let begin_source_callback_default ledger ~runtime receipt =
+  protect (fun () ->
+      let span = receipt.Parser.callback_default_ast.location.span in
+      require_observed_callback_default ledger receipt;
+      let mode =
+        Parser.context_mode
+          receipt.callback_default_signature.callback_command.command_context
+      in
+      (match (ledger.authority, mode) with
+      | Source_compilation _, Frontend.Preprocessor.Aot -> ()
+      | _ ->
+          fail span
+            "anonymous output defaults require their original AOT source ledger");
+      if
+        List.exists
+          (fun (r, _, _, _) -> r == receipt)
+          ledger.source_callback_attempts
+      then fail span "anonymous output default already attempted";
+      (match ledger.source_defaults_runtime with
+      | Some prior when prior != runtime ->
+          fail span "anonymous defaults have another invocation budget"
+      | _ -> ());
+      let rec predecessor = function
+        | None -> ()
+        | Some r -> (
+            match r.Parser.callback_default_ast.value with
+            | Ast.Lastclass_default _ ->
+                predecessor r.callback_default_predecessor
+            | Expression_default _ ->
+                if
+                  not
+                    (List.exists
+                       (fun (p, _, _, bits) -> p == r && Option.is_some !bits)
+                       ledger.source_callback_attempts)
+                then
+                  fail span
+                    "anonymous default requires its successful predecessor")
+      in
+      predecessor receipt.callback_default_predecessor;
+      let expression =
+        match receipt.callback_default_ast.value with
+        | Ast.Expression_default e -> e
+        | Lastclass_default _ ->
+            fail span "lastclass needs separate materialization"
+      in
+      if Sema.Initializer_source.expression_identifier_nodes expression <> []
+      then
+        fail ~code:"HCRUN0006" span
+          "AOT anonymous default references require output relocation and \
+           callable authority";
+      let module Outer = Sema.Outer_environment in
+      let table =
+        Outer.make_table ~table_kind:Outer.Assembler ~table_index:0 []
+        |> Result.map_error Outer.error_to_string
+        |> checked span
+      in
+      let environment =
+        Outer.create ~table:ledger.table ~compilation_mode:Outer.Aot [ table ]
+        |> Result.map_error Outer.error_to_string
+        |> checked span
+      in
+      let queries =
+        Sema.Query_selection.source_queries expression
+        |> List.map (fun expression ->
+            match Query_expressions.find_opt ledger.queries expression with
+            | Some query -> query.query_selection
+            | None ->
+                fail span "anonymous default lacks its original checked query")
+      in
+      let fragment =
+        Sema.Default_fragment.create_callback ~table:ledger.table
+          ~namespace:ledger.namespace ~receipt ~environment ~references:[]
+          ~queries
+        |> (fun result ->
+        Result.bind result
+          (Sema.Default_fragment.with_positions
+             ~compiler_positions:ledger.compiler_positions))
+        |> checked span
+      in
+      let authority =
+        Sema.Default_fragment.authorize ~namespace:ledger.namespace fragment
+        |> checked span
+      in
+      ledger.source_defaults_runtime <- Some runtime;
+      ledger.source_callback_attempts <-
+        (receipt, authority, VM.task_initializer_steps runtime, ref None)
+        :: ledger.source_callback_attempts;
+      authority)
+
+let finish_source_callback_default ledger execution =
+  protect (fun () ->
+      let fragment =
+        Sema.Default_fragment.authorized_fragment
+          (VM.default_constant_authority execution)
+      in
+      let receipt =
+        match Sema.Default_fragment.source fragment with
+        | Callback (namespace, r) when namespace == ledger.namespace -> r
+        | _ ->
+            fail (Sema.Default_fragment.ast fragment).location.span
+              "anonymous output default has another original source"
+      in
+      let span = receipt.callback_default_ast.location.span in
+      require_observed_callback_default ledger receipt;
+      let before, bits =
+        match
+          List.find_opt
+            (fun (r, a, _, bits) ->
+              r == receipt
+              && a == VM.default_constant_authority execution
+              && !bits = None)
+            ledger.source_callback_attempts
+        with
+        | Some (_, _, before, bits) -> (before, bits)
+        | _ ->
+            fail span
+              "anonymous output default completion is foreign or repeated"
+      in
+      let runtime =
+        match ledger.source_defaults_runtime with
+        | Some runtime
+          when VM.task_initializer_steps runtime - before
+               = VM.default_constant_steps execution -> runtime
+        | _ ->
+            fail span
+              "anonymous output preparation was not charged to its owning \
+               invocation"
+      in
+      bits :=
+        Some (VM.consume_default_constant runtime execution |> checked span))
+
+let complete_source_callback_defaults ledger header =
+  protect (fun () ->
+      let span =
+        header.Parser.callback_signature_publication.callback_opening.span
+      in
+      let state =
+        callback_state ledger header.callback_signature_publication span
+      in
+      if
+        (not (Parser.callback_signature_completion_is_current header))
+        || not
+             (Option.fold ~none:false ~some:(( == ) header)
+                state.callback_header)
+      then
+        fail span
+          "anonymous output defaults require their original current completed \
+           signature";
+      let values =
+        List.filter_map
+          (fun receipt ->
+            match receipt.Parser.callback_default_ast.value with
+            | Ast.Lastclass_default _ -> None
+            | Expression_default _ ->
+                let bits =
+                  match
+                    List.find_opt
+                      (fun (r, _, _, bits) ->
+                        r == receipt && Option.is_some !bits)
+                      ledger.source_callback_attempts
+                  with
+                  | Some (_, _, _, bits) -> Option.get !bits
+                  | _ ->
+                      fail span
+                        "anonymous output signature requires every successful \
+                         original default"
+                in
+                if
+                  List.exists
+                    (fun v -> Ir.Prepared_callback_default.receipt v == receipt)
+                    ledger.prepared_source_callback_defaults
+                then fail span "anonymous output defaults cannot publish twice";
+                Some
+                  (Ir.Prepared_callback_default.create
+                     ~namespace:ledger.namespace ~header ~receipt ~bits
+                  |> checked span))
+          header.callback_defaults
+      in
+      ledger.prepared_source_callback_defaults <-
+        values @ ledger.prepared_source_callback_defaults)
+
+let source_callback_defaults ~table ~ast (Source_command command) =
+  protect (fun () ->
+      if command.table != table || command.ast != ast then
+        fail ast.Ast.span
+          "anonymous output defaults belong to another original source seal";
+      command.source_callback_defaults)

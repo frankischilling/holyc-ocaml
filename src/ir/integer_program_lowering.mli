@@ -49,6 +49,7 @@ val lower_complete :
   ?labels:Sema.Label_resolution.resolved_function ->
   ?top_calls:Sema.Top_level_function_call_target_classification.t list ->
   ?function_calls:Sema.Function_call_target_classification.t list ->
+  ?callback_calls:Sema.Function_call_expression_result.indirect_call list ->
   span:Common.Span.t ->
   statement list ->
   (t, Common.Diagnostic.t list) result
@@ -111,6 +112,6 @@ val lower :
 (** Lower integer statements with block-local values and conditional
     short-circuit branches. A checked frame enables initializer stores and
     returns through a shared leave block; top-level graphs end the stream.
-    Classified direct calls compose through the shared expression planner. The
-    graph passes graph and x87 verification; integer VM preflight belongs to
-    execution. *)
+    Classified direct calls and original scalar frame callback calls compose
+    through the shared expression planner. The graph passes graph and x87
+    verification; integer VM preflight belongs to execution. *)

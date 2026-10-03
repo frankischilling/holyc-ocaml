@@ -621,12 +621,9 @@ let source_function_pointer_queries () =
           "I64 F(I64 (*P)()){return sizeof P+34;}";
           "I64 F(){I64 (*P)();return sizeof P*+34;}F();";
         ];
-      match G.run ~mode "I64 F(){I64 (*P)();return sizeof P+34;}F();" with
-      | Error (diagnostic :: _) ->
-          Alcotest.(check string)
-            "function-pointer storage retains its VM preflight boundary"
-            "HCIRVM0011" diagnostic.Diagnostic.code
-      | _ -> Alcotest.fail "expected unsupported function-pointer frame")
+      ignore
+        (G.run ~mode "I64 F(){I64 (*P)();return sizeof P+34;}F();"
+        |> F.expect 42L))
     G.modes
 
 let tests =

@@ -48,46 +48,6 @@ type stored_type =
   | Stored_narrow of Scalar.t
   | Stored_pointer of Type.t
 
-type runtime_value =
-  | Runtime_word of word
-  | Runtime_pointer of runtime_address
-  | Runtime_offset of int64
-  | Runtime_void
-
-and runtime_address = {
-  pointer_storage : runtime_storage;
-  pointer_base : int;
-  pointer_count : int;
-  pointer_element_bytes : int;
-  pointer_extent_bytes : int64;
-  pointer_offset : int64;
-  pointer_pointee : Type.t;
-}
-
-and runtime_storage = {
-  cells : runtime_value option array;
-  mutable live : bool;
-  unknown_message : string;
-}
-
-type frame_slot = {
-  slot_type : Type.t;
-  stored_type : stored_type;
-  initial : runtime_value option;
-  object_count : int;
-  strides : int64 list;
-}
-
-type frame_context = {
-  layout : Frame.function_layout;
-  slots : frame_slot array;
-  offsets : int Offset_map.t;
-  return_type : Type.t;
-  allocated_bytes : int;
-  variadic_location : (int64 * Type.t) option;
-  initial_variadic : runtime_value option array;
-}
-
 type termination = Stream_end | Returned of word option
 type error_stage = Configuration | Preflight | Execution
 
@@ -194,9 +154,53 @@ type storage_location =
   | Indirect_slot of prepared_pointer
   | Indexed_slot of prepared_pointer
 
-type prepared_operation =
+type runtime_value =
+  | Runtime_word of word
+  | Runtime_code of runtime_code
+  | Runtime_pointer of runtime_address
+  | Runtime_offset of int64
+  | Runtime_void
+
+and runtime_address = {
+  pointer_storage : runtime_storage;
+  pointer_base : int;
+  pointer_count : int;
+  pointer_element_bytes : int;
+  pointer_extent_bytes : int64;
+  pointer_offset : int64;
+  pointer_pointee : Type.t;
+}
+
+and runtime_storage = {
+  cells : runtime_value option array;
+  mutable live : bool;
+  unknown_message : string;
+}
+
+and frame_slot = {
+  slot_type : Type.t;
+  slot_callback : Sema.Function_type_resolution.function_pointer option;
+  stored_type : stored_type;
+  initial : runtime_value option;
+  object_count : int;
+  strides : int64 list;
+}
+
+and frame_context = {
+  layout : Frame.function_layout;
+  slots : frame_slot array;
+  offsets : int Offset_map.t;
+  return_type : Type.t;
+  allocated_bytes : int;
+  variadic_location : (int64 * Type.t) option;
+  initial_variadic : runtime_value option array;
+}
+
+and prepared_operation =
   | Call_start of int option
   | Call of int
+  | Callback_start of prepared_value
+  | Callback_call of Runtime.callback_call
   | Retained_call of Retained_function.t
   | Extern_call of Runtime.call * stored_type array
   | Internal_strlen of prepared_pointer
@@ -224,6 +228,7 @@ type prepared_operation =
       * Value_id.t
       * stored_type
   | Immediate of Value_id.t * word
+  | Function_address of Value_id.t * Runtime.function_address
   | Unary of unary_operation * prepared_operand * Value_id.t * word_type
   | Constant_shift of
       binary_operation * prepared_operand * int64 * Value_id.t * word_type
@@ -246,7 +251,7 @@ type prepared_operation =
   | Return
   | End
 
-type prepared_instruction = {
+and prepared_instruction = {
   instruction_id : Instruction_id.t;
   span : Common.Span.t option;
   operation : prepared_operation;
@@ -254,13 +259,13 @@ type prepared_instruction = {
   capture_discard : bool;
 }
 
-type prepared_block = {
+and prepared_block = {
   block_id : Block_id.t;
   instructions : prepared_instruction array;
   fallthrough : int option;
 }
 
-type prepared = {
+and prepared = {
   blocks : prepared_block array;
   entry_index : int;
   initial_slots : runtime_value option array;
@@ -271,7 +276,7 @@ type prepared = {
   owner : (int * string) option;
 }
 
-type callee = {
+and callee = {
   callee_index : int;
   callee_symbol : Sema.Symbol.t;
   callee_definition : Sema.Function_resolution.resolved_declaration option;
@@ -282,19 +287,25 @@ type callee = {
   variadic : bool;
 }
 
-(* A prepared index and a literal offset are meaningful only in the command
-   that admitted them. Keep that owner when a body outlives its entry. *)
-type executable_owner = {
+and executable_owner = {
   owner_callees : (callee * prepared) array;
   owner_literals : runtime_storage;
 }
 
-type retained_executable = {
+and retained_executable = {
   function_link : Retained_function.t;
   function_callee : callee;
   function_program : prepared;
   function_owner : executable_owner;
   function_source : task_function_source;
+}
+
+and runtime_code = {
+  code_type : word_type;
+  code_address : Runtime.function_address;
+  code_callee : callee;
+  code_program : prepared;
+  code_owner : executable_owner;
 }
 
 type task_stream = { stream_output : Output.t }
@@ -355,8 +366,7 @@ and initializer_attempt = {
 
 type default_attempt = {
   default_catalog : Integer_globals.task_catalog;
-  default_publication : Sema.Declaration_collection.publication;
-  default_receipt : Frontend.Parser.completed_parameter_default;
+  default_source : Sema.Default_fragment.source;
   default_preparation_before : int;
   mutable default_state : initializer_attempt_state;
   mutable default_bits : int64 option;
@@ -1776,7 +1786,8 @@ let begin_task_default task ~namespace ~publication receipt =
         | Frontend.Ast.Expression_default _ ->
             List.exists
               (fun attempt ->
-                attempt.default_receipt == prior
+                Sema.Default_fragment.same_source attempt.default_source
+                  (Named (publication, prior))
                 && attempt.default_state = Successful_initializer)
               task.defaults)
   in
@@ -1796,7 +1807,9 @@ let begin_task_default task ~namespace ~publication receipt =
              (Sema.Declaration_collection.publication_source_function
                 publication)))
     || List.exists
-         (fun attempt -> attempt.default_receipt == receipt)
+         (fun attempt ->
+           Sema.Default_fragment.same_source attempt.default_source
+             (Named (publication, receipt)))
          task.defaults
   then
     Error
@@ -1805,8 +1818,7 @@ let begin_task_default task ~namespace ~publication receipt =
     let attempt =
       {
         default_catalog = task.catalog;
-        default_publication = publication;
-        default_receipt = receipt;
+        default_source = Sema.Default_fragment.Named (publication, receipt);
         default_preparation_before = task.initializer_steps;
         default_state = Preparing_initializer;
         default_bits = None;
@@ -1831,7 +1843,9 @@ let task_default_bits task receipt =
   List.find_map
     (fun attempt ->
       if
-        attempt.default_receipt == receipt
+        (match attempt.default_source with
+          | Named (_, original) -> original == receipt
+          | Callback _ -> false)
         && attempt.default_state = Successful_initializer
       then attempt.default_bits
       else None)
@@ -2195,10 +2209,12 @@ let complete_task_defaults task ~namespace header =
           match
             List.find_opt
               (fun attempt ->
-                attempt.default_receipt.default_function
-                == header.function_publication
-                && attempt.default_receipt.default_parameter_index = index
-                && attempt.default_receipt.default_ast == default)
+                match attempt.default_source with
+                | Sema.Default_fragment.Named (_, r) ->
+                    r.default_function == header.function_publication
+                    && r.default_parameter_index = index
+                    && r.default_ast == default
+                | Callback _ -> false)
               task.defaults
           with
           | Some attempt
@@ -2209,10 +2225,13 @@ let complete_task_defaults task ~namespace header =
                 "function header requires each successful original default \
                  preparation"
         in
+        let publication, receipt =
+          match attempt.default_source with
+          | Named (p, r) -> (p, r)
+          | Callback _ -> assert false
+        in
         let* value =
-          Prepared_parameter_default.create
-            ~publication:attempt.default_publication ~header
-            ~receipt:attempt.default_receipt
+          Prepared_parameter_default.create ~publication ~header ~receipt
             ~bits:(Option.get attempt.default_bits)
         in
         collect (value :: rev) rest
@@ -2557,11 +2576,16 @@ let finish_isolated_preparation task preparation ~runtime_calls ~globals
       :: task.isolated_programs;
     Ok ())
 
-type call_phase = Collecting of int | Needs_cleanup | Needs_end
+type call_phase =
+  | Collecting of int
+  | Needs_cleanup
+  | Needs_saved_cleanup
+  | Needs_end
 
 type checked_call = {
   callee : callee;
   site : Runtime.call option;
+  callback : Runtime.callback_call option;
   remaining_arguments : Runtime.argument list option;
   phase : call_phase;
 }
@@ -2727,6 +2751,18 @@ let scalar_value_type ~allow_byte ~allow_public type_ =
 
 let function_return_word_type type_ =
   scalar_value_type ~allow_byte:true ~allow_public:true type_
+
+(* Only a sealed call's original prepared-default producer may materialize a
+   saved word with the callback parameter's physical RT_PTR class. Numeric bits
+   remain Runtime_word values and never become owned executable code. *)
+let prepared_default_word_type type_ =
+  match scalar_value_type ~allow_byte:true ~allow_public:true type_ with
+  | Some _ as word -> word
+  | None -> (
+      match (Type.base type_, Type.pointer_depth type_) with
+      | Type.Primitive (Type.Internal_storage, Sema.Primitive_type.I64), 1 ->
+          Some I64
+      | _ -> None)
 
 let checked_return_kind type_ =
   match function_return_word_type type_ with
@@ -2951,8 +2987,24 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
     List.iter
       (fun location ->
         let dimensions = Frame.location_dimensions location in
+        let callback =
+          match
+            ( Frame.location_declarator_shape location,
+              Frame.location_callback_pointer location )
+          with
+          | Frame.Function_pointer, Some pointer
+            when List.length
+                   (Sema.Function_type_resolution
+                    .function_pointer_indirection_origins pointer)
+                 = 1
+                 && dimensions = [] -> Some pointer
+          | _ -> None
+        in
         let storage_kind =
-          frame_stored_type (Frame.location_checked_type location)
+          if Option.is_some callback then Some (Stored_word I64)
+          else if Frame.location_declarator_shape location = Frame.Object then
+            frame_stored_type (Frame.location_checked_type location)
+          else None
         in
         let allocation_bytes object_bytes =
           if
@@ -2981,7 +3033,8 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
             array_strides dimensions )
         with
         | Some stored_type, Some slot, Some (bytes, strides)
-          when Frame.location_declarator_shape location = Frame.Object
+          when (Frame.location_declarator_shape location = Frame.Object
+               || Option.is_some callback)
                && Frame.location_element_size location
                   = Int64.of_int (stored_bytes stored_type)
                && Frame.location_allocated_size location
@@ -3038,7 +3091,12 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
               in
               let entry =
                 {
-                  slot_type = Frame.location_checked_type location;
+                  slot_type =
+                    (match callback with
+                    | Some _ ->
+                        Frame.location_storage_type location |> Result.get_ok
+                    | None -> Frame.location_checked_type location);
+                  slot_callback = callback;
                   stored_type;
                   initial;
                   object_count = Int64.to_int count;
@@ -3063,6 +3121,7 @@ let frame_context ?globals ?(pointer_arguments = false) ~max_frame_bytes ~frame
             (Int64.to_int !total_cells)
             {
               slot_type = Function.return_type function_;
+              slot_callback = None;
               stored_type = Stored_word I64;
               initial = None;
               object_count = 1;
@@ -3248,6 +3307,20 @@ let declared_types ?frame ?globals ?literals ?initialization
   |> List.fold_left
        (fun types instruction ->
          let description = Sequence.description instruction in
+         let callback_value =
+           match (frame, description.operands, description.target_type) with
+           | Some context, address :: _, Some type_
+             when description.opcode = Opcode.Ic_deref
+                  || description.opcode = Opcode.Ic_assign -> (
+               match Value_map.find_opt address types with
+               | Some (Frame_address index) ->
+                   let slot = context.slots.(index) in
+                   Option.is_some slot.slot_callback
+                   && slot.strides = []
+                   && Type.equal type_ slot.slot_type
+               | _ -> false)
+           | _ -> false
+         in
          let supported word_type type_ =
            let computation_type =
              match (description.opcode, description.operands) with
@@ -3273,7 +3346,15 @@ let declared_types ?frame ?globals ?literals ?initialization
                | None -> (
                    match description.target_type with
                    | Some type_ -> (
-                       if
+                       if callback_value then
+                         Supported
+                           ( I64,
+                             type_,
+                             Type.make_primitive ~form:Type.Internal_storage
+                               ~primitive:Sema.Primitive_type.I64
+                               ~pointer_depth:0
+                             |> Result.get_ok )
+                       else if
                          Option.is_some literals
                          && description.opcode = Opcode.Ic_str_const
                          && literal_pointer_type type_
@@ -3294,12 +3375,17 @@ let declared_types ?frame ?globals ?literals ?initialization
                          | None -> Unsupported
                        else
                          match (frame, description.opcode) with
-                         | _, Opcode.Ic_imm_i64
-                           when is_default description.instruction_id -> (
-                             match
-                               scalar_value_type ~allow_byte:true
-                                 ~allow_public:true type_
-                             with
+                         | _, Opcode.Ic_imm_i64 when is_default description -> (
+                             match prepared_default_word_type type_ with
+                             | Some word_type when Type.pointer_depth type_ = 1
+                               ->
+                                 Supported
+                                   ( word_type,
+                                     type_,
+                                     Type.make_primitive ~form:Internal_storage
+                                       ~primitive:Sema.Primitive_type.I64
+                                       ~pointer_depth:0
+                                     |> Result.get_ok )
                              | Some word_type -> supported word_type type_
                              | None -> Unsupported)
                          | _, opcode
@@ -3665,6 +3751,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
   in
   let kind =
     match (frame, description.opcode) with
+    | _, Opcode.Ic_imm_i64 when is_default -> Some Immediate_kind
     | _, Opcode.Ic_str_const when Option.is_some literals ->
         Some Literal_address_kind
     | _, Opcode.Ic_mul
@@ -3907,9 +3994,7 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
               with
               | [], Some result, Some type_, Some (Sequence.Integer bits) -> (
                   match
-                    if is_default then
-                      scalar_value_type ~allow_byte:true ~allow_public:true
-                        type_
+                    if is_default then prepared_default_word_type type_
                     else producer_word_type type_
                   with
                   | Some type_ ->
@@ -4231,11 +4316,41 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
 let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
     ?(retained_functions = []) ?(runtime_owner = Runtime.Entry) graph =
   let ( let* ) = Result.bind in
-  let is_default id =
-    Option.fold ~none:false
-      ~some:(fun context ->
-        Runtime.is_prepared_default context ~owner:runtime_owner id)
-      runtime_calls
+  let callbacks =
+    Option.bind runtime_calls (fun context ->
+        Runtime.original_callback_calls context ~owner:runtime_owner)
+    |> Option.value ~default:[]
+  in
+  let callback_starts, callback_captures, callback_loads =
+    List.fold_left
+      (fun (starts, captures, loads) callback ->
+        ( Instruction_map.add callback.Runtime.callback_first callback starts,
+          Instruction_map.add callback.callback_capture callback captures,
+          Instruction_map.add callback.callback_load.instruction_id callback
+            loads ))
+      (Instruction_map.empty, Instruction_map.empty, Instruction_map.empty)
+      callbacks
+  in
+  let function_addresses =
+    Option.bind runtime_calls (fun context ->
+        Runtime.original_function_addresses context ~owner:runtime_owner)
+  in
+  let original_function_address description =
+    Option.bind function_addresses (fun addresses ->
+        Runtime.original_function_address addresses description)
+  in
+  let defaults =
+    Option.bind runtime_calls (fun context ->
+        Runtime.original_prepared_defaults context ~owner:runtime_owner)
+    |> Option.value ~default:[]
+    |> List.fold_left
+         (fun map item ->
+           Instruction_map.add item.Sequence.instruction_id item map)
+         Instruction_map.empty
+  in
+  let is_default description =
+    Option.fold ~none:false ~some:(( == ) description)
+      (Instruction_map.find_opt description.Sequence.instruction_id defaults)
   in
   let* () =
     match literals with
@@ -4285,7 +4400,8 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
               capture_discard = true;
             }
         in
-        let prepare_call (description : Sequence.description) =
+        let prepare_call ~original_default (description : Sequence.description)
+            =
           let no_operands =
             description.operands = [] && description.flags = 0L
           in
@@ -4330,7 +4446,155 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                   variadic = false;
                 }
           in
+          let callback_start =
+            Instruction_map.find_opt description.instruction_id callback_starts
+          in
+          let callback_capture =
+            if description.opcode = Opcode.Ic_set_rax then
+              Instruction_map.find_opt description.instruction_id
+                callback_captures
+            else None
+          in
+          let callback_balance =
+            if description.opcode = Opcode.Ic_nop2 then
+              match
+                Instruction_id.of_int
+                  (Instruction_id.to_int description.instruction_id + 1)
+              with
+              | Ok next -> Instruction_map.find_opt next callback_starts
+              | Error _ -> None
+            else None
+          in
           match (description.opcode, !calls) with
+          | Opcode.Ic_set_rax, _ when Option.is_some callback_capture ->
+              call_instruction description Frame_address_tick
+          | Opcode.Ic_nop2, _ when Option.is_some callback_balance ->
+              call_instruction description Frame_address_tick
+          | Opcode.Ic_call_start, stack when Option.is_some callback_start -> (
+              let callback = Option.get callback_start in
+              let parameter_types =
+                callback.Runtime.callback_arguments |> List.rev
+                |> List.map (fun argument ->
+                    let type_ = Runtime.argument_target_type argument in
+                    match
+                      scalar_value_type ~allow_byte:true ~allow_public:true
+                        type_
+                    with
+                    | Some word -> Some (Stored_word word)
+                    | None
+                      when Type.pointer_depth type_ = 1
+                           && Type.base type_
+                              = Type.Primitive
+                                  ( Type.Internal_storage,
+                                    Sema.Primitive_type.I64 ) ->
+                        Some (Stored_word I64)
+                    | None when scalar_pointer_type type_ ->
+                        Some (Stored_pointer type_)
+                    | _ -> None)
+              in
+              let symbol =
+                Option.bind frame (fun frame ->
+                    Frame.function_locations frame.layout
+                    |> List.find_opt (fun location ->
+                        Option.fold ~none:false
+                          ~some:(( == ) callback.callback_pointer)
+                          (Frame.location_callback_pointer location))
+                    |> Option.map Frame.location_symbol)
+              in
+              match
+                ( symbol,
+                  memory_operand_of_value types callback.callback_capture_value
+                )
+              with
+              | Some symbol, Some captured
+                when List.for_all Option.is_some parameter_types
+                     &&
+                     match stack with
+                     | [] | { phase = Collecting _; _ } :: _ -> true
+                     | _ -> false ->
+                  let callee =
+                    {
+                      callee_index = -1;
+                      callee_symbol = symbol;
+                      callee_definition = None;
+                      callee_return_type = callback.callback_return_type;
+                      parameter_types =
+                        Array.of_list (List.map Option.get parameter_types);
+                      cleanup_opcode =
+                        (if callback.callback_callee_pop then Opcode.Ic_add_rsp1
+                         else Opcode.Ic_add_rsp);
+                      frame_bytes = 0;
+                      variadic = false;
+                    }
+                  in
+                  calls :=
+                    {
+                      callee;
+                      site = None;
+                      callback = Some callback;
+                      remaining_arguments = Some callback.callback_arguments;
+                      phase = Collecting 0;
+                    }
+                    :: stack;
+                  call_instruction description (Callback_start captured)
+              | _ ->
+                  Error
+                    (call_error description
+                       "callback scope has no original frame cell or callee \
+                        value"))
+          | ( Opcode.Ic_push_regs,
+              { callback = Some callback; phase = Collecting 0; _ } :: _ )
+            when Instruction_id.equal description.instruction_id
+                   callback.callback_save ->
+              call_instruction description Frame_address_tick
+          | ( Opcode.Ic_call_indirect,
+              ({ callback = Some callback; phase = Collecting count; callee; _ }
+               as scope)
+              :: rest )
+            when Instruction_id.equal description.instruction_id
+                   callback.callback_instruction
+                 && count = Array.length callee.parameter_types ->
+              calls := { scope with phase = Needs_cleanup } :: rest;
+              call_instruction description (Callback_call callback)
+          | ( (Opcode.Ic_add_rsp | Ic_add_rsp1),
+              ({ callback = Some callback; phase = Needs_cleanup; _ } as scope)
+              :: rest )
+            when Instruction_id.equal description.instruction_id
+                   callback.callback_cleanup ->
+              calls :=
+                {
+                  scope with
+                  phase =
+                    (if callback.callback_callee_pop then Needs_saved_cleanup
+                     else Needs_end);
+                }
+                :: rest;
+              call_instruction description Call_cleanup
+          | ( Opcode.Ic_add_rsp,
+              ({ callback = Some callback; phase = Needs_saved_cleanup; _ } as
+               scope)
+              :: rest )
+            when Option.fold ~none:false
+                   ~some:(Instruction_id.equal description.instruction_id)
+                   callback.callback_saved_cleanup ->
+              calls := { scope with phase = Needs_end } :: rest;
+              call_instruction description Call_cleanup
+          | ( Opcode.Ic_call_end,
+              { callback = Some callback; phase = Needs_end; _ } :: rest )
+            when Instruction_id.equal description.instruction_id
+                   callback.callback_last -> (
+              calls := rest;
+              match checked_return_kind callback.callback_return_type with
+              | Some (Word_return word) ->
+                  call_instruction description
+                    (Call_end (callback.callback_result, word))
+              | Some Void_return ->
+                  call_instruction description
+                    (Call_end_void callback.callback_result)
+              | None ->
+                  Error
+                    (call_error description
+                       "callback has no supported return class"))
           | _, _
             when List.exists
                    (fun (intrinsic, _, _) ->
@@ -4848,6 +5112,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                         {
                           callee;
                           site;
+                          callback = None;
                           remaining_arguments =
                             Option.map Runtime.arguments site;
                           phase = Collecting 0;
@@ -4962,15 +5227,16 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                 (call_error description
                    "direct call instructions have an invalid order, type or \
                     shape")
-          | _, { phase = Needs_cleanup | Needs_end; _ } :: _ ->
+          | ( _,
+              { phase = Needs_cleanup | Needs_saved_cleanup | Needs_end; _ }
+              :: _ ) ->
               Error
                 (call_error description
                    "direct call cleanup and call end must follow the call")
           | _ ->
               prepare_instruction ?frame ?globals ?literals ?initialization
-                ~allow_public:true
-                ~is_default:(is_default description.instruction_id)
-                block_index types block_id description
+                ~allow_public:true ~is_default:original_default block_index
+                types block_id description
         in
         Graph.instructions block |> Sequence.instructions
         |> List.iter (fun instruction ->
@@ -4988,10 +5254,76 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
               else description
             in
             match
-              if Option.is_some callees then prepare_call checked_description
-              else
-                prepare_instruction ?frame ?globals ?literals ?initialization
-                  block_index types block_id description
+              match
+                Instruction_map.find_opt description.instruction_id
+                  callback_loads
+              with
+              | Some callback -> (
+                  match (frame, description.operands) with
+                  | Some frame, [ address ] -> (
+                      match Value_map.find_opt address types with
+                      | Some (Frame_address index)
+                        when Option.fold ~none:false
+                               ~some:(( == ) callback.callback_pointer)
+                               frame.slots.(index).slot_callback
+                             && frame.slots.(index).strides = [] ->
+                          call_instruction description
+                            (Load_slot
+                               ( Frame_slot (index, 1),
+                                 callback.callback_capture_value ))
+                      | _ ->
+                          Error
+                            (call_error description
+                               "callback load lost its original frame cell"))
+                  | _ ->
+                      Error
+                        (call_error description
+                           "callback load has no original frame address"))
+              | None -> (
+                  match original_function_address description with
+                  | Some address ->
+                      let declaration =
+                        Runtime.function_address_declaration address
+                      in
+                      let local =
+                        Option.fold ~none:false
+                          ~some:(fun callees ->
+                            List.exists
+                              (fun callee ->
+                                Option.fold ~none:false
+                                  ~some:(fun original ->
+                                    original == declaration)
+                                  callee.callee_definition)
+                              callees)
+                          callees
+                      in
+                      let retained =
+                        List.exists
+                          (fun executable ->
+                            Retained_function.same executable.function_link
+                              (Runtime.function_address_link address)
+                            && Option.fold ~none:false
+                                 ~some:(fun original -> original == declaration)
+                                 executable.function_callee.callee_definition)
+                          retained_functions
+                      in
+                      if local || retained then
+                        call_instruction description
+                          (Function_address
+                             ((Option.get description.result).value_id, address))
+                      else
+                        Error
+                          (call_error description
+                             "function address has no original prepared \
+                              executable body")
+                  | None ->
+                      if Option.is_some callees then
+                        prepare_call ~original_default:(is_default description)
+                          checked_description
+                      else
+                        prepare_instruction ?frame ?globals ?literals
+                          ?initialization block_index types block_id description
+                  )
             with
             | Ok prepared ->
                 let control_transfer =
@@ -5172,6 +5504,7 @@ type call_scope = {
   arguments_rev : runtime_value list;
   completion : call_completion;
   publication_item : int option;
+  callback_value : runtime_value option;
 }
 
 type caller = {
@@ -5349,6 +5682,12 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
         Some
           (if computation then { word with type_ = operand.computation_type }
            else word)
+    | Some (Runtime_code _) ->
+        failed :=
+          Some
+            (runtime_error ~instruction block !steps "HCIRVM0024"
+               "opaque function address has no numeric word representation");
+        None
     | Some _ | None ->
         failed :=
           Some
@@ -5416,10 +5755,14 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
         None
   in
   let require_value block instruction = function
-    | Word_operand operand ->
-        Option.map
-          (fun word -> Runtime_word word)
-          (require_operand block instruction operand)
+    | Word_operand operand -> (
+        match Value_map.find_opt operand.value_id !values with
+        | Some (Runtime_code code) when code.code_type = operand.expected_type
+          -> Some (Runtime_code code)
+        | _ ->
+            Option.map
+              (fun word -> Runtime_word word)
+              (require_operand block instruction operand))
     | Pointer_operand operand ->
         Option.map
           (fun address -> Runtime_pointer address)
@@ -5427,6 +5770,10 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
   in
   let coerce_value expected = function
     | Runtime_offset _ | Runtime_void -> None
+    | Runtime_code code -> (
+        match expected with
+        | Stored_word code_type -> Some (Runtime_code { code with code_type })
+        | Stored_narrow _ | Stored_pointer _ -> None)
     | Runtime_word word -> (
         match expected with
         | Stored_word type_ -> Some (Runtime_word { type_; bits = word.bits })
@@ -5549,6 +5896,33 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                in
                Type.equal (resolved expected) (resolved actual))
              expected actual
+  in
+  let callback_signature_matches callback callee =
+    let module H = Sema.Function_type_resolution in
+    match callee.callee_definition with
+    | None -> false
+    | Some declaration ->
+        let header =
+          declaration |> Sema.Function_resolution.resolved_declaration_header
+        in
+        let signature = H.function_signature header in
+        let actual =
+          H.signature_parameters signature
+          |> List.map (fun parameter ->
+              match H.parameter_declarator_kind parameter with
+              | H.Function_pointer pointer ->
+                  H.function_pointer_storage_type pointer |> Result.get_ok
+              | H.Object ->
+                  parameter |> H.parameter_type_reference
+                  |> Sema.Type_reference.resolved_type)
+        in
+        Type.equal callee.callee_return_type
+          callback.Runtime.callback_return_type
+        && callee.variadic = Option.is_some callback.callback_variadic_count
+        && callee.cleanup_opcode = Opcode.Ic_add_rsp1
+           = callback.callback_callee_pop
+        && List.length actual = List.length callback.callback_fixed_types
+        && List.for_all2 Type.equal actual callback.callback_fixed_types
   in
   let resolve_address block instruction location pointer_pointee =
     let root pointer_storage pointer_base pointer_count =
@@ -5752,7 +6126,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     variadic (Output.Word word.bits :: rev) rest
                 | Runtime_pointer address :: rest ->
                     variadic (Output.Pointer address :: rev) rest
-                | (Runtime_offset _ | Runtime_void) :: _ ->
+                | (Runtime_code _ | Runtime_offset _ | Runtime_void) :: _ ->
                     error "HCIRVM0008"
                       "prepared variadic output argument is invalid"
               in
@@ -5850,12 +6224,25 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                 {
                   arguments_rev = [];
                   completion = Pending;
+                  callback_value = None;
                   publication_item =
                     (match item with
                     | Some _ -> item
                     | None -> !publication_item);
                 }
                 :: !calls
+          | Callback_start captured -> (
+              match require_value block instruction captured with
+              | Some value ->
+                  calls :=
+                    {
+                      arguments_rev = [];
+                      completion = Pending;
+                      publication_item = !publication_item;
+                      callback_value = Some value;
+                    }
+                    :: !calls
+              | None -> ())
           | Call_cleanup -> ()
           | Internal_integer (operation, operand, type_) -> (
               match (!calls, require_operand block instruction operand) with
@@ -6133,7 +6520,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     Some
                       (runtime_error ~instruction block !steps "HCIRVM0008"
                          "internal byte scan has no pending source call scope"))
-          | (Call _ | Retained_call _ | Extern_call _) as operation -> (
+          | (Call _ | Retained_call _ | Extern_call _ | Callback_call _) as
+            operation -> (
               let target =
                 match operation with
                 | Call index
@@ -6150,6 +6538,12 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                         ( executable.function_callee,
                           executable.function_program,
                           executable.function_owner ))
+                | Callback_call _ -> (
+                    match !calls with
+                    | { callback_value = Some (Runtime_code code); _ } :: _ ->
+                        Some
+                          (code.code_callee, code.code_program, code.code_owner)
+                    | _ -> None)
                 | Extern_call (site, _) ->
                     let visible_item =
                       match !calls with
@@ -6162,6 +6556,12 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
               match (!calls, target) with
               | ({ completion = Pending; _ } as scope) :: rest, None -> (
                   match operation with
+                  | Callback_call _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0024"
+                             "the reached callback has no owned executable \
+                              address")
                   | Extern_call (site, parameter_types) ->
                       if Option.is_some (Runtime.provider site) then
                         match
@@ -6195,6 +6595,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                   in
                   if
                     match operation with
+                    | Callback_call callback ->
+                        not (callback_signature_matches callback callee)
                     | Extern_call (site, _) ->
                         not (extern_signature_matches site callee)
                     | _ -> false
@@ -6202,8 +6604,13 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     failed :=
                       Some
                         (runtime_error ~instruction block !steps "HCIRVM0014"
-                           "published extern definition disagrees with the \
-                            captured call signature")
+                           (match operation with
+                           | Callback_call _ ->
+                               "the reached callback definition disagrees with \
+                                its original signature or cleanup policy"
+                           | _ ->
+                               "published extern definition disagrees with the \
+                                captured call signature"))
                   else if !depth >= max_call_depth then
                     failed :=
                       Some
@@ -6434,8 +6841,10 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                               (runtime_error ~instruction block !steps
                                  "HCIRVM0012" storage.unknown_message)
                       | Some
-                          (Runtime_pointer _ | Runtime_offset _ | Runtime_void)
-                        ->
+                          ( Runtime_code _
+                          | Runtime_pointer _
+                          | Runtime_offset _
+                          | Runtime_void ) ->
                           failed :=
                             Some
                               (runtime_error ~instruction block !steps
@@ -6474,6 +6883,53 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                                   !values))))
           | Immediate (result, word) ->
               values := Value_map.add result (Runtime_word word) !values
+          | Function_address (result, address) -> (
+              let declaration = Runtime.function_address_declaration address in
+              let local =
+                Array.to_list !owner.owner_callees
+                |> List.find_opt (fun (callee, _) ->
+                    Option.fold ~none:false
+                      ~some:(fun original -> original == declaration)
+                      callee.callee_definition)
+                |> Option.map (fun (callee, program) ->
+                    (callee, program, !owner))
+              in
+              let executable =
+                match local with
+                | Some _ as original -> original
+                | None ->
+                    List.find_opt
+                      (fun executable ->
+                        Retained_function.same executable.function_link
+                          (Runtime.function_address_link address)
+                        && Option.fold ~none:false
+                             ~some:(fun original -> original == declaration)
+                             executable.function_callee.callee_definition)
+                      retained_functions
+                    |> Option.map (fun executable ->
+                        ( executable.function_callee,
+                          executable.function_program,
+                          executable.function_owner ))
+              in
+              match executable with
+              | Some (code_callee, code_program, code_owner) ->
+                  values :=
+                    Value_map.add result
+                      (Runtime_code
+                         {
+                           code_type = I64;
+                           code_address = address;
+                           code_callee;
+                           code_program;
+                           code_owner;
+                         })
+                      !values
+              | None ->
+                  failed :=
+                    Some
+                      (runtime_error ~instruction block !steps "HCIRVM0024"
+                         "function address has lost its original executable \
+                          owner"))
           | Unary (operation, operand, result, result_type) -> (
               match require_operand block instruction operand with
               | None -> ()
@@ -6508,13 +6964,20 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                       (Runtime_word { type_ = result_type; bits })
                       !values)
           | Word_view (operand, result, result_type) -> (
-              match require_operand block instruction operand with
+              match require_value block instruction (Word_operand operand) with
               | None -> ()
-              | Some operand ->
+              | Some (Runtime_word operand) ->
                   values :=
                     Value_map.add result
                       (Runtime_word { type_ = result_type; bits = operand.bits })
-                      !values)
+                      !values
+              | Some (Runtime_code code) ->
+                  values :=
+                    Value_map.add result
+                      (Runtime_code { code with code_type = result_type })
+                      !values
+              | Some (Runtime_pointer _ | Runtime_offset _ | Runtime_void) ->
+                  assert false)
           | Subtract_pointers (left, right, result) -> (
               match require_pointer block instruction left with
               | None -> ()
@@ -6591,6 +7054,63 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                                  bits = (if predicate then 1L else 0L);
                                })
                             !values))
+          | Binary
+              ( (Compare (Equal | Not_equal) as operation),
+                left,
+                right,
+                result,
+                result_type )
+            when match
+                   ( Value_map.find_opt left.value_id !values,
+                     Value_map.find_opt right.value_id !values )
+                 with
+                 | Some (Runtime_code _), _ | _, Some (Runtime_code _) -> true
+                 | _ -> false -> (
+              let operands =
+                Option.bind
+                  (require_value block instruction (Word_operand left))
+                  (fun left ->
+                    Option.map
+                      (fun right -> (left, right))
+                      (require_value block instruction (Word_operand right)))
+              in
+              match operands with
+              | None -> ()
+              | Some (left, right) -> (
+                  let equal =
+                    match (left, right) with
+                    | Runtime_code left, Runtime_code right ->
+                        Some
+                          (Retained_function.same
+                             (Runtime.function_address_link left.code_address)
+                             (Runtime.function_address_link right.code_address)
+                          && left.code_program == right.code_program
+                          && left.code_callee == right.code_callee
+                          && left.code_owner == right.code_owner)
+                    | Runtime_code _, Runtime_word { bits = 0L; _ }
+                    | Runtime_word { bits = 0L; _ }, Runtime_code _ ->
+                        Some false
+                    | _ -> None
+                  in
+                  match equal with
+                  | Some equal ->
+                      let predicate =
+                        if operation = Compare Equal then equal else not equal
+                      in
+                      values :=
+                        Value_map.add result
+                          (Runtime_word
+                             {
+                               type_ = result_type;
+                               bits = (if predicate then 1L else 0L);
+                             })
+                          !values
+                  | None ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0024"
+                             "opaque function addresses can compare only with \
+                              owned code or null")))
           | Binary (operation, left, right, result, result_type) -> (
               match
                 require_operand ~computation:true block instruction left
@@ -6617,7 +7137,10 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
               let value =
                 Option.bind (require_value block instruction operand) (function
                   | Runtime_word word -> Some word
-                  | Runtime_pointer _ | Runtime_offset _ | Runtime_void -> None)
+                  | Runtime_code _
+                  | Runtime_pointer _
+                  | Runtime_offset _
+                  | Runtime_void -> None)
               in
               if
                 capture_last && instruction.capture_discard
@@ -7577,7 +8100,7 @@ let consume_default_constant task value =
   let fragment =
     Sema.Default_fragment.authorized_fragment value.constant_authority
   in
-  let receipt = Sema.Default_fragment.receipt fragment in
+  let source = Sema.Default_fragment.source fragment in
   if
     value.constant_catalog != task.catalog
     || (not (List.exists (( == ) value) task.default_constants))
@@ -7591,13 +8114,13 @@ let consume_default_constant task value =
                (Sema.Function_call_expression_result.top_level_root_value
                   (Default_fragment_destination.root value.constant_destination))))
     || (not
-          (Frontend.Parser.parameter_default_is_current receipt
-          || (not
-                (Integer_globals.is_isolated_default
-                   (Default_fragment_destination.globals
-                      value.constant_destination)))
-             && Sema.Source_activation.parameter_default task.source_activation
-                  receipt))
+          (Sema.Default_fragment.current_source
+             ~allow_activation:
+               (not
+                  (Integer_globals.is_isolated_default
+                     (Default_fragment_destination.globals
+                        value.constant_destination)))
+             ~activation:task.source_activation source))
     || task.initializer_steps
        <> value.constant_preparation_before + value.constant_steps
   then
@@ -7636,13 +8159,12 @@ let execute_task_default ?(use_active_stream = true) ?stream_exe_print task
       || (not (List.exists (( == ) attempt) task.defaults))
       || attempt.default_state <> Preparing_initializer
       || (not
-            (Frontend.Parser.parameter_default_is_current
-               attempt.default_receipt
-            || Sema.Source_activation.parameter_default task.source_activation
-                 attempt.default_receipt))
-      || Sema.Default_fragment.receipt fragment != attempt.default_receipt
-      || Sema.Default_fragment.publication fragment
-         != attempt.default_publication
+            (Sema.Default_fragment.current_source
+               ~activation:task.source_activation attempt.default_source))
+      || (not
+            (Sema.Default_fragment.same_source
+               (Sema.Default_fragment.source fragment)
+               attempt.default_source))
       || Sema.Default_fragment.authorized_fragment authority != fragment
       || (not
             (Integer_globals.owns_task_storage task.catalog
@@ -8237,7 +8759,7 @@ let check_task_suspended_completion task ~suspension receipt =
 let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
   let module Destination = Default_fragment_destination in
   let fragment = Destination.fragment destination in
-  let receipt = Sema.Default_fragment.receipt fragment in
+  let source = Sema.Default_fragment.source fragment in
   let span = Destination.span destination in
   let invalid code message =
     Error [ make_error ~stage:Preflight ~span ~executed_steps:0 code message ]
@@ -8245,10 +8767,9 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
   let globals = Destination.globals destination in
   let graph = Integer_program_lowering.graph lowered in
   let current =
-    Frontend.Parser.parameter_default_is_current receipt
-    || (not (Integer_globals.is_isolated_default globals))
-       && Sema.Source_activation.parameter_default task.source_activation
-            receipt
+    Sema.Default_fragment.current_source
+      ~allow_activation:(not (Integer_globals.is_isolated_default globals))
+      ~activation:task.source_activation source
   in
   let pure =
     Block_graph.blocks (X87.graph graph)
@@ -8285,9 +8806,11 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
   else if
     List.exists
       (fun result ->
-        Sema.Default_fragment.receipt
-          (Sema.Default_fragment.authorized_fragment result.constant_authority)
-        == receipt)
+        Sema.Default_fragment.same_source
+          (Sema.Default_fragment.source
+             (Sema.Default_fragment.authorized_fragment
+                result.constant_authority))
+          source)
       task.default_constants
   then invalid "HCIRVM0026" "constant default evaluation cannot replay"
   else
@@ -8344,3 +8867,91 @@ let prepare_default_constant task ~authority ~destination ~lowered ~max_steps =
             proof.constant_bits <- Some word.bits;
             proof.constant_state <- Successful_initializer;
             Ok proof)
+
+let begin_task_callback_default task ~namespace receipt =
+  let ( let* ) = Result.bind in
+  let* () = require_initializer_namespace task namespace in
+  let source = Sema.Default_fragment.Callback (namespace, receipt) in
+  let rec predecessor = function
+    | None -> true
+    | Some prior -> (
+        match prior.Frontend.Parser.callback_default_ast.value with
+        | Frontend.Ast.Lastclass_default _ ->
+            predecessor prior.callback_default_predecessor
+        | Expression_default _ ->
+            List.exists
+              (fun a ->
+                Sema.Default_fragment.same_source a.default_source
+                  (Callback (namespace, prior))
+                && a.default_state = Successful_initializer)
+              task.defaults)
+  in
+  if
+    (not (source_dimensions_ready task))
+    || (not
+          (Sema.Default_fragment.current_source
+             ~activation:task.source_activation source))
+    || (not (predecessor receipt.callback_default_predecessor))
+    || List.exists
+         (fun a -> Sema.Default_fragment.same_source a.default_source source)
+         task.defaults
+  then
+    Error
+      "anonymous default requires its original active source and successful \
+       predecessor"
+  else
+    let attempt =
+      {
+        default_catalog = task.catalog;
+        default_source = source;
+        default_preparation_before = task.initializer_steps;
+        default_state = Preparing_initializer;
+        default_bits = None;
+      }
+    in
+    task.defaults <- attempt :: task.defaults;
+    task.source_promotion_open <- false;
+    Ok attempt
+
+let complete_task_callback_defaults task ~namespace header =
+  let ( let* ) = Result.bind in
+  let* () = require_initializer_namespace task namespace in
+  if
+    not
+      (Frontend.Parser.callback_signature_completion_is_current header
+      || Sema.Source_activation.callback_default_completion
+           task.source_activation header)
+  then
+    Error "anonymous default completion requires its original source boundary"
+  else
+    let rec collect rev = function
+      | [] ->
+          Integer_globals.publish_callback_defaults task.catalog ~namespace
+            (List.rev rev)
+      | receipt :: rest -> (
+          match receipt.Frontend.Parser.callback_default_ast.value with
+          | Frontend.Ast.Lastclass_default _ -> collect rev rest
+          | Expression_default _ ->
+              let* bits =
+                match
+                  List.find_opt
+                    (fun a ->
+                      Sema.Default_fragment.same_source a.default_source
+                        (Callback (namespace, receipt))
+                      && a.default_state = Successful_initializer)
+                    task.defaults
+                with
+                | Some a when Option.is_some a.default_bits ->
+                    Ok (Option.get a.default_bits)
+                | _ ->
+                    Error
+                      "anonymous signature requires every successful original \
+                       default"
+              in
+              let* value =
+                Prepared_callback_default.create ~namespace ~header ~receipt
+                  ~bits
+              in
+              collect (value :: rev) rest)
+    in
+    collect [] header.callback_defaults

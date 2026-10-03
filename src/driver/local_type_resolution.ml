@@ -624,7 +624,8 @@ and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
                     Result.map
                       (fun pointer ->
                         Sema.Function_type_resolution.Function_pointer pointer)
-                      (Sema.Function_type_resolution.make_function_pointer
+                      (Sema.Function_type_resolution
+                       .make_source_function_pointer ~source:pointer
                          ~origin:(origin pointer.function_pointer_location)
                          ~opening_origin:
                            (origin pointer.declarator_opening_parenthesis)
@@ -639,7 +640,8 @@ and parameter_fact visible index (parameter : Frontend.Ast.function_parameter) =
       | Ok declarator_kind ->
           Result.bind (Register_request.of_list parameter.register_qualifiers)
             (fun register_requests ->
-              Sema.Function_type_resolution.make_parameter ~index
+              Sema.Function_type_resolution.make_parameter ~source:parameter
+                ~index
                 ~origin:(origin parameter.location)
                 ~register_requests
                 ?name:
@@ -720,7 +722,8 @@ let declarator_kind visible = function
               Result.map
                 (fun pointer ->
                   Sema.Local_type_resolution.Function_pointer pointer)
-                (Sema.Function_type_resolution.make_function_pointer
+                (Sema.Function_type_resolution.make_source_function_pointer
+                   ~source:pointer
                    ~origin:(origin pointer.function_pointer_location)
                    ~opening_origin:
                      (origin pointer.declarator_opening_parenthesis)

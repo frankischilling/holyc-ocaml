@@ -1781,10 +1781,24 @@ let top_level_outer_callback_calls () =
         .top_level_outer_callback_callable first
       in
       Alcotest.(check bool)
-        "scalar outer callback has no computed callee result" true
-        (Option.is_none
+        "scalar outer callback retains its original callee result" true
+        (Option.is_some
            (Semantic_function_call_expression_result
             .top_level_outer_callback_callee_result first));
+      let module R = Semantic_function_call_expression_result in
+      let callee =
+        Option.get (R.top_level_outer_callback_callee_result first)
+      in
+      let callee_source = R.top_level_outer_callback_source first in
+      Alcotest.(check bool)
+        "scalar outer callback retains the exact callee source tree" true
+        (R.result_source callee
+        == Semantic_top_level_expression_tree.call_callee_expression
+             callee_source);
+      Alcotest.(check bool)
+        "scalar outer callback retains the exact selected declarator" true
+        (Option.get (R.result_callback_pointer callee)
+        == Semantic_function_call_resolution.callable_pointer first_callable);
       let first_signature =
         Semantic_function_call_resolution.callable_signature first_callable
       in
@@ -1975,7 +1989,7 @@ let top_level_indexed_outer_callback_arrays () =
       in
       Alcotest.(check string)
         "indexed outer callback keeps its completed callee result"
-        "I64:object-value:integer-result:rank-0" (descriptor first_callee);
+        "I64:callback-value:integer-result:rank-0" (descriptor first_callee);
       Alcotest.(check (list string))
         "indexed outer callback defaults stay separate from provided arguments"
         [
@@ -2234,7 +2248,7 @@ let top_level_indexed_global_callback_calls () =
        |> Semantic_function_call_resolution.identifier_value_shape_name);
       Alcotest.(check string)
         "indexed callback keeps its completed callee result"
-        "I64:object-value:integer-result:rank-0"
+        "I64:callback-value:integer-result:rank-0"
         (first
        |> Semantic_function_call_expression_result
           .top_level_indexed_global_callback_callee_result |> descriptor);

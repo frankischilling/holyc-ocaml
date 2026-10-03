@@ -765,11 +765,7 @@ let resolve ~table ~parent ~module_expressions inputs =
         || Option.fold ~none:false
              ~some:(fun fragment ->
                (not (Default_fragment.owns_table fragment table))
-               || (not
-                     (symbol_in_scope
-                        (Declaration_collection.publication_symbol
-                           (Default_fragment.publication fragment))
-                        parent))
+               || (not (Default_fragment.in_scope fragment parent))
                || Module_expression_binding.publications module_expressions
                   <> []
                || List.length inputs <> 1)

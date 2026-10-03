@@ -10,8 +10,12 @@ aggregate writes from nested declarations and named JIT header/local writes.
 Primitive locals and checked array extents retain their original downward
 allocation history, including bounds evaluated once against the owning task.
 Original dimension and offset dependencies survive captured positions and derived
-sizes. Aggregate-valued frames, unnamed callbacks and ordinary AOT function-record
-writes remain guarded. Later lookahead cannot change an already captured position.
+sizes. Anonymous callback headers now publish their own fixed-member position
+writes. Named and anonymous defaults retain the original `$$` read and lower its
+checked integer through the saved-default evaluator. Nested signatures leave
+their last write current. Fresh AOT named headers use their original completed
+member cursor. Aggregate-valued frames, AOT local writes and reused or untracked
+AOT function-record positions remain guarded. Later lookahead cannot change an already captured position.
 Their derived sizes retain the successful execution dependency. See
 [retained aggregate sizes](retained-aggregates.md) for source evidence, receipt
 ownership, CLI limits and the remaining dependent-layout and storage work.

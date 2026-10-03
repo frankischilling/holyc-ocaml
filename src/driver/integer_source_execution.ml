@@ -333,6 +333,25 @@ let compile_report ?(max_dimension_work = 100_000) ?(max_switch_work = 100_000)
                   in
                   match (is_jit, !task, event) with
                   | true, Some task, _ -> Task.observe_initializer task event
+                  | true, None, Parser.Callback_default_completed receipt -> (
+                      match receipt.callback_default_ast.value with
+                      | Frontend.Ast.Expression_default _ ->
+                          ensure_task receipt.callback_default_ast.location.span
+                          |> Result.map ignore
+                      | Lastclass_default _ -> Ok ())
+                  | false, _, Parser.Callback_default_completed receipt -> (
+                      match receipt.callback_default_ast.value with
+                      | Frontend.Ast.Expression_default _ ->
+                          let* task =
+                            ensure_task
+                              receipt.callback_default_ast.location.span
+                          in
+                          Task.prepare_source_callback_default task ~session
+                            ~ledger receipt
+                      | Lastclass_default _ -> Ok ())
+                  | false, _, Parser.Callback_signature_completed header ->
+                      Task_declarations.complete_source_callback_defaults ledger
+                        header
                   | true, None, Parser.Parameter_default_completed receipt -> (
                       match receipt.default_ast.value with
                       | Frontend.Ast.Expression_default _ ->

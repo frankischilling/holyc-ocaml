@@ -155,6 +155,7 @@ let integer_payload description =
       | Sequence.Symbol _
       | Sequence.Block _
       | Sequence.Retained_global _
+      | Sequence.Callback _
       | Sequence.Block_targets _ ) ->
       Alcotest.fail "expected only an integer displacement payload"
 
@@ -183,6 +184,7 @@ let lowered_displacement lowered =
       | Sequence.Symbol _
       | Sequence.Block _
       | Sequence.Retained_global _
+      | Sequence.Callback _
       | Sequence.Block_targets _ )
   | None -> Alcotest.fail "expected a signed frame displacement"
 
@@ -417,7 +419,6 @@ let unsupported_locations_never_expose_an_address_fragment () =
   let candidates =
     [
       List.nth values 0;
-      List.nth values 1;
       List.nth values 2;
       List.nth values 3;
       direct_function;
@@ -426,9 +427,8 @@ let unsupported_locations_never_expose_an_address_fragment () =
     ]
   in
   Alcotest.(check (list bool))
-    "static, callback, module, direct-function, literal, and outer paths are \
-     explicit"
-    [ true; true; true; true; true; true; true ]
+    "static, module, direct-function, literal, and outer paths are explicit"
+    [ true; true; true; true; true; true ]
     (candidates
     |> List.map (fun result ->
         match

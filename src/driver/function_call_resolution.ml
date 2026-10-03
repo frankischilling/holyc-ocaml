@@ -527,6 +527,8 @@ let identifier_value_for_typed_value value =
   Sema.Function_call_resolution.make_identifier_value
     ~resolved_type:value.resolved_type ~shape:value.shape
     ~array_rank:value.array_rank ~ordinary_array:value.ordinary_array
+    ?function_pointer:
+      (Option.map Sema.Function_call_resolution.callable_pointer value.callable)
     ?function_declaration:value.function_declaration
     ?function_address_path:value.function_address_path ()
 
@@ -991,6 +993,10 @@ let rec argument_expression member_index before_item_index visible locals
                       ~resolved_type:value.resolved_type ~shape:value.shape
                       ~array_rank:value.array_rank
                       ~ordinary_array:value.ordinary_array
+                      ?function_pointer:
+                        (Option.map
+                           Sema.Function_call_resolution.callable_pointer
+                           value.callable)
                       ?function_declaration:value.function_declaration
                       ?function_address_path:value.function_address_path ())))
     | Frontend.Ast.Current_position_expression _ ->
@@ -1247,8 +1253,15 @@ let collect_call visible locals globals occurrences defined_queries state
   let before_item_index = state.before_item_index in
   match identifier_callee 0 call.call_callee with
   | Some (callee, callee_form) -> (
+      let cursor = ref state.next_occurrence in
+      let* callee_value =
+        argument_expression member_index before_item_index visible locals
+          globals occurrences defined_queries cursor call.call_callee
+      in
       if state.next_occurrence = max_int then
         Error "function call occurrence space is exhausted"
+      else if !cursor <> state.next_occurrence + 1 then
+        Error "identifier callee traversal disagrees with expression binding"
       else
         match
           call_arguments member_index before_item_index visible locals globals
@@ -1272,7 +1285,7 @@ let collect_call visible locals globals occurrences defined_queries state
                     ~callee_occurrence_index:state.next_occurrence
                     ~callee_name:callee.spelling
                     ~callee_origin:(origin callee.location) ~callee_form
-                    ?callable ?original_phase
+                    ?callable ~callee_value ?original_phase
                     ~origin:(origin call.call_location)
                     ~syntax:(call_syntax call) arguments
                 with
@@ -1313,7 +1326,7 @@ let collect_call visible locals globals occurrences defined_queries state
                           ~callee_origin:(origin callee.location)
                           ~callee_form:
                             Sema.Function_call_resolution.Member_callee
-                          ?callable ~computed_callee
+                          ?callable ~computed_callee ?original_phase
                           ~origin:(origin call.call_location)
                           ~syntax:(call_syntax call) arguments
                       with

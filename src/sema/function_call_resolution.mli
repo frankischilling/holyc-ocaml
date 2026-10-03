@@ -11,6 +11,7 @@ type unresolved_expression_kind =
   | Identifier_expression
   | Current_position_expression
   | Aggregate_position_expression of Offset_fragment.position
+  | Default_position_expression of Default_fragment.position
   | Offset_expression
   | Postfix_cast_expression
   | Call_expression
@@ -265,6 +266,7 @@ val make_bound_identifier_argument_expression :
   shape:identifier_value_shape ->
   array_rank:int ->
   ?ordinary_array:bool ->
+  ?function_pointer:Function_type_resolution.function_pointer ->
   ?function_declaration:Function_resolution.resolved_declaration ->
   ?function_address_path:direct_function_address_path ->
   unit ->
@@ -290,6 +292,7 @@ val make_identifier_value :
   shape:identifier_value_shape ->
   array_rank:int ->
   ?ordinary_array:bool ->
+  ?function_pointer:Function_type_resolution.function_pointer ->
   ?function_declaration:Function_resolution.resolved_declaration ->
   ?function_address_path:direct_function_address_path ->
   unit ->
@@ -311,6 +314,13 @@ val identifier_value_is_ordinary_array : identifier_value -> bool
     Type.t. *)
 
 val identifier_value_shape : identifier_value -> identifier_value_shape
+
+val identifier_value_function_pointer :
+  identifier_value -> Function_type_resolution.function_pointer option
+(** The original callback declarator, when supplied, is separate from the
+    callback return type. Neither a nonordinary array nor a matching [Type.t]
+    supplies this evidence. *)
+
 val identifier_value_array_rank : identifier_value -> int
 
 val identifier_value_function_declaration :
@@ -334,6 +344,7 @@ val make_call :
   ?callee_form:callee_form ->
   ?callable:callable ->
   ?computed_callee:argument_expression ->
+  ?callee_value:argument_expression ->
   ?original_phase:Function_call_phase.t ->
   origin:Symbol.origin ->
   syntax:call_syntax ->
@@ -373,6 +384,7 @@ val validate_source_expression :
   expression:argument_expression ->
   calls:call list ->
   ?offset_fragment:Offset_fragment.t ->
+  ?default_fragment:Default_fragment.t ->
   ?callee_expressions:(call * argument_expression) list ->
   ?call_expressions:(call * argument_expression) list ->
   unit ->
@@ -625,6 +637,12 @@ val call_callee_origin : call -> Symbol.origin
 val call_callee_form : call -> callee_form
 val call_callable : call -> callable option
 val call_computed_callee : call -> argument_expression option
+
+val call_callee_value : call -> argument_expression option
+(** The original callee value tree, including identifier and dereferenced
+    identifier callees. Member/index callees retain [computed_callee]. This
+    query preserves the syntactic callee form and does not select a target. *)
+
 val call_origin : call -> Symbol.origin
 val call_original_phase : call -> Function_call_phase.t option
 
@@ -787,6 +805,10 @@ val aggregate_offset_base_publication :
 val bound_identifier_type : bound_identifier -> Type.t
 val bound_identifier_is_ordinary_array : bound_identifier -> bool
 val bound_identifier_shape : bound_identifier -> identifier_value_shape
+
+val bound_identifier_function_pointer :
+  bound_identifier -> Function_type_resolution.function_pointer option
+
 val bound_identifier_array_rank : bound_identifier -> int
 
 val bound_identifier_function_declaration :

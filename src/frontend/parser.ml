@@ -605,6 +605,8 @@ type completed_parameter_default = {
   default_pointer_layers : Ast.pointer_layer list;
   default_parameter_name : Ast.identifier option;
   default_function_pointer : Ast.function_pointer_declarator option;
+  default_position_reads :
+    (Ast.expression * compiler_position_source option) list;
   default_ast : Ast.parameter_default;
   default_activity : parameter_default_activity;
 }
@@ -613,6 +615,105 @@ let parameter_default_is_current receipt =
   receipt.default_activity.parameter_default_active
   && receipt.default_function.function_header.declaration_command
        .command_context
+       .context_active
+
+type callback_signature_activity = {
+  mutable callback_start_active : bool;
+  mutable callback_scope_active : bool;
+  mutable callback_completion_active : bool;
+}
+
+type callback_signature_publication = {
+  callback_command : command_start;
+  callback_opening : Ast.location;
+  callback_indirection_layers : Ast.pointer_layer list;
+  callback_activity : callback_signature_activity;
+}
+
+type callback_parameter_publication = {
+  callback_parameter_signature : callback_signature_publication;
+  callback_parameter_index : int;
+  callback_parameter_predecessor : completed_callback_parameter option;
+  callback_parameter_register_qualifiers : Ast.register_qualifier list;
+  callback_parameter_type_specifier : Ast.type_specifier;
+  callback_parameter_pointer_layers : Ast.pointer_layer list;
+  callback_parameter_name : Ast.identifier option;
+  callback_parameter_function_pointer : Ast.function_pointer_declarator option;
+  callback_parameter_activity : function_parameter_activity;
+}
+
+and completed_callback_parameter = {
+  callback_parameter_publication : callback_parameter_publication;
+  callback_parameter_ast : Ast.function_parameter;
+  callback_parameter_completion_activity : parameter_completion_activity;
+}
+
+type callback_position_write = {
+  callback_position_signature : callback_signature_publication;
+  callback_position_source : compiler_position_source;
+  callback_position_predecessor : completed_callback_parameter option;
+  callback_position_activity : function_position_activity;
+}
+
+type completed_callback_default = {
+  callback_default_signature : callback_signature_publication;
+  callback_default_parameter : callback_parameter_publication;
+  callback_default_index : int;
+  callback_default_predecessor : completed_callback_default option;
+  callback_default_position_reads :
+    (Ast.expression * compiler_position_source option) list;
+  callback_default_ast : Ast.parameter_default;
+  callback_default_activity : parameter_default_activity;
+}
+
+type completed_callback_signature = {
+  callback_signature_publication : callback_signature_publication;
+  callback_pointer : Ast.function_pointer_declarator;
+  callback_parameters : completed_callback_parameter list;
+  callback_defaults : completed_callback_default list;
+  callback_completion_activity : callback_signature_activity;
+}
+
+let callback_signature_is_current source =
+  source.callback_activity.callback_start_active
+  && source.callback_command.command_context.context_active
+
+let callback_position_is_current receipt =
+  let context =
+    receipt.callback_position_signature.callback_command.command_context
+  in
+  !(receipt.callback_position_activity)
+  && context.context_active
+  && receipt.callback_position_signature.callback_activity.callback_scope_active
+  && Option.fold ~none:false
+       ~some:(( == ) receipt.callback_position_source)
+       context.context_compiler_position.position_source
+
+let callback_parameter_is_current source =
+  source.callback_parameter_activity.function_parameter_active
+  && source.callback_parameter_signature.callback_activity.callback_scope_active
+  && source.callback_parameter_signature.callback_command.command_context
+       .context_active
+
+let callback_default_is_current source =
+  source.callback_default_activity.parameter_default_active
+  && source.callback_default_signature.callback_activity.callback_scope_active
+  && source.callback_default_signature.callback_command.command_context
+       .context_active
+
+let callback_parameter_completion_is_current source =
+  source.callback_parameter_completion_activity.parameter_completion_active
+  && source.callback_parameter_publication.callback_parameter_signature
+       .callback_activity
+       .callback_scope_active
+  && source.callback_parameter_publication.callback_parameter_signature
+       .callback_command
+       .command_context
+       .context_active
+
+let callback_signature_completion_is_current source =
+  source.callback_completion_activity.callback_completion_active
+  && source.callback_signature_publication.callback_command.command_context
        .context_active
 
 type function_header_activity = {
@@ -834,6 +935,12 @@ type declaration_event =
   | Function_local_allocated of function_local_allocation
   | Static_initializer_preparing of static_initializer_preparation
   | Static_initializer_completed of completed_static_initializer
+  | Callback_position_written of callback_position_write
+  | Callback_signature_started of callback_signature_publication
+  | Callback_parameter_declared of callback_parameter_publication
+  | Callback_default_completed of completed_callback_default
+  | Callback_parameter_completed of completed_callback_parameter
+  | Callback_signature_completed of completed_callback_signature
   | Function_parameter_declared of function_parameter_publication
   | Parameter_default_completed of completed_parameter_default
   | Function_parameter_completed of completed_function_parameter
@@ -963,6 +1070,8 @@ type offset_position_capture = {
 
 type cursor = {
   mutable internal_bindings : internal_binding_preparation list;
+  mutable default_position_capture :
+    (Ast.expression * compiler_position_source option) list ref option;
   mutable offset_position_capture : offset_position_capture option;
   command_stack : command_position ref list ref;
   mutable current_command : command_start option;
@@ -1141,6 +1250,7 @@ type direct_function_resolution =
   | Direct_function_with_shape of Symbol_visibility.function_call_shape
 
 type parsed_parameter_default = {
+  position_reads : (Ast.expression * compiler_position_source option) list;
   node : Ast.parameter_default;
   tokens : Token.t list;
 }
@@ -2853,6 +2963,15 @@ and parse_expression_atom cursor ~context ~depth : parsed_expression option =
             (node, context.context_compiler_position.position_source)
             :: capture.capture_positions_rev)
         cursor.offset_position_capture;
+      Option.iter
+        (fun capture ->
+          let position =
+            Option.bind cursor.current_command (fun command ->
+                command.command_context.context_compiler_position
+                  .position_source)
+          in
+          capture := (node, position) :: !capture)
+        cursor.default_position_capture;
       Some { node; tokens = [ item.token ] }
   | Token_kind.Keyword Keyword.Sizeof, _ ->
       parse_sizeof_expression cursor ~context
@@ -3890,38 +4009,48 @@ and parse_expression_binary_tail cursor ~context ~depth ~minimum_binding_power
   | _ -> Some left
 
 let parse_parameter_default cursor =
-  let equals = take cursor in
-  let item = peek cursor in
-  match item.token.kind with
-  | Token_kind.Keyword Keyword.Lastclass ->
-      let keyword = take cursor in
-      let tokens = [ equals.token; keyword.token ] in
-      let lastclass =
-        Ast.make_lastclass_default ~spelling:keyword.token.raw
-          ~location:(token_location keyword.token)
-      in
-      let node =
-        Ast.make_parameter_default
-          ~equals:(token_location equals.token)
-          ~value:(Ast.Lastclass_default lastclass)
-          ~location:(location_from_expression_tokens tokens)
-      in
-      Some ({ node; tokens } : parsed_parameter_default)
-  | _ -> (
-      match
-        parse_expression cursor ~context:Default_expression ~depth:0
-          ~minimum_binding_power:0
-      with
-      | None -> None
-      | Some (expression : parsed_expression) ->
-          let tokens = equals.token :: expression.tokens in
+  let positions = ref [] in
+  let prior = cursor.default_position_capture in
+  Fun.protect
+    ~finally:(fun () -> cursor.default_position_capture <- prior)
+    (fun () ->
+      cursor.default_position_capture <- Some positions;
+      let equals = take cursor in
+      let item = peek cursor in
+      match item.token.kind with
+      | Token_kind.Keyword Keyword.Lastclass ->
+          let keyword = take cursor in
+          let tokens = [ equals.token; keyword.token ] in
+          let lastclass =
+            Ast.make_lastclass_default ~spelling:keyword.token.raw
+              ~location:(token_location keyword.token)
+          in
           let node =
             Ast.make_parameter_default
               ~equals:(token_location equals.token)
-              ~value:(Ast.Expression_default expression.node)
+              ~value:(Ast.Lastclass_default lastclass)
               ~location:(location_from_expression_tokens tokens)
           in
-          Some ({ node; tokens } : parsed_parameter_default))
+          Some
+            ({ node; tokens; position_reads = List.rev !positions }
+              : parsed_parameter_default)
+      | _ -> (
+          match
+            parse_expression cursor ~context:Default_expression ~depth:0
+              ~minimum_binding_power:0
+          with
+          | None -> None
+          | Some (expression : parsed_expression) ->
+              let tokens = equals.token :: expression.tokens in
+              let node =
+                Ast.make_parameter_default
+                  ~equals:(token_location equals.token)
+                  ~value:(Ast.Expression_default expression.node)
+                  ~location:(location_from_expression_tokens tokens)
+              in
+              Some
+                ({ node; tokens; position_reads = List.rev !positions }
+                  : parsed_parameter_default)))
 
 let declaration_binding_kind token =
   match token.Token.kind with
@@ -5292,9 +5421,9 @@ let parse_aggregate_definition cursor ~modifier_tokens ~modifiers ~backing
                     (Ast.Aggregate_definition definition))
                 parsed_tail)
 
-let finish_function_parameter ?default_context cursor ~register_qualifiers
-    ~type_specifier ~type_selection ~pointer_layers ~name ~function_pointer
-    ~tokens =
+let finish_function_parameter ?default_context ?callback_context cursor
+    ~register_qualifiers ~type_specifier ~type_selection ~pointer_layers ~name
+    ~function_pointer ~tokens =
   (* PrsType leaves the following token current. Native MemberAdd precedes
      default input, including any directive reached by Lex beyond '='. *)
   let following_head = peek cursor in
@@ -5324,6 +5453,36 @@ let finish_function_parameter ?default_context cursor ~register_qualifiers
         publication)
       default_context
   in
+  let callback_publication =
+    Option.map
+      (fun ( callback_parameter_signature,
+             callback_parameter_index,
+             _,
+             completions,
+             _ ) ->
+        let source =
+          {
+            callback_parameter_signature;
+            callback_parameter_index;
+            callback_parameter_predecessor = List.nth_opt !completions 0;
+            callback_parameter_register_qualifiers = register_qualifiers;
+            callback_parameter_type_specifier = type_specifier;
+            callback_parameter_pointer_layers = pointer_layers;
+            callback_parameter_name = name;
+            callback_parameter_function_pointer = function_pointer;
+            callback_parameter_activity = { function_parameter_active = true };
+          }
+        in
+        Fun.protect
+          ~finally:(fun () ->
+            source.callback_parameter_activity.function_parameter_active <-
+              false)
+          (fun () ->
+            publish_declaration cursor following_head
+              (Callback_parameter_declared source));
+        source)
+      callback_context
+  in
   let parsed_default =
     if following_head.token.kind = Token_kind.Punctuation '=' then
       Option.map (fun parsed -> Some parsed) (parse_parameter_default cursor)
@@ -5344,6 +5503,7 @@ let finish_function_parameter ?default_context cursor ~register_qualifiers
           default_pointer_layers = pointer_layers;
           default_parameter_name = name;
           default_function_pointer = function_pointer;
+          default_position_reads = parsed.position_reads;
           default_ast = parsed.node;
           default_activity = { parameter_default_active = true };
         }
@@ -5355,6 +5515,35 @@ let finish_function_parameter ?default_context cursor ~register_qualifiers
           publish_declaration cursor (peek cursor)
             (Parameter_default_completed receipt));
       previous := Some receipt
+  | _ -> ());
+  (match (callback_context, callback_publication, parsed_default) with
+  | ( Some
+        ( callback_default_signature,
+          callback_default_index,
+          previous,
+          _,
+          defaults ),
+      Some callback_default_parameter,
+      Some (Some parsed) ) ->
+      let source =
+        {
+          callback_default_signature;
+          callback_default_parameter;
+          callback_default_index;
+          callback_default_predecessor = !previous;
+          callback_default_position_reads = parsed.position_reads;
+          callback_default_ast = parsed.node;
+          callback_default_activity = { parameter_default_active = true };
+        }
+      in
+      Fun.protect
+        ~finally:(fun () ->
+          source.callback_default_activity.parameter_default_active <- false)
+        (fun () ->
+          publish_declaration cursor (peek cursor)
+            (Callback_default_completed source));
+      previous := Some source;
+      defaults := source :: !defaults
   | _ -> ());
   match parsed_default with
   | None -> None
@@ -5437,11 +5626,31 @@ let finish_function_parameter ?default_context cursor ~register_qualifiers
                     (Function_parameter_completed completed));
               completions := completed :: !completions
           | _ -> ());
+          (match (callback_publication, callback_context) with
+          | Some callback_parameter_publication, Some (_, _, _, completions, _)
+            ->
+              let source =
+                {
+                  callback_parameter_publication;
+                  callback_parameter_ast = node;
+                  callback_parameter_completion_activity =
+                    { parameter_completion_active = true };
+                }
+              in
+              Fun.protect
+                ~finally:(fun () ->
+                  source.callback_parameter_completion_activity.parameter_completion_active <-
+                    false)
+                (fun () ->
+                  publish_declaration cursor following_item
+                    (Callback_parameter_completed source));
+              completions := source :: !completions
+          | _ -> ());
           Some ({ node; tokens } : parsed_parameter)
       | _ -> fail_special_form ())
 
-let rec parse_function_parameter ?default_context cursor ~prefix_qualifiers
-    ~prefix_tokens ~function_pointer_depth =
+let rec parse_function_parameter ?default_context ?callback_context cursor
+    ~prefix_qualifiers ~prefix_tokens ~function_pointer_depth =
   let type_item = peek cursor in
   match type_specifier_with_selection_of_item cursor type_item with
   | Some (type_specifier, type_selection) -> (
@@ -5467,8 +5676,8 @@ let rec parse_function_parameter ?default_context cursor ~prefix_qualifiers
             with
             | None -> None
             | Some parsed ->
-                finish_function_parameter ?default_context cursor
-                  ~register_qualifiers ~type_specifier ~type_selection
+                finish_function_parameter ?default_context ?callback_context
+                  cursor ~register_qualifiers ~type_specifier ~type_selection
                   ~pointer_layers ~name:parsed.name
                   ~function_pointer:(Some parsed.node)
                   ~tokens:(leading_tokens @ parsed.tokens)
@@ -5478,12 +5687,12 @@ let rec parse_function_parameter ?default_context cursor ~prefix_qualifiers
               Ast.make_identifier ~spelling:name_item.token.raw
                 ~location:(token_location name_item.token)
             in
-            finish_function_parameter ?default_context cursor
+            finish_function_parameter ?default_context ?callback_context cursor
               ~register_qualifiers ~type_specifier ~type_selection
               ~pointer_layers ~name:(Some name) ~function_pointer:None
               ~tokens:(leading_tokens @ [ name_item.token ])
           else
-            finish_function_parameter ?default_context cursor
+            finish_function_parameter ?default_context ?callback_context cursor
               ~register_qualifiers ~type_specifier ~type_selection
               ~pointer_layers ~name:None ~function_pointer:None
               ~tokens:leading_tokens)
@@ -5546,7 +5755,7 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
           0 [] []
       with
       | None -> None
-      | Some (pointer_layers, pointer_items) -> (
+      | Some (pointer_layers, pointer_items) ->
           let pointer_tokens =
             List.map (fun item -> item.token) pointer_items
           in
@@ -5640,47 +5849,108 @@ and parse_function_pointer_declarator cursor ~function_pointer_depth
                        (token_description signature_opening.token))
               else
                 let signature_opening = take cursor in
-                match
-                  parse_function_parameters cursor [] [] []
-                    ~function_pointer_depth:(function_pointer_depth + 1)
-                with
-                | None -> None
-                | Some parsed_parameters ->
-                    let tokens =
-                      [ opening_item.token ] @ pointer_tokens @ name_tokens
-                      @ [ closing_item.token; signature_opening.token ]
-                      @ parsed_parameters.tokens
-                    in
-                    let node =
-                      Ast.make_function_pointer_declarator
-                        ~declarator_opening_parenthesis:
-                          (token_location opening_item.token)
-                        ~indirection_layers:pointer_layers
-                        ~declarator_closing_parenthesis:
-                          (token_location closing_item.token)
-                        ~signature_opening_parenthesis:
-                          (token_location signature_opening.token)
-                        ~signature_parameters:parsed_parameters.parameters
-                        ~signature_empty_parameter_entries:
-                          parsed_parameters.empty_parameter_entries
-                        ~signature_variadic:parsed_parameters.variadic
-                        ~signature_closing_parenthesis:
-                          parsed_parameters.closing_parenthesis
-                        ~function_pointer_location:(location_from_tokens tokens)
-                    in
-                    Some
-                      {
-                        node;
-                        name;
-                        tokens;
-                        name_selection =
-                          (if name_is_identifier then name_item.selection
-                           else None);
-                      })
+                let callback_owner =
+                  Option.map
+                    (fun callback_command ->
+                      let publication =
+                        {
+                          callback_command;
+                          callback_opening =
+                            token_location signature_opening.token;
+                          callback_indirection_layers = pointer_layers;
+                          callback_activity =
+                            {
+                              callback_start_active = true;
+                              callback_scope_active = true;
+                              callback_completion_active = false;
+                            };
+                        }
+                      in
+                      Fun.protect
+                        ~finally:(fun () ->
+                          publication.callback_activity.callback_start_active <-
+                            false)
+                        (fun () ->
+                          publish_declaration cursor signature_opening
+                            (Callback_signature_started publication));
+                      (publication, ref None, ref [], ref []))
+                    cursor.current_command
+                in
+                Fun.protect
+                  ~finally:(fun () ->
+                    Option.iter
+                      (fun (publication, _, _, _) ->
+                        publication.callback_activity.callback_scope_active <-
+                          false)
+                      callback_owner)
+                  (fun () ->
+                    match
+                      parse_function_parameters ?callback_owner cursor [] [] []
+                        ~function_pointer_depth:(function_pointer_depth + 1)
+                    with
+                    | None -> None
+                    | Some parsed_parameters ->
+                        let tokens =
+                          [ opening_item.token ] @ pointer_tokens @ name_tokens
+                          @ [ closing_item.token; signature_opening.token ]
+                          @ parsed_parameters.tokens
+                        in
+                        let node =
+                          Ast.make_function_pointer_declarator
+                            ~declarator_opening_parenthesis:
+                              (token_location opening_item.token)
+                            ~indirection_layers:pointer_layers
+                            ~declarator_closing_parenthesis:
+                              (token_location closing_item.token)
+                            ~signature_opening_parenthesis:
+                              (token_location signature_opening.token)
+                            ~signature_parameters:parsed_parameters.parameters
+                            ~signature_empty_parameter_entries:
+                              parsed_parameters.empty_parameter_entries
+                            ~signature_variadic:parsed_parameters.variadic
+                            ~signature_closing_parenthesis:
+                              parsed_parameters.closing_parenthesis
+                            ~function_pointer_location:
+                              (location_from_tokens tokens)
+                        in
+                        Option.iter
+                          (fun ( callback_signature_publication,
+                                 _,
+                                 parameters,
+                                 defaults ) ->
+                            let activity =
+                              callback_signature_publication.callback_activity
+                            in
+                            let source =
+                              {
+                                callback_signature_publication;
+                                callback_pointer = node;
+                                callback_parameters = List.rev !parameters;
+                                callback_defaults = List.rev !defaults;
+                                callback_completion_activity = activity;
+                              }
+                            in
+                            activity.callback_completion_active <- true;
+                            Fun.protect
+                              ~finally:(fun () ->
+                                activity.callback_completion_active <- false)
+                              (fun () ->
+                                publish_declaration cursor (peek cursor)
+                                  (Callback_signature_completed source)))
+                          callback_owner;
+                        Some
+                          {
+                            node;
+                            name;
+                            tokens;
+                            name_selection =
+                              (if name_is_identifier then name_item.selection
+                               else None);
+                          })
 
-and parse_function_parameters ?default_owner ?(reset_position = true) cursor
-    parameters_rev empty_entries_rev tokens_rev ~function_pointer_depth :
-    parsed_parameter_list option =
+and parse_function_parameters ?default_owner ?callback_owner
+    ?(reset_position = true) cursor parameters_rev empty_entries_rev tokens_rev
+    ~function_pointer_depth : parsed_parameter_list option =
   (* PrsVarLst writes the native function size after opening/delimiter
      lookahead, before skipping empty semicolons. Named headers supply original
      semantic evidence; unnamed callback writes remain unavailable. *)
@@ -5707,9 +5977,29 @@ and parse_function_parameters ?default_owner ?(reset_position = true) cursor
            (fun () ->
              publish_declaration cursor (peek cursor)
                (Function_position_written receipt))
-     | _, Some command ->
-         command.command_context.context_compiler_position.position_source <-
-           None
+     | None, Some command -> (
+         match callback_owner with
+         | Some (callback_position_signature, _, completions, _) ->
+             let state = command.command_context.context_compiler_position in
+             let callback_position_source = ref state.next_position in
+             state.next_position <- state.next_position + 1;
+             state.position_source <- Some callback_position_source;
+             let receipt =
+               {
+                 callback_position_signature;
+                 callback_position_source;
+                 callback_position_predecessor = List.nth_opt !completions 0;
+                 callback_position_activity = ref true;
+               }
+             in
+             Fun.protect
+               ~finally:(fun () -> receipt.callback_position_activity := false)
+               (fun () ->
+                 publish_declaration cursor (peek cursor)
+                   (Callback_position_written receipt))
+         | None ->
+             command.command_context.context_compiler_position.position_source <-
+               None)
      | _ -> ());
   let parameter_completions () =
     match default_owner with
@@ -5816,8 +6106,8 @@ and parse_function_parameters ?default_owner ?(reset_position = true) cursor
           ~preceding_parameter_count:(List.length parameters_rev)
           ~delimiter
       in
-      parse_function_parameters ?default_owner ~reset_position:false cursor
-        parameters_rev
+      parse_function_parameters ?default_owner ?callback_owner
+        ~reset_position:false cursor parameters_rev
         (empty_entry :: empty_entries_rev)
         (semicolon.token :: tokens_rev)
         ~function_pointer_depth
@@ -5834,6 +6124,15 @@ and parse_function_parameters ?default_owner ?(reset_position = true) cursor
                (fun (owner, previous, completions) ->
                  (owner, List.length parameters_rev, previous, completions))
                default_owner)
+          ?callback_context:
+            (Option.map
+               (fun (owner, previous, completions, defaults) ->
+                 ( owner,
+                   List.length parameters_rev,
+                   previous,
+                   completions,
+                   defaults ))
+               callback_owner)
           cursor ~prefix_qualifiers:prefix.nodes ~prefix_tokens:prefix.tokens
           ~function_pointer_depth
       with
@@ -5841,7 +6140,7 @@ and parse_function_parameters ?default_owner ?(reset_position = true) cursor
       | Some parameter ->
           let tokens_rev = List.rev_append parameter.tokens tokens_rev in
           let parameters_rev = parameter.node :: parameters_rev in
-          parse_function_parameters ?default_owner
+          parse_function_parameters ?default_owner ?callback_owner
             ~reset_position:(Option.is_some parameter.node.delimiter)
             cursor parameters_rev empty_entries_rev tokens_rev
             ~function_pointer_depth)
@@ -9826,6 +10125,7 @@ let make_cursor ?reference ?call ?implicit_output ?query ?declaration
     invalid_arg "an array count reader requires a declaration observer";
   {
     command_stack;
+    default_position_capture = None;
     offset_position_capture = None;
     current_command = None;
     internal_bindings = [];

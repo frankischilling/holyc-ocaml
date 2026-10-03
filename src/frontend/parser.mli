@@ -520,6 +520,8 @@ type completed_parameter_default = private {
   default_pointer_layers : Ast.pointer_layer list;
   default_parameter_name : Ast.identifier option;
   default_function_pointer : Ast.function_pointer_declarator option;
+  default_position_reads :
+    (Ast.expression * compiler_position_source option) list;
   default_ast : Ast.parameter_default;
   default_activity : parameter_default_activity;
 }
@@ -528,6 +530,69 @@ val parameter_default_is_current : completed_parameter_default -> bool
 (** Original named-function default after expression lookahead and before the
     parameter delimiter is consumed. Only its synchronous callback is current;
     the receipt alone grants no evaluation or call-materialization authority. *)
+
+type callback_signature_activity
+
+type callback_signature_publication = private {
+  callback_command : command_start;
+  callback_opening : Ast.location;
+  callback_indirection_layers : Ast.pointer_layer list;
+  callback_activity : callback_signature_activity;
+}
+
+type callback_parameter_publication = private {
+  callback_parameter_signature : callback_signature_publication;
+  callback_parameter_index : int;
+  callback_parameter_predecessor : completed_callback_parameter option;
+  callback_parameter_register_qualifiers : Ast.register_qualifier list;
+  callback_parameter_type_specifier : Ast.type_specifier;
+  callback_parameter_pointer_layers : Ast.pointer_layer list;
+  callback_parameter_name : Ast.identifier option;
+  callback_parameter_function_pointer : Ast.function_pointer_declarator option;
+  callback_parameter_activity : function_parameter_activity;
+}
+
+and completed_callback_parameter = private {
+  callback_parameter_publication : callback_parameter_publication;
+  callback_parameter_ast : Ast.function_parameter;
+  callback_parameter_completion_activity : parameter_completion_activity;
+}
+
+type callback_position_write = private {
+  callback_position_signature : callback_signature_publication;
+  callback_position_source : compiler_position_source;
+  callback_position_predecessor : completed_callback_parameter option;
+  callback_position_activity : function_position_activity;
+}
+
+type completed_callback_default = private {
+  callback_default_signature : callback_signature_publication;
+  callback_default_parameter : callback_parameter_publication;
+  callback_default_index : int;
+  callback_default_predecessor : completed_callback_default option;
+  callback_default_position_reads :
+    (Ast.expression * compiler_position_source option) list;
+  callback_default_ast : Ast.parameter_default;
+  callback_default_activity : parameter_default_activity;
+}
+
+type completed_callback_signature = private {
+  callback_signature_publication : callback_signature_publication;
+  callback_pointer : Ast.function_pointer_declarator;
+  callback_parameters : completed_callback_parameter list;
+  callback_defaults : completed_callback_default list;
+  callback_completion_activity : callback_signature_activity;
+}
+
+val callback_signature_is_current : callback_signature_publication -> bool
+val callback_parameter_is_current : callback_parameter_publication -> bool
+val callback_default_is_current : completed_callback_default -> bool
+
+val callback_parameter_completion_is_current :
+  completed_callback_parameter -> bool
+
+val callback_signature_completion_is_current :
+  completed_callback_signature -> bool
 
 type function_header_activity
 
@@ -706,6 +771,12 @@ type declaration_event = private
   | Function_local_allocated of function_local_allocation
   | Static_initializer_preparing of static_initializer_preparation
   | Static_initializer_completed of completed_static_initializer
+  | Callback_position_written of callback_position_write
+  | Callback_signature_started of callback_signature_publication
+  | Callback_parameter_declared of callback_parameter_publication
+  | Callback_default_completed of completed_callback_default
+  | Callback_parameter_completed of completed_callback_parameter
+  | Callback_signature_completed of completed_callback_signature
   | Function_parameter_declared of function_parameter_publication
   | Parameter_default_completed of completed_parameter_default
   | Function_parameter_completed of completed_function_parameter
@@ -849,3 +920,5 @@ val parse_suspended :
 val suspension_owns_sequence : suspension -> completed_sequence -> bool
 (** Only the exact accepted nested sequence belongs to a consumed token. This
     establishes syntax ownership; runtime admission remains separate. *)
+
+val callback_position_is_current : callback_position_write -> bool

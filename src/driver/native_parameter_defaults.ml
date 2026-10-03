@@ -111,8 +111,11 @@ let execution_matches prepared execution =
   let authority = Program.default_constant_authority execution in
   let fragment = Sema.Default_fragment.authorized_fragment authority in
   let destination = Program.default_constant_destination execution in
-  Sema.Default_fragment.receipt fragment == Prepared.receipt prepared
-  && Sema.Default_fragment.publication fragment == Prepared.publication prepared
+  (match Sema.Default_fragment.source fragment with
+    | Named (publication, receipt) ->
+        receipt == Prepared.receipt prepared
+        && publication == Prepared.publication prepared
+    | Callback _ -> false)
   && Sema.Default_fragment.references fragment = []
   && Default_fragment_destination.fragment destination == fragment
   && Type.equal
@@ -159,15 +162,21 @@ let create ~globals ~runtime_calls ~initialization ~entry ~functions ~prepared
   let* () =
     let rec unique seen = function
       | [] -> Ok ()
-      | execution :: rest ->
-          let receipt =
+      | execution :: rest -> (
+          let source =
             execution |> Program.default_constant_authority
             |> Sema.Default_fragment.authorized_fragment
-            |> Sema.Default_fragment.receipt
+            |> Sema.Default_fragment.source
           in
-          if List.exists (( == ) receipt) seen then
-            Error "native parameter-default proof repeats execution evidence"
-          else unique (receipt :: seen) rest
+          match source with
+          | Callback _ ->
+              Error
+                "native defaults require their own anonymous signature consumer"
+          | Named (_, receipt) ->
+              if List.exists (( == ) receipt) seen then
+                Error
+                  "native parameter-default proof repeats execution evidence"
+              else unique (receipt :: seen) rest)
     in
     unique [] executions
   in

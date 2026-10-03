@@ -207,6 +207,10 @@ val function_pointer_opening_origin : function_pointer -> Symbol.origin
 val function_pointer_indirection_origins :
   function_pointer -> Symbol.origin list
 
+val function_pointer_storage_type : function_pointer -> (Type.t, string) result
+(** [PrsType] stores a callback as internal [RT_PTR] with the declarator's
+    indirection count. Its return class remains separate signature metadata. *)
+
 val function_pointer_closing_origin : function_pointer -> Symbol.origin
 val function_pointer_signature : function_pointer -> signature
 val parameter_binding_index : parameter_binding -> int
@@ -229,3 +233,15 @@ val synthetic_binding_register_selection :
 val synthetic_binding_flag_mask : synthetic_binding -> int64
 val synthetic_binding_has_flag : synthetic_binding -> Member_flag.t -> bool
 val synthetic_parameter_name : synthetic_parameter -> string
+
+val function_pointer_source :
+  function_pointer -> Frontend.Ast.function_pointer_declarator option
+
+val make_source_function_pointer :
+  source:Frontend.Ast.function_pointer_declarator ->
+  origin:Symbol.origin ->
+  opening_origin:Symbol.origin ->
+  indirection_origins:Symbol.origin list ->
+  closing_origin:Symbol.origin ->
+  signature:signature ->
+  (function_pointer, string) result

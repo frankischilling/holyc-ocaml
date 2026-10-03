@@ -19,3 +19,4 @@ val globals : t -> Integer_globals.t
 val type_ : t -> Sema.Type.t
 val symbol : t -> Sema.Symbol.t
 val span : t -> Common.Span.t
+val symbol_opt : t -> Sema.Symbol.t option

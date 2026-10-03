@@ -191,6 +191,10 @@ val function_scope : resolved_function -> Symbol_table.scope
 val function_item_index : resolved_function -> int
 val function_calls : resolved_function -> call_result list
 
+val function_all_results : resolved_function -> expression_result list
+(** The original checked expression results owned by this function, including
+    nested callees and arguments. Results from other functions are excluded. *)
+
 val function_outer_callback_calls :
   resolved_function -> outer_callback_call list
 (** Source-ordered calls through scalar or fully indexed outer callbacks. Each
@@ -361,6 +365,9 @@ val top_level_global_callback_global :
 val top_level_global_callback_value :
   top_level_global_callback_call -> Function_call_resolution.identifier_value
 
+val top_level_global_callback_callee_result :
+  top_level_global_callback_call -> expression_result
+
 val top_level_global_callback_callable :
   top_level_global_callback_call -> Function_call_resolution.callable
 
@@ -465,6 +472,7 @@ val declared_default_parameter :
   declared_default_result -> Function_type_resolution.parameter
 
 val declared_default_type : declared_default_result -> Type.t
+val declared_default_storage_type : declared_default_result -> Type.t option
 val declared_default_class : declared_default_result -> result_class
 val declared_default_kind : declared_default_result -> declared_default_kind
 
@@ -498,6 +506,22 @@ val result_index_operands :
     [None]; this evidence does not change array rank or value category. *)
 
 val result_type : expression_result -> Type.t option
+
+val result_callback_pointer :
+  expression_result -> Function_type_resolution.function_pointer option
+(** Original callback declarator evidence propagated through storage selection,
+    grouping and indexing. Call results and arithmetic values do not inherit the
+    callee signature. *)
+
+val result_storage_type : expression_result -> Type.t option
+(** Callback cells use the internal [RT_PTR] class and the callback declarator's
+    indirection count. [result_type] separately retains the callback return
+    type. Ordinary expressions retain their checked type. This supplies no
+    executable address or authority to invoke code. *)
+
+val result_is_callback_storage : expression_result -> bool
+(** True for a scalar or fully indexed callback cell with positive declarator
+    evidence. An unindexed or partial callback array is not writable storage. *)
 
 val result_computation_type : expression_result -> Type.t option
 (** Effective native integer producer class, derived from retained expression

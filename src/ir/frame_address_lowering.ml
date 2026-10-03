@@ -125,7 +125,7 @@ let checked_shape result identifier location =
       | Source.Direct_function_value ) ) ->
       Error "bound identifier and frame location shapes disagree"
 
-let checked_non_static_location ~span result identifier location location_type =
+let checked_non_static_location ~span result identifier location =
   match Frame.location_frame_slot location with
   | None ->
       Error (metadata_error ?span "non-static frame location has no frame slot")
@@ -149,19 +149,20 @@ let checked_non_static_location ~span result identifier location location_type =
         match checked_shape result identifier location with
         | Error message -> Error (metadata_error ?span message)
         | Ok () -> (
-            if Frame.location_declarator_shape location = Frame.Function_pointer
-            then Ok None
-            else if
+            if
               kind = Frame.Named_parameter
               && Frame.location_value_shape location = Frame.Array
             then Ok None
             else
-              match Type.pointer_to location_type with
-              | Error _ -> Ok None
-              | Ok address_type -> (
-                  match complete_result_span result with
-                  | Error _ as error -> error
-                  | Ok span -> Ok (Some { slot; address_type; span }))))
+              match Frame.location_storage_type location with
+              | Error message -> Error (metadata_error ?span message)
+              | Ok storage_type -> (
+                  match Type.pointer_to storage_type with
+                  | Error _ -> Ok None
+                  | Ok address_type -> (
+                      match complete_result_span result with
+                      | Error _ as error -> error
+                      | Ok span -> Ok (Some { slot; address_type; span })))))
 
 let checked_local_location frame result identifier occurrence binding =
   let span = result_span result in
@@ -199,6 +200,26 @@ let checked_local_location frame result identifier occurrence binding =
         Error
           (metadata_error ?span
              "frame location and bound identifier types disagree")
+      else if
+        let same left right =
+          match (left, right) with
+          | None, None -> true
+          | Some left, Some right -> left == right
+          | _ -> false
+        in
+        (not
+           (same
+              (Frame.location_callback_pointer location)
+              (Source.bound_identifier_function_pointer identifier)))
+        || not
+             (same
+                (Frame.location_callback_pointer location)
+                (Result.result_callback_pointer result))
+      then
+        Error
+          (metadata_error ?span
+             "frame location and bound identifier callback declarations \
+              disagree")
       else
         match Result.result_type result with
         | None ->
@@ -231,8 +252,7 @@ let checked_local_location frame result identifier occurrence binding =
             | Frame.Variadic_argc
             | Frame.Variadic_argv
             | Frame.Automatic_local ->
-                checked_non_static_location ~span result identifier location
-                  location_type))
+                checked_non_static_location ~span result identifier location))
 
 let checked_location frame result =
   let source = Result.result_source result in

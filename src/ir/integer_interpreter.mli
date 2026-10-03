@@ -789,3 +789,15 @@ val execute_task_offset :
   offset_attempt ->
   Offset_fragment_program.execution ->
   (unit, error list) result
+
+val begin_task_callback_default :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Frontend.Parser.completed_callback_default ->
+  (default_attempt, string) result
+
+val complete_task_callback_defaults :
+  task_state ->
+  namespace:Sema.Declaration_collection.namespace ->
+  Frontend.Parser.completed_callback_signature ->
+  (unit, string) result

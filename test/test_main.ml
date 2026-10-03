@@ -107,6 +107,7 @@ let () =
         Test_function_call_conversion_policy.tests );
       ( "semantic function call expression results",
         Test_function_call_expression_result.tests );
+      ("callback storage", Test_callback_storage.tests);
       ( "semantic implicit output target resolution",
         Test_implicit_output_target_resolution.tests );
       ( "semantic top-level implicit output target resolution",

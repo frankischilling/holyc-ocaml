@@ -528,7 +528,8 @@ and parameter_fact ?selected_aggregate ?selected_owner visible index
                           (fun pointer ->
                             Sema.Function_type_resolution.Function_pointer
                               pointer)
-                          (Sema.Function_type_resolution.make_function_pointer
+                          (Sema.Function_type_resolution
+                           .make_source_function_pointer ~source:pointer
                              ~origin:(origin pointer.function_pointer_location)
                              ~opening_origin:
                                (origin pointer.declarator_opening_parenthesis)

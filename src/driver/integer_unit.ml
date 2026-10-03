@@ -244,6 +244,25 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                       ])
           in
           let* globals_ =
+            match source_command with
+            | None -> Ok globals_
+            | Some command ->
+                let* defaults =
+                  Task_declarations.source_callback_defaults
+                    ~table:(Session.semantic_symbols session)
+                    ~ast command
+                in
+                if defaults = [] then Ok globals_
+                else
+                  Ir.Integer_globals.with_source_callback_defaults globals_
+                    defaults
+                  |> Result.map_error (fun message ->
+                      [
+                        Integer_source.diagnostic ~span:ast.span "HCRUN0004"
+                          message;
+                      ])
+          in
+          let* globals_ =
             Option.fold ~none:(Ok globals_)
               ~some:(fun view ->
                 Ir.Integer_globals.join_declared view globals_
@@ -268,15 +287,12 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
               task_view
           in
           let* globals_ =
-            if Option.is_none task_view then Ok globals_
-            else
-              Ir.Integer_globals.with_function_publications
-                ~records:(Integer_source.records prepared)
-                globals_
-              |> Result.map_error (fun message ->
-                  [
-                    Integer_source.diagnostic ~span:ast.span "HCRUN0004" message;
-                  ])
+            Ir.Integer_globals.with_function_publications
+              ~retain_replaced:(Option.is_none task_view)
+              ~records:(Integer_source.records prepared)
+              globals_
+            |> Result.map_error (fun message ->
+                [ Integer_source.diagnostic ~span:ast.span "HCRUN0004" message ])
           in
           let root_map values =
             List.fold_left
@@ -894,6 +910,11 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                    in
                    let* lowered =
                      Lower.lower_complete ~frame ~globals:globals_ ~records
+                       ~callback_calls:
+                         (Typed.function_calls function_
+                         |> List.filter_map (function
+                           | Typed.Indirect_call_result call -> Some call
+                           | _ -> None))
                        ~labels ~function_calls ~span:definition.location.span
                        statements
                    in

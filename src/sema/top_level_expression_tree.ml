@@ -171,12 +171,15 @@ let root_role_name = function
       ^ (Static_initializer_fragment.receipt fragment).static_allocation
           .allocation_local
           .local_spelling
-  | Default_fragment fragment ->
-      Printf.sprintf "function:%d:parameter-default:%d"
-        (fragment |> Default_fragment.publication
-       |> Declaration_collection.publication_symbol |> Symbol.id
-       |> Symbol.Id.to_int)
-        (Default_fragment.receipt fragment).default_parameter_index
+  | Default_fragment fragment -> (
+      match Default_fragment.symbol_opt fragment with
+      | Some symbol ->
+          Printf.sprintf "function:%d:parameter-default:%d"
+            (Symbol.id symbol |> Symbol.Id.to_int)
+            (Default_fragment.index fragment)
+      | None ->
+          Printf.sprintf "anonymous-parameter-default:%d"
+            (Default_fragment.index fragment))
   | Initializer_fragment fragment ->
       Printf.sprintf "global:%d:initializer-leaf:%d"
         (fragment |> Initializer_fragment.declaration
@@ -406,7 +409,7 @@ let make_default_root ~index ~fragment ~expression ~calls =
   let* () =
     Function_call_resolution.validate_source_expression
       ~source:(Default_fragment.expression fragment)
-      ~expression ~calls:source_calls
+      ~default_fragment:fragment ~expression ~calls:source_calls
       ~callee_expressions:
         (List.map (fun (source, callee, _) -> (source, callee)) trees)
       ~call_expressions:

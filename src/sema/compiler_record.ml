@@ -2093,3 +2093,118 @@ let bind_retained_global ~table ~entry ~record ~extent =
             runtime_offsets = global_extent_offset_dependencies extent;
             aggregate_stamp = None;
           }
+
+let record_callback_position positions ~parameters receipt =
+  let module P = Frontend.Parser in
+  let owner = receipt.P.callback_position_signature in
+  let sources = P.context_sources owner.callback_command.command_context in
+  let same a b =
+    match (a, b) with
+    | None, None -> true
+    | Some a, Some b -> a == b
+    | _ -> false
+  in
+  let rec valid index previous = function
+    | [] -> same previous receipt.callback_position_predecessor
+    | member :: rest ->
+        let publication = member.P.callback_parameter_publication in
+        publication.callback_parameter_signature == owner
+        && publication.callback_parameter_index = index
+        && same publication.callback_parameter_predecessor previous
+        && valid (index + 1) (Some member) rest
+  in
+  if
+    (not (compiler_positions_own_sources positions sources))
+    || (not (P.callback_position_is_current receipt))
+    || (not (valid 0 None parameters))
+    || Position_sources.mem positions.positions receipt.callback_position_source
+  then
+    Error "anonymous position requires its original active ordered member write"
+  else
+    let count = Int64.of_int (List.length parameters) in
+    if count > Int64.div Int64.max_int 8L then
+      Error "anonymous fixed-member size exceeds the compiler word"
+    else (
+      Position_sources.add positions.positions receipt.callback_position_source
+        (Some
+           {
+             position_source = receipt.callback_position_source;
+             position_value = Int64.mul 8L count;
+             position_dimensions = [];
+             position_dependencies = [];
+           });
+      Ok ())
+
+let resolve_default_position_reads positions ~sources reads =
+  if not (compiler_positions_own_sources positions sources) then
+    Error "default position belongs to another original source manager"
+  else
+    let rec collect rev = function
+      | [] -> Ok (List.rev rev)
+      | (expression, Some source) :: rest -> (
+          match Position_sources.find_opt positions.positions source with
+          | Some (Some position) when position.position_source == source ->
+              collect ((expression, position) :: rev) rest
+          | _ ->
+              Error "default position lacks its original compiler-state write")
+      | (_, None) :: _ ->
+          Error "default position requires an original compiler-state write"
+    in
+    collect [] reads
+
+let record_source_header_position positions snapshot receipt =
+  let module P = Frontend.Parser in
+  let owner = Provisional_function.source snapshot in
+  let sources = owner.function_header.declaration_sources in
+  let same a b =
+    match (a, b) with
+    | None, None -> true
+    | Some a, Some b -> a == b
+    | _ -> false
+  in
+  let members = Provisional_function.members snapshot in
+  let rec valid index previous = function
+    | [] -> same previous receipt.P.position_predecessor
+    | member :: rest -> (
+        let publication = Provisional_function.member_source member in
+        publication.parameter_function == owner
+        && publication.parameter_index = index
+        && same publication.parameter_predecessor previous
+        &&
+        match Provisional_function.member_completion member with
+        | Some completion -> valid (index + 1) (Some completion) rest
+        | None -> false)
+  in
+  if
+    (not (compiler_positions_own_sources positions sources))
+    || (not (P.function_position_is_current receipt))
+    || receipt.position_function != owner
+    || receipt.position_is_local
+    || P.context_mode owner.function_header.declaration_command.command_context
+       <> Frontend.Preprocessor.Aot
+    || Option.is_some (Provisional_function.completed_header snapshot)
+    || (not (valid 0 None members))
+    || Position_sources.mem positions.positions receipt.position_source
+  then
+    Error
+      "output header position requires its original active completed-member \
+       cursor"
+  else
+    let count = Int64.of_int (List.length members) in
+    if count > Int64.div Int64.max_int 8L then
+      Error "output fixed-member size exceeds the compiler word"
+    else
+      let position =
+        match Provisional_function.previous_lookup snapshot with
+        | Frontend.Symbol_visibility.Absent ->
+            Some
+              {
+                position_source = receipt.position_source;
+                position_value = Int64.mul count 8L;
+                position_dimensions = [];
+                position_dependencies = [];
+              }
+        | Present _ | Shadowed_by_local -> None
+      in
+      Position_sources.add positions.positions receipt.position_source position;
+      Ok ()

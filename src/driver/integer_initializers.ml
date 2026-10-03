@@ -383,7 +383,7 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                   Typed.top_level_root_value (Internal_binding.root destination),
                   None )
             | Default destination ->
-                ( Some (Default.symbol destination),
+                ( Default.symbol_opt destination,
                   Typed.top_level_root_value (Default.root destination),
                   None )
             | Fragment destination ->
@@ -826,8 +826,9 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                                 .call_access target,
                                 Typed.top_level_direct_outer_binding source )
                         (* An expression cannot contain an implicit output statement. *)
-                        | Runtime.Function_output _ | Runtime.Top_level_output _
-                          -> None
+                        | Runtime.Callback_call _
+                        | Runtime.Function_output _
+                        | Runtime.Top_level_output _ -> None
                       in
                       Option.map
                         (fun (symbol, access, binding) ->
