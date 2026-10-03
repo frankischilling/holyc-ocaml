@@ -19,6 +19,16 @@ type t = {
 
 type lowering_result = Lowered of t | Unsupported_expression
 
+type condition_chain = {
+  expression_ : t;
+  continuations_ : (Sequence.Instruction_id.t * Sequence.Block_id.t) list;
+  next_block_id_ : Sequence.Block_id.t;
+}
+
+type condition_chain_result =
+  | Lowered_condition_chain of condition_chain
+  | Unsupported_condition_chain
+
 type call_lowerer =
   instruction_id:Sequence.Instruction_id.t ->
   value_id:Sequence.Value_id.t ->
@@ -256,6 +266,15 @@ type lowered_node = {
 }
 
 type allocator = { mutable instruction : int; mutable value : int }
+
+type condition_emission = {
+  spine : bool Int_map.t;
+  root : int;
+  false_target : Sequence.Block_id.t;
+  mutable next_block : int;
+  mutable continuations_rev :
+    (Sequence.Instruction_id.t * Sequence.Block_id.t) list;
+}
 
 let reference_commit = Opcode.reference_commit
 let result_to_f64_flag = 0x000000001L
@@ -3306,7 +3325,7 @@ let optimize_integer_plan ~optimize_shifts ~optimize_division nodes =
     in
     (kept, !types, !unsigned_comparisons, !fault)
 
-let emit_plan ?lower_call ?(optimize_shifts = false)
+let emit_plan ?lower_call ?condition ?(optimize_shifts = false)
     ?(optimize_division = false) ~instruction_id ~value_id nodes =
   let nodes, optimized_types, unsigned_comparisons, optimization_fault =
     if optimize_shifts || optimize_division then
@@ -3330,6 +3349,60 @@ let emit_plan ?lower_call ?(optimize_shifts = false)
   let descriptions_rev = ref [] in
   let error = ref optimization_fault in
   let unsupported = ref false in
+  let conditional_link result =
+    Option.fold ~none:false
+      ~some:(fun condition -> Int_map.mem (result_key result) condition.spine)
+      condition
+  in
+  let branch_after_comparison result span =
+    match condition with
+    | Some condition
+      when conditional_link result && result_key result <> condition.root -> (
+        match find_lowered !lowered result "conditional comparison" with
+        | Error item -> error := Some item
+        | Ok node ->
+            if
+              allocator.instruction = Int.max_int
+              || condition.next_block = Int.max_int
+            then
+              error :=
+                Some
+                  (lowering_error ~span "HCIRL0005"
+                     "conditional comparison identity space is exhausted")
+            else if
+              condition.next_block
+              = Sequence.Block_id.to_int condition.false_target
+            then
+              error :=
+                Some
+                  (metadata_error ~span
+                     "conditional continuation overlaps its false target")
+            else
+              let instruction_id =
+                Sequence.Instruction_id.of_int allocator.instruction
+                |> Result.get_ok
+              and next =
+                Sequence.Block_id.of_int condition.next_block |> Result.get_ok
+              in
+              allocator.instruction <- allocator.instruction + 1;
+              condition.next_block <- condition.next_block + 1;
+              let branch : Sequence.description =
+                {
+                  instruction_id;
+                  opcode = Opcode.Ic_br_zero;
+                  operands = [ node.lowered_value ];
+                  result = None;
+                  target_type = None;
+                  payload = Some (Sequence.Block condition.false_target);
+                  flags = 0L;
+                  span = Some span;
+                }
+              in
+              descriptions_rev := branch :: !descriptions_rev;
+              condition.continuations_rev <-
+                (instruction_id, next) :: condition.continuations_rev)
+    | _ -> ()
+  in
   let emit_index_value ~opcode ~operands ~target_type ~payload ~span =
     match take_identity allocator (Some span) with
     | Error _ as error -> error
@@ -3887,7 +3960,8 @@ let emit_plan ?lower_call ?(optimize_shifts = false)
                     lowered :=
                       Int_map.add (result_key result)
                         { lowered_value = value_id; lowered_type = result_type }
-                        !lowered))
+                        !lowered;
+                    branch_after_comparison result span))
         | Chain_link
             { result; previous; middle; right; opcode; span; conversion } -> (
             match
@@ -3954,56 +4028,67 @@ let emit_plan ?lower_call ?(optimize_shifts = false)
                     match take_identity allocator (Some span) with
                     | Error item -> error := Some item
                     | Ok (comparison_id, comparison_value) -> (
-                        match take_identity allocator (Some span) with
-                        | Error item -> error := Some item
-                        | Ok (instruction_id, value_id) ->
-                            let comparison : Sequence.description =
+                        let comparison : Sequence.description =
+                          {
+                            instruction_id = comparison_id;
+                            opcode;
+                            operands =
+                              [
+                                middle_node.lowered_value;
+                                right_node.lowered_value;
+                              ];
+                            result = Some { value_id = comparison_value };
+                            target_type = Some result_type;
+                            payload = None;
+                            flags = 0L;
+                            span = Some span;
+                          }
+                        in
+                        descriptions_rev :=
+                          comparison :: List.rev_append views !descriptions_rev;
+                        comparison_domains :=
+                          Int_map.add (result_key result)
+                            (previous_unsigned
+                            || unsigned_integer_computation right)
+                            !comparison_domains;
+                        if conditional_link result then (
+                          lowered :=
+                            Int_map.add (result_key result)
                               {
-                                instruction_id = comparison_id;
-                                opcode;
-                                operands =
-                                  [
-                                    middle_node.lowered_value;
-                                    right_node.lowered_value;
-                                  ];
-                                result = Some { value_id = comparison_value };
-                                target_type = Some result_type;
-                                payload = None;
-                                flags = 0L;
-                                span = Some span;
+                                lowered_value = comparison_value;
+                                lowered_type = result_type;
                               }
-                            in
-                            let combination : Sequence.description =
-                              {
-                                instruction_id;
-                                opcode = Opcode.Ic_and_and;
-                                operands =
-                                  [
-                                    previous_node.lowered_value;
-                                    comparison_value;
-                                  ];
-                                result = Some { value_id };
-                                target_type = Some result_type;
-                                payload = None;
-                                flags = conversion_flags conversion;
-                                span = Some span;
-                              }
-                            in
-                            descriptions_rev :=
-                              combination :: comparison
-                              :: List.rev_append views !descriptions_rev;
-                            comparison_domains :=
-                              Int_map.add (result_key result)
-                                (previous_unsigned
-                                || unsigned_integer_computation right)
-                                !comparison_domains;
-                            lowered :=
-                              Int_map.add (result_key result)
+                              !lowered;
+                          branch_after_comparison result span)
+                        else
+                          match take_identity allocator (Some span) with
+                          | Error item -> error := Some item
+                          | Ok (instruction_id, value_id) ->
+                              let combination : Sequence.description =
                                 {
-                                  lowered_value = value_id;
-                                  lowered_type = result_type;
+                                  instruction_id;
+                                  opcode = Opcode.Ic_and_and;
+                                  operands =
+                                    [
+                                      previous_node.lowered_value;
+                                      comparison_value;
+                                    ];
+                                  result = Some { value_id };
+                                  target_type = Some result_type;
+                                  payload = None;
+                                  flags = conversion_flags conversion;
+                                  span = Some span;
                                 }
-                                !lowered)))))
+                              in
+                              descriptions_rev :=
+                                combination :: !descriptions_rev;
+                              lowered :=
+                                Int_map.add (result_key result)
+                                  {
+                                    lowered_value = value_id;
+                                    lowered_type = result_type;
+                                  }
+                                  !lowered)))))
     nodes;
   match !error with
   | Some item -> Error [ item ]
@@ -4075,6 +4160,79 @@ let lower_typed_result ?frame ?globals ?lower_call ?(optimize_shifts = false)
         | None -> Unsupported_expression)
 
 let sequence lowered = lowered.sequence_
+
+let lower_condition_chain ?frame ?globals ?lower_call ?(optimize_shifts = false)
+    ?(optimize_division = false) ~instruction_id ~value_id ~block_id
+    ~false_target result =
+  match
+    plan ?frame ?globals ~allow_calls:(Option.is_some lower_call) result
+  with
+  | Error errors -> Error errors
+  | Ok Unsupported_plan -> Ok Unsupported_condition_chain
+  | Ok (Planned nodes) -> (
+      let by_result =
+        List.fold_left
+          (fun map -> function
+            | Binary { result; opcode; _ }
+              when accepted_f64_comparison_opcode opcode ->
+                Int_map.add (result_key result) None map
+            | Chain_link { result; previous; conversion = Keep_result; _ } ->
+                Int_map.add (result_key result) (Some previous) map
+            | _ -> map)
+          Int_map.empty nodes
+      in
+      let rec spine map key =
+        match Int_map.find_opt key by_result with
+        | Some (Some previous) ->
+            spine (Int_map.add key true map) (result_key previous)
+        | Some None -> Some (Int_map.add key true map)
+        | None -> None
+      in
+      let root = result_key result in
+      match spine Int_map.empty root with
+      | None -> Ok Unsupported_condition_chain
+      | Some spine when Int_map.cardinal spine < 2 ->
+          Ok Unsupported_condition_chain
+      | Some spine -> (
+          let condition =
+            {
+              spine;
+              root;
+              false_target;
+              next_block = Sequence.Block_id.to_int block_id;
+              continuations_rev = [];
+            }
+          in
+          match
+            emit_plan ?lower_call ~condition ~optimize_shifts ~optimize_division
+              ~instruction_id ~value_id nodes
+          with
+          | Error errors -> Error errors
+          | Ok None -> Ok Unsupported_condition_chain
+          | Ok (Some expression_) ->
+              if
+                List.length condition.continuations_rev
+                <> Int_map.cardinal spine - 1
+              then
+                Error
+                  [
+                    metadata_error ?span:(result_span result)
+                      "conditional chain did not retain every original link";
+                  ]
+              else
+                Ok
+                  (Lowered_condition_chain
+                     {
+                       expression_;
+                       continuations_ = List.rev condition.continuations_rev;
+                       next_block_id_ =
+                         Sequence.Block_id.of_int condition.next_block
+                         |> Result.get_ok;
+                     })))
+
+let condition_chain_expression lowered = lowered.expression_
+let condition_chain_continuations lowered = lowered.continuations_
+let condition_chain_next_block_id lowered = lowered.next_block_id_
 
 let lower_store_initializer ?frame ?globals ?lower_call ?optimize_shifts
     ?optimize_division ~lower_address ~target_type ~span ~instruction_id

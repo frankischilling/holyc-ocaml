@@ -119,7 +119,9 @@ IC_LEAVE execution, or a host ABI.
 stack and reverse append order. `PrsExp.HC:555-586` supplies call selection,
 cleanup and call-end results. Program preflight matches their exact symbol,
 argument count, type and cleanup flag/byte relationships. Argument pushes and
-returned words cross calls; temporary graph values remain block-local.
+returned words cross calls. Temporary graph values survive block transfers when
+their unique definition dominates the use, and each invocation owns a separate
+value map.
 
 The public library offers `compile_integer_program`, `integer_program_entry`,
 `integer_program_functions`, `integer_program_human` and `run_integer_program`.

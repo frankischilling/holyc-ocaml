@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added integer comparison chains in conditions. Original middle values survive
+  branches and calls, and a false link skips later operands. Both execution
+  targets preserve cumulative unsigned classes, grouping and eager value
+  contexts. Graph dominance, source authority and native frame bounds are checked.
+  Fifty native field/source pairs each have two recorded observations.
+
 - Fixed primitive type recognition after a source function, global, local or
   parameter shadows that spelling. Calls, grouping and updates use the selected
   value; live post-body lookahead retains its original local selection.

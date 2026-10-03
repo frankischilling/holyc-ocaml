@@ -1,5 +1,12 @@
 # Oracle fixtures
 
+[`test/oracle/conditional-comparison-chains.json`](../test/oracle/conditional-comparison-chains.json)
+records 100 native result observations from 50 field/source pairs, plus 17 setup
+records, from one verified final-ISO TempleOS JIT boot. It covers context values,
+cumulative unsigned classes and conditional effects. Both hosted parsing modes
+and execution targets replay the same sources. Pending reductions and F64 chains
+are excluded; [the contract](conditional-comparison-chains.md) states the scope.
+
 Every result on this page uses TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
 ## Primitive type visibility

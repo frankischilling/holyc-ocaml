@@ -417,28 +417,30 @@ let malformed_and_public_candidates_are_unchanged () =
     (Graph.human (X87.graph checked))
     (Graph.human (folded_graph folded))
 
-let cross_block_values_are_rejected_before_folding () =
-  match
-    Graph.create ~entry:(block_id 0)
+let cross_block_values_are_preserved_by_folding () =
+  let checked =
+    verified ~entry:0
       [
         block 0
           [
             imm_i64 ~id:0 ~value:0 ~type_:i64 1L;
-            description ~payload:(Sequence.Block (block_id 1)) 1 Opcode.Ic_jmp;
+            unary ~id:1 ~operand:0 ~value:2 ~type_:i64 Opcode.Ic_not;
+            description ~payload:(Sequence.Block (block_id 1)) 2 Opcode.Ic_jmp;
           ];
         block 1
           [
-            unary ~id:2 ~operand:0 ~value:1 ~type_:i64 Opcode.Ic_not; terminal 3;
+            unary ~id:3 ~operand:0 ~value:1 ~type_:i64 Opcode.Ic_not; terminal 4;
           ];
       ]
-  with
-  | Ok _ -> Alcotest.fail "cross-block value unexpectedly reached the pass seam"
-  | Error errors ->
-      Alcotest.(check bool)
-        "HCIR0009" true
-        (List.exists
-           (fun (error : Graph.error) -> error.code = "HCIR0009")
-           errors)
+  in
+  let folded = fold checked in
+  Alcotest.(check int)
+    "shared producer is not removed by a local fold" 0
+    (List.length (Fold.rewrites folded));
+  Alcotest.(check string)
+    "cross-block definitions and uses remain exact"
+    (Graph.human (X87.graph checked))
+    (Graph.human (folded_graph folded))
 
 let block_order_edges_and_terminators_are_preserved () =
   let checked =
@@ -567,8 +569,8 @@ let tests =
       excluded_numeric_domains_are_unchanged;
     Alcotest.test_case "malformed and public candidates" `Quick
       malformed_and_public_candidates_are_unchanged;
-    Alcotest.test_case "cross-block constructor boundary" `Quick
-      cross_block_values_are_rejected_before_folding;
+    Alcotest.test_case "cross-block shared producer survives local folding"
+      `Quick cross_block_values_are_preserved_by_folding;
     Alcotest.test_case "control-flow preservation" `Quick
       block_order_edges_and_terminators_are_preserved;
     Alcotest.test_case "deterministic rewrite dump" `Quick

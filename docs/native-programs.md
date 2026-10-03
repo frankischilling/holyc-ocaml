@@ -1,5 +1,12 @@
 # Native integer programs
 
+Integer comparison chains now run in conditions with the original shared middle
+word and skipped later operands after a false link. Private frame homes preserve
+those words across branches and calls and count toward the existing stack bound.
+The source context checks the original graph layout and every instruction record.
+See [conditional integer chains](conditional-comparison-chains.md) for native
+observations, grouping and the remaining floating/pending-reduction boundaries.
+
 `holyc run --target=host-jit` compiles integer statements, structured control
 flow and fixed direct scalar integer functions and U0 procedures with the project's OCaml x86-64
 backend, then executes the checked image on Windows or Linux x86-64. It uses the

@@ -290,47 +290,6 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
       instruction ~at ~payload:(Sequence.Block target) Opcode.Ic_jmp;
       finish ()
     in
-    let rec validate_expression expression =
-      let source = Typed.result_source expression in
-      (match Source.argument_expression_kind source with
-      | Source.Binary_expression binary ->
-          let comparison = function
-            | Opcode.Ic_less
-            | Opcode.Ic_greater
-            | Opcode.Ic_less_equ
-            | Opcode.Ic_greater_equ
-            | Opcode.Ic_equ_equ
-            | Opcode.Ic_not_equ -> true
-            | _ -> false
-          in
-          let adjacent source =
-            match Source.argument_expression_kind source with
-            | Source.Binary_expression child ->
-                comparison (Source.binary_operator child)
-            | _ -> false
-          in
-          if
-            comparison (Source.binary_operator binary)
-            && adjacent (Source.binary_left binary)
-          then
-            fail
-              (span_of_result span expression)
-              "HCRUN0003"
-              "conditional comparison chains require shared values across \
-               branches, which are not implemented"
-      | _ -> ());
-      Option.iter validate_expression (Typed.result_operand expression);
-      Option.iter
-        (fun (left, right) ->
-          validate_expression left;
-          validate_expression right)
-        (Typed.result_binary_operands expression);
-      Option.iter
-        (fun (base, index) ->
-          validate_expression base;
-          validate_expression index)
-        (Typed.result_index_operands expression)
-    in
     let append_fragment sequence next_instruction next_value result_value =
       sequence |> Sequence.instructions
       |> List.iter (fun instruction ->
@@ -446,15 +405,65 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
       | Ok (Expression_lowering.Lowered result) -> append_expression result
     in
     let rec condition value ~yes ~no =
-      validate_expression value;
       let at = span_of_result span value in
-      let ordinary () =
-        let operand = expression value in
+      let branch operand =
         instruction ~at ~operands:[ operand ] ~payload:(Sequence.Block no)
           Opcode.Ic_br_zero;
         finish ();
         start (block ());
         jump ~at yes
+      in
+      let ordinary () = branch (expression value) in
+      let chain () =
+        ensure_open ();
+        match
+          Expression_lowering.lower_condition_chain ?frame ?globals
+            ~optimize_shifts:true ~optimize_division:true
+            ~lower_call:direct_call
+            ~instruction_id:
+              (Sequence.Instruction_id.of_int !instruction_count |> checked_id)
+            ~value_id:(Sequence.Value_id.of_int !value_count |> checked_id)
+            ~block_id:(Sequence.Block_id.of_int !block_count |> checked_id)
+            ~false_target:no value
+        with
+        | Error errors -> lower_errors errors
+        | Ok Expression_lowering.Unsupported_condition_chain ->
+            fail at "HCRUN0003"
+              "conditional comparison chain is outside supported integer \
+               lowering"
+        | Ok (Expression_lowering.Lowered_condition_chain lowered) ->
+            let result =
+              Expression_lowering.condition_chain_expression lowered
+            in
+            let continuations =
+              ref (Expression_lowering.condition_chain_continuations lowered)
+            in
+            Expression_lowering.sequence result
+            |> Sequence.instructions
+            |> List.iter (fun item ->
+                let description = Sequence.description item in
+                append description;
+                match !continuations with
+                | (instruction_id, next) :: rest
+                  when Sequence.Instruction_id.equal instruction_id
+                         description.instruction_id ->
+                    finish ();
+                    start next;
+                    continuations := rest
+                | _ -> ());
+            if !continuations <> [] then
+              fail at "HCRUN0004"
+                "conditional chain lost an original continuation";
+            instruction_count :=
+              Sequence.Instruction_id.to_int
+                (Expression_lowering.next_instruction_id result);
+            value_count :=
+              Sequence.Value_id.to_int
+                (Expression_lowering.next_value_id result);
+            block_count :=
+              Sequence.Block_id.to_int
+                (Expression_lowering.condition_chain_next_block_id lowered);
+            branch (Expression_lowering.result_value result)
       in
       if
         Typed.result_intrinsic_conversion value <> Typed.No_intrinsic_conversion
@@ -474,6 +483,23 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
             | Source.Unary_plus, Some operand -> condition operand ~yes ~no
             | _ -> ordinary ())
         | Source.Binary_expression binary -> (
+            let comparison = function
+              | Opcode.Ic_less
+              | Ic_greater
+              | Ic_less_equ
+              | Ic_greater_equ
+              | Ic_equ_equ
+              | Ic_not_equ -> true
+              | _ -> false
+            in
+            let adjacent =
+              match
+                Source.argument_expression_kind (Source.binary_left binary)
+              with
+              | Source.Binary_expression child ->
+                  comparison (Source.binary_operator child)
+              | _ -> false
+            in
             match
               (Source.binary_operator binary, Typed.result_binary_operands value)
             with
@@ -487,6 +513,7 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
                 condition left ~yes ~no:rhs;
                 start rhs;
                 condition right ~yes ~no
+            | opcode, Some _ when comparison opcode && adjacent -> chain ()
             | _ -> ordinary ())
         | _ -> ordinary ()
     in

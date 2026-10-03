@@ -20,6 +20,7 @@ module Symbol = Sema.Symbol
 module Value_map = Map.Make (Sequence.Value_id)
 module Value_set = Set.Make (Sequence.Value_id)
 module Instruction_set = Set.Make (Sequence.Instruction_id)
+module Instruction_map = Map.Make (Sequence.Instruction_id)
 module Block_map = Map.Make (Sequence.Block_id)
 module Block_set = Set.Make (Sequence.Block_id)
 module Int_map = Map.Make (Int)
@@ -1057,8 +1058,8 @@ let store_reference_scalar span base scalar source =
     Encoder.Store_indirect_narrow
       (base, narrow_frame_width ?span scalar.byte_size, source)
 
-let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
-    ~mode prepared =
+let allocate_body ?callable_frame ?(shared_values = []) ~max_stack_bytes
+    ~reserved_registers ~supply ~mode prepared =
   let registers = Array.of_list Encoder.registers in
   let register_index expected =
     let rec find index =
@@ -1076,7 +1077,10 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
   let reserved = List.map register_index reserved_registers in
   let owners : value option array = Array.make (Array.length registers) None in
   let slots : value option array = Array.make (hard_max_stack_bytes / 8) None in
-  let slot_high_water = ref 0 in
+  let shared_count = List.length shared_values in
+  if shared_count > hard_max_stack_bytes / 8 then
+    reject "HCBACK0004" "native shared-value frame exceeds the stack limit";
+  let slot_high_water = ref shared_count in
   let planned = ref [] in
   let fault_blocks = ref [] in
   let peak = ref 0 in
@@ -1129,6 +1133,20 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
     | Ok slot -> slot
     | Error message -> reject ?span "HCBACK0003" message
   in
+  let shared_slots =
+    List.mapi
+      (fun index value -> (value.value_id, (index, value)))
+      shared_values
+    |> List.fold_left
+         (fun map (id, entry) -> Value_map.add id entry map)
+         Value_map.empty
+  in
+  let shared_slot value = Value_map.find_opt value.value_id shared_slots in
+  (* Graph dominance prevents loading a shared home before its producer. *)
+  List.iteri (fun index value -> slots.(index) <- Some value) shared_values;
+  if frame_size_for_spills shared_count > max_stack_bytes then
+    reject "HCBACK0004" "native shared-value frame exceeds max_stack_bytes";
+  let published = ref Value_set.empty in
   let fixed_stack_slot span index =
     match Encoder.stack_slot ~offset:(index * 8) with
     | Ok slot -> slot
@@ -1180,20 +1198,23 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
       else find (index + 1)
     in
     let index =
-      match find 0 with
-      | Some index -> index
-      | None ->
-          let candidate_slots = !slot_high_water + 1 in
-          let required = frame_size_for_spills candidate_slots in
-          if required > max_stack_bytes then
-            reject ?span "HCBACK0004"
-              (Printf.sprintf
-                 "native spill frame requires %d bytes, exceeding \
-                  max_stack_bytes (%d)"
-                 required max_stack_bytes);
-          let index = !slot_high_water in
-          slot_high_water := candidate_slots;
-          index
+      match shared_slot value with
+      | Some (index, _) -> index
+      | None -> (
+          match find shared_count with
+          | Some index -> index
+          | None ->
+              let candidate_slots = !slot_high_water + 1 in
+              let required = frame_size_for_spills candidate_slots in
+              if required > max_stack_bytes then
+                reject ?span "HCBACK0004"
+                  (Printf.sprintf
+                     "native spill frame requires %d bytes, exceeding \
+                      max_stack_bytes (%d)"
+                     required max_stack_bytes);
+              let index = !slot_high_water in
+              slot_high_water := candidate_slots;
+              index)
     in
     slots.(index) <- Some value;
     (index, encoder_slot span index)
@@ -2913,6 +2934,22 @@ let allocate_body ?callable_frame ~max_stack_bytes ~reserved_registers ~supply
             (Encoder.Store_stack
                (staged_stack_slot instruction.span stage, registers.(source))))
         instruction.push_stage;
+      (* Publish each reached shared producer before the next branch. Its
+         permanent home belongs to this activation and survives calls. *)
+      Array.iteri
+        (fun register owner ->
+          match owner with
+          | Some value when not (Value_set.mem value.value_id !published) -> (
+              match shared_slot value with
+              | Some (index, _) ->
+                  emit
+                    (Encoder.Store_stack
+                       ( encoder_slot instruction.span index,
+                         registers.(register) ));
+                  published := Value_set.add value.value_id !published
+              | None -> ())
+          | _ -> ())
+        owners;
       release_through position;
       active_push := None)
     prepared;
@@ -3088,8 +3125,86 @@ let checked_switch_shape graph description =
     shape.targets;
   shape
 
+let source_layout blocks =
+  let position = ref 0 in
+  let positions = ref Instruction_map.empty in
+  let rec next_blocks map = function
+    | [] -> map
+    | block :: remaining ->
+        Sequence.instructions (Graph.instructions block)
+        |> List.iter (fun instruction ->
+            positions :=
+              Instruction_map.add
+                (Sequence.description instruction).instruction_id !position
+                !positions;
+            incr position);
+        let next =
+          match remaining with
+          | [] -> None
+          | next :: _ -> Some (Graph.block_id next)
+        in
+        next_blocks (Block_map.add (Graph.block_id block) next map) remaining
+  in
+  let next = next_blocks Block_map.empty blocks in
+  (next, !positions, !position)
+
+let source_order_blocks blocks prepared =
+  let index =
+    List.fold_left
+      (fun map block -> Block_map.add block.program_block_id block map)
+      Block_map.empty prepared
+  in
+  List.map (fun block -> Block_map.find (Graph.block_id block) index) blocks
+
+let external_values graph =
+  let owners =
+    List.fold_left
+      (fun map block ->
+        Sequence.instructions (Graph.instructions block)
+        |> List.fold_left
+             (fun map instruction ->
+               match (Sequence.description instruction).result with
+               | None -> map
+               | Some result ->
+                   Value_map.add result.value_id (Graph.block_id block) map)
+             map)
+      Value_map.empty (Graph.blocks graph)
+  in
+  List.fold_left
+    (fun set block ->
+      Sequence.instructions (Graph.instructions block)
+      |> List.fold_left
+           (fun set instruction ->
+             List.fold_left
+               (fun set value ->
+                 if
+                   Sequence.Block_id.equal
+                     (Value_map.find value owners)
+                     (Graph.block_id block)
+                 then set
+                 else Value_set.add value set)
+               set (Sequence.description instruction).operands)
+           set)
+    Value_set.empty (Graph.blocks graph)
+
+let shared_runtime_values ~external_ids ~extra values =
+  let shared =
+    Value_set.fold
+      (fun id map ->
+        match Value_map.find_opt id values with
+        | None -> map
+        | Some value -> Value_map.add id value map)
+      external_ids extra
+  in
+  Value_map.bindings shared
+  |> List.map (fun (_, value) ->
+      value.last_use <- Int.max_int;
+      value)
+
 let preflight_program graph =
   let blocks = Graph.blocks graph in
+  let next_blocks, positions, instruction_count = source_layout blocks in
+  let values = ref Value_map.empty in
   let instruction_ids = ref Instruction_set.empty in
   let global_position = ref 0 in
   let sites_rev = ref [] in
@@ -3098,13 +3213,14 @@ let preflight_program graph =
     | [] -> ()
     | block :: remaining ->
         let block_id = Graph.block_id block in
-        let values = ref Value_map.empty in
         let arithmetic_sites = ref [] in
         let prepared_rev = ref [] in
         let descriptions = Graph.instructions block |> Sequence.instructions in
         List.iteri
           (fun position instruction ->
             let description = Sequence.description instruction in
+            global_position :=
+              Instruction_map.find description.instruction_id positions;
             validate_identity instruction_ids description;
             let site = !global_position + 1 in
             let operation, value_type =
@@ -3251,11 +3367,7 @@ let preflight_program graph =
               :: !prepared_rev;
             incr global_position)
           descriptions;
-        let next =
-          match remaining with
-          | next :: _ -> Some (Graph.block_id next)
-          | [] -> None
-        in
+        let next = Block_map.find block_id next_blocks in
         let final_operation =
           match !prepared_rev with
           | instruction :: _ -> Some instruction.operation
@@ -3307,8 +3419,17 @@ let preflight_program graph =
           :: !prepared_blocks_rev;
         visit_blocks remaining
   in
-  visit_blocks blocks;
-  (List.rev !prepared_blocks_rev, List.rev !sites_rev, !global_position)
+  visit_blocks (Graph.definition_order graph);
+  let shared_values =
+    shared_runtime_values ~external_ids:(external_values graph)
+      ~extra:Value_map.empty !values
+  in
+  ( source_order_blocks blocks !prepared_blocks_rev,
+    List.sort
+      (fun left right -> Int.compare left.global_position right.global_position)
+      !sites_rev,
+    instruction_count,
+    shared_values )
 
 type callable_slot = {
   slot_type : Type.t;
@@ -3410,6 +3531,7 @@ type prepared_callable_body = {
   callable_home_slots : int;
   callable_stage_slots : int;
   callable_reference_bytes : int;
+  callable_shared_values : value list;
 }
 
 type allocated_callable_body = {
@@ -3887,6 +4009,12 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
     ~expected_return ~is_entry ~rbp_bytes ~max_stack_bytes ~next_site graph =
   let reference_bytes = ref 0 in
   let blocks = Graph.blocks graph in
+  let next_blocks, positions, instruction_count = source_layout blocks in
+  let first_site = !next_site in
+  next_site := first_site + instruction_count;
+  let values = ref Value_map.empty in
+  let frame_values = ref Value_map.empty in
+  let void_values = ref Value_set.empty in
   let instruction_ids = ref Instruction_set.empty in
   let sites_rev = ref [] in
   let home_slots = ref 0 in
@@ -3988,9 +4116,6 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
   in
   let visit_block block next =
     let block_id = Graph.block_id block in
-    let values = ref Value_map.empty in
-    let frame_values = ref Value_map.empty in
-    let void_values = ref Value_set.empty in
     let arithmetic_sites = ref [] in
     let prepared_rev = ref [] in
     let calls = ref [] in
@@ -4010,8 +4135,9 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
           malformed raw
             "internal argument producer differs from its sealed source record";
         validate_identity instruction_ids raw;
-        let site = !next_site + 1 in
-        incr next_site;
+        let site =
+          first_site + Instruction_map.find raw.instruction_id positions + 1
+        in
         incr ir_count;
         let pushes = Int64.logand raw.flags 0x2000L <> 0L in
         let description =
@@ -6039,14 +6165,35 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
   let rec visit reversed = function
     | [] -> List.rev reversed
     | block :: remaining ->
-        let next =
-          match remaining with
-          | next :: _ -> Some (Graph.block_id next)
-          | [] -> None
-        in
+        let next = Block_map.find (Graph.block_id block) next_blocks in
         visit (visit_block block next :: reversed) remaining
   in
-  let callable_blocks = visit [] blocks in
+  let callable_blocks =
+    visit [] (Graph.definition_order graph) |> source_order_blocks blocks
+  in
+  let external_ids = external_values graph in
+  let add value map = Value_map.add value.value_id value map in
+  let add_reference reference map =
+    let map = add reference.reference map in
+    Option.fold ~none:map ~some:(fun value -> add value map) reference.offset
+  in
+  let extra =
+    Value_set.fold
+      (fun id map ->
+        match Value_map.find_opt id !frame_values with
+        | Some (Reference_address (reference, _)) -> add_reference reference map
+        | Some (Index_offset offset) -> add offset.index_offset map
+        | Some (Indexed_address indexed) -> (
+            let map = add indexed.indexed_offset map in
+            match indexed.indexed_root with
+            | Indexed_object_root _ -> map
+            | Indexed_reference_root reference -> add_reference reference map)
+        | _ -> map)
+      external_ids Value_map.empty
+  in
+  let callable_shared_values =
+    shared_runtime_values ~external_ids ~extra !values
+  in
   (if not is_entry then
      let return_kind =
        match expected_return with
@@ -6056,12 +6203,17 @@ let preflight_callable_graph ~runtime_calls ~parameter_defaults ~functions
      validate_callable_returns graph return_kind);
   {
     callable_blocks;
-    callable_sites = List.rev !sites_rev;
+    callable_sites =
+      List.sort
+        (fun left right ->
+          Int.compare left.global_position right.global_position)
+        !sites_rev;
     callable_ir_count = !ir_count;
     callable_block_count = List.length blocks;
     callable_home_slots = !home_slots;
     callable_stage_slots = !stage_high_water;
     callable_reference_bytes = !reference_bytes;
+    callable_shared_values;
   }
 
 let bounded_program_counts ~max_ir_instructions ~max_blocks graph =
@@ -6232,7 +6384,7 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                 in
                 if block_count = 0 then
                   reject "HCBACK0003" "native program requires an entry block";
-                let prepared_blocks, sites, preflight_ir_count =
+                let prepared_blocks, sites, preflight_ir_count, shared_values =
                   preflight_program graph
                 in
                 if preflight_ir_count <> ir_count then
@@ -6268,7 +6420,7 @@ let compile_program ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                             "native program block has no machine label"
                     in
                     let allocation =
-                      allocate_body ~max_stack_bytes
+                      allocate_body ~shared_values ~max_stack_bytes
                         ~reserved_registers:[ Encoder.R10; Encoder.R11 ]
                         ~supply
                         ~mode:
@@ -6633,7 +6785,7 @@ let compile_callable ?status_abi ?(max_stack_bytes = hard_max_stack_bytes)
                     "native callable block has no machine label"
             in
             let allocation =
-              allocate_body
+              allocate_body ~shared_values:prepared.callable_shared_values
                 ~callable_frame:{ rbp_bytes; fixed_stack_slots }
                 ~max_stack_bytes
                 ~reserved_registers:

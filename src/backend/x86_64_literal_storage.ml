@@ -66,7 +66,9 @@ let create ~max_literal_bytes ~max_arena_bytes ~arena_prefix_bytes
                 (fun (definition : Ir.Integer_interpreter.function_definition)
                    -> definition.body)
                 functions))
-    then error "HCBACK0003" "native literal storage has another callable bundle"
+    then
+      error "HCBACK0003"
+        "native literal storage requires its original callable graph"
     else Ok ()
   in
   let logical = ref 0 in

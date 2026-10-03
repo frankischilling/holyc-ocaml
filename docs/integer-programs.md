@@ -168,12 +168,15 @@ Function-local missing/duplicate targets and inconsistent occurrence ownership
 retain source diagnostics; supported local labels and gotos use the shared path
 described above.
 `HCRUN0002` reports a break without an enclosing loop target. `HCRUN0003`
-rejects unsupported expressions, including chains inside conditions.
+rejects unsupported expressions, including floating and pending-reduction chains.
 Ordinary integer value chains such as `1<2==2` share their middle operands
 and eagerly combine adjacent comparisons. `PrsExp.HC:49-52,225-230` supplies
 the source rule. Parenthesized comparisons and tighter right operands such as
-`0==1<2` retain their grouping and precedence. Floating chains and conditional
-chains remain unsupported. Integer chains carry the cumulative unsigned
+`0==1<2` retain their grouping and precedence. Integer condition chains preserve
+the original middle operand across blocks and skip later operands after a false
+comparison. Chains within value expressions remain eager; see
+[conditional integer chains](conditional-comparison-chains.md). Floating chains
+remain unsupported. Integer chains carry the cumulative unsigned
 comparison class. Multiple pending comparison reductions, such as
 `1==2<3==1`, remain unsupported under
 [issue #593](https://github.com/frankischilling/holyc-ocaml/issues/593).

@@ -1,5 +1,10 @@
 # holyc-ocaml
 
+[Conditional integer comparison chains](docs/conditional-comparison-chains.md)
+retain each original middle operand and skip later operands after a false link.
+They run through both IR and native targets in JIT/AOT parsing modes; the
+maintained example is `examples/conditional-comparison-chains.hc`.
+
 [Primitive type visibility](docs/primitive-type-shadowing.md) lets source
 functions and variables shadow primitive names. The maintained
 `examples/primitive-type-shadowing.hc` uses `F64`, `U64`, `U16` and `I8` as value
@@ -336,8 +341,9 @@ uses `holyc-ir-graph-v1` in human mode; JSON graph output is unsupported.
 
 Integer comparison chains share middle operands: `2==2==2` evaluates to one.
 `holyc eval examples/integer-comparison-chain.hc` prints 42 in ten instructions.
-The unsigned comparison domain carries through later links. Conditional,
-floating and multiple-pending-reduction chains remain unsupported; see
+The unsigned comparison domain carries through later links. Integer conditions
+also share operands and skip later links after a false comparison. Floating and
+multiple-pending-reduction chains remain unsupported; see
 [the IR guide](docs/intermediate-representation.md#integer-comparison-chain-values).
 
 The public library exposes `lower_integer_expression session ~config ~source`

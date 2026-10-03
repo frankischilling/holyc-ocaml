@@ -31,7 +31,12 @@ end)
 module Int_map = Map.Make (Int)
 module Int_set = Set.Make (Int)
 
-type t = { entry : block; blocks : block list; index : block Block_map.t }
+type t = {
+  entry : block;
+  blocks : block list;
+  index : block Block_map.t;
+  definition_order : block list;
+}
 
 type checked_block = {
   checked_id : Block_id.t;
@@ -62,11 +67,34 @@ let child_error block_id (child : Sequence.error) =
   }
 
 let validate_children descriptions =
+  let definitions =
+    List.concat_map
+      (fun (block : block_description) ->
+        List.filter_map
+          (fun (instruction : Sequence.description) ->
+            Option.map
+              (fun result -> result.Sequence.value_id)
+              instruction.result)
+          block.instructions)
+      descriptions
+    |> List.fold_left
+         (fun set value -> Int_set.add (Sequence.Value_id.to_int value) set)
+         Int_set.empty
+  in
   let errors = ref [] in
   let checked =
     List.filter_map
       (fun (description : block_description) ->
-        match Sequence.create description.instructions with
+        let inputs =
+          List.concat_map
+            (fun (instruction : Sequence.description) ->
+              List.filter
+                (fun value ->
+                  Int_set.mem (Sequence.Value_id.to_int value) definitions)
+                instruction.operands)
+            description.instructions
+        in
+        match Sequence.create_with_inputs ~inputs description.instructions with
         | Ok checked_instructions ->
             Some { checked_id = description.block_id; checked_instructions }
         | Error child_errors ->
@@ -409,6 +437,150 @@ let derive_successors blocks =
   let result = build [] blocks in
   (result, List.rev !errors)
 
+(* Compute immediate dominators in reverse postorder. A virtual root also seeds
+   each disconnected region in source order, so dead blocks retain checked
+   definitions without making cycles their own source of values. *)
+let dominance ~entry blocks =
+  let count = List.length blocks in
+  let nodes = Array.of_list blocks in
+  let numbers =
+    List.mapi (fun index block -> (block.block_id, index + 1)) blocks
+    |> List.fold_left
+         (fun map (id, index) -> Block_map.add id index map)
+         Block_map.empty
+  in
+  let successors = Array.make (count + 1) [] in
+  let predecessors = Array.make (count + 1) [] in
+  Array.iteri
+    (fun index block ->
+      let index = index + 1 in
+      successors.(index) <-
+        List.map (fun id -> Block_map.find id numbers) block.successors;
+      List.iter
+        (fun target -> predecessors.(target) <- index :: predecessors.(target))
+        successors.(index))
+    nodes;
+  let visited = Array.make (count + 1) false in
+  let postorder = ref [] in
+  let seed start =
+    if not visited.(start) then (
+      predecessors.(start) <- 0 :: predecessors.(start);
+      let pending = Stack.create () in
+      Stack.push (start, false) pending;
+      while not (Stack.is_empty pending) do
+        let node, leaving = Stack.pop pending in
+        if leaving then postorder := node :: !postorder
+        else if not visited.(node) then (
+          visited.(node) <- true;
+          Stack.push (node, true) pending;
+          List.rev successors.(node)
+          |> List.iter (fun child -> Stack.push (child, false) pending))
+      done)
+  in
+  seed (Block_map.find entry numbers);
+  for index = 1 to count do
+    seed index
+  done;
+  let order = 0 :: !postorder in
+  let rank = Array.make (count + 1) 0 in
+  List.iteri (fun index node -> rank.(node) <- index) order;
+  let parents = Array.make (count + 1) (-1) in
+  parents.(0) <- 0;
+  let intersect left right =
+    let left = ref left and right = ref right in
+    while !left <> !right do
+      if rank.(!left) > rank.(!right) then left := parents.(!left)
+      else right := parents.(!right)
+    done;
+    !left
+  in
+  let changed = ref true in
+  while !changed do
+    changed := false;
+    List.iter
+      (fun node ->
+        if node <> 0 then
+          let parent =
+            List.fold_left
+              (fun current predecessor ->
+                if parents.(predecessor) < 0 then current
+                else if current < 0 then predecessor
+                else intersect current predecessor)
+              (-1) predecessors.(node)
+          in
+          if parent <> parents.(node) then (
+            parents.(node) <- parent;
+            changed := true))
+      order
+  done;
+  let children = Array.make (count + 1) [] in
+  List.iter
+    (fun node ->
+      if node <> 0 then
+        children.(parents.(node)) <- node :: children.(parents.(node)))
+    (List.rev order);
+  let starts = Array.make (count + 1) 0 in
+  let stops = Array.make (count + 1) 0 in
+  let clock = ref 0 and definition_order = ref [] in
+  let pending = Stack.create () in
+  Stack.push (0, false) pending;
+  while not (Stack.is_empty pending) do
+    let node, leaving = Stack.pop pending in
+    if leaving then stops.(node) <- !clock
+    else (
+      starts.(node) <- !clock;
+      incr clock;
+      if node <> 0 then
+        definition_order := nodes.(node - 1) :: !definition_order;
+      Stack.push (node, true) pending;
+      List.rev children.(node)
+      |> List.iter (fun child -> Stack.push (child, false) pending))
+  done;
+  let dominates definition use =
+    let definition = Block_map.find definition numbers in
+    let use = Block_map.find use numbers in
+    starts.(definition) <= starts.(use) && starts.(use) < stops.(definition)
+  in
+  (dominates, List.rev !definition_order)
+
+let external_value_errors dominates blocks =
+  let owners =
+    List.fold_left
+      (fun owners block ->
+        Sequence.instructions block.instructions
+        |> List.fold_left
+             (fun owners instruction ->
+               let description = Sequence.description instruction in
+               match description.result with
+               | None -> owners
+               | Some result ->
+                   Int_map.add
+                     (Sequence.Value_id.to_int result.value_id)
+                     block.block_id owners)
+             owners)
+      Int_map.empty blocks
+  in
+  List.concat_map
+    (fun block ->
+      Sequence.instructions block.instructions
+      |> List.concat_map (fun instruction ->
+          let description = Sequence.description instruction in
+          List.filter_map
+            (fun value ->
+              let number = Sequence.Value_id.to_int value in
+              let owner = Int_map.find number owners in
+              if dominates owner block.block_id then None
+              else
+                Some
+                  (error ~block_id:block.block_id
+                     ~instruction_id:description.instruction_id
+                     ?span:description.span "HCIR0009"
+                     (Printf.sprintf
+                        "value %%%d from block ^b%d does not dominate this use"
+                        number (block_number owner))))
+            description.operands))
+    blocks
+
 let create ~entry descriptions =
   let block_errors = duplicate_block_errors descriptions in
   let checked, child_errors = validate_children descriptions in
@@ -431,16 +603,27 @@ let create ~entry descriptions =
   match errors with
   | _ :: _ -> Error errors
   | [] ->
-      let built_index =
-        List.fold_left
-          (fun result block -> Block_map.add block.block_id block result)
-          Block_map.empty built
-      in
-      let entry_block = Block_map.find entry built_index in
-      Ok { entry = entry_block; blocks = built; index = built_index }
+      let dominates, definition_order = dominance ~entry built in
+      let value_errors = external_value_errors dominates built in
+      if value_errors <> [] then Error value_errors
+      else
+        let built_index =
+          List.fold_left
+            (fun result block -> Block_map.add block.block_id block result)
+            Block_map.empty built
+        in
+        let entry_block = Block_map.find entry built_index in
+        Ok
+          {
+            entry = entry_block;
+            blocks = built;
+            index = built_index;
+            definition_order;
+          }
 
 let entry graph = graph.entry
 let blocks graph = graph.blocks
+let definition_order graph = graph.definition_order
 let find_block graph id = Block_map.find_opt id graph.index
 let block_id block = block.block_id
 let instructions block = block.instructions

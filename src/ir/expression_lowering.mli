@@ -1,5 +1,10 @@
 type t
 type lowering_result = Lowered of t | Unsupported_expression
+type condition_chain
+
+type condition_chain_result =
+  | Lowered_condition_chain of condition_chain
+  | Unsupported_condition_chain
 
 type call_lowerer =
   instruction_id:Instruction_sequence.Instruction_id.t ->
@@ -148,6 +153,37 @@ val lower_global_initializer :
     responsibility. *)
 
 val sequence : t -> Instruction_sequence.t
+
+val lower_condition_chain :
+  ?frame:Sema.Function_frame_layout.function_layout ->
+  ?globals:Integer_globals.t ->
+  ?lower_call:call_lowerer ->
+  ?optimize_shifts:bool ->
+  ?optimize_division:bool ->
+  instruction_id:Instruction_sequence.Instruction_id.t ->
+  value_id:Instruction_sequence.Value_id.t ->
+  block_id:Instruction_sequence.Block_id.t ->
+  false_target:Instruction_sequence.Block_id.t ->
+  Sema.Function_call_expression_result.expression_result ->
+  (condition_chain_result, Instruction_sequence.error list) result
+(** Lower an original checked integer comparison chain for a condition. Each
+    nonfinal comparison branches to [false_target] before the next operand is
+    computed. The private plan retains original middle values, cumulative
+    computation classes and nested eager value expressions. Its canonical
+    sequence includes those branches; the returned continuation pairs identify
+    the block immediately following each branch. [block_id] starts the caller's
+    unused block space. The final comparison remains the expression result for
+    the caller's final zero/nonzero branch. Unsupported domains and multiple
+    pending reductions return no partial result. *)
+
+val condition_chain_expression : condition_chain -> t
+
+val condition_chain_continuations :
+  condition_chain ->
+  (Instruction_sequence.Instruction_id.t * Instruction_sequence.Block_id.t) list
+
+val condition_chain_next_block_id :
+  condition_chain -> Instruction_sequence.Block_id.t
 
 val lower_fragment_initializer :
   ?lower_call:call_lowerer ->

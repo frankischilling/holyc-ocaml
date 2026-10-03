@@ -1,4 +1,18 @@
 (test
+ (name test_conditional_comparison_chains_cli)
+ (modules test_conditional_comparison_chains_cli)
+ (libraries unix yojson)
+ (deps
+  oracle/conditional-comparison-chains.json
+  ../examples/conditional-comparison-chains.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:oracle/conditional-comparison-chains.json}
+   %{dep:../examples/conditional-comparison-chains.hc})))
+
+(test
  (name test_primitive_type_shadowing_cli)
  (modules test_primitive_type_shadowing_cli)
  (libraries unix yojson)
@@ -427,6 +441,7 @@
   test_integer_array_safety
   test_integer_global_initializers
   test_ir_comparison_chains
+  test_conditional_comparison_chains
   test_primitive_type_shadowing
   test_ir_integer_frames
   test_ir_integer_division
@@ -635,6 +650,7 @@
   ../reference/assembly-blocks.json
   ../reference/parser-corpus-aot.json
   oracle/conditional-recovery.json
+  oracle/conditional-comparison-chains.json
   oracle/function-definitions.json
   oracle/integer-division.json
   oracle/division-strength-reductions.json

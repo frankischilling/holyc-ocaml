@@ -175,7 +175,12 @@ let result_positions descriptions =
        (fun position description -> (position, description))
        descriptions)
 
-let create descriptions =
+let create_with_inputs ~inputs descriptions =
+  let inputs =
+    List.fold_left
+      (fun set value -> Int_set.add (Value_id.to_int value) set)
+      Int_set.empty inputs
+  in
   let positions = result_positions descriptions in
   let instruction_ids = ref Int_set.empty in
   let value_ids = ref Int_set.empty in
@@ -217,6 +222,7 @@ let create descriptions =
                   (error ?span:description.span description "HCIR0009"
                      (Printf.sprintf "value %%%d has no usable definition"
                         value_id))
+            | None when Int_set.mem value_id inputs -> ()
             | None ->
                 add
                   (error ?span:description.span description "HCIR0009"
@@ -232,6 +238,7 @@ let create descriptions =
   | [] -> Ok descriptions
   | errors -> Error errors
 
+let create descriptions = create_with_inputs ~inputs:[] descriptions
 let instructions sequence = sequence
 let description instruction = instruction
 let length = List.length

@@ -1,6 +1,19 @@
 (rule
  (alias native-tests)
  (deps
+  ../oracle/conditional-comparison-chains.json
+  ../../examples/conditional-comparison-chains.hc)
+ (action
+  (run
+   %{exe:../test_conditional_comparison_chains_cli.exe}
+   %{exe:../../bin/holyc.exe}
+   %{dep:../oracle/conditional-comparison-chains.json}
+   %{dep:../../examples/conditional-comparison-chains.hc}
+   --native)))
+
+(rule
+ (alias native-tests)
+ (deps
   ../oracle/primitive-type-shadowing.json
   ../../examples/primitive-type-shadowing.hc)
  (action

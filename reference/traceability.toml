@@ -12832,4 +12832,21 @@ identity = "A selected public primitive union or internal-type entry supplies th
 execution = "Functions, globals, locals and parameters with primitive names execute through shared IR and hosted native code in both source modes. Live post-body lookahead preserves its original local selection; callback-free parsing retains its separate contract."
 resources = "No new allocation or resource class. Existing runtime and initializer limits remain; the maintained example needs 42 runtime and three initializer instructions."
 verification_boundary = "Five parser/API groups and public CLI controls cover all twelve spellings, grouping, updates, replacement input, restored types, newer aggregates, original lookahead, unshadowed declarations/casts and exact limits. Eight native value fields and two compile-only controls each run twice, with twenty accepted commands and forty capture hashes. The expanded spelling matrix is hosted evidence."
-excluded = ["pending comparison reductions and conditional chains under #593", "complete F64 execution, ABI, loader and bootstrap requirements"]
+excluded = ["pending comparison reductions under #593; conditional integer chains are covered separately by #797", "complete F64 execution, ABI, loader and bootstrap requirements"]
+
+[[feature]]
+id = "HC-CONDITIONAL-INTEGER-COMPARISON-CHAINS"
+description = "Integer comparison conditions retain shared middle words and skip later operands after a false link."
+status = "implemented"
+issue = 797
+ir_epic = 396
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsExp.HC:49-52,225-230", "Compiler/OptPass012.HC:141-150,809-822", "Compiler/OptPass4.HC:516-527", "Compiler/OptPass789A.HC:158-242,286-292"]
+implementation = ["src/ir/expression_lowering.ml", "src/ir/integer_program_lowering.ml", "src/ir/instruction_sequence.ml", "src/ir/block_graph.ml", "src/ir/integer_interpreter.ml", "src/ir/runtime_call_context.ml", "src/backend/x86_64_word_codegen.ml", "src/backend/x86_64_literal_storage.ml"]
+tests = ["test/test_conditional_comparison_chains.ml", "test/test_conditional_comparison_chains_cli.ml", "test/test_ir_comparison_chains.ml", "test/test_ir_block_graph.ml", "test/test_native_program.ml", "test/native/test_native_program_execution.ml", "test/oracle/conditional-comparison-chains.json", "examples/conditional-comparison-chains.hc", "test/dune", "test/native/dune"]
+documentation = ["docs/conditional-comparison-chains.md", "docs/intermediate-representation.md", "docs/integer-programs.md", "docs/integer-functions.md", "docs/native-programs.md", "docs/compatibility.md", "docs/reference-source-map.md", "docs/oracle-fixtures.md", "docs/testing.md", "ARCHITECTURE.md", "README.md", "ROADMAP.md", "CHANGELOG.md"]
+identity = "Original checked operands and operator spans survive private planning. The exact graph layout and every instruction record retain their source context; copies and changed branches or comparisons fail preflight."
+execution = "All six integer comparison operators compose with if/while/do/for conditions, logical AND/OR/not, cumulative unsigned classes, calls and storage in both source modes and IR/native targets. Grouped comparisons and chains inside value expressions retain eager behavior."
+resources = "Unique dominating cross-block definitions, fresh invocation maps, native permanent shared-word homes under existing stack bounds, dense IDs, atomic allocation exhaustion, exact runtime/IR/block/code/frame limits."
+verification_boundary = "Fifty native field/source pairs observed twice in one verified final-ISO TempleOS JIT boot: thirty-six context fields, six cumulative-class fields and eight conditional result/effect fields. Hosted regressions extend coverage to loops, recursion, narrow storage, defaults, faults, output and both native ABI encodings. Native AOT parity is not claimed."
+excluded = ["F64 comparison chains", "multiple pending comparison reductions under #593", "full optimizer/ABI, module loader and bootstrap requirements"]

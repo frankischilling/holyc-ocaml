@@ -3239,7 +3239,7 @@ let indexed_address frame types (description : Sequence.description) =
   | _ -> Unsupported
 
 let declared_types ?frame ?globals ?literals ?initialization
-    ?(allow_calls = false) ?(is_default = fun _ -> false) block =
+    ?(allow_calls = false) ?(is_default = fun _ -> false) ~types block =
   let memory_enabled =
     Option.is_some frame || Option.is_some globals || Option.is_some literals
   in
@@ -3362,7 +3362,7 @@ let declared_types ?frame ?globals ?literals ?initialization
                    | None -> Unsupported)
              in
              Value_map.add result.value_id declared types)
-       Value_map.empty
+       types
 
 let operand_of_value types value_id =
   match Value_map.find_opt value_id types with
@@ -4257,14 +4257,18 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
          Block_map.empty
   in
   let errors_rev = ref [] in
+  let types =
+    List.fold_left
+      (fun types block ->
+        declared_types ?frame ?globals ?literals ?initialization
+          ~allow_calls:(Option.is_some callees) ~is_default ~types block)
+      Value_map.empty
+      (Graph.definition_order graph)
+  in
   let blocks =
     source_blocks
     |> List.mapi (fun index block ->
         let block_id = Graph.block_id block in
-        let types =
-          declared_types ?frame ?globals ?literals ?initialization
-            ~allow_calls:(Option.is_some callees) ~is_default block
-        in
         let instructions_rev = ref [] in
         let calls = ref [] in
         let intrinsics = ref [] in
@@ -5337,8 +5341,7 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
   let active_initializer = ref None in
   let transfer target =
     current_block := target;
-    current_instruction := 0;
-    values := Value_map.empty
+    current_instruction := 0
   in
   let require_operand ?(computation = false) block instruction operand =
     match Value_map.find_opt operand.value_id !values with

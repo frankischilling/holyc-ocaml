@@ -243,11 +243,12 @@ let eager_faults () =
 let program_values_and_conditions () =
   Test_integer_program.succeeds "2==2==2; {1<(8/4)<3;}" ();
   List.iter
-    (fun text ->
-      Alcotest.(check string)
-        text "HCRUN0003" (Test_integer_program.diagnostic text).code)
+    (fun text -> Test_integer_program.succeeds text ())
     [
-      "if(2==2==2);"; "while(1<2<3);"; "if((2==2==2)+1);"; "if(0 && (2==2==2));";
+      "if(2==2==2);";
+      "while(1<2<3)break;";
+      "if((2==2==2)+1);";
+      "if(0 && (2==2==2));";
     ]
 
 let checked_contexts () =

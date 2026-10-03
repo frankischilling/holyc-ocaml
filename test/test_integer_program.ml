@@ -84,12 +84,12 @@ let unsupported () =
   Alcotest.(check string)
     "break cannot escape for initializer" "HCRUN0002"
     (diagnostic "while(1) for(break;1;0) ;").code;
-  Alcotest.(check string)
-    "chained comparison boundary" "HCRUN0003" (diagnostic "if(3<2<1) ;").code;
   List.iter
-    (fun text ->
-      Alcotest.(check string) text "HCRUN0003" (diagnostic text).code)
-    [ "if(2==2==2) ;"; "if(1<2==2) ;"; "if(1!=2!=3) ;" ];
+    (fun text -> succeeds text ())
+    [ "if(3<2<1) ;"; "if(2==2==2) ;"; "if(1<2==2) ;"; "if(1!=2!=3) ;" ];
+  Alcotest.(check string)
+    "pending comparison boundary" "HCRUN0003"
+    (diagnostic "if(1==2<3==1) ;").code;
   Alcotest.(check bool)
     "unreachable float is preflighted" true
     (String.starts_with ~prefix:"HCIRVM" (diagnostic "if(0) 1.0;").code)

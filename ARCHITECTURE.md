@@ -1,5 +1,13 @@
 # holyc-ocaml architecture
 
+`Ir.Expression_lowering` emits branch continuations for original integer
+comparison chains used as conditions. `Ir.Block_graph` validates dominance of
+values shared across blocks and supplies definition order for type preparation.
+The interpreter retains values within each invocation; the native word backend
+assigns shared words permanent private frame homes. `Ir.Runtime_call_context`
+binds the original layout and every instruction record to the checked source
+bundle. See [conditional integer chains](docs/conditional-comparison-chains.md).
+
 `Frontend.Parser` recognizes primitive types through original token selections.
 Public primitive union entries, internal types, newer aggregates and source
 value shadows keep their distinct identities. Live post-body lookahead remains
