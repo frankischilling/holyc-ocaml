@@ -595,6 +595,10 @@ let function_variadic_completion_is_current receipt =
 
 type parameter_default_activity = { mutable parameter_default_active : bool }
 
+type default_position_source =
+  | Class_default_position of compiler_position_source option
+  | Instruction_default_position
+
 type completed_parameter_default = {
   default_function : function_publication;
   default_parameter : function_parameter_publication;
@@ -605,8 +609,7 @@ type completed_parameter_default = {
   default_pointer_layers : Ast.pointer_layer list;
   default_parameter_name : Ast.identifier option;
   default_function_pointer : Ast.function_pointer_declarator option;
-  default_position_reads :
-    (Ast.expression * compiler_position_source option) list;
+  default_position_reads : (Ast.expression * default_position_source) list;
   default_ast : Ast.parameter_default;
   default_activity : parameter_default_activity;
 }
@@ -661,7 +664,7 @@ type completed_callback_default = {
   callback_default_index : int;
   callback_default_predecessor : completed_callback_default option;
   callback_default_position_reads :
-    (Ast.expression * compiler_position_source option) list;
+    (Ast.expression * default_position_source) list;
   callback_default_ast : Ast.parameter_default;
   callback_default_activity : parameter_default_activity;
 }
@@ -1069,9 +1072,10 @@ type offset_position_capture = {
 }
 
 type cursor = {
+  mutable class_position_mode : bool;
   mutable internal_bindings : internal_binding_preparation list;
   mutable default_position_capture :
-    (Ast.expression * compiler_position_source option) list ref option;
+    (Ast.expression * default_position_source) list ref option;
   mutable offset_position_capture : offset_position_capture option;
   command_stack : command_position ref list ref;
   mutable current_command : command_start option;
@@ -1250,7 +1254,7 @@ type direct_function_resolution =
   | Direct_function_with_shape of Symbol_visibility.function_call_shape
 
 type parsed_parameter_default = {
-  position_reads : (Ast.expression * compiler_position_source option) list;
+  position_reads : (Ast.expression * default_position_source) list;
   node : Ast.parameter_default;
   tokens : Token.t list;
 }
@@ -2970,7 +2974,11 @@ and parse_expression_atom cursor ~context ~depth : parsed_expression option =
                 command.command_context.context_compiler_position
                   .position_source)
           in
-          capture := (node, position) :: !capture)
+          let selected =
+            if cursor.class_position_mode then Class_default_position position
+            else Instruction_default_position
+          in
+          capture := (node, selected) :: !capture)
         cursor.default_position_capture;
       Some { node; tokens = [ item.token ] }
   | Token_kind.Keyword Keyword.Sizeof, _ ->
@@ -4889,6 +4897,18 @@ let rec parse_aggregate_members ?(reset_position = true) cursor ~aggregate
     ~(opening_brace : Ast.location) ~depth ~parse_member_function_pointer
     members_rev tokens_rev :
     (parsed_aggregate_members, aggregate_parse_failure) result =
+  let prior = cursor.class_position_mode in
+  Fun.protect
+    ~finally:(fun () -> cursor.class_position_mode <- prior)
+    (fun () ->
+      cursor.class_position_mode <- true;
+      parse_aggregate_members_in_class ~reset_position cursor ~aggregate
+        ~opening_brace ~depth ~parse_member_function_pointer members_rev
+        tokens_rev)
+
+and parse_aggregate_members_in_class ?(reset_position = true) cursor ~aggregate
+    ~(opening_brace : Ast.location) ~depth ~parse_member_function_pointer
+    members_rev tokens_rev =
   let item = peek cursor in
   if reset_position then
     advance_aggregate cursor item aggregate Aggregate_position_reset;
@@ -4915,7 +4935,7 @@ let rec parse_aggregate_members ?(reset_position = true) cursor ~aggregate
       Error { recovery_depth = depth + 1 }
   | Token_kind.Punctuation ';' ->
       let semicolon_item = take cursor in
-      parse_aggregate_members ~reset_position:false cursor ~aggregate
+      parse_aggregate_members_in_class ~reset_position:false cursor ~aggregate
         ~opening_brace ~depth ~parse_member_function_pointer
         (Ast.Empty_aggregate_member (token_location semicolon_item.token)
         :: members_rev)
@@ -4927,8 +4947,8 @@ let rec parse_aggregate_members ?(reset_position = true) cursor ~aggregate
       with
       | Error failure -> Error failure
       | Ok member ->
-          parse_aggregate_members ~reset_position:false cursor ~aggregate
-            ~opening_brace ~depth ~parse_member_function_pointer
+          parse_aggregate_members_in_class ~reset_position:false cursor
+            ~aggregate ~opening_brace ~depth ~parse_member_function_pointer
             (member.node :: members_rev)
             (List.rev_append member.tokens tokens_rev))
   | Token_kind.Keyword Keyword.Class ->
@@ -4944,8 +4964,8 @@ let rec parse_aggregate_members ?(reset_position = true) cursor ~aggregate
       with
       | Error failure -> Error failure
       | Ok member ->
-          parse_aggregate_members ~reset_position:false cursor ~aggregate
-            ~opening_brace ~depth ~parse_member_function_pointer
+          parse_aggregate_members_in_class ~reset_position:false cursor
+            ~aggregate ~opening_brace ~depth ~parse_member_function_pointer
             (member.node :: members_rev)
             (List.rev_append member.tokens tokens_rev))
   | _ -> (
@@ -4955,8 +4975,8 @@ let rec parse_aggregate_members ?(reset_position = true) cursor ~aggregate
       with
       | Error failure -> Error failure
       | Ok member ->
-          parse_aggregate_members cursor ~aggregate ~opening_brace ~depth
-            ~parse_member_function_pointer
+          parse_aggregate_members_in_class cursor ~aggregate ~opening_brace
+            ~depth ~parse_member_function_pointer
             (member.node :: members_rev)
             (List.rev_append member.tokens tokens_rev))
 
@@ -10125,6 +10145,7 @@ let make_cursor ?reference ?call ?implicit_output ?query ?declaration
     invalid_arg "an array count reader requires a declaration observer";
   {
     command_stack;
+    class_position_mode = false;
     default_position_capture = None;
     offset_position_capture = None;
     current_command = None;

@@ -106,16 +106,22 @@ JIT retained calls and effects execute during declaration. The existing callee
 capture, right-to-left pushes and cleanup remain tied to the original signature.
 An equal copied signature or producer has no saved-default authority.
 
-Anonymous `$$` defaults retain their original lexical position write and expression
-node. Each completed fixed member advances the header size by eight bytes.
-The write precedes the next member, including its type and default input. A
-nested signature leaves its last write current; its closing delimiter does not
-restore the enclosing header position. A trailing parameter delimiter writes
-the completed size, skipped empty semicolons add no members, and the write before
-`...` precedes its hidden argc/argv members. The checked default lowers to an I64
-constant and follows the ordinary saved-word evaluator and producer checks.
-Fresh named AOT headers supply positions from their own completed-member cursor;
-reused AOT headers retain an unavailable position. AOT defaults
+Anonymous defaults in class/union bodies retain the original `$$` selector,
+lexical write and expression node. `PrsExp.HC:708-721` selects an I64 class
+position only under `CCF_CLASS_DOL_OFFSET`; ordinary `$$` remains `IC_RIP` with
+`RT_PTR`. Argument-list writes alone do not select integer position semantics.
+The parser preserves the class flag while parsing nested callback headers and
+restores it on leaving the class body. Each fixed member occupies eight bytes.
+Writes precede the next member's type/default input, and nested signatures leave
+their last write current. Trailing delimiters publish the completed size; empty
+semicolons add no members; hidden argc/argv insertion leaves the preceding
+fixed-member write current. Class-position defaults execute through the original
+saved-word evaluator, including retained JIT calls and effects. Class callback
+layout requires the exact completed anonymous header and uses physical word
+storage independently of return class. Stored class callback invocation and
+ordinary instruction-address defaults remain unfinished.
+
+AOT defaults
 with references, F64 expressions, owned-code values and hosted native emission
 remain outside this consumer. A reached runtime failure retains prior output;
 constant-divisor preparation that needs unresolved optimizer behavior rejects

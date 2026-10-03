@@ -2195,6 +2195,13 @@ let validate_callback_command ledger publication span =
   | Reading original when original == publication.callback_command -> ()
   | _ -> fail span "anonymous signature belongs to another source command"
 
+let completed_callback_header ledger source =
+  List.find_map
+    (fun state ->
+      Option.bind state.callback_header (fun header ->
+          if header.Parser.callback_pointer == source then Some header else None))
+    ledger.callback_states
+
 let observe ?offset_runtime ledger event =
   protect (fun () ->
       match event with
@@ -2462,6 +2469,7 @@ let observe ?offset_runtime ledger event =
                       fail ~code phase.phase_location.span message)
               | _ -> ());
               Sema.Compiler_record.advance_aggregate
+                ~callbacks:(completed_callback_header ledger)
                 ~dimensions:(Dimensions.find_opt ledger.checked_dimensions)
                 progress phase
               |> checked phase.phase_location.span;
@@ -2485,6 +2493,7 @@ let observe ?offset_runtime ledger event =
               state.record <-
                 Some
                   (Sema.Compiler_record.complete_aggregate
+                     ~callbacks:(completed_callback_header ledger)
                      ?progress:state.progress ~table:ledger.table
                      ~dimensions:(Dimensions.find_opt ledger.checked_dimensions)
                      ~namespace:ledger.namespace assigned.publication receipt);
@@ -2694,22 +2703,13 @@ let observe ?offset_runtime ledger event =
           if not (Parser.function_position_is_current receipt) then
             fail span "function position write is outside its original callback";
           match (find ledger publication.function_name).source with
-          | Function state when state.publication == publication -> (
-              match state.native_record with
-              | Some record ->
+          | Function state when state.publication == publication ->
+              Option.iter
+                (fun record ->
                   Sema.Compiler_record.record_function_position
                     ledger.compiler_positions record receipt
-                  |> checked span
-              | None when not receipt.position_is_local ->
-                  Option.iter
-                    (fun source ->
-                      Sema.Compiler_record.record_source_header_position
-                        ledger.compiler_positions
-                        (Sema.Provisional_function.snapshot source)
-                        receipt
-                      |> checked span)
-                    state.provisional_source
-              | None -> ())
+                  |> checked span)
+                state.native_record
           | _ -> fail span "function position belongs to another declaration")
       | ( Parser.Function_parameter_declared _
         | Parser.Function_parameter_completed _
@@ -3923,6 +3923,7 @@ let finish_runtime_offset ledger ~runtime ~before ~succeeded phase =
         in
         ledger.offsets_rev <- offset :: ledger.offsets_rev;
         Sema.Compiler_record.advance_aggregate
+          ~callbacks:(completed_callback_header ledger)
           ~dimensions:(Dimensions.find_opt ledger.checked_dimensions)
           progress phase
         |> checked span;

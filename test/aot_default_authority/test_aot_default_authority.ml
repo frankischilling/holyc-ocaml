@@ -336,7 +336,126 @@ let original_position_evidence () =
       Alcotest.(check bool)
         "original position source parsed" false (Parser.has_errors output);
       Alcotest.(check int) "one exact default was checked" 1 !reached)
-    [ "I64 F(I64 n=$$);"; "I64 F(I64 (*p)(I64 n=$$));" ]
+    [ "class Box{I64 (*p)(I64 n=$$);};" ]
+
+let class_callback_position_values () =
+  let module P = Holyc_lib__Ir.Prepared_callback_default in
+  List.iter
+    (fun (contents, expected) ->
+      let session = Session.create () in
+      let table = Session.semantic_symbols session in
+      let source =
+        Session.add_source session ~path:"class-position-values.hc" ~contents
+      in
+      let ledger = D.create_source session ~source |> checked in
+      let runtime = VM.create_task_state ~table () |> checked in
+      let actual = ref [] in
+      let declaration event =
+        D.observe ledger event |> diagnostics;
+        (match event with
+        | Parser.Callback_default_completed receipt ->
+            let authority =
+              D.begin_source_callback_default ledger ~runtime receipt
+              |> diagnostics
+            in
+            let fragment = Fragment.authorized_fragment authority in
+            let context =
+              Typing.create_aot_context ~table
+                ~parent:(D.initializer_scope ledger)
+              |> checked
+            in
+            let typed = Typing.prepare_default context fragment |> checked in
+            let destination = Destination.create_source typed |> checked in
+            let prepared, _ =
+              Preparation.prepare_default ~runtime ~authority ~max_steps:100
+                ~top_calls:[] destination
+              |> diagnostics
+            in
+            let result =
+              match prepared with
+              | Preparation.Prepared_default value -> value
+              | Scheduled_default ->
+                  Alcotest.fail "closed class default unexpectedly scheduled"
+            in
+            actual := !actual @ [ VM.default_constant_bits result ];
+            D.finish_source_callback_default ledger result |> diagnostics;
+            reject "saved class positional default cannot replay"
+              (D.finish_source_callback_default ledger result)
+        | Parser.Callback_signature_completed header ->
+            D.complete_source_callback_defaults ledger header |> diagnostics
+        | _ -> ());
+        Ok ()
+      in
+      let commands : Parser.command_sink =
+        {
+          checkpoint = Some (D.observe_command ledger);
+          call = None;
+          implicit_output = None;
+          reference = Some (D.observe_reference ledger);
+          declaration = Some declaration;
+          query = Some (D.observe_query ledger);
+          dimension_count = Some (D.grammar_dimension_count ledger);
+          command = (fun _ -> Ok ());
+          resume = (fun () -> Ok ());
+        }
+      in
+      let config =
+        Preprocessor.Config.create ~compilation_mode:Aot () |> checked
+      in
+      let output =
+        Parser.parse ~commands ~sources:(Session.sources session)
+          ~definitions:(Session.definitions session)
+          ~symbols:(Session.symbols session) ~config source
+      in
+      Alcotest.(check bool)
+        "class position source parsed" false (Parser.has_errors output);
+      Alcotest.(check (list int64))
+        "actual original evaluated class defaults" expected !actual;
+      let ast = Option.get output.ast in
+      let sealed = D.seal_source ledger ast |> diagnostics in
+      let saved =
+        D.source_callback_defaults ~table ~ast sealed |> diagnostics
+      in
+      let header = P.header (List.hd saved) in
+      let pointer = header.Parser.callback_pointer in
+      let storage =
+        Holyc_lib__Sema.Source_type_reference.callback_storage ~header pointer
+        |> checked |> Holyc_lib__Sema.Type_reference.resolved_type
+      in
+      Alcotest.(check int)
+        "class callback has physical word indirection" 1
+        (Semantic_type.pointer_depth storage);
+      (match Semantic_type.base storage with
+      | Semantic_type.Primitive
+          (Semantic_type.Internal_storage, Primitive_type.I64) -> ()
+      | _ ->
+          Alcotest.fail "callback member borrowed its return class for storage");
+      let copied =
+        Ast.make_function_pointer_declarator
+          ~declarator_opening_parenthesis:pointer.declarator_opening_parenthesis
+          ~indirection_layers:pointer.indirection_layers
+          ~declarator_closing_parenthesis:pointer.declarator_closing_parenthesis
+          ~signature_opening_parenthesis:pointer.signature_opening_parenthesis
+          ~signature_parameters:(List.map Fun.id pointer.signature_parameters)
+          ~signature_empty_parameter_entries:
+            pointer.signature_empty_parameter_entries
+          ~signature_variadic:pointer.signature_variadic
+          ~signature_closing_parenthesis:pointer.signature_closing_parenthesis
+          ~function_pointer_location:pointer.function_pointer_location
+      in
+      reject "copied callback cannot borrow original member storage header"
+        (Holyc_lib__Sema.Source_type_reference.callback_storage ~header copied);
+      Alcotest.(check (list int64))
+        "output seal retains actual class default words" expected
+        (List.map P.bits saved))
+    [
+      ("class Box{I64 (*p)(I64 a=$$,I64 b=$$+34);};", [ 0L; 42L ]);
+      ("class Box{I64 (*p)(I64 (*q)(I64 a,I64 b)=$$,I64 n=$$);};", [ 8L; 8L ]);
+      ("class Box{I64 (*p)(I64 (*q)(I64 a,I64 b;)=$$,I64 n=$$);};", [ 16L; 8L ]);
+      ("class Box{I64 (*p)(;;;I64 a=$$;;;I64 b=$$+34;;;);};", [ 0L; 42L ]);
+      ("class Box{I64 (*p)(I64 (*q)(I64 a,I64 b,...)=$$);};", [ 16L ]);
+      ("class Box{F64 (*p)(I64 a=$$,I8 b=$$+250);};", [ 0L; 258L ]);
+    ]
 
 let () =
   Alcotest.run "AOT default authority"
@@ -347,9 +466,8 @@ let () =
             "default positions require exact original write and node" `Quick
             original_position_evidence;
           Alcotest.test_case
-            "positional defaults execute their actual constants" `Quick
-            (evaluation ~contents:"I64 F(I64 x=$$,I64 y=$$+34){return x+y;};"
-               ~values:[ 0L; 42L ] ~works:[ 3; 5 ]);
+            "class callback positions execute and save original values" `Quick
+            class_callback_position_values;
           Alcotest.test_case "only actual owning evaluation can complete" `Quick
             evaluation;
           Alcotest.test_case "sealing requires header publication" `Quick

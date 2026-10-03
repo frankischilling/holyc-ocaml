@@ -67,9 +67,9 @@ the original callback default rather than the executable target's default.
 Closed expressions work in both IR modes; JIT references and effects retain the
 original task snapshot. Numeric callback-member defaults have no executable
 authority. Equal signatures, copied producers and raw graphs cannot adopt the
-saved value. Anonymous compiler-position defaults now retain each original
-lexical write and exact `$$` node. Nested headers leave their last write current,
-and the default evaluator saves that checked integer once. Fresh named AOT
-headers use their own source member cursor; reused or unknown AOT headers have
-no inferred position. Defaults containing owned
+saved value. Class/union callback defaults retain each original lexical write,
+exact `$$` node and class-offset selector. Nested headers leave their last write
+current, and the evaluator saves that checked integer once. Ordinary function
+defaults retain instruction-address semantics and require their original
+executable/address owner before admission. Defaults containing owned
 executable values still need their own preparation and value receipts.

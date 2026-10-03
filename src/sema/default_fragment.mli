@@ -89,3 +89,5 @@ val position_dependencies : position -> Compiler_record.aggregate_offset list
 
 val position_runtime_dependencies :
   position -> Compiler_record.runtime_dimension_proposal list
+
+val position_is_instruction : t -> Frontend.Ast.expression -> bool

@@ -559,6 +559,11 @@ let rec expression state (source : Frontend.Ast.expression) =
   | Frontend.Ast.Call_expression call -> call_expression state source call
   | Frontend.Ast.Current_position_expression _ -> (
       match (state.default_fragment, state.offset_fragment) with
+      | Some fragment, _
+        when Sema.Default_fragment.position_is_instruction fragment source ->
+          finish state
+            (Sema.Function_call_resolution.Unresolved_expression
+               Sema.Function_call_resolution.Current_position_expression)
       | Some fragment, _ -> (
           match Sema.Default_fragment.position_for fragment source with
           | Error _ as error -> error

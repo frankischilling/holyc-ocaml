@@ -200,3 +200,25 @@ let selected proof type_specifier pointer_layers =
     | Frontend.Ast.Named_type_specifier _ ->
         Error "selected aggregate type substituted its original named child"
     | _ -> Error "selected aggregate proof cannot authorize a nonaggregate type"
+
+let callback_storage ~header source =
+  let ( let* ) = Result.bind in
+  if header.Frontend.Parser.callback_pointer != source then
+    Error
+      "callback member storage lacks its original completed anonymous header"
+  else
+    let* depth = pointer_depth source.Frontend.Ast.indirection_layers in
+    if depth = 0 then
+      Error "callback member storage requires original indirection"
+    else
+      let* resolved_type =
+        Type.make_primitive ~form:Type.Internal_storage
+          ~primitive:Common.Primitive_type.I64 ~pointer_depth:depth
+      in
+      Type_reference.make ~spelling:"I64i"
+        ~spelling_origin:(origin source.function_pointer_location)
+        ~pointer_origins:
+          (List.map
+             (fun (p : Frontend.Ast.pointer_layer) -> origin p.location)
+             source.indirection_layers)
+        ~resolved_type

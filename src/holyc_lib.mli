@@ -1011,21 +1011,24 @@ val run_integer_program :
     functions materialize original integer-word defaults for one-star callback
     parameters; JIT declaration effects occur once and closed defaults work in
     both IR modes. Anonymous signatures also materialize their own integer
-    defaults, including original lexical $$ positions. Nested headers leave
-    their last position write visible; the evaluator retains each exact source
-    node and successful saved word. Numeric defaults confer no executable
-    authority. Owned-code defaults remain unsupported. One-star scalar automatic
-    and named parameter callbacks invoke their original captured integer/U0 body
-    with explicit fixed arguments and word variadic tails. Callee capture
-    precedes right-to-left arguments; null/numeric and incompatible reached
-    targets fail after argument effects. The original local/parameter anonymous
-    header controls saved-callee cleanup. Dereferenced and multistar callback
-    invocation, live task address linking and F64/aggregate callbacks remain
-    unsupported. General memory and native code also remain unsupported. Checked
-    Print/PutChars calls execute under separate positive output/work limits
-    (both default 1,048,576). This convenience entrypoint projects the outcome;
-    use [run_integer_program_report] to retain captured bytes on both success
-    and failure. Implicit output preserves the last ordinary expression. *)
+    defaults. Class/union callback defaults also evaluate original lexical $$
+    class positions under their retained selector. Ordinary $$ remains an
+    instruction address and address defaults remain unsupported. Nested headers
+    leave their last class position write visible; the evaluator retains each
+    exact source node and successful saved word. Numeric defaults confer no
+    executable authority. Owned-code defaults remain unsupported. One-star
+    scalar automatic and named parameter callbacks invoke their original
+    captured integer/U0 body with explicit fixed arguments and word variadic
+    tails. Callee capture precedes right-to-left arguments; null/numeric and
+    incompatible reached targets fail after argument effects. The original
+    local/parameter anonymous header controls saved-callee cleanup. Dereferenced
+    and multistar callback invocation, live task address linking and
+    F64/aggregate callbacks remain unsupported. General memory and native code
+    also remain unsupported. Checked Print/PutChars calls execute under separate
+    positive output/work limits (both default 1,048,576). This convenience
+    entrypoint projects the outcome; use [run_integer_program_report] to retain
+    captured bytes on both success and failure. Implicit output preserves the
+    last ordinary expression. *)
 
 type integer_program_report
 

@@ -510,6 +510,10 @@ val function_variadic_completion_is_current :
 
 type parameter_default_activity
 
+type default_position_source =
+  | Class_default_position of compiler_position_source option
+  | Instruction_default_position
+
 type completed_parameter_default = private {
   default_function : function_publication;
   default_parameter : function_parameter_publication;
@@ -520,8 +524,7 @@ type completed_parameter_default = private {
   default_pointer_layers : Ast.pointer_layer list;
   default_parameter_name : Ast.identifier option;
   default_function_pointer : Ast.function_pointer_declarator option;
-  default_position_reads :
-    (Ast.expression * compiler_position_source option) list;
+  default_position_reads : (Ast.expression * default_position_source) list;
   default_ast : Ast.parameter_default;
   default_activity : parameter_default_activity;
 }
@@ -571,7 +574,7 @@ type completed_callback_default = private {
   callback_default_index : int;
   callback_default_predecessor : completed_callback_default option;
   callback_default_position_reads :
-    (Ast.expression * compiler_position_source option) list;
+    (Ast.expression * default_position_source) list;
   callback_default_ast : Ast.parameter_default;
   callback_default_activity : parameter_default_activity;
 }

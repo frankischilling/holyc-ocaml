@@ -190,6 +190,9 @@ val aggregate_metadata : aggregate_progress -> (t, string) result
     Advancing invalidates this snapshot for new reads, not consumed queries. *)
 
 val advance_aggregate :
+  ?callbacks:
+    (Frontend.Ast.function_pointer_declarator ->
+    Frontend.Parser.completed_callback_signature option) ->
   dimensions:(Frontend.Ast.array_dimension -> declared_dimension option) ->
   aggregate_progress ->
   Frontend.Parser.aggregate_phase ->
@@ -198,6 +201,9 @@ val advance_aggregate :
 (** Apply each original live aggregate phase once, in predecessor order. *)
 
 val complete_aggregate :
+  ?callbacks:
+    (Frontend.Ast.function_pointer_declarator ->
+    Frontend.Parser.completed_callback_signature option) ->
   ?progress:aggregate_progress ->
   ?dimensions:(Frontend.Ast.array_dimension -> declared_dimension option) ->
   table:Symbol_table.t ->
@@ -491,11 +497,3 @@ val resolve_default_position_reads :
   (Frontend.Ast.expression * Frontend.Parser.compiler_position_source option)
   list ->
   ((Frontend.Ast.expression * compiler_position) list, string) result
-
-val record_source_header_position :
-  compiler_positions ->
-  Provisional_function.snapshot ->
-  Frontend.Parser.function_position_write ->
-  (unit, string) result
-(** Record a fresh AOT header iteration from its original completed members. A
-    reused or untracked prior function retains an unavailable position. *)

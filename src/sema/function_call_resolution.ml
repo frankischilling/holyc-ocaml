@@ -2008,7 +2008,11 @@ let validate_source_expressions ~sources ~expressions ~calls ?offset_fragment
            = origin ast.location
     | ( Ast.Current_position_expression _,
         Unresolved_expression Current_position_expression ) ->
-        Option.is_none offset_fragment && Option.is_none default_fragment
+        Option.is_none offset_fragment
+        && Option.fold ~none:true
+             ~some:(fun fragment ->
+               Default_fragment.position_is_instruction fragment ast)
+             default_fragment
     | ( Ast.Current_position_expression _,
         Unresolved_expression (Default_position_expression position) ) ->
         Option.fold ~none:false

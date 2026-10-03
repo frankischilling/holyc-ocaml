@@ -50,3 +50,11 @@ val validate_selected_aggregate :
     the consuming function's exact semantic table and module namespace. This is
     required again at consumers because the same physical parser AST can be
     analyzed under a distinct semantic namespace. *)
+
+val callback_storage :
+  header:Frontend.Parser.completed_callback_signature ->
+  Frontend.Ast.function_pointer_declarator ->
+  (Type_reference.t, string) result
+(** Derive physical RT_PTR word storage from the exact completed anonymous
+    header and its original indirection. The return class remains separate. This
+    pure type evidence grants no default, layout or executable authority. *)

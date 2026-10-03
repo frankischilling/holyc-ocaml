@@ -634,7 +634,8 @@ let same_phase left right =
   | Some left, Some right -> left == right
   | _ -> false
 
-let advance_aggregate ~dimensions progress (phase : Parser.aggregate_phase) =
+let advance_aggregate ?(callbacks = fun _ -> None) ~dimensions progress
+    (phase : Parser.aggregate_phase) =
   if
     progress.progress_finished
     || phase.phase_aggregate != progress.progress_source
@@ -737,57 +738,61 @@ let advance_aggregate ~dimensions progress (phase : Parser.aggregate_phase) =
       | Parser.Aggregate_member_prepared member ->
           let record =
             let* record = progress.progress_record in
-            if Option.is_some member.member_callback then
-              Error "retained aggregate callbacks require original preparation"
+            let* type_ =
+              match member.member_callback with
+              | None ->
+                  Source_type_reference.builtin member.member_type
+                    member.member_pointers
+              | Some source -> (
+                  match callbacks source with
+                  | Some header ->
+                      Source_type_reference.callback_storage ~header source
+                  | None ->
+                      Error
+                        "retained callback member lacks its original completed \
+                         header")
+            in
+            let* element_size =
+              scalar_size (Type_reference.resolved_type type_)
+            in
+            let checked = List.filter_map dimensions member.member_dimensions in
+            let* _ =
+              declared_array_size ~table:record.table
+                ~namespace:progress.progress_namespace
+                ~command:
+                  progress.progress_source.aggregate_header.declaration_command
+                ~name:member.member_name ~dimensions:member.member_dimensions
+                ~checked 1L
+            in
+            if
+              List.exists
+                (fun dimension -> dimension.prepared.runtime_dependencies <> [])
+                checked
+            then
+              Error
+                "retained aggregate runtime bounds require original runtime \
+                 layout admission"
             else
-              let* type_ =
-                Source_type_reference.builtin member.member_type
-                  member.member_pointers
+              let origin =
+                Closed_numeric_expression.origin member.member_name.location
               in
-              let* element_size =
-                scalar_size (Type_reference.resolved_type type_)
+              let* member_size =
+                Source_aggregate_layout.member_extent ~origin ~element_size
+                  ~counts:(List.map dimension_count checked)
               in
-              let checked =
-                List.filter_map dimensions member.member_dimensions
+              let kind, union_base = List.hd scopes in
+              let* byte_size =
+                Source_aggregate_layout.place_member ~origin ~kind ~union_base
+                  ~current_size:record.byte_size ~member_size
               in
-              let* _ =
-                declared_array_size ~table:record.table
-                  ~namespace:progress.progress_namespace
-                  ~command:
-                    progress.progress_source.aggregate_header
-                      .declaration_command ~name:member.member_name
-                  ~dimensions:member.member_dimensions ~checked 1L
-              in
-              if
-                List.exists
-                  (fun dimension ->
-                    dimension.prepared.runtime_dependencies <> [])
-                  checked
-              then
-                Error
-                  "retained aggregate runtime bounds require original runtime \
-                   layout admission"
-              else
-                let origin =
-                  Closed_numeric_expression.origin member.member_name.location
-                in
-                let* member_size =
-                  Source_aggregate_layout.member_extent ~origin ~element_size
-                    ~counts:(List.map dimension_count checked)
-                in
-                let kind, union_base = List.hd scopes in
-                let* byte_size =
-                  Source_aggregate_layout.place_member ~origin ~kind ~union_base
-                    ~current_size:record.byte_size ~member_size
-                in
-                Ok
-                  {
-                    record with
-                    byte_size;
-                    runtime_offsets =
-                      record.runtime_offsets
-                      @ List.concat_map dimension_offset_dependencies checked;
-                  }
+              Ok
+                {
+                  record with
+                  byte_size;
+                  runtime_offsets =
+                    record.runtime_offsets
+                    @ List.concat_map dimension_offset_dependencies checked;
+                }
           in
           Ok (record, scopes)
     in
@@ -824,8 +829,8 @@ let advance_aggregate ~dimensions progress (phase : Parser.aggregate_phase) =
                });
           Ok ())
 
-let complete_aggregate ?progress ?(dimensions = fun _ -> None) ~table ~namespace
-    publication receipt =
+let complete_aggregate ?(callbacks = fun _ -> None) ?progress
+    ?(dimensions = fun _ -> None) ~table ~namespace publication receipt =
   let source = receipt.Parser.aggregate_publication in
   if
     not
@@ -898,8 +903,8 @@ let complete_aggregate ?progress ?(dimensions = fun _ -> None) ~table ~namespace
             | None ->
                 Error "aggregate offset lacks its original checked preparation"
           in
-          Source_aggregate_layout.layout ~offsets ~dimensions:member_dimensions
-            ~table ~namespace ~symbol definition
+          Source_aggregate_layout.layout ~callbacks ~offsets
+            ~dimensions:member_dimensions ~table ~namespace ~symbol definition
       | _ -> Error "aggregate completion has another original declaration"
     in
     let* () =
@@ -2151,60 +2156,3 @@ let resolve_default_position_reads positions ~sources reads =
           Error "default position requires an original compiler-state write"
     in
     collect [] reads
-
-let record_source_header_position positions snapshot receipt =
-  let module P = Frontend.Parser in
-  let owner = Provisional_function.source snapshot in
-  let sources = owner.function_header.declaration_sources in
-  let same a b =
-    match (a, b) with
-    | None, None -> true
-    | Some a, Some b -> a == b
-    | _ -> false
-  in
-  let members = Provisional_function.members snapshot in
-  let rec valid index previous = function
-    | [] -> same previous receipt.P.position_predecessor
-    | member :: rest -> (
-        let publication = Provisional_function.member_source member in
-        publication.parameter_function == owner
-        && publication.parameter_index = index
-        && same publication.parameter_predecessor previous
-        &&
-        match Provisional_function.member_completion member with
-        | Some completion -> valid (index + 1) (Some completion) rest
-        | None -> false)
-  in
-  if
-    (not (compiler_positions_own_sources positions sources))
-    || (not (P.function_position_is_current receipt))
-    || receipt.position_function != owner
-    || receipt.position_is_local
-    || P.context_mode owner.function_header.declaration_command.command_context
-       <> Frontend.Preprocessor.Aot
-    || Option.is_some (Provisional_function.completed_header snapshot)
-    || (not (valid 0 None members))
-    || Position_sources.mem positions.positions receipt.position_source
-  then
-    Error
-      "output header position requires its original active completed-member \
-       cursor"
-  else
-    let count = Int64.of_int (List.length members) in
-    if count > Int64.div Int64.max_int 8L then
-      Error "output fixed-member size exceeds the compiler word"
-    else
-      let position =
-        match Provisional_function.previous_lookup snapshot with
-        | Frontend.Symbol_visibility.Absent ->
-            Some
-              {
-                position_source = receipt.position_source;
-                position_value = Int64.mul count 8L;
-                position_dimensions = [];
-                position_dependencies = [];
-              }
-        | Present _ | Shadowed_by_local -> None
-      in
-      Position_sources.add positions.positions receipt.position_source position;
-      Ok ()

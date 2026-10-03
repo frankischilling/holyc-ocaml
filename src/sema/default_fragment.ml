@@ -277,9 +277,17 @@ let with_positions ~compiler_positions fragment =
           Frontend.Parser.context_sources
             r.callback_default_signature.callback_command.command_context
     in
+    let class_reads =
+      List.filter_map
+        (function
+          | node, Frontend.Parser.Class_default_position source ->
+              Some (node, source)
+          | _, Instruction_default_position -> None)
+        reads
+    in
     let* position_reads_ =
       Compiler_record.resolve_default_position_reads compiler_positions ~sources
-        reads
+        class_reads
     in
     Ok { fragment with position_reads_ }
 
@@ -311,3 +319,9 @@ let position_dependencies position =
 let position_runtime_dependencies position =
   Compiler_record.compiler_position_runtime_dependencies
     position.position_value_
+
+let position_is_instruction fragment source =
+  source_position_reads fragment.source_
+  |> List.exists (function
+    | node, Frontend.Parser.Instruction_default_position -> node == source
+    | _, Class_default_position _ -> false)
