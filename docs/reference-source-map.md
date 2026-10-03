@@ -1,5 +1,13 @@
 # Reference source map
 
+Issue #795 uses `Compiler/Lex.HC:493-509` for original hash/local selection,
+`PrsStmt.HC:140-207,915-939,1156-1193` for declaration dispatch and function
+teardown, and `PrsExp.HC:728-743,774-812,1018-1057` for grouping, values and
+postfix casts. `Frontend.Parser` recognizes primitive types from those selected
+entries. Native cases and capture hashes are in
+`test/oracle/primitive-type-shadowing.json`; see
+[the visibility contract](primitive-type-shadowing.md).
+
 Issue #793 connects declaration-time `Compiler/PrsVar.HC:1-108` to original
 retained shift preparation. `OptPass012.HC:403-455,838-854` supplies division
 reductions, `OptLib.HC:96-225` supplies classes, and `OptPass789A.HC:615-630`

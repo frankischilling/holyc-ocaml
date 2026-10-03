@@ -2,6 +2,19 @@
 
 Every result on this page uses TempleOS commit `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 
+## Primitive type visibility
+
+[`test/oracle/primitive-type-shadowing.json`](../test/oracle/primitive-type-shadowing.json)
+records twenty accepted commands and forty source/result capture hashes from
+an isolated October 3, 2026 native JIT boot. Eight value fields each returned
+42 twice. Two compile-only controls distinguish the original local selection
+after a function body from the restored type after a semicolon; each was run
+twice. The fixture retains native diagnostics separately from hosted codes.
+The verified ISO, explicit key releases, pinned-font decoding, read-only boot
+media and disabled network are recorded with the observations. The owned QEMU
+and relay exited with status zero. Earlier comparison-stack captures are
+separate evidence. See [primitive type visibility](primitive-type-shadowing.md).
+
 ## Malformed conditional boundaries
 
 [`test/oracle/conditional-recovery.json`](../test/oracle/conditional-recovery.json)

@@ -1,5 +1,11 @@
 # holyc-ocaml architecture
 
+`Frontend.Parser` recognizes primitive types through original token selections.
+Public primitive union entries, internal types, newer aggregates and source
+value shadows keep their distinct identities. Live post-body lookahead remains
+bound to its selected local; callback-free parsing retains its separate path.
+See [primitive type visibility](docs/primitive-type-shadowing.md).
+
 Native global/static arrays reuse checked dimensions, cell offsets and original
 source owners in `Backend.X86_64_global_storage`. The same native indexed-object
 path handles automatic and persistent arrays. `Backend.X86_64_literal_storage`

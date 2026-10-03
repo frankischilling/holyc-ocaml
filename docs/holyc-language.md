@@ -1,5 +1,11 @@
 # HolyC language notes
 
+Primitive type spellings follow the original token's selected symbol. Functions,
+globals, parameters and locals can shadow those names; calls, grouped values
+and ordinary statements then use the source value. Unshadowed declarations and
+postfix casts retain their primitive form. Live post-body lookahead preserves
+its earlier local selection. See [primitive type visibility](primitive-type-shadowing.md).
+
 Owned scalar pointer difference returns a signed I64 element count from
 original byte subtraction and optional pointee-size division. Operands retain
 source-left snapshots and one live object/extent; unrelated objects fault.

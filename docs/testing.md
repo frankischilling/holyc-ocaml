@@ -1,5 +1,14 @@
 # Testing holyc-ocaml
 
+`test/test_primitive_type_shadowing.ml` checks all twelve primitive spellings,
+original call syntax, storage, parameters, replacement input, restored types,
+aggregate identity and unshadowed casts. The CLI suite consumes the repeated
+native fields in `test/oracle/primitive-type-shadowing.json` and runs an expanded
+spelling matrix in both source modes. `@native-tests` executes the same source
+controls through the native image. The maintained example also checks exact
+runtime and initializer allowances. See
+[primitive type visibility](primitive-type-shadowing.md).
+
 Seven retained integer-shift groups compare nineteen repeated native fields in
 both modes and test saved default/global/static/nested/live values, original
 and transitive authority, complete counts, narrow range invariants, reached
