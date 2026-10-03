@@ -112,7 +112,7 @@ let boundaries () =
         [
           "I64 F(I64 p){static I64 n=p;return n;}F(40);";
           "I64 F(){I64 p=40;static I64 n=p;return n;}F();";
-          "I64 F(){static I64 n=1<<2;return n;}42;";
+          "I64 F(I64 p){static I64 n=p<<2;return n;}42;";
         ];
       List.iter
         (fun text -> ignore (F.first_error (G.run ~mode text)))

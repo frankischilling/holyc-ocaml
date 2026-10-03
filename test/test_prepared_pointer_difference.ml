@@ -267,8 +267,8 @@ let rejected =
     wrap "N++;return 84/2;";
     wrap "N++;return -1/2;";
     wrap "N++;return 9%2;";
-    wrap "N++;return 1<<2;";
-    wrap "N++;return -3>>1;";
+    wrap "N++;return N<<2;";
+    wrap "N++;return -N>>1;";
     wrap "N++;I64 *p=Q;return (p-(Q+1))/2;";
     wrap ~declarations:"U8 Q[4];" "N++;U8 *p=Q;return (p-(Q+1))/2;";
     "#exe {I64 Q[4];I64 Saved(I64 x=(Q-Q)){return \

@@ -99,9 +99,9 @@ let () =
       List.iter
         (fun mode ->
           validate
-            (invoke ~target ~mode ~steps:53 example)
-            ~steps:53 ~prep:0 ~hex:"34323a2d313b" ~bytes:6 ~work:13;
-          let below = invoke ~target ~mode ~steps:52 ~status:1 example in
+            (invoke ~target ~mode ~steps:45 example)
+            ~steps:45 ~prep:0 ~hex:"34323a2d313b" ~bytes:6 ~work:13;
+          let below = invoke ~target ~mode ~steps:44 ~status:1 example in
           error below "HCIRVM0007";
           output below "34323a2d313b" 6 13)
         [ "jit"; "aot" ])

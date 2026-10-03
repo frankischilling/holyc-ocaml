@@ -718,14 +718,14 @@ let source_gate_is_compile_only () =
           "I64 Bad(){F64 x=1.0;return 0;} 42;";
           "F64 Bad(){return 1.0;} 42;";
           "I64 F(){return 42;} I64 G=F(); G;";
-          "I64 F(){static I64 n=1<<2;return ++n;} F();";
+          "I64 F(I64 p){static I64 n=p<<2;return ++n;} F(1);";
           "I64 Bad(){static I64 n={1/0};return 0;}42;";
           "I64 Bad(){static I64 *n;return 0;}42;";
           "I64 Bad(){static I64 reg n;return 0;}42;";
           "I64 F(I64 **p){return **p;} 42;";
           "I64 F(I64 n,...){return n;} F(42);";
           "extern I64 F(I64 n); 42;";
-          "I64 F(I64 n=1<<3){return n;} F(1);";
+          "I64 N=1;I64 F(I64 n=N<<3){return n;} F(1);";
           "I64 Missing(I64 n){if(n)return 42;} Missing(1);";
           "I64 Missing(){42;} 0;";
           "I64 Apply(I64 (*fp)(I64),I64 n){return fp(n);}\n\

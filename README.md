@@ -335,8 +335,8 @@ This bounded expression path does not implement general `run` or `compile`,
 M5 and [IR epic #396](https://github.com/frankischilling/holyc-ocaml/issues/396)
 remain open. The [constant-shift audit](docs/constant-shifts.md) records native
 values, immediate encodings and checked canonical IR execution. The public
-source optimizer still needs integration under #585/#696/#697; six captured
-source fields differ from the current raw pipeline.
+program pipeline now matches all 49 captured fields in both modes and targets.
+Broader optimizer work remains under #585/#696/#697.
 
 ## Integer source execution
 

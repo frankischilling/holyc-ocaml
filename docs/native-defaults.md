@@ -122,6 +122,6 @@ that behavior, not evidence that general default expressions execute natively.
 
 Effectful defaults, interleaved source execution, owned strings, `lastclass`,
 non-integer/pointer types and native `#exe` require further work. Optimizer
-issues #574, #585 and #593 remain separate. Full HolyC ABI, assembler/BIN output,
+work under #585/#593/#696/#697 remains separate. Fully constant source shifts now fold to known words under #787 while retaining original preparation proofs; nonconstant shifts keep their gate. Full HolyC ABI, assembler/BIN output,
 actual TempleOS loader acceptance, whole-tree compilation and bootstrap are not
 completed by this gate.

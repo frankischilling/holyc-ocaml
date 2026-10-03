@@ -3333,6 +3333,13 @@ let declared_types ?frame ?globals ?literals ?initialization
                                  | Some context ->
                                      address_slot context types description
                                  | None -> Unsupported))
+                         | _, Opcode.Ic_holyc_typecast
+                           when memory_enabled || allow_calls -> (
+                             match
+                               scalar_word_type ~allow_public:true type_
+                             with
+                             | Some word_type -> supported word_type type_
+                             | None -> Unsupported)
                          | _, opcode
                            when (memory_enabled || allow_calls)
                                 &&
@@ -3983,7 +3990,11 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
                   Some result,
                   Some result_type,
                   Some (Sequence.Integer (0L | 1L)) ) -> (
-                  match producer_word_type result_type with
+                  match
+                    scalar_word_type
+                      ~allow_public:(memory_enabled || allow_public)
+                      result_type
+                  with
                   | None -> Error (unsupported_type block_id description)
                   | Some result_type -> (
                       match operand_of_value types operand_id with

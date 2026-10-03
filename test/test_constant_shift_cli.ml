@@ -61,6 +61,27 @@ let () =
   let native = Array.length Sys.argv = 4 && Sys.argv.(3) = "--native" in
   let fixture = Yojson.Safe.from_file Sys.argv.(2) in
   let projections = fixture |> member "hosted_value_projections" |> to_list in
+  let native_bits projection =
+    let case_id = projection |> member "case_id" |> to_string in
+    let check =
+      fixture |> member "checks" |> to_list
+      |> List.find (fun check -> check |> member "id" = `String case_id)
+    in
+    let prefix = (projection |> member "field" |> to_string) ^ "=" in
+    let token =
+      check |> member "observed_output" |> to_list |> List.map to_string
+      |> List.concat_map (String.split_on_char ' ')
+      |> List.filter (String.starts_with ~prefix)
+    in
+    match token with
+    | [ token ] ->
+        let bits =
+          String.sub token (String.length prefix)
+            (String.length token - String.length prefix)
+        in
+        `String (Printf.sprintf "0x%016Lx" (Int64.of_string ("0x" ^ bits)))
+    | _ -> failwith "expected exactly one captured native field"
+  in
   require (List.length projections = 49) "49 source controls required";
   let target = if native then "host-jit" else "ir" in
   List.iter
@@ -77,8 +98,8 @@ let () =
             (label ^ " source outcome");
           require
             (report |> member "final_value" |> member "bits"
-            = member "published_raw_baseline_bits" projection)
-            (label ^ " raw source optimizer boundary changed");
+           = native_bits projection)
+            (label ^ " source bits differ from native capture");
           require
             (report |> member "output_byte_length" = `Int 0)
             (label ^ " unexpected source output");
@@ -88,5 +109,4 @@ let () =
         projections)
     [ "jit"; "aot" ];
   Printf.printf
-    "98 %s source controls retain the recorded raw boundary in both modes.\n"
-    target
+    "98 %s source controls match captured native bits in both modes.\n" target

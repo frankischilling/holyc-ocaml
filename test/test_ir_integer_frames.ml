@@ -383,7 +383,7 @@ let assignment_results_and_types () =
       ]
   in
   ignore (execute frame [ 0L; 0L ] wrong_type |> expect_error "HCIRVM0006");
-  let public_cast =
+  let public_cast cast_type =
     body frame type_
       [
         block 0
@@ -391,14 +391,21 @@ let assignment_results_and_types () =
             H.imm ~id:0 ~value:0 ~type_:H.i64 42L;
             H.description
               ~operands:[ H.value_id 0 ]
-              ~result:(H.result 1) ~target_type:type_ ~payload:(Seq.Integer 0L)
-              1 Op.Ic_holyc_typecast;
+              ~result:(H.result 1) ~target_type:cast_type
+              ~payload:(Seq.Integer 0L) 1 Op.Ic_holyc_typecast;
             H.return_value ~id:2 ~operand:1 ~type_;
             H.description 3 Op.Ic_ret;
           ];
       ]
   in
-  ignore (execute frame [ 0L; 0L ] public_cast |> expect_error "HCIRVM0005")
+  ignore (execute frame [ 0L; 0L ] (public_cast H.public_i64) |> expect_word 42L);
+  let narrow =
+    Type.make_primitive ~form:Type.Public_spelling ~primitive:Primitive_type.U8
+      ~pointer_depth:0
+    |> Result.get_ok
+  in
+  ignore
+    (execute frame [ 0L; 0L ] (public_cast narrow) |> expect_error "HCIRVM0005")
 
 let lowering_boundaries () =
   let frame, function_ = analyze source in

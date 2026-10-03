@@ -17,6 +17,7 @@ val lower_typed_result :
   ?frame:Sema.Function_frame_layout.function_layout ->
   ?globals:Integer_globals.t ->
   ?lower_call:call_lowerer ->
+  ?optimize_shifts:bool ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   Sema.Function_call_expression_result.expression_result ->
@@ -82,10 +83,18 @@ val lower_typed_result :
     implemented tree shapes return [Unsupported_expression] without returning a
     partial sequence. *)
 
+(** [optimize_shifts] defaults to false for raw fragment callers. Public program
+    lowering enables the verified full-width integer rewrite before allocation
+    and source publication. It folds constant children, combines complete
+    same-direction counts and preserves surviving classes, established unsigned
+    comparison decisions and single evaluation. Shared/address plans and other
+    operand domains retain their raw contract. *)
+
 val lower_initializer :
   frame:Sema.Function_frame_layout.function_layout ->
   ?globals:Integer_globals.t ->
   ?lower_call:call_lowerer ->
+  ?optimize_shifts:bool ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   Sema.Function_call_expression_result.initializer_result ->
@@ -98,6 +107,7 @@ val lower_static_initializer :
   globals:Integer_globals.t ->
   ?root:Sema.Function_call_expression_result.initializer_result ->
   ?lower_call:call_lowerer ->
+  ?optimize_shifts:bool ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   Integer_globals.static_slot ->
@@ -108,6 +118,7 @@ val lower_static_initializer :
 val lower_global_initializer :
   globals:Integer_globals.t ->
   ?lower_call:call_lowerer ->
+  ?optimize_shifts:bool ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   Sema.Function_call_expression_result.top_level_root_result ->
@@ -121,6 +132,7 @@ val sequence : t -> Instruction_sequence.t
 
 val lower_fragment_initializer :
   ?lower_call:call_lowerer ->
+  ?optimize_shifts:bool ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   Initializer_fragment_destination.t ->

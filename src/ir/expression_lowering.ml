@@ -161,6 +161,14 @@ type plan_node =
       conversion : result_conversion;
       operation_flags : int64;
     }
+  | Constant_shift of {
+      result : Semantic_result.expression_result;
+      opcode : Opcode.t;
+      span : Common.Span.t;
+      operand : Semantic_result.expression_result;
+      count : int64;
+      result_type : Type.t;
+    }
   | Chain_link of {
       result : Semantic_result.expression_result;
       previous : Semantic_result.expression_result;
@@ -2738,7 +2746,331 @@ let checked_call_fragment allocator result conversion sequence =
                    "call fragment does not end with its checked call result"))
       | _ -> Error (invalid "call fragment has no checked call result"))
 
-let emit_plan ?lower_call ~instruction_id ~value_id nodes =
+type shift_plan_value = {
+  declared : Type.t;
+  computation : Type.t;
+  bits : int64 option;
+  shift : (Opcode.t * Semantic_result.expression_result * int64) option;
+}
+
+let full_integer_word type_ =
+  Type.pointer_depth type_ = 0
+  &&
+  match Type.base type_ with
+  | Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
+  | _ -> false
+
+let internal_u64_type =
+  Type.make_primitive ~form:Type.Internal_storage
+    ~primitive:Sema.Primitive_type.U64 ~pointer_depth:0
+  |> Result.get_ok
+
+let optimize_shift_plan nodes =
+  (* Work on checked semantic nodes before any IR IDs or publication receipts
+     are allocated. Calls and storage reads keep their original evaluation. *)
+  let info = function
+    | Literal { result; _ }
+    | Integer_constant { result; _ }
+    | Current_position { result; _ }
+    | Direct_function_address { result; _ }
+    | Call { result; _ }
+    | Storage_load { result; _ }
+    | Storage_address { result; _ }
+    | Indirect_address { result; _ }
+    | Materialize_array { result; _ }
+    | Pointer_difference { difference_result = result; _ }
+    | Index_stride { indexed_result = result; _ }
+    | Index_address { indexed_result = result; _ }
+    | Chain_link { result; _ } -> (result, [], false)
+    | Alias { result; operand } -> (result, [ operand ], true)
+    | Unary
+        {
+          result;
+          operand;
+          opcode = Opcode.Ic_unary_minus;
+          conversion = Keep_result;
+          _;
+        } -> (result, [ operand ], true)
+    | Unary { result; operand; _ } | Cast { result; operand; _ } ->
+        (result, [ operand ], false)
+    | Binary { result; left; right; _ } -> (result, [ left; right ], false)
+    | Constant_shift { result; operand; _ } -> (result, [ operand ], true)
+  in
+  let has_shift =
+    List.exists
+      (function
+        | Binary { opcode = Opcode.Ic_shl | Ic_shr; _ } -> true
+        | _ -> false)
+      nodes
+  in
+  let unsupported =
+    (not has_shift)
+    || List.exists
+         (function
+           | Chain_link _
+           | Index_stride _
+           | Index_address _
+           | Pointer_difference _
+           | Materialize_array _
+           | Indirect_address _
+           | Direct_function_address _
+           | Current_position _ -> true
+           | _ -> false)
+         nodes
+  in
+  if unsupported then (nodes, Int_map.empty, Int_map.empty)
+  else
+    let values = ref Int_map.empty
+    and types = ref Int_map.empty
+    and unsigned_comparisons = ref Int_map.empty in
+    let lookup result = Int_map.find_opt (result_key result) !values in
+    let common left right =
+      if internal_i64 left && internal_i64 right then left
+      else internal_u64_type
+    in
+    let original result =
+      Option.bind (Semantic_result.result_type result) (fun declared ->
+          if full_integer_word declared then
+            Some
+              {
+                declared;
+                computation = Sema.Integer_computation_class.forward declared;
+                bits = None;
+                shift = None;
+              }
+          else None)
+    in
+    let rewritten =
+      List.map
+        (fun node ->
+          let result, _, _ = info node in
+          let default = original result in
+          let node, value =
+            match node with
+            | Literal { conversion = Keep_result; _ } ->
+                let literal =
+                  lower_literal { instruction = 0; value = 0 } result
+                in
+                let bits =
+                  match literal with
+                  | Ok
+                      ( { payload = Some (Sequence.Integer bits); flags = 0L; _ },
+                        _ ) -> Some bits
+                  | _ -> None
+                in
+                (node, Option.map (fun value -> { value with bits }) default)
+            | Integer_constant { value = bits; conversion = Keep_result; _ } ->
+                ( node,
+                  Option.map
+                    (fun value -> { value with bits = Some bits })
+                    default )
+            | Alias { operand; _ } -> (node, lookup operand)
+            | Unary
+                {
+                  opcode = Opcode.Ic_unary_minus;
+                  operand;
+                  conversion = Keep_result;
+                  _;
+                } ->
+                ( node,
+                  Option.map
+                    (fun input ->
+                      let computation =
+                        Sema.Integer_computation_class.negate input.computation
+                      in
+                      {
+                        declared = computation;
+                        computation;
+                        bits = Option.map Int64.neg input.bits;
+                        shift = None;
+                      })
+                    (lookup operand) )
+            | Unary
+                { opcode = Opcode.Ic_com; operand; conversion = Keep_result; _ }
+              ->
+                ( node,
+                  match (default, lookup operand) with
+                  | Some value, Some input ->
+                      Some { value with computation = input.computation }
+                  | _ -> default )
+            | Unary
+                { opcode = Opcode.Ic_not; operand; conversion = Keep_result; _ }
+              ->
+                ( node,
+                  Option.map
+                    (fun input ->
+                      let computation =
+                        Sema.Integer_computation_class.forward input.computation
+                      in
+                      {
+                        declared = computation;
+                        computation;
+                        bits = None;
+                        shift = None;
+                      })
+                    (lookup operand) )
+            | Binary
+                {
+                  result;
+                  opcode;
+                  span;
+                  left;
+                  right;
+                  conversion = Keep_result;
+                  operation_flags = 0L;
+                }
+              when Option.is_some default -> (
+                match (lookup left, lookup right) with
+                | Some l, Some r
+                  when full_integer_word l.declared
+                       && full_integer_word r.declared ->
+                    let computation = common l.computation r.computation in
+                    if accepted_f64_comparison_opcode opcode then (
+                      if
+                        (unsigned_integer_computation left
+                        || unsigned_integer_computation right)
+                        && internal_i64 computation
+                      then
+                        unsigned_comparisons :=
+                          Int_map.add (result_key result) true
+                            !unsigned_comparisons;
+                      (node, default))
+                    else if opcode = Opcode.Ic_shl || opcode = Opcode.Ic_shr
+                    then
+                      match r.bits with
+                      | None ->
+                          ( node,
+                            Some
+                              {
+                                declared = computation;
+                                computation;
+                                bits = None;
+                                shift = None;
+                              } )
+                      | Some count -> (
+                          match l.bits with
+                          | Some bits ->
+                              let masked =
+                                Int64.to_int (Int64.logand count 63L)
+                              in
+                              let bits =
+                                if opcode = Opcode.Ic_shl then
+                                  Int64.shift_left bits masked
+                                else if internal_i64 computation then
+                                  Int64.shift_right bits masked
+                                else Int64.shift_right_logical bits masked
+                              in
+                              ( Integer_constant
+                                  {
+                                    result;
+                                    span;
+                                    result_type = computation;
+                                    value = bits;
+                                    conversion = Keep_result;
+                                  },
+                                Some
+                                  {
+                                    declared = computation;
+                                    computation;
+                                    bits = Some bits;
+                                    shift = None;
+                                  } )
+                          | None ->
+                              let constant_opcode =
+                                if opcode = Opcode.Ic_shl then
+                                  Opcode.Ic_shl_const
+                                else Opcode.Ic_shr_const
+                              in
+                              let operand, count =
+                                match l.shift with
+                                | Some (previous, operand, previous_count)
+                                  when previous = constant_opcode ->
+                                    (operand, Int64.add previous_count count)
+                                | _ -> (left, count)
+                              in
+                              let computation = l.computation in
+                              ( Constant_shift
+                                  {
+                                    result;
+                                    opcode = constant_opcode;
+                                    span;
+                                    operand;
+                                    count;
+                                    result_type = computation;
+                                  },
+                                Some
+                                  {
+                                    declared = computation;
+                                    computation;
+                                    bits = None;
+                                    shift =
+                                      Some (constant_opcode, operand, count);
+                                  } ))
+                    else if
+                      accepted_f64_arithmetic_opcode opcode
+                      || accepted_f64_bitwise_opcode opcode
+                    then
+                      ( node,
+                        Some
+                          {
+                            declared = computation;
+                            computation;
+                            bits = None;
+                            shift = None;
+                          } )
+                    else (node, default)
+                | _ -> (node, default))
+            | _ -> (node, default)
+          in
+          Option.iter
+            (fun value ->
+              values := Int_map.add (result_key result) value !values;
+              types := Int_map.add (result_key result) value.declared !types)
+            value;
+          node)
+        nodes
+    in
+    let live = ref Int_map.empty in
+    (match List.rev rewritten with
+    | last :: _ ->
+        let result, _, _ = info last in
+        live := Int_map.add (result_key result) true !live
+    | [] -> ());
+    let kept =
+      List.rev rewritten
+      |> List.fold_left
+           (fun kept node ->
+             let result, operands, pure = info node in
+             let pure =
+               pure
+               ||
+               match node with
+               | Literal { conversion = Keep_result; _ }
+               | Integer_constant { conversion = Keep_result; _ } -> true
+               | _ -> false
+             in
+             if pure && not (Int_map.mem (result_key result) !live) then kept
+             else (
+               List.iter
+                 (fun operand ->
+                   live := Int_map.add (result_key operand) true !live)
+                 operands;
+               node :: kept))
+           []
+    in
+    (kept, !types, !unsigned_comparisons)
+
+let emit_plan ?lower_call ?(optimize_shifts = false) ~instruction_id ~value_id
+    nodes =
+  let nodes, optimized_types, unsigned_comparisons =
+    if optimize_shifts then optimize_shift_plan nodes
+    else (nodes, Int_map.empty, Int_map.empty)
+  in
+  let result_type result =
+    match Int_map.find_opt (result_key result) optimized_types with
+    | Some type_ -> Some type_
+    | None -> Semantic_result.result_type result
+  in
   let allocator =
     {
       instruction = Sequence.Instruction_id.to_int instruction_id;
@@ -3078,7 +3410,10 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
                            "transparent expression does not have a checked \
                             result type")
                 | Some result_type ->
-                    if not (Type.equal result_type lowered_operand.lowered_type)
+                    if
+                      not
+                        (Option.fold ~none:false ~some:(Type.equal result_type)
+                           (Semantic_result.result_type operand))
                     then
                       error :=
                         Some
@@ -3091,8 +3426,7 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
                 ))
         | Unary { result; opcode; span; operand; conversion } -> (
             match
-              ( find_lowered !lowered operand "unary operand",
-                Semantic_result.result_type result )
+              (find_lowered !lowered operand "unary operand", result_type result)
             with
             | Error item, _ -> error := Some item
             | _, None ->
@@ -3156,13 +3490,38 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
                       Int_map.add (result_key result)
                         { lowered_value = value_id; lowered_type = result_type }
                         !lowered))
+        | Constant_shift { result; opcode; span; operand; count; result_type }
+          -> (
+            match
+              ( find_lowered !lowered operand "constant shift operand",
+                take_identity allocator (Some span) )
+            with
+            | Error item, _ | _, Error item -> error := Some item
+            | Ok input, Ok (instruction_id, value_id) ->
+                let description : Sequence.description =
+                  {
+                    instruction_id;
+                    opcode;
+                    operands = [ input.lowered_value ];
+                    result = Some { value_id };
+                    target_type = Some result_type;
+                    payload = Some (Sequence.Integer count);
+                    flags = 0L;
+                    span = Some span;
+                  }
+                in
+                descriptions_rev := description :: !descriptions_rev;
+                lowered :=
+                  Int_map.add (result_key result)
+                    { lowered_value = value_id; lowered_type = result_type }
+                    !lowered)
         | Binary
             { result; opcode; span; left; right; conversion; operation_flags }
           -> (
             match
               ( find_lowered !lowered left "left binary operand",
                 find_lowered !lowered right "right binary operand",
-                Semantic_result.result_type result )
+                result_type result )
             with
             | Error item, _, _ | _, Error item, _ -> error := Some item
             | _, _, None ->
@@ -3171,6 +3530,31 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
                     (metadata_error ~span
                        "binary expression does not have a checked result type")
             | Ok left_node, Ok right_node, Some result_type -> (
+                let left_node =
+                  if not (Int_map.mem (result_key result) unsigned_comparisons)
+                  then left_node
+                  else
+                    match take_identity allocator (Some span) with
+                    | Error item ->
+                        error := Some item;
+                        left_node
+                    | Ok (instruction_id, value_id) ->
+                        let type_ = internal_u64_type in
+                        let view : Sequence.description =
+                          {
+                            instruction_id;
+                            opcode = Opcode.Ic_holyc_typecast;
+                            operands = [ left_node.lowered_value ];
+                            result = Some { value_id };
+                            target_type = Some type_;
+                            payload = Some (Sequence.Integer 0L);
+                            flags = 0L;
+                            span = Some span;
+                          }
+                        in
+                        descriptions_rev := view :: !descriptions_rev;
+                        { lowered_value = value_id; lowered_type = type_ }
+                in
                 match take_identity allocator (Some span) with
                 | Error item -> error := Some item
                 | Ok (instruction_id, value_id) ->
@@ -3347,6 +3731,7 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
                 | Unary { result; _ } :: _
                 | Cast { result; _ } :: _
                 | Binary { result; _ } :: _
+                | Constant_shift { result; _ } :: _
                 | Chain_link { result; _ } :: _ -> result
                 | [] -> assert false
               in
@@ -3369,23 +3754,23 @@ let emit_plan ?lower_call ~instruction_id ~value_id nodes =
                            })
                   | Error item, _ | _, Error item -> Error [ item ]))))
 
-let lower_typed_result ?frame ?globals ?lower_call ~instruction_id ~value_id
-    result =
+let lower_typed_result ?frame ?globals ?lower_call ?(optimize_shifts = false)
+    ~instruction_id ~value_id result =
   match
     plan ?frame ?globals ~allow_calls:(Option.is_some lower_call) result
   with
   | Error items -> Error items
   | Ok Unsupported_plan -> Ok Unsupported_expression
   | Ok (Planned nodes) ->
-      emit_plan ?lower_call ~instruction_id ~value_id nodes
+      emit_plan ?lower_call ~optimize_shifts ~instruction_id ~value_id nodes
       |> Result.map (function
         | Some t -> Lowered t
         | None -> Unsupported_expression)
 
 let sequence lowered = lowered.sequence_
 
-let lower_store_initializer ?frame ?globals ?lower_call ~lower_address
-    ~target_type ~span ~instruction_id ~value_id value =
+let lower_store_initializer ?frame ?globals ?lower_call ?optimize_shifts
+    ~lower_address ~target_type ~span ~instruction_id ~value_id value =
   let ( let* ) = Result.bind in
   let target_is_word =
     Option.is_some (Integer_scalar_storage.of_type target_type)
@@ -3404,7 +3789,7 @@ let lower_store_initializer ?frame ?globals ?lower_call ~lower_address
         lower_address ~instruction_id ~value_id
       in
       let* lowered =
-        lower_typed_result ?frame ?globals ?lower_call
+        lower_typed_result ?frame ?globals ?lower_call ?optimize_shifts
           ~instruction_id:next_instruction ~value_id:next_value value
       in
       match lowered with
@@ -3461,8 +3846,8 @@ let lower_store_initializer ?frame ?globals ?lower_call ~lower_address
                }))
   | _ -> Ok Unsupported_expression
 
-let lower_initializer ~frame ?globals ?lower_call ~instruction_id ~value_id
-    initial =
+let lower_initializer ~frame ?globals ?lower_call ?optimize_shifts
+    ~instruction_id ~value_id initial =
   let ( let* ) = Result.bind in
   let* address = Frame_address_lowering.prepare_initializer ~frame initial in
   match address with
@@ -3487,13 +3872,14 @@ let lower_initializer ~frame ?globals ?lower_call ~instruction_id ~value_id
         | Sema.Symbol.Source_location location -> Some location.span
         | _ -> None
       in
-      lower_store_initializer ~frame ?globals ?lower_call ~lower_address
+      lower_store_initializer ~frame ?globals ?lower_call ?optimize_shifts
+        ~lower_address
         ~target_type:(Semantic_result.initializer_target_type initial)
         ~span ~instruction_id ~value_id
         (Semantic_result.initializer_value initial)
 
-let lower_global_initializer ~globals ?lower_call ~instruction_id ~value_id root
-    =
+let lower_global_initializer ~globals ?lower_call ?optimize_shifts
+    ~instruction_id ~value_id root =
   let ( let* ) = Result.bind in
   let* prepared = Global_address_lowering.prepare_initializer ~globals root in
   let* target_type, span =
@@ -3529,12 +3915,12 @@ let lower_global_initializer ~globals ?lower_call ~instruction_id ~value_id root
         Global_address_lowering.next_instruction_id address,
         Global_address_lowering.next_value_id address )
   in
-  lower_store_initializer ~globals ?lower_call ~lower_address ~target_type ~span
-    ~instruction_id ~value_id
+  lower_store_initializer ~globals ?lower_call ?optimize_shifts ~lower_address
+    ~target_type ~span ~instruction_id ~value_id
     (Semantic_result.top_level_root_value root)
 
-let lower_fragment_initializer ?lower_call ~instruction_id ~value_id destination
-    =
+let lower_fragment_initializer ?lower_call ?optimize_shifts ~instruction_id
+    ~value_id destination =
   let ( let* ) = Result.bind in
   let module Destination = Initializer_fragment_destination in
   let* prepared =
@@ -3552,15 +3938,15 @@ let lower_fragment_initializer ?lower_call ~instruction_id ~value_id destination
   in
   lower_store_initializer
     ~globals:(Destination.globals destination)
-    ?lower_call ~lower_address
+    ?lower_call ?optimize_shifts ~lower_address
     ~target_type:
       (Integer_globals.storage_type (Destination.storage destination))
     ~span:(Some (Destination.span destination))
     ~instruction_id ~value_id
     (Semantic_result.top_level_root_value (Destination.root destination))
 
-let lower_static_initializer ~globals ?root ?lower_call ~instruction_id
-    ~value_id slot =
+let lower_static_initializer ~globals ?root ?lower_call ?optimize_shifts
+    ~instruction_id ~value_id slot =
   let ( let* ) = Result.bind in
   let root =
     match root with
@@ -3596,7 +3982,7 @@ let lower_static_initializer ~globals ?root ?lower_call ~instruction_id
       in
       lower_store_initializer
         ~frame:(Integer_globals.static_frame slot)
-        ~globals ?lower_call ~lower_address
+        ~globals ?lower_call ?optimize_shifts ~lower_address
         ~target_type:(Semantic_result.initializer_target_type root)
         ~span ~instruction_id ~value_id
         (Semantic_result.initializer_value root)

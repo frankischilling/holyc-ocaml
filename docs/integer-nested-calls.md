@@ -74,5 +74,5 @@ The CLI test runs the checked-in fixture in both modes.
 Defaults, variadic/indirect/external execution, joined prototypes, non-scalar
 storage, general runtime output, stateful `#exe`, native backends and bootstrap
 remain unfinished. Runtime arithmetic retains the optimizer/oracle gaps in
-#574/#585. These are hosted tests and pinned-source evidence, with no new
+#585 and the remaining #696/#697 passes. Verified full-word source shifts are covered by [#787](constant-shifts.md). These are hosted tests and pinned-source evidence, with no new
 native TempleOS capture.

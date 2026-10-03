@@ -305,6 +305,8 @@
   test_integer_expression
   test_native_expression
   test_constant_shifts
+  test_source_constant_shifts
+  source_constant_shift_cases
   test_native_program
   test_native_literal_storage
   test_native_persistent_storage

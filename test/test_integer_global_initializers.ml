@@ -340,7 +340,7 @@ let preparation_limits_and_domain () =
           "I64 Half(I64 n){return n/2;}I64 G=Half(-3);G;";
           "I64 Half(I64 n){return n/2;}I64 Outer(I64 n){return Half(n);}I64 \
            G=Outer(-3);G;";
-          "I64 G=1<<3;G;";
+          "I64 G=1;I64 H=G<<3;H;";
           "I64 G=1;I64 H=(G<<63)<<1;H;";
         ];
       let error = F.first_error (G.run ~mode "I64 G=1/0;G;") in

@@ -360,9 +360,9 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
             (if Option.is_some frame then [] else top_calls)
         with
         | Some target ->
-            Direct_call_lowering.lower_top_level ?frame ?globals
-              ~lower_call:(direct_call_in frame) ~instruction_id ~value_id
-              ~target value
+            Direct_call_lowering.lower_top_level ~optimize_shifts:true ?frame
+              ?globals ~lower_call:(direct_call_in frame) ~instruction_id
+              ~value_id ~target value
         | None -> (
             match
               List.find_opt
@@ -378,7 +378,7 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
                 function_calls
             with
             | Some target ->
-                Direct_call_lowering.lower ?frame ?globals
+                Direct_call_lowering.lower ~optimize_shifts:true ?frame ?globals
                   ~lower_call:(direct_call_in frame) ~instruction_id ~value_id
                   ~target value
             | None -> Ok Direct_call_lowering.Unsupported_call)
@@ -433,7 +433,8 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
       let value_id = Sequence.Value_id.of_int !value_count |> checked_id in
       match
         Expression_lowering.lower_typed_result ?frame ?globals
-          ~lower_call:direct_call ~instruction_id ~value_id value
+          ~optimize_shifts:true ~lower_call:direct_call ~instruction_id
+          ~value_id value
       with
       | Error errors -> lower_errors errors
       | Ok Expression_lowering.Unsupported_expression ->
@@ -501,9 +502,9 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
             | _ -> span
           in
           output_statement ~at (fun ~records ~instruction_id ~value_id ->
-              Direct_call_lowering.lower_implicit_output ?frame ?globals
-                ~lower_call:direct_call ~records ~instruction_id ~value_id
-                output)
+              Direct_call_lowering.lower_implicit_output ~optimize_shifts:true
+                ?frame ?globals ~lower_call:direct_call ~records ~instruction_id
+                ~value_id output)
       | Top_level_output output ->
           let origin =
             output
@@ -517,9 +518,9 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
             | _ -> span
           in
           output_statement ~at (fun ~records ~instruction_id ~value_id ->
-              Direct_call_lowering.lower_top_level_implicit_output ?frame
-                ?globals ~lower_call:direct_call ~records ~instruction_id
-                ~value_id output)
+              Direct_call_lowering.lower_top_level_implicit_output
+                ~optimize_shifts:true ?frame ?globals ~lower_call:direct_call
+                ~records ~instruction_id ~value_id output)
       | Initialize_global root -> (
           let at = span_of_result span (Typed.top_level_root_value root) in
           match (globals, frame) with
@@ -528,8 +529,9 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
                 Sequence.Instruction_id.of_int !instruction_count |> checked_id
               in
               match
-                Expression_lowering.lower_global_initializer ~globals
-                  ~lower_call:direct_call ~instruction_id:first
+                Expression_lowering.lower_global_initializer
+                  ~optimize_shifts:true ~globals ~lower_call:direct_call
+                  ~instruction_id:first
                   ~value_id:(Sequence.Value_id.of_int !value_count |> checked_id)
                   root
               with
@@ -563,7 +565,8 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
               in
               match
                 Expression_lowering.lower_fragment_initializer
-                  ~lower_call:direct_call ~instruction_id:first
+                  ~optimize_shifts:true ~lower_call:direct_call
+                  ~instruction_id:first
                   ~value_id:(Sequence.Value_id.of_int !value_count |> checked_id)
                   destination
               with
@@ -618,8 +621,8 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
                 Sequence.Instruction_id.of_int !instruction_count |> checked_id
               in
               match
-                Expression_lowering.lower_static_initializer ~globals
-                  ~root:static_root
+                Expression_lowering.lower_static_initializer
+                  ~optimize_shifts:true ~globals ~root:static_root
                   ~lower_call:
                     (direct_call_in (Some (Integer_globals.static_frame slot)))
                   ~instruction_id:first
@@ -658,8 +661,8 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
               fail at "HCRUN0001" "local initializer has no function frame"
           | Some frame -> (
               match
-                Expression_lowering.lower_initializer ~frame ?globals
-                  ~lower_call:direct_call
+                Expression_lowering.lower_initializer ~optimize_shifts:true
+                  ~frame ?globals ~lower_call:direct_call
                   ~instruction_id:
                     (Sequence.Instruction_id.of_int !instruction_count
                     |> checked_id)
@@ -680,7 +683,7 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
           | Some leave -> (
               match
                 Return_lowering.lower_function_return ?frame ?globals
-                  ~lower_call:direct_call
+                  ~optimize_shifts:true ~lower_call:direct_call
                   ~instruction_id:
                     (Sequence.Instruction_id.of_int !instruction_count
                     |> checked_id)

@@ -316,9 +316,7 @@ broader persistent/pointer storage, automatic initialized arrays, indirect calls
 explicit register and function flags, the complete HolyC ABI, floating operations,
 Print and broader runtime providers, and native `#exe` remain required. Optimizer parity, the integrated
 assembler, object/BIN writing, loader acceptance and bootstrap retain their own
-gates. Issues #574, #585 and #593 continue
-to track their distinct shift, division-optimization and comparison-reduction
-requirements.
+gates. Canonical shifts and their verified full-word source integration are covered by #574/#787; #585 and #593 retain division and comparison-reduction requirements.
 
 One-level scalar pointer aliases now use the checked callable path; see
 [native pointers](native-pointers.md) for ownership, lifetime and resource limits.

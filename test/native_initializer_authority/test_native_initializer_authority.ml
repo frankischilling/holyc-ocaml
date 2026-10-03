@@ -226,10 +226,10 @@ let emit ?global_initializers ?status_abi unit_ =
     ~initialization:(Unit.initialization unit_)
     ~entry:(Unit.entry unit_) ~functions:(Unit.functions unit_) ()
 
-let ownership () =
+let ownership ?contents () =
   List.iter
     (fun mode ->
-      let span, prepared, compile = fixture mode in
+      let span, prepared, compile = fixture ?contents mode in
       let evidence = Preparation.initializers prepared in
       let unit_ = compile ~native_initializers:evidence () |> diagnostics in
       let completions = Preparation.initializer_completions prepared in
@@ -244,7 +244,7 @@ let ownership () =
             (Result.is_ok (emit ~global_initializers:sealed ~status_abi unit_)))
         [ Image.Windows_x64; Image.System_v_x64 ];
       reject "prepared bits without a bundle proof" (emit unit_);
-      let _, other_prepared, other_compile = fixture mode in
+      let _, other_prepared, other_compile = fixture ?contents mode in
       let other =
         other_compile
           ~native_initializers:(Preparation.initializers other_prepared)
@@ -253,13 +253,13 @@ let ownership () =
       in
       reject "equal-source foreign bundle"
         (emit ~global_initializers:sealed other);
-      let legacy_span, _, legacy_compile = fixture mode in
+      let legacy_span, _, legacy_compile = fixture ?contents mode in
       let legacy = legacy_compile () |> diagnostics in
       reject "ordinary preparation cannot impersonate original native callbacks"
         (proof legacy_span completions legacy);
       List.iter
         (fun mutate ->
-          let _, prepared, compile = fixture mode in
+          let _, prepared, compile = fixture ?contents mode in
           reject "missing, repeated, reordered or substituted leaves"
             (compile
                ~native_initializers:(mutate (Preparation.initializers prepared))
@@ -271,7 +271,7 @@ let ownership () =
           List.rev;
           (fun _ -> evidence);
         ];
-      let _, prepared, compile = fixture mode in
+      let _, prepared, compile = fixture ?contents mode in
       let steps = Preparation.work prepared in
       Alcotest.(check int)
         "work charged once" steps
@@ -284,17 +284,17 @@ let ownership () =
            ~native_initializers:(Preparation.initializers prepared)
            ~max_initializer_steps:steps ()
         |> diagnostics);
-      let _, prepared, compile = fixture mode in
+      let _, prepared, compile = fixture ?contents mode in
       reject "one below preparation budget"
         (compile
            ~native_initializers:(Preparation.initializers prepared)
            ~max_initializer_steps:(steps - 1) ()))
     [ Preprocessor.Jit; Preprocessor.Aot ]
 
-let static_ownership () =
+let static_ownership ?contents () =
   List.iter
     (fun mode ->
-      let span, prepared, compile = fixture ~statics:true mode in
+      let span, prepared, compile = fixture ?contents ~statics:true mode in
       let evidence = Preparation.static_initializers prepared in
       let globals = Preparation.initializers prepared in
       let unit_ =
@@ -333,7 +333,7 @@ let static_ownership () =
         (seal ~static_completions:(List.rev completions) unit_);
       List.iter
         (fun mutate ->
-          let _, p, c = fixture ~statics:true mode in
+          let _, p, c = fixture ?contents ~statics:true mode in
           reject "missing repeated reordered or foreign static proof"
             (c
                ~native_initializers:(Preparation.initializers p)
@@ -347,7 +347,7 @@ let static_ownership () =
           List.rev;
           (fun _ -> evidence);
         ];
-      let _, p, c = fixture ~statics:true mode in
+      let _, p, c = fixture ?contents ~statics:true mode in
       let foreign =
         c
           ~native_initializers:(Preparation.initializers p)
@@ -356,11 +356,11 @@ let static_ownership () =
         |> diagnostics
       in
       reject "foreign static bundle" (emit ~global_initializers:sealed foreign);
-      let _, _, c = fixture ~statics:true mode in
+      let _, _, c = fixture ?contents ~statics:true mode in
       let ordinary = c () |> diagnostics in
       reject "ordinary static preparation lacks source authority"
         (seal ordinary);
-      let _, p, c = fixture ~statics:true mode in
+      let _, p, c = fixture ?contents ~statics:true mode in
       let steps = Preparation.work p in
       ignore
         (c
@@ -368,7 +368,7 @@ let static_ownership () =
            ~native_static_initializers:(Preparation.static_initializers p)
            ~max_initializer_steps:steps ()
         |> diagnostics);
-      let _, p, c = fixture ~statics:true mode in
+      let _, p, c = fixture ?contents ~statics:true mode in
       reject "static shared budget one below"
         (c
            ~native_initializers:(Preparation.initializers p)
@@ -532,7 +532,7 @@ let failed_preparation () =
           ("I64 A=40;I64 B=0&&(1/0);42;", "HCIRVM0009");
           ("I64 A=40;I64 B=1/0;I64 C=1<<2;42;", "HCIRVM0009");
           ("I64 A=40;I64 B=A;42;", "HCRUN0006");
-          ("I64 A=40;I64 B=1<<2;42;", "HCRUN0006");
+          ("I64 A=40;I64 B=A<<2;42;", "HCRUN0006");
           ("I64 A=40;42;I64 B=2;", "HCRUN0001");
           ("I64 A=40;I64 F(){static I8 n=1/0;return n;}42;", "HCIRVM0009");
           ("I64 F(){static I8 n=40;return n;}I64 B=1/0;42;", "HCIRVM0009");
@@ -543,7 +543,7 @@ let failed_preparation () =
             "HCRUN0006" );
           ("I64 A=40;I64 F(){static I8 n={2};return n;}42;", "HCRUN0001");
           ("I64 A=40;I64 F(){static I8 n=\"a\";return n;}42;", "HCRUN0006");
-          ("I64 A=40;I64 F(){static I8 n=1<<2;return n;}42;", "HCRUN0006");
+          ("I64 A=40;I64 F(){static I8 n=A<<2;return n;}42;", "HCRUN0006");
           ("I64 A=40;42;I64 F(){static I8 n=2;return n;}", "HCRUN0001");
         ])
     [ Preprocessor.Jit; Preprocessor.Aot ]
@@ -615,9 +615,22 @@ let () =
       ( "source",
         [
           Alcotest.test_case "original preparation and bundle ownership" `Quick
-            ownership;
+            (fun () -> ownership ());
           Alcotest.test_case "static original preparation and bundle ownership"
-            `Quick static_ownership;
+            `Quick (fun () -> static_ownership ());
+          Alcotest.test_case
+            "folded global leaves retain original preparation authority" `Quick
+            (fun () ->
+              ownership
+                ~contents:"I8 A=255<<1;I64 B=1<<2;I64 F(){return B;}A+F();" ());
+          Alcotest.test_case
+            "folded static leaves retain original preparation authority" `Quick
+            (fun () ->
+              static_ownership
+                ~contents:
+                  "I8 A=255<<1;I64 F(){static I8 n=1<<2;return ++n;}I64 \
+                   G(){static I8 n=3<<1;return n;}F();F();"
+                ());
           Alcotest.test_case "numeric and copied array leaf ownership" `Quick
             array_ownership;
           Alcotest.test_case "prepared arrays publish before native entry"

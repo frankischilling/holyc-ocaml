@@ -130,7 +130,7 @@ fault occurs only if execution reaches that instruction. These are raw runtime
 IR semantics. Native constant folding can fault earlier, and literal-divisor
 rewrites can produce different values; [issue #585](https://github.com/frankischilling/holyc-ocaml/issues/585)
 tracks those optimizer differences. [Issue #574](https://github.com/frankischilling/holyc-ocaml/issues/574)
-tracks constant-form shifts.
+and [#787](https://github.com/frankischilling/holyc-ocaml/issues/787) supply canonical shifts and their verified full-word source rewrite. Literal children fold before same-direction counts merge; the remaining word class and established unsigned comparison decision survive. See [constant shifts](constant-shifts.md).
 
 ## Limits and diagnostics
 

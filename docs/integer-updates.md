@@ -58,8 +58,7 @@ keeps a scheduled initializer region with H's owner and JIT compile-initializer
 or AOT load-initializer phase, including through calls and faults. Its execution
 does not replace the last ordinary expression value.
 
-This is raw hosted IR arithmetic. Optimizer parity remains tracked by #574 and
-#585. In particular, `OptPass012.HC:827-854` rewrites compound multiplication,
+This is raw hosted IR arithmetic. Compound optimizer parity remains tracked by #585/#696/#697. The full-word ordinary shift rewrite under #787 does not replace compound updates. In particular, `OptPass012.HC:827-854` rewrites compound multiplication,
 division and remainder by powers of two. Signed `G%=2` may become a mask in
 TempleOS and differ from raw signed remainder. The initializer guard rejects
 compound shifts and known-constant divisor `/=` or `%=` with HCRUN0006, including

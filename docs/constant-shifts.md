@@ -55,7 +55,7 @@ the later unary class fix does not clear it. Recomputing every parent's
 behavior solely from the surviving word class would change this result.
 The hosted canonical projection represents this decision with an existing
 `U64` word view before the comparison. It does not admit nonzero comparison
-flags or assert that a source optimizer has been integrated.
+flags. Public program lowering now uses the same representation.
 
 One original unsigned-left definition command lost a Shift modifier during
 input delivery. Its source capture contains `O574LU639U64 x)` rather than
@@ -78,27 +78,71 @@ All source locations refer to `c26482bb6ad3f80106d28504ec5db3c6a360732c`.
 | Immediate emission | `OptPass789A.HC:676-687`, `BackA.HC:573-601`, `OpCodes.DD:1103-1156` | Pass the full count to SHL, SHR or SAR; choose the one-count encoding before byte truncation. |
 | Comparison decision | `OptPass012.HC:741-827`, `BackB.HC:158,193`, `KernelA.HH:1609` | An unsigned comparison flag can survive later operand class changes. |
 
-## Source integration boundary
+## Source integration
 
-The public source pipeline still lowers shifts to their raw two-operand forms.
-The exact published baseline `3ba28b0da0e9f93dae3978f51cef5f4897f3e897` executes
-all 49 sources successfully in JIT/AOT and interpreted/native targets, but six
-fields disagree with the captured optimizer results: RH1, LN64, RN64, UN64,
-LN128 and RN128. That is 24 differing controls across the four combinations.
-The canonical IR tests reproduce native fields without treating the raw
-source pipeline as equivalent.
+Public `holyc run` programs rewrite checked full-width integer shift plans before
+allocating IR identities or sealing source authority. The rewrite reaches
+ordinary expressions, conditions, returns, provided fixed/variadic and internal
+arguments, output arguments, and automatic/global/static initializer providers.
+Raw fragment APIs keep their default behavior; callers can explicitly request
+`optimize_shifts` where they own the checked publication path.
 
-Issue #574 settles the policy and supplies checked constant-form consumers.
-Source optimizer integration remains under #585/#696/#697. It must preserve
-the already-established comparison decision, literal-only folding order,
-surviving computation classes, single evaluation, source authority and fault
-timing. Generic retained initializer shifts keep `HCRUN0006` until that source
-path is implemented. Compound shifts, floating shifts, narrow or pointer
-constant forms, actual TempleOS loading and compiler bootstrap remain separate.
+A literal or negated literal count becomes a complete 64-bit payload. Fully
+constant children fold first with their common computation class and their own
+masked counts. A remaining variable-word shift forwards its operand class.
+Same-direction nested counts add with 64-bit wrapping before masking; opposite
+directions and variable counts stay separate. Parentheses and unary plus retain
+aliases. Calls and reads remain in source order and execute once, even when an
+intermediate pure shift or count disappears. Following arithmetic, unary and
+comparison consumers use the surviving computation class. An established
+unsigned comparison keeps its unsigned word view.
+
+Checked calls still require the original argument source class and span. When a
+rewrite changes that class, the composer appends a full-width word view before
+pushing the argument. The view preserves bits and costs one IR instruction.
+Sealed runtime contexts retain each canonical shift and its transitive input
+records. Changed payloads, flags, types, spans, operands, copied producers,
+foreign contexts and shifts introduced after sealing cannot acquire authority.
+
+Fully constant shifts can now prepare global/static leaves and defaults as
+immediate words. Narrow destinations apply their existing storage conversion;
+this does not authorize narrowing the shift itself. Live retained calls may
+contain those folded words and still execute their other effects once. The
+original declaration/leaf/default completion proofs, source ownership and
+cumulative allowances remain required. Nonconstant preparation shifts and
+compound shifts retain `HCRUN0006`; native retained frontend publication retains
+`HCPP0008`. Closed native initializers still reject reads and effectful calls.
+
+The fixture keeps the historical raw baseline at
+`3ba28b0da0e9f93dae3978f51cef5f4897f3e897`: six fields (RH1, LN64, RN64, UN64,
+LN128 and RN128) differed in 24 of 196 mode/target controls. All 49 captured
+fields now match through JIT/AOT and interpreted/native program execution. The
+new source and native suites also check following consumers, original ordering,
+source mutations, fresh replay, reached output/faults and exact/one-below
+runtime, preparation and image allowances. Each target retains its own
+preparation accounting. The interpreted static preparation harness charges four instructions here;
+native closed leaves charge three. JIT default source composition can
+retain an additional class view that native prepared arguments do not need.
+
+The pass skips plans with shared comparison links, indexed/pointer address
+plans, pointer differences, array materialization, function addresses or current
+position. Narrow, pointer and floating operands, casts that would supply a
+constant count, arithmetic count folding, compound reductions and LEA/SIB
+selection need separate evidence and implementation. The broader optimizer,
+division/remainder policy, TempleOS loading and bootstrap remain under
+#585/#696/#697 and their dependent gates. Issues #574 and #787 cover the
+canonical consumers and this source integration.
+
+[constant-shifts.hc](../examples/constant-shifts.hc) returns 42 and prints
+`-7:-4:0:0;`. [stream-constant-shifts.hc](../examples/stream-constant-shifts.hc)
+checks a folded retained default's once-only effects and submits `42;` through
+`StreamPrint`.
 
 Run the focused checks with:
 
 ```powershell
-opam exec -- dune exec test/test_main.exe -- test 'constant shift policy'
-opam exec -- dune exec test/native/test_constant_shift_execution.exe
+opam exec -- dune exec --root . test/test_main.exe -- test 'constant shift policy'
+opam exec -- dune exec --root . test/native/test_constant_shift_execution.exe
+opam exec -- dune exec --root . test/test_main.exe -- test 'source constant shifts'
+opam exec -- dune exec --root . test/native/test_source_constant_shift_execution.exe
 ```

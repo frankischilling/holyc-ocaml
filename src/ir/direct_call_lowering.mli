@@ -7,6 +7,7 @@ val lower :
   ?frame:Sema.Function_frame_layout.function_layout ->
   ?globals:Integer_globals.t ->
   ?lower_call:Expression_lowering.call_lowerer ->
+  ?optimize_shifts:bool ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   target:Sema.Function_call_target_classification.t ->
@@ -15,12 +16,16 @@ val lower :
 (** Lower one checked direct executable, extern-slot, import, or extern call
     whose provided fixed and variadic arguments are supported by
     [Expression_lowering]. [lower_call] also composes nested call arguments
-    through that planner while preserving right-to-left argument execution. *)
+    through that planner while preserving right-to-left argument execution.
+    [optimize_shifts] follows the caller's checked publication policy. A changed
+    full-word computation class receives a charged view of the original source
+    class before pushing; original source ownership and span remain checked. *)
 
 val lower_top_level :
   ?frame:Sema.Function_frame_layout.function_layout ->
   ?globals:Integer_globals.t ->
   ?lower_call:Expression_lowering.call_lowerer ->
+  ?optimize_shifts:bool ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
   target:Sema.Top_level_function_call_target_classification.t ->
@@ -35,6 +40,7 @@ val lower_implicit_output :
   ?frame:Sema.Function_frame_layout.function_layout ->
   ?globals:Integer_globals.t ->
   ?lower_call:Expression_lowering.call_lowerer ->
+  ?optimize_shifts:bool ->
   records:Sema.Function_record_classification.t ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
@@ -45,6 +51,7 @@ val lower_top_level_implicit_output :
   ?frame:Sema.Function_frame_layout.function_layout ->
   ?globals:Integer_globals.t ->
   ?lower_call:Expression_lowering.call_lowerer ->
+  ?optimize_shifts:bool ->
   records:Sema.Function_record_classification.t ->
   instruction_id:Instruction_sequence.Instruction_id.t ->
   value_id:Instruction_sequence.Value_id.t ->
