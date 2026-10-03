@@ -88,6 +88,21 @@ val is_original_pointer_difference_division :
 (** Require the exact original instruction in the collected set. Copies,
     foreign-context instructions and user divisions cannot supply this proof. *)
 
+type preparation_shifts
+
+val original_preparation_shifts : t -> owner:owner -> preparation_shifts option
+(** Validate original/transitive records, then collect full-word canonical
+    constant shifts and scalar right-shift updates with original internal I64
+    counts from 0 through 63. Canonical payloads retain their complete count;
+    execution masks it at the existing consumer. The query does not construct or
+    reseal a context. Prepared execution still requires its original bundle. *)
+
+val is_original_preparation_shift :
+  preparation_shifts -> Instruction_sequence.description -> bool
+(** Require the exact original collected instruction. Copied records, foreign
+    instructions, raw shifts and new-after-seal instructions have no authority.
+*)
+
 val find_intrinsic_start :
   t -> owner:owner -> Instruction_sequence.Instruction_id.t -> intrinsic option
 

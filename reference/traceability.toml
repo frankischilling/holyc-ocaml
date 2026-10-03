@@ -11031,7 +11031,7 @@ source_native_fixture = "test/oracle/division-strength-reductions.json"
 source_native_fields = 38
 source_native_same_boot_repeats = 38
 source_compilation_fault_controls = 4
-remaining = ["nonconstant division/shift preparation and retained native source publication", "shared comparison-chain reductions and broader numeric/flagged domains", "broader differential coverage and native exception delivery"]
+remaining = ["unsealed/general division preparation and retained native source publication; original canonical retained shifts prepare under #793", "shared comparison-chain reductions and broader numeric/flagged domains", "broader differential coverage and native exception delivery"]
 
 [[feature]]
 id = "HC-SOURCE-INTEGER-CONTROL-FLOW"
@@ -12761,8 +12761,24 @@ documentation = ["docs/prepared-pointer-difference.md", "docs/pointer-difference
 identity = "Validate current original/transitive graph records and collect original descriptions once per retained callee. Exact original I64 division/subtraction and size producer records, zero flags, matching one-level integer/Bool pointer types and original width 2/4/8 are required. Copies, foreign owners/contexts, changed sizes/flags/targets and compatible operands reject. Execution rechecks the original source bundle; collection does not reseal it."
 execution = "Valid same-object aligned offsets differ by an exact multiple of their scalar width, so signed division and the source arithmetic-shift rewrite agree for positive, negative and zero results. Retained defaults execute once, preserving saved numeric words after later changes, without pointee reads or reference authority."
 resources = "Original unknown/bounds/overflow/object-mismatch phases, left-before-right effects, reached output and attempted work remain. Size constant/division count as callee runtime instructions. Runtime/preparation/output/storage/descriptor/call/frame/code limits remain bounded."
-excluded = ["arbitrary constant division/modulo and shifts", "outer user division and byte-difference user division", "direct expressions without the completed original callee context", "general optimizer and declaration preparation under #696/#697/#685", "native closed owned-reference defaults HCRUN0006 and retained frontend HCPP0008 under #704", "raw class/address parity and broader pointer/ABI/image/artifact/loader/bootstrap gates under #687/#699/#700/#702/#703/#682"]
+excluded = ["general division/modulo and raw shifts; original canonical shifts prepare under #793", "direct expressions without the completed original callee context", "general optimizer and declaration preparation under #696/#697/#685", "native closed owned-reference defaults HCRUN0006 and retained frontend HCPP0008 under #704", "raw class/address parity and broader pointer/ABI/image/artifact/loader/bootstrap gates under #687/#699/#700/#702/#703/#682"]
 verification_boundary = "Seven source groups cover 53 independent retained values across all nine types and both modes, signed/interior/one-past offsets, snapshots/rows/aliases/loops/nested/recursive calls, original query and current/transitive authority, user-division and generic-gate controls, four original fault phases/work, reached output and exact/one-below preparation/runtime/output limits. Public CLI retains native boundaries and existing IR/native controls. No new TempleOS oracle capture."
+
+[[feature]]
+id = "HC-RETAINED-INTEGER-SHIFT-PREPARATION"
+description = "Published original retained callees prepare canonical integer constant shifts and supported scalar right-shift updates."
+status = "implemented"
+issue = 793
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+sources = ["Compiler/PrsVar.HC:1-108", "Compiler/OptPass012.HC:403-455,838-854", "Compiler/OptLib.HC:96-225", "Compiler/OptPass789A.HC:615-630", "Compiler/BackA.HC:573-661"]
+implementation = ["src/ir/runtime_call_context.ml", "src/ir/runtime_call_context.mli", "src/driver/integer_initializers.ml", "src/driver/integer_update_initializers.ml"]
+tests = ["test/oracle/prepared-integer-shifts.json", "test/test_prepared_integer_shifts.ml", "test/test_prepared_integer_shifts_cli.ml", "test/test_prepared_pointer_difference.ml", "test/test_prepared_pointer_difference_cli.ml", "test/test_source_constant_shifts.ml", "test/test_source_division_strength_reductions.ml", "examples/stream-prepared-integer-shifts.hc", "test/dune"]
+documentation = ["docs/prepared-integer-shifts.md", "docs/prepared-pointer-difference.md", "docs/integer-defaults.md", "docs/integer-division.md", "docs/constant-shifts.md", "docs/optimizer.md", "docs/testing.md", "docs/oracle-fixtures.md", "docs/reference-source-map.md", "docs/compatibility.md", "README.md", "ROADMAP.md", "CHANGELOG.md"]
+identity = "Validate current original and transitive source producers before collecting exact zero-flag full-word SHL_CONST/SHR_CONST or scalar SHR_EQ with original internal-I64 literal count 0..63. Use the published retained callee context without reconstructing or resealing it. Copied/foreign/changed/new-after-seal records reject; actual execution rechecks the original bundle."
+execution = "Canonical payloads retain full counts and original computation classes. Addressed updates narrow stored values. Narrow register candidates require every graph write to preserve the declared range; bounded right shifts preserve it, while unbounded writes and explicit hardware registers do not qualify. Saved defaults/global/static values and original effects occur once."
+resources = "Reached output, original division faults and attempted work retain their preparation phase and callee context. Existing runtime, preparation, call, storage, frame, output and code limits remain bounded. The maintained example uses 199 runtime instructions, seven preparation and seven formatting-work units in both modes."
+verification_boundary = "32 accepted native commands, 64 capture hashes, nineteen primary fields each repeated in one boot and two repeated DivZero default-compilation faults after one counter increment. Seven source groups and public CLI checks compare both modes, saved and nested/live values, original/transitive authority, full counts, narrow range invariants, reached effects/faults and exact/one-below limits. Existing native operation and original bundle controls remain required."
+excluded = ["raw variable shifts, unsupported compound counts and direct/unsealed preparation", "unproved narrow/numeric/flagged domains and general literal division/modulo admission", "shared nonconstant power-of-two DIV and plain MOD-mask plans under #585/#696/#697", "general declaration preparation under #685", "native retained frontend publication HCPP0008 under #704", "native exception delivery, full artifacts, actual BIN loading and compiler bootstrap"]
 
 [[feature]]
 id = "HC-IR-CONSTANT-INTEGER-SHIFTS"

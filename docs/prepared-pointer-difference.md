@@ -60,8 +60,10 @@ formatting work, preparation and attempted instruction work survive failure.
 Exact limits pass, and one-below runtime, preparation, output-byte and
 output-work limits reject through their existing diagnostics.
 
-Arbitrary constant division/modulo, shifts, outer user division, byte-sized
-difference divided by a user size and direct expressions without a completed
+Original constant shifts and supported scalar right-shift updates also prepare
+under #793, including an outer power-of-two division of an original numeric
+difference. See [retained shift preparation](prepared-integer-shifts.md).
+General division/modulo, raw shifts and direct expressions without a completed
 callee context retain HCRUN0006. Native closed owned-reference defaults retain
 HCRUN0006; native retained frontend publication retains HCPP0008. General
 optimizer and declaration preparation remain under #696/#697/#685, and native

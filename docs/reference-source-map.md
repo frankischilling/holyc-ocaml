@@ -1,5 +1,13 @@
 # Reference source map
 
+Issue #793 connects declaration-time `Compiler/PrsVar.HC:1-108` to original
+retained shift preparation. `OptPass012.HC:403-455,838-854` supplies division
+reductions, `OptLib.HC:96-225` supplies classes, and `OptPass789A.HC:615-630`
+with `BackA.HC:573-661` supplies full-word shift computation and declared-width
+storage. Nineteen repeated native fields and two preparation faults appear in
+`test/oracle/prepared-integer-shifts.json`. See
+[the preparation contract](prepared-integer-shifts.md).
+
 Integer source division reductions consume `OptPass012.HC:403-455,838-854` before instruction allocation. `OptLib.HC:96-225` distinguishes early comparison decisions from the surviving operand class, including division by one. The full-word folding, power-of-two shifts, unsigned masks and scalar compound updates are compared with 38 repeated native fields in `test/oracle/division-strength-reductions.json`. Constant signed overflow fails during compilation, while zero divisors retain reached runtime faults. [The division contract](integer-division.md) records the supported contexts and remaining preparation/shared-expression boundaries under #585.
 
 Issue #785 uses `Compiler/PrsExp.HC:14-62`,

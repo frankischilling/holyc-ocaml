@@ -1,4 +1,18 @@
 (test
+ (name test_prepared_integer_shifts_cli)
+ (modules test_prepared_integer_shifts_cli)
+ (libraries unix yojson)
+ (deps
+  oracle/prepared-integer-shifts.json
+  ../examples/stream-prepared-integer-shifts.hc)
+ (action
+  (run
+   %{test}
+   %{exe:../bin/holyc.exe}
+   %{dep:oracle/prepared-integer-shifts.json}
+   %{dep:../examples/stream-prepared-integer-shifts.hc})))
+
+(test
  (name test_division_strength_reduction_cli)
  (modules test_division_strength_reduction_cli)
  (libraries unix yojson)
@@ -344,6 +358,7 @@
   test_pointer_ordering
   test_pointer_difference
   test_prepared_pointer_difference
+  test_prepared_integer_shifts
   test_swap_internals
   test_retained_internal
   test_internal_strlen_authority
@@ -608,6 +623,7 @@
   oracle/function-definitions.json
   oracle/integer-division.json
   oracle/division-strength-reductions.json
+  oracle/prepared-integer-shifts.json
   oracle/constant-shifts.json
   oracle/public-shift-classes.json
   oracle/local-declarations.json

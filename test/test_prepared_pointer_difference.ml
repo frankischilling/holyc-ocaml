@@ -264,10 +264,6 @@ let user_divisions () =
 
 let rejected =
   [
-    wrap "N++;return N<<2;";
-    wrap "N++;return -N>>1;";
-    wrap "N++;I64 *p=Q;return (p-(Q+1))/2;";
-    wrap ~declarations:"U8 Q[4];" "N++;U8 *p=Q;return (p-(Q+1))/2;";
     "#exe {I64 Q[4];I64 Saved(I64 x=(Q-Q)){return \
      x;}StreamPrint(\"%d;\",Saved());}";
   ]
@@ -285,6 +281,10 @@ let gates () =
           wrap "N++;return 84/2;";
           wrap "N++;return 42+(-1/2);";
           wrap "N++;return 41+9%2;";
+          wrap "N++;return 38+(N<<2);";
+          wrap "N++;return 43+(-N>>1);";
+          wrap "N++;I64 *p=Q;return 43+(p-(Q+1))/2;";
+          wrap ~declarations:"U8 Q[4];" "N++;U8 *p=Q;return 43+(p-(Q+1))/2;";
         ])
     T.modes;
   List.iter

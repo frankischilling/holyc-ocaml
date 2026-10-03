@@ -830,6 +830,14 @@ let retained_initializer_guard () =
     (run session task "I64 Wrap(){return Shift(21);}"
     |> Test_integer_program.checked);
   value 42L (run session task "Wrap();");
+  value 42L (run session task "I64 A=Shift(21);A;");
+  value 42L (run session task "I64 B=Wrap();B;");
+  value 42L (run session task "I64 F(){static I64 N=Wrap();return N;}F();");
+  ignore
+    (run session task
+       "I64 Raw(I64 n,I64 count){return n<<count;}I64 RawWrap(){return \
+        Raw(21,1);}"
+    |> Test_integer_program.checked);
   List.iter
     (fun text ->
       let before = Task.executed_steps task in
@@ -838,9 +846,9 @@ let retained_initializer_guard () =
         "initializer guard runs before execution" before
         (Task.executed_steps task))
     [
-      "I64 N=Shift(21);";
-      "I64 N=Wrap();";
-      "I64 F(){static I64 N=Wrap();return N;}";
+      "I64 C=Raw(21,1);";
+      "I64 D=RawWrap();";
+      "I64 RawStatic(){static I64 N=RawWrap();return N;}";
     ]
 
 let retained_function_depth_limit () =

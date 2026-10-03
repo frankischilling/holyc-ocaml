@@ -3,7 +3,10 @@
 Retained calls can prepare original scalar pointer differences at every
 integer/Bool width. The owning completed context admits only its original
 size divisions; saved numeric results survive later offset changes. Generic
-division, modulo and shifts retain their optimizer gates. See
+division and modulo retain their optimizer gates. Original full-word constant
+shifts and supported scalar right-shift updates also prepare through published
+retained callees; see [retained shift preparation](prepared-integer-shifts.md).
+See
 [retained pointer differences](prepared-pointer-difference.md).
 
 Scheduled defaults retain the private lowering result for their original typed

@@ -94,11 +94,14 @@ let increment = function
   | O.Ic_pp_ | Ic_mm_ | Ic__pp | Ic__mm -> true
   | _ -> false
 
-let safe_compound scalar opcode right =
-  match opcode with
+let safe_compound scalar (item : Seq.description) right =
+  match item.opcode with
   | O.Ic_and_equ -> Scalar.is_unsigned scalar || fits scalar right
   | Ic_div_equ -> Scalar.is_unsigned scalar || excludes (-1L) right
   | Ic_mod_equ -> true
+  | Ic_shr_equ ->
+      item.flags = 0L
+      && option_exists (fun bits -> bits >= 0L && bits <= 63L) right.constant
   | Ic_or_equ | Ic_xor_equ -> fits scalar right
   | Ic_add_equ | Ic_sub_equ -> right.constant = Some 0L
   | Ic_mul_equ -> right.constant = Some 0L || right.constant = Some 1L
@@ -406,6 +409,16 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
           | [ _; rhs ] -> number rhs
           | _ -> unknown
         in
+        let preserving_shift type_ =
+          item.opcode = O.Ic_shr_equ
+          && option_exists
+               (fun scalar -> safe_compound scalar item right)
+               (Scalar.of_type type_)
+        in
+        let exact_update target type_ =
+          exact_memory target type_
+          || (preserving_shift type_ && invariant_narrow_read target type_)
+        in
         let writes =
           match item.operands with
           | target :: _ when item.opcode = O.Ic_assign || update item.opcode
@@ -413,8 +426,9 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
               match address target with
               | Reference (_, [], Register_candidate location) ->
                   let bounded =
-                    item.opcode = O.Ic_assign
-                    && fits_type (Frame.location_checked_type location) right
+                    let type_ = Frame.location_checked_type location in
+                    (item.opcode = O.Ic_assign && fits_type type_ right)
+                    || preserving_shift type_
                   in
                   Locations.update
                     (Frame.location_symbol location |> Sema.Symbol.id)
@@ -447,7 +461,7 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
           else if not is_narrow_update then None
           else
             match (item.operands, item.target_type) with
-            | target :: _, Some type_ when exact_memory target type_ ->
+            | target :: _, Some type_ when exact_update target type_ ->
                 let scalar = Option.get (Scalar.of_type type_) in
                 if
                   discarded_bit_hazard scalar item.opcode right
@@ -464,7 +478,7 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
                      operation outside its narrow object"
                 else if
                   increment item.opcode
-                  || safe_compound scalar item.opcode right
+                  || safe_compound scalar item right
                   || source_discard || narrow_sink
                 then None
                 else
@@ -491,12 +505,12 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
               | _, _, Some type_, _
                 when is_narrow_update
                      && (match (item.operands, item.target_type) with
-                       | target :: _, Some type_ -> exact_memory target type_
+                       | target :: _, Some type_ -> exact_update target type_
                        | _ -> false)
                      && (increment item.opcode
                         || safe_compound
                              (Option.get (Scalar.of_type type_))
-                             item.opcode right) -> storage_number type_
+                             item right) -> storage_number type_
               | _ ->
                   scalar_number item.target_type item.opcode
                     (List.map number item.operands)
@@ -510,8 +524,9 @@ let check_graph ~globals ~frame ~compiler_options ~terminal graph =
             in
             check ~verify ~proven writes addresses numbers rest)
   in
-  (* Every write to an ordinary candidate must fit its declared range, and any direct
-     update disqualifies it. This is a whole-graph range invariant, not a guess
+  (* Every write to an ordinary candidate must fit its declared range. A
+     bounded right shift preserves that range; other direct updates disqualify it.
+     This is a whole-graph range invariant, not a guess
      from its first initializer. Explicit hardware registers never qualify.
      Seed from constants/memory and native declared-width parameter entry, then
      admit dependent locals to a fixed point;

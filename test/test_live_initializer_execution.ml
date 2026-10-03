@@ -206,6 +206,20 @@ let literal_owner () =
 
 let optimizer_guards () =
   List.iter
+    (fun (body, expected) ->
+      let parsed, task =
+        run_result
+          ("I64 N=0;I64 Touch(){N=42;" ^ body ^ "};I64 A[2]={40,Touch()};")
+      in
+      ignore (Test_parser.expect_ast parsed);
+      Alcotest.(check int64)
+        "original shift preserves the prior leaf" 40L (read task "A[0];");
+      Alcotest.(check int64)
+        "original shift stores its source value" expected (read task "A[1];");
+      Alcotest.(check int64)
+        "reached original call effects" 42L (read task "N;"))
+    [ ("return N<<2;", 168L); ("return N/2;", 21L) ];
+  List.iter
     (fun body ->
       let parsed, task =
         run_result
@@ -217,7 +231,7 @@ let optimizer_guards () =
         (read task "A[0];");
       Alcotest.(check int64)
         "guard runs before the rejected call has effects" 0L (read task "N;"))
-    [ "return N<<2;"; "return N/2;" ]
+    [ "return N<<N;"; "return N/3;"; "return N%2;" ]
 
 let instruction_budget () =
   let text = {|I64 Add(I64 a,I64 b){return a+b;};77;I64 N=Add(20,22);N;|} in

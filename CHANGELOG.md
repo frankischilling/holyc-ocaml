@@ -2,18 +2,25 @@
 
 ## Unreleased
 
+- Added retained preparation of original integer constant shifts and supported
+  scalar right-shift updates, including power-of-two division reductions.
+  Default/global/static values save once; original effects, fault phases,
+  narrow range invariants and work limits remain checked. Tests compare nineteen
+  repeated native fields. Unsealed preparation and native retained publication
+  keep their existing boundaries.
+
 - Added verified integer source division and remainder reductions. Constant
   arithmetic folds, literal power-of-two division becomes a shift, unsigned
   remainder becomes a mask, and scalar compound updates keep their addressed
   effects. Early comparison classes and complete merged counts are preserved.
   Constant signed overflow fails during compilation; zero divisors fault when
-  reached. Nonconstant division preparation and broader optimizer work remain
+  reached. General division preparation and broader optimizer work remain
   open. Source and native tests compare 38 repeated native fields.
 
 - Added preparation of wider scalar pointer differences reached through
   retained calls. The completed original source context authorizes only its
-  original size divisions. Defaults execute once; generic division, modulo,
-  shifts and separate native preparation boundaries remain gated.
+  original size divisions. Defaults execute once; generic division, modulo
+  and separate native preparation boundaries remain gated.
 
 - Added owned scalar pointer difference to IR and hosted native programs.
   Original byte subtraction and optional pointee-size division return signed

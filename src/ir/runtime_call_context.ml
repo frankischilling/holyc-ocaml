@@ -351,6 +351,71 @@ let is_original_pointer_difference_division divisions
   | Some original -> original == description
   | None -> false
 
+type preparation_shifts = Seq.description Instructions.t
+
+let original_preparation_shifts context ~owner =
+  let word (item : Seq.description) =
+    Option.fold ~none:false
+      ~some:(fun type_ ->
+        Type.pointer_depth type_ = 0
+        &&
+        match Type.base type_ with
+        | Type.Primitive (_, (Sema.Primitive_type.I64 | U64)) -> true
+        | _ -> false)
+      item.target_type
+  in
+  if not (source_producers_match context) then None
+  else
+    Option.map
+      (fun graph ->
+        let produced =
+          Instructions.fold
+            (fun _ (item : Seq.description) produced ->
+              match item.result with
+              | Some result -> Values.add result.value_id item produced
+              | None -> produced)
+            graph.source_producers Values.empty
+        in
+        Instructions.filter
+          (fun _ (item : Seq.description) ->
+            item.flags = 0L
+            &&
+            match (item.opcode, item.operands, item.payload) with
+            | ( (Opcode.Ic_shl_const | Ic_shr_const),
+                [ operand ],
+                Some (Seq.Integer _) ) ->
+                word item
+                && Option.fold ~none:false ~some:word
+                     (Values.find_opt operand produced)
+            | Opcode.Ic_shr_equ, [ _; count ], None ->
+                Option.is_some
+                  (Option.bind item.target_type Integer_scalar_storage.of_type)
+                && Option.fold ~none:false
+                     ~some:(fun (right : Seq.description) ->
+                       right.opcode = Opcode.Ic_imm_i64
+                       && right.flags = 0L && right.operands = []
+                       && Option.fold ~none:false
+                            ~some:(fun type_ ->
+                              Type.pointer_depth type_ = 0
+                              && Type.base type_
+                                 = Type.Primitive
+                                     ( Type.Internal_storage,
+                                       Sema.Primitive_type.I64 ))
+                            right.target_type
+                       &&
+                       match right.payload with
+                       | Some (Seq.Integer bits) -> bits >= 0L && bits <= 63L
+                       | _ -> false)
+                     (Values.find_opt count produced)
+            | _ -> false)
+          graph.source_producers)
+      (find_graph context owner)
+
+let is_original_preparation_shift shifts (description : Seq.description) =
+  match Instructions.find_opt description.instruction_id shifts with
+  | Some original -> original == description
+  | None -> false
+
 let find_start context ~owner id =
   Option.bind (find_graph context owner) (fun graph ->
       Instructions.find_opt id graph.calls)

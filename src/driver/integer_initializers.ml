@@ -505,6 +505,10 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                       Runtime.original_pointer_difference_divisions context
                         ~owner)
                 in
+                let shifts =
+                  Option.bind runtime (fun (context, owner) ->
+                      Runtime.original_preparation_shifts context ~owner)
+                in
                 let rec check pure = function
                   | [] -> Ok ()
                   | (item : Seq.description) :: rest ->
@@ -531,7 +535,13 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                             | Ic_shr_const
                             | Ic_shl_equ
                             | Ic_shr_equ ),
-                            _ ) -> true
+                            _ ) ->
+                            not
+                              (Option.fold ~none:false
+                                 ~some:(fun shifts ->
+                                   Runtime.is_original_preparation_shift shifts
+                                     item)
+                                 shifts)
                         | ( (Ir.Opcode.Ic_div | Ic_mod | Ic_div_equ | Ic_mod_equ),
                             [ _; right ] )
                           when not constant ->

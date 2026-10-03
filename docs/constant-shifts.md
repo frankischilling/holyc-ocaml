@@ -130,9 +130,12 @@ immediate words. Narrow destinations apply their existing storage conversion;
 this does not authorize narrowing the shift itself. Live retained calls may
 contain those folded words and still execute their other effects once. The
 original declaration/leaf/default completion proofs, source ownership and
-cumulative allowances remain required. Nonconstant preparation shifts and
-compound shifts retain `HCRUN0006`; native retained frontend publication retains
-`HCPP0008`. Closed native initializers still reject reads and effectful calls.
+cumulative allowances remain required. Original full-word constant shifts and
+supported scalar right-shift updates also prepare through published retained
+callees. See [retained shift preparation](prepared-integer-shifts.md).
+Unsealed/raw preparation shifts retain `HCRUN0006`; native retained frontend
+publication retains `HCPP0008`. Closed native initializers still reject reads
+and effectful calls.
 
 The fixture keeps the historical raw baseline at
 `3ba28b0da0e9f93dae3978f51cef5f4897f3e897`: six fields (RH1, LN64, RN64, UN64,
