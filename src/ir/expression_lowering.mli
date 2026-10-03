@@ -87,8 +87,10 @@ val lower_typed_result :
     lowering enables the verified full-width integer rewrite before allocation
     and source publication. It folds constant children, combines complete
     same-direction counts and preserves surviving classes, established unsigned
-    comparison decisions and single evaluation. Shared/address plans and other
-    operand domains retain their raw contract. *)
+    comparison decisions and single evaluation. Public call and cast computation
+    classes survive until each operation applies its own forwarding rule; unary
+    negation distinguishes them from internal unsigned values. Shared/address
+    plans and other operand domains retain their raw contract. *)
 
 val lower_initializer :
   frame:Sema.Function_frame_layout.function_layout ->

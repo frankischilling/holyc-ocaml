@@ -1611,5 +1611,16 @@ and charges each reached instruction once. `src/backend/x86_64_word_codegen.ml`
 and `src/backend/x86_64_encoder.ml` consume the canonical form without an RCX
 count value. `test/test_constant_shifts.ml` links expected bits to captured
 fields, and the native suite executes both expression and program images.
-This settles the policy in #574. The public raw source pipeline still differs
-on six fields; #585/#696/#697 retain source optimizer integration.
+This settles the canonical policy in #574. #787 connects all 49 captured fields
+to public program execution; raw fragment APIs retain their opt-in contract.
+#585/#696/#697 retain division and general optimizer work.
+
+The public computation-class regression in #790 follows
+`OptPass012.HC:180-192`, which changes internal unsigned unary-minus operands to
+their signed class while preserving public unsigned call/cast operands.
+`PrsVar.HC:13,130` forwards variable producers; `OptLib.HC:196-225` forwards
+unary consumers. `test/oracle/public-shift-classes.json` records four native
+fields twice and three function listings through their first return. Source
+shift planning preserves the checked public form until the operation's own
+class rule applies. The maintained example returns 42 in both source modes and
+execution targets.

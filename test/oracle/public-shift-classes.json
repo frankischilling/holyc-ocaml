@@ -1,0 +1,411 @@
+{
+  "fixture_version": 1,
+  "id": "arithmetic/public-shift-classes-001",
+  "reference": {
+    "repository": "https://github.com/cia-foundation/TempleOS",
+    "commit": "c26482bb6ad3f80106d28504ec5db3c6a360732c",
+    "release_tag": "final",
+    "release_url": "https://github.com/cia-foundation/TempleOS/releases/tag/final",
+    "asset": "TOS_Distro.ISO",
+    "published_sha1": "1a1ec79990e21fa3d66ac680009da63d3ac512b0",
+    "verified_sha256": "3c68ca395d0b64f779f1ffa330e2685798b17862e3c36ae4e349537fd676b40b"
+  },
+  "environment": {
+    "date": "2026-10-02",
+    "hypervisor": "QEMU 9.2.0 (v9.2.0-12071-g3dd0aeb44b)",
+    "host": "Windows x86-64",
+    "accelerator": "tcg",
+    "vcpu_count": 1,
+    "memory_mib": 512,
+    "network": "disabled",
+    "boot_media": "verified ISO attached read-only",
+    "persistent_disk": false,
+    "display": "none; PNG captures through owned QMP stdio relay on loopback",
+    "compilation_mode": "TempleOS native JIT shell with default compiler options",
+    "target": "TempleOS x86-64",
+    "implementation_baseline_commit": "b4948b78d8d009f75e0486a333f896c339a56dd5"
+  },
+  "input_delivery": {
+    "qmp_command": "input-send-event",
+    "key_events": "modifier down; 40 ms; key down; 50 ms; key up; 40 ms; modifier up",
+    "inter_key_milliseconds": 80,
+    "pre_submit_settle_milliseconds": 500,
+    "post_line_milliseconds": 2000,
+    "source_validation": "Each accepted pre-submit image contains the exact requested command, decoded with the pinned font."
+  },
+  "setup": [
+    "Decline installation and the tour.",
+    "AutoComplete(OFF);WinMax;"
+  ],
+  "observation_method": "Read original screen pixels using the exact pinned Kernel/FontStd.HC glyph table; visually check key values and instruction captures. Values below are transcribed native fields, not computed expected results.",
+  "repeatability": {
+    "boots": 1,
+    "runs_per_field": 2,
+    "fields": 4,
+    "result_observations": 8,
+    "scope": "Identical fields in two runs within one boot; cross-boot stability is not claimed."
+  },
+  "source_references": [
+    "Compiler/PrsVar.HC:13,130",
+    "Compiler/OptLib.HC:196-225",
+    "Compiler/OptPass012.HC:180-266",
+    "Compiler/BackA.HC:573-601"
+  ],
+  "checks": [
+    {
+      "id": "define-NPUB",
+      "kind": "definition",
+      "command": "DocClear;U64 O585NPUB(U64 x){return (-x)>>1;}",
+      "source_capture": {
+        "file": "define-NPUB-source.png",
+        "sha256": "fb233fbc8fdf351316111c24cdf2eba3ebd1e265dca0a43cc4b319e6246482bb"
+      },
+      "result_capture": {
+        "file": "define-NPUB-result.png",
+        "sha256": "62ef508d94ed55a575cfbbe62a9ebaf7bd8d58116dbe160b2639ff11b9c442eb"
+      },
+      "observed_output": [],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-WORD",
+      "kind": "definition",
+      "command": "DocClear;U64 O585WORD(){return 7;}",
+      "source_capture": {
+        "file": "define-WORD-source.png",
+        "sha256": "b228264c780159da14f1de75dcaca80c6c7413a4a44b25772bc25fbcab6a4a23"
+      },
+      "result_capture": {
+        "file": "define-WORD-result.png",
+        "sha256": "94abdf1b7633615f7e5fe2321c3df15115c4cc5f6bd1acf0404eb73543b6fccc"
+      },
+      "observed_output": [],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-NCALL",
+      "kind": "definition",
+      "command": "DocClear;U64 O585NCALL(){return (-O585WORD())>>1;}",
+      "source_capture": {
+        "file": "define-NCALL-source.png",
+        "sha256": "a662bf810ed7d6b23a467221f5d8ce8778298b6ffe1bd5127dfaecc5aece3b96"
+      },
+      "result_capture": {
+        "file": "define-NCALL-result.png",
+        "sha256": "363f91cc295c81f90b2e51152bb37a644400bd138c78d73f688940101275f291"
+      },
+      "observed_output": [],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-NCAST",
+      "kind": "definition",
+      "command": "DocClear;U64 O585NCAST(){return (-7(U64))>>1;}",
+      "source_capture": {
+        "file": "define-NCAST-source.png",
+        "sha256": "1ad5d2a5f4dc11c7c38474470dfff85d0d118481e849186fe6bc5a0760d9dc8a"
+      },
+      "result_capture": {
+        "file": "define-NCAST-result.png",
+        "sha256": "04860e807e2899baccba0f233988321b07abd1c3eb703a8bbdc77f71d1ac2216"
+      },
+      "observed_output": [],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-NCOMP",
+      "kind": "definition",
+      "command": "DocClear;I64 O585NCOMP(){return ((-O585WORD())>>1)<0;}",
+      "source_capture": {
+        "file": "define-NCOMP-source.png",
+        "sha256": "9700c846ffbeb983bd9dc3c30d80235fcd8869828206d937fbf476d478da8ceb"
+      },
+      "result_capture": {
+        "file": "define-NCOMP-result.png",
+        "sha256": "f32ca68d735037bd0b0b95926a5ebd0ca6dd537037b661246a3ca634ffcb9a28"
+      },
+      "observed_output": [],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "define-D2U",
+      "kind": "definition",
+      "command": "DocClear;I64 O585D2U(I64 x){return x/2(U64);}",
+      "source_capture": {
+        "file": "define-D2U-source.png",
+        "sha256": "8cf0052d09f4d277c656d3918015ddcc6ff9698ad29a34430e265dab8aa51a30"
+      },
+      "result_capture": {
+        "file": "define-D2U-result.png",
+        "sha256": "dc11fdd8338961eda2e95d6fb54d3598dcf58bcda563a919ab15ba50d5f6d72b"
+      },
+      "observed_output": [],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-PUBLIC-A-retry1",
+      "kind": "result",
+      "command": "DocClear;\"DV_A_PUBLIC:NPUB=%016X|NCALL=%016X|NCAST=%016X|NCOMP=%016X|D2U=%016X\\n\",O585NPUB(7),O585NCALL(),O585NCAST(),O585NCOMP(),O585D2U(-7);",
+      "source_capture": {
+        "file": "result-PUBLIC-A-retry1-source.png",
+        "sha256": "06d91ff1fe10b2429d9e73c18decebc1f76b9e844c6c02998c82c09cc559f523"
+      },
+      "result_capture": {
+        "file": "result-PUBLIC-A-retry1-result.png",
+        "sha256": "474b86984b5f519bcdb6adb6ca5fd954f4fcb7551b8c76baff5534112e15f982"
+      },
+      "observed_fields": {
+        "NPUB": "FFFFFFFFFFFFFFFC",
+        "NCALL": "7FFFFFFFFFFFFFFC",
+        "NCAST": "7FFFFFFFFFFFFFFC",
+        "NCOMP": "0000000000000000",
+        "D2U": "FFFFFFFFFFFFFFFC"
+      },
+      "observed_output": [
+        "DV_A_PUBLIC:NPUB=FFFFFFFFFFFFFFFC|NCALL=7FFFFFFFFFFFFFFC|NCAST=7FFFFFFFFFFFFFFC|NCOMP=0000000000000000|D2U=FFFFFFFFFFFFFFFC"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "result-PUBLIC-B-retry1",
+      "kind": "result",
+      "command": "DocClear;\"DV_B_PUBLIC:NPUB=%016X|NCALL=%016X|NCAST=%016X|NCOMP=%016X|D2U=%016X\\n\",O585NPUB(7),O585NCALL(),O585NCAST(),O585NCOMP(),O585D2U(-7);",
+      "source_capture": {
+        "file": "result-PUBLIC-B-retry1-source.png",
+        "sha256": "01031c2dcc3557e4142508c4f290ebcd8b27c379998dab5cc7325fc7160a4d9e"
+      },
+      "result_capture": {
+        "file": "result-PUBLIC-B-retry1-result.png",
+        "sha256": "b077eae983d60f1857c2d7d83596272e5fe36c21ed15a79b4342e06b186149e9"
+      },
+      "observed_fields": {
+        "NPUB": "FFFFFFFFFFFFFFFC",
+        "NCALL": "7FFFFFFFFFFFFFFC",
+        "NCAST": "7FFFFFFFFFFFFFFC",
+        "NCOMP": "0000000000000000",
+        "D2U": "FFFFFFFFFFFFFFFC"
+      },
+      "observed_output": [
+        "DV_B_PUBLIC:NPUB=FFFFFFFFFFFFFFFC|NCALL=7FFFFFFFFFFFFFFC|NCAST=7FFFFFFFFFFFFFFC|NCOMP=0000000000000000|D2U=FFFFFFFFFFFFFFFC"
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "disasm-NPUB",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O585NPUB);",
+      "source_capture": {
+        "file": "disasm-NPUB-source.png",
+        "sha256": "cc4460eb62bec34006d3742b948e6b01367d24fd4da4cfda9a43680df04da702"
+      },
+      "result_capture": {
+        "file": "disasm-NPUB-result.png",
+        "sha256": "36288a980c85dfd89b89dbdf3b7b5e2cf304640b18a4442335c15b19dfccd5cf"
+      },
+      "function_instructions_through_first_return": [
+        {
+          "symbol": "O585NPUB",
+          "offset": "0000",
+          "bytes": "55",
+          "text": "PUSH      U64 RBP"
+        },
+        {
+          "symbol": "O585NPUB",
+          "offset": "0001",
+          "bytes": "488BEC",
+          "text": "MOV       U64 RBP,U64 RSP"
+        },
+        {
+          "symbol": "O585NPUB",
+          "offset": "0004",
+          "bytes": "56",
+          "text": "PUSH      U64 RSI"
+        },
+        {
+          "symbol": "O585NPUB",
+          "offset": "0005",
+          "bytes": "488B7510",
+          "text": "MOV       U64 RSI,U64 10[RBP]"
+        },
+        {
+          "symbol": "O585NPUB",
+          "offset": "0009",
+          "bytes": "488BC6",
+          "text": "MOV       U64 RAX,U64 RSI"
+        },
+        {
+          "symbol": "O585NPUB",
+          "offset": "000C",
+          "bytes": "48F7D8",
+          "text": "NEG       U64 RAX"
+        },
+        {
+          "symbol": "O585NPUB",
+          "offset": "000F",
+          "bytes": "48D1F8",
+          "text": "SAR1      U64 RAX"
+        },
+        {
+          "symbol": "O585NPUB",
+          "offset": "0012",
+          "bytes": "5E",
+          "text": "POP       U64 RSI"
+        },
+        {
+          "symbol": "O585NPUB",
+          "offset": "0013",
+          "bytes": "5D",
+          "text": "POP       U64 RBP"
+        },
+        {
+          "symbol": "O585NPUB",
+          "offset": "0014",
+          "bytes": "C20800",
+          "text": "RET1      I16 0008"
+        }
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "disasm-NCALL",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O585NCALL);",
+      "source_capture": {
+        "file": "disasm-NCALL-source.png",
+        "sha256": "e5ed4dc57a55a9d335757c355bb6e3f0292e3507162496540ff2a4b6c0ef9501"
+      },
+      "result_capture": {
+        "file": "disasm-NCALL-result.png",
+        "sha256": "e076feb8b0d9a3bbf319e7b993f1e80c4fb83fd43ce99c660d080850901cc2b7"
+      },
+      "function_instructions_through_first_return": [
+        {
+          "symbol": "O585NCALL",
+          "offset": "0000",
+          "bytes": "55",
+          "text": "PUSH      U64 RBP"
+        },
+        {
+          "symbol": "O585NCALL",
+          "offset": "0001",
+          "bytes": "488BEC",
+          "text": "MOV       U64 RBP,U64 RSP"
+        },
+        {
+          "symbol": "O585NCALL",
+          "offset": "0004",
+          "bytes": "E8F7090100",
+          "text": "CALL      I32 ????????????????"
+        },
+        {
+          "symbol": "O585NCALL",
+          "offset": "0009",
+          "bytes": "48F7D8",
+          "text": "NEG       U64 RAX"
+        },
+        {
+          "symbol": "O585NCALL",
+          "offset": "000C",
+          "bytes": "48D1E8",
+          "text": "SHR1      U64 RAX"
+        },
+        {
+          "symbol": "O585NCALL",
+          "offset": "000F",
+          "bytes": "5D",
+          "text": "POP       U64 RBP"
+        },
+        {
+          "symbol": "O585NCALL",
+          "offset": "0010",
+          "bytes": "C3",
+          "text": "RET"
+        }
+      ],
+      "first_failing_phase": "none"
+    },
+    {
+      "id": "disasm-NCAST",
+      "kind": "disassembly",
+      "command": "DocClear;U(&O585NCAST);",
+      "source_capture": {
+        "file": "disasm-NCAST-source.png",
+        "sha256": "0be9cdfcb701b9e4bf711d9bfaf0654ca769afbc77886f3f3d23434a37fc747d"
+      },
+      "result_capture": {
+        "file": "disasm-NCAST-result.png",
+        "sha256": "e17c32583bf7f3988c2b69077c06ef9406bdc57badfba7726c3182675c304526"
+      },
+      "function_instructions_through_first_return": [
+        {
+          "symbol": "O585NCAST",
+          "offset": "0000",
+          "bytes": "55",
+          "text": "PUSH      U64 RBP"
+        },
+        {
+          "symbol": "O585NCAST",
+          "offset": "0001",
+          "bytes": "488BEC",
+          "text": "MOV       U64 RBP,U64 RSP"
+        },
+        {
+          "symbol": "O585NCAST",
+          "offset": "0004",
+          "bytes": "48B8FCFFFFFF",
+          "text": "MOV       U64 RAX,I64 7FFFFFFFFFFFFFFC"
+        },
+        {
+          "symbol": "O585NCAST",
+          "offset": "000A",
+          "bytes": "FFFFFF7F",
+          "text": ""
+        },
+        {
+          "symbol": "O585NCAST",
+          "offset": "000E",
+          "bytes": "5D",
+          "text": "POP       U64 RBP"
+        },
+        {
+          "symbol": "O585NCAST",
+          "offset": "000F",
+          "bytes": "C3",
+          "text": "RET"
+        }
+      ],
+      "first_failing_phase": "none"
+    }
+  ],
+  "hosted_value_projections": [
+    {
+      "field": "NPUB",
+      "case_id": "result-PUBLIC-A-retry1",
+      "repeat_case_id": "result-PUBLIC-B-retry1",
+      "holy_c_source": "U64 O585NPUB(U64 x){return (-x)>>1;}O585NPUB(7);",
+      "result_type": "U64"
+    },
+    {
+      "field": "NCALL",
+      "case_id": "result-PUBLIC-A-retry1",
+      "repeat_case_id": "result-PUBLIC-B-retry1",
+      "holy_c_source": "U64 O585WORD(){return 7;}U64 O585NCALL(){return (-O585WORD())>>1;}O585NCALL();",
+      "result_type": "U64"
+    },
+    {
+      "field": "NCAST",
+      "case_id": "result-PUBLIC-A-retry1",
+      "repeat_case_id": "result-PUBLIC-B-retry1",
+      "holy_c_source": "U64 O585NCAST(){return (-7(U64))>>1;}O585NCAST();",
+      "result_type": "U64"
+    },
+    {
+      "field": "NCOMP",
+      "case_id": "result-PUBLIC-A-retry1",
+      "repeat_case_id": "result-PUBLIC-B-retry1",
+      "holy_c_source": "U64 O585WORD(){return 7;}I64 O585NCOMP(){return ((-O585WORD())>>1)<0;}O585NCOMP();",
+      "result_type": "I64"
+    }
+  ],
+  "boundary": "The D2U field in the same result commands is ancillary evidence for issue #585 and is not projected or claimed by this fixture. Machine listings stop at the first return; bytes printed afterward are not part of the recorded function. Colored call-target text was not decoded, so only its instruction bytes are recorded."
+}

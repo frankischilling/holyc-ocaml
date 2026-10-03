@@ -72,6 +72,82 @@ let dense_ids ds =
     (List.init (List.length ids) Fun.id)
     ids
 
+let public_classes () =
+  let fixture = Public_shift_class_cases.fixture () in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun projection ->
+          let source =
+            Public_shift_class_cases.field projection "holy_c_source"
+          in
+          let _, execution = success mode source in
+          let expected =
+            Public_shift_class_cases.observed fixture projection "case_id"
+          in
+          let expected_type =
+            if Public_shift_class_cases.field projection "result_type" = "U64"
+            then VM.U64
+            else VM.I64
+          in
+          (match VM.final_value execution with
+          | Some word ->
+              Alcotest.(check int64)
+                "captured public-class bits" expected word.bits;
+              Alcotest.(check bool)
+                "declared result class" true
+                (word.type_ = expected_type)
+          | None -> Alcotest.fail "public-class source returned no word");
+          let steps = VM.executed_steps execution in
+          (match
+             integer_program_report_outcome (run ~max_steps:steps mode source)
+           with
+          | Ok checked ->
+              Alcotest.(check int)
+                "exact public-class allowance" steps
+                (VM.executed_steps checked.value)
+          | Error ds -> Alcotest.fail (A.diagnostics ds));
+          (match
+             integer_program_report_outcome
+               (run ~max_steps:(steps - 1) mode source)
+           with
+          | Error (d :: _) ->
+              Alcotest.(check string)
+                "one-below public-class allowance" "HCIRVM0007" d.code
+          | _ -> Alcotest.fail "one-below public-class execution succeeded");
+          let unit_ = (A.fixture ~source mode).Native_scalar_fixture.unit_ in
+          let ds =
+            Unit.functions unit_
+            |> List.concat_map (fun fn ->
+                let ds = Ir_function_body.x87 fn.VM.body |> descriptions in
+                dense_ids ds;
+                ds)
+          in
+          let field = Public_shift_class_cases.field projection "field" in
+          match shifts ds with
+          | [ d ] ->
+              Alcotest.(check bool)
+                "canonical right shift" true
+                (d.opcode = Op.Ic_shr_const);
+              Alcotest.(check int64) "zero shift flags" 0L d.flags;
+              Alcotest.(check bool)
+                "complete immediate count" true
+                (d.payload = Some (Seq.Integer 1L));
+              let primitive =
+                if field = "NPUB" then Primitive_type.I64 else U64
+              in
+              Alcotest.(check bool)
+                "forwarded consumer computation class" true
+                (Option.fold ~none:false
+                   ~some:(fun t ->
+                     Type.base t
+                     = Type.Primitive (Type.Internal_storage, primitive))
+                   d.target_type)
+          | _ ->
+              Alcotest.fail "public-class shift has the wrong canonical shape")
+        (Public_shift_class_cases.projections fixture))
+    modes
+
 let shapes () =
   List.iter
     (fun mode ->
@@ -372,6 +448,8 @@ let boundaries () =
 let tests =
   [
     Alcotest.test_case "captured fields and following consumers" `Quick values;
+    Alcotest.test_case "public call and cast classes survive negation" `Quick
+      public_classes;
     Alcotest.test_case "complete count payloads and dense source identities"
       `Quick shapes;
     Alcotest.test_case "transitive original source ownership" `Quick authority;

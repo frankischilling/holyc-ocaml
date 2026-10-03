@@ -338,6 +338,11 @@ values, immediate encodings and checked canonical IR execution. The public
 program pipeline now matches all 49 captured fields in both modes and targets.
 Broader optimizer work remains under #585/#696/#697.
 
+`examples/public-shift-classes.hc` returns I64 42 in both modes through IR and
+host-native execution. It checks the different negation classes of unsigned
+variables, public call results and explicit casts before a constant right shift,
+including a following comparison.
+
 ## Integer source execution
 
 `holyc run --target=ir examples/integer-pointers.hc` passes a caller's local to

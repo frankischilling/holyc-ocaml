@@ -67,22 +67,38 @@ let () =
       fixture |> member "checks" |> to_list
       |> List.find (fun check -> check |> member "id" = `String case_id)
     in
-    let prefix = (projection |> member "field" |> to_string) ^ "=" in
-    let token =
-      check |> member "observed_output" |> to_list |> List.map to_string
-      |> List.concat_map (String.split_on_char ' ')
-      |> List.filter (String.starts_with ~prefix)
-    in
-    match token with
-    | [ token ] ->
+    match check |> member "observed_fields" with
+    | `Assoc fields ->
         let bits =
-          String.sub token (String.length prefix)
-            (String.length token - String.length prefix)
+          List.assoc (projection |> member "field" |> to_string) fields
+          |> to_string
         in
         `String (Printf.sprintf "0x%016Lx" (Int64.of_string ("0x" ^ bits)))
-    | _ -> failwith "expected exactly one captured native field"
+    | _ -> (
+        let prefix = (projection |> member "field" |> to_string) ^ "=" in
+        let token =
+          check |> member "observed_output" |> to_list |> List.map to_string
+          |> List.concat_map (String.split_on_char ' ')
+          |> List.filter (String.starts_with ~prefix)
+        in
+        match token with
+        | [ token ] ->
+            let bits =
+              String.sub token (String.length prefix)
+                (String.length token - String.length prefix)
+            in
+            `String (Printf.sprintf "0x%016Lx" (Int64.of_string ("0x" ^ bits)))
+        | _ -> failwith "expected exactly one captured native field")
   in
-  require (List.length projections = 49) "49 source controls required";
+  let expected_count =
+    match fixture |> member "id" |> to_string with
+    | "arithmetic/constant-shifts-001" -> 49
+    | "arithmetic/public-shift-classes-001" -> 4
+    | _ -> failwith "unknown native shift fixture"
+  in
+  require
+    (List.length projections = expected_count)
+    "complete source controls required";
   let target = if native then "host-jit" else "ir" in
   List.iter
     (fun mode ->
@@ -100,6 +116,13 @@ let () =
             (report |> member "final_value" |> member "bits"
            = native_bits projection)
             (label ^ " source bits differ from native capture");
+          (match projection |> member "result_type" with
+          | `String type_ ->
+              require
+                (report |> member "final_value" |> member "type"
+                = `String (String.lowercase_ascii type_))
+                (label ^ " declared result class")
+          | _ -> ());
           require
             (report |> member "output_byte_length" = `Int 0)
             (label ^ " unexpected source output");
@@ -109,4 +132,5 @@ let () =
         projections)
     [ "jit"; "aot" ];
   Printf.printf
-    "98 %s source controls match captured native bits in both modes.\n" target
+    "%d %s source controls match captured native bits in both modes.\n"
+    (2 * expected_count) target

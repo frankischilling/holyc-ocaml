@@ -97,6 +97,27 @@ intermediate pure shift or count disappears. Following arithmetic, unary and
 comparison consumers use the surviving computation class. An established
 unsigned comparison keeps its unsigned word view.
 
+Public call results and explicit casts keep their checked computation class
+until the consuming operation forwards it. For example, `(-Word())>>1` with
+`U64 Word(){return 7;}` and `(-7(U64))>>1` both return
+`7FFFFFFFFFFFFFFC`. An ordinary `U64` parameter in `(-x)>>1` returns
+`FFFFFFFFFFFFFFFC`: its variable producer has already forwarded to the internal
+unsigned class, which negation changes to signed. The shift then forwards that
+surviving class. Normalizing a public call or cast before negation instead
+changes this decision and produces an invalid typed sequence.
+
+`test/oracle/public-shift-classes.json` records these three values and the
+following unsigned comparison with zero, each captured twice in one native
+boot. Its function listings confirm arithmetic shift for the variable, logical
+shift for the call and a folded immediate for the cast. Listings stop at the
+first return. The additional division field in those result commands stays
+outside this fixture's projections under #585. The source, CLI and native tests
+check both source modes; native tests compile both status ABIs, replay fresh
+images and enforce exact and one-below instruction allowances.
+
+`examples/public-shift-classes.hc` returns I64 42 through `run --target=ir` and
+`run --target=host-jit` in both source modes.
+
 Checked calls still require the original argument source class and span. When a
 rewrite changes that class, the composer appends a full-width word view before
 pushing the argument. The view preserves bits and costs one IR instruction.

@@ -2824,8 +2824,16 @@ let optimize_shift_plan nodes =
     and types = ref Int_map.empty
     and unsigned_comparisons = ref Int_map.empty in
     let lookup result = Int_map.find_opt (result_key result) !values in
+    let signed_word type_ =
+      Type.pointer_depth type_ = 0
+      &&
+      match Type.base type_ with
+      | Type.Primitive (_, Sema.Primitive_type.I64) -> true
+      | _ -> false
+    in
     let common left right =
-      if internal_i64 left && internal_i64 right then left
+      if signed_word left && signed_word right then
+        Sema.Integer_computation_class.forward left
       else internal_u64_type
     in
     let original result =
@@ -2834,7 +2842,9 @@ let optimize_shift_plan nodes =
             Some
               {
                 declared;
-                computation = Sema.Integer_computation_class.forward declared;
+                computation =
+                  Option.value ~default:declared
+                    (Semantic_result.result_computation_type result);
                 bits = None;
                 shift = None;
               }
@@ -2891,7 +2901,13 @@ let optimize_shift_plan nodes =
                 ( node,
                   match (default, lookup operand) with
                   | Some value, Some input ->
-                      Some { value with computation = input.computation }
+                      Some
+                        {
+                          value with
+                          computation =
+                            Sema.Integer_computation_class.forward
+                              input.computation;
+                        }
                   | _ -> default )
             | Unary
                 { opcode = Opcode.Ic_not; operand; conversion = Keep_result; _ }
@@ -2988,7 +3004,10 @@ let optimize_shift_plan nodes =
                                     (operand, Int64.add previous_count count)
                                 | _ -> (left, count)
                               in
-                              let computation = l.computation in
+                              let computation =
+                                Sema.Integer_computation_class.forward
+                                  l.computation
+                              in
                               ( Constant_shift
                                   {
                                     result;
