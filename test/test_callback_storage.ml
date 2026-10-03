@@ -633,6 +633,97 @@ let scalar_callback_storage_execution () =
         ])
     modes
 
+let static_callback_storage_execution () =
+  let cases =
+    [
+      ( "I64 Add(I64 n){return n+2;}I64 Run(I64 set){static I64 (*p)(I64 \
+         n);if(set)p=&Add;return p(40);}Run(1);Run(0);",
+        42L );
+      ( "I64 Add(I64 n){return n+2;}I64 Run(){static I64 (*p)(I64 n),(*q)(I64 \
+         n);p=&Add;q=p;p=0;return q(40);}Run();",
+        42L );
+      ( "I64 Add(I64 n){return n+2;}I64 Run(){static I64 (*p)(I64 \
+         n);p=&Add;return p(p=0);}Run();",
+        2L );
+      ( "I64 Add(I64 n=17){return n;}I64 Run(){static I64 (*p)(I64 \
+         n=42);p=&Add;return p();}Run();",
+        42L );
+      ( "I64 Sum(I64 n,...){return n+argc+argv[0]+argv[1];}I64 Run(){static \
+         I64 (*p)(I64 n,...);p=&Sum;return p(37,1,2);}Run();",
+        42L );
+      ( "I64 A(){return 1;}I64 B(){return 2;}I64 Left(){static I64 \
+         (*p)();p=&A;return p();}I64 Right(){static I64 (*p)();p=&B;return \
+         p();}Left()*100+Right();",
+        102L );
+      ( "I64 A(){return 1;}I64 Run(){static F64 (*p)();p=&A;return p==&A;}Run();",
+        1L );
+      ( "I64 A(){return 1;}I64 Run(){static U0 (*p)();p=&A;return p==&A;}Run();",
+        1L );
+      ( "class Box{I64 n;};I64 A(){return 1;}I64 Run(){static Box \
+         (*p)();p=&A;return p==&A;}Run();",
+        1L );
+      ( "I64 Take(I64 a,I64 b){return a*10+b;}I64 Run(){I64 n=0;static I64 \
+         (*p)(I64 a,I64 b);p=&Take;return p(++n,++n);}Run();",
+        21L );
+      ( "I64 Add(I64 n){return n+2;}I64 Bad(I64 a,I64 b){return a+b;}I64 \
+         Run(){static I64 (*p)(I64 n);p=&Bad;p=&Add;return p(40);}Run();",
+        42L );
+      ( "I64 Walk(I64 n){static I64 (*p)(I64 n);p=&Walk;if(n)return \
+         p(n-1)+1;return 0;}Walk(8);",
+        8L );
+    ]
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (source, expected) ->
+          ignore
+            (Test_integer_globals.run ~mode source
+            |> Test_integer_functions.expect expected))
+        cases)
+    modes
+
+let static_callback_reached_faults () =
+  let prefix =
+    "extern U0 Print(U8 *fmt,...);I64 Bad(I64 a,I64 b){return a+b;}I64 \
+     Side(){Print(\"arg\");return 40;}"
+  in
+  List.iter
+    (fun mode ->
+      List.iter
+        (fun (initial, code) ->
+          let source =
+            prefix ^ "I64 Run(){static I64 (*p)(I64 n);p=" ^ initial
+            ^ ";return p(Side());}Print(\"before\");Run();"
+          in
+          ignore
+            (Test_integer_output.run ~mode source
+            |> Test_integer_output.fault ~output:"beforearg" code))
+        [ ("0", "HCIRVM0024"); ("123", "HCIRVM0024"); ("&Bad", "HCIRVM0014") ];
+      ignore
+        (Test_integer_globals.run ~mode
+           "I64 Run(){static I64 (*p)(I64 n);p=0;if(0)p(40);return 42;}Run();"
+        |> Test_integer_functions.expect 42L);
+      ignore
+        (Test_integer_output.run ~mode
+           "extern U0 Print(U8 *fmt,...);U0 Write(I64 n){Print(\"%d\",n);}I64 \
+            Run(){static U0 (*p)(I64 n);p=&Write;p(42);return 42;}Run();"
+        |> Test_integer_output.expect "42"))
+    modes;
+
+  List.iter
+    (fun (mode, code, output) ->
+      ignore
+        (Test_integer_output.run ~mode
+           (prefix
+          ^ "I64 Run(){static I64 (*p)(I64 n);return \
+             p(Side());}Print(\"before\");Run();")
+        |> Test_integer_output.fault ~output code))
+    [
+      (Preprocessor.Jit, "HCIRVM0012", "before");
+      (Preprocessor.Aot, "HCIRVM0024", "beforearg");
+    ]
+
 let function_address_receipts () =
   let module G = Test_integer_globals in
   let module C = Ir_runtime_call_context in
@@ -967,14 +1058,14 @@ let callback_exact_budgets () =
         ])
     modes
 
-let callback_graph_ownership () =
+let callback_graph_ownership_for storage =
   let module VM = Ir_integer_interpreter in
   let module C = Ir_runtime_call_context in
   let module Graph = Ir_block_graph in
   let module Seq = Ir_instruction_sequence in
   let source =
-    "I64 Add(I64 n){return n+2;}I64 Run(){I64 (*p)(I64 n);p=&Add;return \
-     p(40);}Run();"
+    "I64 Add(I64 n){return n+2;}I64 Run(){" ^ storage
+    ^ "I64 (*p)(I64 n);p=&Add;return p(40);}Run();"
   in
   List.iter
     (fun mode ->
@@ -1024,6 +1115,9 @@ let callback_graph_ownership () =
                  errors)
       in
       reject "raw callback graph has no source authority" (execute ());
+      let foreign = Test_integer_globals.compile ~mode source in
+      reject "foreign callback graph cannot provide original authority"
+        (execute ~runtime_calls:(integer_program_runtime_calls foreign) ());
       let rec find = function
         | [] -> None
         | instruction :: rest as cell ->
@@ -1048,6 +1142,59 @@ let callback_graph_ownership () =
       reject "changed callback graph cannot retain original authority"
         (execute ~runtime_calls:context ()))
     modes
+
+let callback_graph_ownership () = callback_graph_ownership_for ""
+let static_callback_graph_ownership () = callback_graph_ownership_for "static "
+
+let static_callback_limits_and_boundaries () =
+  let source =
+    "I64 Add(I64 n){return n+2;}I64 Run(){static I64 (*p)(I64 n);p=&Add;return \
+     p(40);}Run();"
+  in
+  List.iter
+    (fun mode ->
+      let result =
+        Test_integer_globals.run ~mode source
+        |> Test_integer_functions.expect 42L
+      in
+      let steps = Ir_integer_interpreter.executed_steps result in
+      ignore
+        (Test_integer_globals.run ~mode ~max_steps:steps ~max_global_bytes:8
+           ~max_frame_bytes:8 ~max_call_depth:2 source
+        |> Test_integer_functions.expect 42L);
+      List.iter
+        (fun (code, result) ->
+          Alcotest.(check string)
+            "one below static callback budget" code
+            (Test_integer_functions.first_error result).code)
+        [
+          ( "HCIRVM0007",
+            Test_integer_globals.run ~mode ~max_steps:(steps - 1) source );
+          ( "HCIRVM0016",
+            Test_integer_globals.run ~mode ~max_global_bytes:7 source );
+          ( "HCIRVM0011",
+            Test_integer_globals.run ~mode ~max_frame_bytes:7 source );
+          ("HCIRVM0015", Test_integer_globals.run ~mode ~max_call_depth:1 source);
+        ];
+      List.iter
+        (fun (text, code) ->
+          Alcotest.(check string)
+            "static callback boundary" code
+            (Test_integer_functions.first_error
+               (Test_integer_globals.run ~mode text))
+              .code)
+        [
+          ("I64 Run(){static I64 (*p)()=0;return 42;}Run();", "HCPARSE0137");
+          ("I64 Run(){static I64 (*p)()[2];return 42;}Run();", "HCRUN0001");
+          ("I64 Run(){static I64 (**p)();return 42;}Run();", "HCRUN0001");
+        ])
+    modes;
+  ignore
+    (Test_integer_globals.run ~mode:Preprocessor.Jit
+       "I64 A(){return 1;}I64 Run(I64 set){static I64 \
+        (*p)();if(set)p=&A;return p();}Run(1);I64 A(){return \
+        2;}Run(0)*100+A();"
+    |> Test_integer_functions.expect 102L)
 
 let callback_parameter_defaults_execute () =
   List.iter
@@ -1634,6 +1781,14 @@ let anonymous_defaults_require_original_producers () =
 
 let tests =
   [
+    Alcotest.test_case "static callback cells retain stored executable owners"
+      `Quick static_callback_storage_execution;
+    Alcotest.test_case "static callback faults follow original argument effects"
+      `Quick static_callback_reached_faults;
+    Alcotest.test_case "static callback graphs require original source owners"
+      `Quick static_callback_graph_ownership;
+    Alcotest.test_case "static callback limits and unsupported preparation"
+      `Quick static_callback_limits_and_boundaries;
     Alcotest.test_case
       "class callback position defaults prepare original lexical writes" `Quick
       anonymous_position_defaults_execute;

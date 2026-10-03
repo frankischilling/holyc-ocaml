@@ -1004,7 +1004,17 @@ let lower_indirect ~frame ?globals ?lower_call ?optimize_shifts
         Sema.Function_frame_layout.location_dimensions location = []
         && (match Sema.Function_frame_layout.location_kind location with
           | Named_parameter | Automatic_local -> true
-          | Variadic_argc | Variadic_argv | Static_local -> false)
+          | Static_local ->
+              Option.fold ~none:false
+                ~some:(fun globals ->
+                  Option.fold ~none:false
+                    ~some:(fun slot ->
+                      Integer_globals.static_frame slot == frame
+                      && Integer_globals.static_location slot == location)
+                    (Integer_globals.find_static globals
+                       (Sema.Function_frame_layout.location_symbol location)))
+                globals
+          | Variadic_argc | Variadic_argv -> false)
         && Option.fold ~none:false ~some:(( == ) pointer)
              (Sema.Function_frame_layout.location_callback_pointer location))
   in

@@ -497,6 +497,10 @@ let storage_type = function
   | Global slot -> slot.type_
   | Static slot -> Integer_statics.type_ slot
 
+let storage_callback_pointer = function
+  | Global _ | Declared _ -> None
+  | Static slot -> Integer_statics.callback_pointer slot
+
 let storage_opcode = function
   | Declared _ -> Opcode.Ic_imm_i64
   | Global slot -> slot.opcode

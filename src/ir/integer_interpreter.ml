@@ -3318,6 +3318,11 @@ let declared_types ?frame ?globals ?literals ?initialization
                    Option.is_some slot.slot_callback
                    && slot.strides = []
                    && Type.equal type_ slot.slot_type
+               | Some (Global_address slot) ->
+                   Option.is_some
+                     (Integer_globals.storage_callback_pointer slot)
+                   && Integer_globals.storage_dimensions slot = []
+                   && Type.equal type_ (Integer_globals.storage_type slot)
                | _ -> false)
            | _ -> false
          in
@@ -3508,7 +3513,9 @@ let storage_operand ?(allow_array = false) frame initialization types
       let type_ = Integer_globals.storage_type slot in
       Option.map
         (fun kind -> (Global_slot slot, type_, kind))
-        (stored_type type_)
+        (if Option.is_some (Integer_globals.storage_callback_pointer slot) then
+           Some (Stored_word I64)
+         else stored_type type_)
   | _, Some (Indexed_address (pointer_type, remaining))
     when allow_array || remaining = [] -> (
       match Type.dereference pointer_type with
@@ -5271,6 +5278,18 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                             (Load_slot
                                ( Frame_slot (index, 1),
                                  callback.callback_capture_value ))
+                      | Some (Global_address slot)
+                        when Option.fold ~none:false
+                               ~some:(( == ) callback.callback_pointer)
+                               (Integer_globals.storage_callback_pointer slot)
+                             && Option.fold ~none:false
+                                  ~some:(( == ) frame.layout)
+                                  (Integer_globals.storage_frame slot)
+                             && Integer_globals.storage_dimensions slot = [] ->
+                          call_instruction description
+                            (Load_slot
+                               ( Global_slot slot,
+                                 callback.callback_capture_value ))
                       | _ ->
                           Error
                             (call_error description
@@ -5526,6 +5545,8 @@ let storage_word slot bits =
         (Integer_globals.storage_type slot)
     with
     | Some type_ -> type_
+    | None when Option.is_some (Integer_globals.storage_callback_pointer slot)
+      -> I64
     | None -> assert false
   in
   { type_; bits = Scalar.narrow_bits (Integer_globals.storage_type slot) bits }

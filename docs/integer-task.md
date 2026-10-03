@@ -112,6 +112,17 @@ authorize a charge or skip a pending dimension. The separate inert adoption API
 still imports already reached dimension work atomically and permits retry when
 its preparation preflight fails.
 
+Scalar static callback locals retain the exact declaring frame, local binding
+and anonymous signature. Their pointer word uses persistent task storage,
+independently of the callback return class. Assignment, copying, clearing and
+integer/U0 invocation preserve the original executable owner across calls and
+JIT same-name replacement. Invocation captures that owner before right-to-left
+arguments and checks the reached signature after argument effects. Saved
+integer defaults and word variadic tails use the original callback header.
+Static cells charge the persistent byte quota; they add no automatic frame
+slot. Static callback initializers, arrays, updates and native invocation remain
+unfinished under [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801).
+
 Each deferred operation requires its exact active journal event. Failure or
 exception revokes that authority, including saved storage and command admission;
 source promotion alone remains inert. The final result requires the exact

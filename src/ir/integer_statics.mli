@@ -21,6 +21,10 @@ val location : slot -> Sema.Function_frame_layout.location
 val shape : slot -> Integer_storage_shape.t
 val symbol : slot -> Sema.Symbol.t
 val type_ : slot -> Sema.Type.t
+
+val callback_pointer :
+  slot -> Sema.Function_type_resolution.function_pointer option
+
 val compiler_options : slot -> int64
 val opcode : slot -> Opcode.t
 

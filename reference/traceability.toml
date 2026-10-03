@@ -12928,7 +12928,7 @@ storage = "Opaque code values survive ordinary full-word locals/globals, full-wo
 comparisons = "Equality and inequality compare original registered links, prepared body/callee and executable owner; null compares unequal to owned code. Nonzero numeric comparison and numeric consumers fail when reached with HCIRVM0024, preserving earlier output."
 resources = "Original source producers use ordinary instruction ticks; callback frame cells occupy eight bytes. Exact and one-below actual instruction and frame limits are exercised."
 verification_boundary = "Six new groups exercise 44 JIT/AOT source programs plus JIT same-name replacement, exact original receipts, copied/foreign/missing contexts and reached fault effects. Earlier callback native controls are retained separately and do not validate this new IR execution implementation."
-excluded = ["concrete numeric code addresses and arithmetic", "numeric code address output and returns", "callback globals/statics/arrays and updates", "callback default materialization", "unresolved extern address slots and live task address linking", "indirect invocation and reached signature/lifetime checks", "hosted native address and callback emission", "general F64/mixed/aggregate callback execution under issue 688"]
+excluded = ["concrete numeric code addresses and arithmetic", "numeric code address output and returns", "callback globals/arrays, static callback initializers and updates", "callback default materialization", "unresolved extern address slots and live task address linking", "indirect invocation and reached signature/lifetime checks", "hosted native address and callback emission", "general F64/mixed/aggregate callback execution under issue 688"]
 
 [[feature]]
 id = "HC-IR-SCALAR-FRAME-CALLBACK-INVOCATION"
@@ -12952,7 +12952,7 @@ argument_order = "Callee evaluation and capture precede saved RAX and right-to-l
 cleanup = "Only one-star scalar automatic and named parameter frame cells authorize this consumer. Original local/parameter PrsType passes fsp_flags=0; anonymous PrsFunJoin derives RET1 for nonvariadic argument bytes in 1..32767. CALL_INDIRECT carries argument bytes. Callee pop uses ADD_RSP1(arguments) then ADD_RSP(8); caller pop uses ADD_RSP(arguments+8). The actual target flags do not select the caller policy."
 reached_checks = "Null/numeric callees fail with HCIRVM0024. Reached return/fixed/variadic signature or cleanup mismatches fail with HCIRVM0014 after argument effects. Unused mismatches can be overwritten before invocation. Whole-graph and receipt failures reject at preflight with zero executed steps. Live task expiry is outside this retained-owner consumer."
 verification_boundary = "Four new groups exercise 36 JIT/AOT explicit-argument invocation programs, reached output effects, skipped null calls, original and copied receipts, missing/copied graph authority and exact/one-below step, frame and depth limits. A JIT source program invokes the earlier executable after a same-name replacement. Earlier TempleOS JIT controls remain separate; this implementation has no hosted native callback proof."
-excluded = ["callback globals/statics/arrays and updates", "anonymous callback signature defaults and owned-code parameter defaults", "dereferenced and multistar invocation", "concrete numeric code addresses", "live task linking and reached expiry", "hosted native function addresses and callbacks", "F64/mixed/aggregate callback execution under issue 688"]
+excluded = ["callback globals/arrays, static callback initializers and updates", "anonymous callback signature defaults and owned-code parameter defaults", "dereferenced and multistar invocation", "concrete numeric code addresses", "live task linking and reached expiry", "hosted native function addresses and callbacks", "F64/mixed/aggregate callback execution under issue 688"]
 
 [[feature]]
 id = "HC-IR-CALLBACK-PARAMETER-WORD-DEFAULTS"
@@ -13024,3 +13024,27 @@ semantics = "CCF_CLASS_DOL_OFFSET is set by class-body parsing and restored on e
 execution = "Class-position defaults lower to their original I64 value and run once through ordinary default evaluation. JIT retained functions and effects consume the position during declaration; AOT prepares closed constants and seals their actual saved words. Retained class callback layout requires the original completed anonymous header and uses RT_PTR storage independently of return class. Ordinary $$ stays an instruction address and remains outside scalar default execution."
 verification_boundary = "Class defaults cover first/second writes, nested/trailing delimiters, skipped semicolons, variadic headers, raw saved words with original parameter type, return/storage separation, actual saved values and consumed seals, once-only retained JIT calls/effects, reached faults with output, exact preparation/runtime limits and ordinary selector restoration. AOT authority tests reject copied nodes, foreign or missing writes, substituted fragments and replay. This establishes declaration-time IR evaluation and class size metadata, not stored class callback invocation, a new independent TempleOS comparison or hosted native callbacks."
 excluded = ["ordinary instruction-address defaults", "stored class callback invocation", "AOT reference-bearing default relocation", "F64 default expressions", "owned-code defaults", "aggregate callback execution", "hosted native callback/default emission", "live task expiry"]
+
+[[feature]]
+id = "HC-IR-SCALAR-STATIC-CALLBACK-INVOCATION"
+description = "Scalar static callback cells preserve original executable owners across calls and invoke through checked integer/U0 IR."
+sources = [
+  "Compiler/PrsVar.HC:285-369 anonymous callback header and internal RT_PTR storage independent of return class",
+  "Compiler/PrsVar.HC:490-535 static member flags and local PrsType with zero function specifier flags",
+  "Compiler/PrsVar.HC:537-571 eight-byte padded persistent JIT/AOT allocation and initialization",
+  "Compiler/PrsExp.HC:383-588 callee capture before reverse arguments, saved defaults, hidden argc and source cleanup",
+  "Compiler/PrsStmt.HC:62-139 anonymous PrsFunJoin and derived RET1 flag"
+]
+implementation = ["src/ir/integer_statics.ml", "src/ir/integer_globals.ml", "src/ir/global_address_lowering.ml", "src/ir/direct_call_lowering.ml", "src/ir/integer_interpreter.ml"]
+tests = ["test/test_callback_storage.ml"]
+documentation = ["docs/compatibility.md", "docs/holy-abi.md", "docs/integer-task.md", "docs/task-function-joins.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "The exact original frame location, local binding and anonymous header authorize a one-star scalar persistent word. Callback return types do not select storage. The original global-address producer and callback graph retain their physical source receipts; copied or foreign graphs provide no authority."
+execution = "Static cells survive calls within the same execution and retain opaque original executable owners through assignment, copy, clearing and comparison. Calls capture that value before right-to-left argument effects. Original callback defaults, fixed slots, word tails and cleanup flags govern integer/U0 invocation. JIT same-name replacement preserves the earlier stored body. Reached null/numeric or signature faults preserve argument output."
+limits = "Each scalar static cell charges eight persistent bytes and no automatic frame slot. Tests exercise exact and one-below persistent storage, frame, instruction and call-depth quotas."
+initial_image = "Uninitialized JIT static cells retain the hosted unknown-value boundary. The AOT image contains numeric zero, which carries no executable capability. Static callback initializer syntax remains rejected."
+verification_boundary = "Source-grounded IR tests do not establish a new independent TempleOS native comparison or hosted native callback emission."
+excluded = ["global/array/member callback storage", "static callback initializers", "callback updates", "owned-code and instruction-address defaults", "dereferenced and multistar calls", "live task linking and expiry", "hosted native callbacks", "general F64/mixed/aggregate execution under issue 688"]

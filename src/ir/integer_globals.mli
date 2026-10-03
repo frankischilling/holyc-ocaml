@@ -249,6 +249,10 @@ val storage_strides : storage_slot -> int64 list
 val cell_count : t -> int
 val storage_symbol : storage_slot -> Sema.Symbol.t
 val storage_type : storage_slot -> Sema.Type.t
+
+val storage_callback_pointer :
+  storage_slot -> Sema.Function_type_resolution.function_pointer option
+
 val storage_opcode : storage_slot -> Opcode.t
 val storage_initial_bits : storage_slot -> int64 option
 val storage_preparation_steps : storage_slot -> int

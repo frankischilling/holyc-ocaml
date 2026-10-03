@@ -43,13 +43,20 @@ addresses and scalar frame loads check the exact frame binding and declarator.
 Calls retain their original callee value before arguments, and the callee
 fragment loads and captures a supported frame callback in RAX. Resolved function addresses now retain their original registered publication,
 prepared body and executable owner in the IR runner. Scalar automatic callback
-locals and named callback parameters can store, copy, clear and compare those
+locals, scalar static locals and named callback parameters can store, copy, clear and compare those
 values in JIT and AOT mode. An isolated JIT source bundle retains earlier
 function-address values across same-name replacement. Scalar frame callbacks
 now invoke the captured original prepared body, including an earlier executable
 after a later same-name publication. The callee is captured before right-to-left
 arguments. Reached target mismatches preserve earlier argument effects.
-Live task address linking, callback globals/statics/arrays, owned-code defaults and native
+Scalar static callback cells use the original local binding, declaring frame and
+anonymous header. Their eight-byte storage belongs to the persistent arena and
+survives calls in the same execution. Invocation uses the captured executable
+owner, the callback's saved defaults and its original cleanup flags. Static
+callback initializers remain rejected; JIT uninitialized cells remain unknown,
+while the AOT initial image contains a numeric zero with no executable authority.
+
+Live task address linking, callback globals/arrays, static callback initializers, owned-code defaults and native
 invocation remain under [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801). The broader callback and mixed-value ABI requirements remain in
 [issue #688](https://github.com/frankischilling/holyc-ocaml/issues/688).
 

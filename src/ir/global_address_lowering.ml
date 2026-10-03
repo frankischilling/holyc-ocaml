@@ -270,8 +270,8 @@ let prepare ?frame ~globals result =
                   match
                     ( span,
                       Type.pointer_to
-                        (Sema.Function_frame_layout.location_checked_type
-                           (Integer_globals.static_location slot)) )
+                        (Integer_globals.storage_type
+                           (Integer_globals.static_storage slot)) )
                   with
                   | Some span, Ok address_type ->
                       Ok

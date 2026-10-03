@@ -78,7 +78,7 @@ The IR runner now resolves checked JIT immediate and AOT absolute `&Function`
 producers to their original registered publication and prepared integer/U0 body.
 It carries an opaque value with that executable owner through ordinary word
 locals, globals, full-word casts and explicit fixed parameters. Scalar automatic
-callback locals and named callback parameters use the original declarator to
+callback locals, scalar static locals and named callback parameters use the original declarator to
 select eight-byte storage, including signatures that return F64 or U0. Plain
 assignment, copies, clearing to zero and equality with owned code or null execute
 in both source modes. JIT replacement keeps the earlier address bound to its
@@ -128,7 +128,7 @@ constant-divisor preparation that needs unresolved optimizer behavior rejects
 before execution.
 
 These values do not supply concrete numeric addresses. Address arithmetic,
-numeric address output, callback globals/statics/arrays and updates,
+numeric address output, callback globals/arrays, static callback initializers and updates,
 owned-code defaults, dereferenced or multistar callback forms, live task
 address linking and hosted native emission remain unfinished. F64 and aggregate
 callback execution remain outside this integer/U0 consumer. The tests exercise IR execution; the
