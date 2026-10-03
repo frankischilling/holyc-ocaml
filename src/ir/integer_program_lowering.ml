@@ -90,7 +90,7 @@ let span_of_result fallback result =
   | _ -> fallback
 
 let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
-    ?(function_calls = []) ~span statements =
+    ?(function_calls = []) ?(callback_calls = []) ~span statements =
   try
     let instruction_count = ref 0
     and value_count = ref 0
@@ -342,7 +342,25 @@ let lower_complete ?frame ?globals ?records ?labels ?(top_calls = [])
                   ~optimize_division:true ?frame ?globals
                   ~lower_call:(direct_call_in frame) ~instruction_id ~value_id
                   ~target value
-            | None -> Ok Direct_call_lowering.Unsupported_call)
+            | None -> (
+                match (frame, Typed.result_call_resolution value) with
+                | Some frame, Some (Source.Indirect_call resolution) -> (
+                    match
+                      List.find_opt
+                        (fun call ->
+                          call |> Typed.indirect_source
+                          |> Sema.Function_call_conversion_policy
+                             .indirect_source
+                          |> fun original -> original == resolution)
+                        callback_calls
+                    with
+                    | Some call ->
+                        Direct_call_lowering.lower_indirect ~frame
+                          ~optimize_shifts:true ~optimize_division:true ?globals
+                          ~lower_call:(direct_call_in (Some frame))
+                          ~instruction_id ~value_id ~call value
+                    | None -> Ok Direct_call_lowering.Unsupported_call)
+                | _ -> Ok Direct_call_lowering.Unsupported_call))
       in
       Result.map
         (function

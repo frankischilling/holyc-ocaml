@@ -53,9 +53,26 @@ and selected declarator, loads a supported frame cell, retags its producer to
 internal `RT_PTR`, and emits `IC_SET_RAX` followed by `IC_NOP2`. This follows
 `PrsFunCall` before its call-start and saved-callee push. The fragment preserves
 the original loaded value and consumes no additional value identity. Argument
-pushes, saved-callee cleanup, retained executable selection and runtime dispatch
-remain unfinished. [Issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801)
-owns the execution connection.
+pushes and dispatch now compose through the ordinary integer program lowerer
+for one-star scalar automatic locals and named callback parameters. The original
+anonymous signature determines fixed slots, hidden argc and word variadic tails.
+Local and parameter `PrsType` passes zero function specifier flags;
+`PrsFunJoin` derives RET1 for nonvariadic argument bytes from 1 through 32767.
+The call therefore saves RAX before right-to-left arguments, uses argument bytes
+as the `IC_CALL_INDIRECT` payload, and emits either `IC_ADD_RSP1(arguments)`
+followed by `IC_ADD_RSP(8)`, or `IC_ADD_RSP(arguments+8)`. The final
+`IC_CALL_END` retains the original callback declarator. The reached target's
+flags are checked for compatibility; they do not choose the caller's cleanup.
+
+The IR interpreter captures the opaque executable value before arguments and
+dispatches through its original prepared body and owner. Explicit fixed slots,
+word variadic tails, nested calls, recursion and integer/U0 results execute in
+both source modes. Clearing the callback during an argument preserves the
+earlier captured target. Null and numeric callees fail when reached; a reached
+signature or cleanup mismatch also fails after argument effects. Unused
+mismatched values can be overwritten before a call. Missing source context or
+changed graph records fail before execution. [Issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801)
+tracks the remaining consumers.
 
 The IR runner now resolves checked JIT immediate and AOT absolute `&Function`
 producers to their original registered publication and prepared integer/U0 body.
@@ -69,8 +86,9 @@ original body. A matching name or numeric word cannot select executable code.
 
 These values do not supply concrete numeric addresses. Address arithmetic,
 numeric address output, callback globals/statics/arrays and updates, callback
-default materialization, live task address linking, indirect invocation and
-hosted native emission remain unfinished. The tests exercise IR execution; the
+default materialization, dereferenced or multistar callback forms, live task
+address linking and hosted native emission remain unfinished. F64 and aggregate
+callback execution remain outside this integer/U0 consumer. The tests exercise IR execution; the
 earlier native observations do not validate this new implementation. The [native JIT observations](../test/oracle/callback-storage-and-calls.json)
 include assignment, member storage, eight-byte updates, callee capture before
 arguments, right-to-left arguments, callback defaults and word variadic tails.

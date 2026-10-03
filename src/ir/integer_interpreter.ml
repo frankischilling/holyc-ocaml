@@ -199,6 +199,8 @@ and frame_context = {
 and prepared_operation =
   | Call_start of int option
   | Call of int
+  | Callback_start of prepared_value
+  | Callback_call of Runtime.callback_call
   | Retained_call of Retained_function.t
   | Extern_call of Runtime.call * stored_type array
   | Internal_strlen of prepared_pointer
@@ -2566,11 +2568,16 @@ let finish_isolated_preparation task preparation ~runtime_calls ~globals
       :: task.isolated_programs;
     Ok ())
 
-type call_phase = Collecting of int | Needs_cleanup | Needs_end
+type call_phase =
+  | Collecting of int
+  | Needs_cleanup
+  | Needs_saved_cleanup
+  | Needs_end
 
 type checked_call = {
   callee : callee;
   site : Runtime.call option;
+  callback : Runtime.callback_call option;
   remaining_arguments : Runtime.argument list option;
   phase : call_phase;
 }
@@ -4285,6 +4292,21 @@ let prepare_instruction ?frame ?globals ?literals ?initialization
 let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
     ?(retained_functions = []) ?(runtime_owner = Runtime.Entry) graph =
   let ( let* ) = Result.bind in
+  let callbacks =
+    Option.bind runtime_calls (fun context ->
+        Runtime.original_callback_calls context ~owner:runtime_owner)
+    |> Option.value ~default:[]
+  in
+  let callback_starts, callback_captures, callback_loads =
+    List.fold_left
+      (fun (starts, captures, loads) callback ->
+        ( Instruction_map.add callback.Runtime.callback_first callback starts,
+          Instruction_map.add callback.callback_capture callback captures,
+          Instruction_map.add callback.callback_load.instruction_id callback
+            loads ))
+      (Instruction_map.empty, Instruction_map.empty, Instruction_map.empty)
+      callbacks
+  in
   let function_addresses =
     Option.bind runtime_calls (fun context ->
         Runtime.original_function_addresses context ~owner:runtime_owner)
@@ -4392,7 +4414,155 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                   variadic = false;
                 }
           in
+          let callback_start =
+            Instruction_map.find_opt description.instruction_id callback_starts
+          in
+          let callback_capture =
+            if description.opcode = Opcode.Ic_set_rax then
+              Instruction_map.find_opt description.instruction_id
+                callback_captures
+            else None
+          in
+          let callback_balance =
+            if description.opcode = Opcode.Ic_nop2 then
+              match
+                Instruction_id.of_int
+                  (Instruction_id.to_int description.instruction_id + 1)
+              with
+              | Ok next -> Instruction_map.find_opt next callback_starts
+              | Error _ -> None
+            else None
+          in
           match (description.opcode, !calls) with
+          | Opcode.Ic_set_rax, _ when Option.is_some callback_capture ->
+              call_instruction description Frame_address_tick
+          | Opcode.Ic_nop2, _ when Option.is_some callback_balance ->
+              call_instruction description Frame_address_tick
+          | Opcode.Ic_call_start, stack when Option.is_some callback_start -> (
+              let callback = Option.get callback_start in
+              let parameter_types =
+                callback.Runtime.callback_arguments |> List.rev
+                |> List.map (fun argument ->
+                    let type_ = Runtime.argument_target_type argument in
+                    match
+                      scalar_value_type ~allow_byte:true ~allow_public:true
+                        type_
+                    with
+                    | Some word -> Some (Stored_word word)
+                    | None
+                      when Type.pointer_depth type_ = 1
+                           && Type.base type_
+                              = Type.Primitive
+                                  ( Type.Internal_storage,
+                                    Sema.Primitive_type.I64 ) ->
+                        Some (Stored_word I64)
+                    | None when scalar_pointer_type type_ ->
+                        Some (Stored_pointer type_)
+                    | _ -> None)
+              in
+              let symbol =
+                Option.bind frame (fun frame ->
+                    Frame.function_locations frame.layout
+                    |> List.find_opt (fun location ->
+                        Option.fold ~none:false
+                          ~some:(( == ) callback.callback_pointer)
+                          (Frame.location_callback_pointer location))
+                    |> Option.map Frame.location_symbol)
+              in
+              match
+                ( symbol,
+                  memory_operand_of_value types callback.callback_capture_value
+                )
+              with
+              | Some symbol, Some captured
+                when List.for_all Option.is_some parameter_types
+                     &&
+                     match stack with
+                     | [] | { phase = Collecting _; _ } :: _ -> true
+                     | _ -> false ->
+                  let callee =
+                    {
+                      callee_index = -1;
+                      callee_symbol = symbol;
+                      callee_definition = None;
+                      callee_return_type = callback.callback_return_type;
+                      parameter_types =
+                        Array.of_list (List.map Option.get parameter_types);
+                      cleanup_opcode =
+                        (if callback.callback_callee_pop then Opcode.Ic_add_rsp1
+                         else Opcode.Ic_add_rsp);
+                      frame_bytes = 0;
+                      variadic = false;
+                    }
+                  in
+                  calls :=
+                    {
+                      callee;
+                      site = None;
+                      callback = Some callback;
+                      remaining_arguments = Some callback.callback_arguments;
+                      phase = Collecting 0;
+                    }
+                    :: stack;
+                  call_instruction description (Callback_start captured)
+              | _ ->
+                  Error
+                    (call_error description
+                       "callback scope has no original frame cell or callee \
+                        value"))
+          | ( Opcode.Ic_push_regs,
+              { callback = Some callback; phase = Collecting 0; _ } :: _ )
+            when Instruction_id.equal description.instruction_id
+                   callback.callback_save ->
+              call_instruction description Frame_address_tick
+          | ( Opcode.Ic_call_indirect,
+              ({ callback = Some callback; phase = Collecting count; callee; _ }
+               as scope)
+              :: rest )
+            when Instruction_id.equal description.instruction_id
+                   callback.callback_instruction
+                 && count = Array.length callee.parameter_types ->
+              calls := { scope with phase = Needs_cleanup } :: rest;
+              call_instruction description (Callback_call callback)
+          | ( (Opcode.Ic_add_rsp | Ic_add_rsp1),
+              ({ callback = Some callback; phase = Needs_cleanup; _ } as scope)
+              :: rest )
+            when Instruction_id.equal description.instruction_id
+                   callback.callback_cleanup ->
+              calls :=
+                {
+                  scope with
+                  phase =
+                    (if callback.callback_callee_pop then Needs_saved_cleanup
+                     else Needs_end);
+                }
+                :: rest;
+              call_instruction description Call_cleanup
+          | ( Opcode.Ic_add_rsp,
+              ({ callback = Some callback; phase = Needs_saved_cleanup; _ } as
+               scope)
+              :: rest )
+            when Option.fold ~none:false
+                   ~some:(Instruction_id.equal description.instruction_id)
+                   callback.callback_saved_cleanup ->
+              calls := { scope with phase = Needs_end } :: rest;
+              call_instruction description Call_cleanup
+          | ( Opcode.Ic_call_end,
+              { callback = Some callback; phase = Needs_end; _ } :: rest )
+            when Instruction_id.equal description.instruction_id
+                   callback.callback_last -> (
+              calls := rest;
+              match checked_return_kind callback.callback_return_type with
+              | Some (Word_return word) ->
+                  call_instruction description
+                    (Call_end (callback.callback_result, word))
+              | Some Void_return ->
+                  call_instruction description
+                    (Call_end_void callback.callback_result)
+              | None ->
+                  Error
+                    (call_error description
+                       "callback has no supported return class"))
           | _, _
             when List.exists
                    (fun (intrinsic, _, _) ->
@@ -4910,6 +5080,7 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                         {
                           callee;
                           site;
+                          callback = None;
                           remaining_arguments =
                             Option.map Runtime.arguments site;
                           phase = Collecting 0;
@@ -5024,7 +5195,9 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
                 (call_error description
                    "direct call instructions have an invalid order, type or \
                     shape")
-          | _, { phase = Needs_cleanup | Needs_end; _ } :: _ ->
+          | ( _,
+              { phase = Needs_cleanup | Needs_saved_cleanup | Needs_end; _ }
+              :: _ ) ->
               Error
                 (call_error description
                    "direct call cleanup and call end must follow the call")
@@ -5050,47 +5223,75 @@ let prepare ?frame ?globals ?literals ?initialization ?callees ?runtime_calls
               else description
             in
             match
-              match original_function_address description with
-              | Some address ->
-                  let declaration =
-                    Runtime.function_address_declaration address
-                  in
-                  let local =
-                    Option.fold ~none:false
-                      ~some:(fun callees ->
+              match
+                Instruction_map.find_opt description.instruction_id
+                  callback_loads
+              with
+              | Some callback -> (
+                  match (frame, description.operands) with
+                  | Some frame, [ address ] -> (
+                      match Value_map.find_opt address types with
+                      | Some (Frame_address index)
+                        when Option.fold ~none:false
+                               ~some:(( == ) callback.callback_pointer)
+                               frame.slots.(index).slot_callback
+                             && frame.slots.(index).strides = [] ->
+                          call_instruction description
+                            (Load_slot
+                               ( Frame_slot (index, 1),
+                                 callback.callback_capture_value ))
+                      | _ ->
+                          Error
+                            (call_error description
+                               "callback load lost its original frame cell"))
+                  | _ ->
+                      Error
+                        (call_error description
+                           "callback load has no original frame address"))
+              | None -> (
+                  match original_function_address description with
+                  | Some address ->
+                      let declaration =
+                        Runtime.function_address_declaration address
+                      in
+                      let local =
+                        Option.fold ~none:false
+                          ~some:(fun callees ->
+                            List.exists
+                              (fun callee ->
+                                Option.fold ~none:false
+                                  ~some:(fun original ->
+                                    original == declaration)
+                                  callee.callee_definition)
+                              callees)
+                          callees
+                      in
+                      let retained =
                         List.exists
-                          (fun callee ->
-                            Option.fold ~none:false
-                              ~some:(fun original -> original == declaration)
-                              callee.callee_definition)
-                          callees)
-                      callees
-                  in
-                  let retained =
-                    List.exists
-                      (fun executable ->
-                        Retained_function.same executable.function_link
-                          (Runtime.function_address_link address)
-                        && Option.fold ~none:false
-                             ~some:(fun original -> original == declaration)
-                             executable.function_callee.callee_definition)
-                      retained_functions
-                  in
-                  if local || retained then
-                    call_instruction description
-                      (Function_address
-                         ((Option.get description.result).value_id, address))
-                  else
-                    Error
-                      (call_error description
-                         "function address has no original prepared executable \
-                          body")
-              | None ->
-                  if Option.is_some callees then
-                    prepare_call checked_description
-                  else
-                    prepare_instruction ?frame ?globals ?literals
-                      ?initialization block_index types block_id description
+                          (fun executable ->
+                            Retained_function.same executable.function_link
+                              (Runtime.function_address_link address)
+                            && Option.fold ~none:false
+                                 ~some:(fun original -> original == declaration)
+                                 executable.function_callee.callee_definition)
+                          retained_functions
+                      in
+                      if local || retained then
+                        call_instruction description
+                          (Function_address
+                             ((Option.get description.result).value_id, address))
+                      else
+                        Error
+                          (call_error description
+                             "function address has no original prepared \
+                              executable body")
+                  | None ->
+                      if Option.is_some callees then
+                        prepare_call checked_description
+                      else
+                        prepare_instruction ?frame ?globals ?literals
+                          ?initialization block_index types block_id description
+                  )
             with
             | Ok prepared ->
                 let control_transfer =
@@ -5271,6 +5472,7 @@ type call_scope = {
   arguments_rev : runtime_value list;
   completion : call_completion;
   publication_item : int option;
+  callback_value : runtime_value option;
 }
 
 type caller = {
@@ -5663,6 +5865,33 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                Type.equal (resolved expected) (resolved actual))
              expected actual
   in
+  let callback_signature_matches callback callee =
+    let module H = Sema.Function_type_resolution in
+    match callee.callee_definition with
+    | None -> false
+    | Some declaration ->
+        let header =
+          declaration |> Sema.Function_resolution.resolved_declaration_header
+        in
+        let signature = H.function_signature header in
+        let actual =
+          H.signature_parameters signature
+          |> List.map (fun parameter ->
+              match H.parameter_declarator_kind parameter with
+              | H.Function_pointer pointer ->
+                  H.function_pointer_storage_type pointer |> Result.get_ok
+              | H.Object ->
+                  parameter |> H.parameter_type_reference
+                  |> Sema.Type_reference.resolved_type)
+        in
+        Type.equal callee.callee_return_type
+          callback.Runtime.callback_return_type
+        && callee.variadic = Option.is_some callback.callback_variadic_count
+        && callee.cleanup_opcode = Opcode.Ic_add_rsp1
+           = callback.callback_callee_pop
+        && List.length actual = List.length callback.callback_fixed_types
+        && List.for_all2 Type.equal actual callback.callback_fixed_types
+  in
   let resolve_address block instruction location pointer_pointee =
     let root pointer_storage pointer_base pointer_count =
       Option.map
@@ -5963,12 +6192,25 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                 {
                   arguments_rev = [];
                   completion = Pending;
+                  callback_value = None;
                   publication_item =
                     (match item with
                     | Some _ -> item
                     | None -> !publication_item);
                 }
                 :: !calls
+          | Callback_start captured -> (
+              match require_value block instruction captured with
+              | Some value ->
+                  calls :=
+                    {
+                      arguments_rev = [];
+                      completion = Pending;
+                      publication_item = !publication_item;
+                      callback_value = Some value;
+                    }
+                    :: !calls
+              | None -> ())
           | Call_cleanup -> ()
           | Internal_integer (operation, operand, type_) -> (
               match (!calls, require_operand block instruction operand) with
@@ -6246,7 +6488,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     Some
                       (runtime_error ~instruction block !steps "HCIRVM0008"
                          "internal byte scan has no pending source call scope"))
-          | (Call _ | Retained_call _ | Extern_call _) as operation -> (
+          | (Call _ | Retained_call _ | Extern_call _ | Callback_call _) as
+            operation -> (
               let target =
                 match operation with
                 | Call index
@@ -6263,6 +6506,12 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                         ( executable.function_callee,
                           executable.function_program,
                           executable.function_owner ))
+                | Callback_call _ -> (
+                    match !calls with
+                    | { callback_value = Some (Runtime_code code); _ } :: _ ->
+                        Some
+                          (code.code_callee, code.code_program, code.code_owner)
+                    | _ -> None)
                 | Extern_call (site, _) ->
                     let visible_item =
                       match !calls with
@@ -6275,6 +6524,12 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
               match (!calls, target) with
               | ({ completion = Pending; _ } as scope) :: rest, None -> (
                   match operation with
+                  | Callback_call _ ->
+                      failed :=
+                        Some
+                          (runtime_error ~instruction block !steps "HCIRVM0024"
+                             "the reached callback has no owned executable \
+                              address")
                   | Extern_call (site, parameter_types) ->
                       if Option.is_some (Runtime.provider site) then
                         match
@@ -6308,6 +6563,8 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                   in
                   if
                     match operation with
+                    | Callback_call callback ->
+                        not (callback_signature_matches callback callee)
                     | Extern_call (site, _) ->
                         not (extern_signature_matches site callee)
                     | _ -> false
@@ -6315,8 +6572,13 @@ let execute_prepared ?(callees = [||]) ?(aot_linked = false)
                     failed :=
                       Some
                         (runtime_error ~instruction block !steps "HCIRVM0014"
-                           "published extern definition disagrees with the \
-                            captured call signature")
+                           (match operation with
+                           | Callback_call _ ->
+                               "the reached callback definition disagrees with \
+                                its original signature or cleanup policy"
+                           | _ ->
+                               "published extern definition disagrees with the \
+                                captured call signature"))
                   else if !depth >= max_call_depth then
                     failed :=
                       Some

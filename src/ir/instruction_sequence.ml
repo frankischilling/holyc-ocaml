@@ -44,6 +44,7 @@ type payload =
   | Float_bits of int64
   | Bytes of string
   | Symbol of Sema.Symbol.t
+  | Callback of Sema.Function_type_resolution.function_pointer
   | Retained_global of Retained_global.t
   | Block of Block_id.t
   | Block_targets of Block_id.t list
@@ -291,6 +292,15 @@ let add_payload buffer = function
       Printf.bprintf buffer " retained-global-v1:@s%d:"
         (Sema.Symbol.Id.to_int (Sema.Symbol.id symbol));
       add_escaped_bytes buffer (Sema.Symbol.name symbol)
+  | Callback pointer ->
+      let signature =
+        Sema.Function_type_resolution.function_pointer_signature pointer
+      in
+      Printf.bprintf buffer " callback-header:fixed=%d:variadic=%b"
+        (List.length
+           (Sema.Function_type_resolution.signature_parameters signature))
+        (Option.is_some
+           (Sema.Function_type_resolution.signature_variadic_origin signature))
   | Block block -> Printf.bprintf buffer " block:^b%d" (Block_id.to_int block)
   | Block_targets blocks ->
       Buffer.add_string buffer " blocks:[";

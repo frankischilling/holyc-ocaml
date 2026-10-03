@@ -45,9 +45,10 @@ fragment loads and captures a supported frame callback in RAX. Resolved function
 prepared body and executable owner in the IR runner. Scalar automatic callback
 locals and named callback parameters can store, copy, clear and compare those
 values in JIT and AOT mode. An isolated JIT source bundle retains earlier
-function-address values across same-name replacement. Live task address linking
-and selecting the retained executable for indirect invocation remain
-under [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801),
-including preserving an earlier selected executable across later same-name
-publications. The broader callback and mixed-value ABI requirements remain in
+function-address values across same-name replacement. Scalar frame callbacks
+now invoke the captured original prepared body, including an earlier executable
+after a later same-name publication. The callee is captured before right-to-left
+arguments. Reached target mismatches preserve earlier argument effects.
+Live task address linking, callback globals/statics/arrays, defaults and native
+invocation remain under [issue #801](https://github.com/frankischilling/holyc-ocaml/issues/801). The broader callback and mixed-value ABI requirements remain in
 [issue #688](https://github.com/frankischilling/holyc-ocaml/issues/688).

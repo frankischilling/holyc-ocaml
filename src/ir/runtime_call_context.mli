@@ -1,4 +1,5 @@
 type source =
+  | Callback_call of Sema.Function_call_expression_result.indirect_call
   | Function_call of Sema.Function_call_target_classification.t
   | Top_level_call of Sema.Top_level_function_call_target_classification.t
   | Function_output of Sema.Implicit_output_argument_binding.bound_output
@@ -27,6 +28,27 @@ type owner = Entry | Function of Function_body.t
 type argument_role = Fixed of int | Variadic_count | Variadic of int
 type argument
 type call
+
+type callback_call = private {
+  callback_source : Sema.Function_call_expression_result.indirect_call;
+  callback_pointer : Sema.Function_type_resolution.function_pointer;
+  callback_return_type : Sema.Type.t;
+  callback_first : Instruction_sequence.Instruction_id.t;
+  callback_last : Instruction_sequence.Instruction_id.t;
+  callback_capture : Instruction_sequence.Instruction_id.t;
+  callback_capture_value : Instruction_sequence.Value_id.t;
+  callback_load : Instruction_sequence.description;
+  callback_save : Instruction_sequence.Instruction_id.t;
+  callback_instruction : Instruction_sequence.Instruction_id.t;
+  callback_cleanup : Instruction_sequence.Instruction_id.t;
+  callback_saved_cleanup : Instruction_sequence.Instruction_id.t option;
+  callback_result : Instruction_sequence.Value_id.t;
+  callback_arguments : argument list;
+  callback_fixed_types : Sema.Type.t list;
+  callback_variadic_count : int64 option;
+  callback_callee_pop : bool;
+}
+
 type intrinsic
 type t
 
@@ -70,6 +92,28 @@ val matches :
   functions:Function_body.t list ->
   bool
 (** Require the original bundle, graph layout and instruction records. *)
+
+val find_callback_start :
+  t ->
+  owner:owner ->
+  Instruction_sequence.Instruction_id.t ->
+  callback_call option
+
+val original_callback_calls : t -> owner:owner -> callback_call list option
+(** Validate the complete original graph before returning its sealed callback
+    scopes. Each receipt retains the original callee load, source declarator,
+    fixed/tail producers, saved slot and both forms of anonymous-header cleanup.
+    A physically copied load has no receipt; declaration or numeric IDs cannot
+    replace the original callee/body ownership. *)
+
+val find_callback_capture :
+  t ->
+  owner:owner ->
+  Instruction_sequence.Instruction_id.t ->
+  callback_call option
+
+val find_callback_load :
+  t -> owner:owner -> Instruction_sequence.description -> callback_call option
 
 val find_start :
   t -> owner:owner -> Instruction_sequence.Instruction_id.t -> call option

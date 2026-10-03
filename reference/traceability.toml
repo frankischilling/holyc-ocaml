@@ -12903,8 +12903,8 @@ compilation_modes = ["jit", "aot"]
 callee = "Identifier and dereferenced identifier calls retain a separate original callee value without changing syntactic form. Member and indexed calls retain and type their original computed callee. Scalar top-level and retained outer callbacks keep the same source tree. Identifier callee values must match the original occurrence, name, origin and dereference depth."
 callee_fragment = "A supported original frame cell is loaded once; PrsFunCall retags that producer to internal RT_PTR before SET_RAX/NOP2. The fragment ends before CALL_START and does not emit argument pushes, the saved-callee push or cleanup. Exact instruction/value capacity and foreign frames are checked."
 callback_defaults = "Callback parameter defaults keep their source return type and original parameter while exposing physical RT_PTR storage and the integer address class. Runtime default materialization remains unfinished."
-execution_connection = "Resolved source-owned function addresses now carry their original registered publication, prepared body and executable owner in the IR runner. Scalar automatic callback locals and named parameters store, copy, clear and compare those values. Complete indirect-call lowering and invocation remain unfinished under issue 801."
-remaining = ["callback runtime globals/statics/arrays and updates", "indirect invocation", "live task executable linking and reached lifetime", "checked reached signature and cleanup", "native callback emission", "callback returns and aggregate runtime consumers", "general noninteger variadics under issue 688"]
+execution_connection = "Resolved source-owned function addresses now carry their original registered publication, prepared body and executable owner in the IR runner. Scalar automatic callback locals and named parameters store, copy, clear and compare those values. One-star scalar automatic and named parameter callbacks now invoke original captured integer/U0 bodies with explicit fixed slots and word variadic tails. Broader callback consumers remain unfinished under issue 801."
+remaining = ["callback runtime globals/statics/arrays and updates", "callback defaults and dereferenced/multistar invocation", "live task executable linking and reached lifetime", "checked reached signature and cleanup", "native callback emission", "callback returns and aggregate runtime consumers", "general noninteger variadics under issue 688"]
 
 [[feature]]
 id = "HC-IR-OWNED-FUNCTION-ADDRESS-VALUES"
@@ -12929,3 +12929,27 @@ comparisons = "Equality and inequality compare original registered links, prepar
 resources = "Original source producers use ordinary instruction ticks; callback frame cells occupy eight bytes. Exact and one-below actual instruction and frame limits are exercised."
 verification_boundary = "Six new groups exercise 44 JIT/AOT source programs plus JIT same-name replacement, exact original receipts, copied/foreign/missing contexts and reached fault effects. Earlier callback native controls are retained separately and do not validate this new IR execution implementation."
 excluded = ["concrete numeric code addresses and arithmetic", "numeric code address output and returns", "callback globals/statics/arrays and updates", "callback default materialization", "unresolved extern address slots and live task address linking", "indirect invocation and reached signature/lifetime checks", "hosted native address and callback emission", "general F64/mixed/aggregate callback execution under issue 688"]
+
+[[feature]]
+id = "HC-IR-SCALAR-FRAME-CALLBACK-INVOCATION"
+description = "Scalar automatic and named parameter callbacks invoke their captured original integer/U0 executable body."
+sources = [
+  "Compiler/PrsExp.HC:383-588 original callee snapshot, reverse arguments, hidden count, saved RAX, indirect argument-byte displacement and cleanup",
+  "Compiler/PrsStmt.HC:62-139 anonymous PrsFunJoin and derived RET1 flag",
+  "Compiler/PrsVar.HC:514-532 local and parameter PrsType with zero function specifier flags",
+  "Compiler/OptPass789A.HC:723-732 CALL through the saved RSP slot"
+]
+implementation = ["src/ir/direct_call_lowering.ml", "src/ir/expression_lowering.ml", "src/ir/instruction_sequence.ml", "src/ir/integer_program_lowering.ml", "src/ir/runtime_call_context.ml", "src/ir/integer_interpreter.ml", "src/driver/integer_unit.ml"]
+tests = ["test/test_callback_storage.ml"]
+documentation = ["docs/compatibility.md", "docs/holy-abi.md", "docs/task-function-joins.md"]
+status = "implemented"
+issue = 801
+reference_commit = "c26482bb6ad3f80106d28504ec5db3c6a360732c"
+compilation_modes = ["jit", "aot"]
+source_identity = "Original function-owned typed indirect calls retain their callee expression, scalar frame declarator and anonymous signature. Sealed receipts bind the exact physical callee load, capture, saved slot, pushed producers, indirect call, cleanup and result. Raw or changed graphs and copied loads do not acquire these receipts."
+callee_identity = "An opaque function-address value retains its original registered link, callee, prepared body and executable owner. Invocation consumes that captured body owner; a later same-name publication cannot replace it. Numeric words have no executable authority."
+argument_order = "Callee evaluation and capture precede saved RAX and right-to-left fixed/tail arguments. Callback storage changes during an argument do not replace the captured callee. Explicit nested callback parameters, narrow fixed values, nested calls, recursion, hidden argc and word argv tails execute."
+cleanup = "Only one-star scalar automatic and named parameter frame cells authorize this consumer. Original local/parameter PrsType passes fsp_flags=0; anonymous PrsFunJoin derives RET1 for nonvariadic argument bytes in 1..32767. CALL_INDIRECT carries argument bytes. Callee pop uses ADD_RSP1(arguments) then ADD_RSP(8); caller pop uses ADD_RSP(arguments+8). The actual target flags do not select the caller policy."
+reached_checks = "Null/numeric callees fail with HCIRVM0024. Reached return/fixed/variadic signature or cleanup mismatches fail with HCIRVM0014 after argument effects. Unused mismatches can be overwritten before invocation. Whole-graph and receipt failures reject at preflight with zero executed steps. Live task expiry is outside this retained-owner consumer."
+verification_boundary = "Four new groups exercise 36 JIT/AOT explicit-argument invocation programs, reached output effects, skipped null calls, original and copied receipts, missing/copied graph authority and exact/one-below step, frame and depth limits. A JIT source program invokes the earlier executable after a same-name replacement. Earlier TempleOS JIT controls remain separate; this implementation has no hosted native callback proof."
+excluded = ["callback globals/statics/arrays and updates", "callback declaration-time defaults", "dereferenced and multistar invocation", "concrete numeric code addresses", "live task linking and reached expiry", "hosted native function addresses and callbacks", "F64/mixed/aggregate callback execution under issue 688"]

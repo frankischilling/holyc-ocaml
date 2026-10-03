@@ -1001,13 +1001,19 @@ val run_integer_program :
     and equality with owned code or null execute through ordinary word storage
     and checked scalar callback locals or named parameters. Callback return
     types remain separate from their word storage. Concrete numeric code
-    addresses, callback globals/statics/arrays, default materialization and
-    indirect invocation remain unsupported. General memory and native code also
-    remain unsupported. Checked Print/PutChars calls execute under separate
-    positive output/work limits (both default 1,048,576). This convenience
-    entrypoint projects the outcome; use [run_integer_program_report] to retain
-    captured bytes on both success and failure. Implicit output preserves the
-    last ordinary expression. *)
+    addresses, callback globals/statics/arrays and default materialization
+    remain unsupported. One-star scalar automatic and named parameter callbacks
+    invoke their original captured integer/U0 body with explicit fixed arguments
+    and word variadic tails. Callee capture precedes right-to-left arguments;
+    null/numeric and incompatible reached targets fail after argument effects.
+    The original local/parameter anonymous header controls saved-callee cleanup.
+    Dereferenced and multistar callback invocation, live task address linking
+    and F64/aggregate callbacks remain unsupported. General memory and native
+    code also remain unsupported. Checked Print/PutChars calls execute under
+    separate positive output/work limits (both default 1,048,576). This
+    convenience entrypoint projects the outcome; use
+    [run_integer_program_report] to retain captured bytes on both success and
+    failure. Implicit output preserves the last ordinary expression. *)
 
 type integer_program_report
 

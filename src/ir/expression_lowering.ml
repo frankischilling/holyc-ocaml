@@ -2812,6 +2812,34 @@ let checked_call_fragment allocator result conversion sequence =
                 ( List.rev (last :: rest),
                   { lowered_value = produced.value_id; lowered_type = actual }
                 )
+          | _, Some (Sequence.Callback pointer), Some produced, Some actual
+            when last.opcode = Opcode.Ic_call_end
+                 && Type.equal actual expected && last.span = span
+                 && last.flags = 0L
+                 && (match Semantic_result.result_call_resolution result with
+                   | Some (Semantic_source.Indirect_call call) ->
+                       Semantic_source.callable_pointer
+                         (Semantic_source.indirect_callable call)
+                       == pointer
+                   | _ -> false)
+                 && List.exists
+                      (fun (item : Sequence.description) ->
+                        item.opcode = Opcode.Ic_call_start
+                        &&
+                        match item.payload with
+                        | Some (Sequence.Callback original) ->
+                            original == pointer
+                        | _ -> false)
+                      descriptions ->
+              allocator.instruction <- !instruction;
+              allocator.value <- !value;
+              let last =
+                { last with Sequence.flags = conversion_flags conversion }
+              in
+              Ok
+                ( List.rev (last :: rest),
+                  { lowered_value = produced.value_id; lowered_type = actual }
+                )
           | _ ->
               Error
                 (invalid

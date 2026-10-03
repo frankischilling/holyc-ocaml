@@ -891,6 +891,11 @@ let compile_parsed_with_limit ?task_view ?initializer_progress
                    in
                    let* lowered =
                      Lower.lower_complete ~frame ~globals:globals_ ~records
+                       ~callback_calls:
+                         (Typed.function_calls function_
+                         |> List.filter_map (function
+                           | Typed.Indirect_call_result call -> Some call
+                           | _ -> None))
                        ~labels ~function_calls ~span:definition.location.span
                        statements
                    in

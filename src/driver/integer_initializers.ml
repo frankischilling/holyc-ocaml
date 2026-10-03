@@ -826,8 +826,9 @@ let prepare_internal ?fragment ?default ?default_execution ?internal_binding
                                 .call_access target,
                                 Typed.top_level_direct_outer_binding source )
                         (* An expression cannot contain an implicit output statement. *)
-                        | Runtime.Function_output _ | Runtime.Top_level_output _
-                          -> None
+                        | Runtime.Callback_call _
+                        | Runtime.Function_output _
+                        | Runtime.Top_level_output _ -> None
                       in
                       Option.map
                         (fun (symbol, access, binding) ->

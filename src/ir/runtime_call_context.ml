@@ -10,6 +10,7 @@ module Instructions = Map.Make (Seq.Instruction_id)
 module Values = Map.Make (Seq.Value_id)
 
 type source =
+  | Callback_call of Typed.indirect_call
   | Function_call of Sema.Function_call_target_classification.t
   | Top_level_call of Sema.Top_level_function_call_target_classification.t
   | Function_output of Sema.Implicit_output_argument_binding.bound_output
@@ -17,6 +18,7 @@ type source =
       Sema.Top_level_implicit_output_argument_binding.bound_output
 
 let original_phase = function
+  | Callback_call _ -> None
   | Function_call target ->
       Sema.Function_call_target_classification.source target
       |> Typed.direct_original_phase
@@ -76,6 +78,26 @@ type call = {
   retained_function_ : Retained_function.t option;
 }
 
+type callback_call = {
+  callback_source : Typed.indirect_call;
+  callback_pointer : Headers.function_pointer;
+  callback_return_type : Type.t;
+  callback_first : Seq.Instruction_id.t;
+  callback_last : Seq.Instruction_id.t;
+  callback_capture : Seq.Instruction_id.t;
+  callback_capture_value : Seq.Value_id.t;
+  callback_load : Seq.description;
+  callback_save : Seq.Instruction_id.t;
+  callback_instruction : Seq.Instruction_id.t;
+  callback_cleanup : Seq.Instruction_id.t;
+  callback_saved_cleanup : Seq.Instruction_id.t option;
+  callback_result : Seq.Value_id.t;
+  callback_arguments : argument list;
+  callback_fixed_types : Type.t list;
+  callback_variadic_count : int64 option;
+  callback_callee_pop : bool;
+}
+
 type intrinsic = {
   description : description;
   opcode_ : Opcode.t;
@@ -103,6 +125,7 @@ type graph_context = {
     (Seq.Block_id.t * Seq.description list * Seq.Block_id.t list) list;
   source_producers : Seq.description Instructions.t;
   calls : call Instructions.t;
+  callback_calls : callback_call Instructions.t;
   discards : call Instructions.t;
   intrinsic_starts : intrinsic Instructions.t;
   intrinsic_instructions : intrinsic Instructions.t;
@@ -467,6 +490,36 @@ let is_original_preparation_shift shifts (description : Seq.description) =
   | Some original -> original == description
   | None -> false
 
+let find_callback_start context ~owner id =
+  if not (source_producers_match context) then None
+  else
+    Option.bind (find_graph context owner) (fun graph ->
+        Instructions.find_opt id graph.callback_calls)
+
+let original_callback_calls context ~owner =
+  if not (source_producers_match context) then None
+  else
+    Option.map
+      (fun graph -> Instructions.bindings graph.callback_calls |> List.map snd)
+      (find_graph context owner)
+
+let find_callback_capture context ~owner id =
+  if not (source_producers_match context) then None
+  else
+    Option.bind (find_graph context owner) (fun graph ->
+        Instructions.bindings graph.callback_calls
+        |> List.find_map (fun (_, call) ->
+            if Seq.Instruction_id.equal id call.callback_capture then Some call
+            else None))
+
+let find_callback_load context ~owner description =
+  if not (source_producers_match context) then None
+  else
+    Option.bind (find_graph context owner) (fun graph ->
+        Instructions.bindings graph.callback_calls
+        |> List.find_map (fun (_, call) ->
+            if call.callback_load == description then Some call else None))
+
 let find_start context ~owner id =
   Option.bind (find_graph context owner) (fun graph ->
       Instructions.find_opt id graph.calls)
@@ -509,7 +562,7 @@ let entry_item_index context call =
            |> Sema.Top_level_implicit_output_argument_binding.bound_source
            |> Sema.Top_level_implicit_output_target_resolution.output_statement
            |> Typed.top_level_statement_source |> item)
-      | Function_call _ | Function_output _ ->
+      | Callback_call _ | Function_call _ | Function_output _ ->
           Option.bind
             (Global_initialization.find_storage context.initialization
                (first call))
@@ -563,6 +616,7 @@ let retained_integer_value = function
   | _ -> None
 
 let intrinsic_source_selection = function
+  | Callback_call _ -> None
   | Function_call target ->
       let selected =
         Sema.Function_call_target_classification.declaration target
@@ -692,6 +746,8 @@ let provided ~globals ~header ~parameter ?span = function
 let shape ~globals records description =
   let declaration, header, symbol, fixed, variadic, count, origin, implicit =
     match description.source with
+    | Callback_call _ ->
+        fail "anonymous callback has no named direct-call shape"
     | Function_call target ->
         let module Target = Sema.Function_call_target_classification in
         let typed = Target.source target in
@@ -905,6 +961,7 @@ let shape ~globals records description =
     "call context discard identity does not match its checked statement source";
   let outer_binding =
     match description.source with
+    | Callback_call _ -> None
     | Function_call target ->
         Sema.Function_call_target_classification.source target
         |> Typed.direct_outer_binding
@@ -1005,7 +1062,7 @@ let shape ~globals records description =
         (Sema.Top_level_function_call_target_classification.record target
         == selected_record)
         "top-level call record belongs to another classification"
-  | Function_output _ | Top_level_output _ -> ());
+  | Callback_call _ | Function_output _ | Top_level_output _ -> ());
   let parameters =
     header |> Headers.function_signature |> Headers.signature_parameters
   in
@@ -1257,8 +1314,9 @@ let rec producer_type ~globals result =
         fail ?span
           "materialized call argument cannot form its checked element pointer"
 
-let expected_arguments ~globals shape =
-  let span = origin_span shape.origin in
+let expected_argument_values ~globals ~origin ~fixed:fixed_values
+    ~variadic:variadic_values ~count_type =
+  let span = origin_span origin in
   let actual role target value =
     let source = producer_type ~globals value in
     {
@@ -1285,13 +1343,13 @@ let expected_arguments ~globals shape =
               expected_count = Some (Prepared_parameter_default.bits prepared);
               expected_default = Some prepared;
             })
-      shape.fixed
+      fixed_values
   in
   let variadic =
-    List.mapi (fun i value -> actual (Variadic i) None value) shape.variadic
+    List.mapi (fun i value -> actual (Variadic i) None value) variadic_values
   in
   let count =
-    match shape.count_type with
+    match count_type with
     | None -> []
     | Some type_ ->
         [
@@ -1300,12 +1358,183 @@ let expected_arguments ~globals shape =
             expected_source = type_;
             expected_target = type_;
             expected_origin = span;
-            expected_count = Some (Int64.of_int (List.length shape.variadic));
+            expected_count = Some (Int64.of_int (List.length variadic_values));
             expected_default = None;
           };
         ]
   in
   List.rev variadic @ count @ List.rev fixed
+
+let expected_arguments ~globals shape =
+  expected_argument_values ~globals ~origin:shape.origin ~fixed:shape.fixed
+    ~variadic:shape.variadic ~count_type:shape.count_type
+
+type callback_shape = {
+  cb_description : description;
+  cb_pointer : Headers.function_pointer;
+  cb_return : Type.t;
+  cb_origin : Sema.Symbol.origin;
+  cb_capture : Seq.description;
+  cb_value : Seq.Value_id.t;
+  cb_load : Seq.description;
+  cb_arguments : expected_argument list;
+  cb_fixed_types : Type.t list;
+  cb_variadic : int64 option;
+  cb_bytes : int64;
+  cb_callee_pop : bool;
+}
+
+type callback_phase =
+  | Callback_collecting
+  | Callback_called of Seq.Instruction_id.t
+  | Callback_cleaned of Seq.Instruction_id.t * Seq.Instruction_id.t
+  | Callback_saved_cleaned of
+      Seq.Instruction_id.t * Seq.Instruction_id.t * Seq.Instruction_id.t
+
+type callback_pending = {
+  cb_shape : callback_shape;
+  mutable cb_phase : callback_phase;
+  mutable cb_saved : Seq.Instruction_id.t option;
+  mutable cb_expected : expected_argument list;
+  mutable cb_pushes : argument list;
+}
+
+let callback_shape ~globals ~validate_source owner graph description =
+  let call =
+    match description.source with
+    | Callback_call call -> call
+    | _ -> assert false
+  in
+  let resolution =
+    call |> Typed.indirect_source
+    |> Sema.Function_call_conversion_policy.indirect_source
+  in
+  let callable = Resolution.indirect_callable resolution in
+  let pointer = Resolution.callable_pointer callable in
+  let origin = Resolution.call_origin (Resolution.indirect_source resolution) in
+  let span = origin_span origin in
+  validate_source owner description span;
+  require ?span
+    (Option.is_none description.discard)
+    "callback cannot acquire implicit output authority";
+  let callee =
+    match Typed.indirect_callee_result call with
+    | Some value -> value
+    | None -> fail ?span "callback lost its checked callee"
+  in
+  require ?span
+    (Option.fold ~none:false ~some:(( == ) pointer)
+       (Typed.result_callback_pointer callee))
+    "callback callee does not own the original anonymous header";
+  let items =
+    Block_graph.blocks graph
+    |> List.concat_map (fun block ->
+        Block_graph.instructions block
+        |> Seq.instructions |> List.map Seq.description)
+  in
+  let before count =
+    let id = Seq.Instruction_id.to_int description.first - count in
+    match
+      List.find_opt
+        (fun (item : Seq.description) ->
+          Seq.Instruction_id.to_int item.instruction_id = id)
+        items
+    with
+    | Some item -> item
+    | None -> fail ?span "callback has no preceding callee snapshot"
+  in
+  let capture = before 2 and balance = before 1 in
+  let pointer_word =
+    Type.make_primitive ~form:Type.Internal_storage
+      ~primitive:Sema.Primitive_type.I64 ~pointer_depth:0
+    |> Result.get_ok
+  in
+  let value =
+    match capture.operands with
+    | [ value ] -> value
+    | _ -> fail ?span "invalid callback capture operands"
+  in
+  require ?span
+    (capture.opcode = Opcode.Ic_set_rax
+    && capture.result = None && capture.payload = None && capture.flags = 0L
+    && capture.span = origin_span (Typed.result_origin callee)
+    && Option.fold ~none:false ~some:(Type.equal pointer_word)
+         capture.target_type
+    && balance.opcode = Opcode.Ic_nop2
+    && balance.operands = [] && balance.result = None
+    && balance.payload = Some (Seq.Integer 1L)
+    && balance.flags = 0L
+    && balance.span = capture.span
+    && balance.target_type = capture.target_type)
+    "callback callee snapshot does not retain original PrsFunCall ordering";
+  let producer =
+    match
+      List.find_opt
+        (fun (item : Seq.description) ->
+          Option.fold ~none:false
+            ~some:(fun result -> Seq.Value_id.equal result.Seq.value_id value)
+            item.result)
+        items
+    with
+    | Some item -> item
+    | None -> fail ?span "callback snapshot has no original producer"
+  in
+  require ?span
+    (Seq.Instruction_id.compare producer.instruction_id capture.instruction_id
+     < 0
+    && producer.opcode = Opcode.Ic_deref
+    && producer.flags = 0L
+    && producer.span = producer_origin callee
+    && producer.target_type = capture.target_type)
+    "callback snapshot does not retain its original loaded address";
+  let fixed =
+    List.map
+      (fun result ->
+        let parameter =
+          result |> Typed.fixed_source
+          |> Sema.Function_call_conversion_policy.fixed_source
+          |> Resolution.fixed_parameter
+        in
+        match Typed.fixed_path result with
+        | Typed.Provided_result value -> (parameter, Provided value)
+        | Typed.Declared_default_result _ ->
+            fail ?span "callback default has no retained preparation receipt")
+      (Typed.indirect_fixed_results call)
+  in
+  let signature = Headers.function_pointer_signature pointer in
+  require ?span
+    (List.length fixed = List.length (Headers.signature_parameters signature)
+    && List.for_all2
+         (fun (parameter, _) original -> parameter == original)
+         fixed
+         (Headers.signature_parameters signature))
+    "callback fixed arguments disagree with the original signature";
+  let variadic = Typed.indirect_variadic_results call in
+  let has_tail = Option.is_some (Headers.signature_variadic_origin signature) in
+  let count_type = if has_tail then Some pointer_word else None in
+  let count =
+    List.length fixed + if has_tail then 1 + List.length variadic else 0
+  in
+  let bytes = Int64.mul 8L (Int64.of_int count) in
+  {
+    cb_description = description;
+    cb_pointer = pointer;
+    cb_return =
+      Resolution.callable_return_type callable
+      |> Sema.Type_reference.resolved_type;
+    cb_origin = origin;
+    cb_capture = capture;
+    cb_value = value;
+    cb_load = producer;
+    cb_arguments =
+      expected_argument_values ~globals ~origin ~fixed ~variadic ~count_type;
+    cb_fixed_types =
+      List.map (fun (parameter, _) -> parameter_type parameter) fixed;
+    cb_variadic =
+      (if has_tail then Some (Int64.of_int (List.length variadic)) else None);
+    cb_bytes = bytes;
+    cb_callee_pop = (not has_tail) && count > 0 && bytes <= 32767L;
+  }
 
 type phase =
   | Collecting
@@ -1323,6 +1552,27 @@ type pending = {
 }
 
 let graph_context ~globals ~records ~validate_source owner graph descriptions =
+  let callbacks, descriptions =
+    List.partition
+      (fun description ->
+        match description.source with
+        | Callback_call _ -> true
+        | _ -> false)
+      descriptions
+  in
+  let callback_shapes =
+    List.fold_left
+      (fun map description ->
+        require
+          (not (Instructions.mem description.first map))
+          "duplicate callback start";
+        Instructions.add description.first
+          (callback_shape ~globals ~validate_source owner graph description)
+          map)
+      Instructions.empty callbacks
+  in
+  let remaining_callbacks = ref callback_shapes in
+  let callback_calls = ref Instructions.empty in
   let pending_shapes =
     List.fold_left
       (fun map description ->
@@ -1368,6 +1618,7 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
   List.iter
     (fun block ->
       let stack = ref [] in
+      let callback_stack = ref [] in
       let items =
         block |> Block_graph.instructions |> Seq.instructions
         |> List.map Seq.description
@@ -1389,356 +1640,612 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
                  item.target_type)
               "runtime call instruction has a different declared return type"
           in
-          (match (item.opcode, !stack) with
-          | Opcode.Ic_call_start, _ ->
-              require ?span
-                (item.operands = [] && item.result = None
-               && item.target_type = None && item.flags = 0L)
-                "runtime call start has an invalid shape";
-              (match !stack with
-              | { phase = Called _ | Cleaned _ | Intrinsic_called _; _ } :: _ ->
-                  fail ?span "nested call interrupts an unfinished cleanup"
-              | _ -> ());
-              let shape, intrinsic_opcode =
-                match Instructions.find_opt item.instruction_id !remaining with
-                | Some selected -> selected
-                | None ->
-                    fail ?span
-                      "call start has no unique checked source description"
-              in
-              require ?span
-                (match item.payload with
-                | Some (Seq.Symbol symbol) -> symbol == shape.selected_symbol
-                | _ -> false)
-                "call start does not retain its exact selected symbol";
-              require ?span
-                (item.span = origin_span shape.origin)
-                "call start does not retain its checked source origin";
-              remaining := Instructions.remove item.instruction_id !remaining;
-              stack :=
-                {
-                  shape;
-                  intrinsic_opcode;
-                  intrinsic_producers = Values.empty;
-                  phase = Collecting;
-                  pushes = [];
-                  expected = expected_arguments ~globals shape;
-                }
-                :: !stack
-          | ( ( Opcode.Ic_call
-              | Ic_call_indirect2
-              | Ic_call_extern
-              | Ic_call_import ),
-              pending :: _ )
-            when Option.is_none pending.intrinsic_opcode ->
-              require_shape pending.shape;
-              require ?span
-                (pending.phase = Collecting && item.result = None && not push)
-                "runtime call is outside its argument-collection phase";
-              require ?span
-                (item.opcode
-                = selected_opcode ?span pending.shape.selected_record)
-                "runtime call opcode differs from its declaration snapshot";
-              require ?span
-                (match item.payload with
-                | Some (Seq.Symbol symbol) ->
-                    symbol == pending.shape.selected_symbol
-                | _ -> false)
-                "runtime call changed its selected symbol";
-              require ?span (pending.expected = [])
-                "runtime call does not contain all checked argument producers";
-              pending.phase <- Called item.instruction_id
-          | (Opcode.Ic_add_rsp | Ic_add_rsp1), pending :: _
-            when Option.is_none pending.intrinsic_opcode ->
-              require_shape pending.shape;
-              let call =
-                match pending.phase with
-                | Called call -> call
-                | _ -> fail ?span "runtime cleanup has no completed call"
-              in
-              require ?span
-                (item.result = None && (not push)
-                && item.opcode = selected_cleanup pending.shape.selected_record
-                )
-                "runtime cleanup differs from the selected flag policy";
-              let bytes =
-                Int64.mul 8L
-                  (cleanup_slot_count pending.shape.source_description.source
-                     ~fixed_count:(List.length pending.shape.fixed)
-                     ~variadic_count:
-                       (Int64.of_int (List.length pending.shape.variadic))
-                     ~variadic:(Option.is_some pending.shape.count_type))
-              in
-              require ?span
-                (item.payload = Some (Seq.Integer bytes))
-                "runtime cleanup byte count differs from its checked ABI slots";
-              pending.phase <- Cleaned (call, item.instruction_id)
-          | opcode, pending :: _
-            when Integer_intrinsic.supports opcode
-                 && pending.intrinsic_opcode = Some opcode ->
-              require ?span
-                (pending.phase = Collecting && item.result = None
-               && item.payload = None && item.flags = 0L
-                && Option.fold ~none:false
-                     ~some:(Type.equal pending.shape.result_type)
-                     item.target_type)
-                "checked internal operation has an invalid instruction shape";
-              let expected = List.rev pending.expected in
-              let count = Option.get (Integer_intrinsic.arity opcode) in
-              require ?span
-                (List.length expected = count
-                && List.length item.operands = count)
-                "checked internal operation lost its exact fixed operands";
-              let previous_producer = ref None in
-              pending.pushes <-
-                List.mapi
-                  (fun index (expected, value) ->
+          let callback_is_inner () =
+            match (!callback_stack, !stack) with
+            | [], _ -> false
+            | _ :: _, [] -> true
+            | callback :: _, direct :: _ ->
+                Seq.Instruction_id.compare
+                  callback.cb_shape.cb_description.first
+                  direct.shape.source_description.first
+                > 0
+          in
+          let callback_instruction =
+            match item.payload with
+            | Some (Seq.Callback _) -> true
+            | _ -> false
+          in
+          let callback_active = callback_is_inner () in
+          let callback_protocol =
+            callback_instruction
+            || callback_active
+               &&
+               match item.opcode with
+               | Opcode.Ic_push_regs
+               | Ic_call_indirect
+               | Ic_add_rsp
+               | Ic_add_rsp1 -> true
+               | _ -> false
+          in
+          if callback_protocol then
+            let pointer_matches shape =
+              match item.payload with
+              | Some (Seq.Callback pointer) -> pointer == shape.cb_pointer
+              | _ -> false
+            in
+            let valid_result shape =
+              item.operands = [] && ordinary_flags = 0L
+              && Option.fold ~none:false
+                   ~some:(Type.equal shape.cb_return)
+                   item.target_type
+            in
+            match (item.opcode, !callback_stack) with
+            | Opcode.Ic_call_start, previous ->
+                require ?span
+                  (item.operands = [] && item.result = None
+                 && item.target_type = None && item.flags = 0L)
+                  "invalid callback start";
+                require ?span
+                  (match !stack with
+                  | { phase = Called _ | Cleaned _ | Intrinsic_called _; _ }
+                    :: _ -> false
+                  | _ -> true)
+                  "callback interrupts a pending direct cleanup";
+                let shape =
+                  match
+                    Instructions.find_opt item.instruction_id
+                      !remaining_callbacks
+                  with
+                  | Some shape -> shape
+                  | None ->
+                      fail ?span "callback start has no original checked source"
+                in
+                require ?span
+                  (pointer_matches shape
+                  && item.span = origin_span shape.cb_origin)
+                  "callback start changed its original header or origin";
+                remaining_callbacks :=
+                  Instructions.remove item.instruction_id !remaining_callbacks;
+                callback_stack :=
+                  {
+                    cb_shape = shape;
+                    cb_phase = Callback_collecting;
+                    cb_saved = None;
+                    cb_expected = shape.cb_arguments;
+                    cb_pushes = [];
+                  }
+                  :: previous
+            | Opcode.Ic_push_regs, pending :: _ ->
+                require ?span
+                  (callback_active
+                  && pending.cb_phase = Callback_collecting
+                  && pending.cb_saved = None
+                  && Seq.Instruction_id.to_int item.instruction_id
+                     = Seq.Instruction_id.to_int
+                         pending.cb_shape.cb_description.first
+                       + 1
+                  && valid_result pending.cb_shape
+                  && item.result = None && item.flags = 0L
+                  && item.payload = Some (Seq.Integer 1L))
+                  "callback did not save RAX before its arguments";
+                pending.cb_saved <- Some item.instruction_id
+            | Opcode.Ic_call_indirect, pending :: _ ->
+                require ?span
+                  (callback_active
+                  && pending.cb_phase = Callback_collecting
+                  && pending.cb_expected = []
+                  && Option.is_some pending.cb_saved
+                  && valid_result pending.cb_shape
+                  && item.result = None && item.flags = 0L
+                  && item.payload = Some (Seq.Integer pending.cb_shape.cb_bytes)
+                  )
+                  "callback call lost its saved callee or ABI slots";
+                pending.cb_phase <- Callback_called item.instruction_id
+            | (Opcode.Ic_add_rsp | Ic_add_rsp1), pending :: _ -> (
+                require ?span
+                  (callback_active
+                  && valid_result pending.cb_shape
+                  && item.result = None && item.flags = 0L)
+                  "invalid callback cleanup";
+                match pending.cb_phase with
+                | Callback_called call ->
                     require ?span
-                      (expected.expected_role = Fixed index
-                      && Option.is_none expected.expected_default
-                      && Option.is_none expected.expected_count)
-                      "checked internal argument is not its provided fixed \
-                       value";
-                    let producer : Seq.description =
-                      match
-                        Values.find_opt value pending.intrinsic_producers
-                      with
-                      | Some producer -> producer
-                      | None ->
-                          fail ?span
-                            "checked internal operand has no preceding \
-                             in-scope producer"
-                    in
-                    require ?span (producer.flags = 0L)
-                      "checked internal argument producer has noncanonical \
-                       flags";
+                      ((item.opcode
+                       =
+                       if pending.cb_shape.cb_callee_pop then Opcode.Ic_add_rsp1
+                       else Opcode.Ic_add_rsp)
+                      && item.payload
+                         = Some
+                             (Seq.Integer
+                                (if pending.cb_shape.cb_callee_pop then
+                                   pending.cb_shape.cb_bytes
+                                 else Int64.add pending.cb_shape.cb_bytes 8L)))
+                      "callback cleanup changed its anonymous-header policy";
+                    pending.cb_phase <-
+                      Callback_cleaned (call, item.instruction_id)
+                | Callback_cleaned (call, cleanup)
+                  when pending.cb_shape.cb_callee_pop ->
                     require ?span
-                      (Option.fold ~none:false
-                         ~some:(Type.equal expected.expected_source)
-                         producer.target_type)
-                      "checked internal operand class differs from its source \
-                       value";
+                      (item.opcode = Opcode.Ic_add_rsp
+                      && item.payload = Some (Seq.Integer 8L))
+                      "callback lost its saved-callee cleanup";
+                    pending.cb_phase <-
+                      Callback_saved_cleaned (call, cleanup, item.instruction_id)
+                | _ -> fail ?span "callback cleanup is out of order")
+            | Opcode.Ic_call_end, pending :: rest ->
+                let call, cleanup, saved_cleanup =
+                  match pending.cb_phase with
+                  | Callback_cleaned (call, cleanup)
+                    when not pending.cb_shape.cb_callee_pop ->
+                      (call, cleanup, None)
+                  | Callback_saved_cleaned (call, cleanup, saved)
+                    when pending.cb_shape.cb_callee_pop ->
+                      (call, cleanup, Some saved)
+                  | _ -> fail ?span "callback end has no complete cleanup"
+                in
+                require ?span
+                  (callback_active
+                  && valid_result pending.cb_shape
+                  && pointer_matches pending.cb_shape
+                  && Seq.Instruction_id.equal item.instruction_id
+                       pending.cb_shape.cb_description.last)
+                  "callback end changed its original header or result";
+                let result =
+                  match item.result with
+                  | Some result -> result.value_id
+                  | None -> fail ?span "callback end lost its result"
+                in
+                let source =
+                  match pending.cb_shape.cb_description.source with
+                  | Callback_call source -> source
+                  | _ -> assert false
+                in
+                let receipt =
+                  {
+                    callback_source = source;
+                    callback_pointer = pending.cb_shape.cb_pointer;
+                    callback_return_type = pending.cb_shape.cb_return;
+                    callback_first = pending.cb_shape.cb_description.first;
+                    callback_last = item.instruction_id;
+                    callback_capture =
+                      pending.cb_shape.cb_capture.instruction_id;
+                    callback_capture_value = pending.cb_shape.cb_value;
+                    callback_load = pending.cb_shape.cb_load;
+                    callback_save = Option.get pending.cb_saved;
+                    callback_instruction = call;
+                    callback_cleanup = cleanup;
+                    callback_saved_cleanup = saved_cleanup;
+                    callback_result = result;
+                    callback_arguments = List.rev pending.cb_pushes;
+                    callback_fixed_types = pending.cb_shape.cb_fixed_types;
+                    callback_variadic_count = pending.cb_shape.cb_variadic;
+                    callback_callee_pop = pending.cb_shape.cb_callee_pop;
+                  }
+                in
+                callback_calls :=
+                  Instructions.add receipt.callback_first receipt
+                    !callback_calls;
+                callback_stack := rest
+            | _ -> fail ?span "callback protocol instruction has no valid scope"
+          else (
+            require ?span
+              ((not callback_active)
+              ||
+              match !callback_stack with
+              | { cb_phase = Callback_collecting; _ } :: _ -> true
+              | _ -> false)
+              "callback call and cleanup are not adjacent";
+            match (item.opcode, !stack) with
+            | Opcode.Ic_call_start, _ ->
+                require ?span
+                  (item.operands = [] && item.result = None
+                 && item.target_type = None && item.flags = 0L)
+                  "runtime call start has an invalid shape";
+                (match !stack with
+                | { phase = Called _ | Cleaned _ | Intrinsic_called _; _ } :: _
+                  -> fail ?span "nested call interrupts an unfinished cleanup"
+                | _ -> ());
+                let shape, intrinsic_opcode =
+                  match
+                    Instructions.find_opt item.instruction_id !remaining
+                  with
+                  | Some selected -> selected
+                  | None ->
+                      fail ?span
+                        "call start has no unique checked source description"
+                in
+                require ?span
+                  (match item.payload with
+                  | Some (Seq.Symbol symbol) -> symbol == shape.selected_symbol
+                  | _ -> false)
+                  "call start does not retain its exact selected symbol";
+                require ?span
+                  (item.span = origin_span shape.origin)
+                  "call start does not retain its checked source origin";
+                remaining := Instructions.remove item.instruction_id !remaining;
+                stack :=
+                  {
+                    shape;
+                    intrinsic_opcode;
+                    intrinsic_producers = Values.empty;
+                    phase = Collecting;
+                    pushes = [];
+                    expected = expected_arguments ~globals shape;
+                  }
+                  :: !stack
+            | ( ( Opcode.Ic_call
+                | Ic_call_indirect2
+                | Ic_call_extern
+                | Ic_call_import ),
+                pending :: _ )
+              when Option.is_none pending.intrinsic_opcode ->
+                require_shape pending.shape;
+                require ?span
+                  (pending.phase = Collecting && item.result = None && not push)
+                  "runtime call is outside its argument-collection phase";
+                require ?span
+                  (item.opcode
+                  = selected_opcode ?span pending.shape.selected_record)
+                  "runtime call opcode differs from its declaration snapshot";
+                require ?span
+                  (match item.payload with
+                  | Some (Seq.Symbol symbol) ->
+                      symbol == pending.shape.selected_symbol
+                  | _ -> false)
+                  "runtime call changed its selected symbol";
+                require ?span (pending.expected = [])
+                  "runtime call does not contain all checked argument producers";
+                pending.phase <- Called item.instruction_id
+            | (Opcode.Ic_add_rsp | Ic_add_rsp1), pending :: _
+              when Option.is_none pending.intrinsic_opcode ->
+                require_shape pending.shape;
+                let call =
+                  match pending.phase with
+                  | Called call -> call
+                  | _ -> fail ?span "runtime cleanup has no completed call"
+                in
+                require ?span
+                  (item.result = None && (not push)
+                  && item.opcode
+                     = selected_cleanup pending.shape.selected_record)
+                  "runtime cleanup differs from the selected flag policy";
+                let bytes =
+                  Int64.mul 8L
+                    (cleanup_slot_count pending.shape.source_description.source
+                       ~fixed_count:(List.length pending.shape.fixed)
+                       ~variadic_count:
+                         (Int64.of_int (List.length pending.shape.variadic))
+                       ~variadic:(Option.is_some pending.shape.count_type))
+                in
+                require ?span
+                  (item.payload = Some (Seq.Integer bytes))
+                  "runtime cleanup byte count differs from its checked ABI \
+                   slots";
+                pending.phase <- Cleaned (call, item.instruction_id)
+            | opcode, pending :: _
+              when Integer_intrinsic.supports opcode
+                   && pending.intrinsic_opcode = Some opcode ->
+                require ?span
+                  (pending.phase = Collecting && item.result = None
+                 && item.payload = None && item.flags = 0L
+                  && Option.fold ~none:false
+                       ~some:(Type.equal pending.shape.result_type)
+                       item.target_type)
+                  "checked internal operation has an invalid instruction shape";
+                let expected = List.rev pending.expected in
+                let count = Option.get (Integer_intrinsic.arity opcode) in
+                require ?span
+                  (List.length expected = count
+                  && List.length item.operands = count)
+                  "checked internal operation lost its exact fixed operands";
+                let previous_producer = ref None in
+                pending.pushes <-
+                  List.mapi
+                    (fun index (expected, value) ->
+                      require ?span
+                        (expected.expected_role = Fixed index
+                        && Option.is_none expected.expected_default
+                        && Option.is_none expected.expected_count)
+                        "checked internal argument is not its provided fixed \
+                         value";
+                      let producer : Seq.description =
+                        match
+                          Values.find_opt value pending.intrinsic_producers
+                        with
+                        | Some producer -> producer
+                        | None ->
+                            fail ?span
+                              "checked internal operand has no preceding \
+                               in-scope producer"
+                      in
+                      require ?span (producer.flags = 0L)
+                        "checked internal argument producer has noncanonical \
+                         flags";
+                      require ?span
+                        (Option.fold ~none:false
+                           ~some:(Type.equal expected.expected_source)
+                           producer.target_type)
+                        "checked internal operand class differs from its \
+                         source value";
+                      require ?span
+                        (producer.span = expected.expected_origin)
+                        "checked internal operand lost its checked source \
+                         origin";
+                      require ?span
+                        (Option.fold ~none:true
+                           ~some:(fun previous ->
+                             Seq.Instruction_id.to_int previous
+                             > Seq.Instruction_id.to_int producer.instruction_id)
+                           !previous_producer)
+                        "checked internal argument producers changed source \
+                         order";
+                      previous_producer := Some producer.instruction_id;
+                      {
+                        role = expected.expected_role;
+                        prepared_default = None;
+                        producer = producer.instruction_id;
+                        value;
+                        source_type = expected.expected_source;
+                        target_type = expected.expected_target;
+                      })
+                    (List.combine expected item.operands);
+                pending.expected <- [];
+                pending.phase <- Intrinsic_called item.instruction_id
+            | Opcode.Ic_call_end, pending :: rest
+              when Option.is_some pending.intrinsic_opcode ->
+                require_shape pending.shape;
+                let instruction_ =
+                  match pending.phase with
+                  | Intrinsic_called instruction -> instruction
+                  | _ ->
+                      fail ?span "intrinsic call end has no checked operation"
+                in
+                require ?span
+                  (Seq.Instruction_id.equal item.instruction_id
+                     pending.shape.source_description.last)
+                  "intrinsic call end differs from its checked source \
+                   description";
+                require ?span
+                  (match item.payload with
+                  | Some (Seq.Symbol symbol) ->
+                      symbol == pending.shape.selected_symbol
+                  | _ -> false)
+                  "intrinsic call end changed its selected symbol";
+                let result_value_ =
+                  match item.result with
+                  | Some value -> value.value_id
+                  | None ->
+                      fail ?span "intrinsic call end has no result identity"
+                in
+                let opcode_ = Option.get pending.intrinsic_opcode in
+                let arguments_ = pending.pushes in
+                require ?span
+                  (List.length arguments_
+                  = Option.get (Integer_intrinsic.arity opcode_))
+                  "intrinsic call has no complete sealed arguments";
+                let intrinsic =
+                  {
+                    description = pending.shape.source_description;
+                    opcode_;
+                    symbol_ = pending.shape.selected_symbol;
+                    return_type_ = pending.shape.result_type;
+                    intrinsic_arguments_ = arguments_;
+                    producer_descriptions_ =
+                      List.map
+                        (fun argument ->
+                          Values.find argument.value pending.intrinsic_producers)
+                        arguments_;
+                    instruction_;
+                    result_value_;
+                    declaration_ = pending.shape.selected_declaration;
+                  }
+                in
+                require ?span
+                  ((not
+                      (Instructions.mem intrinsic.description.first
+                         !intrinsic_starts))
+                  && (not
+                        (Instructions.mem instruction_ !intrinsic_instructions))
+                  && not
+                       (Instructions.mem intrinsic.description.last
+                          !intrinsic_ends))
+                  "duplicate intrinsic instruction identity";
+                intrinsic_starts :=
+                  Instructions.add intrinsic.description.first intrinsic
+                    !intrinsic_starts;
+                intrinsic_instructions :=
+                  Instructions.add instruction_ intrinsic
+                    !intrinsic_instructions;
+                intrinsic_ends :=
+                  Instructions.add intrinsic.description.last intrinsic
+                    !intrinsic_ends;
+                stack := rest
+            | Opcode.Ic_call_end, pending :: rest ->
+                require_shape pending.shape;
+                let call_instruction_, cleanup_instruction_ =
+                  match pending.phase with
+                  | Cleaned (call, cleanup) -> (call, cleanup)
+                  | _ -> fail ?span "runtime call end has no matching cleanup"
+                in
+                require ?span
+                  (Seq.Instruction_id.equal item.instruction_id
+                     pending.shape.source_description.last)
+                  "runtime call end differs from its checked source description";
+                require ?span
+                  (match item.payload with
+                  | Some (Seq.Symbol symbol) ->
+                      symbol == pending.shape.selected_symbol
+                  | _ -> false)
+                  "runtime call end changed its selected symbol";
+                let result_value_ =
+                  match item.result with
+                  | Some value -> value.value_id
+                  | None -> fail ?span "runtime call end has no result identity"
+                in
+                let call =
+                  {
+                    description = pending.shape.source_description;
+                    provider_ = approved_provider pending.shape;
+                    symbol_ = pending.shape.selected_symbol;
+                    return_type_ = pending.shape.result_type;
+                    call_opcode_ =
+                      selected_opcode ?span pending.shape.selected_record;
+                    cleanup_opcode_ =
+                      selected_cleanup pending.shape.selected_record;
+                    cleanup_bytes_ =
+                      Int64.mul 8L
+                        (cleanup_slot_count
+                           pending.shape.source_description.source
+                           ~fixed_count:(List.length pending.shape.fixed)
+                           ~variadic_count:
+                             (Int64.of_int (List.length pending.shape.variadic))
+                           ~variadic:(Option.is_some pending.shape.count_type));
+                    call_instruction_;
+                    cleanup_instruction_;
+                    result_value_;
+                    arguments_ = List.rev pending.pushes;
+                    variadic_count_ =
+                      Option.map
+                        (fun _ ->
+                          Int64.of_int (List.length pending.shape.variadic))
+                        pending.shape.count_type;
+                    declaration_ = pending.shape.selected_declaration;
+                    header_ = pending.shape.selected_header;
+                    retained_function_ = pending.shape.retained_function;
+                  }
+                in
+                calls := Instructions.add call.description.first call !calls;
+                Option.iter
+                  (fun id ->
                     require ?span
-                      (producer.span = expected.expected_origin)
-                      "checked internal operand lost its checked source origin";
+                      (not (Instructions.mem id !discards))
+                      "duplicate implicit discard identity";
                     require ?span
-                      (Option.fold ~none:true
-                         ~some:(fun previous ->
-                           Seq.Instruction_id.to_int previous
-                           > Seq.Instruction_id.to_int producer.instruction_id)
-                         !previous_producer)
-                      "checked internal argument producers changed source order";
-                    previous_producer := Some producer.instruction_id;
-                    {
-                      role = expected.expected_role;
-                      prepared_default = None;
-                      producer = producer.instruction_id;
-                      value;
-                      source_type = expected.expected_source;
-                      target_type = expected.expected_target;
-                    })
-                  (List.combine expected item.operands);
-              pending.expected <- [];
-              pending.phase <- Intrinsic_called item.instruction_id
-          | Opcode.Ic_call_end, pending :: rest
-            when Option.is_some pending.intrinsic_opcode ->
-              require_shape pending.shape;
-              let instruction_ =
-                match pending.phase with
-                | Intrinsic_called instruction -> instruction
-                | _ -> fail ?span "intrinsic call end has no checked operation"
-              in
-              require ?span
-                (Seq.Instruction_id.equal item.instruction_id
-                   pending.shape.source_description.last)
-                "intrinsic call end differs from its checked source description";
-              require ?span
-                (match item.payload with
-                | Some (Seq.Symbol symbol) ->
-                    symbol == pending.shape.selected_symbol
-                | _ -> false)
-                "intrinsic call end changed its selected symbol";
-              let result_value_ =
-                match item.result with
-                | Some value -> value.value_id
-                | None -> fail ?span "intrinsic call end has no result identity"
-              in
-              let opcode_ = Option.get pending.intrinsic_opcode in
-              let arguments_ = pending.pushes in
-              require ?span
-                (List.length arguments_
-                = Option.get (Integer_intrinsic.arity opcode_))
-                "intrinsic call has no complete sealed arguments";
-              let intrinsic =
-                {
-                  description = pending.shape.source_description;
-                  opcode_;
-                  symbol_ = pending.shape.selected_symbol;
-                  return_type_ = pending.shape.result_type;
-                  intrinsic_arguments_ = arguments_;
-                  producer_descriptions_ =
-                    List.map
-                      (fun argument ->
-                        Values.find argument.value pending.intrinsic_producers)
-                      arguments_;
-                  instruction_;
-                  result_value_;
-                  declaration_ = pending.shape.selected_declaration;
-                }
-              in
-              require ?span
-                ((not
-                    (Instructions.mem intrinsic.description.first
-                       !intrinsic_starts))
-                && (not (Instructions.mem instruction_ !intrinsic_instructions))
-                && not
-                     (Instructions.mem intrinsic.description.last
-                        !intrinsic_ends))
-                "duplicate intrinsic instruction identity";
-              intrinsic_starts :=
-                Instructions.add intrinsic.description.first intrinsic
-                  !intrinsic_starts;
-              intrinsic_instructions :=
-                Instructions.add instruction_ intrinsic !intrinsic_instructions;
-              intrinsic_ends :=
-                Instructions.add intrinsic.description.last intrinsic
-                  !intrinsic_ends;
-              stack := rest
-          | Opcode.Ic_call_end, pending :: rest ->
-              require_shape pending.shape;
-              let call_instruction_, cleanup_instruction_ =
-                match pending.phase with
-                | Cleaned (call, cleanup) -> (call, cleanup)
-                | _ -> fail ?span "runtime call end has no matching cleanup"
-              in
-              require ?span
-                (Seq.Instruction_id.equal item.instruction_id
-                   pending.shape.source_description.last)
-                "runtime call end differs from its checked source description";
-              require ?span
-                (match item.payload with
-                | Some (Seq.Symbol symbol) ->
-                    symbol == pending.shape.selected_symbol
-                | _ -> false)
-                "runtime call end changed its selected symbol";
-              let result_value_ =
-                match item.result with
-                | Some value -> value.value_id
-                | None -> fail ?span "runtime call end has no result identity"
-              in
-              let call =
-                {
-                  description = pending.shape.source_description;
-                  provider_ = approved_provider pending.shape;
-                  symbol_ = pending.shape.selected_symbol;
-                  return_type_ = pending.shape.result_type;
-                  call_opcode_ =
-                    selected_opcode ?span pending.shape.selected_record;
-                  cleanup_opcode_ =
-                    selected_cleanup pending.shape.selected_record;
-                  cleanup_bytes_ =
-                    Int64.mul 8L
-                      (cleanup_slot_count
-                         pending.shape.source_description.source
-                         ~fixed_count:(List.length pending.shape.fixed)
-                         ~variadic_count:
-                           (Int64.of_int (List.length pending.shape.variadic))
-                         ~variadic:(Option.is_some pending.shape.count_type));
-                  call_instruction_;
-                  cleanup_instruction_;
-                  result_value_;
-                  arguments_ = List.rev pending.pushes;
-                  variadic_count_ =
-                    Option.map
-                      (fun _ ->
-                        Int64.of_int (List.length pending.shape.variadic))
-                      pending.shape.count_type;
-                  declaration_ = pending.shape.selected_declaration;
-                  header_ = pending.shape.selected_header;
-                  retained_function_ = pending.shape.retained_function;
-                }
-              in
-              calls := Instructions.add call.description.first call !calls;
-              Option.iter
-                (fun id ->
-                  require ?span
-                    (not (Instructions.mem id !discards))
-                    "duplicate implicit discard identity";
-                  require ?span
-                    (Seq.Instruction_id.to_int id
-                    = Seq.Instruction_id.to_int item.instruction_id + 1)
-                    "implicit output discard does not immediately follow its \
-                     call end";
-                  discards := Instructions.add id call !discards)
-                call.description.discard;
-              stack := rest
-          | ( ( Opcode.Ic_call
-              | Ic_call_indirect2
-              | Ic_call_extern
-              | Ic_call_import
-              | Ic_add_rsp
-              | Ic_add_rsp1
-              | Ic_call_end ),
-              [] ) ->
-              fail ?span
-                "runtime call instruction has no checked enclosing scope"
-          | opcode, _ when Integer_intrinsic.supports opcode ->
-              fail ?span
-                "intrinsic instruction has no matching checked intrinsic scope"
-          | _, { phase = Called _ | Cleaned _ | Intrinsic_called _; _ } :: _ ->
-              fail ?span "runtime call and cleanup are not canonically adjacent"
-          | Opcode.Ic_end_exp, _ :: _ ->
-              fail ?span
-                "expression discard cannot occur inside a call argument scope"
-          | _ -> ());
+                      (Seq.Instruction_id.to_int id
+                      = Seq.Instruction_id.to_int item.instruction_id + 1)
+                      "implicit output discard does not immediately follow its \
+                       call end";
+                    discards := Instructions.add id call !discards)
+                  call.description.discard;
+                stack := rest
+            | ( ( Opcode.Ic_call
+                | Ic_call_indirect2
+                | Ic_call_extern
+                | Ic_call_import
+                | Ic_add_rsp
+                | Ic_add_rsp1
+                | Ic_call_end ),
+                [] ) ->
+                fail ?span
+                  "runtime call instruction has no checked enclosing scope"
+            | opcode, _ when Integer_intrinsic.supports opcode ->
+                fail ?span
+                  "intrinsic instruction has no matching checked intrinsic \
+                   scope"
+            | _, { phase = Called _ | Cleaned _ | Intrinsic_called _; _ } :: _
+              ->
+                fail ?span
+                  "runtime call and cleanup are not canonically adjacent"
+            | Opcode.Ic_end_exp, _ :: _ ->
+                fail ?span
+                  "expression discard cannot occur inside a call argument scope"
+            | _ -> ());
           (if push then
-             match !stack with
-             | pending :: _
-               when pending.phase = Collecting
-                    && Option.is_none pending.intrinsic_opcode ->
-                 let expected =
-                   match pending.expected with
-                   | value :: rest ->
-                       pending.expected <- rest;
-                       value
-                   | [] ->
-                       fail ?span "call has an extra pushed argument producer"
-                 in
-                 let value =
-                   match item.result with
-                   | Some value -> value.value_id
-                   | None -> fail ?span "pushed argument has no result identity"
-                 in
-                 require ?span
-                   (Option.fold ~none:false
-                      ~some:(Type.equal expected.expected_source)
-                      item.target_type)
-                   "pushed argument class differs from its checked source value";
-                 require ?span
-                   (item.span = expected.expected_origin)
-                   "pushed argument does not retain its checked source origin";
-                 Option.iter
-                   (fun count ->
-                     require ?span
-                       (item.opcode = Opcode.Ic_imm_i64
-                       && item.operands = []
-                       && item.payload = Some (Seq.Integer count)
-                       && item.flags = push_flag)
-                       "hidden variadic count is not its canonical checked \
-                        immediate")
-                   expected.expected_count;
-                 pending.pushes <-
-                   {
-                     role = expected.expected_role;
-                     prepared_default = expected.expected_default;
-                     producer = item.instruction_id;
-                     value;
-                     source_type = expected.expected_source;
-                     target_type = expected.expected_target;
-                   }
-                   :: pending.pushes
-             | _ ->
-                 fail ?span "pushed argument is outside a collecting call scope");
+             if callback_is_inner () then (
+               let pending = List.hd !callback_stack in
+               require ?span
+                 (pending.cb_phase = Callback_collecting
+                 && Option.is_some pending.cb_saved)
+                 "callback argument push is outside its saved scope";
+               let expected =
+                 match pending.cb_expected with
+                 | value :: rest ->
+                     pending.cb_expected <- rest;
+                     value
+                 | [] -> fail ?span "callback has an extra pushed argument"
+               in
+               let value =
+                 match item.result with
+                 | Some value -> value.value_id
+                 | None -> fail ?span "callback argument has no result"
+               in
+               require ?span
+                 (Option.fold ~none:false
+                    ~some:(Type.equal expected.expected_source)
+                    item.target_type
+                 && item.span = expected.expected_origin)
+                 "callback argument changed its original producer class or \
+                  origin";
+               Option.iter
+                 (fun count ->
+                   require ?span
+                     (item.opcode = Opcode.Ic_imm_i64
+                     && item.operands = []
+                     && item.payload = Some (Seq.Integer count)
+                     && item.flags = push_flag)
+                     "callback hidden count changed")
+                 expected.expected_count;
+               pending.cb_pushes <-
+                 {
+                   role = expected.expected_role;
+                   prepared_default = expected.expected_default;
+                   producer = item.instruction_id;
+                   value;
+                   source_type = expected.expected_source;
+                   target_type = expected.expected_target;
+                 }
+                 :: pending.cb_pushes)
+             else
+               match !stack with
+               | pending :: _
+                 when pending.phase = Collecting
+                      && Option.is_none pending.intrinsic_opcode ->
+                   let expected =
+                     match pending.expected with
+                     | value :: rest ->
+                         pending.expected <- rest;
+                         value
+                     | [] ->
+                         fail ?span "call has an extra pushed argument producer"
+                   in
+                   let value =
+                     match item.result with
+                     | Some value -> value.value_id
+                     | None ->
+                         fail ?span "pushed argument has no result identity"
+                   in
+                   require ?span
+                     (Option.fold ~none:false
+                        ~some:(Type.equal expected.expected_source)
+                        item.target_type)
+                     "pushed argument class differs from its checked source \
+                      value";
+                   require ?span
+                     (item.span = expected.expected_origin)
+                     "pushed argument does not retain its checked source origin";
+                   Option.iter
+                     (fun count ->
+                       require ?span
+                         (item.opcode = Opcode.Ic_imm_i64
+                         && item.operands = []
+                         && item.payload = Some (Seq.Integer count)
+                         && item.flags = push_flag)
+                         "hidden variadic count is not its canonical checked \
+                          immediate")
+                     expected.expected_count;
+                   pending.pushes <-
+                     {
+                       role = expected.expected_role;
+                       prepared_default = expected.expected_default;
+                       producer = item.instruction_id;
+                       value;
+                       source_type = expected.expected_source;
+                       target_type = expected.expected_target;
+                     }
+                     :: pending.pushes
+               | _ ->
+                   fail ?span
+                     "pushed argument is outside a collecting call scope");
           Option.iter
             (fun result ->
               match !stack with
@@ -1755,10 +2262,13 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
               | _ -> ())
             item.result)
         items;
-      require (!stack = []) "runtime call scope crosses a block boundary")
+      require
+        (!stack = [] && !callback_stack = [])
+        "runtime call scope crosses a block boundary")
     blocks;
   require
-    (Instructions.is_empty !remaining)
+    (Instructions.is_empty !remaining
+    && Instructions.is_empty !remaining_callbacks)
     "runtime call context has unused source descriptions";
   let all_items =
     List.concat_map
@@ -1837,6 +2347,7 @@ let graph_context ~globals ~records ~validate_source owner graph descriptions =
         blocks;
     source_producers = !source_producers;
     calls = !calls;
+    callback_calls = !callback_calls;
     discards = !discards;
     intrinsic_starts = !intrinsic_starts;
     intrinsic_instructions = !intrinsic_instructions;
@@ -1966,6 +2477,12 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
           fail ?span "runtime function owner has no exact typed source function"
     in
     let function_member source = function
+      | Callback_call actual ->
+          List.exists
+            (function
+              | Typed.Indirect_call_result expected -> expected == actual
+              | _ -> false)
+            (Typed.function_calls source)
       | Function_call target ->
           List.exists
             (function
@@ -1992,6 +2509,8 @@ let create ~records ~function_sources ~top_level ~initialization ~entry
                (source_function ?span (Function_body.symbol body))
                source)
             "runtime call source is not owned by this exact typed function body"
+      | Entry, Callback_call _ ->
+          fail ?span "local callback requires its original function owner"
       | Entry, Function_output _ ->
           fail ?span "function output statement cannot authorize a module entry"
       | Entry, (Function_call target as source) ->
